@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde_json::Value;
 use std::fmt::{Debug, Display, Formatter};
+
+use serde_json::Value;
 
 /// This tree structure implements parent-child relationships between nodes of type `T`.
 /// It is used to represent traces with parent-child relationships between spans.
@@ -54,10 +55,7 @@ impl<T> Tree<T> {
 impl<T> Tree<T> {
     /// Create a `Tree` with a single value
     pub fn make_leaf(root: T) -> Tree<T> {
-        Tree {
-            value: root,
-            children: vec![],
-        }
+        Tree { value: root, children: vec![] }
     }
 
     /// Pretty print the tree using a custom formatting function for the node values

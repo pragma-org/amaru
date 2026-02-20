@@ -18,6 +18,9 @@ mod responder;
 #[cfg(test)]
 mod tests;
 
+use amaru_kernel::NetworkMagic;
+pub use messages::Message;
+
 use crate::{
     protocol::{ProtoSpec, ProtocolState, Role, RoleT},
     protocol_messages::{
@@ -27,23 +30,12 @@ use crate::{
         version_table::VersionTable,
     },
 };
-use amaru_kernel::NetworkMagic;
-
-pub use messages::Message;
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
-    vec![
-        initiator::register_deserializers(),
-        responder::register_deserializers(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
 }
 
-#[derive(
-    Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum State {
     Propose,
     Confirm,
@@ -69,9 +61,7 @@ pub fn compute_negotiation_result(
             return HandshakeResult::Accepted(*their_version, our_version.clone());
         }
     }
-    HandshakeResult::Refused(RefuseReason::VersionMismatch(
-        ours.values.keys().copied().collect(),
-    ))
+    HandshakeResult::Refused(RefuseReason::VersionMismatch(ours.values.keys().copied().collect()))
 }
 
 pub fn spec<R: RoleT>() -> ProtoSpec<State, Message<VersionData>, R>

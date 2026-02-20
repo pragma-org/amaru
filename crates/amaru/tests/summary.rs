@@ -12,21 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::default_snapshots_dir;
-use amaru_kernel::{Epoch, EraHistory, GlobalParameters, NetworkName};
-use amaru_ledger::{
-    store::{ReadStore, Snapshot},
-    summary::{
-        governance::GovernanceSummary, rewards::RewardsSummary,
-        stake_distribution::StakeDistribution,
-    },
-};
-use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, LazyLock, Mutex},
 };
+
+use amaru::default_snapshots_dir;
+use amaru_kernel::{Epoch, EraHistory, GlobalParameters, NetworkName};
+use amaru_ledger::{
+    store::{ReadStore, Snapshot},
+    summary::{governance::GovernanceSummary, rewards::RewardsSummary, stake_distribution::StakeDistribution},
+};
+use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use test_case::test_case;
 
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
@@ -52,18 +50,10 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
         .or_insert_with(|| {
             Arc::new(
                 RocksDBHistoricalStores::for_epoch_with(
-                    &RocksDbConfig::new(PathBuf::from(format!(
-                        "../../{}",
-                        default_ledger_dir(network)
-                    ))),
+                    &RocksDbConfig::new(PathBuf::from(format!("../../{}", default_ledger_dir(network)))),
                     epoch,
                 )
-                .unwrap_or_else(|err| {
-                    panic!(
-                        "Failed to open ledger snapshot for epoch {}: {}",
-                        epoch, err
-                    )
-                }),
+                .unwrap_or_else(|err| panic!("Failed to open ledger snapshot for epoch {}: {}", epoch, err)),
             )
         })
         .clone();
@@ -73,19 +63,13 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-include!(concat!(
-    "snapshots/",
-    env!("AMARU_NETWORK"),
-    "/generated_compare_snapshot_test_cases.incl"
-));
+include!(concat!("snapshots/", env!("AMARU_NETWORK"), "/generated_compare_snapshot_test_cases.incl"));
 
 #[expect(clippy::unwrap_used)]
 fn compare_snapshot(epoch: Epoch) {
     #[expect(clippy::expect_used)]
-    let network: NetworkName = env!("AMARU_NETWORK")
-        .to_string()
-        .parse()
-        .expect("$AMARU_NETWORK must be set to a valid network name");
+    let network: NetworkName =
+        env!("AMARU_NETWORK").to_string().parse().expect("$AMARU_NETWORK must be set to a valid network name");
 
     let snapshot = db(network, epoch);
 
@@ -97,8 +81,7 @@ fn compare_snapshot(epoch: Epoch) {
 
     let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history).unwrap();
 
-    let stake_distr =
-        StakeDistribution::new(snapshot.as_ref(), &protocol_parameters, dreps).unwrap();
+    let stake_distr = StakeDistribution::new(snapshot.as_ref(), &protocol_parameters, dreps).unwrap();
 
     insta::with_settings!({
         snapshot_path => format!("snapshots/{}", network)
@@ -111,15 +94,11 @@ fn compare_snapshot(epoch: Epoch) {
 
     let snapshot_from_the_future = db(network, epoch + 2);
 
-    let rewards_summary = RewardsSummary::new(
-        snapshot_from_the_future.as_ref(),
-        stake_distr,
-        global_parameters,
-        &protocol_parameters,
-    )
-    .unwrap()
-    .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
-    .unwrap();
+    let rewards_summary =
+        RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr, global_parameters, &protocol_parameters)
+            .unwrap()
+            .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
+            .unwrap();
 
     insta::with_settings!({
         snapshot_path => default_snapshots_dir(network)

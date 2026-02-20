@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
 use std::{collections::BTreeMap, ops::Deref};
+
+use crate::cbor;
 
 /// A key-value map with no duplicate keys.
 ///
@@ -21,9 +22,7 @@ use std::{collections::BTreeMap, ops::Deref};
 ///
 /// - keep the order of elements unchanged from original values;
 /// - lower requirements on `K` & `V`;
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct KeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 
 impl<K: Eq, V> Default for KeyValuePairs<K, V> {
@@ -131,9 +130,7 @@ where
                 // - in protocol version >= 2 && < 9: allow (and silently ignore) duplicate keys
                 for (j, _) in st.iter() {
                     if j == &k {
-                        return Err(cbor::decode::Error::message(
-                            IntoKeyValuePairsError::HasDuplicate,
-                        ));
+                        return Err(cbor::decode::Error::message(IntoKeyValuePairsError::HasDuplicate));
                     }
                 }
                 let v = d.decode_with(ctx)?;
@@ -186,11 +183,13 @@ pub(crate) fn has_duplicate<K: Eq, V>(kvs: &[(K, V)]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use proptest::{collection, prelude::*};
+    use test_case::test_case;
+
     use super::{KeyValuePairs, has_duplicate};
     use crate::{from_cbor_no_leftovers, to_cbor};
-    use proptest::{collection, prelude::*};
-    use std::collections::BTreeMap;
-    use test_case::test_case;
 
     #[test]
     fn has_duplicate_empty() {
@@ -234,13 +233,7 @@ mod tests {
         let original_bytes = hex::decode(s).unwrap();
         match from_cbor_no_leftovers::<KeyValuePairs<u8, String>>(original_bytes.as_slice()) {
             Ok(set) => {
-                assert_eq!(
-                    set.iter()
-                        .map(|(k, v)| (*k, v.as_str()))
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                    expected
-                );
+                assert_eq!(set.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>().as_slice(), expected);
                 let bytes = to_cbor(&set);
                 assert_eq!(
                     bytes == original_bytes,
@@ -257,9 +250,8 @@ mod tests {
     #[test_case("D901028101"; "not an map")]
     #[test_case("A2040001000200"; "leftovers")]
     fn from_cbor_failures(s: &str) {
-        assert!(matches!(
-            from_cbor_no_leftovers::<KeyValuePairs<u8, u8>>(hex::decode(s).unwrap().as_slice()),
-            Err(..),
-        ));
+        assert!(
+            matches!(from_cbor_no_leftovers::<KeyValuePairs<u8, u8>>(hex::decode(s).unwrap().as_slice()), Err(..),)
+        );
     }
 }

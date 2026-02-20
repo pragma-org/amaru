@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use parking_lot::{
-    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
-};
 #[expect(clippy::disallowed_types)]
 use std::{
     any::{Any, TypeId, type_name},
     collections::HashMap,
     sync::Arc,
 };
+
+use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// A collection of resources that can be accessed by external effects.
 ///
@@ -64,10 +63,8 @@ impl Resources {
     /// the returned guard is held, so [`drop`](std::mem::drop) it as soon as you don't need it
     /// any more.
     pub fn get<T: Any + Send + Sync>(&self) -> anyhow::Result<MappedRwLockReadGuard<'_, T>> {
-        RwLockReadGuard::try_map(self.0.read(), |res| {
-            res.get(&TypeId::of::<T>())?.downcast_ref::<T>()
-        })
-        .map_err(|_| anyhow::anyhow!("Resource of type `{}` not found", type_name::<T>()))
+        RwLockReadGuard::try_map(self.0.read(), |res| res.get(&TypeId::of::<T>())?.downcast_ref::<T>())
+            .map_err(|_| anyhow::anyhow!("Resource of type `{}` not found", type_name::<T>()))
     }
 
     /// Get a mutable reference to a resource from the resources collection.
@@ -80,10 +77,8 @@ impl Resources {
     /// If you need exclusive access to a single resource without blocking the rest of the
     /// resource collection, consider putting an `Arc<Mutex<T>>` in the resources collection.
     pub fn get_mut<T: Any + Send + Sync>(&self) -> anyhow::Result<MappedRwLockWriteGuard<'_, T>> {
-        RwLockWriteGuard::try_map(self.0.write(), |res| {
-            res.get_mut(&TypeId::of::<T>())?.downcast_mut::<T>()
-        })
-        .map_err(|_| anyhow::anyhow!("Resource of type `{}` not found", type_name::<T>()))
+        RwLockWriteGuard::try_map(self.0.write(), |res| res.get_mut(&TypeId::of::<T>())?.downcast_mut::<T>())
+            .map_err(|_| anyhow::anyhow!("Resource of type `{}` not found", type_name::<T>()))
     }
 
     /// Take a resource from the resources collection.
@@ -108,10 +103,7 @@ mod tests {
     fn test_resources() {
         let resources = Resources::default();
 
-        assert_eq!(
-            resources.get::<u32>().unwrap_err().to_string(),
-            "Resource of type `u32` not found"
-        );
+        assert_eq!(resources.get::<u32>().unwrap_err().to_string(), "Resource of type `u32` not found");
 
         resources.put(42u32);
         assert_eq!(*resources.get::<u32>().unwrap(), 42);
@@ -120,9 +112,6 @@ mod tests {
         assert_eq!(*resources.get_mut::<u32>().unwrap(), 43);
 
         assert_eq!(resources.take::<u32>().unwrap(), 43);
-        assert_eq!(
-            resources.take::<u32>().unwrap_err().to_string(),
-            "Resource of type `u32` not found"
-        );
+        assert_eq!(resources.take::<u32>().unwrap_err().to_string(), "Resource of type `u32` not found");
     }
 }

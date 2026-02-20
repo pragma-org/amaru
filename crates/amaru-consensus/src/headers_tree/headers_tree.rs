@@ -12,6 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Debug, Display, Formatter},
+    sync::Arc,
+};
+
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
+use amaru_ouroboros_traits::ChainStore;
+#[cfg(any(test, feature = "test-utils"))]
+use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+use itertools::Itertools;
+
 use crate::{
     errors::{ConsensusError, ConsensusError::UnknownPoint, InvalidHeaderParentData},
     headers_tree::{
@@ -20,21 +32,9 @@ use crate::{
         tree::Tree,
     },
     stages::select_chain::{
-        Fork, ForwardChainSelection, RollbackChainSelection,
-        RollbackChainSelection::RollbackBeyondLimit,
+        Fork, ForwardChainSelection, RollbackChainSelection, RollbackChainSelection::RollbackBeyondLimit,
     },
 };
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
-use amaru_ouroboros_traits::ChainStore;
-use itertools::Itertools;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::{Debug, Display, Formatter},
-    sync::Arc,
-};
-
-#[cfg(any(test, feature = "test-utils"))]
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 
 /// This data type stores the chains of headers known from different peers:
 ///
@@ -91,10 +91,7 @@ impl Display for HeadersTreeState {
 
 impl HeadersTreeState {
     pub fn new(max_length: usize) -> Self {
-        Self {
-            max_length,
-            peers: BTreeMap::new(),
-        }
+        Self { max_length, peers: BTreeMap::new() }
     }
 
     /// Return the peers and their current chain tips for testing.
@@ -125,9 +122,7 @@ impl HeadersTreeState {
 /// We use Me to keep track of the best known chain, either when there are no peers yet,
 /// or when the best chain is being switched to a fork. In that case we want to wait until we
 /// have built the new best chain locally before we send Rollback + RollForward events downstream.
-#[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Tracker {
     #[default]
     Me,
@@ -168,11 +163,7 @@ impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display f
 /// Debugging and formatting methods.
 impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
     /// Human-readable formatting of the headers tree.
-    fn format(
-        &self,
-        f: &mut Formatter<'_>,
-        header_to_string: fn(&H) -> String,
-    ) -> std::fmt::Result {
+    fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&H) -> String) -> std::fmt::Result {
         let tree_display = HeadersTreeDisplay::from(self.clone());
         tree_display.format(f, header_to_string)
     }
@@ -200,34 +191,20 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static>
-    HeadersTree<H>
-{
+impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
     /// Create a new HeadersTree
-    pub(crate) fn create(
-        chain_store: Arc<dyn ChainStore<H>>,
-        tree_state: HeadersTreeState,
-    ) -> HeadersTree<H> {
-        HeadersTree {
-            tree_state,
-            chain_store,
-        }
+    pub(crate) fn create(chain_store: Arc<dyn ChainStore<H>>, tree_state: HeadersTreeState) -> HeadersTree<H> {
+        HeadersTree { tree_state, chain_store }
     }
 
     /// Add a peer and its current chain tip.
     /// This function must be invoked after the point header has been added to the tree,
     /// either during the initialization of the tree or a previous roll forward.
-    pub fn initialize_peer(
-        &mut self,
-        peer: &Peer,
-        hash: &HeaderHash,
-    ) -> Result<(), ConsensusError> {
+    pub fn initialize_peer(&mut self, peer: &Peer, hash: &HeaderHash) -> Result<(), ConsensusError> {
         if self.chain_store.has_header(hash) || hash == &ORIGIN_HASH {
             let mut peer_chain: Vec<_> = self.ancestors_hashes(hash).collect();
             peer_chain.reverse();
-            self.tree_state
-                .peers
-                .insert(SomePeer(peer.clone()), peer_chain);
+            self.tree_state.peers.insert(SomePeer(peer.clone()), peer_chain);
             Ok(())
         } else {
             Err(UnknownPoint(*hash))
@@ -243,11 +220,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     /// There will be errors if:
     ///   - The header's parent is unknown
     ///
-    pub fn select_roll_forward(
-        &mut self,
-        peer: &Peer,
-        tip: &H,
-    ) -> Result<ForwardChainSelection<H>, ConsensusError> {
+    pub fn select_roll_forward(&mut self, peer: &Peer, tip: &H) -> Result<ForwardChainSelection<H>, ConsensusError> {
         // The header must be a child of the peer's tip
         if !self.is_tip_child(peer, tip) {
             let e = ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
@@ -266,18 +239,12 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
                 self.set_anchor(&tip.hash())?;
             }
             self.set_best_chain(&tip.hash())?;
-            Ok(ForwardChainSelection::NewTip {
-                peer: peer.clone(),
-                tip: tip.clone(),
-            })
+            Ok(ForwardChainSelection::NewTip { peer: peer.clone(), tip: tip.clone() })
         } else if self.extends_best_chains(tip) {
             self.update_peer(peer, tip);
             // If the tip is extending _the_ best chain
             let result = if tip.parent().as_ref() == Some(&self.best_chain()) {
-                Ok(ForwardChainSelection::NewTip {
-                    peer: peer.clone(),
-                    tip: tip.clone(),
-                })
+                Ok(ForwardChainSelection::NewTip { peer: peer.clone(), tip: tip.clone() })
             } else {
                 let fork = self.make_fork(peer, &self.best_chain(), &tip.hash());
                 Ok(ForwardChainSelection::SwitchToFork(fork))
@@ -294,9 +261,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     }
 
     fn extends_best_chains(&mut self, tip: &H) -> bool {
-        self.best_peers_chains()
-            .iter()
-            .any(|h| Some(*h) == tip.parent().as_ref())
+        self.best_peers_chains().iter().any(|h| Some(*h) == tip.parent().as_ref())
     }
 
     /// Rollback to an existing header for an upstream peer.
@@ -334,11 +299,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
 
             if self.best_chain() == peer_tip {
                 // recompute the best chains from the peer chains
-                let new_best_peers_chains = self
-                    .best_peers_chains()
-                    .into_iter()
-                    .copied()
-                    .collect::<Vec<_>>();
+                let new_best_peers_chains = self.best_peers_chains().into_iter().copied().collect::<Vec<_>>();
 
                 // if the current best chain is still tracked after rollback -> NoChange
                 if new_best_peers_chains.contains(&self.best_chain()) {
@@ -369,12 +330,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
 impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// Return the length of the best chain currently known.
     pub fn best_length(&self) -> usize {
-        self.tree_state
-            .peers
-            .values()
-            .map(|chain| chain.len())
-            .max()
-            .unwrap_or_default()
+        self.tree_state.peers.values().map(|chain| chain.len()).max().unwrap_or_default()
     }
 
     /// Return the tracker of the best chain, or "Me" if no peer is tracking it.
@@ -423,11 +379,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// Remove all the header hashes for a peer chain after (and excluding) the given hash.
     /// Return an error if the hash is not found in the peer chain.
-    fn rollback_peer_chain(
-        &mut self,
-        peer: &Peer,
-        hash: &HeaderHash,
-    ) -> Result<(), ConsensusError> {
+    fn rollback_peer_chain(&mut self, peer: &Peer, hash: &HeaderHash) -> Result<(), ConsensusError> {
         if let Some(chain) = self.tree_state.peers.get_mut(&SomePeer(peer.clone())) {
             if let Some(rollback_index) = chain.iter().position(|h| h == hash) {
                 // keep everything up to and including the rollback hash
@@ -479,8 +431,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// This function should only with precaution, when we are sure the header exists.
     #[expect(clippy::panic)]
     fn unsafe_get_header(&self, hash: &HeaderHash) -> H {
-        self.get_header(hash)
-            .unwrap_or_else(|| panic!("A header must exist for hash {}", hash))
+        self.get_header(hash).unwrap_or_else(|| panic!("A header must exist for hash {}", hash))
     }
 
     /// Return the header for a given hash, or None if it does not exist.
@@ -515,10 +466,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// Return the tip of the chain for a given peer, or None if the peer is unknown.
     fn get_peer_tip(&self, peer: &Peer) -> Option<&HeaderHash> {
-        self.tree_state
-            .peers
-            .get(&SomePeer(peer.clone()))
-            .and_then(|hs| hs.last())
+        self.tree_state.peers.get(&SomePeer(peer.clone())).and_then(|hs| hs.last())
     }
 
     /// Return the best currently known tip
@@ -528,35 +476,23 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
     /// Store the best currently known tip and update our tracker to the new best chain fragment.
     fn set_best_chain(&mut self, hash: &HeaderHash) -> Result<(), ConsensusError> {
-        self.chain_store
-            .set_best_chain_hash(hash)
-            .map_err(|e| ConsensusError::SetBestChainHashFailed(*hash, e))?;
+        self.chain_store.set_best_chain_hash(hash).map_err(|e| ConsensusError::SetBestChainHashFailed(*hash, e))?;
         // update "Me" so that it points to the best chain, as given by the the best chain tip
-        self.tree_state
-            .peers
-            .insert(Me, self.best_chain_fragment_hashes());
+        self.tree_state.peers.insert(Me, self.best_chain_fragment_hashes());
         Ok(())
     }
 
     /// Store the current chain anchor if it has changed.
     fn set_anchor(&mut self, hash: &HeaderHash) -> Result<(), ConsensusError> {
-        self.chain_store
-            .set_anchor_hash(hash)
-            .map_err(|e| ConsensusError::SetAnchorHashFailed(*hash, e))?;
+        self.chain_store.set_anchor_hash(hash).map_err(|e| ConsensusError::SetAnchorHashFailed(*hash, e))?;
         Ok(())
     }
 
     /// Return the hash of the best header of a registered peer
     /// and return an error if the peer is not known.
     fn get_point(&self, peer: &Peer) -> Result<Point, ConsensusError> {
-        let tip = self
-            .get_peer_tip(peer)
-            .ok_or(ConsensusError::UnknownPeer(peer.clone()))?;
-        Ok(self
-            .chain_store
-            .load_header(tip)
-            .map(|t| t.point())
-            .unwrap_or(Point::Origin))
+        let tip = self.get_peer_tip(peer).ok_or(ConsensusError::UnknownPeer(peer.clone()))?;
+        Ok(self.chain_store.load_header(tip).map(|t| t.point()).unwrap_or(Point::Origin))
     }
 
     /// Return the header hash that is the least common parent between 2 headers in the tree
@@ -618,12 +554,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// The list starts from the root.
     fn best_chain_fragment_hashes(&self) -> Vec<HeaderHash> {
         let best_chain = self.best_chain();
-        self.tree_state
-            .peers
-            .values()
-            .find(|chain| chain.last() == Some(&best_chain))
-            .cloned()
-            .unwrap_or_default()
+        self.tree_state.peers.values().find(|chain| chain.last() == Some(&best_chain)).cloned().unwrap_or_default()
     }
 
     /// Return the best chain fragment currently known as a list of hashes.
@@ -641,15 +572,10 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
 #[cfg(any(test, doc, feature = "test-utils"))]
 /// Those functions are only used by tests
-impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static>
-    HeadersTree<H>
-{
+impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
     /// Create a new HeadersTree with a given store and maximum chain length.
     pub fn new(store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
-        assert!(
-            max_length >= 2,
-            "Cannot create a headers tree with maximum chain length lower than 2"
-        );
+        assert!(max_length >= 2, "Cannot create a headers tree with maximum chain length lower than 2");
         let mut peers = BTreeMap::new();
         peers.insert(Me, store.retrieve_best_chain());
         let tree_state = HeadersTreeState { max_length, peers };
@@ -674,10 +600,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     /// Return the best chain fragment currently known as a list of headers.
     /// The list starts from the root.
     pub fn best_chain_fragment(&self) -> Vec<H> {
-        let mut fragment: Vec<_> = self
-            .chain_store
-            .ancestors(self.unsafe_get_header(&self.best_chain()))
-            .collect();
+        let mut fragment: Vec<_> = self.chain_store.ancestors(self.unsafe_get_header(&self.best_chain())).collect();
         fragment.reverse();
         fragment
     }
@@ -692,11 +615,6 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        headers_tree::data_generation::{SelectionResult::Forward, *},
-        stages::select_chain::{Fork, ForwardChainSelection::SwitchToFork},
-    };
     use amaru_kernel::{
         BlockHeader, any_header_hash, any_header_with_parent,
         utils::{
@@ -707,30 +625,30 @@ mod tests {
     use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
     use proptest::proptest;
 
+    use super::*;
+    use crate::{
+        headers_tree::data_generation::{SelectionResult::Forward, *},
+        stages::select_chain::{Fork, ForwardChainSelection::SwitchToFork},
+    };
+
     #[test]
     fn initialize_peer_on_empty_tree() {
         let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
         let peer = Peer::new("alice");
         let header = generate_single_header();
         store.store_header(&header).unwrap();
-        let mut tree: HeadersTree<BlockHeader> =
-            HeadersTree::create(store, HeadersTreeState::new(10));
+        let mut tree: HeadersTree<BlockHeader> = HeadersTree::create(store, HeadersTreeState::new(10));
         tree.initialize_peer(&peer, &Point::Origin.hash()).unwrap();
 
         tree.select_roll_forward(&peer, &header).unwrap();
-        assert_eq!(
-            tree.best_chain_tip(),
-            header,
-            "there must be a best chain available after the first roll forward"
-        );
+        assert_eq!(tree.best_chain_tip(), header, "there must be a best chain available after the first roll forward");
     }
 
     #[test]
     fn single_chain_is_best_chain() {
         let headers = generate_headers_chain(5);
         let store = Arc::new(InMemConsensusStore::new());
-        let tree: HeadersTree<BlockHeader> =
-            HeadersTree::create(store.clone(), HeadersTreeState::new(10));
+        let tree: HeadersTree<BlockHeader> = HeadersTree::create(store.clone(), HeadersTreeState::new(10));
         for header in &headers {
             store.store_header(header).unwrap();
         }
@@ -751,11 +669,7 @@ mod tests {
         let last_hash = headers[4].hash();
         tree.initialize_peer(&peer, &last_hash).unwrap();
 
-        assert_eq!(
-            tree.get_point(&peer).unwrap(),
-            headers[4].point(),
-            "last_hash {last_hash}\ntree {tree}"
-        );
+        assert_eq!(tree.get_point(&peer).unwrap(), headers[4].point(), "last_hash {last_hash}\ntree {tree}");
     }
 
     #[test]
@@ -763,10 +677,7 @@ mod tests {
         let mut tree = create_headers_tree(5);
 
         let peer = Peer::new("alice");
-        assert!(
-            tree.initialize_peer(&peer, &run_strategy(any_header_hash()))
-                .is_err()
-        );
+        assert!(tree.initialize_peer(&peer, &run_strategy(any_header_hash())).is_err());
     }
 
     #[test]
@@ -782,13 +693,7 @@ mod tests {
         // Now roll forward extending tip
         let new_tip = store_header_with_parent(store.clone(), tip);
         let result = tree.select_roll_forward(&peer, &new_tip).unwrap();
-        assert_eq!(
-            result,
-            ForwardChainSelection::NewTip {
-                peer,
-                tip: new_tip.clone()
-            }
-        );
+        assert_eq!(result, ForwardChainSelection::NewTip { peer, tip: new_tip.clone() });
         assert_eq!(tree.best_chain_tip(), new_tip);
 
         headers.push(new_tip);
@@ -850,10 +755,7 @@ mod tests {
         // Roll forward with a new header from bob, on the same chain
         assert_eq!(
             tree.select_roll_forward(&bob, &new_tip).unwrap(),
-            ForwardChainSelection::NewTip {
-                peer: bob,
-                tip: new_tip.clone()
-            }
+            ForwardChainSelection::NewTip { peer: bob, tip: new_tip.clone() }
         );
         assert_eq!(tree.best_chain_tip(), new_tip);
 
@@ -875,22 +777,11 @@ mod tests {
 
         // Roll forward with a new header from bob
         let new_tip_for_bob = store_header_with_parent(store, middle);
-        assert_eq!(
-            tree.select_roll_forward(&bob, &new_tip_for_bob).unwrap(),
-            ForwardChainSelection::NoChange
-        );
+        assert_eq!(tree.select_roll_forward(&bob, &new_tip_for_bob).unwrap(), ForwardChainSelection::NoChange);
         let tip = headers.last().unwrap();
-        assert_eq!(
-            tree.best_chain_tip(),
-            *tip,
-            "the current tip must not change"
-        );
+        assert_eq!(tree.best_chain_tip(), *tip, "the current tip must not change");
 
-        assert_eq!(
-            tree.best_chain_fragment(),
-            headers,
-            "the best chain hasn't changed"
-        );
+        assert_eq!(tree.best_chain_fragment(), headers, "the best chain hasn't changed");
     }
 
     #[test]
@@ -907,16 +798,9 @@ mod tests {
 
         // Roll forward with a new header from bob
         let new_tip_for_bob = store_header_with_parent(store, bob_tip);
-        assert_eq!(
-            tree.select_roll_forward(&bob, &new_tip_for_bob).unwrap(),
-            ForwardChainSelection::NoChange
-        );
+        assert_eq!(tree.select_roll_forward(&bob, &new_tip_for_bob).unwrap(), ForwardChainSelection::NoChange);
         let tip = headers.last().unwrap();
-        assert_eq!(
-            tree.best_chain_tip(),
-            *tip,
-            "the current tip must not change"
-        );
+        assert_eq!(tree.best_chain_tip(), *tip, "the current tip must not change");
 
         assert_eq!(
             tree.best_chain_fragment().list_to_string(",\n"),
@@ -943,11 +827,7 @@ mod tests {
         let bob_new_header3 = store_header_with_parent(store, new_bob_headers.last().unwrap());
         new_bob_headers.push(bob_new_header3.clone());
         let fork: Vec<BlockHeader> = new_bob_headers;
-        let fork = Fork {
-            peer: bob.clone(),
-            rollback_header: middle,
-            fork,
-        };
+        let fork = Fork { peer: bob.clone(), rollback_header: middle, fork };
 
         let result = tree.select_roll_forward(&bob, &bob_new_header3).unwrap();
         assert_eq!(result, SwitchToFork(fork));
@@ -971,11 +851,7 @@ mod tests {
         // Adding a new header for bob must create a fork
         let bob_new_tip = store_header_with_parent(store, bob_tip);
         bob_headers.push(bob_new_tip.clone());
-        let fork = Fork {
-            peer: bob.clone(),
-            rollback_header: anchor.clone(),
-            fork: bob_headers,
-        };
+        let fork = Fork { peer: bob.clone(), rollback_header: anchor.clone(), fork: bob_headers };
 
         let result = tree.select_roll_forward(&bob, &bob_new_tip).unwrap();
         assert_eq!(result, SwitchToFork(fork));
@@ -996,10 +872,7 @@ mod tests {
         let new_tip = store_header_with_parent(store, tip);
         assert_eq!(
             tree.select_roll_forward(&alice, &new_tip).unwrap(),
-            ForwardChainSelection::NewTip {
-                peer: alice,
-                tip: new_tip.clone()
-            }
+            ForwardChainSelection::NewTip { peer: alice, tip: new_tip.clone() }
         );
         assert_eq!(tree.best_chain_tip(), new_tip);
 
@@ -1143,11 +1016,7 @@ mod tests {
         let new_tree_anchor = added_headers[5].hash(); // after adding 15 headers, the new anchor is the 6th added header
         assert_eq!(
             result,
-            RollbackBeyondLimit {
-                peer: alice,
-                rollback_point: headers[3].hash(),
-                max_point: new_tree_anchor,
-            }
+            RollbackBeyondLimit { peer: alice, rollback_point: headers[3].hash(), max_point: new_tree_anchor }
         );
     }
 
@@ -1158,9 +1027,7 @@ mod tests {
         let headers = tree.best_chain_fragment();
 
         let rollback_point = &headers[0];
-        let result = tree
-            .select_rollback(&alice, &rollback_point.hash())
-            .unwrap();
+        let result = tree.select_rollback(&alice, &rollback_point.hash()).unwrap();
         assert_eq!(result, RollbackChainSelection::NoChange);
         assert_eq!(tree.best_chain_tip(), headers[4]);
     }
@@ -1191,9 +1058,7 @@ mod tests {
         // 0 - 1 - 2 - 3 - 4 (alice)
         //     + - 5 - 6 - 7 - 6 - 9 (*me)
         //               (bob)
-        let result = tree
-            .select_rollback(&bob, &added_headers[1].hash())
-            .unwrap();
+        let result = tree.select_rollback(&bob, &added_headers[1].hash()).unwrap();
         assert_eq!(result, RollbackChainSelection::NoChange);
     }
 
@@ -1230,9 +1095,7 @@ mod tests {
         // 0 - 1 - 2 - 3 - 4 - 10 (*alice)
         //     + - 5 - 6 - 7 - 8 (*me)
         //           (bob)
-        let result = tree
-            .select_rollback(&bob, &added_headers[1].hash())
-            .unwrap();
+        let result = tree.select_rollback(&bob, &added_headers[1].hash()).unwrap();
         assert_eq!(result, RollbackChainSelection::NoChange);
     }
 
@@ -1254,22 +1117,17 @@ mod tests {
         // alice catches up but bob is still the best
         let next_header_alice = run_strategy(any_header_with_parent(headers[4].hash()));
         store.store_header(&next_header_alice).unwrap();
-        let result = tree
-            .select_roll_forward(&alice, &next_header_alice)
-            .unwrap();
+        let result = tree.select_roll_forward(&alice, &next_header_alice).unwrap();
         assert_eq!(result, ForwardChainSelection::NoChange);
 
         // alice becomes the best again
         let next_header_alice = run_strategy(any_header_with_parent(next_header_alice.hash()));
         store.store_header(&next_header_alice).unwrap();
-        let result = tree
-            .select_roll_forward(&alice, &next_header_alice)
-            .unwrap();
+        let result = tree.select_roll_forward(&alice, &next_header_alice).unwrap();
         assert!(matches!(dbg!(result), SwitchToFork(_)));
 
         // bob catches up to alice, but alice stays the best
-        let next_header_bob =
-            run_strategy(any_header_with_parent(added_headers.last().unwrap().hash()));
+        let next_header_bob = run_strategy(any_header_with_parent(added_headers.last().unwrap().hash()));
         store.store_header(&next_header_bob).unwrap();
         let result = tree.select_roll_forward(&bob, &next_header_bob).unwrap();
         assert_eq!(result, ForwardChainSelection::NoChange);
@@ -1315,10 +1173,7 @@ mod tests {
         ];
 
         let results = check_execution(100, &actions, false);
-        assert!(matches!(
-            dbg!(results.last()),
-            Some(Forward(ForwardChainSelection::NoChange))
-        ));
+        assert!(matches!(dbg!(results.last()), Some(Forward(ForwardChainSelection::NoChange))));
     }
 
     #[test]
@@ -1432,9 +1287,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Cannot create a headers tree with maximum chain length lower than 2"
-    )]
+    #[should_panic(expected = "Cannot create a headers tree with maximum chain length lower than 2")]
     fn cannot_initialize_tree_with_k_lower_than_2() {
         HeadersTree::<BlockHeader>::new_in_memory(1);
     }

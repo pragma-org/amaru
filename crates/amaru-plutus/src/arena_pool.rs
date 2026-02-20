@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bumpalo::Bump;
 use std::{
     collections::VecDeque,
     mem::ManuallyDrop,
     sync::{Arc, Condvar, Mutex},
 };
+
+use bumpalo::Bump;
 
 pub type BumpPool = Mutex<VecDeque<Bump>>;
 
@@ -48,12 +49,7 @@ impl ArenaPool {
             arenas.push_back(Bump::with_capacity(initial_capacity));
         }
 
-        Self {
-            inner: Arc::new(Inner {
-                arenas: Mutex::new(arenas),
-                condvar: Condvar::new(),
-            }),
-        }
+        Self { inner: Arc::new(Inner { arenas: Mutex::new(arenas), condvar: Condvar::new() }) }
     }
 
     /// Acquire an arena from the pool
@@ -67,17 +63,10 @@ impl ArenaPool {
                 break arena;
             }
 
-            guard = self
-                .inner
-                .condvar
-                .wait(guard)
-                .unwrap_or_else(|p| p.into_inner());
+            guard = self.inner.condvar.wait(guard).unwrap_or_else(|p| p.into_inner());
         };
 
-        PooledArena {
-            arena: ManuallyDrop::new(arena),
-            pool: self.inner.clone(),
-        }
+        PooledArena { arena: ManuallyDrop::new(arena), pool: self.inner.clone() }
     }
 
     /// Try to acquire an arena from the pool
@@ -86,10 +75,7 @@ impl ArenaPool {
     pub fn try_acquire(&self) -> Option<PooledArena> {
         let mut guard = self.inner.arenas.lock().unwrap_or_else(|p| p.into_inner());
 
-        guard.pop_front().map(|arena| PooledArena {
-            arena: ManuallyDrop::new(arena),
-            pool: self.inner.clone(),
-        })
+        guard.pop_front().map(|arena| PooledArena { arena: ManuallyDrop::new(arena), pool: self.inner.clone() })
     }
 }
 

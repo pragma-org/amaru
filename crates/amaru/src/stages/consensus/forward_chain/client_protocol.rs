@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::chain_follower::ChainFollower;
-use crate::stages::AsTip;
+use std::sync::Arc;
+
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_kernel::{Hash, HeaderHash, IsHeader, size::HEADER, to_cbor};
 use amaru_network::point::{from_network_point, to_network_point};
@@ -27,7 +27,9 @@ use pallas_network::{
         keepalive, txsubmission,
     },
 };
-use std::sync::Arc;
+
+use super::chain_follower::ChainFollower;
+use crate::stages::AsTip;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -68,26 +70,11 @@ impl<H: Eq> Eq for ClientOp<H> {}
 impl<H: IsHeader> std::fmt::Debug for ClientOp<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Backward(tip) => f
-                .debug_struct("Backward")
-                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
-                .finish(),
+            Self::Backward(tip) => f.debug_struct("Backward").field("tip", &(tip.1, PrettyPoint(&tip.0))).finish(),
             Self::Forward(header) => f
                 .debug_struct("Forward")
-                .field(
-                    "header",
-                    &(
-                        header.block_height(),
-                        PrettyPoint(&to_network_point(header.point())),
-                    ),
-                )
-                .field(
-                    "tip",
-                    &(
-                        header.as_tip().block_height(),
-                        PrettyPoint(&to_network_point(header.point())),
-                    ),
-                )
+                .field("header", &(header.block_height(), PrettyPoint(&to_network_point(header.point()))))
+                .field("tip", &(header.as_tip().block_height(), PrettyPoint(&to_network_point(header.point()))))
                 .finish(),
         }
     }
@@ -97,10 +84,9 @@ impl<H: IsHeader> ClientOp<H> {
     pub fn tip(&self) -> Tip {
         match self {
             ClientOp::Backward(tip) => tip.clone(),
-            ClientOp::Forward(header) => Tip(
-                to_network_point(header.as_tip().point()),
-                header.as_tip().block_height().as_u64(),
-            ),
+            ClientOp::Forward(header) => {
+                Tip(to_network_point(header.as_tip().point()), header.as_tip().block_height().as_u64())
+            }
         }
     }
 }
@@ -113,12 +99,7 @@ pub struct PrettyPoint<'a>(pub &'a Point);
 
 impl std::fmt::Debug for PrettyPoint<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "({}, {})",
-            self.0.slot_or_default(),
-            hex::encode(hash_point(self.0))
-        )
+        write!(f, "({}, {})", self.0.slot_or_default(), hex::encode(hash_point(self.0)))
     }
 }
 
@@ -148,15 +129,11 @@ pub async fn client_protocols<H: IsHeader + 'static + Clone + Send>(
         let store = store.clone();
         move |cell| block_fetch(cell, server.blockfetch, store)
     });
-    let _tx_submission = cell.spawn_supervised("tx_submission", move |cell| {
-        tx_submission(cell, server.txsubmission)
-    });
-    let _keep_alive =
-        cell.spawn_supervised("keep_alive", move |cell| keep_alive(cell, server.keepalive));
+    let _tx_submission = cell.spawn_supervised("tx_submission", move |cell| tx_submission(cell, server.txsubmission));
+    let _keep_alive = cell.spawn_supervised("keep_alive", move |cell| keep_alive(cell, server.keepalive));
 
-    let chain_sync = cell.spawn_supervised("chain_sync", move |cell| {
-        chain_sync(cell, server.chainsync, our_tip, store)
-    });
+    let chain_sync =
+        cell.spawn_supervised("chain_sync", move |cell| chain_sync(cell, server.chainsync, our_tip, store));
 
     while let ActoInput::Message(msg) = cell.recv().await {
         match msg {
@@ -195,10 +172,7 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
     let Some(mut chain_follower) = ChainFollower::new(
         store.clone(),
         &from_network_point(&our_tip.0),
-        &requested_points
-            .into_iter()
-            .map(|p| from_network_point(&p))
-            .collect::<Vec<_>>(),
+        &requested_points.into_iter().map(|p| from_network_point(&p)).collect::<Vec<_>>(),
     ) else {
         tracing::debug!("no intersection found");
         server.send_intersect_not_found(our_tip).await?;
@@ -209,14 +183,10 @@ async fn chain_sync<H: IsHeader + 'static + Clone + Send>(
 
     tracing::debug!(intersection = ?intersection, "intersection found");
 
-    server
-        .send_intersect_found(to_network_point(intersection), our_tip.clone())
-        .await?;
+    server.send_intersect_found(to_network_point(intersection), our_tip.clone()).await?;
 
     let parent = cell.me();
-    let handler = cell.spawn_supervised("chainsync_handler", move |cell| {
-        chain_sync_handler(cell, server, parent)
-    });
+    let handler = cell.spawn_supervised("chainsync_handler", move |cell| chain_sync_handler(cell, server, parent));
 
     let mut our_tip = our_tip;
     let mut waiting = false;
@@ -282,9 +252,7 @@ async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
             match op {
                 Some((ClientOp::Forward(header), tip)) => {
                     tracing::trace!(?tip, "roll forward");
-                    server
-                        .send_roll_forward(to_header_content(header), tip)
-                        .await?;
+                    server.send_roll_forward(to_header_content(header), tip).await?;
                 }
                 Some((ClientOp::Backward(point), tip)) => {
                     tracing::trace!(?point, "roll backward");
@@ -298,9 +266,7 @@ async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
                     };
                     match op {
                         ClientOp::Forward(header) => {
-                            server
-                                .send_roll_forward(to_header_content(header), tip)
-                                .await?;
+                            server.send_roll_forward(to_header_content(header), tip).await?;
                         }
                         ClientOp::Backward(point) => {
                             server.send_roll_backward(point.0, tip).await?;
@@ -317,11 +283,7 @@ async fn chain_sync_handler<H: IsHeader + 'static + Clone + Send>(
 }
 
 pub(super) fn to_header_content<H: IsHeader>(header: H) -> HeaderContent {
-    HeaderContent {
-        variant: 6,
-        byron_prefix: None,
-        cbor: to_cbor(&header),
-    }
+    HeaderContent { variant: 6, byron_prefix: None, cbor: to_cbor(&header) }
 }
 
 enum BlockFetchMsg {}

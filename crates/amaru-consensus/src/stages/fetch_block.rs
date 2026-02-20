@@ -12,24 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
+use amaru_kernel::IsHeader;
+use amaru_protocols::manager::ManagerMessage;
+use pure_stage::StageRef;
+use tracing::Instrument;
+
 use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ProcessingFailed, ValidationFailed},
     events::{ValidateBlockEvent, ValidateHeaderEvent},
     span::HasSpan,
 };
-use amaru_kernel::IsHeader;
-use amaru_protocols::manager::ManagerMessage;
-use pure_stage::StageRef;
-use std::time::Duration;
-use tracing::Instrument;
 
-type State = (
-    StageRef<ValidateBlockEvent>,
-    StageRef<ValidationFailed>,
-    StageRef<ProcessingFailed>,
-    StageRef<ManagerMessage>,
-);
+type State =
+    (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>, StageRef<ProcessingFailed>, StageRef<ManagerMessage>);
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
@@ -47,58 +45,32 @@ pub fn stage(
                 let blocks = eff
                     .base()
                     // TODO(network): which timeout to use?
-                    .call(&manager, Duration::from_secs(5), move |cr| {
-                        ManagerMessage::FetchBlocks {
-                            peer: peer2,
-                            from: point,
-                            through: point,
-                            cr,
-                        }
+                    .call(&manager, Duration::from_secs(5), move |cr| ManagerMessage::FetchBlocks {
+                        peer: peer2,
+                        from: point,
+                        through: point,
+                        cr,
                     })
                     .await
                     .unwrap_or_default();
                 let Some(block) = blocks.blocks.into_iter().next() else {
                     eff.base()
-                        .send(
-                            &failures,
-                            ValidationFailed::new(&peer, ConsensusError::FetchBlockFailed(point)),
-                        )
+                        .send(&failures, ValidationFailed::new(&peer, ConsensusError::FetchBlockFailed(point)))
                         .await;
                     return (downstream, failures, errors, manager);
                 };
 
                 let result = eff.store().store_block(&header.hash(), &block.raw_block());
                 if let Err(e) = result {
-                    eff.base()
-                        .send(&errors, ProcessingFailed::new(&peer, e.into()))
-                        .await;
+                    eff.base().send(&errors, ProcessingFailed::new(&peer, e.into())).await;
                     return (downstream, failures, errors, manager);
                 }
 
-                let validated = ValidateBlockEvent::Validated {
-                    peer,
-                    header,
-                    block,
-                    span,
-                };
+                let validated = ValidateBlockEvent::Validated { peer, header, block, span };
                 eff.base().send(&downstream, validated).await
             }
-            ValidateHeaderEvent::Rollback {
-                peer,
-                rollback_point,
-                span,
-                ..
-            } => {
-                eff.base()
-                    .send(
-                        &downstream,
-                        ValidateBlockEvent::Rollback {
-                            peer,
-                            rollback_point,
-                            span,
-                        },
-                    )
-                    .await
+            ValidateHeaderEvent::Rollback { peer, rollback_point, span, .. } => {
+                eff.base().send(&downstream, ValidateBlockEvent::Rollback { peer, rollback_point, span }).await
             }
         }
         (downstream, failures, errors, manager)
@@ -108,44 +80,32 @@ pub fn stage(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
-    use amaru_kernel::cardano::network_block::make_network_block;
-    use amaru_kernel::{Peer, any_header, utils::tests::run_strategy};
+    use std::collections::BTreeMap;
+
+    use amaru_kernel::{Peer, any_header, cardano::network_block::make_network_block, utils::tests::run_strategy};
     use amaru_protocols::blockfetch::Blocks;
     use pure_stage::StageRef;
-    use std::collections::BTreeMap;
     use tracing::Span;
+
+    use super::*;
+    use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
 
     #[tokio::test]
     async fn a_block_that_can_be_fetched_is_sent_downstream() -> anyhow::Result<()> {
         let peer = Peer::new("name");
         let header = run_strategy(any_header());
-        let message = ValidateHeaderEvent::Validated {
-            peer: peer.clone(),
-            header: header.clone(),
-            span: Span::current(),
-        };
+        let message =
+            ValidateHeaderEvent::Validated { peer: peer.clone(), header: header.clone(), span: Span::current() };
         let block = make_network_block(&header);
         let consensus_ops = mock_consensus_ops();
-        consensus_ops.mock_base.return_blocks(Blocks {
-            blocks: vec![block.clone()],
-        });
+        consensus_ops.mock_base.return_blocks(Blocks { blocks: vec![block.clone()] });
 
         stage(make_state(), message, consensus_ops.clone()).await;
 
-        let forwarded = ValidateBlockEvent::Validated {
-            peer: peer.clone(),
-            header,
-            block,
-            span: Span::current(),
-        };
+        let forwarded = ValidateBlockEvent::Validated { peer: peer.clone(), header, block, span: Span::current() };
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
-                vec![format!("{forwarded:?}")]
-            )])
+            BTreeMap::from_iter(vec![("downstream".to_string(), vec![format!("{forwarded:?}")])])
         );
         Ok(())
     }

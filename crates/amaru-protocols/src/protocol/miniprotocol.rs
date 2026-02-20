@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::future::Future;
+
+use amaru_kernel::{NonEmptyBytes, cbor};
+use pure_stage::{BoxFuture, Effects, SendData, StageRef, TryInStage, Void, err};
+
 use crate::{
     mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, ProtocolId, RoleT},
 };
-use amaru_kernel::{NonEmptyBytes, cbor};
-use pure_stage::{BoxFuture, Effects, SendData, StageRef, TryInStage, Void, err};
-use std::future::Future;
 
 /// An input to a miniprotocol handler stage.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -38,58 +40,28 @@ pub struct Outcome<S, R, E> {
 
 impl<S, R, E> Outcome<S, R, E> {
     pub fn send(self, send: S) -> Self {
-        Self {
-            send: Some(send),
-            result: self.result,
-            terminate_with: self.terminate_with,
-            want_next: self.want_next,
-        }
+        Self { send: Some(send), result: self.result, terminate_with: self.terminate_with, want_next: self.want_next }
     }
 
     pub fn result(self, done: R) -> Self {
-        Self {
-            send: self.send,
-            result: Some(done),
-            terminate_with: self.terminate_with,
-            want_next: self.want_next,
-        }
+        Self { send: self.send, result: Some(done), terminate_with: self.terminate_with, want_next: self.want_next }
     }
 
     pub fn want_next(self) -> Self {
-        Self {
-            send: self.send,
-            result: self.result,
-            terminate_with: self.terminate_with,
-            want_next: true,
-        }
+        Self { send: self.send, result: self.result, terminate_with: self.terminate_with, want_next: true }
     }
 
     pub fn terminate_with(self, e: E) -> Self {
-        Self {
-            send: self.send,
-            result: self.result,
-            terminate_with: Some(e),
-            want_next: self.want_next,
-        }
+        Self { send: self.send, result: self.result, terminate_with: Some(e), want_next: self.want_next }
     }
 
     pub fn without_result(self) -> Outcome<S, Void, E> {
-        Outcome {
-            send: self.send,
-            result: None,
-            terminate_with: self.terminate_with,
-            want_next: self.want_next,
-        }
+        Outcome { send: self.send, result: None, terminate_with: self.terminate_with, want_next: self.want_next }
     }
 }
 
 pub fn outcome<S, R, E>() -> Outcome<S, R, E> {
-    Outcome {
-        send: None,
-        result: None,
-        terminate_with: None,
-        want_next: false,
-    }
+    Outcome { send: None, result: None, terminate_with: None, want_next: false }
 }
 
 /// This tracks only the network protocol state, reacting to local decisions
@@ -103,15 +75,9 @@ pub trait ProtocolState<R: RoleT>: Sized + SendData {
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)>;
 
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)>;
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)>;
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)>;
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)>;
 }
 
 /// This tracks the stage state that is used to make decisions based on inputs
@@ -142,9 +108,7 @@ where
     A: ProtocolState<R>,
     B: StageState<A, R>,
     R: RoleT,
-= impl Fn((A, B), Inputs<B::LocalIn>, Effects<Inputs<B::LocalIn>>) -> BoxFuture<'static, (A, B)>
-    + Send
-    + 'static;
+= impl Fn((A, B), Inputs<B::LocalIn>, Effects<Inputs<B::LocalIn>>) -> BoxFuture<'static, (A, B)> + Send + 'static;
 
 /// A miniprotocol is described using two states:
 /// - `S`: the protocol state that tracks the network protocol state
@@ -153,9 +117,7 @@ where
 /// It is important to clearly separate these two, with `S2` being
 /// responsible for decision making and `S` only following the protocol.
 #[define_opaque(Miniprotocol)]
-pub fn miniprotocol<Proto, Stage, Role>(
-    proto_id: ProtocolId<Role>,
-) -> Miniprotocol<Proto, Stage, Role>
+pub fn miniprotocol<Proto, Stage, Role>(proto_id: ProtocolId<Role>) -> Miniprotocol<Proto, Stage, Role>
 where
     Proto: ProtocolState<Role>,
     Stage: StageState<Proto, Role>,
@@ -176,20 +138,13 @@ where
                         let wire_msg: Proto::WireMsg = cbor::decode(&wire_msg)
                             .or_terminate(&eff, err("failed to decode message from network"))
                             .await;
-                        proto
-                            .network(wire_msg)
-                            .or_terminate(&eff, err("failed to step protocol state (network)"))
-                            .await
+                        proto.network(wire_msg).or_terminate(&eff, err("failed to step protocol state (network)")).await
                     } else {
-                        proto
-                            .init()
-                            .or_terminate(&eff, err("failed to initialize protocol state"))
-                            .await
+                        proto.init().or_terminate(&eff, err("failed to initialize protocol state")).await
                     };
                     proto = s;
                     if outcome.want_next {
-                        eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase()))
-                            .await;
+                        eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase())).await;
                     }
                     if let Some(msg) = outcome.send {
                         let msg = NonEmptyBytes::encode(&msg);
@@ -198,10 +153,7 @@ where
                         })
                         .await;
                     }
-                    outcome
-                        .result
-                        .map(LocalOrNetwork::Network)
-                        .unwrap_or(LocalOrNetwork::None)
+                    outcome.result.map(LocalOrNetwork::Network).unwrap_or(LocalOrNetwork::None)
                 }
                 Inputs::Local(input) => LocalOrNetwork::Local(input),
             };
@@ -231,18 +183,15 @@ where
 
             // send network messages, if required
             if let Some(action) = action {
-                let (outcome, s) = proto
-                    .local(action)
-                    .or_terminate(&eff, err("failed to step protocol state (local)"))
-                    .await;
+                let (outcome, s) =
+                    proto.local(action).or_terminate(&eff, err("failed to step protocol state (local)")).await;
                 proto = s;
                 if let Some(e) = outcome.terminate_with {
                     err("protocol error")(e).await;
                     return eff.terminate().await;
                 }
                 if outcome.want_next {
-                    eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase()))
-                        .await;
+                    eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase())).await;
                 }
                 if let Some(msg) = outcome.send {
                     let msg = NonEmptyBytes::encode(&msg);

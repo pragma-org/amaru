@@ -12,21 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
-use crate::effects::{ResourceHeaderValidation, ValidateHeaderEffect};
-use amaru_kernel::BlockHeader;
-use amaru_kernel::{HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
+use std::{
+    collections::BTreeSet,
+    fmt, io,
+    sync::{Arc, Mutex},
+};
+
+use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
     ChainStore,
-    can_validate_blocks::{
-        CanValidateHeaders, HeaderValidationError, mock::MockCanValidateHeaders,
-    },
+    can_validate_blocks::{CanValidateHeaders, HeaderValidationError, mock::MockCanValidateHeaders},
     in_memory_consensus_store::InMemConsensusStore,
 };
-use amaru_protocols::chainsync::InitiatorMessage;
-use amaru_protocols::store_effects::{
-    HasHeaderEffect, LoadHeaderEffect, ResourceHeaderStore, StoreHeaderEffect,
+use amaru_protocols::{
+    chainsync::InitiatorMessage,
+    store_effects::{HasHeaderEffect, LoadHeaderEffect, ResourceHeaderStore, StoreHeaderEffect},
 };
 use anyhow::anyhow;
 use opentelemetry::Context;
@@ -35,14 +36,12 @@ use pure_stage::{
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use std::collections::BTreeSet;
-use std::fmt;
-use std::io;
-use std::sync::{Arc, Mutex};
 use tokio::runtime::{Builder, Handle, Runtime};
-use tracing::Level;
-use tracing::subscriber::DefaultGuard;
+use tracing::{Level, subscriber::DefaultGuard};
 use tracing_subscriber::util::SubscriberInitExt;
+
+use super::*;
+use crate::effects::{ResourceHeaderValidation, ValidateHeaderEffect};
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
     let store = Arc::new(InMemConsensusStore::new());
@@ -81,13 +80,7 @@ pub fn test_prep() -> TestPrep {
     let h1 = make_block_header(1, 1, None);
     let h2 = make_block_header(2, 2, Some(h1.hash()));
     let h3 = make_block_header(3, 3, Some(h2.hash()));
-    TestPrep {
-        state,
-        rt,
-        handler,
-        conn_id,
-        headers: [h1, h2, h3],
-    }
+    TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3] }
 }
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -95,31 +88,19 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
 }
 
 pub fn validate_header_effect(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(ValidateHeaderEffect::new(&header, Context::new())),
-    ))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
 }
 
 pub fn load_header_effect(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(LoadHeaderEffect::new(hash)),
-    ))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
 }
 
 pub fn has_header_effect(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(HasHeaderEffect::new(hash)),
-    ))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
 }
 
 pub fn store_header_effect(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(StoreHeaderEffect::new(header)),
-    ))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
 }
 
 pub fn send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl SendData) -> TraceEntry {
@@ -133,10 +114,7 @@ pub struct BufferWriter {
 
 impl BufferWriter {
     fn new() -> Self {
-        Self {
-            buffer: Arc::new(Mutex::new(Vec::new())),
-            guard: None,
-        }
+        Self { buffer: Arc::new(Mutex::new(Vec::new())), guard: None }
     }
 
     /// Extract a [`Logs`] container with all lines emitted during the test.
@@ -186,10 +164,7 @@ impl Logs {
         let entries = s
             .split('\n')
             .filter(|line| !line.is_empty())
-            .map(|line| LogEntry {
-                level: parse_level(line),
-                line: line.to_string(),
-            })
+            .map(|line| LogEntry { level: parse_level(line), line: line.to_string() })
             .collect();
         Self { entries }
     }
@@ -198,10 +173,7 @@ impl Logs {
     /// removes the first matching message, and returns `self` for method chaining.
     #[track_caller]
     pub fn assert_and_remove(&mut self, level: Level, substring: &[&str]) -> &mut Self {
-        let pos = self
-            .entries
-            .iter()
-            .position(|e| e.level == level && substring.iter().all(|s| e.line.contains(s)));
+        let pos = self.entries.iter().position(|e| e.level == level && substring.iter().all(|s| e.line.contains(s)));
         match pos {
             Some(i) => {
                 self.entries.remove(i);
@@ -218,12 +190,7 @@ impl Logs {
     #[track_caller]
     pub fn assert_no_remaining_at(&mut self, levels: impl IntoIterator<Item = Level>) -> &mut Self {
         let level_set: BTreeSet<_> = levels.into_iter().collect();
-        let remaining: Vec<_> = self
-            .entries
-            .iter()
-            .filter(|e| level_set.contains(&e.level))
-            .cloned()
-            .collect();
+        let remaining: Vec<_> = self.entries.iter().filter(|e| level_set.contains(&e.level)).cloned().collect();
         if !remaining.is_empty() {
             panic!(
                 "unexpected log messages at specified levels:\n\n{}\n\n(levels checked: {:?})",
@@ -237,10 +204,7 @@ impl Logs {
 
 impl Clone for BufferWriter {
     fn clone(&self) -> Self {
-        Self {
-            buffer: self.buffer.clone(),
-            guard: None,
-        }
+        Self { buffer: self.buffer.clone(), guard: None }
     }
 }
 
@@ -299,14 +263,9 @@ pub fn setup_with_validation(
 
     let guards = register_guards();
 
-    let mut network =
-        SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
-    network
-        .resources()
-        .put::<ResourceHeaderStore>(store.clone());
-    network
-        .resources()
-        .put::<ResourceHeaderValidation>(validation);
+    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
+    network.resources().put::<ResourceHeaderStore>(store.clone());
+    network.resources().put::<ResourceHeaderValidation>(validation);
 
     let tp = network.stage("tp", stage);
     let tp = network.wire_up(tp, state);
@@ -322,9 +281,7 @@ pub struct FailingHeaderValidation;
 
 impl CanValidateHeaders for FailingHeaderValidation {
     fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        Err(HeaderValidationError::new(anyhow!(
-            "header validation failed: booyah!"
-        )))
+        Err(HeaderValidationError::new(anyhow!("header validation failed: booyah!")))
     }
 }
 

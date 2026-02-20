@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::MemoryStore;
 use amaru_kernel::StakeCredential;
 use amaru_ledger::store::{
     StoreError,
@@ -20,19 +19,13 @@ use amaru_ledger::store::{
 };
 use tracing::error;
 
-pub fn add(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+use crate::in_memory::MemoryStore;
+
+pub fn add(store: &MemoryStore, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     let mut accounts = store.accounts.borrow_mut();
 
     for (key, (delegatee, drep, rewards, deposit)) in rows {
-        let mut row = accounts.get(&key).cloned().unwrap_or(Row {
-            pool: None,
-            drep: None,
-            rewards: 0,
-            deposit: 0,
-        });
+        let mut row = accounts.get(&key).cloned().unwrap_or(Row { pool: None, drep: None, rewards: 0, deposit: 0 });
 
         delegatee.set_or_reset(&mut row.pool);
         drep.set_or_reset(&mut row.drep);
@@ -49,10 +42,7 @@ pub fn add(
     Ok(())
 }
 
-pub fn reset_many(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = StakeCredential>,
-) -> Result<(), StoreError> {
+pub fn reset_many(store: &MemoryStore, rows: impl Iterator<Item = StakeCredential>) -> Result<(), StoreError> {
     let mut accounts = store.accounts.borrow_mut();
 
     for credential in rows {
@@ -73,10 +63,7 @@ pub fn reset_many(
     Ok(())
 }
 
-pub fn remove(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = StakeCredential>,
-) -> Result<(), StoreError> {
+pub fn remove(store: &MemoryStore, rows: impl Iterator<Item = StakeCredential>) -> Result<(), StoreError> {
     let mut accounts = store.accounts.borrow_mut();
 
     for credential in rows {

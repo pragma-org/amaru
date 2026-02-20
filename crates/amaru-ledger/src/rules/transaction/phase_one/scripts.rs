@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{UtxoSlice, WitnessSlice};
-use amaru_kernel::{
-    HasRedeemers, Hash, MemoizedDatum, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose,
-    WitnessSet, script_purpose_to_string,
-    size::{DATUM, SCRIPT},
-    utils::string::display_collection,
-};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     ops::Deref,
 };
+
+use amaru_kernel::{
+    HasRedeemers, Hash, MemoizedDatum, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet,
+    script_purpose_to_string,
+    size::{DATUM, SCRIPT},
+    utils::string::display_collection,
+};
 use thiserror::Error;
+
+use crate::context::{UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
@@ -42,19 +44,13 @@ pub enum InvalidScripts {
         display_collection(missing),
         display_collection(provided)
     )]
-    MissingRequiredDatums {
-        missing: BTreeSet<Hash<DATUM>>,
-        provided: BTreeSet<Hash<DATUM>>,
-    },
+    MissingRequiredDatums { missing: BTreeSet<Hash<DATUM>>, provided: BTreeSet<Hash<DATUM>> },
     #[error(
         "extraneous supplemental datums: supplemental: [{}], extraneous: [{}]",
         display_collection(supplemental),
         display_collection(extraneous)
     )]
-    ExtraneousSupplementalDatums {
-        supplemental: BTreeSet<Hash<DATUM>>,
-        extraneous: BTreeSet<Hash<DATUM>>,
-    },
+    ExtraneousSupplementalDatums { supplemental: BTreeSet<Hash<DATUM>>, extraneous: BTreeSet<Hash<DATUM>> },
     #[error(
         "extraneous redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
@@ -82,15 +78,12 @@ where
 {
     let required_scripts = context.required_scripts();
 
-    let required_script_hashes: BTreeSet<&Hash<SCRIPT>> = required_scripts
-        .iter()
-        .map(|RequiredScript { hash, .. }| hash)
-        .collect();
+    let required_script_hashes: BTreeSet<&Hash<SCRIPT>> =
+        required_scripts.iter().map(|RequiredScript { hash, .. }| hash).collect();
 
     let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set);
 
-    let required_scripts =
-        fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
+    let required_scripts = fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
 
     let (mut required_redeemers, required_datums) = partition_scripts(required_scripts)?;
 
@@ -104,10 +97,7 @@ where
 
     if let Some(provided_redemeers) = witness_set.redeemer.as_ref().map(HasRedeemers::redeemers) {
         provided_redemeers.keys().for_each(|provided| {
-            if let Some(index) = required_redeemers
-                .iter()
-                .position(|required| required == provided.deref())
-            {
+            if let Some(index) = required_redeemers.iter().position(|required| required == provided.deref()) {
                 required_redeemers.remove(index);
             } else {
                 extra_redeemers.push(provided.deref().clone());
@@ -143,56 +133,48 @@ fn partition_scripts(
     let mut required_datums = BTreeSet::new();
     let mut missing_datums = BTreeSet::new();
 
-    required_scripts
-        .iter()
-        .for_each(|(required_script, script)| {
-            let RequiredScript {
-                index,
-                datum,
-                hash: _,
-                purpose,
-            } = required_script;
+    required_scripts.iter().for_each(|(required_script, script)| {
+        let RequiredScript { index, datum, hash: _, purpose } = required_script;
 
-            let mut require_redeemer =
-                || required_redeemers.push(RedeemerKey::from(required_script));
+        let mut require_redeemer = || required_redeemers.push(RedeemerKey::from(required_script));
 
-            let mut unspendable_without_datum = || {
-                if purpose == &ScriptPurpose::Spend && matches!(datum, MemoizedDatum::None) {
-                    missing_datums.insert(*index);
-                }
-            };
+        let mut unspendable_without_datum = || {
+            if purpose == &ScriptPurpose::Spend && matches!(datum, MemoizedDatum::None) {
+                missing_datums.insert(*index);
+            }
+        };
 
-            let mut require_datum_preimage = || match datum {
-                MemoizedDatum::Hash(hash) => {
-                    required_datums.insert(*hash);
-                }
-                MemoizedDatum::Inline(..) | MemoizedDatum::None => {}
-            };
+        let mut require_datum_preimage = || match datum {
+            MemoizedDatum::Hash(hash) => {
+                required_datums.insert(*hash);
+            }
+            MemoizedDatum::Inline(..) | MemoizedDatum::None => {}
+        };
 
-            match script {
-                // NOTE: One may very well send some funds to a native script, and attach a
-                // datum hash to it. In which case, the datum has no effect and is simply
-                // ignored.
-                ScriptKind::Native => {}
+        match script {
+            // NOTE: One may very well send some funds to a native script, and attach a
+            // datum hash to it. In which case, the datum has no effect and is simply
+            // ignored.
+            ScriptKind::Native => {}
 
-                ScriptKind::PlutusV1 => {
-                    require_redeemer();
-                    unspendable_without_datum();
-                    require_datum_preimage();
-                }
+            ScriptKind::PlutusV1 => {
+                require_redeemer();
+                unspendable_without_datum();
+                require_datum_preimage();
+            }
 
-                ScriptKind::PlutusV2 => {
-                    require_redeemer();
-                    unspendable_without_datum();
-                    require_datum_preimage();
-                }
+            ScriptKind::PlutusV2 => {
+                require_redeemer();
+                unspendable_without_datum();
+                require_datum_preimage();
+            }
 
-                ScriptKind::PlutusV3 => {
-                    require_redeemer();
-                    require_datum_preimage();
-                }
-            };
-        });
+            ScriptKind::PlutusV3 => {
+                require_redeemer();
+                require_datum_preimage();
+            }
+        };
+    });
 
     fail_on_missing_datums(missing_datums)?;
 
@@ -205,12 +187,7 @@ fn datum_hashes(witness_set: &WitnessSet) -> BTreeSet<Hash<DATUM>> {
     witness_set
         .plutus_data
         .as_deref()
-        .map(|datums| {
-            datums
-                .iter()
-                .map(|datum| datum.hash())
-                .collect::<BTreeSet<_>>()
-        })
+        .map(|datums| datums.iter().map(|datum| datum.hash()).collect::<BTreeSet<_>>())
         .unwrap_or_default()
 }
 
@@ -227,18 +204,10 @@ where
         .into_iter()
         // We only consider script references required by the transaction
         .filter_map(|(script_hash, script_ref)| {
-            if required.contains(&script_hash) {
-                Some((script_hash, ScriptKind::from(script_ref)))
-            } else {
-                None
-            }
+            if required.contains(&script_hash) { Some((script_hash, ScriptKind::from(script_ref))) } else { None }
         });
 
-    witness_set
-        .get_provided_scripts()
-        .into_iter()
-        .chain(referenced)
-        .collect()
+    witness_set.get_provided_scripts().into_iter().chain(referenced).collect()
 }
 
 /// Ensures that the required and provided scripts match exactly (i.e. check that they're included
@@ -267,11 +236,7 @@ fn fail_on_script_symmetric_differences(
         return Err(InvalidScripts::MissingRequiredScripts(missing));
     }
 
-    let extraneous: BTreeSet<Hash<SCRIPT>> = provided
-        .keys()
-        .filter(|k| !existing.contains(k))
-        .copied()
-        .collect();
+    let extraneous: BTreeSet<Hash<SCRIPT>> = provided.keys().filter(|k| !existing.contains(k)).copied().collect();
 
     if !extraneous.is_empty() {
         return Err(InvalidScripts::ExtraneousScriptWitnesses(extraneous));
@@ -309,21 +274,12 @@ fn fail_on_supplemental_datums<C>(
 where
     C: WitnessSlice,
 {
-    let supplemental = witnessed
-        .difference(required)
-        .cloned()
-        .collect::<BTreeSet<_>>();
+    let supplemental = witnessed.difference(required).cloned().collect::<BTreeSet<_>>();
 
-    let extraneous = supplemental
-        .difference(&context.allowed_supplemental_datums())
-        .cloned()
-        .collect::<BTreeSet<_>>();
+    let extraneous = supplemental.difference(&context.allowed_supplemental_datums()).cloned().collect::<BTreeSet<_>>();
 
     if !extraneous.is_empty() {
-        return Err(InvalidScripts::ExtraneousSupplementalDatums {
-            supplemental,
-            extraneous,
-        });
+        return Err(InvalidScripts::ExtraneousSupplementalDatums { supplemental, extraneous });
     }
 
     Ok(())
@@ -350,10 +306,7 @@ where
     let mut provided = context.known_datums().into_keys().collect::<BTreeSet<_>>();
     provided.append(&mut witnessed);
 
-    let missing = required
-        .difference(&provided)
-        .cloned()
-        .collect::<BTreeSet<_>>();
+    let missing = required.difference(&provided).cloned().collect::<BTreeSet<_>>();
 
     if !missing.is_empty() {
         return Err(InvalidScripts::MissingRequiredDatums { missing, provided });
@@ -372,28 +325,20 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
 
 #[cfg(test)]
 mod tests {
-    use super::InvalidScripts;
-    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{WitnessSet, include_cbor};
     use test_case::test_case;
 
+    use super::InvalidScripts;
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
+
     macro_rules! fixture {
         ($hash:literal) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-            )
+            (fixture_context!($hash), include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")))
         };
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/witness.cbor"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
             )
         };
     }
@@ -434,9 +379,7 @@ mod tests {
         "extraneous redeemer"
     )]
     #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
-    fn test_scripts(
-        (mut ctx, witness_set): (AssertValidationContext, WitnessSet),
-    ) -> Result<(), InvalidScripts> {
+    fn test_scripts((mut ctx, witness_set): (AssertValidationContext, WitnessSet)) -> Result<(), InvalidScripts> {
         super::execute(&mut ctx, &witness_set)
     }
 }

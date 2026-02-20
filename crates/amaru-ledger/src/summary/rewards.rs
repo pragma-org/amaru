@@ -107,6 +107,19 @@ the system at a certain point in time. We always take snapshots _at the end of e
 certain mutations are applied to the system.
 */
 
+use std::collections::BTreeMap;
+
+use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
+use amaru_kernel::{
+    Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, StakeCredential, expect_stake_credential,
+};
+use num::{
+    BigUint,
+    traits::{One, Zero},
+};
+use serde::ser::SerializeStruct;
+use tracing::info;
+
 use crate::{
     store::{Snapshot, StoreError, columns::*},
     summary::{
@@ -116,18 +129,6 @@ use crate::{
         stake_distribution::StakeDistribution,
     },
 };
-use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
-use amaru_kernel::{
-    Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, StakeCredential,
-    expect_stake_credential,
-};
-use num::{
-    BigUint,
-    traits::{One, Zero},
-};
-use serde::ser::SerializeStruct;
-use std::collections::BTreeMap;
-use tracing::info;
 
 const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 
@@ -139,19 +140,13 @@ impl PoolState {
     pub fn owner_stake(&self, accounts: &BTreeMap<StakeCredential, AccountState>) -> Lovelace {
         self.parameters.owners.iter().fold(0, |total, owner| {
             match accounts.get(&StakeCredential::AddrKeyhash(*owner)) {
-                Some(account) if account.pool == Some(self.parameters.id) => {
-                    total + account.lovelace
-                }
+                Some(account) if account.pool == Some(self.parameters.id) => total + account.lovelace,
                 _ => total,
             }
         })
     }
 
-    pub fn apparent_performances(
-        &self,
-        blocks_ratio: SafeRatio,
-        active_stake: Lovelace,
-    ) -> SafeRatio {
+    pub fn apparent_performances(&self, blocks_ratio: SafeRatio, active_stake: Lovelace) -> SafeRatio {
         if self.stake.is_zero() {
             SafeRatio::zero()
         } else {
@@ -220,11 +215,7 @@ impl PoolState {
         if self.parameters.pledge <= owner_stake {
             floor_to_lovelace(
                 self.apparent_performances(blocks_ratio, active_stake)
-                    * BigUint::from(self.optimal_rewards(
-                        available_rewards,
-                        total_stake,
-                        protocol_parameters,
-                    )),
+                    * BigUint::from(self.optimal_rewards(available_rewards, total_stake, protocol_parameters)),
             )
         } else {
             0
@@ -234,12 +225,7 @@ impl PoolState {
     /// Portion of the pool rewards that go the owner and increment the pool's registered reward
     /// account. It corresponds to the fixed cost and margin of the pool. The remainder, if any, is
     /// shared amongst delegators.
-    pub fn leader_rewards(
-        &self,
-        pool_rewards: Lovelace,
-        owner_stake: Lovelace,
-        total_stake: Lovelace,
-    ) -> Lovelace {
+    pub fn leader_rewards(&self, pool_rewards: Lovelace, owner_stake: Lovelace, total_stake: Lovelace) -> Lovelace {
         let cost: Lovelace = self.parameters.cost;
 
         if pool_rewards <= cost {
@@ -247,15 +233,12 @@ impl PoolState {
         } else {
             let relative_stake = self.relative_stake(total_stake);
 
-            let owner_stake_ratio = if total_stake.is_zero() {
-                LovelaceRatio::zero()
-            } else {
-                lovelace_ratio(owner_stake, total_stake)
-            };
+            let owner_stake_ratio =
+                if total_stake.is_zero() { LovelaceRatio::zero() } else { lovelace_ratio(owner_stake, total_stake) };
 
             // m + (1 - m) × s / σ
-            let margin_factor: SafeRatio = &self.margin
-                + (SafeRatio::one() - &self.margin) * &owner_stake_ratio / relative_stake;
+            let margin_factor: SafeRatio =
+                &self.margin + (SafeRatio::one() - &self.margin) * &owner_stake_ratio / relative_stake;
 
             // ⌊c + (m + (1 - m) × s / σ) × (R_pool - c)⌋
             //     ⎝___ margin_factor ___⎠
@@ -298,9 +281,7 @@ impl PoolState {
 
                 // ⌊ (1 - m) × (R_pool - c) × t / σ ⌋
                 floor_to_lovelace(
-                    (SafeRatio::one() - &self.margin)
-                        * BigUint::from(pool_rewards - cost)
-                        * member_relative_stake
+                    (SafeRatio::one() - &self.margin) * BigUint::from(pool_rewards - cost) * member_relative_stake
                         / self.relative_stake(total_stake),
                 )
             }
@@ -405,25 +386,18 @@ impl RewardsSummary {
         blocks_count = blocks_count.max(1);
 
         let monetary_expansion_rate = &protocol_parameters.monetary_expansion_rate;
-        let monetary_expansion_rate = safe_ratio(
-            monetary_expansion_rate.numerator,
-            monetary_expansion_rate.denominator,
-        );
+        let monetary_expansion_rate =
+            safe_ratio(monetary_expansion_rate.numerator, monetary_expansion_rate.denominator);
         let incentives = floor_to_lovelace(
-            (&SafeRatio::one()).min(&efficiency)
-                * &monetary_expansion_rate
-                * BigUint::from(pots.reserves),
+            (&SafeRatio::one()).min(&efficiency) * &monetary_expansion_rate * BigUint::from(pots.reserves),
         );
 
         let total_rewards: Lovelace = incentives + pots.fees;
 
         let treasury_expansion_rate = &protocol_parameters.treasury_expansion_rate;
-        let treasury_expansion_rate = safe_ratio(
-            treasury_expansion_rate.numerator,
-            treasury_expansion_rate.denominator,
-        );
-        let treasury_tax: Lovelace =
-            floor_to_lovelace(treasury_expansion_rate * BigUint::from(total_rewards));
+        let treasury_expansion_rate =
+            safe_ratio(treasury_expansion_rate.numerator, treasury_expansion_rate.denominator);
+        let treasury_tax: Lovelace = floor_to_lovelace(treasury_expansion_rate * BigUint::from(total_rewards));
 
         let available_rewards: Lovelace = total_rewards - treasury_tax;
 
@@ -433,36 +407,28 @@ impl RewardsSummary {
 
         let mut pools: BTreeMap<PoolId, PoolRewards> = BTreeMap::new();
 
-        let mut effective_rewards =
-            stake_distribution
-                .pools
-                .iter()
-                .fold(0, |effective_rewards, (pool_id, pool)| {
-                    let pool_rewards = RewardsSummary::apply_leader_rewards(
-                        &mut accounts,
-                        &mut blocks_per_pool,
-                        blocks_count,
-                        available_rewards,
-                        total_stake,
-                        &stake_distribution,
-                        pool,
-                        protocol_parameters,
-                    );
+        let mut effective_rewards = stake_distribution.pools.iter().fold(0, |effective_rewards, (pool_id, pool)| {
+            let pool_rewards = RewardsSummary::apply_leader_rewards(
+                &mut accounts,
+                &mut blocks_per_pool,
+                blocks_count,
+                available_rewards,
+                total_stake,
+                &stake_distribution,
+                pool,
+                protocol_parameters,
+            );
 
-                    let rewards = effective_rewards + pool_rewards.leader;
+            let rewards = effective_rewards + pool_rewards.leader;
 
-                    pools.insert(*pool_id, pool_rewards);
+            pools.insert(*pool_id, pool_rewards);
 
-                    rewards
-                });
+            rewards
+        });
 
-        effective_rewards += stake_distribution.accounts.into_iter().fold(
-            0,
-            |effective_rewards, (credential, account)| {
-                let opt_pool = account
-                    .pool
-                    .as_ref()
-                    .and_then(|pool_id| stake_distribution.pools.get(pool_id));
+        effective_rewards +=
+            stake_distribution.accounts.into_iter().fold(0, |effective_rewards, (credential, account)| {
+                let opt_pool = account.pool.as_ref().and_then(|pool_id| stake_distribution.pools.get(pool_id));
 
                 let member_rewards = if let Some(pool) = opt_pool {
                     RewardsSummary::apply_member_rewards(
@@ -478,8 +444,7 @@ impl RewardsSummary {
                 };
 
                 effective_rewards + member_rewards
-            },
-        );
+            });
 
         info!(
             target: EVENT_TARGET,
@@ -541,10 +506,8 @@ impl RewardsSummary {
         protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, StoreError> {
         let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
-            if let Some(account) = pools::Row::tick(
-                Box::new(BorrowableProxy::new(Some(row), |_| {})),
-                self.epoch + 3,
-            ) && db.account(&account)?.is_none()
+            if let Some(account) = pools::Row::tick(Box::new(BorrowableProxy::new(Some(row), |_| {})), self.epoch + 3)
+                && db.account(&account)?.is_none()
             {
                 return Ok::<_, StoreError>(leftovers + protocol_parameters.stake_pool_deposit);
             }
@@ -565,10 +528,7 @@ impl RewardsSummary {
         let block_issuers = db.iter_block_issuers()?.map(|(_, issuer)| issuer);
         block_issuers.for_each(|issuer| {
             total += 1;
-            per_pool
-                .entry(issuer.slot_leader)
-                .and_modify(|n| *n += 1)
-                .or_insert(1);
+            per_pool.entry(issuer.slot_leader).and_modify(|n| *n += 1).or_insert(1);
         });
 
         Ok((total, per_pool))
@@ -585,10 +545,7 @@ impl RewardsSummary {
         if let Some(PoolRewards { pot, .. }) = pool_rewards {
             let member_rewards = pool.member_rewards(&credential, *pot, st.lovelace, total_stake);
             if member_rewards > 0 {
-                accounts
-                    .entry(credential)
-                    .and_modify(|rewards| *rewards += member_rewards)
-                    .or_insert(member_rewards);
+                accounts.entry(credential).and_modify(|rewards| *rewards += member_rewards).or_insert(member_rewards);
             }
             member_rewards
         } else {
@@ -610,12 +567,7 @@ impl RewardsSummary {
         let owner_stake = pool.owner_stake(&stake_distribution.accounts);
 
         let rewards_pot = pool.pool_rewards(
-            safe_ratio(
-                blocks_per_pool
-                    .remove(&pool.parameters.id)
-                    .unwrap_or_default(),
-                blocks_count,
-            ),
+            safe_ratio(blocks_per_pool.remove(&pool.parameters.id).unwrap_or_default(), blocks_count),
             available_rewards,
             stake_distribution.active_stake,
             total_stake,
@@ -630,10 +582,7 @@ impl RewardsSummary {
             .and_modify(|rewards| *rewards += rewards_leader)
             .or_insert(rewards_leader);
 
-        PoolRewards {
-            leader: rewards_leader,
-            pot: rewards_pot,
-        }
+        PoolRewards { leader: rewards_leader, pot: rewards_pot }
     }
 
     /// Amount to be depleted from the reserves at the epoch boundary.
@@ -655,9 +604,7 @@ impl RewardsSummary {
     /// exist. This method consumes (i.e. takes ownership) of the item because it is meant to be
     /// called last.
     pub fn unclaimed_rewards(&self) -> Lovelace {
-        self.accounts
-            .iter()
-            .fold(0, |total, (_, rewards)| total + rewards)
+        self.accounts.iter().fold(0, |total, (_, rewards)| total + rewards)
     }
 }
 
@@ -666,9 +613,8 @@ impl RewardsSummary {
 type LovelaceRatio = SafeRatio;
 
 fn floor_to_lovelace(n: LovelaceRatio) -> Lovelace {
-    Lovelace::try_from(n.floor().to_integer()).unwrap_or_else(|_| {
-        unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply.")
-    })
+    Lovelace::try_from(n.floor().to_integer())
+        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
 }
 
 fn lovelace_ratio(numerator: Lovelace, denominator: Lovelace) -> LovelaceRatio {

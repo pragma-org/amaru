@@ -99,17 +99,13 @@ impl<'b> cbor::Decode<'b, ()> for Message {
                 }
 
                 let body = d.bytes()?;
-                Ok(Message::Block {
-                    body: Vec::from(body),
-                })
+                Ok(Message::Block { body: Vec::from(body) })
             }
             5 => {
                 cbor::check_tagged_array_length(5, len, 1)?;
                 Ok(Message::BatchDone)
             }
-            _ => Err(cbor::decode::Error::message(
-                "unknown variant for blockfetch message",
-            )),
+            _ => Err(cbor::decode::Error::message("unknown variant for blockfetch message")),
         }
     }
 }
@@ -117,18 +113,17 @@ impl<'b> cbor::Decode<'b, ()> for Message {
 /// Roundtrip property tests for blockfetch messages.
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use amaru_kernel::{any_point, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
+
+    use super::*;
 
     prop_cbor_roundtrip!(Message, any_message());
 
     // HELPERS
 
     fn block_message() -> impl Strategy<Value = Message> {
-        Just(Message::Block {
-            body: vec![0u8; 128],
-        })
+        Just(Message::Block { body: vec![0u8; 128] })
     }
 
     fn no_blocks_message() -> impl Strategy<Value = Message> {

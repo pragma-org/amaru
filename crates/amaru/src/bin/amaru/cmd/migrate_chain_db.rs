@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{error::Error, path::PathBuf};
+
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_kernel::NetworkName;
 use amaru_ouroboros::StoreError;
@@ -20,7 +22,6 @@ use amaru_stores::rocksdb::{
     consensus::{check_db_version, migrate_db, util::open_db},
 };
 use clap::Parser;
-use std::{error::Error, path::PathBuf};
 use tracing::{error, info, info_span};
 
 #[derive(Debug, Parser)]
@@ -44,9 +45,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(args.network).into());
+    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     let config = RocksDbConfig::new(chain_dir.clone());
 
@@ -57,24 +56,21 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    Ok(
-        info_span!("opening chain db", path = %config.dir.display()).in_scope(|| {
-            let (_, db) = open_db(&config)?;
-            match check_db_version(&db) {
-                Ok(()) => {
-                    info!("already up to date, no migration needed.");
-                    Ok(())
-                }
-                Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
-                    info_span!("migrating database", from = stored, to = current)
-                        .in_scope(|| migrate_db(&db))?;
-                    Ok(())
-                }
-                Err(e) => {
-                    error!(error = %e, "failed to open database");
-                    Err(Box::new(e))
-                }
+    Ok(info_span!("opening chain db", path = %config.dir.display()).in_scope(|| {
+        let (_, db) = open_db(&config)?;
+        match check_db_version(&db) {
+            Ok(()) => {
+                info!("already up to date, no migration needed.");
+                Ok(())
             }
-        })?,
-    )
+            Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
+                info_span!("migrating database", from = stored, to = current).in_scope(|| migrate_db(&db))?;
+                Ok(())
+            }
+            Err(e) => {
+                error!(error = %e, "failed to open database");
+                Err(Box::new(e))
+            }
+        }
+    })?)
 }

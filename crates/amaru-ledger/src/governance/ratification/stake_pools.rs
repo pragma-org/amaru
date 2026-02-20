@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
-use crate::summary::{
-    SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution,
-};
+use std::collections::BTreeMap;
+
 use amaru_kernel::{
-    DRep, PROTOCOL_VERSION_9, PoolId, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion,
-    Vote, expect_stake_credential,
+    DRep, PROTOCOL_VERSION_9, PoolId, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion, Vote,
+    expect_stake_credential,
 };
 use num::Zero;
-use std::collections::BTreeMap;
+
+use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
+use crate::summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution};
 
 // Voting Thresholds
 // ----------------------------------------------------------------------------
@@ -41,17 +41,13 @@ pub fn voting_threshold(
     match proposal {
         ProposalEnum::ProtocolParameters(params_update, _) => {
             if any_update_in_security_group(params_update) {
-                Some(into_safe_ratio(
-                    &voting_thresholds.security_voting_threshold,
-                ))
+                Some(into_safe_ratio(&voting_thresholds.security_voting_threshold))
             } else {
                 Some(SafeRatio::zero())
             }
         }
 
-        ProposalEnum::HardFork(..) => {
-            Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation))
-        }
+        ProposalEnum::HardFork(..) => Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation)),
 
         ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
             Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
@@ -65,8 +61,7 @@ pub fn voting_threshold(
             })
         }
 
-        ProposalEnum::Constitution(..)
-        | ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
+        ProposalEnum::Constitution(..) | ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
             Some(SafeRatio::zero())
         }
 
@@ -104,47 +99,35 @@ pub fn tally(
         return SafeRatio::zero();
     }
 
-    let (yes, abstain) =
-        stake_distribution
-            .pools
-            .iter()
-            .fold((0, 0), |(yes, abstain), (pool_id, pool)| {
-                match votes.get(pool_id) {
-                    Some(Vote::Yes) => (yes + pool.voting_stake, abstain),
-                    Some(Vote::No) => (yes, abstain),
-                    Some(Vote::Abstain) => (yes, abstain + pool.voting_stake),
+    let (yes, abstain) = stake_distribution.pools.iter().fold((0, 0), |(yes, abstain), (pool_id, pool)| {
+        match votes.get(pool_id) {
+            Some(Vote::Yes) => (yes + pool.voting_stake, abstain),
+            Some(Vote::No) => (yes, abstain),
+            Some(Vote::Abstain) => (yes, abstain + pool.voting_stake),
 
-                    // Hard forks always require explicit votes from SPO
-                    None if proposal.is_hardfork() => (yes, abstain),
+            // Hard forks always require explicit votes from SPO
+            None if proposal.is_hardfork() => (yes, abstain),
 
-                    // Prior to v10, a pool not voting would be considered abstaining on anything
-                    // other than a hard fork.
-                    None if protocol_version <= PROTOCOL_VERSION_9 => {
-                        (yes, abstain + pool.voting_stake)
-                    }
+            // Prior to v10, a pool not voting would be considered abstaining on anything
+            // other than a hard fork.
+            None if protocol_version <= PROTOCOL_VERSION_9 => (yes, abstain + pool.voting_stake),
 
-                    // Starting from v10, the fallback is given to the DRep chosen by the pool's
-                    // reward account (?!), if any. If there's no drep, then the vote is considered
-                    // to be "no" by default.
-                    None => {
-                        let reward_account =
-                            expect_stake_credential(&pool.parameters.reward_account);
+            // Starting from v10, the fallback is given to the DRep chosen by the pool's
+            // reward account (?!), if any. If there's no drep, then the vote is considered
+            // to be "no" by default.
+            None => {
+                let reward_account = expect_stake_credential(&pool.parameters.reward_account);
 
-                        let drep = stake_distribution
-                            .accounts
-                            .get(&reward_account)
-                            .and_then(|st| st.drep.as_ref());
+                let drep = stake_distribution.accounts.get(&reward_account).and_then(|st| st.drep.as_ref());
 
-                        match drep {
-                            Some(DRep::NoConfidence) if proposal.is_no_confidence() => {
-                                (yes + pool.voting_stake, abstain)
-                            }
-                            Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
-                            Some(..) | None => (yes, abstain),
-                        }
-                    }
+                match drep {
+                    Some(DRep::NoConfidence) if proposal.is_no_confidence() => (yes + pool.voting_stake, abstain),
+                    Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
+                    Some(..) | None => (yes, abstain),
                 }
-            });
+            }
+        }
+    });
 
     let span = tracing::Span::current();
     span.record("votes.pools.yes", yes);
@@ -165,6 +148,16 @@ pub fn tally(
 
 #[cfg(all(test, not(target_os = "windows")))]
 mod tests {
+    use std::{collections::BTreeMap, rc::Rc};
+
+    use amaru_kernel::{
+        DRep, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, PoolId, ProtocolParamUpdate, ProtocolVersion, VOTE_YES, Vote,
+        any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds, any_protocol_params_update,
+        any_protocol_version, any_rational_number, any_vote_ref, expect_stake_credential,
+    };
+    use num::{One, ToPrimitive, Zero};
+    use proptest::{collection, option, prelude::*, sample};
+
     use super::{tally, voting_threshold};
     use crate::{
         governance::ratification::{ProposalEnum, any_proposal_enum},
@@ -173,15 +166,6 @@ mod tests {
             stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
         },
     };
-    use amaru_kernel::{
-        DRep, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, PoolId, ProtocolParamUpdate,
-        ProtocolVersion, VOTE_YES, Vote, any_comparable_proposal_id, any_ex_units,
-        any_pool_voting_thresholds, any_protocol_params_update, any_protocol_version,
-        any_rational_number, any_vote_ref, expect_stake_credential,
-    };
-    use num::{One, ToPrimitive, Zero};
-    use proptest::{collection, option, prelude::*, sample};
-    use std::{collections::BTreeMap, rc::Rc};
 
     proptest! {
         #[test]
@@ -347,8 +331,7 @@ mod tests {
         }
     }
 
-    fn any_protocol_params_update_in_security_group() -> impl Strategy<Value = ProtocolParamUpdate>
-    {
+    fn any_protocol_params_update_in_security_group() -> impl Strategy<Value = ProtocolParamUpdate> {
         let security_group = (
             option::of(any::<u64>()),
             option::of(any::<u64>()),
@@ -364,21 +347,18 @@ mod tests {
 
         (
             any_protocol_params_update(),
-            security_group.prop_filter(
-                "not all none",
-                |(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9)| {
-                    !(p0.is_none()
-                        && p1.is_none()
-                        && p2.is_none()
-                        && p3.is_none()
-                        && p4.is_none()
-                        && p5.is_none()
-                        && p6.is_none()
-                        && p7.is_none()
-                        && p8.is_none()
-                        && p9.is_none())
-                },
-            ),
+            security_group.prop_filter("not all none", |(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9)| {
+                !(p0.is_none()
+                    && p1.is_none()
+                    && p2.is_none()
+                    && p3.is_none()
+                    && p4.is_none()
+                    && p5.is_none()
+                    && p6.is_none()
+                    && p7.is_none()
+                    && p8.is_none()
+                    && p9.is_none())
+            }),
         )
             .prop_map(
                 |(
@@ -411,8 +391,7 @@ mod tests {
             )
     }
 
-    fn any_protocol_params_update_no_security_group() -> impl Strategy<Value = ProtocolParamUpdate>
-    {
+    fn any_protocol_params_update_no_security_group() -> impl Strategy<Value = ProtocolParamUpdate> {
         any_protocol_params_update().prop_map(|update| ProtocolParamUpdate {
             minfee_a: None,
             minfee_b: None,
@@ -428,14 +407,9 @@ mod tests {
         })
     }
 
-    pub fn any_tally() -> impl Strategy<
-        Value = (
-            ProtocolVersion,
-            ProposalEnum,
-            BTreeMap<PoolId, &'static Vote>,
-            Rc<StakeDistribution>,
-        ),
-    > {
+    pub fn any_tally()
+    -> impl Strategy<Value = (ProtocolVersion, ProposalEnum, BTreeMap<PoolId, &'static Vote>, Rc<StakeDistribution>)>
+    {
         any_stake_distribution_no_dreps().prop_flat_map(|stake_distribution| {
             (
                 any_protocol_version(),
@@ -443,11 +417,9 @@ mod tests {
                 any_votes(&stake_distribution),
                 Just(Rc::new(stake_distribution)),
             )
-                .prop_map(
-                    move |(protocol_version, proposal, votes, stake_distribution)| {
-                        (protocol_version, proposal, votes, stake_distribution)
-                    },
-                )
+                .prop_map(move |(protocol_version, proposal, votes, stake_distribution)| {
+                    (protocol_version, proposal, votes, stake_distribution)
+                })
         })
     }
 

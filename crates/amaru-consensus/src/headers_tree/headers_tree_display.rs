@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::headers_tree::{HeadersTree, HeadersTreeState, tree::Tree};
-use amaru_kernel::{HeaderHash, IsHeader, utils::string::ListToString};
 use std::fmt::{Debug, Display, Formatter};
+
+use amaru_kernel::{HeaderHash, IsHeader, utils::string::ListToString};
+
+use crate::headers_tree::{HeadersTree, HeadersTreeState, tree::Tree};
 
 /// A displayable version of HeadersTree, for Debug and Display implementations.
 /// It contains a snapshot of both the in memory data for the headers tree but also
@@ -29,9 +31,7 @@ pub struct HeadersTreeDisplay<H> {
     best_length: usize,
 }
 
-impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> From<HeadersTree<H>>
-    for HeadersTreeDisplay<H>
-{
+impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> From<HeadersTree<H>> for HeadersTreeDisplay<H> {
     fn from(value: HeadersTree<H>) -> Self {
         let tree_state = value.clone().into_tree_state();
         HeadersTreeDisplay {
@@ -51,9 +51,7 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + 'static> Debug for HeadersTr
     }
 }
 
-impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display
-    for HeadersTreeDisplay<H>
-{
+impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display for HeadersTreeDisplay<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip}"))
     }
@@ -61,27 +59,15 @@ impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display
 
 impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTreeDisplay<H> {
     /// Common function to either format for Debug or Display
-    pub fn format(
-        &self,
-        f: &mut Formatter<'_>,
-        header_to_string: fn(&H) -> String,
-    ) -> std::fmt::Result {
+    pub fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&H) -> String) -> std::fmt::Result {
         f.write_str("HeadersTree {\n")?;
         if let Some(tree) = &self.tree {
-            writeln!(
-                f,
-                "  headers:\n    {}",
-                &tree.pretty_print_with(header_to_string)
-            )?;
+            writeln!(f, "  headers:\n    {}", &tree.pretty_print_with(header_to_string))?;
         };
         writeln!(f, "{}", &self.tree_state)?;
         writeln!(f, "  anchor: {}", &self.anchor)?;
         writeln!(f, "  best_chain: {}", &self.best_chain)?;
-        writeln!(
-            f,
-            "  best_chains: [{}]",
-            &self.best_chains.list_to_string(", ")
-        )?;
+        writeln!(f, "  best_chains: [{}]", &self.best_chains.list_to_string(", "))?;
         writeln!(f, "  best_length: {}", &self.best_length)?;
         f.write_str("}\n")
     }

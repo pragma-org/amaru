@@ -24,22 +24,6 @@
 // Go to 3 and continue until heap is empty;
 // Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
-use crate::{
-    simulator::{
-        Args, GeneratedEntries, NodeConfig,
-        shrink::shrink,
-        simulate_config::SimulateConfig,
-        world::{Entry, NodeHandle},
-    },
-    sync::ChainSyncMessage,
-};
-use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions};
-use amaru_kernel::utils::string::ListToString;
-use anyhow::anyhow;
-use parking_lot::Mutex;
-use pure_stage::{simulation::RandStdRng, trace_buffer::TraceBuffer};
-use rand::{SeedableRng, rngs::StdRng};
-use serde::Serialize;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 #[cfg(windows)]
@@ -52,9 +36,26 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
+
+use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions};
+use amaru_kernel::utils::string::ListToString;
+use anyhow::anyhow;
+use parking_lot::Mutex;
+use pure_stage::{simulation::RandStdRng, trace_buffer::TraceBuffer};
+use rand::{SeedableRng, rngs::StdRng};
+use serde::Serialize;
 use tracing::{error, info};
 
 pub(crate) use crate::simulator::world::{History, World};
+use crate::{
+    simulator::{
+        Args, GeneratedEntries, NodeConfig,
+        shrink::shrink,
+        simulate_config::SimulateConfig,
+        world::{Entry, NodeHandle},
+    },
+    sync::ChainSyncMessage,
+};
 
 /// Run the simulation
 ///
@@ -88,21 +89,13 @@ where
     let test_run_dir = tests_dir.join(test_run_name);
     create_dir_all(&test_run_dir)?;
     create_symlink_dir(test_run_dir.as_path(), tests_dir.join("latest").as_path());
-    persist_args(
-        test_run_dir.as_path(),
-        simulate_config,
-        node_config,
-        persist_on_success,
-    )?;
+    persist_args(test_run_dir.as_path(), simulate_config, node_config, persist_on_success)?;
 
     for test_number in 1..=simulate_config.number_of_tests {
         trace_buffer.lock().clear();
         let test_run_dir_n = test_run_dir.join(format!("test-{}", test_number));
         create_dir_all(&test_run_dir_n)?;
-        create_symlink_dir(
-            test_run_dir_n.as_path(),
-            test_run_dir_n.parent().unwrap().join("latest").as_path(),
-        );
+        create_symlink_dir(test_run_dir_n.as_path(), test_run_dir_n.parent().unwrap().join("latest").as_path());
 
         info!(
             test_number, total=%simulate_config.number_of_tests,
@@ -112,14 +105,7 @@ where
         let generation_context = generated_entries.generation_context();
         display_test_stats(generation_context);
 
-        let result = match run_test(
-            simulate_config,
-            &spawn,
-            &property,
-            rng.derive(),
-            test_number,
-            &generated_entries,
-        ) {
+        let result = match run_test(simulate_config, &spawn, &property, rng.derive(), test_number, &generated_entries) {
             Err(error) => {
                 error!(
                     test_number,
@@ -180,26 +166,12 @@ where
         (history, Err(reason)) => {
             let failure_message = if simulate_config.disable_shrinking {
                 let number_of_shrinks = 0;
-                create_failure_message(
-                    test_number,
-                    simulate_config.seed,
-                    number_of_shrinks,
-                    history,
-                    reason,
-                )
+                create_failure_message(test_number, simulate_config.seed, number_of_shrinks, history, reason)
             } else {
                 let (_shrunk_entries, (shrunk_history, result), number_of_shrinks) =
-                    shrink(&mut test, entries.clone(), |result| {
-                        result.1 == Err(reason.clone())
-                    });
+                    shrink(&mut test, entries.clone(), |result| result.1 == Err(reason.clone()));
                 assert_eq!(Err(reason.clone()), result);
-                create_failure_message(
-                    test_number,
-                    simulate_config.seed,
-                    number_of_shrinks,
-                    shrunk_history,
-                    reason,
-                )
+                create_failure_message(test_number, simulate_config.seed, number_of_shrinks, shrunk_history, reason)
             };
             Err(failure_message)
         }
@@ -257,16 +229,9 @@ fn create_failure_message<Msg: Debug>(
     reason: String,
 ) -> String {
     let mut history_string = String::new();
-    history
-        .0
-        .into_iter()
-        .enumerate()
-        .for_each(|(index, envelope)| {
-            history_string += &format!(
-                "{:5}.  {:?} ==> {:?}   {:?}\n",
-                index, envelope.src, envelope.dest, envelope.body
-            )
-        });
+    history.0.into_iter().enumerate().for_each(|(index, envelope)| {
+        history_string += &format!("{:5}.  {:?} ==> {:?}   {:?}\n", index, envelope.src, envelope.dest, envelope.body)
+    });
 
     format!(
         "\nFailed after {test_number} tests\n\n \
@@ -287,18 +252,11 @@ fn persist_generated_data(
         return Ok(());
     }
     persist_generated_entries_as_json(test_run_dir_n, generated_entries)?;
-    persist_generated_actions_as_json(
-        test_run_dir_n,
-        &generated_entries.generation_context().actions(),
-    )?;
+    persist_generated_actions_as_json(test_run_dir_n, &generated_entries.generation_context().actions())?;
     Ok(())
 }
 
-fn persist_traces(
-    dir: &Path,
-    trace_buffer: Arc<Mutex<TraceBuffer>>,
-    persist: bool,
-) -> Result<(), anyhow::Error> {
+fn persist_traces(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>, persist: bool) -> Result<(), anyhow::Error> {
     if !persist {
         return Ok(());
     }
@@ -307,10 +265,7 @@ fn persist_traces(
     Ok(())
 }
 
-fn persist_traces_as_cbor(
-    dir: &Path,
-    trace_buffer: Arc<Mutex<TraceBuffer>>,
-) -> Result<(), anyhow::Error> {
+fn persist_traces_as_cbor(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Result<(), anyhow::Error> {
     if trace_buffer.lock().is_empty() {
         return Ok(());
     }
@@ -341,18 +296,12 @@ fn persist_args(
 }
 
 /// Persist the traces to a JSON file
-fn persist_traces_as_json(
-    dir: &Path,
-    trace_buffer: Arc<Mutex<TraceBuffer>>,
-) -> Result<(), anyhow::Error> {
+fn persist_traces_as_json(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Result<(), anyhow::Error> {
     let path = dir.join("traces.json");
     let mut file = File::create(&path)?;
 
     let traces = trace_buffer.lock().hydrate();
-    let traces = traces
-        .iter()
-        .map(|trace| trace.1.to_json())
-        .collect::<Vec<_>>();
+    let traces = traces.iter().map(|trace| trace.1.to_json()).collect::<Vec<_>>();
     file.write_all(serde_json::to_string_pretty(&serde_json::json!(traces))?.as_bytes())?;
     Ok(())
 }
@@ -380,9 +329,7 @@ fn persist_generated_actions_as_json(dir: &Path, actions: &[Action]) -> Result<(
 fn create_symlink_dir(target: &Path, link: &Path) {
     // Clean up existing link or directory first
     if link.exists() {
-        std::fs::remove_file(link)
-            .or_else(|_| std::fs::remove_dir_all(link))
-            .ok();
+        std::fs::remove_file(link).or_else(|_| std::fs::remove_dir_all(link)).ok();
     }
 
     let abs_target = std::fs::canonicalize(target).unwrap();

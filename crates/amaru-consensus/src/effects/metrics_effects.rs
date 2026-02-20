@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
-use pure_stage::{
-    BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
-};
 use std::sync::Arc;
+
+use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
 
 /// Metrics operations available to a stage. This allows a stage to record a MetricsEvent that
 /// will be collected via OpenTelemetry.

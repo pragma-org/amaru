@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
 /// This module is *temporary* and only necessary to re-implement a bug present in
 /// the Cardano ledger in the protocol version 9; while it may sound weird, we have to
 /// introduce this field in order to introduce data inconsistency issues to the ledger... on
@@ -22,6 +24,5 @@
 /// It is temporary in the sense that, it is no longer required if bootstrapping from snapshots
 /// that starts in protocol version 10 or later; and thus shall be dropped entirely when relevant.
 use amaru_kernel::StakeCredential;
-use std::collections::BTreeSet;
 
 pub type Row = BTreeSet<StakeCredential>;

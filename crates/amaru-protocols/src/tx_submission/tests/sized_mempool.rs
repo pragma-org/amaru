@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{pin::Pin, sync::Arc};
+
 use amaru_kernel::Transaction;
 use amaru_mempool::{DefaultCanValidateTransactions, MempoolConfig, strategies::InMemoryMempool};
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
-    TxRejectReason, TxSubmissionMempool,
+    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
+    TxSubmissionMempool,
 };
-use std::{pin::Pin, sync::Arc};
 
 /// A mempool wrapper that limits the effective capacity of the inner mempool.
 /// When the last sequence number requested is beyond the capacity, it returns `false` on
@@ -34,24 +35,15 @@ pub struct SizedMempool {
 
 impl SizedMempool {
     pub fn new(capacity: u64, inner_mempool: Arc<InMemoryMempool<Transaction>>) -> Self {
-        SizedMempool {
-            capacity,
-            inner_mempool,
-        }
+        SizedMempool { capacity, inner_mempool }
     }
 
     pub fn with_capacity(capacity: u64) -> Self {
         SizedMempool::with_tx_validator(capacity, Arc::new(DefaultCanValidateTransactions))
     }
 
-    pub fn with_tx_validator(
-        capacity: u64,
-        tx_validator: Arc<dyn CanValidateTransactions<Transaction>>,
-    ) -> Self {
-        SizedMempool::new(
-            capacity,
-            Arc::new(InMemoryMempool::new(MempoolConfig::default(), tx_validator)),
-        )
+    pub fn with_tx_validator(capacity: u64, tx_validator: Arc<dyn CanValidateTransactions<Transaction>>) -> Self {
+        SizedMempool::new(capacity, Arc::new(InMemoryMempool::new(MempoolConfig::default(), tx_validator)))
     }
 }
 
@@ -62,11 +54,7 @@ impl CanValidateTransactions<Transaction> for SizedMempool {
 }
 
 impl TxSubmissionMempool<Transaction> for SizedMempool {
-    fn insert(
-        &self,
-        tx: Transaction,
-        tx_origin: TxOrigin,
-    ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.inner_mempool.insert(tx, tx_origin)
     }
 
@@ -78,10 +66,7 @@ impl TxSubmissionMempool<Transaction> for SizedMempool {
         self.inner_mempool.tx_ids_since(from_seq, limit)
     }
 
-    fn wait_for_at_least(
-        &self,
-        seq_no: MempoolSeqNo,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+    fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         // Return false if we are beyond capacity
         // otherwise delegate to inner mempool.
         if seq_no > MempoolSeqNo(self.capacity) {

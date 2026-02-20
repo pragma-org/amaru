@@ -12,23 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    mempool_effects::MemoryPool,
-    mux::MuxMessage,
-    protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState,
-        miniprotocol, outcome,
-    },
-    tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
+use std::{
+    collections::{BTreeSet, VecDeque},
+    fmt::Display,
 };
+
 use ProtocolError::*;
 use amaru_kernel::Transaction;
 use amaru_ouroboros::TxSubmissionMempool;
 use amaru_ouroboros_traits::{TxId, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use std::{
-    collections::{BTreeSet, VecDeque},
-    fmt::Display,
+
+use crate::{
+    mempool_effects::MemoryPool,
+    mux::MuxMessage,
+    protocol::{
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, miniprotocol, outcome,
+    },
+    tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -65,9 +66,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
                 self.initialize_state(mempool)
             }
             ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(mempool, tx_ids)?,
-            ResponderResult::ReplyTxs(txs) => {
-                self.process_txs_reply(mempool, txs, self.origin.clone())?
-            }
+            ResponderResult::ReplyTxs(txs) => self.process_txs_reply(mempool, txs, self.origin.clone())?,
             ResponderResult::Done => None,
         };
         Ok((action, self))
@@ -89,52 +88,31 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Init, Message::Init) => (outcome().result(ResponderResult::Init), State::Idle),
-            (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => (
-                outcome().result(ResponderResult::ReplyTxIds(tx_ids)),
-                State::Idle,
-            ),
-            (State::Txs, Message::ReplyTxs(txs)) => (
-                outcome().result(ResponderResult::ReplyTxs(txs)),
-                State::Idle,
-            ),
-            (State::TxIdsBlocking, Message::Done) => {
-                (outcome().result(ResponderResult::Done), State::Done)
+            (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => {
+                (outcome().result(ResponderResult::ReplyTxIds(tx_ids)), State::Idle)
             }
+            (State::Txs, Message::ReplyTxs(txs)) => (outcome().result(ResponderResult::ReplyTxs(txs)), State::Idle),
+            (State::TxIdsBlocking, Message::Done) => (outcome().result(ResponderResult::Done), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         Ok(match (self, input) {
-            (State::Idle, ResponderAction::SendRequestTxIds { ack, req, blocking }) => {
-                match blocking {
-                    Blocking::Yes => (
-                        outcome()
-                            .send(Message::RequestTxIdsBlocking(ack, req))
-                            .want_next(),
-                        State::TxIdsBlocking,
-                    ),
-                    Blocking::No => (
-                        outcome()
-                            .send(Message::RequestTxIdsNonBlocking(ack, req))
-                            .want_next(),
-                        State::TxIdsNonBlocking,
-                    ),
+            (State::Idle, ResponderAction::SendRequestTxIds { ack, req, blocking }) => match blocking {
+                Blocking::Yes => {
+                    (outcome().send(Message::RequestTxIdsBlocking(ack, req)).want_next(), State::TxIdsBlocking)
                 }
+                Blocking::No => {
+                    (outcome().send(Message::RequestTxIdsNonBlocking(ack, req)).want_next(), State::TxIdsNonBlocking)
+                }
+            },
+            (State::Idle, ResponderAction::SendRequestTxs(tx_ids)) => {
+                (outcome().send(Message::RequestTxs(tx_ids)).want_next(), State::Txs)
             }
-            (State::Idle, ResponderAction::SendRequestTxs(tx_ids)) => (
-                outcome().send(Message::RequestTxs(tx_ids)).want_next(),
-                State::Txs,
-            ),
             (_, ResponderAction::Error(e)) => (outcome().terminate_with(e), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -181,11 +159,7 @@ pub struct TxSubmissionResponder {
 }
 
 impl TxSubmissionResponder {
-    pub fn new(
-        muxer: StageRef<MuxMessage>,
-        params: ResponderParams,
-        origin: TxOrigin,
-    ) -> (State, Self) {
+    pub fn new(muxer: StageRef<MuxMessage>, params: ResponderParams, origin: TxOrigin) -> (State, Self) {
         (
             State::Init,
             Self {
@@ -199,10 +173,7 @@ impl TxSubmissionResponder {
         )
     }
 
-    fn initialize_state(
-        &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
-    ) -> Option<ResponderAction> {
+    fn initialize_state(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Option<ResponderAction> {
         let (ack, req, blocking) = self.request_tx_ids(mempool);
         Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
     }
@@ -224,11 +195,7 @@ impl TxSubmissionResponder {
         let txs = self.txs_to_request();
         if txs.is_empty() {
             let (ack, req, blocking) = self.request_tx_ids(mempool);
-            Ok(Some(ResponderAction::SendRequestTxIds {
-                ack,
-                req,
-                blocking,
-            }))
+            Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
         } else {
             Ok(Some(ResponderAction::SendRequestTxs(txs)))
         }
@@ -241,10 +208,7 @@ impl TxSubmissionResponder {
         origin: TxOrigin,
     ) -> anyhow::Result<Option<ResponderAction>> {
         if txs.len() > self.params.fetch_batch.into() {
-            return protocol_error(ReceivedTxsExceedsBatchSize(
-                txs.len(),
-                self.params.fetch_batch.into(),
-            ));
+            return protocol_error(ReceivedTxsExceedsBatchSize(txs.len(), self.params.fetch_batch.into()));
         }
 
         // check for duplicate tx ids
@@ -256,31 +220,21 @@ impl TxSubmissionResponder {
         }
 
         // check that all received tx ids were in-flight
-        let not_in_flight = tx_ids
-            .iter()
-            .filter(|tx_id| !self.inflight_fetch_set.contains(tx_id))
-            .cloned()
-            .collect::<Vec<_>>();
+        let not_in_flight =
+            tx_ids.iter().filter(|tx_id| !self.inflight_fetch_set.contains(tx_id)).cloned().collect::<Vec<_>>();
         if !not_in_flight.is_empty() {
             return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
         }
 
         self.received_txs(mempool, txs, origin)?;
         let (ack, req, blocking) = self.request_tx_ids(mempool);
-        Ok(Some(ResponderAction::SendRequestTxIds {
-            ack,
-            req,
-            blocking,
-        }))
+        Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
     }
 
     /// Prepare a request for tx ids, acknowledging already processed ones
     /// and requesting as many as fit in the window.
     #[allow(clippy::expect_used)]
-    fn request_tx_ids(
-        &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
-    ) -> (u16, u16, Blocking) {
+    fn request_tx_ids(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> (u16, u16, Blocking) {
         // Acknowledge everything we’ve already processed.
         let mut ack = 0_u16;
 
@@ -289,9 +243,7 @@ impl TxSubmissionResponder {
             if already_in_mempool {
                 // pop from window and ack it
                 if self.window.pop_front().is_some() {
-                    ack = ack
-                        .checked_add(1)
-                        .expect("ack overflow: protocol invariant violated");
+                    ack = ack.checked_add(1).expect("ack overflow: protocol invariant violated");
                 }
             } else {
                 break;
@@ -306,11 +258,7 @@ impl TxSubmissionResponder {
             .expect("req underflow: protocol invariant violated");
 
         // We need to block if there are no more outstanding tx ids.
-        let blocking = if self.window.is_empty() {
-            Blocking::Yes
-        } else {
-            Blocking::No
-        };
+        let blocking = if self.window.is_empty() { Blocking::Yes } else { Blocking::No };
         (ack, req, blocking)
     }
 
@@ -385,11 +333,7 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionResponder {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResponderAction {
-    SendRequestTxIds {
-        ack: u16,
-        req: u16,
-        blocking: Blocking,
-    },
+    SendRequestTxIds { ack: u16, req: u16, blocking: Blocking },
     SendRequestTxs(Vec<TxId>),
     Error(ProtocolError),
 }
@@ -398,11 +342,7 @@ impl Display for ResponderAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ResponderAction::SendRequestTxIds { ack, req, blocking } => {
-                write!(
-                    f,
-                    "SendRequestTxIds(ack: {}, req: {}, blocking: {:?})",
-                    ack, req, blocking
-                )
+                write!(f, "SendRequestTxIds(ack: {}, req: {}, blocking: {:?})", ack, req, blocking)
             }
             ResponderAction::SendRequestTxs(tx_ids) => {
                 write!(f, "SendRequestTxs(tx_ids: {:?})", tx_ids)
@@ -415,11 +355,13 @@ impl Display for ResponderAction {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
-    use crate::tx_submission::{assert_actions_eq, tests::create_transactions};
+    use std::sync::Arc;
+
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
-    use std::sync::Arc;
+
+    use super::*;
+    use crate::tx_submission::{assert_actions_eq, tests::create_transactions};
 
     #[tokio::test]
     async fn test_responder() -> anyhow::Result<()> {
@@ -463,18 +405,12 @@ mod tests {
         let txs = create_transactions(11);
         let mempool = Arc::new(InMemoryMempool::default());
 
-        let results = vec![
-            init(),
-            reply_tx_ids(&txs, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
-        ];
+        let results = vec![init(), reply_tx_ids(&txs, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])];
 
         let actions = run_stage(mempool.clone(), results).await?;
         assert_actions_eq(
             &actions,
-            &[
-                request_tx_ids(0, 10, Blocking::Yes),
-                error_action(TooManyTxIdsReceived(11, 0, 10)),
-            ],
+            &[request_tx_ids(0, 10, Blocking::Yes), error_action(TooManyTxIdsReceived(11, 0, 10))],
         );
         Ok(())
     }
@@ -536,16 +472,12 @@ mod tests {
     #[test]
     fn test_responder_protocol() {
         crate::tx_submission::spec::<Responder>().check(State::Init, |msg| match msg {
-            Message::RequestTxIdsBlocking(ack, req) => Some(ResponderAction::SendRequestTxIds {
-                ack: *ack,
-                req: *req,
-                blocking: Blocking::Yes,
-            }),
-            Message::RequestTxIdsNonBlocking(ack, req) => Some(ResponderAction::SendRequestTxIds {
-                ack: *ack,
-                req: *req,
-                blocking: Blocking::No,
-            }),
+            Message::RequestTxIdsBlocking(ack, req) => {
+                Some(ResponderAction::SendRequestTxIds { ack: *ack, req: *req, blocking: Blocking::Yes })
+            }
+            Message::RequestTxIdsNonBlocking(ack, req) => {
+                Some(ResponderAction::SendRequestTxIds { ack: *ack, req: *req, blocking: Blocking::No })
+            }
             Message::RequestTxs(txs) => Some(ResponderAction::SendRequestTxs(txs.clone())),
             Message::ReplyTxs(_) | Message::ReplyTxIds(_) | Message::Init | Message::Done => None,
         });
@@ -566,12 +498,8 @@ mod tests {
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         run_stage_and_return_state_with(
-            TxSubmissionResponder::new(
-                StageRef::named_for_tests("muxer"),
-                ResponderParams::default(),
-                TxOrigin::Local,
-            )
-            .1,
+            TxSubmissionResponder::new(StageRef::named_for_tests("muxer"), ResponderParams::default(), TxOrigin::Local)
+                .1,
             mempool,
             results,
         )
@@ -587,9 +515,7 @@ mod tests {
         for r in results {
             let action = match r {
                 ResponderResult::Init => responder.initialize_state(mempool.as_ref()),
-                ResponderResult::ReplyTxIds(tx_ids) => {
-                    responder.process_tx_ids_reply(mempool.as_ref(), tx_ids)?
-                }
+                ResponderResult::ReplyTxIds(tx_ids) => responder.process_tx_ids_reply(mempool.as_ref(), tx_ids)?,
                 ResponderResult::ReplyTxs(txs) => {
                     responder.process_txs_reply(mempool.as_ref(), txs, responder.origin.clone())?
                 }

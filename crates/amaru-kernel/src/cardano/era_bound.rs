@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Epoch, Slot, cbor, utils::cbor::SerialisedAsPico};
 use std::time::Duration;
+
+use crate::{Epoch, Slot, cbor, utils::cbor::SerialisedAsPico};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EraBound {
@@ -55,9 +56,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
     use crate::prop_cbor_roundtrip;
-    use proptest::prelude::*;
 
     prop_compose! {
         pub fn any_era_bound_time()(ms in any::<u64>()) -> Duration {

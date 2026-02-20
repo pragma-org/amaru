@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol_messages::{
-    version_data::VersionData, version_number::VersionNumber, version_table::VersionTable,
-};
 use amaru_kernel::cbor::{self, check_tagged_array_length};
+
+use crate::protocol_messages::{version_data::VersionData, version_number::VersionNumber, version_table::VersionTable};
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HandshakeResult {
@@ -93,19 +92,18 @@ impl<'b> cbor::Decode<'b, ()> for RefuseReason {
 
                 Ok(RefuseReason::Refused(version, msg.to_string()))
             }
-            _ => Err(cbor::decode::Error::message(
-                "unknown variant for refusereason",
-            )),
+            _ => Err(cbor::decode::Error::message("unknown variant for refusereason")),
         }
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-    use crate::protocol_messages::version_number::tests::any_version_number;
     use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{prelude::*, prop_compose};
+
+    use super::*;
+    use crate::protocol_messages::version_number::tests::any_version_number;
 
     prop_cbor_roundtrip!(RefuseReason, any_refuse_reason());
 

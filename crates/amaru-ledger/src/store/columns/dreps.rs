@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{
-    Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor,
-};
+use amaru_kernel::{Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor};
+
+use crate::state::diff_bind::Resettable;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 
@@ -73,9 +72,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::*;
     use amaru_kernel::{any_anchor, any_certificate_pointer, prop_cbor_roundtrip};
     use proptest::{option, prelude::*, prop_compose};
+
+    use super::*;
 
     prop_cbor_roundtrip!(Row, any_row(u64::MAX));
 

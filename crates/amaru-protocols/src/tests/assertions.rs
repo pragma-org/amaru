@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::store_effects::ResourceHeaderStore;
-use crate::tests::configuration::get_tx_ids;
-use amaru_kernel::cardano::network_block::NetworkBlock;
-use amaru_kernel::utils::string::ListToString;
-use amaru_kernel::{Block, BlockHeader, HeaderHash, Transaction};
+use std::{sync::Arc, time::Duration};
+
+use amaru_kernel::{
+    Block, BlockHeader, HeaderHash, Transaction, cardano::network_block::NetworkBlock, utils::string::ListToString,
+};
 use amaru_ouroboros_traits::{ChainStore, ResourceMempool};
 use pure_stage::tokio::TokioRunning;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Notify;
+
+use crate::{store_effects::ResourceHeaderStore, tests::configuration::get_tx_ids};
 
 /// Wait until both nodes signal that they are done.
 /// We timeout after a bit to avoid hanging tests. In that case the test will fail later when checking the state.
@@ -39,24 +39,16 @@ pub(super) async fn wait_for_termination(
 /// Verify that both nodes have the same state: same best chain, same blocks, same transactions.
 pub(super) fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Result<()> {
     let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
-    let responder_mempool = responder
-        .resources()
-        .get::<ResourceMempool<Transaction>>()?
-        .clone();
+    let responder_mempool = responder.resources().get::<ResourceMempool<Transaction>>()?.clone();
 
     let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
-    let initiator_mempool = initiator
-        .resources()
-        .get::<ResourceMempool<Transaction>>()?
-        .clone();
+    let initiator_mempool = initiator.resources().get::<ResourceMempool<Transaction>>()?.clone();
 
     // Verify that the 2 nodes have the same best chain
-    let initiator_best_chain = initiator_chain_store
-        .ancestors_hashes(&initiator_chain_store.get_best_chain_hash())
-        .collect::<Vec<_>>();
-    let responder_best_chain = responder_chain_store
-        .ancestors_hashes(&responder_chain_store.get_best_chain_hash())
-        .collect::<Vec<_>>();
+    let initiator_best_chain =
+        initiator_chain_store.ancestors_hashes(&initiator_chain_store.get_best_chain_hash()).collect::<Vec<_>>();
+    let responder_best_chain =
+        responder_chain_store.ancestors_hashes(&responder_chain_store.get_best_chain_hash()).collect::<Vec<_>>();
     assert_eq!(initiator_best_chain, responder_best_chain,);
 
     // Verify that the 2 nodes have the same blocks headers
@@ -72,16 +64,8 @@ pub(super) fn check_state(initiator: TokioRunning, responder: TokioRunning) -> a
         initiator_blocks,
         responder_blocks,
         "initiator blocks {:?}\nresponder blocks {:?}",
-        initiator_blocks
-            .iter()
-            .map(|b| b.0)
-            .collect::<Vec<_>>()
-            .list_to_string(","),
-        responder_blocks
-            .iter()
-            .map(|b| b.0)
-            .collect::<Vec<_>>()
-            .list_to_string(",")
+        initiator_blocks.iter().map(|b| b.0).collect::<Vec<_>>().list_to_string(","),
+        responder_blocks.iter().map(|b| b.0).collect::<Vec<_>>().list_to_string(",")
     );
 
     // Verify that the 2 nodes have the same transactions
@@ -99,10 +83,7 @@ pub(super) fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(Header
         .retrieve_best_chain()
         .iter()
         .map(|h| {
-            let b = store
-                .load_block(h)
-                .unwrap()
-                .expect("missing block for best-chain header");
+            let b = store.load_block(h).unwrap().expect("missing block for best-chain header");
             (
                 *h,
                 NetworkBlock::try_from(b)

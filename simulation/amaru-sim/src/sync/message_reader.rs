@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{simulator::Envelope, sync::ChainSyncMessage};
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin, stdin};
 use tracing::error;
+
+use crate::{simulator::Envelope, sync::ChainSyncMessage};
 
 /// This trait supports reading and parsing ChainSyncMessage messages from an input source.
 /// There are 2 implementations provided:
@@ -35,9 +36,7 @@ pub enum InitError {
 
 /// Read and parse an Init message from the provided MessageReader.
 /// Return the list of peer addresses contained in the Init message.
-pub async fn read_peer_addresses_from_init(
-    reader: &mut impl MessageReader,
-) -> Result<Vec<String>, InitError> {
+pub async fn read_peer_addresses_from_init(reader: &mut impl MessageReader) -> Result<Vec<String>, InitError> {
     let input = reader.read().await.map_err(InitError::IOError)?;
     match input.body {
         ChainSyncMessage::Init { node_ids, .. } => Ok(node_ids),
@@ -127,7 +126,8 @@ mod test {
 
     #[tokio::test]
     async fn can_read_init_message_with_some_peer_addresses() {
-        let init_string = r#"{"body":{"node_id":"c0","node_ids":["n1","n2"],"type":"init","msg_id":0},"dest":"c0","src":"c0"}"#;
+        let init_string =
+            r#"{"body":{"node_id":"c0","node_ids":["n1","n2"],"type":"init","msg_id":0},"dest":"c0","src":"c0"}"#;
         let mut input = StringMessageReader::from(vec![init_string.to_string()]);
         let envelope = read_peer_addresses_from_init(&mut input).await;
 
@@ -146,9 +146,7 @@ mod test {
     fn returns_error_when_parsing_message_fails() {
         assert_eq!(
             parse(&Some("foo".to_string())),
-            Err(ReaderError::JSONError(
-                "expected ident at line 1 column 2".to_string()
-            ))
+            Err(ReaderError::JSONError("expected ident at line 1 column 2".to_string()))
         );
     }
 

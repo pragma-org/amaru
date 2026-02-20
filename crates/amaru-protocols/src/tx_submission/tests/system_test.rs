@@ -12,23 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::manager::ManagerConfig;
-use crate::{
-    connection::{self, ConnectionMessage},
-    network_effects::create_connection,
-    protocol::Role,
-    store_effects::ResourceHeaderStore,
-};
+use std::{sync::Arc, time::Duration};
+
 use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
 use amaru_ouroboros_traits::ResourceMempool;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
-use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Handle, time::timeout};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+use crate::{
+    connection::{self, ConnectionMessage},
+    manager::ManagerConfig,
+    network_effects::create_connection,
+    protocol::Role,
+    store_effects::ResourceHeaderStore,
+};
 
 /// You can run this test against a real upstream node (don't forget to include `-- --ignored` in `cargo test`).
 /// The upstream node must be either running at 127.0.0.1:3000 or at the address specified in the `PEER`
@@ -37,10 +39,7 @@ use tracing_subscriber::EnvFilter;
 #[tokio::test]
 #[ignore]
 async fn test_tx_submission_with_node() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .init();
+    tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().init();
     info!("starting test_tx_submission");
 
     let conn = TokioConnections::new(65535);
@@ -48,15 +47,9 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
 
     let mut network = TokioBuilder::default();
 
-    network
-        .resources()
-        .put::<ConnectionResource>(Arc::new(conn));
-    network
-        .resources()
-        .put::<ResourceHeaderStore>(Arc::new(InMemConsensusStore::new()));
-    network
-        .resources()
-        .put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
+    network.resources().put::<ConnectionResource>(Arc::new(conn));
+    network.resources().put::<ResourceHeaderStore>(Arc::new(InMemConsensusStore::new()));
+    network.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
     let era_history: &EraHistory = NetworkName::Preprod.into();
     let connection = network.stage("connection", connection::stage);
@@ -72,9 +65,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             Arc::new(era_history.clone()),
         ),
     );
-    network
-        .preload(&connection, [ConnectionMessage::Initialize])
-        .unwrap();
+    network.preload(&connection, [ConnectionMessage::Initialize]).unwrap();
 
     let running = network.run(Handle::current());
     match timeout(Duration::from_secs(20000), running.join()).await {

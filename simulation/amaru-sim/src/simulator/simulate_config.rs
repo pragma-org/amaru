@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Args;
-use rand::Rng;
 use std::path::{Path, PathBuf};
+
+use rand::Rng;
+
+use crate::simulator::Args;
 
 /// Configuration for a simulation run
 #[derive(Debug, Clone)]

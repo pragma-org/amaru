@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistoryError, Slot};
 use std::{collections::BTreeSet, rc::Rc};
+
+use amaru_kernel::{EraHistoryError, Slot};
 
 // ProposalsTree
 // ----------------------------------------------------------------------------
@@ -45,17 +46,9 @@ pub struct ProposalsTree<T> {
 impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
     /// Create a new empty ProposalsTree from an arbitrary root.
     pub fn new(root: Option<Rc<T>>) -> Self {
-        let seen = if let Some(root) = &root {
-            BTreeSet::from([root.clone()])
-        } else {
-            BTreeSet::new()
-        };
+        let seen = if let Some(root) = &root { BTreeSet::from([root.clone()]) } else { BTreeSet::new() };
 
-        Self {
-            root,
-            siblings: Vec::new(),
-            seen,
-        }
+        Self { root, siblings: Vec::new(), seen }
     }
 
     /// Obtain the current root, which changes each time a proposal is enacted.
@@ -101,11 +94,7 @@ impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
     }
 
     /// Insert a not-already-inserted proposal in the tree.
-    pub fn insert(
-        &mut self,
-        id: Rc<T>,
-        parent: Option<Rc<T>>,
-    ) -> Result<(), ProposalsInsertError<T>> {
+    pub fn insert(&mut self, id: Rc<T>, parent: Option<Rc<T>>) -> Result<(), ProposalsInsertError<T>> {
         use ProposalsInsertError::*;
 
         assert!(
@@ -141,9 +130,7 @@ impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
                 self.siblings
                     .iter_mut()
                     .fold(st, |st, sibling| {
-                        st.or_else(|SiblingInsertError::UnknownParent { id, parent }| {
-                            sibling.insert(id, parent)
-                        })
+                        st.or_else(|SiblingInsertError::UnknownParent { id, parent }| sibling.insert(id, parent))
                     })
                     .map_err(ProposalsInsertError::from)
             }
@@ -162,10 +149,7 @@ pub enum ProposalsInsertError<T> {
 
 impl<T> From<SiblingInsertError<T>> for ProposalsInsertError<T> {
     fn from(SiblingInsertError::UnknownParent { id, parent }: SiblingInsertError<T>) -> Self {
-        Self::UnknownParent {
-            id,
-            parent: Some(parent),
-        }
+        Self::UnknownParent { id, parent: Some(parent) }
     }
 }
 
@@ -186,10 +170,7 @@ pub struct Sibling<T> {
 
 impl<T: Eq + Ord> Sibling<T> {
     pub fn new(id: Rc<T>) -> Self {
-        Self {
-            id,
-            children: vec![],
-        }
+        Self { id, children: vec![] }
     }
 
     #[cfg(test)]
@@ -217,26 +198,23 @@ impl<T: Eq + Ord> Sibling<T> {
 
         // Otherwise, we must check children of that sibling.
         let st = Err(UnknownParent { id, parent });
-        self.children.iter_mut().fold(st, |st, child| {
-            st.or_else(|UnknownParent { id, parent }| child.insert(id, parent))
-        })
+        self.children
+            .iter_mut()
+            .fold(st, |st, child| st.or_else(|UnknownParent { id, parent }| child.insert(id, parent)))
     }
 
     /// Split a set of nodes based on a pivot sibling. The result contains Some<pivot> if it was
     /// found amongst the node, and the rest of the nodes on the other hand.
     fn partition(nodes: Vec<Self>, pivot: &T) -> (Option<Self>, Vec<Self>) {
         let capacity = nodes.len();
-        nodes.into_iter().fold(
-            (None, Vec::with_capacity(capacity)),
-            |(new_root, mut now_obsolete), sibling| {
-                if sibling.id.as_ref() == pivot {
-                    (Some(sibling), now_obsolete)
-                } else {
-                    now_obsolete.push(sibling);
-                    (new_root, now_obsolete)
-                }
-            },
-        )
+        nodes.into_iter().fold((None, Vec::with_capacity(capacity)), |(new_root, mut now_obsolete), sibling| {
+            if sibling.id.as_ref() == pivot {
+                (Some(sibling), now_obsolete)
+            } else {
+                now_obsolete.push(sibling);
+                (new_root, now_obsolete)
+            }
+        })
     }
 
     /// Recursively collect all nodes and their children into a mutable accumulator.
@@ -259,9 +237,11 @@ pub enum SiblingInsertError<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProposalsEnactError, ProposalsTree};
-    use proptest::{collection, prelude::*};
     use std::{collections::BTreeSet, rc::Rc};
+
+    use proptest::{collection, prelude::*};
+
+    use super::{ProposalsEnactError, ProposalsTree};
 
     proptest! {
         #[test]
@@ -355,16 +335,13 @@ mod tests {
             let mut tree = ProposalsTree::new(root);
 
             let select = |ixs: &Vec<Option<Rc<u8>>>, ix: u8| {
-                ixs.get(ix as usize % ixs.len())
-                    .unwrap_or_else(|| panic!("out of bound: {ix} -> {ixs:?}"))
-                    .clone()
+                ixs.get(ix as usize % ixs.len()).unwrap_or_else(|| panic!("out of bound: {ix} -> {ixs:?}")).clone()
             };
 
             for parent in parents {
                 let sibling = Rc::new(next);
 
-                tree.insert(sibling.clone(), select(&known_parents, parent))
-                    .unwrap();
+                tree.insert(sibling.clone(), select(&known_parents, parent)).unwrap();
 
                 known_parents.push(Some(sibling));
 

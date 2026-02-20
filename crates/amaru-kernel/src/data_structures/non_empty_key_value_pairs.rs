@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{KeyValuePairs, cbor, data_structures::key_value_pairs::has_duplicate};
 use std::{collections::BTreeMap, ops::Deref};
+
+use crate::{KeyValuePairs, cbor, data_structures::key_value_pairs::has_duplicate};
 
 /// A key-value map with at least one key:value element, and no duplicate keys.
 ///
@@ -21,9 +22,7 @@ use std::{collections::BTreeMap, ops::Deref};
 ///
 /// - keep the order of elements unchanged from original values;
 /// - lower requirements on `K` & `V`;
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NonEmptyKeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 
 impl<K: Eq + Clone, V: Clone> NonEmptyKeyValuePairs<K, V> {
@@ -117,9 +116,7 @@ where
 
         // Ensure non-empty.
         if kvs.is_empty() {
-            return Err(
-                cbor::decode::Error::message(IntoNonEmptyKeyValuePairsError::Empty).at(position),
-            );
+            return Err(cbor::decode::Error::message(IntoNonEmptyKeyValuePairsError::Empty).at(position));
         }
 
         Ok(Self(kvs))
@@ -140,11 +137,13 @@ pub enum IntoNonEmptyKeyValuePairsError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use proptest::{collection, prelude::*};
+    use test_case::test_case;
+
     use super::NonEmptyKeyValuePairs;
     use crate::{from_cbor_no_leftovers, to_cbor};
-    use proptest::{collection, prelude::*};
-    use std::collections::BTreeMap;
-    use test_case::test_case;
 
     proptest! {
         #[test]
@@ -163,16 +162,9 @@ mod tests {
     #[test_case("A3046162016163026161", &[(4, "b"), (1, "c"), (2, "a")], true; "def map")]
     fn from_cbor_success(s: &str, expected: &[(u8, &str)], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
-        match from_cbor_no_leftovers::<NonEmptyKeyValuePairs<u8, String>>(original_bytes.as_slice())
-        {
+        match from_cbor_no_leftovers::<NonEmptyKeyValuePairs<u8, String>>(original_bytes.as_slice()) {
             Ok(set) => {
-                assert_eq!(
-                    set.iter()
-                        .map(|(k, v)| (*k, v.as_str()))
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                    expected
-                );
+                assert_eq!(set.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>().as_slice(), expected);
                 let bytes = to_cbor(&set);
                 assert_eq!(
                     bytes == original_bytes,
@@ -191,9 +183,7 @@ mod tests {
     #[test_case("A2040001000200"; "leftovers")]
     fn from_cbor_failures(s: &str) {
         assert!(matches!(
-            from_cbor_no_leftovers::<NonEmptyKeyValuePairs<u8, u8>>(
-                hex::decode(s).unwrap().as_slice()
-            ),
+            from_cbor_no_leftovers::<NonEmptyKeyValuePairs<u8, u8>>(hex::decode(s).unwrap().as_slice()),
             Err(..),
         ));
     }

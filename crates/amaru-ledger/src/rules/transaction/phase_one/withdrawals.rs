@@ -12,25 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
+use amaru_kernel::{
+    Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose, stake_credential_from_reward_account,
+};
+use thiserror::Error;
+
 use crate::{
     context::{AccountsSlice, WitnessSlice},
     rules::TransactionField,
 };
-use amaru_kernel::{
-    Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose,
-    stake_credential_from_reward_account,
-};
-use std::collections::BTreeMap;
-use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidWithdrawals {
     #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
-    MalformedRewardAccount {
-        bytes: Vec<u8>,
-        context: TransactionField,
-        position: usize,
-    },
+    MalformedRewardAccount { bytes: Vec<u8>, context: TransactionField, position: usize },
 }
 
 pub(crate) fn execute<C>(
@@ -61,16 +58,13 @@ where
             .enumerate()
             .for_each(|(position, (credential, _))| {
                 match credential {
-                    amaru_kernel::StakeCredential::ScriptHash(hash) => context
-                        .require_script_witness(RequiredScript {
-                            hash,
-                            index: position as u32,
-                            purpose: ScriptPurpose::Reward,
-                            datum: MemoizedDatum::None,
-                        }),
-                    amaru_kernel::StakeCredential::AddrKeyhash(hash) => {
-                        context.require_vkey_witness(hash)
-                    }
+                    amaru_kernel::StakeCredential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
+                        hash,
+                        index: position as u32,
+                        purpose: ScriptPurpose::Reward,
+                        datum: MemoizedDatum::None,
+                    }),
+                    amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 };
 
                 context.withdraw_from(credential);
@@ -82,15 +76,15 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::TransactionField,
-    };
     use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
     use super::InvalidWithdrawals;
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        rules::TransactionField,
+    };
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -101,20 +95,8 @@ mod test {
         };
         ($hash:literal, $variant:literal) => {
             (
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
-                include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/expected.traces"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
             )
         };
     }
@@ -129,14 +111,10 @@ mod test {
         matches Err(InvalidWithdrawals::MalformedRewardAccount {  position, bytes, context })
             if  position == 0 && bytes == vec![0x00, 0x00] && matches!(context, TransactionField::Withdrawals);
         "Malformed Reward Account")]
-    fn valid_withdrawal(
-        (tx, expected_traces): (TransactionBody, Vec<json::Value>),
-    ) -> Result<(), InvalidWithdrawals> {
+    fn valid_withdrawal((tx, expected_traces): (TransactionBody, Vec<json::Value>)) -> Result<(), InvalidWithdrawals> {
         assert_trace(
             || {
-                let mut context = AssertValidationContext::from(AssertPreparationContext {
-                    utxo: Default::default(),
-                });
+                let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: Default::default() });
 
                 super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()))
             },

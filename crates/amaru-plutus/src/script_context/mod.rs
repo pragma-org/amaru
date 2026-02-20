@@ -12,20 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    Address, AddressError, AsShelley, AssetName, Bytes, Certificate as PallasCertificate,
-    ComparableProposalId, ComputeHash, EraHistory, EraHistoryError, ExUnits, GlobalParameters,
-    HasOwnership, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, NativeScript, Network, NetworkName, NonEmptyKeyValuePairs,
-    NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
-    Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion,
-    Redeemer, Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot,
-    StakeCredential, StakePayload, TransactionBody, TransactionId, TransactionInput, Vote, Voter,
-    VotingProcedure, WitnessSet, cbor,
-    size::{CREDENTIAL, DATUM, KEY, SCRIPT},
-    transaction_input_to_string,
-};
-use itertools::Itertools;
 use std::{
     borrow::Cow,
     cmp::Ordering,
@@ -33,6 +19,19 @@ use std::{
     ops::Deref,
     time::{Duration, SystemTime},
 };
+
+use amaru_kernel::{
+    Address, AddressError, AsShelley, AssetName, Bytes, Certificate as PallasCertificate, ComparableProposalId,
+    ComputeHash, EraHistory, EraHistoryError, ExUnits, GlobalParameters, HasOwnership, HasScriptHash, Hash, Lovelace,
+    MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, NativeScript, Network, NetworkName,
+    NonEmptyKeyValuePairs, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
+    Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion, Redeemer,
+    Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload,
+    TransactionBody, TransactionId, TransactionInput, Vote, Voter, VotingProcedure, WitnessSet, cbor,
+    size::{CREDENTIAL, DATUM, KEY, SCRIPT},
+    transaction_input_to_string,
+};
+use itertools::Itertools;
 use thiserror::Error;
 
 pub mod v1;
@@ -70,24 +69,16 @@ impl<'a> ScriptContext<'a> {
         let purpose = tx_info.redeemers.get(&OrderedRedeemer::from(redeemer));
 
         let datum = if amaru_kernel::ScriptPurpose::Spend == redeemer.tag {
-            tx_info
-                .inputs
-                .get(redeemer.index as usize)
-                .and_then(|output_ref| match output_ref.output.datum {
-                    DatumOption::None => None,
-                    DatumOption::Hash(hash) => tx_info.data.0.get(hash).copied(),
-                    DatumOption::Inline(plutus_data) => Some(plutus_data),
-                })
+            tx_info.inputs.get(redeemer.index as usize).and_then(|output_ref| match output_ref.output.datum {
+                DatumOption::None => None,
+                DatumOption::Hash(hash) => tx_info.data.0.get(hash).copied(),
+                DatumOption::Inline(plutus_data) => Some(plutus_data),
+            })
         } else {
             None
         };
 
-        purpose.map(|script_purpose| ScriptContext {
-            tx_info,
-            redeemer,
-            datum,
-            script_purpose,
-        })
+        purpose.map(|script_purpose| ScriptContext { tx_info, redeemer, datum, script_purpose })
     }
 
     /// Serialize `ScriptContext` to a list of arguments to be passed to a Plutus validator.
@@ -97,10 +88,7 @@ impl<'a> ScriptContext<'a> {
     ///
     /// For PlutusV3 the lists consists of:
     /// `[script_context]`
-    pub fn to_script_args<const V: u8>(
-        &self,
-        _version: PlutusVersion<V>,
-    ) -> Result<Vec<PlutusData>, PlutusDataError>
+    pub fn to_script_args<const V: u8>(&self, _version: PlutusVersion<V>) -> Result<Vec<PlutusData>, PlutusDataError>
     where
         PlutusVersion<V>: IsKnownPlutusVersion,
     {
@@ -222,33 +210,17 @@ impl<'a> TxInfo<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let outputs = tx
-            .outputs
-            .iter()
-            .map(TransactionOutput::from)
-            .collect::<Vec<_>>();
+        let outputs = tx.outputs.iter().map(TransactionOutput::from).collect::<Vec<_>>();
 
         let mint = tx.mint.as_ref().map(Mint::from).unwrap_or_default();
 
         let certificates: Vec<Certificate<'a>> = tx
             .certificates
             .as_ref()
-            .map(|set| {
-                set.iter()
-                    .map(|certificate| Certificate {
-                        protocol_version,
-                        certificate,
-                    })
-                    .collect()
-            })
+            .map(|set| set.iter().map(|certificate| Certificate { protocol_version, certificate }).collect())
             .unwrap_or_default();
 
-        let withdrawals = tx
-            .withdrawals
-            .as_ref()
-            .map(Withdrawals::try_from)
-            .transpose()?
-            .unwrap_or_default();
+        let withdrawals = tx.withdrawals.as_ref().map(Withdrawals::try_from).transpose()?.unwrap_or_default();
 
         let valid_range = TimeRange::new(
             tx.validity_interval_start.map(Slot::from),
@@ -258,17 +230,10 @@ impl<'a> TxInfo<'a> {
             network,
         )?;
 
-        let signatories = tx
-            .required_signers
-            .as_ref()
-            .map(RequiredSigners::from)
-            .unwrap_or_default();
+        let signatories = tx.required_signers.as_ref().map(RequiredSigners::from).unwrap_or_default();
 
-        let proposal_procedures: Vec<_> = tx
-            .proposals
-            .as_ref()
-            .map(|proposals| proposals.iter().collect())
-            .unwrap_or_default();
+        let proposal_procedures: Vec<_> =
+            tx.proposals.as_ref().map(|proposals| proposals.iter().collect()).unwrap_or_default();
 
         let votes = tx.votes.as_ref().map(Votes::from).unwrap_or_default();
 
@@ -318,20 +283,13 @@ impl<'a> TxInfo<'a> {
 
                             Ok((redeemer, purpose))
                         })
-                        .collect::<Result<
-                            BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>,
-                            TxInfoTranslationError,
-                        >>()
+                        .collect::<Result<BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>, TxInfoTranslationError>>()
                 })
                 .transpose()?
                 .unwrap_or_default(),
         );
 
-        let datums = witness_set
-            .plutus_data
-            .as_ref()
-            .map(Datums::from)
-            .unwrap_or_default();
+        let datums = witness_set.plutus_data.as_ref().map(Datums::from).unwrap_or_default();
 
         Ok(Self {
             inputs,
@@ -374,9 +332,8 @@ impl<'a> TxInfo<'a> {
             .iter()
             .sorted()
             .map(|input| {
-                let output_ref = utxos
-                    .resolve_input(input)
-                    .ok_or(TxInfoTranslationError::MissingInput(input.clone()))?;
+                let output_ref =
+                    utxos.resolve_input(input).ok_or(TxInfoTranslationError::MissingInput(input.clone()))?;
 
                 if let Some(script) = &output_ref.output.script {
                     scripts.insert(script.script_hash(), script.clone());
@@ -418,9 +375,7 @@ impl<'a> ScriptPurpose<'a> {
         let index = redeemer.index as usize;
         match redeemer.tag {
             RedeemerTag::Spend => inputs.get(index).and_then(|OutputRef { input, output }| {
-                if let Some(StakeCredential::ScriptHash(hash)) =
-                    output.address.as_shelley().map(|addr| addr.owner())
-                {
+                if let Some(StakeCredential::ScriptHash(hash)) = output.address.as_shelley().map(|addr| addr.owner()) {
                     let script = scripts.get(&hash);
                     script.map(|script| {
                         script_table.insert(redeemer.clone(), script.clone());
@@ -474,12 +429,8 @@ impl<'a> ScriptPurpose<'a> {
                 use amaru_kernel::GovernanceAction::*;
 
                 let script_hash = match proposal.gov_action {
-                    ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => {
-                        Some(gov_proposal_hash)
-                    }
-                    TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => {
-                        Some(gov_proposal_hash)
-                    }
+                    ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+                    TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
                     ParameterChange(..)
                     | HardForkInitiation(..)
                     | TreasuryWithdrawals(..)
@@ -502,10 +453,7 @@ impl<'a> ScriptPurpose<'a> {
         }
     }
 
-    pub fn to_script_info(
-        &self,
-        data: Option<&'a PlutusData>,
-    ) -> ScriptInfo<'a, Option<&'a PlutusData>> {
+    pub fn to_script_info(&self, data: Option<&'a PlutusData>) -> ScriptInfo<'a, Option<&'a PlutusData>> {
         match self {
             ScriptInfo::Spending(input, _) => ScriptInfo::Spending(input, data),
             ScriptInfo::Minting(p) => ScriptInfo::Minting(*p),
@@ -535,10 +483,7 @@ impl<'a> Utxos {
     ///
     /// Returns `None` when the input cannot be found in the UTxO slice.
     pub fn resolve_input(&'a self, input: &'a TransactionInput) -> Option<OutputRef<'a>> {
-        self.0.get(input).map(|utxo| OutputRef {
-            input,
-            output: utxo.into(),
-        })
+        self.0.get(input).map(|utxo| OutputRef { input, output: utxo.into() })
     }
 }
 
@@ -596,17 +541,12 @@ impl TimeRange {
         let parameters: &GlobalParameters = network.into();
         // TODO: Use 'SystemTime' for system_start in GlobalParameters
         let system_start = SystemTime::UNIX_EPOCH + Duration::from_millis(parameters.system_start);
-        let lower_bound = valid_from_slot
-            .map(|slot| era_history.slot_to_posix_time(slot, *tip, system_start))
-            .transpose()?;
-        let upper_bound = valid_to_slot
-            .map(|slot| era_history.slot_to_posix_time(slot, *tip, system_start))
-            .transpose()?;
+        let lower_bound =
+            valid_from_slot.map(|slot| era_history.slot_to_posix_time(slot, *tip, system_start)).transpose()?;
+        let upper_bound =
+            valid_to_slot.map(|slot| era_history.slot_to_posix_time(slot, *tip, system_start)).transpose()?;
 
-        Ok(Self {
-            lower_bound,
-            upper_bound,
-        })
+        Ok(Self { lower_bound, upper_bound })
     }
 }
 
@@ -637,16 +577,12 @@ pub struct Value<'a>(pub BTreeMap<CurrencySymbol, BTreeMap<Cow<'a, AssetName>, u
 impl<'a> From<&'a amaru_kernel::Value> for Value<'a> {
     fn from(value: &'a amaru_kernel::Value) -> Self {
         let assets = match value {
-            amaru_kernel::Value::Coin(coin) => BTreeMap::from([(
-                CurrencySymbol::Lovelace,
-                BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]),
-            )]),
+            amaru_kernel::Value::Coin(coin) => {
+                BTreeMap::from([(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]))])
+            }
             amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
-                map.insert(
-                    CurrencySymbol::Lovelace,
-                    BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]),
-                );
+                map.insert(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), *coin)]));
                 multiasset.iter().for_each(|(policy_id, asset_bundle)| {
                     map.insert(
                         CurrencySymbol::Native(*policy_id),
@@ -668,27 +604,21 @@ impl<'a> From<&'a amaru_kernel::Value> for Value<'a> {
 impl<'a> From<amaru_kernel::Value> for Value<'a> {
     fn from(value: amaru_kernel::Value) -> Self {
         let assets = match value {
-            amaru_kernel::Value::Coin(coin) => BTreeMap::from([(
-                CurrencySymbol::Lovelace,
-                BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]),
-            )]),
+            amaru_kernel::Value::Coin(coin) => {
+                BTreeMap::from([(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]))])
+            }
             amaru_kernel::Value::Multiasset(coin, multiasset) => {
                 let mut map = BTreeMap::new();
-                map.insert(
-                    CurrencySymbol::Lovelace,
-                    BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]),
-                );
-                multiasset
-                    .into_iter()
-                    .for_each(|(policy_id, asset_bundle)| {
-                        map.insert(
-                            CurrencySymbol::Native(policy_id),
-                            asset_bundle
-                                .into_iter()
-                                .map(|(asset_name, amount)| (Cow::Owned(asset_name), amount.into()))
-                                .collect(),
-                        );
-                    });
+                map.insert(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]));
+                multiasset.into_iter().for_each(|(policy_id, asset_bundle)| {
+                    map.insert(
+                        CurrencySymbol::Native(policy_id),
+                        asset_bundle
+                            .into_iter()
+                            .map(|(asset_name, amount)| (Cow::Owned(asset_name), amount.into()))
+                            .collect(),
+                    );
+                });
 
                 map
             }
@@ -700,26 +630,17 @@ impl<'a> From<amaru_kernel::Value> for Value<'a> {
 
 impl From<Lovelace> for Value<'_> {
     fn from(coin: Lovelace) -> Self {
-        Self(BTreeMap::from([(
-            CurrencySymbol::Lovelace,
-            BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]),
-        )]))
+        Self(BTreeMap::from([(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]))]))
     }
 }
 
 impl Value<'_> {
     pub fn ada(&self) -> Option<u64> {
-        self.0
-            .get(&CurrencySymbol::Lovelace)
-            .and_then(|asset_bundle| {
-                asset_bundle.iter().find_map(|(name, amount)| {
-                    if name.is_empty() && amount != &0 {
-                        Some(*amount)
-                    } else {
-                        None
-                    }
-                })
-            })
+        self.0.get(&CurrencySymbol::Lovelace).and_then(|asset_bundle| {
+            asset_bundle
+                .iter()
+                .find_map(|(name, amount)| if name.is_empty() && amount != &0 { Some(*amount) } else { None })
+        })
     }
 }
 
@@ -822,19 +743,11 @@ impl<'a> From<&'a MemoizedTransactionOutput> for TransactionOutput<'a> {
 #[derive(Debug, Default)]
 pub struct Mint<'a>(pub BTreeMap<Hash<CREDENTIAL>, BTreeMap<Cow<'a, AssetName>, i64>>);
 
-impl<'a>
-    From<
-        &'a amaru_kernel::NonEmptyKeyValuePairs<
-            Hash<CREDENTIAL>,
-            NonEmptyKeyValuePairs<AssetName, NonZeroInt>,
-        >,
-    > for Mint<'a>
+impl<'a> From<&'a amaru_kernel::NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>
+    for Mint<'a>
 {
     fn from(
-        value: &'a amaru_kernel::NonEmptyKeyValuePairs<
-            Hash<CREDENTIAL>,
-            NonEmptyKeyValuePairs<AssetName, NonZeroInt>,
-        >,
+        value: &'a amaru_kernel::NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>,
     ) -> Self {
         let mints = value
             .iter()
@@ -944,9 +857,7 @@ pub enum WithdrawalError {
 impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdrawals {
     type Error = WithdrawalError;
 
-    fn try_from(
-        value: &PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: &PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>) -> Result<Self, Self::Error> {
         let withdrawals = value
             .iter()
             .map(|(reward_account, coin)| {
@@ -970,12 +881,7 @@ pub struct Datums<'a>(pub BTreeMap<Hash<DATUM>, &'a PlutusData>);
 
 impl<'a> From<&'a NonEmptyVec<MemoizedPlutusData>> for Datums<'a> {
     fn from(plutus_data: &'a NonEmptyVec<MemoizedPlutusData>) -> Self {
-        Self(
-            plutus_data
-                .iter()
-                .map(|data| (data.hash(), data.as_ref()))
-                .collect(),
-        )
+        Self(plutus_data.iter().map(|data| (data.hash(), data.as_ref())).collect())
     }
 }
 
@@ -1013,16 +919,12 @@ where
             })
             .collect();
 
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
-            converted?,
-        )))
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(converted?)))
     }
 }
 
 impl Redeemers<'_> {
-    pub fn iter_from<'a>(
-        redeemers: &'a PallasRedeemers,
-    ) -> Box<dyn Iterator<Item = OrderedRedeemer<'a>> + 'a> {
+    pub fn iter_from<'a>(redeemers: &'a PallasRedeemers) -> Box<dyn Iterator<Item = OrderedRedeemer<'a>> + 'a> {
         match redeemers {
             PallasRedeemers::List(list) => Box::new(list.iter().map(OrderedRedeemer::from)),
             PallasRedeemers::Map(map) => Box::new(map.iter().map(|(tag, value)| {
@@ -1041,14 +943,9 @@ impl Redeemers<'_> {
 #[derive(Default)]
 pub struct Votes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ComparableProposalId, &'a Vote>>);
 
-impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>
-    for Votes<'a>
-{
+impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>> for Votes<'a> {
     fn from(
-        voting_procedures: &'a NonEmptyKeyValuePairs<
-            Voter,
-            NonEmptyKeyValuePairs<ProposalId, VotingProcedure>,
-        >,
+        voting_procedures: &'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>,
     ) -> Self {
         Self(
             voting_procedures
@@ -1059,10 +956,7 @@ impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId,
                         votes
                             .iter()
                             .map(|(proposal, procedure)| {
-                                (
-                                    ComparableProposalId::from(proposal.clone()),
-                                    &procedure.vote,
-                                )
+                                (ComparableProposalId::from(proposal.clone()), &procedure.vote)
                             })
                             .collect(),
                     )
@@ -1077,8 +971,7 @@ pub mod test_vectors {
     use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
-        Address, MemoizedDatum, MemoizedTransactionOutput, TransactionInput, include_json,
-        utils::serde::hex_to_bytes,
+        Address, MemoizedDatum, MemoizedTransactionOutput, TransactionInput, include_json, utils::serde::hex_to_bytes,
     };
     use serde::Deserialize;
 
@@ -1133,13 +1026,9 @@ pub mod test_vectors {
                 let mut utxo_map = BTreeMap::new();
 
                 while let Some(entry) = seq.next_element::<UtxoEntryHelper>()? {
-                    let tx_id_bytes =
-                        hex::decode(&entry.transaction.id).map_err(serde::de::Error::custom)?;
+                    let tx_id_bytes = hex::decode(&entry.transaction.id).map_err(serde::de::Error::custom)?;
 
-                    let input = TransactionInput {
-                        transaction_id: tx_id_bytes.as_slice().into(),
-                        index: entry.index,
-                    };
+                    let input = TransactionInput { transaction_id: tx_id_bytes.as_slice().into(), index: entry.index };
 
                     utxo_map.insert(input, entry.output.0);
                 }
@@ -1187,10 +1076,7 @@ pub mod test_vectors {
                     formatter.write_str("TransationOutput")
                 }
 
-                fn visit_map<V>(
-                    self,
-                    mut map: V,
-                ) -> Result<MemoizedTransactionOutputWrapper, V::Error>
+                fn visit_map<V>(self, mut map: V) -> Result<MemoizedTransactionOutputWrapper, V::Error>
                 where
                     V: serde::de::MapAccess<'a>,
                 {
@@ -1211,40 +1097,28 @@ pub mod test_vectors {
                         match key {
                             Field::Address => {
                                 let string: String = map.next_value()?;
-                                let bytes =
-                                    hex::decode(string).map_err(serde::de::Error::custom)?;
-                                address = Some(
-                                    Address::from_bytes(&bytes)
-                                        .map_err(serde::de::Error::custom)?,
-                                );
+                                let bytes = hex::decode(string).map_err(serde::de::Error::custom)?;
+                                address = Some(Address::from_bytes(&bytes).map_err(serde::de::Error::custom)?);
                             }
                             Field::Value => {
-                                let helper: BTreeMap<String, BTreeMap<String, u64>> =
-                                    map.next_value()?;
+                                let helper: BTreeMap<String, BTreeMap<String, u64>> = map.next_value()?;
                                 value = Some(amaru_kernel::Value::Coin(
                                     *helper
                                         .get("ada")
                                         .ok_or_else(|| serde::de::Error::missing_field("ada"))?
                                         .get("lovelace")
-                                        .ok_or_else(|| {
-                                            serde::de::Error::missing_field("lovelace")
-                                        })?,
+                                        .ok_or_else(|| serde::de::Error::missing_field("lovelace"))?,
                                 ));
                             }
                             Field::Datum => {
-                                assert_only_datum_or_hash(&datum)
-                                    .map_err(serde::de::Error::custom)?;
+                                assert_only_datum_or_hash(&datum).map_err(serde::de::Error::custom)?;
                                 let string: String = map.next_value()?;
-                                datum = MemoizedDatum::Inline(
-                                    string.try_into().map_err(serde::de::Error::custom)?,
-                                );
+                                datum = MemoizedDatum::Inline(string.try_into().map_err(serde::de::Error::custom)?);
                             }
                             Field::DatumHash => {
-                                assert_only_datum_or_hash(&datum)
-                                    .map_err(serde::de::Error::custom)?;
+                                assert_only_datum_or_hash(&datum).map_err(serde::de::Error::custom)?;
                                 let string: String = map.next_value()?;
-                                let bytes: Vec<u8> =
-                                    hex::decode(string).map_err(serde::de::Error::custom)?;
+                                let bytes: Vec<u8> = hex::decode(string).map_err(serde::de::Error::custom)?;
                                 datum = MemoizedDatum::Hash(bytes.as_slice().into())
                             }
                             Field::Script => {
@@ -1253,16 +1127,13 @@ pub mod test_vectors {
                         }
                     }
 
-                    Ok(MemoizedTransactionOutputWrapper(
-                        MemoizedTransactionOutput {
-                            is_legacy: false,
-                            address: address
-                                .ok_or_else(|| serde::de::Error::missing_field("address"))?,
-                            value: value.ok_or_else(|| serde::de::Error::missing_field("value"))?,
-                            datum,
-                            script,
-                        },
-                    ))
+                    Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput {
+                        is_legacy: false,
+                        address: address.ok_or_else(|| serde::de::Error::missing_field("address"))?,
+                        value: value.ok_or_else(|| serde::de::Error::missing_field("value"))?,
+                        datum,
+                        script,
+                    }))
                 }
             }
 
@@ -1270,14 +1141,10 @@ pub mod test_vectors {
         }
     }
 
-    static TEST_VECTORS: LazyLock<Vec<TestVector>> =
-        LazyLock::new(|| include_json!("script-context-fixtures.json"));
+    static TEST_VECTORS: LazyLock<Vec<TestVector>> = LazyLock::new(|| include_json!("script-context-fixtures.json"));
 
     pub fn get_test_vectors(version: u8) -> Vec<&'static TestVector> {
-        TEST_VECTORS
-            .iter()
-            .filter(|vector| vector.meta.plutus_version == version)
-            .collect()
+        TEST_VECTORS.iter().filter(|vector| vector.meta.plutus_version == version).collect()
     }
 
     pub fn get_test_vector(title: &str, ver: u8) -> &'static TestVector {
@@ -1290,34 +1157,29 @@ pub mod test_vectors {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ToPlutusData;
     use amaru_kernel::{StakePayload, new_stake_address};
     use proptest::{
         prelude::{Just, Strategy, any, prop},
         prop_assert, prop_oneof, proptest,
     };
 
+    use super::*;
+    use crate::ToPlutusData;
+
     fn network_strategy() -> impl Strategy<Value = Network> {
-        prop_oneof![
-            Just(Network::Testnet),
-            Just(Network::Mainnet),
-            any::<u8>().prop_map(Network::from),
-        ]
+        prop_oneof![Just(Network::Testnet), Just(Network::Mainnet), any::<u8>().prop_map(Network::from),]
     }
 
     fn stake_address_strategy() -> impl Strategy<Value = StakeAddress> {
-        (prop::bool::ANY, any::<[u8; 28]>(), network_strategy()).prop_map(
-            |(is_script, hash_bytes, network)| {
-                let delegation: StakePayload = if is_script {
-                    StakePayload::Script(hash_bytes.into())
-                } else {
-                    StakePayload::Stake(hash_bytes.into())
-                };
+        (prop::bool::ANY, any::<[u8; 28]>(), network_strategy()).prop_map(|(is_script, hash_bytes, network)| {
+            let delegation: StakePayload = if is_script {
+                StakePayload::Script(hash_bytes.into())
+            } else {
+                StakePayload::Stake(hash_bytes.into())
+            };
 
-                StakeAddress(new_stake_address(network, delegation))
-            },
-        )
+            StakeAddress(new_stake_address(network, delegation))
+        })
     }
 
     #[test]

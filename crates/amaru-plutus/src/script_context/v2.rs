@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
+use amaru_kernel::{Address, StakePayload};
+
 use crate::{
     PlutusDataError, ToPlutusData, constr_v2,
     script_context::{
-        Datums, OutputRef, PlutusData, ScriptContext, StakeAddress, TransactionOutput, TxInfo,
-        Value, Withdrawals,
+        Datums, OutputRef, PlutusData, ScriptContext, StakeAddress, TransactionOutput, TxInfo, Value, Withdrawals,
     },
 };
-use amaru_kernel::{Address, StakePayload};
-use std::collections::BTreeMap;
 
 impl ToPlutusData<2> for ScriptContext<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -58,10 +59,7 @@ impl ToPlutusData<2> for OutputRef<'_> {
     /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         if let Address::Byron(_) = *self.output.address {
-            return Err(PlutusDataError::unsupported_version(
-                "byron address included in OutputRef",
-                2,
-            ));
+            return Err(PlutusDataError::unsupported_version("byron address included in OutputRef", 2));
         }
 
         constr_v2!(0, [self.input, self.output])

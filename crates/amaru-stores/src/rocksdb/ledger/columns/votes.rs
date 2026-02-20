@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
-use amaru_kernel::{StakeCredential, Voter};
-use rocksdb::Transaction;
 use std::collections::BTreeSet;
 
+use amaru_kernel::{StakeCredential, Voter};
 pub use amaru_ledger::store::{
     StoreError,
     columns::votes::{Key, Row, Value},
 };
+use rocksdb::Transaction;
+
+use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "vote"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x76, 0x6f, 0x74, 0x65];
@@ -46,8 +47,7 @@ pub fn add<DB>(
             | Voter::StakePoolKey(..) => {}
         }
 
-        db.put(as_key(&PREFIX, &key), as_value(value))
-            .map_err(|err| StoreError::Internal(err.into()))?;
+        db.put(as_key(&PREFIX, &key), as_value(value)).map_err(|err| StoreError::Internal(err.into()))?;
     }
 
     Ok(voting_dreps)

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use amaru_kernel::NetworkName;
 use pallas_network::facades::PeerClient;
-use std::fmt;
 
 pub(crate) mod bootstrap;
 pub(crate) mod convert_ledger_state;
@@ -32,7 +33,8 @@ pub(crate) async fn connect_to_peer(
     peer_address: &str,
     network: &NetworkName,
 ) -> Result<PeerClient, pallas_network::facades::Error> {
-    PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await
+    PeerClient::connect(peer_address, network.to_network_magic().as_u64())
+        .await
         .inspect_err(|reason| tracing::error!(peer = %peer_address, reason = %reason, "failed to connect to peer"))
 }
 

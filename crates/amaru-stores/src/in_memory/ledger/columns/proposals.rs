@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::MemoryStore;
 use amaru_ledger::store::{
     StoreError,
     columns::proposals::{Key, Value},
 };
 
-pub fn add(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+use crate::in_memory::MemoryStore;
+
+pub fn add(store: &MemoryStore, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     for (key, value) in rows {
         store.proposals.borrow_mut().insert(key, value);
     }

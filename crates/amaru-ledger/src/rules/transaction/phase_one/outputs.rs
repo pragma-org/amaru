@@ -12,41 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{
+    AsIndex, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network, ProtocolParameters,
+    TransactionInput, utils::string::display_collection,
+};
+use thiserror::Error;
+
 use crate::{
     context::{UtxoSlice, WitnessSlice},
     rules::WithPosition,
 };
-use amaru_kernel::{
-    AsIndex, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network,
-    ProtocolParameters, TransactionInput, utils::string::display_collection,
-};
-use thiserror::Error;
 
 mod inherent_value;
 
 #[derive(Debug, Error)]
-#[error(
-    "invalid transaction outputs: [{}]",
-    display_collection(invalid_outputs)
-)]
+#[error("invalid transaction outputs: [{}]", display_collection(invalid_outputs))]
 pub struct InvalidOutputs {
     invalid_outputs: Vec<WithPosition<InvalidOutput>>,
 }
 
 #[derive(Debug, Error)]
 pub enum InvalidOutput {
-    #[error(
-        "output doesn't contain enough Lovelace: minimum: {minimum_value}, given: {given_value}"
-    )]
-    TooSmall {
-        minimum_value: Lovelace,
-        given_value: Lovelace,
-    },
+    #[error("output doesn't contain enough Lovelace: minimum: {minimum_value}, given: {given_value}")]
+    TooSmall { minimum_value: Lovelace, given_value: Lovelace },
     #[error("output value is too large: maximum: {maximum_size}, actual: {given_size}")]
-    ValueTooLarge {
-        maximum_size: usize,
-        given_size: usize,
-    },
+    ValueTooLarge { maximum_size: usize, given_size: usize },
 
     #[error("address has the wrong network ID: expected: {expected}, actual: {actual}")]
     WrongNetwork { expected: u8, actual: u8 },
@@ -98,17 +88,11 @@ where
     Ok(())
 }
 
-fn validate_network(
-    output: &MemoizedTransactionOutput,
-    expected_network: &Network,
-) -> Result<(), InvalidOutput> {
+fn validate_network(output: &MemoizedTransactionOutput, expected_network: &Network) -> Result<(), InvalidOutput> {
     let given_network = output.address.has_network();
 
     if &given_network != expected_network {
-        Err(InvalidOutput::WrongNetwork {
-            expected: expected_network.as_index(),
-            actual: given_network.as_index(),
-        })
+        Err(InvalidOutput::WrongNetwork { expected: expected_network.as_index(), actual: given_network.as_index() })
     } else {
         Ok(())
     }
@@ -116,14 +100,16 @@ fn validate_network(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use amaru_kernel::{Network, ProtocolParameters, TransactionBody, include_cbor};
+    use test_case::test_case;
+
     use super::{InvalidOutput, InvalidOutputs};
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::WithPosition,
     };
-    use amaru_kernel::{Network, ProtocolParameters, TransactionBody, include_cbor};
-    use std::collections::BTreeMap;
-    use test_case::test_case;
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -134,21 +120,12 @@ mod tests {
         };
         ($hash:literal, $variant:literal) => {
             (
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
                 amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $pp:expr) => {
-            (
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                $pp,
-            )
+            (include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")), $pp)
         };
     }
 
@@ -196,18 +173,8 @@ mod tests {
         "wrong network byron"
     )]
     #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"); "valid byron")]
-    fn outputs(
-        (tx, protocol_parameters): (TransactionBody, ProtocolParameters),
-    ) -> Result<(), InvalidOutputs> {
-        let mut context = AssertValidationContext::from(AssertPreparationContext {
-            utxo: BTreeMap::new(),
-        });
-        super::execute(
-            &mut context,
-            &protocol_parameters,
-            &Network::Testnet,
-            tx.outputs,
-            |_| None,
-        )
+    fn outputs((tx, protocol_parameters): (TransactionBody, ProtocolParameters)) -> Result<(), InvalidOutputs> {
+        let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
+        super::execute(&mut context, &protocol_parameters, &Network::Testnet, tx.outputs, |_| None)
     }
 }

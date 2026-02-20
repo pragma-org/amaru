@@ -24,11 +24,7 @@ pub struct NodeConfig {
 
 impl Default for NodeConfig {
     fn default() -> Self {
-        Self {
-            number_of_upstream_peers: 2,
-            number_of_downstream_peers: 1,
-            generated_chain_depth: 10,
-        }
+        Self { number_of_upstream_peers: 2, number_of_downstream_peers: 1, generated_chain_depth: 10 }
     }
 }
 

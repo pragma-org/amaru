@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::{
-    Args, NodeConfig, SimulateConfig, TEST_DATA_DIR,
-    run::{replay, run},
-};
-use anyhow::anyhow;
-use pure_stage::{Instant, serde::from_cbor, trace_buffer::TraceEntry};
 use std::{
     env,
     fmt::{Display, Formatter},
@@ -25,6 +19,13 @@ use std::{
     path::Path,
     str::FromStr,
 };
+
+use amaru_sim::simulator::{
+    Args, NodeConfig, SimulateConfig, TEST_DATA_DIR,
+    run::{replay, run},
+};
+use anyhow::anyhow;
+use pure_stage::{Instant, serde::from_cbor, trace_buffer::TraceEntry};
 use tracing_subscriber::EnvFilter;
 
 mod traces;
@@ -45,8 +46,7 @@ pub fn run_replay() {
     let simulate_config = SimulateConfig::default();
     let test_directory = simulate_config.persist_directory.as_path();
     let args = get_args(test_directory, SimulationRun::Latest).expect("latest arguments");
-    let traces =
-        get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");
+    let traces = get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -58,12 +58,8 @@ fn test_run_replay() {
     args.number_of_tests = 1;
     args.persist_directory = format!("{TEST_DATA_DIR}/run_replay");
     run(args.clone());
-    let traces = get_traces(
-        Path::new(&args.persist_directory),
-        SimulationRun::Latest,
-        TestRun::Latest,
-    )
-    .expect("latest traces");
+    let traces =
+        get_traces(Path::new(&args.persist_directory), SimulationRun::Latest, TestRun::Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -75,13 +71,11 @@ fn test_run_replay() {
 fn initialize_logs() {
     let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
     let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
-    let formatter = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            EnvFilter::builder()
-                .parse(format!("none,{}", amaru_logs))
-                .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
-        );
+    let formatter = tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(
+        EnvFilter::builder()
+            .parse(format!("none,{}", amaru_logs))
+            .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
+    );
     if amaru_logs_as_json {
         formatter.json().init();
     } else {
@@ -97,30 +91,18 @@ fn make_args() -> Args {
     Args {
         number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", simulate_config.number_of_tests),
         number_of_nodes: get_env_var("AMARU_NUMBER_OF_NODES", simulate_config.number_of_nodes),
-        number_of_upstream_peers: get_env_var(
-            "AMARU_NUMBER_OF_UPSTREAM_PEERS",
-            node_config.number_of_upstream_peers,
-        ),
+        number_of_upstream_peers: get_env_var("AMARU_NUMBER_OF_UPSTREAM_PEERS", node_config.number_of_upstream_peers),
         number_of_downstream_peers: get_env_var(
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
             node_config.number_of_downstream_peers,
         ),
-        generated_chain_depth: get_env_var(
-            "AMARU_GENERATED_CHAIN_DEPTH",
-            node_config.generated_chain_depth,
-        ),
+        generated_chain_depth: get_env_var("AMARU_GENERATED_CHAIN_DEPTH", node_config.generated_chain_depth),
         disable_shrinking: is_true_or("AMARU_DISABLE_SHRINKING", simulate_config.disable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
-        persist_on_success: is_true_or(
-            "AMARU_PERSIST_ON_SUCCESS",
-            simulate_config.persist_on_success,
-        ),
+        persist_on_success: is_true_or("AMARU_PERSIST_ON_SUCCESS", simulate_config.persist_on_success),
         persist_directory: get_env_var(
             "AMARU_PERSIST_DIRECTORY",
-            simulate_config
-                .persist_directory
-                .to_string_lossy()
-                .to_string(),
+            simulate_config.persist_directory.to_string_lossy().to_string(),
         ),
     }
 }
@@ -161,8 +143,7 @@ impl Display for TestRun {
 fn get_args(test_directory: &Path, simulation_run: SimulationRun) -> anyhow::Result<Args> {
     let path = format!("{}/{simulation_run}/args.json", test_directory.display());
     let path = Path::new(&path);
-    let path = fs::canonicalize(path)
-        .map_err(|e| anyhow!("cannot canonicalize the file at {path:?}: {e}"))?;
+    let path = fs::canonicalize(path).map_err(|e| anyhow!("cannot canonicalize the file at {path:?}: {e}"))?;
     let data = fs::read(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     let args: Args = serde_json::from_slice(data.as_slice())?;
     Ok(args)
@@ -174,12 +155,8 @@ fn get_traces(
     simulation_run: SimulationRun,
     test_run: TestRun,
 ) -> anyhow::Result<Vec<TraceEntry>> {
-    let path = format!(
-        "{}/{simulation_run}/{test_run}/traces.cbor",
-        test_directory.display()
-    );
-    let latest_trace =
-        fs::canonicalize(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let path = format!("{}/{simulation_run}/{test_run}/traces.cbor", test_directory.display());
+    let latest_trace = fs::canonicalize(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     load_trace_entries(&latest_trace)
 }
 
@@ -198,10 +175,7 @@ fn load_trace_entries(path: &Path) -> anyhow::Result<Vec<TraceEntry>> {
 
 // Parse the environment variable `var_name` as type T, or return `default` if not set or invalid.
 fn get_env_var<T: FromStr>(var_name: &str, default: T) -> T {
-    env::var(var_name)
-        .ok()
-        .and_then(|v| v.parse::<T>().ok())
-        .unwrap_or(default)
+    env::var(var_name).ok().and_then(|v| v.parse::<T>().ok()).unwrap_or(default)
 }
 
 // Parse the environment variable `var_name` as Some(T), or return None if not set or invalid.
@@ -217,10 +191,7 @@ fn is_true(var_name: &str) -> bool {
 /// Return true if the environment variable `var_name` is set to "1" or "true".
 /// Return the default value if the variable is not set.
 fn is_true_or(var_name: &str, default_value: bool) -> bool {
-    env::var(var_name)
-        .ok()
-        .map(is_true_value)
-        .unwrap_or(default_value)
+    env::var(var_name).ok().map(is_true_value).unwrap_or(default_value)
 }
 
 /// Return true is the given string value represents a true value.

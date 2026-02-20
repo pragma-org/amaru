@@ -56,9 +56,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::*;
     use amaru_kernel::{PoolId, Slot, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
+
+    use super::*;
 
     prop_compose! {
         pub fn any_slot()(

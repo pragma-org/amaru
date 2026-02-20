@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::MemoryStore;
 use amaru_ledger::{
     state::diff_bind::Resettable,
     store::{
@@ -21,18 +20,14 @@ use amaru_ledger::{
     },
 };
 
-pub fn add(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+use crate::in_memory::MemoryStore;
+
+pub fn add(store: &MemoryStore, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     let mut cc_members = store.cc_members.borrow_mut();
 
     for (key, (hot_credential, valid_until)) in rows {
         let row = cc_members.get(&key).cloned().or(match valid_until {
-            Resettable::Set(valid_until) => Some(Row {
-                hot_credential: None,
-                valid_until: Some(valid_until),
-            }),
+            Resettable::Set(valid_until) => Some(Row { hot_credential: None, valid_until: Some(valid_until) }),
             Resettable::Unchanged | Resettable::Reset => None,
         });
 

@@ -12,23 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    context::ValidationContext,
-    rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
-    store::GovernanceActivity,
-};
-use amaru_kernel::{
-    Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot,
-    TransactionId, TransactionPointer,
-};
-use amaru_plutus::arena_pool::ArenaPool;
 use std::{
     fmt::{self, Display},
     ops::{ControlFlow, FromResidual, Try},
     process::{ExitCode, Termination},
 };
+
+use amaru_kernel::{
+    Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
+    TransactionPointer,
+};
+use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 use tracing::{Level, instrument};
+
+use crate::{
+    context::ValidationContext,
+    rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
+    store::GovernanceActivity,
+};
 
 pub mod body_size;
 pub mod ex_units;
@@ -43,23 +45,10 @@ pub enum TransactionInvalid {
 }
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
-    BlockSizeMismatch {
-        supplied: u64,
-        actual: u64,
-    },
-    TooManyExUnits {
-        provided: ExUnits,
-        max: ExUnits,
-    },
-    HeaderSizeTooBig {
-        supplied: u64,
-        max: u64,
-    },
-    Transaction {
-        transaction_hash: TransactionId,
-        transaction_index: u32,
-        violation: TransactionInvalid,
-    },
+    BlockSizeMismatch { supplied: u64, actual: u64 },
+    TooManyExUnits { provided: ExUnits, max: ExUnits },
+    HeaderSizeTooBig { supplied: u64, max: u64 },
+    Transaction { transaction_hash: TransactionId, transaction_index: u32, violation: TransactionInvalid },
 }
 
 #[derive(Debug)]
@@ -70,42 +59,24 @@ pub enum BlockValidation<A, E> {
 }
 
 fn display_ex_units(ex_units: &ExUnits) -> String {
-    format!(
-        "ExUnits {{ mem: {}, steps: {} }}",
-        ex_units.mem, ex_units.steps
-    )
+    format!("ExUnits {{ mem: {}, steps: {} }}", ex_units.mem, ex_units.steps)
 }
 
 impl Display for InvalidBlockDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InvalidBlockDetails::BlockSizeMismatch { supplied, actual } => {
-                write!(
-                    f,
-                    "Block size mismatch: supplied {}, actual {}",
-                    supplied, actual
-                )
+                write!(f, "Block size mismatch: supplied {}, actual {}", supplied, actual)
             }
             InvalidBlockDetails::TooManyExUnits { provided, max } => {
-                write!(
-                    f,
-                    "Too many ExUnits: provided {}, max {}",
-                    display_ex_units(provided),
-                    display_ex_units(max)
-                )
+                write!(f, "Too many ExUnits: provided {}, max {}", display_ex_units(provided), display_ex_units(max))
             }
             InvalidBlockDetails::HeaderSizeTooBig { supplied, max } => {
                 write!(f, "Header size too big: supplied {}, max {}", supplied, max)
             }
-            InvalidBlockDetails::Transaction {
-                transaction_hash,
-                transaction_index,
-                violation,
-            } => write!(
-                f,
-                "Transaction {} at index {} is invalid: {}",
-                transaction_hash, transaction_index, violation
-            ),
+            InvalidBlockDetails::Transaction { transaction_hash, transaction_index, violation } => {
+                write!(f, "Transaction {} at index {} is invalid: {}", transaction_hash, transaction_index, violation)
+            }
         }
     }
 }
@@ -190,32 +161,20 @@ where
         Err(err) => BlockValidation::Invalid(slot, header_hash, err),
     };
 
-    with_block_context(header_size::block_header_size_valid(
-        block.header_len(),
-        protocol_params,
-    ))?;
+    with_block_context(header_size::block_header_size_valid(block.header_len(), protocol_params))?;
 
     with_block_context(body_size::block_body_size_valid(&block))?;
 
-    with_block_context(ex_units::block_ex_units_valid(
-        block.ex_units(),
-        protocol_params,
-    ))?;
+    with_block_context(ex_units::block_ex_units_valid(block.ex_units(), protocol_params))?;
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction) in block {
         let transaction_hash = transaction.body.id();
 
-        transaction
-            .body
-            .required_signers
-            .as_deref()
-            .unwrap_or(&[])
-            .iter()
-            .for_each(|vk_hash| {
-                context.require_vkey_witness(*vk_hash);
-            });
+        transaction.body.required_signers.as_deref().unwrap_or(&[]).iter().for_each(|vk_hash| {
+            context.require_vkey_witness(*vk_hash);
+        });
 
         let pointer = TransactionPointer {
             slot,
@@ -262,9 +221,7 @@ where
             }));
         }
 
-        consumed_inputs
-            .into_iter()
-            .for_each(|input| context.consume(input));
+        consumed_inputs.into_iter().for_each(|input| context.consume(input));
     }
 
     BlockValidation::Valid(())

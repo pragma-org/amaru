@@ -50,20 +50,20 @@
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 
-use crate::{
-    mempool_effects::MemoryPool,
-    mux::MuxMessage,
-    protocol::{
-        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState,
-        miniprotocol, outcome,
-    },
-    tx_submission::{Blocking, Message, ProtocolError, State},
-};
 use ProtocolError::*;
 use amaru_kernel::{Transaction, utils::string::display_collection};
 use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
 use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+
+use crate::{
+    mempool_effects::MemoryPool,
+    mux::MuxMessage,
+    protocol::{
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
+    },
+    tx_submission::{Blocking, Message, ProtocolError, State},
+};
 
 const MAX_REQUESTED_TX_IDS: u16 = 10;
 
@@ -100,16 +100,12 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
 
         let action = match input {
-            InitiatorResult::RequestTxIds {
-                ack,
-                req,
-                blocking: Blocking::Yes,
-            } => self.request_tx_ids_blocking(mempool, ack, req).await?,
-            InitiatorResult::RequestTxIds {
-                ack,
-                req,
-                blocking: Blocking::No,
-            } => self.request_tx_ids_non_blocking(mempool, ack, req)?,
+            InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
+                self.request_tx_ids_blocking(mempool, ack, req).await?
+            }
+            InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
+                self.request_tx_ids_non_blocking(mempool, ack, req)?
+            }
             InitiatorResult::RequestTxs(tx_ids) => self.request_txs(mempool, tx_ids)?,
         };
         Ok((action, self))
@@ -130,64 +126,42 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
                 tracing::debug!(%ack, %req, "received RequestTxIdsBlocking");
                 (
-                    outcome().result(InitiatorResult::RequestTxIds {
-                        ack,
-                        req,
-                        blocking: Blocking::Yes,
-                    }),
+                    outcome().result(InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes }),
                     State::TxIdsBlocking,
                 )
             }
             (State::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => {
                 tracing::debug!(%ack, %req, "received RequestTxIdsNonBlocking");
                 (
-                    outcome().result(InitiatorResult::RequestTxIds {
-                        ack,
-                        req,
-                        blocking: Blocking::No,
-                    }),
+                    outcome().result(InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No }),
                     State::TxIdsNonBlocking,
                 )
             }
             (State::Idle, Message::RequestTxs(tx_ids)) => {
                 tracing::debug!(tx_ids_nb = tx_ids.len(), "received RequestTxs");
-                (
-                    outcome().result(InitiatorResult::RequestTxs(tx_ids)),
-                    State::Txs,
-                )
+                (outcome().result(InitiatorResult::RequestTxs(tx_ids)), State::Txs)
             }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
-    fn local(
-        &self,
-        action: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+    fn local(&self, action: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         Ok(match (self, action) {
-            (State::TxIdsBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => (
-                outcome().send(Message::ReplyTxIds(tx_ids)).want_next(),
-                State::Idle,
-            ),
-            (State::TxIdsNonBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => (
-                outcome().send(Message::ReplyTxIds(tx_ids)).want_next(),
-                State::Idle,
-            ),
-            (State::Txs, InitiatorAction::SendReplyTxs(txs)) => (
-                outcome().send(Message::ReplyTxs(txs)).want_next(),
-                State::Idle,
-            ),
-            (State::TxIdsBlocking, InitiatorAction::Done) => {
-                (outcome().send(Message::Done), State::Done)
+            (State::TxIdsBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => {
+                (outcome().send(Message::ReplyTxIds(tx_ids)).want_next(), State::Idle)
             }
+            (State::TxIdsNonBlocking, InitiatorAction::SendReplyTxIds(tx_ids)) => {
+                (outcome().send(Message::ReplyTxIds(tx_ids)).want_next(), State::Idle)
+            }
+            (State::Txs, InitiatorAction::SendReplyTxs(txs)) => {
+                (outcome().send(Message::ReplyTxs(txs)).want_next(), State::Idle)
+            }
+            (State::TxIdsBlocking, InitiatorAction::Done) => (outcome().send(Message::Done), State::Done),
             (_, InitiatorAction::Error(e)) => (outcome().terminate_with(e), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -218,11 +192,7 @@ impl Display for InitiatorAction {
 /// Result from protocol state when network message is received
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
-    RequestTxIds {
-        ack: u16,
-        req: u16,
-        blocking: Blocking,
-    },
+    RequestTxIds { ack: u16, req: u16, blocking: Blocking },
     RequestTxs(Vec<TxId>),
 }
 
@@ -230,21 +200,13 @@ impl Display for InitiatorResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InitiatorResult::RequestTxIds { ack, req, blocking } => {
-                write!(
-                    f,
-                    "RequestTxIds(ack: {}, req: {}, blocking: {:?})",
-                    ack, req, blocking
-                )
+                write!(f, "RequestTxIds(ack: {}, req: {}, blocking: {:?})", ack, req, blocking)
             }
             InitiatorResult::RequestTxs(tx_ids) => {
                 write!(
                     f,
                     "RequestTxs(ids: [{}])",
-                    tx_ids
-                        .iter()
-                        .map(|id| format!("{}", id))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    tx_ids.iter().map(|id| format!("{}", id)).collect::<Vec<_>>().join(", ")
                 )
             }
         }
@@ -263,14 +225,7 @@ pub struct TxSubmissionInitiator {
 
 impl TxSubmissionInitiator {
     pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (
-            State::Init,
-            Self {
-                window: VecDeque::new(),
-                last_seq: None,
-                muxer,
-            },
-        )
+        (State::Init, Self { window: VecDeque::new(), last_seq: None, muxer })
     }
 
     async fn request_tx_ids_blocking(
@@ -293,10 +248,7 @@ impl TxSubmissionInitiator {
 
         // update the window by discarding acknowledged tx ids and update the last_seq
         self.discard(ack);
-        if !mempool
-            .wait_for_at_least(self.last_seq.unwrap_or_default().add(req as u64))
-            .await
-        {
+        if !mempool.wait_for_at_least(self.last_seq.unwrap_or_default().add(req as u64)).await {
             return Ok(None);
         }
         let tx_ids = self.get_next_tx_ids(mempool, req)?;
@@ -323,9 +275,7 @@ impl TxSubmissionInitiator {
 
         // update the window by discarding acknowledged tx ids and update the last_seq
         self.discard(ack);
-        Ok(Some(InitiatorAction::SendReplyTxIds(
-            self.get_next_tx_ids(mempool, req)?,
-        )))
+        Ok(Some(InitiatorAction::SendReplyTxIds(self.get_next_tx_ids(mempool, req)?)))
     }
 
     fn request_txs(
@@ -337,10 +287,7 @@ impl TxSubmissionInitiator {
         if tx_ids.is_empty() {
             return protocol_error(NoTxsRequested);
         }
-        if tx_ids
-            .iter()
-            .any(|id| !self.window.iter().any(|(wid, _)| wid == id))
-        {
+        if tx_ids.iter().any(|id| !self.window.iter().any(|(wid, _)| wid == id)) {
             return protocol_error(UnadvertisedTransactionIdsRequested(tx_ids));
         }
         let txs = mempool.get_txs_for_ids(tx_ids.as_slice());
@@ -369,11 +316,7 @@ impl TxSubmissionInitiator {
         required_next: u16,
     ) -> anyhow::Result<Vec<(TxId, u32)>> {
         let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next);
-        let result = tx_ids
-            .clone()
-            .into_iter()
-            .map(|(tx_id, tx_size, _)| (tx_id, tx_size))
-            .collect();
+        let result = tx_ids.clone().into_iter().map(|(tx_id, tx_size, _)| (tx_id, tx_size)).collect();
         self.update(tx_ids);
         Ok(result)
     }
@@ -415,12 +358,13 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::tx_submission::{
         assert_actions_eq, create_transactions_in_mempool,
         tests::{SizedMempool, create_transactions},
     };
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn serve_transactions() -> anyhow::Result<()> {
@@ -474,21 +418,11 @@ mod tests {
 
         // Send requests to retrieve transactions and block until they are available.
         // In this case they are immediately available since we pre-populated the mempool.
-        let results = vec![
-            request_tx_ids(0, 2, Blocking::Yes),
-            request_txs(&txs, &[0, 1]),
-            request_tx_ids(1, 2, Blocking::No),
-        ];
+        let results =
+            vec![request_tx_ids(0, 2, Blocking::Yes), request_txs(&txs, &[0, 1]), request_tx_ids(1, 2, Blocking::No)];
 
         let (actions, initiator) = run_stage_and_return_state(mempool.clone(), results).await?;
-        assert_actions_eq(
-            &actions,
-            &[
-                reply_tx_ids(&txs, &[0, 1]),
-                reply_txs(&txs, &[0, 1]),
-                reply_tx_ids(&txs, &[]),
-            ],
-        );
+        assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1]), reply_txs(&txs, &[0, 1]), reply_tx_ids(&txs, &[])]);
 
         // Refill the mempool with more transactions
         for tx in &txs[2..] {
@@ -531,20 +465,14 @@ mod tests {
         // should then request transactions for those ids only.
         // In this test we receive a request for tx ids 2 and 3, which were not advertised yet,
         // so the initiator should terminate the session.
-        let results = vec![
-            request_tx_ids(0, 2, Blocking::Yes),
-            request_txs(&txs, &[2, 3]),
-        ];
+        let results = vec![request_tx_ids(0, 2, Blocking::Yes), request_txs(&txs, &[2, 3])];
 
         let actions = run_stage(mempool, results).await?;
         assert_actions_eq(
             &actions,
             &[
                 reply_tx_ids(&txs, &[0, 1]),
-                error_action(UnadvertisedTransactionIdsRequested(vec![
-                    TxId::from(&txs[2]),
-                    TxId::from(&txs[3]),
-                ])),
+                error_action(UnadvertisedTransactionIdsRequested(vec![TxId::from(&txs[2]), TxId::from(&txs[3])])),
             ],
         );
         Ok(())
@@ -568,10 +496,7 @@ mod tests {
         let results = vec![request_tx_ids(0, 2, Blocking::Yes), request_txs(&txs, &[])];
 
         let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(
-            &actions,
-            &[reply_tx_ids(&txs, &[0, 1]), error_action(NoTxsRequested)],
-        );
+        assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1]), error_action(NoTxsRequested)]);
         Ok(())
     }
 
@@ -591,13 +516,7 @@ mod tests {
 
         let results = vec![request_tx_ids(0, 12, Blocking::Yes)];
         let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(
-            &actions,
-            &[error_action(MaxOutstandingTxIdsRequested(
-                12,
-                MAX_REQUESTED_TX_IDS,
-            ))],
-        );
+        assert_actions_eq(&actions, &[error_action(MaxOutstandingTxIdsRequested(12, MAX_REQUESTED_TX_IDS))]);
         Ok(())
     }
 
@@ -607,13 +526,7 @@ mod tests {
 
         let results = vec![request_tx_ids(0, 12, Blocking::No)];
         let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(
-            &actions,
-            &[error_action(MaxOutstandingTxIdsRequested(
-                12,
-                MAX_REQUESTED_TX_IDS,
-            ))],
-        );
+        assert_actions_eq(&actions, &[error_action(MaxOutstandingTxIdsRequested(12, MAX_REQUESTED_TX_IDS))]);
         Ok(())
     }
 
@@ -644,16 +557,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_non_blocking_request_must_be_made_when_some_txs_are_unacknowledged()
-    -> anyhow::Result<()> {
+    async fn a_non_blocking_request_must_be_made_when_some_txs_are_unacknowledged() -> anyhow::Result<()> {
         let mempool = Arc::new(SizedMempool::with_capacity(4));
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
-        let results = vec![
-            request_tx_ids(0, 4, Blocking::Yes),
-            request_txs(&txs, &[0, 1]),
-            request_tx_ids(2, 4, Blocking::Yes),
-        ];
+        let results =
+            vec![request_tx_ids(0, 4, Blocking::Yes), request_txs(&txs, &[0, 1]), request_tx_ids(2, 4, Blocking::Yes)];
         let actions = run_stage(mempool, results).await?;
         assert_actions_eq(
             &actions,
@@ -667,8 +576,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_blocking()
-    -> anyhow::Result<()> {
+    async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_blocking() -> anyhow::Result<()> {
         let mempool = Arc::new(SizedMempool::with_capacity(4));
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
@@ -694,8 +602,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_non_blocking()
-    -> anyhow::Result<()> {
+    async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_non_blocking() -> anyhow::Result<()>
+    {
         let mempool = Arc::new(SizedMempool::with_capacity(4));
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
@@ -776,16 +684,12 @@ mod tests {
         mempool: &dyn TxSubmissionMempool<Transaction>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         let action = match input {
-            InitiatorResult::RequestTxIds {
-                ack,
-                req,
-                blocking: Blocking::Yes,
-            } => initiator.request_tx_ids_blocking(mempool, ack, req).await?,
-            InitiatorResult::RequestTxIds {
-                ack,
-                req,
-                blocking: Blocking::No,
-            } => initiator.request_tx_ids_non_blocking(mempool, ack, req)?,
+            InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
+                initiator.request_tx_ids_blocking(mempool, ack, req).await?
+            }
+            InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
+                initiator.request_tx_ids_non_blocking(mempool, ack, req)?
+            }
             InitiatorResult::RequestTxs(tx_ids) => initiator.request_txs(mempool, tx_ids)?,
         };
         Ok(action)
@@ -794,9 +698,7 @@ mod tests {
     fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
         let default_transaction_size = 49;
         InitiatorAction::SendReplyTxIds(
-            ids.iter()
-                .map(|id| (TxId::from(&txs[*id]), default_transaction_size))
-                .collect(),
+            ids.iter().map(|id| (TxId::from(&txs[*id]), default_transaction_size)).collect(),
         )
     }
 

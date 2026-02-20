@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::UtxoSlice;
+use std::{collections::BTreeMap, fmt};
+
 use amaru_kernel::{
-    EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
-    TransactionPointer, WitnessSet, cbor, to_cbor, transaction_input_to_string,
+    EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
+    cbor, to_cbor, transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
     to_plutus_data::{PLUTUS_V1, PLUTUS_V2, PLUTUS_V3, PlutusDataError},
 };
-use std::{collections::BTreeMap, fmt};
 use thiserror::Error;
 use uplc_turbo::{
     binder::DeBruijn,
@@ -32,6 +32,8 @@ use uplc_turbo::{
     machine::{ExBudget, MachineInfo, PlutusVersion},
     term::Term,
 };
+
+use crate::context::UtxoSlice;
 
 #[derive(Debug, Error)]
 pub enum PhaseTwoError {
@@ -84,13 +86,7 @@ where
         .inputs
         .into_iter()
         .map(|input| {
-            Ok((
-                input.clone(),
-                context
-                    .lookup(input)
-                    .ok_or(PhaseTwoError::MissingInput(input.clone()))?
-                    .clone(),
-            ))
+            Ok((input.clone(), context.lookup(input).ok_or(PhaseTwoError::MissingInput(input.clone()))?.clone()))
         })
         .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()?;
 
@@ -103,10 +99,7 @@ where
                 .map(|input| {
                     Ok((
                         input.clone(),
-                        context
-                            .lookup(input)
-                            .ok_or(PhaseTwoError::MissingInput(input.clone()))?
-                            .clone(),
+                        context.lookup(input).ok_or(PhaseTwoError::MissingInput(input.clone()))?.clone(),
                     ))
                 })
                 .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()
@@ -167,12 +160,9 @@ where
                 ),
             };
 
-            let script_bytes = script
-                .to_bytes()
-                .map_err(PhaseTwoError::ScriptDeserializationError)?;
+            let script_bytes = script.to_bytes().map_err(PhaseTwoError::ScriptDeserializationError)?;
 
-            let mut program =
-                flat::decode::<DeBruijn>(&arena, &script_bytes).map_err(PhaseTwoError::from)?;
+            let mut program = flat::decode::<DeBruijn>(&arena, &script_bytes).map_err(PhaseTwoError::from)?;
 
             // TODO: we should stop using Pallas' PlutusData
             // We are using Pallas' PlutusData in `amaru-plutus` and not the `PlutusData` from `uplc`
@@ -182,8 +172,7 @@ where
                 .map(|arg| {
                     let bytes = to_cbor(&arg);
                     #[allow(clippy::expect_used)]
-                    let data = PlutusData::from_cbor(&arena, &bytes)
-                        .expect("unable to decode PlutusData cbor");
+                    let data = PlutusData::from_cbor(&arena, &bytes).expect("unable to decode PlutusData cbor");
                     Constant::Data(data)
                 })
                 .collect::<Vec<_>>();
@@ -195,10 +184,7 @@ where
 
             let budget = script_context.budget();
 
-            let uplc_budget = ExBudget {
-                mem: budget.mem as i64,
-                cpu: budget.steps as i64,
-            };
+            let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
 
             let result = program.eval_with_params(&arena, plutus_version, cost_model, uplc_budget);
 

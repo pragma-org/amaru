@@ -12,22 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor::{Decode, Decoder, Encode};
 use std::{fmt, ops::Add};
 
-#[derive(
-    Clone,
-    Debug,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
-    Default,
-)]
+use minicbor::{Decode, Decoder, Encode};
+
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, serde::Serialize, serde::Deserialize, Default)]
 #[repr(transparent)]
 pub struct Slot(u64);
 

@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Instant, ScheduleId, simulation::SimulationRunning};
 use std::collections::BTreeMap;
+
+use crate::{Instant, ScheduleId, simulation::SimulationRunning};
 
 /// A collection of scheduled runnables.
 /// It maintains an order based on the scheduled time in order to efficiently retrieve the next runnables
@@ -27,9 +28,7 @@ type Runnable = Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>;
 
 impl ScheduledRunnables {
     pub fn new() -> Self {
-        Self {
-            by_id: BTreeMap::new(),
-        }
+        Self { by_id: BTreeMap::new() }
     }
 
     /// Return the number of scheduled runnables.
@@ -55,10 +54,7 @@ impl ScheduledRunnables {
     }
 
     #[cfg(test)]
-    pub fn isochronous_wakeups(
-        &mut self,
-        max_time: Option<Instant>,
-    ) -> (Vec<Runnable>, Option<Instant>) {
+    pub fn isochronous_wakeups(&mut self, max_time: Option<Instant>) -> (Vec<Runnable>, Option<Instant>) {
         let mut wakeups = Vec::new();
         let mut time = max_time;
         while let Some((t, r)) = self.wakeup(time) {
@@ -69,11 +65,7 @@ impl ScheduledRunnables {
     }
 
     /// Add a new runnable with its ScheduleId.
-    pub fn schedule(
-        &mut self,
-        id: ScheduleId,
-        runnable: Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>,
-    ) {
+    pub fn schedule(&mut self, id: ScheduleId, runnable: Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>) {
         self.by_id.insert(id, runnable);
     }
 
@@ -91,9 +83,10 @@ impl ScheduledRunnables {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::ScheduleIds;
-    use std::time::Duration;
 
     #[test]
     fn next_wakeup_time_is_the_smallest_time() {

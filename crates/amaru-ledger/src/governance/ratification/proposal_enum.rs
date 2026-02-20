@@ -12,17 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::summary::SafeRatio;
-use amaru_kernel::{
-    ComparableProposalId, Constitution, Epoch, Lovelace, ProtocolParamUpdate, ProtocolVersion,
-    StakeCredential,
-};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt,
     rc::Rc,
 };
+
+use amaru_kernel::{
+    ComparableProposalId, Constitution, Epoch, Lovelace, ProtocolParamUpdate, ProtocolVersion, StakeCredential,
+};
+
+use crate::summary::SafeRatio;
 
 // ProposalEnum
 // ----------------------------------------------------------------------------
@@ -50,12 +51,8 @@ impl ProposalEnum {
         match self {
             Self::ProtocolParameters(..) => "protocol-parameters",
             Self::HardFork(..) => "hard-fork",
-            Self::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
-                "motion-of-no-confidence"
-            }
-            Self::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _) => {
-                "constitutional-committee"
-            }
+            Self::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => "motion-of-no-confidence",
+            Self::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _) => "constitutional-committee",
             Self::Constitution(..) => "constitution",
             Self::Orphan(OrphanProposal::NicePoll) => "nice-poll",
             Self::Orphan(OrphanProposal::TreasuryWithdrawal(..)) => "treasury-withdrawal",
@@ -79,10 +76,7 @@ impl ProposalEnum {
 
         match (self, other) {
             // Priority #1: No Confidence
-            (
-                ConstitutionalCommittee(NoConfidence, ..),
-                ConstitutionalCommittee(NoConfidence, ..),
-            ) => Ordering::Equal,
+            (ConstitutionalCommittee(NoConfidence, ..), ConstitutionalCommittee(NoConfidence, ..)) => Ordering::Equal,
             (ConstitutionalCommittee(NoConfidence, ..), _) => Ordering::Greater,
             (_, ConstitutionalCommittee(NoConfidence, ..)) => Ordering::Less,
             // Priority #2: Update to the Constitutional Committee
@@ -139,22 +133,14 @@ impl ProposalEnum {
 #[derive(Debug, Clone)]
 pub enum CommitteeUpdate {
     NoConfidence,
-    ChangeMembers {
-        removed: BTreeSet<StakeCredential>,
-        added: BTreeMap<StakeCredential, Epoch>,
-        threshold: SafeRatio,
-    },
+    ChangeMembers { removed: BTreeSet<StakeCredential>, added: BTreeMap<StakeCredential, Epoch>, threshold: SafeRatio },
 }
 
 impl fmt::Display for CommitteeUpdate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoConfidence => write!(f, "no-confidence"),
-            Self::ChangeMembers {
-                removed,
-                added,
-                threshold,
-            } => {
+            Self::ChangeMembers { removed, added, threshold } => {
                 let mut need_separator = false;
 
                 if !removed.is_empty() {
@@ -163,12 +149,7 @@ impl fmt::Display for CommitteeUpdate {
                 }
 
                 if !added.is_empty() {
-                    write!(
-                        f,
-                        "{}{} added",
-                        if need_separator { ", " } else { "" },
-                        added.len()
-                    )?;
+                    write!(f, "{}{} added", if need_separator { ", " } else { "" }, added.len())?;
                     need_separator = true;
                 }
 
@@ -198,10 +179,8 @@ impl fmt::Display for OrphanProposal {
         match self {
             OrphanProposal::NicePoll => write!(f, "nice poll"),
             OrphanProposal::TreasuryWithdrawal(withdrawals) => {
-                let total = withdrawals
-                    .iter()
-                    .fold(0_u64, |total, (_, single)| total.saturating_add(*single))
-                    / 1_000_000;
+                let total =
+                    withdrawals.iter().fold(0_u64, |total, (_, single)| total.saturating_add(*single)) / 1_000_000;
                 write!(f, "withdrawal={total}₳")
             }
         }
@@ -216,70 +195,47 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
-    use crate::summary::SafeRatio;
+    use std::rc::Rc;
+
     use amaru_kernel::{
         Epoch, any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
         any_protocol_version, any_stake_credential,
     };
     use num::{BigUint, One};
     use proptest::{collection, option, prelude::*};
-    use std::rc::Rc;
+
+    use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
+    use crate::summary::SafeRatio;
 
     pub fn any_proposal_enum() -> impl Strategy<Value = ProposalEnum> {
-        let any_protocol_parameters = (
-            option::of(any_comparable_proposal_id()),
-            any_protocol_params_update(),
-        )
-            .prop_map(|(parent, params_update)| {
-                ProposalEnum::ProtocolParameters(params_update, parent.map(Rc::new))
-            });
+        let any_protocol_parameters = (option::of(any_comparable_proposal_id()), any_protocol_params_update())
+            .prop_map(|(parent, params_update)| ProposalEnum::ProtocolParameters(params_update, parent.map(Rc::new)));
 
-        let any_hard_fork = (
-            option::of(any_comparable_proposal_id()),
-            any_protocol_version(),
-        )
-            .prop_map(|(parent, protocol_version)| {
-                ProposalEnum::HardFork(protocol_version, parent.map(Rc::new))
-            });
+        let any_hard_fork = (option::of(any_comparable_proposal_id()), any_protocol_version())
+            .prop_map(|(parent, protocol_version)| ProposalEnum::HardFork(protocol_version, parent.map(Rc::new)));
 
-        let any_constitutional_committee = (
-            option::of(any_comparable_proposal_id()),
-            any_committee_update(any_epoch()),
-        )
-            .prop_map(|(parent, committee)| {
-                ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new))
-            });
+        let any_constitutional_committee =
+            (option::of(any_comparable_proposal_id()), any_committee_update(any_epoch()))
+                .prop_map(|(parent, committee)| ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new)));
 
         let any_constitution = (option::of(any_comparable_proposal_id()), any_constitution())
-            .prop_map(|(parent, constitution)| {
-                ProposalEnum::Constitution(constitution, parent.map(Rc::new))
-            });
+            .prop_map(|(parent, constitution)| ProposalEnum::Constitution(constitution, parent.map(Rc::new)));
 
         let any_orphan = any_orphan_proposal().prop_map(ProposalEnum::Orphan);
 
-        prop_oneof![
-            any_protocol_parameters,
-            any_hard_fork,
-            any_constitutional_committee,
-            any_constitution,
-            any_orphan,
-        ]
+        prop_oneof![any_protocol_parameters, any_hard_fork, any_constitutional_committee, any_constitution, any_orphan,]
     }
 
     pub fn any_orphan_proposal() -> impl Strategy<Value = OrphanProposal> {
         let any_nice_poll = Just(OrphanProposal::NicePoll);
 
-        let any_treasury_withdrawal =
-            collection::btree_map(any_stake_credential(), 1..(u64::MAX / 3), 1..3)
-                .prop_map(OrphanProposal::TreasuryWithdrawal);
+        let any_treasury_withdrawal = collection::btree_map(any_stake_credential(), 1..(u64::MAX / 3), 1..3)
+            .prop_map(OrphanProposal::TreasuryWithdrawal);
 
         prop_oneof![any_nice_poll, any_treasury_withdrawal]
     }
 
-    pub fn any_committee_update(
-        any_epoch: impl Strategy<Value = Epoch>,
-    ) -> impl Strategy<Value = CommitteeUpdate> {
+    pub fn any_committee_update(any_epoch: impl Strategy<Value = Epoch>) -> impl Strategy<Value = CommitteeUpdate> {
         let any_no_confidence = Just(CommitteeUpdate::NoConfidence);
 
         let any_change_members = (
@@ -287,13 +243,11 @@ mod tests {
             collection::btree_set(any_stake_credential(), 0..3),
             collection::btree_map(any_stake_credential(), any_epoch, 0..3),
         )
-            .prop_map(
-                |(numerator, removed, added)| CommitteeUpdate::ChangeMembers {
-                    removed,
-                    added,
-                    threshold: SafeRatio::new(BigUint::from(numerator), BigUint::one()),
-                },
-            );
+            .prop_map(|(numerator, removed, added)| CommitteeUpdate::ChangeMembers {
+                removed,
+                added,
+                threshold: SafeRatio::new(BigUint::from(numerator), BigUint::one()),
+            });
 
         prop_oneof![1 => any_no_confidence, 2 => any_change_members]
     }

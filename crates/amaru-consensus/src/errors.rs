@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
-use amaru_ouroboros_traits::{
-    BlockValidationError, StoreError, can_validate_blocks::HeaderValidationError,
-};
-use serde::ser::SerializeStruct;
 use std::{fmt, fmt::Display};
+
+use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
+use amaru_ouroboros_traits::{BlockValidationError, StoreError, can_validate_blocks::HeaderValidationError};
+use serde::ser::SerializeStruct;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -40,32 +39,16 @@ pub enum ConsensusError {
     UpdateBestChainFailed(HeaderHash, HeaderHash, StoreError),
     #[error("Failed to store block body at {0}: {1}")]
     StoreBlockFailed(Point, StoreError),
-    #[error(
-        "Header point {} does not match expected point {}",
-        actual_point,
-        expected_point
-    )]
-    HeaderPointMismatch {
-        actual_point: Point,
-        expected_point: Point,
-    },
+    #[error("Header point {} does not match expected point {}", actual_point, expected_point)]
+    HeaderPointMismatch { actual_point: Point, expected_point: Point },
     #[error("Failed to decode header: {} ({})", hex::encode(&header[..header.len().min(32)]), reason)]
     CannotDecodeHeader { header: Vec<u8>, reason: String },
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(Peer),
     #[error("Unknown point {0}, bailing out")]
     UnknownPoint(HeaderHash),
-    #[error(
-        "Invalid rollback {} from peer {}, cannot go further than {}",
-        rollback_point,
-        peer,
-        max_point
-    )]
-    InvalidRollback {
-        peer: Peer,
-        rollback_point: HeaderHash,
-        max_point: HeaderHash,
-    },
+    #[error("Invalid rollback {} from peer {}, cannot go further than {}", rollback_point, peer, max_point)]
+    InvalidRollback { peer: Peer, rollback_point: HeaderHash, max_point: HeaderHash },
     #[error("Invalid block from peer {} at {}", peer, point)]
     InvalidBlock { peer: Peer, point: Point },
     #[error("{0}")]
@@ -73,10 +56,7 @@ pub enum ConsensusError {
     #[error("{0}")]
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
     #[error("Invalid header height {actual}, expected {expected}")]
-    InvalidHeaderHeight {
-        actual: BlockHeight,
-        expected: BlockHeight,
-    },
+    InvalidHeaderHeight { actual: BlockHeight, expected: BlockHeight },
     #[error("{0}")]
     InvalidHeaderPoint(Box<InvalidHeaderPoint>),
     #[error("Invalid header variant {0}")]
@@ -90,10 +70,7 @@ pub enum ConsensusError {
     #[error("{0}")]
     EraHistoryError(#[from] amaru_kernel::EraHistoryError),
     #[error("Era name mismatch: from raw_header {from_raw_header}, from slot={from_slot}")]
-    EraNameMismatch {
-        from_raw_header: EraName,
-        from_slot: EraName,
-    },
+    EraNameMismatch { from_raw_header: EraName, from_slot: EraName },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -133,20 +110,13 @@ pub struct ValidationFailed {
 
 impl Display for ValidationFailed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "validation failed for peer {}: {}",
-            self.peer.name, self.error
-        )
+        write!(f, "validation failed for peer {}: {}", self.peer.name, self.error)
     }
 }
 
 impl ValidationFailed {
     pub fn new(peer: &Peer, error: ConsensusError) -> Self {
-        Self {
-            peer: peer.clone(),
-            error,
-        }
+        Self { peer: peer.clone(), error }
     }
 }
 
@@ -188,10 +158,7 @@ impl<'de> serde::Deserialize<'de> for ProcessingFailed {
         }
 
         let helper = ProcessingFailedHelper::deserialize(deserializer)?;
-        Ok(ProcessingFailed {
-            peer: helper.peer,
-            error: anyhow::anyhow!(helper.error),
-        })
+        Ok(ProcessingFailed { peer: helper.peer, error: anyhow::anyhow!(helper.error) })
     }
 }
 
@@ -200,10 +167,7 @@ impl Display for ProcessingFailed {
         write!(
             f,
             "processing failed for peer {}: {}",
-            self.peer
-                .clone()
-                .map(|p| p.name)
-                .unwrap_or("n/a".to_string()),
+            self.peer.clone().map(|p| p.name).unwrap_or("n/a".to_string()),
             self.error
         )
     }
@@ -211,10 +175,7 @@ impl Display for ProcessingFailed {
 
 impl ProcessingFailed {
     pub fn new(peer: &Peer, error: anyhow::Error) -> Self {
-        Self {
-            peer: Some(peer.clone()),
-            error,
-        }
+        Self { peer: Some(peer.clone()), error }
     }
 
     pub fn from(error: anyhow::Error) -> Self {

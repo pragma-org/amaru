@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{context::ValidationContext, store::GovernanceActivity};
-use amaru_kernel::{
-    AuxiliaryData, EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
-    TransactionPointer, WitnessSet,
-};
 use std::{fmt, mem, ops::Deref};
+
+use amaru_kernel::{
+    AuxiliaryData, EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer,
+    WitnessSet,
+};
 use thiserror::Error;
+
+use crate::{context::ValidationContext, store::GovernanceActivity};
 
 pub mod certificates;
 pub use certificates::InvalidCertificates;
@@ -120,11 +122,7 @@ where
         transaction_body.collateral_return.as_ref(),
     )?;
 
-    inputs::execute(
-        context,
-        transaction_body.inputs.deref(),
-        transaction_body.reference_inputs.as_deref(),
-    )?;
+    inputs::execute(context, transaction_body.inputs.deref(), transaction_body.reference_inputs.as_deref())?;
 
     if transaction_witness_set.redeemer.is_some() {
         collateral::execute(
@@ -143,9 +141,7 @@ where
         context,
         protocol_parameters,
         &(*network).into(),
-        mem::take(&mut transaction_body.collateral_return)
-            .map(|x| vec![x])
-            .unwrap_or_default(),
+        mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
         |_index| {
             if is_valid {
                 return None;
@@ -157,10 +153,7 @@ where
             // the output length elsewhere since after having consumed the outputs, the .len()
             // will always return zero.
             let offset = transaction_body.outputs.len() as u64;
-            Some(TransactionInput {
-                transaction_id,
-                index: offset,
-            })
+            Some(TransactionInput { transaction_id, index: offset })
         },
     )?;
 
@@ -174,17 +167,11 @@ where
                 return None;
             }
 
-            Some(TransactionInput {
-                transaction_id,
-                index,
-            })
+            Some(TransactionInput { transaction_id, index })
         },
     )?;
 
-    withdrawals::execute(
-        context,
-        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
-    )?;
+    withdrawals::execute(context, mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()))?;
 
     proposals::execute(
         context,
@@ -207,10 +194,7 @@ where
     let consumed_inputs = if is_valid {
         transaction_body.inputs.to_vec()
     } else {
-        transaction_body
-            .collateral
-            .map(|x| x.to_vec())
-            .unwrap_or_default()
+        transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
     };
 
     Ok(consumed_inputs)

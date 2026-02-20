@@ -17,10 +17,7 @@ use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{Counter, Gauge};
-
-use crate::Meter;
-
-use crate::{MetricRecorder, MetricsEvent};
+use crate::{Meter, MetricRecorder, MetricsEvent};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LedgerMetrics {
@@ -101,9 +98,7 @@ impl MetricRecorder for LedgerMetrics {
         let density = DENSITY.get_or_init(|| {
             meter
                 .f64_gauge("cardano_node_metrics_density_real")
-                .with_description(
-                    "chain density over the last k blocks or since genesis, whichever is shorter",
-                )
+                .with_description("chain density over the last k blocks or since genesis, whichever is shorter")
                 .with_unit("real")
                 .build()
         });

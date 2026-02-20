@@ -35,9 +35,18 @@
 //! [`StageGraph::run`](crate::StageGraph::run).
 //!
 
+use std::{
+    any::Any,
+    collections::{BTreeMap, VecDeque},
+    future::Future,
+    marker::PhantomData,
+    sync::{Arc, atomic::AtomicU64},
+};
+
+use parking_lot::Mutex;
+
 use crate::{
-    BLACKHOLE_NAME, Clock, Name, Resources, ScheduleIds, SendData, Sender, StageBuildRef,
-    StageGraph, StageRef,
+    BLACKHOLE_NAME, Clock, Name, Resources, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::{Effects, StageEffect},
     effect_box::EffectBox,
@@ -51,15 +60,6 @@ use crate::{
     stage_name,
     stage_ref::StageStateRef,
     trace_buffer::TraceBuffer,
-};
-
-use parking_lot::Mutex;
-use std::{
-    any::Any,
-    collections::{BTreeMap, VecDeque},
-    future::Future,
-    marker::PhantomData,
-    sync::{Arc, atomic::AtomicU64},
 };
 
 /// A fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
@@ -204,11 +204,7 @@ impl SimulationBuilder {
                     continue;
                 }
             };
-            let InitStageData {
-                mailbox,
-                state,
-                transition,
-            } = data;
+            let InitStageData { mailbox, state, transition } = data;
 
             let state = match state {
                 InitStageState::Uninitialized => panic!("forgot to wire up stage `{name}`"),
@@ -265,11 +261,7 @@ impl Default for SimulationBuilder {
 }
 
 impl StageGraph for SimulationBuilder {
-    fn stage<Msg, St, F, Fut>(
-        &mut self,
-        name: impl AsRef<str>,
-        mut f: F,
-    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
+    fn stage<Msg, St, F, Fut>(&mut self, name: impl AsRef<str>, mut f: F) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -287,15 +279,12 @@ impl StageGraph for SimulationBuilder {
             self.schedule_ids.clone(),
             self.trace_buffer.clone(),
         );
-        let transition: Transition =
-            Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
-                let state = state.cast::<St>().expect("internal state type error");
-                let msg = msg
-                    .cast_deserialize::<Msg>()
-                    .expect("internal message type error");
-                let state = f(*state, msg, effects.clone());
-                Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
-            });
+        let transition: Transition = Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
+            let state = state.cast::<St>().expect("internal state type error");
+            let msg = msg.cast_deserialize::<Msg>().expect("internal message type error");
+            let state = f(*state, msg, effects.clone());
+            Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
+        });
 
         if let Some(old) = self.stages.insert(
             name.clone(),
@@ -312,11 +301,7 @@ impl StageGraph for SimulationBuilder {
             }
         }
 
-        StageBuildRef {
-            name,
-            network: Box::new(()),
-            _ph: PhantomData,
-        }
+        StageBuildRef { name, network: Box::new(()), _ph: PhantomData }
     }
 
     fn wire_up<Msg: SendData, St: SendData>(
@@ -324,11 +309,7 @@ impl StageGraph for SimulationBuilder {
         stage: crate::StageBuildRef<Msg, St, Box<dyn Any + Send>>,
         state: St,
     ) -> StageStateRef<Msg, St> {
-        let StageBuildRef {
-            name,
-            network: _,
-            _ph,
-        } = stage;
+        let StageBuildRef { name, network: _, _ph } = stage;
 
         let StageOrAdapter::Stage(data) = self.stages.get_mut(&name).unwrap() else {
             panic!("stage {name} is an adapter");
@@ -347,8 +328,7 @@ impl StageGraph for SimulationBuilder {
         let target = stage_ref.as_ref().name().clone();
         let new_name = stage_name(&mut self.stage_counter, new_name.as_ref());
         let adapter = Adapter::new(new_name.clone(), target, transform);
-        self.stages
-            .insert(adapter.name.clone(), StageOrAdapter::Adapter(adapter));
+        self.stages.insert(adapter.name.clone(), StageOrAdapter::Adapter(adapter));
         StageRef::new(new_name)
     }
 

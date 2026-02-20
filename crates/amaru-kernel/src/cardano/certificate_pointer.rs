@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Slot, TransactionPointer, cbor};
 use std::fmt;
+
+use crate::{Slot, TransactionPointer, cbor};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
 pub struct CertificatePointer {
@@ -29,11 +30,7 @@ impl CertificatePointer {
 
 impl fmt::Display for CertificatePointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{},certificate={}",
-            &self.transaction, &self.certificate_index
-        )
+        write!(f, "{},certificate={}", &self.transaction, &self.certificate_index)
     }
 }
 
@@ -54,10 +51,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(CertificatePointer {
-                transaction: d.decode_with(ctx)?,
-                certificate_index: d.decode_with(ctx)?,
-            })
+            Ok(CertificatePointer { transaction: d.decode_with(ctx)?, certificate_index: d.decode_with(ctx)? })
         })
     }
 }
@@ -67,9 +61,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose};
+
     use super::*;
     use crate::{any_transaction_pointer, prop_cbor_roundtrip};
-    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(CertificatePointer, any_certificate_pointer(u64::MAX));
 
@@ -87,8 +82,9 @@ mod tests {
 
     #[cfg(test)]
     mod internal {
-        use super::*;
         use test_case::test_case;
+
+        use super::*;
 
         #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
         #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
@@ -100,17 +96,11 @@ mod tests {
             right: (u64, usize, usize),
         ) -> (CertificatePointer, CertificatePointer) {
             let new_pointer = |args: (Slot, usize, usize)| CertificatePointer {
-                transaction: TransactionPointer {
-                    slot: args.0,
-                    transaction_index: args.1,
-                },
+                transaction: TransactionPointer { slot: args.0, transaction_index: args.1 },
                 certificate_index: args.2,
             };
 
-            (
-                new_pointer((Slot::from(left.0), left.1, left.2)),
-                new_pointer((Slot::from(right.0), right.1, right.2)),
-            )
+            (new_pointer((Slot::from(left.0), left.1, left.2)), new_pointer((Slot::from(right.0), right.1, right.2)))
         }
     }
 }

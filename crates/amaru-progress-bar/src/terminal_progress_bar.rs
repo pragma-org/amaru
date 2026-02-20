@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::ProgressBar;
 use indicatif::ProgressStyle;
+
+use super::ProgressBar;
 
 /// A simple progress bar in ther terminal.
 pub struct TerminalProgressBar {
@@ -23,8 +24,7 @@ pub struct TerminalProgressBar {
 #[expect(clippy::unwrap_used)]
 pub fn new_terminal_progress_bar(size: usize, template: &str) -> Box<dyn ProgressBar> {
     Box::new(TerminalProgressBar {
-        inner: indicatif::ProgressBar::new(size as u64)
-            .with_style(ProgressStyle::with_template(template).unwrap()),
+        inner: indicatif::ProgressBar::new(size as u64).with_style(ProgressStyle::with_template(template).unwrap()),
     })
 }
 

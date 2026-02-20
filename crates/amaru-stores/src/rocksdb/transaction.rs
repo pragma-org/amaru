@@ -16,6 +16,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+
 use tracing::error;
 
 /// A wrapper to keep track of the status of an ongoing database transaction. This is handy to
@@ -29,9 +30,7 @@ pub(crate) struct OngoingTransaction {
 
 impl OngoingTransaction {
     pub(crate) fn new() -> Self {
-        OngoingTransaction {
-            value: Arc::new(AtomicBool::new(false)),
-        }
+        OngoingTransaction { value: Arc::new(AtomicBool::new(false)) }
     }
 
     pub(crate) fn get(&self) -> bool {

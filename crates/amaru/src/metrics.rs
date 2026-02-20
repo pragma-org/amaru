@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{sync::LazyLock, time::Duration};
+
 use anyhow::anyhow;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use std::{sync::LazyLock, time::Duration};
-use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System,
-};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 use tokio::task::JoinHandle;
 use tracing::error;
 
 static METRICS_POLL_DELAY: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(1));
 
-pub fn track_system_metrics(
-    provider: SdkMeterProvider,
-) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
+pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     use internals::*;
 
     let mut sys = System::new_with_specifics(
@@ -36,8 +33,7 @@ pub fn track_system_metrics(
 
     let metrics = ProcessMetrics::new(provider, &sys);
 
-    let own_pid =
-        sysinfo::get_current_pid().map_err(|err| anyhow!("unable to retrieve own pid: {err}"))?;
+    let own_pid = sysinfo::get_current_pid().map_err(|err| anyhow!("unable to retrieve own pid: {err}"))?;
 
     Ok(tokio::spawn(async move {
         loop {
@@ -46,10 +42,7 @@ pub fn track_system_metrics(
             sys.refresh_processes_specifics(
                 ProcessesToUpdate::Some(&[own_pid]),
                 true,
-                ProcessRefreshKind::nothing()
-                    .with_cpu()
-                    .with_disk_usage()
-                    .with_memory(),
+                ProcessRefreshKind::nothing().with_cpu().with_disk_usage().with_memory(),
             );
 
             match sys.process(own_pid) {
@@ -149,20 +142,22 @@ mod internals {
 
             let memory_live_resident_bytes = meter
                 .u64_gauge("process_memory_live_resident")
-                .with_description("The amount of memory that the process allocated and which is currently mapped in physical RAM (in bytes).")
+                .with_description(
+                    "The amount of memory that the process allocated and which is currently mapped in physical RAM (in bytes).",
+                )
                 .with_unit("bytes")
                 .build();
 
             let memory_available_virtual_bytes = meter
                 .u64_gauge("process_memory_available_virtual")
-                .with_description("The amount of memory that the process can access, whether it is currently mapped in physical RAM or not (in bytes).")
+                .with_description(
+                    "The amount of memory that the process can access, whether it is currently mapped in physical RAM or not (in bytes).",
+                )
                 .with_unit("bytes")
                 .build();
 
-            let open_files = meter
-                .u64_gauge("process_open_files")
-                .with_description("Total number of file descriptors.")
-                .build();
+            let open_files =
+                meter.u64_gauge("process_open_files").with_description("Total number of file descriptors.").build();
 
             Self {
                 number_of_cpus,
@@ -182,24 +177,18 @@ mod internals {
             self.runtime_seconds.record(proc.run_time(), &[]);
 
             let disk_usage = proc.disk_usage();
-            self.disk_total_read_bytes
-                .record(disk_usage.total_read_bytes, &[]);
-            self.disk_total_write_bytes
-                .record(disk_usage.total_written_bytes, &[]);
+            self.disk_total_read_bytes.record(disk_usage.total_read_bytes, &[]);
+            self.disk_total_write_bytes.record(disk_usage.total_written_bytes, &[]);
             self.disk_live_read_bytes.record(disk_usage.read_bytes, &[]);
-            self.disk_live_write_bytes
-                .record(disk_usage.written_bytes, &[]);
+            self.disk_live_write_bytes.record(disk_usage.written_bytes, &[]);
 
-            self.cpu_live_percent
-                .record(proc.cpu_usage() as f64 / self.number_of_cpus as f64, &[]);
+            self.cpu_live_percent.record(proc.cpu_usage() as f64 / self.number_of_cpus as f64, &[]);
 
             self.memory_live_resident_bytes.record(proc.memory(), &[]);
 
-            self.memory_available_virtual_bytes
-                .record(proc.virtual_memory(), &[]);
+            self.memory_available_virtual_bytes.record(proc.virtual_memory(), &[]);
 
-            self.open_files
-                .record(proc.open_files().map_or(0, |files| files as u64), &[]);
+            self.open_files.record(proc.open_files().map_or(0, |files| files as u64), &[]);
         }
     }
 }

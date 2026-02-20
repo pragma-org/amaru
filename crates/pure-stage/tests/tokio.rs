@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use futures_util::StreamExt;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
-use std::time::Duration;
 use tokio::time::timeout;
 
 #[test]
@@ -44,20 +45,12 @@ fn basic() {
 
         for i in 0..10 {
             tracing::info!("sending {}", i);
-            timeout(Duration::from_secs(1), send_double.send(i))
-                .await
-                .unwrap()
-                .unwrap();
+            timeout(Duration::from_secs(1), send_double.send(i)).await.unwrap().unwrap();
         }
 
         for i in 0..10 {
             tracing::info!("receiving {}", i);
-            assert_eq!(
-                timeout(Duration::from_secs(1), out_rx.next())
-                    .await
-                    .unwrap(),
-                Some(i * 2)
-            );
+            assert_eq!(timeout(Duration::from_secs(1), out_rx.next()).await.unwrap(), Some(i * 2));
         }
 
         graph.abort();
@@ -94,15 +87,7 @@ fn add_stage() {
                 .await;
 
             // Wire up the child stage with initial state that includes the output reference
-            let child_ref = eff
-                .wire_up(
-                    child,
-                    ChildState {
-                        value: 0u32,
-                        output: state.output.clone(),
-                    },
-                )
-                .await;
+            let child_ref = eff.wire_up(child, ChildState { value: 0u32, output: state.output.clone() }).await;
             state.child_ref = Some(child_ref);
         }
 
@@ -115,13 +100,7 @@ fn add_stage() {
     });
 
     let (output, mut rx) = network.output("output", 10);
-    let parent = network.wire_up(
-        parent,
-        ParentState {
-            child_ref: None,
-            output: output.clone(),
-        },
-    );
+    let parent = network.wire_up(parent, ParentState { child_ref: None, output: output.clone() });
     let input = network.input(&parent);
 
     let running = network.run(rt.handle().clone());

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{PREFIX_LEN, as_value};
 use amaru_ledger::store::{
     StoreError,
     columns::{pots::Row, unsafe_decode},
 };
 use rocksdb::{DBPinnableSlice, Transaction};
+
+use crate::rocksdb::common::{PREFIX_LEN, as_value};
 
 /// Name prefixed used for storing protocol pots. UTF-8 encoding for "pots"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x74, 0x73];
@@ -26,13 +27,9 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
 ) -> Result<Row, StoreError> {
     let bytes = db_get(&PREFIX);
-    Ok(bytes
-        .map_err(|err| StoreError::Internal(err.into()))?
-        .map(|d| unsafe_decode::<Row>(&d))
-        .unwrap_or_default())
+    Ok(bytes.map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)).unwrap_or_default())
 }
 
 pub fn put<DB>(db: &Transaction<'_, DB>, row: Row) -> Result<(), StoreError> {
-    db.put(PREFIX, as_value(row))
-        .map_err(|err| StoreError::Internal(err.into()))
+    db.put(PREFIX, as_value(row)).map_err(|err| StoreError::Internal(err.into()))
 }

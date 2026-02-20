@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    CostModel, CostModels, DRepVotingThresholds, EraHistory, ExUnitPrices, ExUnits, Language,
-    Lovelace, PoolId, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion, RationalNumber,
-    Slot, cbor,
-};
+use std::collections::BTreeMap;
+
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::BTreeMap;
+
+use crate::{
+    CostModel, CostModels, DRepVotingThresholds, EraHistory, ExUnitPrices, ExUnits, Language, Lovelace, PoolId,
+    PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion, RationalNumber, Slot, cbor,
+};
 
 mod default;
 pub use default::*;
@@ -149,17 +150,11 @@ impl ProtocolParameters {
             u.min_committee_size.map(|x| x as u16),
         );
         set(&mut self.max_committee_term_length, u.committee_term_limit);
-        set(
-            &mut self.gov_action_lifetime,
-            u.governance_action_validity_period,
-        );
+        set(&mut self.gov_action_lifetime, u.governance_action_validity_period);
         set(&mut self.gov_action_deposit, u.governance_action_deposit);
         set(&mut self.drep_deposit, u.drep_deposit);
         set(&mut self.drep_expiry, u.drep_inactivity_period);
-        set(
-            &mut self.min_fee_ref_script_lovelace_per_byte,
-            u.minfee_refscript_cost_per_byte,
-        );
+        set(&mut self.min_fee_ref_script_lovelace_per_byte, u.minfee_refscript_cost_per_byte);
     }
 }
 
@@ -169,25 +164,18 @@ fn decode_rationale(d: &mut cbor::Decoder<'_>) -> Result<RationalNumber, cbor::d
         assert_len(2)?;
         let numerator = d.u64()?;
         let denominator = d.u64()?;
-        Ok(RationalNumber {
-            numerator,
-            denominator,
-        })
+        Ok(RationalNumber { numerator, denominator })
     })
 }
 
-fn decode_protocol_version(
-    d: &mut cbor::Decoder<'_>,
-) -> Result<ProtocolVersion, cbor::decode::Error> {
+fn decode_protocol_version(d: &mut cbor::Decoder<'_>) -> Result<ProtocolVersion, cbor::decode::Error> {
     cbor::heterogeneous_array(d, |d, assert_len| {
         assert_len(2)?;
         let major = d.u8()?;
 
         // See: https://github.com/IntersectMBO/cardano-ledger/blob/693218df6cd90263da24e6c2118bac420ceea3a1/eras/conway/impl/cddl-files/conway.cddl#L126
         if major > 12 {
-            return Err(cbor::decode::Error::message(
-                "invalid protocol version's major: too high",
-            ));
+            return Err(cbor::decode::Error::message("invalid protocol version's major: too high"));
         }
         Ok((major as u64, d.u64()?))
     })
@@ -263,11 +251,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             treasury_expansion_rate,
             min_pool_cost,
             lovelace_per_utxo_byte,
-            cost_models: CostModels {
-                plutus_v1,
-                plutus_v2,
-                plutus_v3,
-            },
+            cost_models: CostModels { plutus_v1, plutus_v2, plutus_v3 },
             prices,
             max_tx_ex_units,
             max_block_ex_units,
@@ -286,10 +270,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             max_ref_script_size_per_tx: 200 * 1024, //Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Ledger.hs#L154)
             max_ref_script_size_per_block: 1024 * 1024, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Bbody.hs#L91)
             ref_script_cost_stride: 25600, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L82)
-            ref_script_cost_multiplier: RationalNumber {
-                numerator: 12,
-                denominator: 10,
-            }, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85)
+            ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 }, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85)
         })
     }
 }
@@ -452,9 +433,7 @@ impl<'a> Deserialize<'a> for SerializedFixedDecimal {
         D: Deserializer<'a>,
     {
         let s = String::deserialize(deserializer)?;
-        FixedDecimal::from_str(&s, s.len() as u64)
-            .map(SerializedFixedDecimal)
-            .map_err(serde::de::Error::custom)
+        FixedDecimal::from_str(&s, s.len() as u64).map(SerializedFixedDecimal).map_err(serde::de::Error::custom)
     }
 }
 
@@ -484,8 +463,7 @@ impl ConsensusParameters {
         era_history: &EraHistory,
         ocert_counters: BTreeMap<PoolId, u64>,
     ) -> ConsensusParameters {
-        let active_slot_coeff =
-            FixedDecimal::from((active_slot_coeff * 100.0) as u64) / FixedDecimal::from(100u64);
+        let active_slot_coeff = FixedDecimal::from((active_slot_coeff * 100.0) as u64) / FixedDecimal::from(100u64);
         Self {
             randomness_stabilization_window,
             slots_per_kes_period,
@@ -526,18 +504,17 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
-    use crate::{
-        CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, Hash,
-        KeyValuePairs, Lovelace, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate,
-        ProtocolParameters, ProtocolVersion, RewardAccount, Set, StakeCredential, any_constitution,
-        any_hash28, any_nullable, any_proposal_id, any_rational_number, any_reward_account,
-        any_stake_credential, size::SCRIPT,
-    };
     use proptest::{collection, option, prelude::*};
 
+    use super::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
     #[cfg(not(target_os = "windows"))]
     use crate::prop_cbor_roundtrip;
+    use crate::{
+        CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, Hash, KeyValuePairs,
+        Lovelace, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion,
+        RewardAccount, Set, StakeCredential, any_constitution, any_hash28, any_nullable, any_proposal_id,
+        any_rational_number, any_reward_account, any_stake_credential, size::SCRIPT,
+    };
 
     #[cfg(not(target_os = "windows"))]
     prop_cbor_roundtrip!(ProtocolParameters, any_protocol_parameter());

@@ -31,10 +31,7 @@ pub fn shrink<A: Debug + Clone, B: Debug>(
     if error_predicate(&result) {
         last_error = result;
     } else {
-        panic!(
-            "shrink, error predicate doesn't hold for initial input: '{:?}'",
-            input
-        )
+        panic!("shrink, error predicate doesn't hold for initial input: '{:?}'", input)
     }
     let mut n = 2;
     while input.len() >= 2 {
@@ -89,16 +86,11 @@ mod test {
             // input: [6]
             // input: [42]
 
-            if input.contains(&42) {
-                Err("Found 42".to_string())
-            } else {
-                Ok(())
-            }
+            if input.contains(&42) { Err("Found 42".to_string()) } else { Ok(()) }
         };
 
         assert_eq!(
-            shrink(&mut test, failing_input, |err| *err
-                == Err("Found 42".to_string())),
+            shrink(&mut test, failing_input, |err| *err == Err("Found 42".to_string())),
             (vec![42], Err("Found 42".to_string()), 3)
         );
     }
@@ -123,37 +115,25 @@ mod test {
                 assert_eq!(input, vec![42, 5, 6]);
                 return Err("Found 5".to_string());
             };
-            if input.contains(&42) {
-                Err("Found 42".to_string())
-            } else {
-                Ok(())
-            }
+            if input.contains(&42) { Err("Found 42".to_string()) } else { Ok(()) }
         };
 
         assert_eq!(
-            shrink(&mut test, failing_input, |err| *err
-                == Err("Found 42".to_string())),
+            shrink(&mut test, failing_input, |err| *err == Err("Found 42".to_string())),
             (vec![42], Err("Found 42".to_string()), 4)
         )
     }
 
     #[test]
-    #[should_panic(
-        expected = "shrink, error predicate doesn't hold for initial input: '[1, 2, 3]'"
-    )]
+    #[should_panic(expected = "shrink, error predicate doesn't hold for initial input: '[1, 2, 3]'")]
     fn test_shrink_passing() {
         let failing_input = vec![1, 2, 3];
 
         let mut test = |input: &[u8]| {
-            if input.contains(&4) {
-                Err("Found 4".to_string())
-            } else {
-                Ok(())
-            }
+            if input.contains(&4) { Err("Found 4".to_string()) } else { Ok(()) }
         };
         assert_eq!(
-            shrink(&mut test, failing_input, |err| *err
-                == Err("Found 4".to_string())),
+            shrink(&mut test, failing_input, |err| *err == Err("Found 4".to_string())),
             (vec![4], Err("Found 4".to_string()), 0)
         )
     }

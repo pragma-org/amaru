@@ -29,12 +29,12 @@
 #[expect(clippy::unwrap_used)]
 #[cfg(all(unix, feature = "profiling", feature = "test-utils"))]
 fn main() {
+    use std::{fs::File, sync::Arc};
+
     use amaru_consensus::{
         headers_tree::{
             HeadersTree,
-            data_generation::{
-                execute_actions_on_tree, generate_random_walks, generate_tree_of_headers,
-            },
+            data_generation::{execute_actions_on_tree, generate_random_walks, generate_tree_of_headers},
         },
         stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
     };
@@ -42,7 +42,6 @@ fn main() {
     use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
-    use std::{fs::File, sync::Arc};
 
     let profile = false;
     let in_memory = false;
@@ -62,11 +61,7 @@ fn main() {
     // from the list of peers.
     let generated_tree = generate_tree_of_headers(seed, depth);
     let tree = generated_tree.tree();
-    assert!(
-        tree.nodes().len() > 3000,
-        "there are {} nodes",
-        tree.nodes().len()
-    );
+    assert!(tree.nodes().len() > 3000, "there are {} nodes", tree.nodes().len());
 
     let generated_actions = generate_random_walks(seed, &generated_tree, peers_nb);
     let actions = generated_actions.actions();
@@ -77,9 +72,8 @@ fn main() {
         Arc::new(InMemConsensusStore::new())
     } else {
         let tempdir = tempfile::tempdir().unwrap();
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(
-            RocksDBStore::create(RocksDbConfig::new(tempdir.path().to_path_buf())).unwrap(),
-        );
+        let store: Arc<dyn ChainStore<BlockHeader>> =
+            Arc::new(RocksDBStore::create(RocksDbConfig::new(tempdir.path().to_path_buf())).unwrap());
         store
     };
 
@@ -90,11 +84,7 @@ fn main() {
     store.set_anchor_hash(&tree.value.hash()).unwrap();
     store.set_best_chain_hash(&tree.value.hash()).unwrap();
 
-    let guard = if profile {
-        ProfilerGuardBuilder::default().frequency(1000).build().ok()
-    } else {
-        None
-    };
+    let guard = if profile { ProfilerGuardBuilder::default().frequency(1000).build().ok() } else { None };
 
     let start = std::time::Instant::now();
     eprintln!("start executing the actions");
@@ -105,26 +95,18 @@ fn main() {
 
     if profile && let Some(report) = guard.and_then(|g| g.report().build().ok()) {
         let file = File::create("headers-tree-flamegraph.svg").unwrap();
-        report
-            .flamegraph_with_options(file, &mut Options::default())
-            .unwrap();
+        report.flamegraph_with_options(file, &mut Options::default()).unwrap();
     }
 
     eprintln!("tree size: {}", tree.size());
     eprintln!("tree leaves: {}", tree.leaves().len());
     eprintln!("number of peers: {}", peers_nb);
     eprintln!("number of actions: {}", actions.len());
-    eprintln!(
-        "number of rollbacks: {}",
-        actions.iter().filter(|a| a.is_rollback()).count()
-    );
+    eprintln!("number of rollbacks: {}", actions.iter().filter(|a| a.is_rollback()).count());
     eprintln!("time after executing actions: {:?}", elapsed);
     eprintln!("time per action: {:?}", time_per_action);
 
-    eprintln!(
-        "headers best chain size after executing actions: {}",
-        headers_tree.best_length()
-    );
+    eprintln!("headers best chain size after executing actions: {}", headers_tree.best_length());
     eprintln!("number of results: {}", results.len());
 
     assert!(time_per_action.as_micros() < 1000);

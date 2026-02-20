@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BoxFuture, Name, SendData, effect::StageEffect};
 use std::{collections::VecDeque, fmt};
+
+use crate::{BoxFuture, Name, SendData, effect::StageEffect};
 
 pub enum InitStageState {
     Uninitialized,
@@ -29,9 +30,8 @@ impl std::fmt::Debug for InitStageState {
     }
 }
 
-pub type Transition = Box<
-    dyn FnMut(Box<dyn SendData>, Box<dyn SendData>) -> BoxFuture<'static, Box<dyn SendData>> + Send,
->;
+pub type Transition =
+    Box<dyn FnMut(Box<dyn SendData>, Box<dyn SendData>) -> BoxFuture<'static, Box<dyn SendData>> + Send>;
 
 pub struct InitStageData {
     pub mailbox: VecDeque<Box<dyn SendData>>,
@@ -41,10 +41,7 @@ pub struct InitStageData {
 
 impl fmt::Debug for InitStageData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InitStageData")
-            .field("mailbox", &self.mailbox)
-            .field("state", &self.state)
-            .finish()
+        f.debug_struct("InitStageData").field("mailbox", &self.mailbox).field("state", &self.state).finish()
     }
 }
 

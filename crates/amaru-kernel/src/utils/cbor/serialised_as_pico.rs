@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
-use num::BigUint;
 use std::time::Duration;
+
+use num::BigUint;
+
+use crate::cbor;
 
 /// A newtype wrapper meant to facilitate CBOR encoding of time::Duration as integers with
 /// pico-precision. This may seem odd, but is necessary to mimic the encoding behavior of *some*
@@ -47,9 +49,7 @@ impl SerialisedAsPico {
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(Duration::from_secs(serde::Deserialize::deserialize(
-            deserializer,
-        )?))
+        Ok(Duration::from_secs(serde::Deserialize::deserialize(deserializer)?))
     }
 
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
@@ -103,9 +103,7 @@ impl<'b, C> cbor::Decode<'b, C> for SerialisedAsPico {
                 }
             }
             U64 | U32 | U16 | U8 => Ok(Self(Duration::from_nanos(d.u64()? / 1000))),
-            t => Err(cbor::decode::Error::message(format!(
-                "Unhandled type decoding SerialisedAsPico: {t}"
-            ))),
+            t => Err(cbor::decode::Error::message(format!("Unhandled type decoding SerialisedAsPico: {t}"))),
         }
     }
 }

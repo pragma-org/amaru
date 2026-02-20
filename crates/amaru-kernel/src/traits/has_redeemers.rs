@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ExUnits, PlutusData, RedeemerKey, Redeemers};
 use std::{borrow::Cow, collections::BTreeMap};
+
+use crate::{ExUnits, PlutusData, RedeemerKey, Redeemers};
 
 pub trait HasRedeemers {
     fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)>;
@@ -40,18 +41,14 @@ impl HasRedeemers for Redeemers {
                 .iter()
                 .map(|redeemer| {
                     (
-                        Cow::Owned(RedeemerKey {
-                            tag: redeemer.tag,
-                            index: redeemer.index,
-                        }),
+                        Cow::Owned(RedeemerKey { tag: redeemer.tag, index: redeemer.index }),
                         (&redeemer.ex_units, &redeemer.data),
                     )
                 })
                 .collect(),
-            Redeemers::Map(map) => map
-                .iter()
-                .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
-                .collect(),
+            Redeemers::Map(map) => {
+                map.iter().map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data))).collect()
+            }
         }
     }
 }

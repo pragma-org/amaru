@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{
-    DEFAULT_NETWORK, bootstrap::import_headers_for_network, default_chain_dir,
-    get_bootstrap_headers,
-};
+use std::{fs, path::PathBuf};
+
+use amaru::{DEFAULT_NETWORK, bootstrap::import_headers_for_network, default_chain_dir, get_bootstrap_headers};
 use amaru_kernel::NetworkName;
 use clap::{ArgAction, Parser};
-use std::{fs, path::PathBuf};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -64,9 +62,7 @@ pub struct Args {
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
 
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(args.network).into());
+    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
         _command = "import-headers",
@@ -83,10 +79,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let headers = if args.header_file.is_empty() {
         get_bootstrap_headers(network)?.collect::<Vec<_>>()
     } else {
-        args.header_file
-            .iter()
-            .map(fs::read)
-            .collect::<Result<_, _>>()?
+        args.header_file.iter().map(fs::read).collect::<Result<_, _>>()?
     };
 
     import_headers_for_network(&chain_dir, headers).await

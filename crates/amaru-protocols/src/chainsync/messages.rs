@@ -40,19 +40,11 @@ pub struct HeaderContent {
 
 impl HeaderContent {
     pub fn new(header: &BlockHeader, era: EraName) -> Self {
-        Self {
-            variant: era,
-            byron_prefix: None,
-            cbor: to_cbor(header),
-        }
+        Self { variant: era, byron_prefix: None, cbor: to_cbor(header) }
     }
 
     pub fn with_bytes(bytes: Vec<u8>, variant: EraName) -> Self {
-        Self {
-            variant,
-            byron_prefix: None,
-            cbor: bytes,
-        }
+        Self { variant, byron_prefix: None, cbor: bytes }
     }
 }
 
@@ -158,9 +150,7 @@ impl<'b> cbor::Decode<'b, ()> for Message {
                 cbor::check_tagged_array_length(7, len, 1)?;
                 Ok(Message::Done)
             }
-            _ => Err(cbor::decode::Error::message(
-                "unknown variant for chainsync message",
-            )),
+            _ => Err(cbor::decode::Error::message("unknown variant for chainsync message")),
         }
     }
 }
@@ -183,11 +173,7 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
                 d.tag()?;
                 let bytes = d.bytes()?;
 
-                Ok(HeaderContent {
-                    variant,
-                    byron_prefix: Some((a, b)),
-                    cbor: Vec::from(bytes),
-                })
+                Ok(HeaderContent { variant, byron_prefix: Some((a, b)), cbor: Vec::from(bytes) })
             }
             EraName::Shelley
             | EraName::Allegra
@@ -199,11 +185,7 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
                 cbor::check_tagged_array_length(variant.header_variant().into(), len, 2)?;
                 d.tag()?;
                 let bytes = d.bytes()?;
-                Ok(HeaderContent {
-                    variant,
-                    byron_prefix: None,
-                    cbor: Vec::from(bytes),
-                })
+                Ok(HeaderContent { variant, byron_prefix: None, cbor: Vec::from(bytes) })
             }
         }
     }
@@ -226,9 +208,7 @@ impl cbor::Encode<()> for HeaderContent {
                 e.u8(a)?;
                 e.u64(b)?;
             } else {
-                return Err(cbor::encode::Error::message(
-                    "header variant 0 but no byron prefix",
-                ));
+                return Err(cbor::encode::Error::message("header variant 0 but no byron prefix"));
             }
 
             e.tag(cbor::IanaTag::Cbor)?;
@@ -245,12 +225,11 @@ impl cbor::Encode<()> for HeaderContent {
 /// Roundtrip property tests for chainsync messages.
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        chainsync::messages::Message::*, protocol_messages::handshake::tests::any_byron_prefix,
-    };
     use amaru_kernel::{any_era_name, any_point, any_tip, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
+
+    use super::*;
+    use crate::{chainsync::messages::Message::*, protocol_messages::handshake::tests::any_byron_prefix};
 
     mod header_content {
         use super::*;

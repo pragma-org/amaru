@@ -24,12 +24,13 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::*;
     use amaru_kernel::{
-        Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData,
-        MemoizedScript, PlutusData, PlutusScript, any_shelley_address,
+        Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData, MemoizedScript, PlutusData,
+        PlutusScript, any_shelley_address,
     };
     use proptest::{option, prelude::*};
+
+    use super::*;
 
     prop_compose! {
         pub fn any_txin()(
@@ -45,15 +46,12 @@ pub mod tests {
 
     pub fn any_memoized_plutus_script() -> impl Strategy<Value = MemoizedScript> {
         prop_oneof![
-            prop::collection::vec(any::<u8>(), 1..128).prop_map(|bytes| {
-                MemoizedScript::PlutusV1Script(PlutusScript::<1>(Bytes::from(bytes)))
-            }),
-            prop::collection::vec(any::<u8>(), 1..128).prop_map(|bytes| {
-                MemoizedScript::PlutusV2Script(PlutusScript::<2>(Bytes::from(bytes)))
-            }),
-            prop::collection::vec(any::<u8>(), 1..128).prop_map(|bytes| {
-                MemoizedScript::PlutusV3Script(PlutusScript::<3>(Bytes::from(bytes)))
-            }),
+            prop::collection::vec(any::<u8>(), 1..128)
+                .prop_map(|bytes| { MemoizedScript::PlutusV1Script(PlutusScript::<1>(Bytes::from(bytes))) }),
+            prop::collection::vec(any::<u8>(), 1..128)
+                .prop_map(|bytes| { MemoizedScript::PlutusV2Script(PlutusScript::<2>(Bytes::from(bytes))) }),
+            prop::collection::vec(any::<u8>(), 1..128)
+                .prop_map(|bytes| { MemoizedScript::PlutusV3Script(PlutusScript::<3>(Bytes::from(bytes))) }),
         ]
     }
 
@@ -73,8 +71,7 @@ pub mod tests {
             });
 
             #[expect(clippy::expect_used)]
-            let memoized =
-                MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
+            let memoized = MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
 
             MemoizedDatum::Inline(memoized)
         })
@@ -92,13 +89,7 @@ pub mod tests {
 
                 let is_legacy = matches!(datum, MemoizedDatum::None) && script.is_none();
 
-                MemoizedTransactionOutput {
-                    is_legacy,
-                    address,
-                    value,
-                    datum,
-                    script,
-                }
+                MemoizedTransactionOutput { is_legacy, address, value, datum, script }
             })
     }
 }

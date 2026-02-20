@@ -15,19 +15,21 @@
 
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
-use crate::{
-    Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
-    effect::{StageEffect, StageResponse},
-    serde::to_cbor,
-};
-use cbor4ii::serde::from_slice;
-use parking_lot::Mutex;
 use std::{
     borrow::Borrow,
     collections::VecDeque,
     fmt::{Debug, Display, Formatter},
     sync::Arc,
     time::Duration,
+};
+
+use cbor4ii::serde::from_slice;
+use parking_lot::Mutex;
+
+use crate::{
+    Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
+    effect::{StageEffect, StageResponse},
+    serde::to_cbor,
 };
 
 /// A buffer for recording the trace of a simulation.
@@ -124,29 +126,19 @@ impl Debug for TraceEntry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TraceEntry::Suspend(effect) => f.debug_tuple("Suspend").field(&effect).finish(),
-            TraceEntry::Resume {
-                stage, response, ..
-            } => f
-                .debug_struct("Resume")
-                .field("stage", stage)
-                .field("response", response)
-                .finish(),
+            TraceEntry::Resume { stage, response, .. } => {
+                f.debug_struct("Resume").field("stage", stage).field("response", response).finish()
+            }
             TraceEntry::Clock(instant) => f.debug_tuple("Clock").field(instant).finish(),
-            TraceEntry::Input { stage, input } => f
-                .debug_struct("Input")
-                .field("stage", stage)
-                .field("input", input)
-                .finish(),
-            TraceEntry::State { stage, state } => f
-                .debug_struct("State")
-                .field("stage", stage)
-                .field("state", state)
-                .finish(),
-            TraceEntry::Terminated { stage, reason } => f
-                .debug_struct("Terminated")
-                .field("stage", stage)
-                .field("reason", reason)
-                .finish(),
+            TraceEntry::Input { stage, input } => {
+                f.debug_struct("Input").field("stage", stage).field("input", input).finish()
+            }
+            TraceEntry::State { stage, state } => {
+                f.debug_struct("State").field("stage", stage).field("state", state).finish()
+            }
+            TraceEntry::Terminated { stage, reason } => {
+                f.debug_struct("Terminated").field("stage", stage).field("reason", reason).finish()
+            }
         }
     }
 }
@@ -204,10 +196,7 @@ impl TraceEntry {
 
     /// Construct a resume entry.
     pub fn resume(stage: impl AsRef<str>, response: StageResponse) -> Self {
-        Self::Resume {
-            stage: Name::from(stage.as_ref()),
-            response,
-        }
+        Self::Resume { stage: Name::from(stage.as_ref()), response }
     }
 
     /// Construct a clock entry.
@@ -217,26 +206,17 @@ impl TraceEntry {
 
     /// Construct an input entry.
     pub fn input(stage: impl AsRef<str>, input: Box<dyn SendData>) -> Self {
-        Self::Input {
-            stage: Name::from(stage.as_ref()),
-            input,
-        }
+        Self::Input { stage: Name::from(stage.as_ref()), input }
     }
 
     /// Construct a state entry.
     pub fn state(stage: impl AsRef<str>, state: Box<dyn SendData>) -> Self {
-        Self::State {
-            stage: Name::from(stage.as_ref()),
-            state,
-        }
+        Self::State { stage: Name::from(stage.as_ref()), state }
     }
 
     /// Construct a terminated entry.
     pub fn terminated(stage: impl AsRef<str>, reason: TerminationReason) -> Self {
-        Self::Terminated {
-            stage: Name::from(stage.as_ref()),
-            reason,
-        }
+        Self::Terminated { stage: Name::from(stage.as_ref()), reason }
     }
 
     pub fn at_stage<'a, 'b: 'a>(&'b self) -> Option<&'a Name> {
@@ -257,23 +237,11 @@ impl TraceEntry {
 #[derive(Debug, PartialEq, serde::Serialize)]
 enum TraceEntryRef<'a> {
     Suspend(&'a Effect),
-    Resume {
-        stage: &'a Name,
-        response: &'a StageResponse,
-    },
+    Resume { stage: &'a Name, response: &'a StageResponse },
     Clock(Instant),
-    Input {
-        stage: &'a Name,
-        input: &'a Box<dyn SendData>,
-    },
-    State {
-        stage: &'a Name,
-        state: &'a Box<dyn SendData>,
-    },
-    Terminated {
-        stage: &'a Name,
-        reason: TerminationReasonRef<'a>,
-    },
+    Input { stage: &'a Name, input: &'a Box<dyn SendData> },
+    State { stage: &'a Name, state: &'a Box<dyn SendData> },
+    Terminated { stage: &'a Name, reason: TerminationReasonRef<'a> },
 }
 
 #[derive(Debug, PartialEq, serde::Serialize)]
@@ -297,113 +265,45 @@ impl<'a> From<&'a TerminationReason> for TerminationReasonRef<'a> {
 #[derive(serde::Serialize)]
 enum TraceEntryRefRef<'a> {
     Suspend(EffectRef<'a>),
-    Resume {
-        stage: &'a Name,
-        response: StageResponseRef<'a>,
-    },
+    Resume { stage: &'a Name, response: StageResponseRef<'a> },
 }
 
 /// Helper struct that has the same serialization format as Effect but doesn’t require owned effect data.
 #[derive(serde::Serialize)]
 enum EffectRef<'a> {
-    Receive {
-        at_stage: &'a Name,
-    },
-    Send {
-        from: &'a Name,
-        to: &'a Name,
-        msg: &'a dyn SendData,
-    },
-    Call {
-        from: &'a Name,
-        to: &'a Name,
-        duration: Duration,
-        msg: &'a dyn SendData,
-    },
-    Clock {
-        at_stage: &'a Name,
-    },
-    Wait {
-        at_stage: &'a Name,
-        duration: Duration,
-    },
-    Schedule {
-        at_stage: &'a Name,
-        msg: &'a dyn SendData,
-        id: ScheduleId,
-    },
-    CancelSchedule {
-        at_stage: &'a Name,
-        id: ScheduleId,
-    },
-    External {
-        at_stage: &'a Name,
-        effect: &'a dyn crate::ExternalEffect,
-    },
-    Terminate {
-        at_stage: &'a Name,
-    },
-    AddStage {
-        at_stage: &'a Name,
-        name: &'a Name,
-    },
-    WireStage {
-        at_stage: &'a Name,
-        name: &'a Name,
-        initial_state: &'a dyn SendData,
-        tombstone: &'a dyn SendData,
-    },
-    Contramap {
-        at_stage: &'a Name,
-        original: &'a Name,
-        new_name: &'a Name,
-    },
+    Receive { at_stage: &'a Name },
+    Send { from: &'a Name, to: &'a Name, msg: &'a dyn SendData },
+    Call { from: &'a Name, to: &'a Name, duration: Duration, msg: &'a dyn SendData },
+    Clock { at_stage: &'a Name },
+    Wait { at_stage: &'a Name, duration: Duration },
+    Schedule { at_stage: &'a Name, msg: &'a dyn SendData, id: ScheduleId },
+    CancelSchedule { at_stage: &'a Name, id: ScheduleId },
+    External { at_stage: &'a Name, effect: &'a dyn crate::ExternalEffect },
+    Terminate { at_stage: &'a Name },
+    AddStage { at_stage: &'a Name, name: &'a Name },
+    WireStage { at_stage: &'a Name, name: &'a Name, initial_state: &'a dyn SendData, tombstone: &'a dyn SendData },
+    Contramap { at_stage: &'a Name, original: &'a Name, new_name: &'a Name },
 }
 
 impl<'a> EffectRef<'a> {
     fn from(at_stage: &'a Name, effect: &'a StageEffect<Box<dyn SendData>>) -> Option<Self> {
         Some(match effect {
             StageEffect::Receive => EffectRef::Receive { at_stage },
-            StageEffect::Send(to, _call, msg) => EffectRef::Send {
-                from: at_stage,
-                to,
-                msg: &**msg,
-            },
+            StageEffect::Send(to, _call, msg) => EffectRef::Send { from: at_stage, to, msg: &**msg },
             StageEffect::Call(..) => return None,
             StageEffect::Clock => EffectRef::Clock { at_stage },
-            StageEffect::Wait(duration) => EffectRef::Wait {
-                at_stage,
-                duration: *duration,
-            },
-            StageEffect::Schedule(msg, id) => EffectRef::Schedule {
-                at_stage,
-                msg: &**msg,
-                id: *id,
-            },
+            StageEffect::Wait(duration) => EffectRef::Wait { at_stage, duration: *duration },
+            StageEffect::Schedule(msg, id) => EffectRef::Schedule { at_stage, msg: &**msg, id: *id },
             StageEffect::CancelSchedule(id) => EffectRef::CancelSchedule { at_stage, id: *id },
-            StageEffect::External(effect) => EffectRef::External {
-                at_stage,
-                effect: &**effect,
-            },
+            StageEffect::External(effect) => EffectRef::External { at_stage, effect: &**effect },
             StageEffect::Terminate => EffectRef::Terminate { at_stage },
             StageEffect::AddStage(name) => EffectRef::AddStage { at_stage, name },
             StageEffect::WireStage(name, _transition, initial_state, tombstone) => {
-                EffectRef::WireStage {
-                    at_stage,
-                    name,
-                    initial_state: &**initial_state,
-                    tombstone: &**tombstone,
-                }
+                EffectRef::WireStage { at_stage, name, initial_state: &**initial_state, tombstone: &**tombstone }
             }
-            StageEffect::Contramap {
-                original,
-                new_name,
-                transform: _,
-            } => EffectRef::Contramap {
-                at_stage,
-                original,
-                new_name,
-            },
+            StageEffect::Contramap { original, new_name, transform: _ } => {
+                EffectRef::Contramap { at_stage, original, new_name }
+            }
         })
     }
 }
@@ -427,14 +327,7 @@ impl TraceBuffer {
     /// Set `min_entries` and `max_size` to zero to obtain a buffer that will drop all entries
     /// without allocating memory or otherwise wasting much time.
     pub fn new(min_entries: usize, max_size: usize) -> Self {
-        Self {
-            messages: VecDeque::new(),
-            min_entries,
-            max_size,
-            used_size: 0,
-            dropped_messages: 0,
-            fetch_replay: None,
-        }
+        Self { messages: VecDeque::new(), min_entries, max_size, used_size: 0, dropped_messages: 0, fetch_replay: None }
     }
 
     /// Push an effect to the trace buffer.
@@ -443,25 +336,11 @@ impl TraceBuffer {
     }
 
     pub fn push_suspend_external(&mut self, at_stage: &Name, effect: &dyn crate::ExternalEffect) {
-        self.push(TraceEntryRefRef::Suspend(EffectRef::External {
-            at_stage,
-            effect,
-        }));
+        self.push(TraceEntryRefRef::Suspend(EffectRef::External { at_stage, effect }));
     }
 
-    pub fn push_suspend_call(
-        &mut self,
-        at_stage: &Name,
-        to: &Name,
-        duration: Duration,
-        msg: &dyn SendData,
-    ) {
-        self.push(TraceEntryRefRef::Suspend(EffectRef::Call {
-            from: at_stage,
-            to,
-            duration,
-            msg,
-        }));
+    pub fn push_suspend_call(&mut self, at_stage: &Name, to: &Name, duration: Duration, msg: &dyn SendData) {
+        self.push(TraceEntryRefRef::Suspend(EffectRef::Call { from: at_stage, to, duration, msg }));
     }
 
     pub fn push_suspend_ref(&mut self, at_stage: &Name, effect: &StageEffect<Box<dyn SendData>>) {
@@ -476,10 +355,7 @@ impl TraceBuffer {
     }
 
     pub fn push_resume_external(&mut self, stage: &Name, response: &dyn SendData) {
-        self.push(TraceEntryRefRef::Resume {
-            stage,
-            response: StageResponseRef::ExternalResponse(response),
-        });
+        self.push(TraceEntryRefRef::Resume { stage, response: StageResponseRef::ExternalResponse(response) });
     }
 
     /// Push a clock update to the trace buffer.
@@ -501,31 +377,19 @@ impl TraceBuffer {
     }
 
     pub fn push_terminated(&mut self, stage: &Name, reason: TerminationReason) {
-        self.push(TraceEntryRef::Terminated {
-            stage,
-            reason: (&reason).into(),
-        });
+        self.push(TraceEntryRef::Terminated { stage, reason: (&reason).into() });
     }
 
     pub fn push_terminated_voluntary(&mut self, stage: &Name) {
-        self.push(TraceEntryRef::Terminated {
-            stage,
-            reason: TerminationReasonRef::Voluntary,
-        });
+        self.push(TraceEntryRef::Terminated { stage, reason: TerminationReasonRef::Voluntary });
     }
 
     pub fn push_terminated_supervision(&mut self, stage: &Name, child: &Name) {
-        self.push(TraceEntryRef::Terminated {
-            stage,
-            reason: TerminationReasonRef::Supervision(child),
-        });
+        self.push(TraceEntryRef::Terminated { stage, reason: TerminationReasonRef::Supervision(child) });
     }
 
     pub fn push_terminated_aborted(&mut self, stage: &Name) {
-        self.push(TraceEntryRef::Terminated {
-            stage,
-            reason: TerminationReasonRef::Aborted,
-        });
+        self.push(TraceEntryRef::Terminated { stage, reason: TerminationReasonRef::Aborted });
     }
 
     fn push<T: serde::Serialize>(&mut self, msg: T) {
@@ -539,11 +403,7 @@ impl TraceBuffer {
 
         #[expect(clippy::expect_used)]
         while self.used_size > self.max_size && self.messages.len() > self.min_entries {
-            self.used_size -= self
-                .messages
-                .pop_front()
-                .expect("messages is definitely not empty")
-                .len();
+            self.used_size -= self.messages.pop_front().expect("messages is definitely not empty").len();
             self.dropped_messages += 1;
         }
 
@@ -572,9 +432,7 @@ impl TraceBuffer {
     /// Iterate over the deserialized entries in the trace buffer.
     pub fn iter_entries(&self) -> impl Iterator<Item = (Instant, TraceEntry)> {
         #[expect(clippy::expect_used)]
-        self.messages
-            .iter()
-            .map(|m| from_slice(m).expect("trace buffer is not supposed to contain invalid CBOR"))
+        self.messages.iter().map(|m| from_slice(m).expect("trace buffer is not supposed to contain invalid CBOR"))
     }
 
     /// Take the entries from the trace buffer, leaving it empty.
@@ -597,9 +455,7 @@ impl TraceBuffer {
         self.messages
             .iter()
             .map(|m| {
-                from_slice::<(Instant, TraceEntry)>(m)
-                    .expect("trace buffer is not supposed to contain invalid CBOR")
-                    .1
+                from_slice::<(Instant, TraceEntry)>(m).expect("trace buffer is not supposed to contain invalid CBOR").1
             })
             .collect()
     }
@@ -644,10 +500,7 @@ impl TraceBuffer {
     }
 
     pub fn drop_guard(this: &Arc<Mutex<Self>>) -> DropGuard {
-        DropGuard {
-            buffer: this.clone(),
-            active: true,
-        }
+        DropGuard { buffer: this.clone(), active: true }
     }
 }
 
@@ -688,10 +541,7 @@ pub fn find_next_external_suspend(
         |entry| entry.at_stage() == Some(at_stage),
         |entry| match entry {
             TraceEntry::Suspend(Effect::External { effect, .. }) => effect,
-            entry => panic!(
-                "unexpected trace entry when finding next external suspend: {:?}",
-                entry
-            ),
+            entry => panic!("unexpected trace entry when finding next external suspend: {:?}", entry),
         },
     )
 }
@@ -705,14 +555,8 @@ pub fn find_next_external_resume(
         fetch_replay,
         |entry| entry.at_stage() == Some(at_stage),
         |entry| match entry {
-            TraceEntry::Resume {
-                response: StageResponse::ExternalResponse(response),
-                ..
-            } => response,
-            entry => panic!(
-                "unexpected trace entry when finding next external resume: {:?}",
-                entry
-            ),
+            TraceEntry::Resume { response: StageResponse::ExternalResponse(response), .. } => response,
+            entry => panic!("unexpected trace entry when finding next external resume: {:?}", entry),
         },
     )
 }
@@ -730,17 +574,15 @@ fn find_next<T>(
 
 #[cfg(test)]
 mod tests {
+    use tokio::sync::mpsc;
+
     use super::*;
     use crate::OutputEffect;
-    use tokio::sync::mpsc;
 
     #[test]
     fn test_serialization() {
         let effect = OutputEffect::new(Name::from("test"), 42u32, mpsc::channel(1).0);
-        let trr = TraceEntryRefRef::Suspend(EffectRef::External {
-            at_stage: &Name::from("test"),
-            effect: &effect,
-        });
+        let trr = TraceEntryRefRef::Suspend(EffectRef::External { at_stage: &Name::from("test"), effect: &effect });
         let rr = to_cbor(&trr);
         let json = serde_json::to_string(&trr).unwrap();
         let r = to_cbor(&TraceEntryRef::Suspend(&Effect::External {
@@ -748,10 +590,8 @@ mod tests {
             effect: Box::new(effect),
         }));
         let effect = OutputEffect::new(Name::from("test"), 42u32, mpsc::channel(1).0);
-        let t = to_cbor(&TraceEntry::suspend(Effect::External {
-            at_stage: Name::from("test"),
-            effect: Box::new(effect),
-        }));
+        let t =
+            to_cbor(&TraceEntry::suspend(Effect::External { at_stage: Name::from("test"), effect: Box::new(effect) }));
         assert_eq!(rr, r);
         assert_eq!(rr, t);
 

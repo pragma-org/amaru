@@ -35,7 +35,6 @@ pub fn as_value<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
 #[expect(clippy::panic)]
 pub fn as_bytes<T: cbor::Encode<()> + std::fmt::Debug>(prefix: &[u8], value: T) -> Vec<u8> {
     let mut buffer = Vec::from(prefix);
-    cbor::encode(value, &mut buffer)
-        .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+    cbor::encode(value, &mut buffer).unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
     buffer
 }

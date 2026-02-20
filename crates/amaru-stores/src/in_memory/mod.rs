@@ -12,33 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::ledger::columns::{
-    accounts, cc_members, dreps, pools, proposals, utxo, votes,
-};
-use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep,
-    Epoch, EraHistory, Lovelace, Point, PoolId, ProtocolParameters, Slot, StakeCredential,
-    TransactionInput,
-};
-use amaru_ledger::{
-    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
-    store::{
-        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
-        StoreError, TransactionalContext,
-        columns::{
-            accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
-            pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
-            votes as votes_column,
-        },
-    },
-};
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::{RefCell, RefMut},
     collections::{BTreeMap, BTreeSet},
     ops::{Deref, DerefMut},
 };
+
+use amaru_iter_borrow::IterBorrow;
+use amaru_kernel::{
+    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory,
+    Lovelace, Point, PoolId, ProtocolParameters, Slot, StakeCredential, TransactionInput,
+};
+use amaru_ledger::{
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
+    store::{
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
+        TransactionalContext,
+        columns::{
+            accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column, pools as pools_column,
+            pots, proposals as proposals_column, slots, utxo as utxo_column, votes as votes_column,
+        },
+    },
+};
+
+use crate::in_memory::ledger::columns::{accounts, cc_members, dreps, pools, proposals, utxo, votes};
 
 pub mod ledger;
 
@@ -91,9 +89,7 @@ impl Snapshot for MemoryStore {
 
 impl ReadStore for MemoryStore {
     fn tip(&self) -> Result<Point, StoreError> {
-        self.tip
-            .borrow()
-            .ok_or_else(|| StoreError::Internal("tip not yet set".into()))
+        self.tip.borrow().ok_or_else(|| StoreError::Internal("tip not yet set".into()))
     }
 
     fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
@@ -120,32 +116,27 @@ impl ReadStore for MemoryStore {
     }
 
     fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
-        Ok(GovernanceActivity {
-            consecutive_dormant_epochs: 0,
-        })
+        Ok(GovernanceActivity { consecutive_dormant_epochs: 0 })
     }
 
     fn account(
         &self,
         credential: &amaru_kernel::StakeCredential,
-    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError>
-    {
+    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError> {
         Ok(self.accounts.borrow().get(credential).cloned())
     }
 
     fn pool(
         &self,
         pool: &amaru_kernel::PoolId,
-    ) -> Result<Option<amaru_ledger::store::columns::pools::Row>, amaru_ledger::store::StoreError>
-    {
+    ) -> Result<Option<amaru_ledger::store::columns::pools::Row>, amaru_ledger::store::StoreError> {
         Ok(self.pools.borrow().get(pool).cloned())
     }
 
     fn utxo(
         &self,
         input: &amaru_kernel::TransactionInput,
-    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, amaru_ledger::store::StoreError>
-    {
+    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, amaru_ledger::store::StoreError> {
         Ok(self.utxos.borrow().get(input).cloned())
     }
 
@@ -156,40 +147,21 @@ impl ReadStore for MemoryStore {
     fn iter_utxos(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::utxo::Key,
-                amaru_ledger::store::columns::utxo::Value,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::utxo::Key, amaru_ledger::store::columns::utxo::Value)>,
         amaru_ledger::store::StoreError,
     > {
-        let utxo_vec: Vec<_> = self
-            .utxos
-            .borrow()
-            .iter()
-            .map(|(tx_input, tx_output)| (tx_input.clone(), tx_output.clone()))
-            .collect();
+        let utxo_vec: Vec<_> =
+            self.utxos.borrow().iter().map(|(tx_input, tx_output)| (tx_input.clone(), tx_output.clone())).collect();
         Ok(utxo_vec.into_iter())
     }
 
     fn iter_block_issuers(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::slots::Key,
-                amaru_ledger::store::columns::slots::Value,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::slots::Key, amaru_ledger::store::columns::slots::Value)>,
         StoreError,
     > {
-        let block_issuer_vec: Vec<_> = self
-            .slots
-            .borrow()
-            .iter()
-            .map(|(slot, row)| (*slot, row.clone()))
-            .collect();
+        let block_issuer_vec: Vec<_> = self.slots.borrow().iter().map(|(slot, row)| (*slot, row.clone())).collect();
 
         Ok(block_issuer_vec.into_iter())
     }
@@ -197,20 +169,10 @@ impl ReadStore for MemoryStore {
     fn iter_pools(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::pools::Key,
-                amaru_ledger::store::columns::pools::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, amaru_ledger::store::columns::pools::Row)>,
         StoreError,
     > {
-        let pool_vec: Vec<_> = self
-            .pools
-            .borrow()
-            .iter()
-            .map(|(pool_id, row)| (*pool_id, row.clone()))
-            .collect();
+        let pool_vec: Vec<_> = self.pools.borrow().iter().map(|(pool_id, row)| (*pool_id, row.clone())).collect();
 
         Ok(pool_vec.into_iter())
     }
@@ -218,12 +180,7 @@ impl ReadStore for MemoryStore {
     fn iter_accounts(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::accounts::Key,
-                amaru_ledger::store::columns::accounts::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::accounts::Key, amaru_ledger::store::columns::accounts::Row)>,
         StoreError,
     > {
         let accounts_vec: Vec<_> = self
@@ -239,20 +196,11 @@ impl ReadStore for MemoryStore {
     fn iter_dreps(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::dreps::Key,
-                amaru_ledger::store::columns::dreps::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::dreps::Key, amaru_ledger::store::columns::dreps::Row)>,
         StoreError,
     > {
-        let dreps_vec: Vec<_> = self
-            .dreps
-            .borrow()
-            .iter()
-            .map(|(stake_credential, row)| (stake_credential.clone(), row.clone()))
-            .collect();
+        let dreps_vec: Vec<_> =
+            self.dreps.borrow().iter().map(|(stake_credential, row)| (stake_credential.clone(), row.clone())).collect();
 
         Ok(dreps_vec.into_iter())
     }
@@ -260,20 +208,11 @@ impl ReadStore for MemoryStore {
     fn iter_proposals(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::proposals::Key,
-                amaru_ledger::store::columns::proposals::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::proposals::Key, amaru_ledger::store::columns::proposals::Row)>,
         StoreError,
     > {
-        let proposals_vec: Vec<_> = self
-            .proposals
-            .borrow()
-            .iter()
-            .map(|(proposal_id, row)| (proposal_id.clone(), row.clone()))
-            .collect();
+        let proposals_vec: Vec<_> =
+            self.proposals.borrow().iter().map(|(proposal_id, row)| (proposal_id.clone(), row.clone())).collect();
 
         Ok(proposals_vec.into_iter())
     }
@@ -281,20 +220,11 @@ impl ReadStore for MemoryStore {
     fn iter_cc_members(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::cc_members::Key,
-                amaru_ledger::store::columns::cc_members::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::cc_members::Key, amaru_ledger::store::columns::cc_members::Row)>,
         StoreError,
     > {
-        let cc_members_vec: Vec<_> = self
-            .cc_members
-            .borrow()
-            .iter()
-            .map(|(key, row)| (key.clone(), row.clone()))
-            .collect();
+        let cc_members_vec: Vec<_> =
+            self.cc_members.borrow().iter().map(|(key, row)| (key.clone(), row.clone())).collect();
 
         Ok(cc_members_vec.into_iter())
     }
@@ -302,12 +232,7 @@ impl ReadStore for MemoryStore {
     fn iter_votes(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::votes::Key,
-                amaru_ledger::store::columns::votes::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::votes::Key, amaru_ledger::store::columns::votes::Row)>,
         StoreError,
     > {
         Ok(std::iter::empty())
@@ -325,19 +250,14 @@ impl<'a> MemoryTransactionalContext<'a> {
 }
 
 impl<'a> MemoryTransactionalContext<'a> {
-    pub fn with_column<K, V, F>(
-        &self,
-        column: &RefCell<BTreeMap<K, V>>,
-        mut with: F,
-    ) -> Result<(), StoreError>
+    pub fn with_column<K, V, F>(&self, column: &RefCell<BTreeMap<K, V>>, mut with: F) -> Result<(), StoreError>
     where
         K: Clone + Ord + 'a,
         V: Clone + 'a,
         F: for<'iter> FnMut(IterBorrow<'iter, 'iter, K, Option<V>>),
     {
         let original = column.take();
-        let mut values: Vec<(K, Option<V>)> =
-            original.into_iter().map(|(k, v)| (k, Some(v))).collect();
+        let mut values: Vec<(K, Option<V>)> = original.into_iter().map(|(k, v)| (k, Some(v))).collect();
 
         let iter = values.iter_mut().map(|(k, v)| {
             let key = k.clone();
@@ -347,10 +267,7 @@ impl<'a> MemoryTransactionalContext<'a> {
 
         with(Box::new(iter));
 
-        let rebuilt: BTreeMap<K, V> = values
-            .into_iter()
-            .flat_map(|(k, v)| v.map(|v| (k, v)))
-            .collect();
+        let rebuilt: BTreeMap<K, V> = values.into_iter().flat_map(|(k, v)| v.map(|v| (k, v))).collect();
 
         column.replace(rebuilt);
         Ok(())
@@ -385,24 +302,21 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn account(
         &self,
         credential: &amaru_kernel::StakeCredential,
-    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError>
-    {
+    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError> {
         self.store.account(credential)
     }
 
     fn pool(
         &self,
         pool: &amaru_kernel::PoolId,
-    ) -> Result<Option<amaru_ledger::store::columns::pools::Row>, amaru_ledger::store::StoreError>
-    {
+    ) -> Result<Option<amaru_ledger::store::columns::pools::Row>, amaru_ledger::store::StoreError> {
         self.store.pool(pool)
     }
 
     fn utxo(
         &self,
         input: &amaru_kernel::TransactionInput,
-    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, amaru_ledger::store::StoreError>
-    {
+    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, amaru_ledger::store::StoreError> {
         self.store.utxo(input)
     }
 
@@ -413,12 +327,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_utxos(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::utxo::Key,
-                amaru_ledger::store::columns::utxo::Value,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::utxo::Key, amaru_ledger::store::columns::utxo::Value)>,
         amaru_ledger::store::StoreError,
     > {
         self.store.iter_utxos()
@@ -427,12 +336,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_block_issuers(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::slots::Key,
-                amaru_ledger::store::columns::slots::Value,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::slots::Key, amaru_ledger::store::columns::slots::Value)>,
         StoreError,
     > {
         self.store.iter_block_issuers()
@@ -441,12 +345,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_pools(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::pools::Key,
-                amaru_ledger::store::columns::pools::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, amaru_ledger::store::columns::pools::Row)>,
         StoreError,
     > {
         self.store.iter_pools()
@@ -455,12 +354,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_accounts(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::accounts::Key,
-                amaru_ledger::store::columns::accounts::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::accounts::Key, amaru_ledger::store::columns::accounts::Row)>,
         StoreError,
     > {
         self.store.iter_accounts()
@@ -469,12 +363,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_dreps(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::dreps::Key,
-                amaru_ledger::store::columns::dreps::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::dreps::Key, amaru_ledger::store::columns::dreps::Row)>,
         StoreError,
     > {
         self.store.iter_dreps()
@@ -483,12 +372,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_proposals(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::proposals::Key,
-                amaru_ledger::store::columns::proposals::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::proposals::Key, amaru_ledger::store::columns::proposals::Row)>,
         StoreError,
     > {
         self.store.iter_proposals()
@@ -497,12 +381,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_cc_members(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::cc_members::Key,
-                amaru_ledger::store::columns::cc_members::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::cc_members::Key, amaru_ledger::store::columns::cc_members::Row)>,
         StoreError,
     > {
         self.store.iter_cc_members()
@@ -511,12 +390,7 @@ impl<'a> ReadStore for MemoryTransactionalContext<'a> {
     fn iter_votes(
         &self,
     ) -> Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::votes::Key,
-                amaru_ledger::store::columns::votes::Row,
-            ),
-        >,
+        impl Iterator<Item = (amaru_ledger::store::columns::votes::Key, amaru_ledger::store::columns::votes::Row)>,
         StoreError,
     > {
         self.store.iter_votes()
@@ -561,10 +435,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         }
     }
 
-    fn set_protocol_parameters(
-        &self,
-        protocol_parameters: &ProtocolParameters,
-    ) -> Result<(), StoreError> {
+    fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<(), StoreError> {
         *self.store.protocol_parameters.borrow_mut() = protocol_parameters.clone();
         Ok(())
     }
@@ -587,17 +458,11 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         unimplemented!(".set_constitution");
     }
 
-    fn set_governance_activity(
-        &self,
-        _governance_activity: &GovernanceActivity,
-    ) -> Result<(), StoreError> {
+    fn set_governance_activity(&self, _governance_activity: &GovernanceActivity) -> Result<(), StoreError> {
         unimplemented!(".set_governance_activity");
     }
 
-    fn remove_proposals<'iter, Id>(
-        &self,
-        _proposals: impl IntoIterator<Item = Id>,
-    ) -> Result<(), StoreError>
+    fn remove_proposals<'iter, Id>(&self, _proposals: impl IntoIterator<Item = Id>) -> Result<(), StoreError>
     where
         Id: Deref<Target = ComparableProposalId> + 'iter,
     {
@@ -619,54 +484,25 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         point: &Point,
         issuer: Option<&amaru_ledger::store::columns::pools::Key>,
         add: amaru_ledger::store::Columns<
-            impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::utxo::Key,
-                    amaru_ledger::store::columns::utxo::Value,
-                ),
-            >,
+            impl Iterator<Item = (amaru_ledger::store::columns::utxo::Key, amaru_ledger::store::columns::utxo::Value)>,
             impl Iterator<Item = amaru_ledger::store::columns::pools::Value>,
             impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::accounts::Key,
-                    amaru_ledger::store::columns::accounts::Value,
-                ),
+                Item = (amaru_ledger::store::columns::accounts::Key, amaru_ledger::store::columns::accounts::Value),
+            >,
+            impl Iterator<Item = (amaru_ledger::store::columns::dreps::Key, amaru_ledger::store::columns::dreps::Value)>,
+            impl Iterator<
+                Item = (amaru_ledger::store::columns::cc_members::Key, amaru_ledger::store::columns::cc_members::Value),
             >,
             impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::dreps::Key,
-                    amaru_ledger::store::columns::dreps::Value,
-                ),
+                Item = (amaru_ledger::store::columns::proposals::Key, amaru_ledger::store::columns::proposals::Value),
             >,
-            impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::cc_members::Key,
-                    amaru_ledger::store::columns::cc_members::Value,
-                ),
-            >,
-            impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::proposals::Key,
-                    amaru_ledger::store::columns::proposals::Value,
-                ),
-            >,
-            impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::votes::Key,
-                    amaru_ledger::store::columns::votes::Value,
-                ),
-            >,
+            impl Iterator<Item = (amaru_ledger::store::columns::votes::Key, amaru_ledger::store::columns::votes::Value)>,
         >,
         remove: amaru_ledger::store::Columns<
             impl Iterator<Item = amaru_ledger::store::columns::utxo::Key>,
             impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, Epoch)>,
             impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
-            impl Iterator<
-                Item = (
-                    amaru_ledger::store::columns::dreps::Key,
-                    amaru_kernel::CertificatePointer,
-                ),
-            >,
+            impl Iterator<Item = (amaru_ledger::store::columns::dreps::Key, amaru_kernel::CertificatePointer)>,
             impl Iterator<Item = amaru_ledger::store::columns::cc_members::Key>,
             impl Iterator<Item = ()>,
             impl Iterator<Item = ()>,
@@ -688,10 +524,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
                 if let Point::Specific(slot, _) = point
                     && let Some(issuer) = issuer
                 {
-                    self.store.slots.borrow_mut().insert(
-                        *slot,
-                        amaru_ledger::store::columns::slots::Row::new(*issuer),
-                    );
+                    self.store.slots.borrow_mut().insert(*slot, amaru_ledger::store::columns::slots::Row::new(*issuer));
                 }
             }
         }
@@ -715,10 +548,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn with_pots(
-        &self,
-        mut with: impl FnMut(Box<dyn BorrowMut<pots::Row> + 'a>),
-    ) -> Result<(), StoreError> {
+    fn with_pots(&self, mut with: impl FnMut(Box<dyn BorrowMut<pots::Row> + 'a>)) -> Result<(), StoreError> {
         with(Box::new(RefMutAdapter::new(self.store.pots.borrow_mut())));
 
         Ok(())
@@ -776,9 +606,7 @@ impl Store for MemoryStore {
 
     // TODO: Implement next_snapshot on MemoryStore
     fn next_snapshot(&self, _epoch: Epoch) -> Result<(), StoreError> {
-        Err(StoreError::Internal(
-            "next_snapshot not yet implemented on MemoryStore".into(),
-        ))
+        Err(StoreError::Internal("next_snapshot not yet implemented on MemoryStore".into()))
     }
 
     fn create_transaction(&self) -> Self::Transaction<'_> {
@@ -793,10 +621,7 @@ impl HistoricalStores for MemoryStore {
     }
 
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, StoreError> {
-        Ok(MemoryStore::new(
-            self.era_history.clone(),
-            self.protocol_parameters.borrow().clone(),
-        ))
+        Ok(MemoryStore::new(self.era_history.clone(), self.protocol_parameters.borrow().clone()))
     }
 
     fn prune(&self, _minimum_epoch: Epoch) -> Result<(), StoreError> {
@@ -850,30 +675,24 @@ impl<'a, T> BorrowMut<T> for RefMutAdapterMut<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        in_memory::MemoryStore,
-        tests::{
-            Fixture, add_test_data_to_store, test_epoch_transition, test_read_account,
-            test_read_drep, test_read_pool, test_read_utxo, test_refund_account,
-            test_remove_account, test_remove_drep, test_remove_pool, test_remove_utxo,
-            test_slot_updated,
-        },
-    };
     use amaru_kernel::{EraHistory, NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS};
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
 
     #[cfg(not(target_os = "windows"))]
     use crate::tests::test_read_proposal;
+    use crate::{
+        in_memory::MemoryStore,
+        tests::{
+            Fixture, add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep, test_read_pool,
+            test_read_utxo, test_refund_account, test_remove_account, test_remove_drep, test_remove_pool,
+            test_remove_utxo, test_slot_updated,
+        },
+    };
 
-    pub fn setup_memory_store(
-        runner: &mut TestRunner,
-    ) -> Result<(MemoryStore, Fixture), StoreError> {
+    pub fn setup_memory_store(runner: &mut TestRunner) -> Result<(MemoryStore, Fixture), StoreError> {
         let era_history: &EraHistory = NetworkName::Preprod.into();
-        let store = MemoryStore::new(
-            era_history.clone(),
-            PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
-        );
+        let store = MemoryStore::new(era_history.clone(), PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone());
         let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
     }
@@ -881,24 +700,21 @@ mod tests {
     #[test]
     fn test_in_mem_read_account() {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_account(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_read_pool() {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_pool(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_read_drep() {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_drep(&store, &fixture);
     }
 
@@ -906,16 +722,14 @@ mod tests {
     #[test]
     fn test_in_mem_read_proposal() {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_proposal(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_refund_account() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_refund_account(&store, &fixture, &mut runner)
     }
 
@@ -929,48 +743,42 @@ mod tests {
     #[test]
     fn test_in_mem_slot_updated() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_slot_updated(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_read_utxo() {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_utxo(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_remove_utxo() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_utxo(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_account() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_account(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_pool() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_pool(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_drep() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        let (store, fixture) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_drep(&store, &fixture)
     }
 

@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
+use amaru_kernel::{DRep, DRepVotingThresholds, Epoch, PROTOCOL_VERSION_9, ProtocolParamUpdate, ProtocolVersion, Vote};
+use num::Zero;
+
 use super::{OrphanProposal, ProposalEnum};
 use crate::{
     governance::ratification::CommitteeUpdate,
     summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution},
 };
-use amaru_kernel::{
-    DRep, DRepVotingThresholds, Epoch, PROTOCOL_VERSION_9, ProtocolParamUpdate, ProtocolVersion,
-    Vote,
-};
-use num::Zero;
-use std::collections::BTreeMap;
 
 // Voting Thresholds
 // ----------------------------------------------------------------------------
@@ -62,9 +61,7 @@ pub fn voting_threshold(
             )
         }
 
-        ProposalEnum::HardFork(..) => {
-            Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation))
-        }
+        ProposalEnum::HardFork(..) => Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation)),
 
         ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
             Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
@@ -78,9 +75,7 @@ pub fn voting_threshold(
             }))
         }
 
-        ProposalEnum::Constitution(..) => {
-            Some(into_safe_ratio(&voting_thresholds.update_constitution))
-        }
+        ProposalEnum::Constitution(..) => Some(into_safe_ratio(&voting_thresholds.update_constitution)),
 
         ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
             Some(into_safe_ratio(&voting_thresholds.treasury_withdrawal))
@@ -89,10 +84,7 @@ pub fn voting_threshold(
 }
 
 // Check whether the update contains any parameter that is considered part of the 'network group'.
-fn any_update_in_network_group(
-    thresholds: &DRepVotingThresholds,
-    update: &ProtocolParamUpdate,
-) -> Option<SafeRatio> {
+fn any_update_in_network_group(thresholds: &DRepVotingThresholds, update: &ProtocolParamUpdate) -> Option<SafeRatio> {
     let any = update.max_block_body_size.is_some()
         || update.max_transaction_size.is_some()
         || update.max_block_header_size.is_some()
@@ -101,18 +93,11 @@ fn any_update_in_network_group(
         || update.max_value_size.is_some()
         || update.max_collateral_inputs.is_some();
 
-    if any {
-        Some(into_safe_ratio(&thresholds.pp_network_group))
-    } else {
-        None
-    }
+    if any { Some(into_safe_ratio(&thresholds.pp_network_group)) } else { None }
 }
 
 // Check whether the update contains any parameter that is considered part of the 'economic group'.
-fn any_update_in_economic_group(
-    thresholds: &DRepVotingThresholds,
-    update: &ProtocolParamUpdate,
-) -> Option<SafeRatio> {
+fn any_update_in_economic_group(thresholds: &DRepVotingThresholds, update: &ProtocolParamUpdate) -> Option<SafeRatio> {
     let any = update.minfee_a.is_some()
         || update.minfee_b.is_some()
         || update.key_deposit.is_some()
@@ -124,29 +109,18 @@ fn any_update_in_economic_group(
         || update.execution_costs.is_some()
         || update.minfee_refscript_cost_per_byte.is_some();
 
-    if any {
-        Some(into_safe_ratio(&thresholds.pp_economic_group))
-    } else {
-        None
-    }
+    if any { Some(into_safe_ratio(&thresholds.pp_economic_group)) } else { None }
 }
 
 // Check whether the update contains any parameter that is considered part of the 'technical group'.
-fn any_update_in_technical_group(
-    thresholds: &DRepVotingThresholds,
-    update: &ProtocolParamUpdate,
-) -> Option<SafeRatio> {
+fn any_update_in_technical_group(thresholds: &DRepVotingThresholds, update: &ProtocolParamUpdate) -> Option<SafeRatio> {
     let any = update.maximum_epoch.is_some()
         || update.desired_number_of_stake_pools.is_some()
         || update.pool_pledge_influence.is_some()
         || update.cost_models_for_script_languages.is_some()
         || update.collateral_percentage.is_some();
 
-    if any {
-        Some(into_safe_ratio(&thresholds.pp_technical_group))
-    } else {
-        None
-    }
+    if any { Some(into_safe_ratio(&thresholds.pp_technical_group)) } else { None }
 }
 
 // Check whether the update contains any parameter that is considered part of the 'governance group'.
@@ -163,11 +137,7 @@ fn any_update_in_governance_group(
         || update.drep_deposit.is_some()
         || update.drep_inactivity_period.is_some();
 
-    if any {
-        Some(into_safe_ratio(&thresholds.pp_governance_group))
-    } else {
-        None
-    }
+    if any { Some(into_safe_ratio(&thresholds.pp_governance_group)) } else { None }
 }
 
 // Tally
@@ -180,29 +150,23 @@ pub fn tally(
     votes: BTreeMap<DRep, &Vote>,
     stake_distribution: &StakeDistribution,
 ) -> SafeRatio {
-    let (yes, denominator) =
-        stake_distribution
-            .dreps
-            .iter()
-            .fold((0, 0), |(yes, denominator), (drep, st)| {
-                if st.is_active(epoch) {
-                    match drep {
-                        DRep::Abstain => (yes, denominator),
-                        DRep::NoConfidence if proposal.is_no_confidence() => {
-                            (yes + st.stake, denominator + st.stake)
-                        }
-                        DRep::NoConfidence => (yes, denominator + st.stake),
-                        DRep::Key(..) | DRep::Script(..) => match votes.get(drep) {
-                            None => (yes, denominator + st.stake),
-                            Some(Vote::Yes) => (yes + st.stake, denominator + st.stake),
-                            Some(Vote::No) => (yes, denominator + st.stake),
-                            Some(Vote::Abstain) => (yes, denominator),
-                        },
-                    }
-                } else {
-                    (yes, denominator)
-                }
-            });
+    let (yes, denominator) = stake_distribution.dreps.iter().fold((0, 0), |(yes, denominator), (drep, st)| {
+        if st.is_active(epoch) {
+            match drep {
+                DRep::Abstain => (yes, denominator),
+                DRep::NoConfidence if proposal.is_no_confidence() => (yes + st.stake, denominator + st.stake),
+                DRep::NoConfidence => (yes, denominator + st.stake),
+                DRep::Key(..) | DRep::Script(..) => match votes.get(drep) {
+                    None => (yes, denominator + st.stake),
+                    Some(Vote::Yes) => (yes + st.stake, denominator + st.stake),
+                    Some(Vote::No) => (yes, denominator + st.stake),
+                    Some(Vote::Abstain) => (yes, denominator),
+                },
+            }
+        } else {
+            (yes, denominator)
+        }
+    });
 
     let no = denominator - yes;
     let abstain = stake_distribution.dreps_voting_stake - denominator;
@@ -212,11 +176,7 @@ pub fn tally(
     span.record("votes.dreps.no", no);
     span.record("votes.dreps.abstain", abstain);
 
-    if denominator == 0 {
-        SafeRatio::zero()
-    } else {
-        safe_ratio(yes, denominator)
-    }
+    if denominator == 0 { SafeRatio::zero() } else { safe_ratio(yes, denominator) }
 }
 
 // Tests
@@ -224,6 +184,14 @@ pub fn tally(
 
 #[cfg(all(test, not(target_os = "windows")))]
 mod tests {
+    use std::{collections::BTreeMap, rc::Rc};
+
+    use amaru_kernel::{
+        DRep, Epoch, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, Vote, any_drep_voting_thresholds, any_vote_ref,
+    };
+    use num::{One, Zero};
+    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
+
     use super::{tally, voting_threshold};
     use crate::{
         governance::ratification::{
@@ -235,13 +203,6 @@ mod tests {
             stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_pools},
         },
     };
-    use amaru_kernel::{
-        DRep, Epoch, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, Vote, any_drep_voting_thresholds,
-        any_vote_ref,
-    };
-    use num::{One, Zero};
-    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
-    use std::{collections::BTreeMap, rc::Rc};
 
     proptest! {
         #[test]
@@ -321,24 +282,11 @@ mod tests {
         }
     }
 
-    pub fn any_tally() -> impl Strategy<
-        Value = (
-            Epoch,
-            ProposalEnum,
-            BTreeMap<DRep, &'static Vote>,
-            Rc<StakeDistribution>,
-        ),
-    > {
-        any_stake_distribution_no_pools(MIN_ARBITRARY_EPOCH, MAX_ARBITRARY_EPOCH).prop_flat_map(
-            |stake_distribution| {
-                (
-                    any_epoch(),
-                    any_proposal_enum(),
-                    any_votes(&stake_distribution),
-                    Just(Rc::new(stake_distribution)),
-                )
-            },
-        )
+    pub fn any_tally()
+    -> impl Strategy<Value = (Epoch, ProposalEnum, BTreeMap<DRep, &'static Vote>, Rc<StakeDistribution>)> {
+        any_stake_distribution_no_pools(MIN_ARBITRARY_EPOCH, MAX_ARBITRARY_EPOCH).prop_flat_map(|stake_distribution| {
+            (any_epoch(), any_proposal_enum(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
+        })
     }
 
     pub fn any_votes(
