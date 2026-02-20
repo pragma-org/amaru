@@ -260,10 +260,17 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let mut connections = inner.connection_endpoints.lock();
-            connections.remove(&conn).ok_or_else(|| {
-                std::io::Error::other(format!("connection {conn} not found for close"))
-            })?;
+            let removed = {
+                let mut connections = inner.connection_endpoints.lock();
+                connections.remove(&conn).ok_or_else(|| {
+                    std::io::Error::other(format!("connection {conn} not found for close"))
+                })?
+            };
+            // Wake any recv task blocked on this connection so it gets an error, not a hang
+            if let Some(waker) = removed.recv_waker.lock().take() {
+                waker.wake();
+            }
+
             tracing::debug!("closed in-memory connection {conn}");
             Ok(())
         })
