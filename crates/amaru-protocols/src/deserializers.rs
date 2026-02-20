@@ -13,21 +13,22 @@
 // limitations under the License.
 
 use crate::{
-    blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects,
+    accept, blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects,
     tx_submission,
 };
 use pure_stage::DeserializerGuards;
 
 pub fn register_deserializers() -> DeserializerGuards {
     let mut guards: DeserializerGuards = Vec::new();
-    guards.extend(network_effects::register_deserializers());
-    guards.extend(mux::register_deserializers());
-    guards.extend(handshake::register_deserializers());
-    guards.extend(chainsync::register_deserializers());
+    guards.extend(accept::register_deserializers());
     guards.extend(blockfetch::register_deserializers());
-    guards.extend(keepalive::register_deserializers());
-    guards.extend(tx_submission::register_deserializers());
+    guards.extend(chainsync::register_deserializers());
     guards.extend(connection::register_deserializers());
+    guards.extend(handshake::register_deserializers());
+    guards.extend(keepalive::register_deserializers());
     guards.extend(manager::register_deserializers());
+    guards.extend(mux::register_deserializers());
+    guards.extend(network_effects::register_deserializers());
+    guards.extend(tx_submission::register_deserializers());
     guards
 }

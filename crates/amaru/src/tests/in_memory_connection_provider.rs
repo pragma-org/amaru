@@ -69,18 +69,21 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         })
     }
 
-    /// Accept an incoming connection for any of the registered listeners. Returns the peer and connection ID.
+    /// Accept an incoming connection for the specified listener. Returns the peer and connection ID.
     /// If no peer is currently trying to connect, this waits until a connection is available
     /// and wakes the caller.
-    fn accept(&self) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
+    fn accept(
+        &self,
+        listener_addr: SocketAddr,
+    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
         let inner = self.inner.clone();
         Box::pin(std::future::poll_fn(move |cx| {
-            // Try to get a pending connection from any listener
+            // Try to get a pending connection from the specified listener only
             let pending = {
                 let mut listeners = inner.listeners.lock();
                 listeners
-                    .values_mut()
-                    .find_map(|l| l.pending_connects.pop_front())
+                    .get_mut(&listener_addr)
+                    .and_then(|l| l.pending_connects.pop_front())
             };
 
             let Some(pending) = pending else {
@@ -481,7 +484,7 @@ mod tests {
             .await?;
 
         // Accept on responder side
-        let (_peer, responder_conn_id) = provider.accept().await?;
+        let (_peer, responder_conn_id) = provider.accept(listener_addr).await?;
 
         // Send first, then recv (data is already buffered when recv is called)
         let msg1 = NonEmptyBytes::try_from(Bytes::from("hello from initiator")).unwrap();
@@ -514,7 +517,7 @@ mod tests {
         let initiator_conn_id = provider
             .connect(vec![listener_addr], Duration::from_secs(1))
             .await?;
-        let (_peer, responder_conn_id) = provider.accept().await?;
+        let (_peer, responder_conn_id) = provider.accept(listener_addr).await?;
 
         // Send multiple messages
         let messages = vec!["first", "second", "third"];
@@ -562,7 +565,7 @@ mod tests {
         let initiator_conn_id = connect_handle.await.unwrap()?;
 
         // Accept should work
-        let (_peer, _responder_conn_id) = provider.accept().await?;
+        let (_peer, _responder_conn_id) = provider.accept(listener_addr).await?;
 
         provider.close(initiator_conn_id).await?;
 

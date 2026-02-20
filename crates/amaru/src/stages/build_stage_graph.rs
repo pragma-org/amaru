@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use amaru_consensus::errors::ConsensusError::*;
-use amaru_consensus::stages::accept::PullAccept;
 use amaru_consensus::stages::forward_chain::ForwardChainState;
+use amaru_consensus::stages::pull;
 use amaru_consensus::stages::pull::SyncTracker;
-use amaru_consensus::stages::{accept, pull};
 use amaru_consensus::{
     effects::ConsensusEffects,
     errors::{ProcessingFailed, ValidationFailed},
@@ -42,7 +41,6 @@ use pure_stage::{Effects, SendData, StageGraph, StageRef};
 ///
 /// We terminate the node in case of a failure, while we just log errors.
 ///
-#[expect(clippy::expect_used)]
 pub fn build_stage_graph(
     chain_selector: SelectChain,
     sync_tracker: SyncTracker,
@@ -70,7 +68,6 @@ pub fn build_stage_graph(
         "forward_chain",
         with_consensus_effects(forward_chain::stage),
     );
-    let accept_stage = stage_graph.stage("accept", accept::stage);
 
     let validation_errors_stage = stage_graph.stage(
         "validation_errors",
@@ -138,16 +135,6 @@ pub fn build_stage_graph(
             ),
         )
         .without_state();
-
-    let accept_stage = stage_graph
-        .wire_up(
-            accept_stage,
-            accept::AcceptState::new(manager_stage.sender(), manager.config()),
-        )
-        .without_state();
-    stage_graph
-        .preload(&accept_stage, [PullAccept])
-        .expect("preload should not fail on startup");
 
     let select_chain_stage = stage_graph
         .wire_up(

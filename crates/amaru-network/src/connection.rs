@@ -179,7 +179,12 @@ impl ConnectionProvider for TokioConnections {
         )
     }
 
-    fn accept(&self) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
+    /// NOTE: For now there is only one listener used in the tokio implementation so we don't need
+    /// to use the _listener_addr.
+    fn accept(
+        &self,
+        _listener_addr: SocketAddr,
+    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
         let inner = self.inner.clone();
 
         Box::pin(
@@ -386,9 +391,8 @@ mod tests {
         // to an ephemeral port.
         let connections = TokioConnections::new(1024);
 
-        let addr = connections
-            .listen(SocketAddr::from(([127, 0, 0, 1], 0)))
-            .await?;
+        let listen_addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let addr = connections.listen(listen_addr).await?;
 
         // Start a client that connects to the listener and
         // sends "hello", expecting "world" in response.
@@ -404,7 +408,7 @@ mod tests {
         });
 
         // Receive "hello" from the client and respond with "world".
-        let connection_id = timeout(Duration::from_secs(1), connections.accept())
+        let connection_id = timeout(Duration::from_secs(1), connections.accept(listen_addr))
             .await??
             .1;
         let result = connections

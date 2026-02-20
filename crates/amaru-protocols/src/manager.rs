@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::accept::PullAccept;
 use crate::{
+    accept,
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
@@ -314,6 +316,17 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
             match network.listen(listen_addr).await {
                 Ok(listen_addr) => {
                     tracing::info!(%listen_addr, "listening");
+                    let accept_stage = eff.stage("accept", accept::stage).await;
+                    // If the accept stage fails try to restart the listener
+                    let accept_stage =
+                        eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
+                    let accept_stage = eff
+                        .wire_up(
+                            accept_stage,
+                            accept::AcceptState::new(eff.me(), manager.config(), listen_addr),
+                        )
+                        .await;
+                    eff.send(&accept_stage, PullAccept).await;
                 }
                 Err(error) => {
                     tracing::error!(%listen_addr, %error, "cannot listen");

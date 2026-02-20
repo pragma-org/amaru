@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_protocols::manager::{ManagerConfig, ManagerMessage};
-use amaru_protocols::network_effects::{AcceptError, Network, NetworkOps};
+use crate::manager::{ManagerConfig, ManagerMessage};
+use crate::network_effects::{AcceptError, Network, NetworkOps};
 use pure_stage::{Effects, StageRef};
+use std::net::SocketAddr;
 
 /// Create a stage that repeatedly accepts incoming connections and notifies the manager about them.
 pub async fn stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept>) -> AcceptState {
-    match Network::new(&eff).accept().await {
+    match Network::new(&eff).accept(state.listener_addr).await {
         Ok((peer, connection_id)) => {
             eff.send(
                 &state.manager_stage,
@@ -46,13 +47,23 @@ pub struct PullAccept;
 pub struct AcceptState {
     manager_stage: StageRef<ManagerMessage>,
     manager_config: ManagerConfig,
+    listener_addr: SocketAddr,
 }
 
 impl AcceptState {
-    pub fn new(manager_stage: StageRef<ManagerMessage>, manager_config: ManagerConfig) -> Self {
+    pub fn new(
+        manager_stage: StageRef<ManagerMessage>,
+        manager_config: ManagerConfig,
+        listener_addr: SocketAddr,
+    ) -> Self {
         Self {
             manager_stage,
             manager_config,
+            listener_addr,
         }
     }
+}
+
+pub fn register_deserializers() -> pure_stage::DeserializerGuards {
+    vec![pure_stage::register_data_deserializer::<AcceptState>().boxed()]
 }
