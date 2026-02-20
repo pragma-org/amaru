@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use crate::effects::{
-    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps, Store,
+    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps,
     metrics_effects::{Metrics, MetricsOps},
 };
 use amaru_kernel::{BlockHeader, Transaction};
 use amaru_ouroboros_traits::{ChainStore, TxSubmissionMempool};
-use amaru_protocols::mempool_effects::MemoryPool;
+use amaru_protocols::{mempool_effects::MemoryPool, store_effects::Store};
 use pure_stage::{Effects, SendData};
 use std::sync::Arc;
 
@@ -41,12 +41,19 @@ pub trait ConsensusOps: Send + Sync + Clone {
 }
 
 /// Implementation of ConsensusOps using pure_stage::Effects.
-#[derive(Clone)]
 pub struct ConsensusEffects<T> {
     effects: Effects<T>,
 }
 
-impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
+impl<T> Clone for ConsensusEffects<T> {
+    fn clone(&self) -> Self {
+        Self {
+            effects: self.effects.clone(),
+        }
+    }
+}
+
+impl<T: SendData + Sync> ConsensusEffects<T> {
     pub fn new(effects: Effects<T>) -> ConsensusEffects<T> {
         ConsensusEffects { effects }
     }
@@ -76,7 +83,7 @@ impl<T: SendData + Sync + Clone> ConsensusEffects<T> {
     }
 }
 
-impl<T: SendData + Sync + Clone> ConsensusOps for ConsensusEffects<T> {
+impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
     fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
         self.store()
     }

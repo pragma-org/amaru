@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, Point, Tip, cbor, to_cbor};
+use amaru_kernel::{BlockHeader, EraName, Point, Tip, cbor, to_cbor};
 use pure_stage::DeserializerGuards;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -33,21 +33,25 @@ pub enum Message {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
 pub struct HeaderContent {
-    pub variant: u8,
+    pub variant: EraName,
     pub byron_prefix: Option<(u8, u64)>,
     pub cbor: Vec<u8>,
 }
 
 impl HeaderContent {
-    pub fn v6(header: &BlockHeader) -> Self {
-        Self::make_v6(to_cbor(header))
+    pub fn new(header: &BlockHeader, era: EraName) -> Self {
+        Self {
+            variant: era,
+            byron_prefix: None,
+            cbor: to_cbor(header),
+        }
     }
 
-    pub fn make_v6(cbor: Vec<u8>) -> Self {
+    pub fn with_bytes(bytes: Vec<u8>, variant: EraName) -> Self {
         Self {
-            variant: 6,
+            variant,
             byron_prefix: None,
-            cbor,
+            cbor: bytes,
         }
     }
 }
@@ -164,11 +168,10 @@ impl<'b> cbor::Decode<'b, ()> for Message {
 impl<'b> cbor::Decode<'b, ()> for HeaderContent {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
-        let variant = d.u8()?; // era variant
+        let variant = EraName::from_header_variant(d.u8()?).map_err(cbor::decode::Error::custom)?;
 
         match variant {
-            // byron
-            0 => {
+            EraName::Byron => {
                 cbor::check_tagged_array_length(0, len, 2)?;
                 let len = d.array()?;
                 cbor::check_tagged_array_length(0, len, 2)?;
@@ -186,9 +189,14 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
                     cbor: Vec::from(bytes),
                 })
             }
-            // shelley and beyond
-            v => {
-                cbor::check_tagged_array_length(v as usize, len, 2)?;
+            EraName::Shelley
+            | EraName::Allegra
+            | EraName::Mary
+            | EraName::Alonzo
+            | EraName::Babbage
+            | EraName::Conway
+            | EraName::Dijkstra => {
+                cbor::check_tagged_array_length(variant.header_variant().into(), len, 2)?;
                 d.tag()?;
                 let bytes = d.bytes()?;
                 Ok(HeaderContent {
@@ -208,10 +216,9 @@ impl cbor::Encode<()> for HeaderContent {
         _ctx: &mut (),
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.u8(self.variant)?;
+        e.u8(self.variant.header_variant())?;
 
-        // variant 0 is byron
-        if self.variant == 0 {
+        if self.variant == EraName::Byron {
             e.array(2)?;
 
             if let Some((a, b)) = self.byron_prefix {
@@ -242,7 +249,7 @@ mod tests {
     use crate::{
         chainsync::messages::Message::*, protocol_messages::handshake::tests::any_byron_prefix,
     };
-    use amaru_kernel::{any_point, any_tip, prop_cbor_roundtrip};
+    use amaru_kernel::{any_era_name, any_point, any_tip, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     mod header_content {
@@ -276,8 +283,8 @@ mod tests {
     }
 
     prop_compose! {
-        fn any_header_content()(variant in 0..8u8, byron_prefix in any_byron_prefix(), cbor in any_vec_u8()) -> HeaderContent {
-            if variant == 0 {
+        fn any_header_content()(variant in any_era_name(), byron_prefix in any_byron_prefix(), cbor in any_vec_u8()) -> HeaderContent {
+            if variant == EraName::Byron {
                 HeaderContent { variant, byron_prefix: Some(byron_prefix), cbor }
             } else {
                 HeaderContent { variant, byron_prefix: None, cbor }

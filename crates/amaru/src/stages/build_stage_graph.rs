@@ -62,7 +62,10 @@ pub fn build_stage_graph(
             use super::ConsensusError::*;
             match error {
                 MissingTip
+                | InvalidHeaderHeight { .. }
                 | InvalidHeader(_, _)
+                | InvalidHeaderPoint(_)
+                | InvalidHeaderVariant(_)
                 | HeaderPointMismatch { .. }
                 | UnknownPoint(_)
                 | InvalidRollback { .. }
@@ -71,7 +74,7 @@ pub fn build_stage_graph(
                 | InvalidHeaderParent(_)
                 | RollForwardChainFailed(_, _)
                 | RollbackChainFailed(_, _)
-                | CannotDecodeHeader { .. } => {
+                | CannotDecodeHeader { .. } | EraHistoryError(_) => {
                     tracing::error!(%peer, %error, "peer sent invalid data, disconnecting");
                     eff.send(&manager, ManagerMessage::RemovePeer(peer)).await;
                 }
@@ -83,7 +86,7 @@ pub fn build_stage_graph(
                 | UpdateBestChainFailed(_, _, _)
                 | StoreBlockFailed(_, _)
                 | RollbackBlockFailed(_, _) // this can failed if the block was not downloaded in the first place
-                | UnknownPeer(_) => {
+                | UnknownPeer(_) | EraNameMismatch { .. } => {
                     tracing::error!(%peer, %error, "validation error");
                 }
             }
