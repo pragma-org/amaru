@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{KeepRaw, cbor};
 use std::{collections::BTreeSet, ops::Deref};
+
+use crate::{KeepRaw, cbor};
 
 /// A read-only non-empty set: unique set of values with at least one element.
 ///
@@ -154,11 +155,13 @@ pub(crate) fn has_duplicate<T: Eq>(xs: &[T]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeSet, ops::Deref};
+
+    use proptest::{collection, prelude::*};
+    use test_case::test_case;
+
     use super::{NonEmptySet, has_duplicate};
     use crate::{from_cbor_no_leftovers, to_cbor};
-    use proptest::{collection, prelude::*};
-    use std::{collections::BTreeSet, ops::Deref};
-    use test_case::test_case;
 
     #[test]
     fn has_duplicate_empty() {
@@ -224,9 +227,6 @@ mod tests {
     #[test_case("D9010282010203"; "leftovers")]
     #[test_case("D81B8101"; "unknown tag")]
     fn from_cbor_failures(s: &str) {
-        assert!(matches!(
-            from_cbor_no_leftovers::<NonEmptySet<u8>>(hex::decode(s).unwrap().as_slice()),
-            Err(..),
-        ));
+        assert!(matches!(from_cbor_no_leftovers::<NonEmptySet<u8>>(hex::decode(s).unwrap().as_slice()), Err(..),));
     }
 }

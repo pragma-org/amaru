@@ -17,8 +17,9 @@
 //! These tests verify that the #[trace] macro correctly supports
 //! different tracing levels (trace, debug, info, warn, error)
 
-use amaru_observability_macros::{define_local_schemas, trace};
 use std::sync::{Arc, Mutex};
+
+use amaru_observability_macros::{define_local_schemas, trace};
 use tracing::field::Visit;
 use tracing_subscriber::{Registry, layer::SubscriberExt};
 
@@ -75,12 +76,7 @@ where
         // Record the level from the metadata
         let level = format!("{}", attrs.metadata().level());
 
-        let mut capture = SpanCapture {
-            name: String::new(),
-            target: String::new(),
-            level,
-            fields: Default::default(),
-        };
+        let mut capture = SpanCapture { name: String::new(), target: String::new(), level, fields: Default::default() };
 
         let mut visitor = SpanMetadataVisitor(&mut capture);
         attrs.record(&mut visitor);
@@ -151,9 +147,7 @@ fn connection_opened_with_ip(peer_id: String) {
 #[test]
 fn test_trace_with_debug_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(SpanCaptureLayer {
-        spans: spans.clone(),
-    });
+    let subscriber = Registry::default().with(SpanCaptureLayer { spans: spans.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         sync_blocks_debug(12345);
@@ -163,19 +157,13 @@ fn test_trace_with_debug_level() {
     assert!(!captured_spans.is_empty(), "Expected a span to be captured");
 
     let span = &captured_spans[0];
-    assert_eq!(
-        span.level, "DEBUG",
-        "Expected DEBUG level, got {}",
-        span.level
-    );
+    assert_eq!(span.level, "DEBUG", "Expected DEBUG level, got {}", span.level);
 }
 
 #[test]
 fn test_trace_with_info_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(SpanCaptureLayer {
-        spans: spans.clone(),
-    });
+    let subscriber = Registry::default().with(SpanCaptureLayer { spans: spans.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         connection_opened_info("peer-123".into());
@@ -185,19 +173,13 @@ fn test_trace_with_info_level() {
     assert!(!captured_spans.is_empty(), "Expected a span to be captured");
 
     let span = &captured_spans[0];
-    assert_eq!(
-        span.level, "INFO",
-        "Expected INFO level, got {}",
-        span.level
-    );
+    assert_eq!(span.level, "INFO", "Expected INFO level, got {}", span.level);
 }
 
 #[test]
 fn test_trace_with_warn_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(SpanCaptureLayer {
-        spans: spans.clone(),
-    });
+    let subscriber = Registry::default().with(SpanCaptureLayer { spans: spans.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         validate_rule_warn("firewall".into(), "rejected".into());
@@ -207,19 +189,13 @@ fn test_trace_with_warn_level() {
     assert!(!captured_spans.is_empty(), "Expected a span to be captured");
 
     let span = &captured_spans[0];
-    assert_eq!(
-        span.level, "WARN",
-        "Expected WARN level, got {}",
-        span.level
-    );
+    assert_eq!(span.level, "WARN", "Expected WARN level, got {}", span.level);
 }
 
 #[test]
 fn test_trace_with_error_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(SpanCaptureLayer {
-        spans: spans.clone(),
-    });
+    let subscriber = Registry::default().with(SpanCaptureLayer { spans: spans.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         validate_rule_error("critical".into(), "failed".into());
@@ -229,19 +205,13 @@ fn test_trace_with_error_level() {
     assert!(!captured_spans.is_empty(), "Expected a span to be captured");
 
     let span = &captured_spans[0];
-    assert_eq!(
-        span.level, "ERROR",
-        "Expected ERROR level, got {}",
-        span.level
-    );
+    assert_eq!(span.level, "ERROR", "Expected ERROR level, got {}", span.level);
 }
 
 #[test]
 fn test_trace_default_trace_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(SpanCaptureLayer {
-        spans: spans.clone(),
-    });
+    let subscriber = Registry::default().with(SpanCaptureLayer { spans: spans.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         sync_blocks_trace(54321);
@@ -251,19 +221,13 @@ fn test_trace_default_trace_level() {
     assert!(!captured_spans.is_empty(), "Expected a span to be captured");
 
     let span = &captured_spans[0];
-    assert_eq!(
-        span.level, "TRACE",
-        "Expected TRACE level (default), got {}",
-        span.level
-    );
+    assert_eq!(span.level, "TRACE", "Expected TRACE level (default), got {}", span.level);
 }
 
 #[test]
 fn test_trace_with_level_and_custom_fields() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(SpanCaptureLayer {
-        spans: spans.clone(),
-    });
+    let subscriber = Registry::default().with(SpanCaptureLayer { spans: spans.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         connection_opened_with_ip("peer-456".into());
@@ -273,8 +237,5 @@ fn test_trace_with_level_and_custom_fields() {
     assert!(!captured_spans.is_empty(), "Expected a span to be captured");
 
     let span = &captured_spans[0];
-    assert_eq!(
-        span.level, "DEBUG",
-        "Expected DEBUG level with custom fields"
-    );
+    assert_eq!(span.level, "DEBUG", "Expected DEBUG level with custom fields");
 }

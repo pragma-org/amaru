@@ -12,16 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    effects::{BaseOps, ConsensusOps},
-    errors::{ConsensusError, ValidationFailed},
-    events::{DecodedChainSyncEvent, ValidateHeaderEvent},
-    span::HasSpan,
-    store::PraosChainStore,
-};
+use std::{fmt, sync::Arc};
+
 use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
-use amaru_observability::amaru::consensus::chain_sync::VALIDATE_HEADER;
-use amaru_observability::trace;
+use amaru_observability::{amaru::consensus::chain_sync::VALIDATE_HEADER, trace};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{
     ChainStore, HasStakeDistribution, Praos,
@@ -29,26 +23,25 @@ use amaru_ouroboros_traits::{
 };
 use anyhow::anyhow;
 use pure_stage::StageRef;
-use std::{fmt, sync::Arc};
 use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-pub fn stage(
-    state: State,
-    msg: DecodedChainSyncEvent,
-    eff: impl ConsensusOps,
-) -> impl Future<Output = State> {
+use crate::{
+    effects::{BaseOps, ConsensusOps},
+    errors::{ConsensusError, ValidationFailed},
+    events::{DecodedChainSyncEvent, ValidateHeaderEvent},
+    span::HasSpan,
+    store::PraosChainStore,
+};
+
+pub fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl ConsensusOps) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), VALIDATE_HEADER);
     async move {
         let (downstream, errors) = state;
 
         match &msg {
             DecodedChainSyncEvent::RollForward { peer, header, span } => {
-                match eff
-                    .ledger()
-                    .validate_header(header, Span::current().context())
-                    .await
-                {
+                match eff.ledger().validate_header(header, Span::current().context()).await {
                     Ok(_) => {
                         let msg = ValidateHeaderEvent::Validated {
                             peer: peer.clone(),
@@ -62,20 +55,13 @@ pub fn stage(
                         eff.base()
                             .send(
                                 &errors,
-                                ValidationFailed::new(
-                                    peer,
-                                    ConsensusError::InvalidHeader(header.point(), error),
-                                ),
+                                ValidationFailed::new(peer, ConsensusError::InvalidHeader(header.point(), error)),
                             )
                             .await
                     }
                 }
             }
-            DecodedChainSyncEvent::Rollback {
-                peer,
-                rollback_point,
-                span,
-            } => {
+            DecodedChainSyncEvent::Rollback { peer, rollback_point, span } => {
                 let msg = ValidateHeaderEvent::Rollback {
                     peer: peer.clone(),
                     rollback_point: *rollback_point,
@@ -113,27 +99,19 @@ impl ValidateHeader {
         store: Arc<dyn ChainStore<BlockHeader>>,
         ledger: Arc<dyn HasStakeDistribution>,
     ) -> Self {
-        Self {
-            consensus_parameters,
-            store,
-            ledger,
-        }
+        Self { consensus_parameters, store, ledger }
     }
 
     pub fn validate(&self, header: &BlockHeader) -> Result<(), ConsensusError> {
         let epoch_nonce = self.evolve_nonce(header)?;
-        self.check_header(
-            header,
-            to_cbor(&header.header_body()).as_slice(),
-            &epoch_nonce,
-        )?;
+        self.check_header(header, to_cbor(&header.header_body()).as_slice(), &epoch_nonce)?;
         Ok(())
     }
 
     #[trace(amaru::consensus::validate_header::EVOLVE_NONCE, hash = header.hash())]
     fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonce, ConsensusError> {
-        let nonces = PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone())
-            .evolve_nonce(header)?;
+        let nonces =
+            PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone()).evolve_nonce(header)?;
         Ok(nonces.active)
     }
 
@@ -155,32 +133,30 @@ impl ValidateHeader {
             use rayon::prelude::*;
             assertions.into_par_iter().try_for_each(|assert| assert())
         })
-        .map_err(|e| {
-            ConsensusError::InvalidHeader(header.point(), HeaderValidationError::new(anyhow!(e)))
-        })
+        .map_err(|e| ConsensusError::InvalidHeader(header.point(), HeaderValidationError::new(anyhow!(e))))
     }
 }
 
 impl CanValidateHeaders for ValidateHeader {
     fn validate_header(&self, header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        self.validate(header)
-            .map_err(|e| HeaderValidationError::new(anyhow!(e)))
+        self.validate(header).map_err(|e| HeaderValidationError::new(anyhow!(e)))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{effects::MockLedgerOps, errors::ConsensusError::NoncesError};
+    use std::sync::Arc;
+
     use amaru_kernel::{
         GlobalParameters, HeaderHash, NetworkName, Point, RawBlock, TESTNET_GLOBAL_PARAMETERS,
         any_header_with_some_parent, utils::tests::run_strategy,
     };
     use amaru_ouroboros_traits::{
-        ChainStore, Nonces, ReadOnlyChainStore, StoreError,
-        in_memory_consensus_store::InMemConsensusStore,
+        ChainStore, Nonces, ReadOnlyChainStore, StoreError, in_memory_consensus_store::InMemConsensusStore,
     };
-    use std::sync::Arc;
+
+    use super::*;
+    use crate::{effects::MockLedgerOps, errors::ConsensusError::NoncesError};
 
     #[tokio::test]
     async fn test_handle_roll_forward_evolve_nonce_error() {
@@ -191,8 +167,7 @@ mod tests {
             NetworkName::Preprod.into(),
             Default::default(),
         ));
-        let validate_header =
-            ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
+        let validate_header = ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
 
         let result = validate_header.validate(&header);
 
@@ -214,16 +189,13 @@ mod tests {
             Default::default(),
         ));
         let failing_store = FailingStore::new();
-        let validate_header =
-            ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
+        let validate_header = ValidateHeader::new(consensus_parameters, Arc::new(failing_store), ledger);
 
         let result = validate_header.validate(&header);
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match result.unwrap_err() {
-            NoncesError(crate::store::NoncesError::UnknownParent { parent, .. })
-                if Some(parent) == header.parent() =>
-            {
+            NoncesError(crate::store::NoncesError::UnknownParent { parent, .. }) if Some(parent) == header.parent() => {
                 // Expected error
             }
             other => panic!("Expected NoncesError with UnknownParent, got: {:?}", other),
@@ -240,10 +212,7 @@ mod tests {
 
     impl FailingStore {
         fn new() -> Self {
-            Self {
-                fail_on_evolve_nonce: false,
-                store: InMemConsensusStore::new(),
-            }
+            Self { fail_on_evolve_nonce: false, store: InMemConsensusStore::new() }
         }
 
         fn fail_on_evolve_nonce(mut self) -> Self {
@@ -321,11 +290,7 @@ mod tests {
     }
 
     // Helper function to create test data
-    fn create_test_data() -> (
-        BlockHeader,
-        &'static GlobalParameters,
-        Arc<dyn HasStakeDistribution>,
-    ) {
+    fn create_test_data() -> (BlockHeader, &'static GlobalParameters, Arc<dyn HasStakeDistribution>) {
         // Create a minimal valid header using the default constructor
         let header = run_strategy(any_header_with_some_parent());
         // Create a simple global parameters for testing

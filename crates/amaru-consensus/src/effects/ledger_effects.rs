@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::errors::{ConsensusError, ValidationFailed};
+use std::sync::Arc;
+
 use amaru_kernel::{Block, BlockHeader, IgnoreEq, Peer, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
@@ -20,10 +21,9 @@ use amaru_ouroboros_traits::{
     can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
 };
 use opentelemetry::trace::FutureExt;
-use pure_stage::{
-    BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
-};
-use std::sync::Arc;
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
+
+use crate::errors::{ConsensusError, ValidationFailed};
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
@@ -74,10 +74,8 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         point: &Point,
         block: Block,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
-    {
-        self.0
-            .external(ValidateBlockEffect::new(peer, point, block, ctx))
+    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
+        self.0.external(ValidateBlockEffect::new(peer, point, block, ctx))
     }
 
     fn rollback(
@@ -107,24 +105,14 @@ pub struct ValidateBlockEffect {
 
 impl ValidateBlockEffect {
     pub fn new(peer: &Peer, point: &Point, block: Block, ctx: opentelemetry::Context) -> Self {
-        Self {
-            peer: peer.clone(),
-            point: *point,
-            block,
-            ctx: ctx.into(),
-        }
+        Self { peer: peer.clone(), point: *point, block, ctx: ctx.into() }
     }
 }
 
 impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let Self {
-            peer: _peer,
-            point,
-            block,
-            ctx,
-        } = *self;
+        let Self { peer: _peer, point, block, ctx } = *self;
         Self::wrap(
             async move {
                 let validator = resources
@@ -151,10 +139,7 @@ pub struct ValidateHeaderEffect {
 
 impl ValidateHeaderEffect {
     pub fn new(header: &BlockHeader, ctx: opentelemetry::Context) -> Self {
-        Self {
-            header: header.clone(),
-            ctx: ctx.into(),
-        }
+        Self { header: header.clone(), ctx: ctx.into() }
     }
 }
 
@@ -188,11 +173,7 @@ pub struct RollbackBlockEffect {
 
 impl RollbackBlockEffect {
     pub fn new(peer: &Peer, point: &Point, ctx: opentelemetry::Context) -> Self {
-        Self {
-            peer: peer.clone(),
-            point: *point,
-            ctx: ctx.into(),
-        }
+        Self { peer: peer.clone(), point: *point, ctx: ctx.into() }
     }
 }
 
@@ -205,12 +186,9 @@ impl ExternalEffect for RollbackBlockEffect {
                 .get::<ResourceBlockValidation>()
                 .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
                 .clone();
-            validator.rollback_block(&self.point).map_err(|e| {
-                ValidationFailed::new(
-                    &self.peer,
-                    ConsensusError::RollbackBlockFailed(self.point, e),
-                )
-            })
+            validator
+                .rollback_block(&self.point)
+                .map_err(|e| ValidationFailed::new(&self.peer, ConsensusError::RollbackBlockFailed(self.point, e)))
         })
     }
 }

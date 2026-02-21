@@ -14,8 +14,9 @@
 
 //! Tests for trace_span! and trace_record! macros with custom tracing levels
 
-use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
 use std::sync::{Arc, Mutex};
+
+use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
 use tracing::field::Visit;
 use tracing_subscriber::{Registry, layer::SubscriberExt};
 
@@ -63,11 +64,7 @@ where
         self.spans.lock().unwrap().push(capture);
     }
 
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
         let level = format!("{}", event.metadata().level());
 
         let mut fields = std::collections::BTreeMap::new();
@@ -84,8 +81,7 @@ struct EventFieldVisitor<'a>(&'a mut std::collections::BTreeMap<String, String>)
 
 impl<'a> Visit for EventFieldVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0
-            .insert(field.name().to_string(), format!("{:?}", value));
+        self.0.insert(field.name().to_string(), format!("{:?}", value));
     }
 }
 
@@ -96,10 +92,8 @@ impl<'a> Visit for EventFieldVisitor<'a> {
 #[test]
 fn test_trace_span_default_trace_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: spans.clone(),
-        events: Arc::new(Mutex::new(Vec::new())),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = trace_span!(database::operations::QUERY, query_id = 12345);
@@ -113,10 +107,8 @@ fn test_trace_span_default_trace_level() {
 #[test]
 fn test_trace_span_with_debug_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: spans.clone(),
-        events: Arc::new(Mutex::new(Vec::new())),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = trace_span!(DEBUG, database::operations::QUERY, query_id = 12345);
@@ -130,10 +122,8 @@ fn test_trace_span_with_debug_level() {
 #[test]
 fn test_trace_span_with_info_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: spans.clone(),
-        events: Arc::new(Mutex::new(Vec::new())),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = trace_span!(INFO, database::operations::QUERY, query_id = 99);
@@ -147,10 +137,8 @@ fn test_trace_span_with_info_level() {
 #[test]
 fn test_trace_span_with_warn_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: spans.clone(),
-        events: Arc::new(Mutex::new(Vec::new())),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = trace_span!(WARN, database::operations::QUERY, query_id = 42);
@@ -164,10 +152,8 @@ fn test_trace_span_with_warn_level() {
 #[test]
 fn test_trace_span_with_error_level() {
     let spans = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: spans.clone(),
-        events: Arc::new(Mutex::new(Vec::new())),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = trace_span!(ERROR, database::operations::QUERY, query_id = 1);
@@ -185,10 +171,8 @@ fn test_trace_span_with_error_level() {
 #[test]
 fn test_trace_record_without_level_no_event() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: Arc::new(Mutex::new(Vec::new())),
-        events: events.clone(),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: Arc::new(Mutex::new(Vec::new())), events: events.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
@@ -196,20 +180,14 @@ fn test_trace_record_without_level_no_event() {
     });
 
     let captured = events.lock().unwrap();
-    assert_eq!(
-        captured.len(),
-        0,
-        "No event should be emitted without level"
-    );
+    assert_eq!(captured.len(), 0, "No event should be emitted without level");
 }
 
 #[test]
 fn test_trace_record_with_debug_level_emits_event() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: Arc::new(Mutex::new(Vec::new())),
-        events: events.clone(),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: Arc::new(Mutex::new(Vec::new())), events: events.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
@@ -217,11 +195,7 @@ fn test_trace_record_with_debug_level_emits_event() {
     });
 
     let captured = events.lock().unwrap();
-    assert_eq!(
-        captured.len(),
-        1,
-        "Event should be emitted with DEBUG level"
-    );
+    assert_eq!(captured.len(), 1, "Event should be emitted with DEBUG level");
     assert_eq!(captured[0].level, "DEBUG");
     assert!(captured[0].fields.contains_key("query_id"));
 }
@@ -229,10 +203,8 @@ fn test_trace_record_with_debug_level_emits_event() {
 #[test]
 fn test_trace_record_with_info_level_emits_event() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: Arc::new(Mutex::new(Vec::new())),
-        events: events.clone(),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: Arc::new(Mutex::new(Vec::new())), events: events.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
@@ -247,10 +219,8 @@ fn test_trace_record_with_info_level_emits_event() {
 #[test]
 fn test_trace_record_with_warn_level_emits_event() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: Arc::new(Mutex::new(Vec::new())),
-        events: events.clone(),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: Arc::new(Mutex::new(Vec::new())), events: events.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
@@ -265,10 +235,8 @@ fn test_trace_record_with_warn_level_emits_event() {
 #[test]
 fn test_trace_record_with_error_level_emits_event() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: Arc::new(Mutex::new(Vec::new())),
-        events: events.clone(),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: Arc::new(Mutex::new(Vec::new())), events: events.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
@@ -276,21 +244,15 @@ fn test_trace_record_with_error_level_emits_event() {
     });
 
     let captured = events.lock().unwrap();
-    assert_eq!(
-        captured.len(),
-        1,
-        "Event should be emitted with ERROR level"
-    );
+    assert_eq!(captured.len(), 1, "Event should be emitted with ERROR level");
     assert_eq!(captured[0].level, "ERROR");
 }
 
 #[test]
 fn test_trace_record_with_trace_level_emits_event() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CaptureLayer {
-        spans: Arc::new(Mutex::new(Vec::new())),
-        events: events.clone(),
-    });
+    let subscriber =
+        Registry::default().with(CaptureLayer { spans: Arc::new(Mutex::new(Vec::new())), events: events.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
@@ -298,10 +260,6 @@ fn test_trace_record_with_trace_level_emits_event() {
     });
 
     let captured = events.lock().unwrap();
-    assert_eq!(
-        captured.len(),
-        1,
-        "Event should be emitted with TRACE level"
-    );
+    assert_eq!(captured.len(), 1, "Event should be emitted with TRACE level");
     assert_eq!(captured[0].level, "TRACE");
 }

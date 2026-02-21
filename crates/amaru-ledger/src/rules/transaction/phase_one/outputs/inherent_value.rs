@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::InvalidOutput;
 use amaru_kernel::{HasLovelace, MemoizedTransactionOutput, ProtocolParameters, to_cbor};
+
+use super::InvalidOutput;
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
@@ -25,10 +26,7 @@ pub fn execute(
     let given_value = output.lovelace();
 
     if given_value < minimum_value {
-        return Err(InvalidOutput::TooSmall {
-            minimum_value,
-            given_value,
-        });
+        return Err(InvalidOutput::TooSmall { minimum_value, given_value });
     }
 
     let max_value_size = protocol_parameters.max_value_size;
@@ -37,10 +35,7 @@ pub fn execute(
 
     // This conversion is safe because max_value_size will never be big enough to cause a problem
     if given_val_size > max_value_size as usize {
-        return Err(InvalidOutput::ValueTooLarge {
-            maximum_size: max_value_size as usize,
-            given_size: given_val_size,
-        });
+        return Err(InvalidOutput::ValueTooLarge { maximum_size: max_value_size as usize, given_size: given_val_size });
     }
 
     Ok(())

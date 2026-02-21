@@ -12,19 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
+use amaru_observability::{
+    amaru::consensus::chain_sync::{RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED},
+    trace,
+};
+use pure_stage::StageRef;
+use tracing::Instrument;
+
 use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ProcessingFailed, ValidationFailed},
     events::{ChainSyncEvent, DecodedChainSyncEvent},
     span::HasSpan,
 };
-use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
-use amaru_observability::amaru::consensus::chain_sync::{
-    RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED,
-};
-use amaru_observability::trace;
-use pure_stage::StageRef;
-use tracing::Instrument;
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct State {
@@ -40,20 +41,11 @@ impl State {
         failures: StageRef<ValidationFailed>,
         errors: StageRef<ProcessingFailed>,
     ) -> Self {
-        Self {
-            downstream,
-            failures,
-            errors,
-            recv_count: 0,
-        }
+        Self { downstream, failures, errors, recv_count: 0 }
     }
 }
 
-pub fn stage(
-    mut state: State,
-    msg: ChainSyncEvent,
-    eff: impl ConsensusOps,
-) -> impl Future<Output = State> {
+pub fn stage(mut state: State, msg: ChainSyncEvent, eff: impl ConsensusOps) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), RECEIVE_HEADER);
     async move {
         match msg {
@@ -123,21 +115,21 @@ pub fn stage(
 
 #[trace(amaru::consensus::chain_sync::DECODE_HEADER)]
 pub fn decode_header(raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
-    from_cbor_no_leftovers(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
-        header: raw_header.into(),
-        reason: reason.to_string(),
-    })
+    from_cbor_no_leftovers(raw_header)
+        .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.into(), reason: reason.to_string() })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{IsHeader, Peer, Point, Tip, any_header, cbor, utils::tests::run_strategy};
     use amaru_ouroboros::ChainStore;
     use pure_stage::StageRef;
-    use std::collections::BTreeMap;
     use tracing::Span;
+
+    use super::*;
+    use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
 
     #[tokio::test]
     async fn a_header_that_can_be_decoded_is_sent_downstream() -> anyhow::Result<()> {
@@ -153,17 +145,10 @@ mod tests {
 
         stage(make_state(), message, consensus_ops.clone()).await;
 
-        let forwarded = DecodedChainSyncEvent::RollForward {
-            peer: peer.clone(),
-            header,
-            span: Span::current(),
-        };
+        let forwarded = DecodedChainSyncEvent::RollForward { peer: peer.clone(), header, span: Span::current() };
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
-                vec![format!("{forwarded:?}")]
-            )])
+            BTreeMap::from_iter(vec![("downstream".to_string(), vec![format!("{forwarded:?}")])])
         );
         Ok(())
     }
@@ -211,17 +196,10 @@ mod tests {
 
         stage(make_state(), message, consensus_ops.clone()).await;
 
-        let expected = DecodedChainSyncEvent::Rollback {
-            peer: peer.clone(),
-            rollback_point: header.point(),
-            span,
-        };
+        let expected = DecodedChainSyncEvent::Rollback { peer: peer.clone(), rollback_point: header.point(), span };
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
-                vec![format!("{expected:?}")]
-            )])
+            BTreeMap::from_iter(vec![("downstream".to_string(), vec![format!("{expected:?}")])])
         );
         Ok(())
     }

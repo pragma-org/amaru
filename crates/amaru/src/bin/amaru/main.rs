@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::LazyLock;
+
 use amaru::{
     observability::{Color, setup_observability},
     panic::panic_handler,
 };
-
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use std::sync::LazyLock;
 use tracing::info;
 
 mod cmd;
@@ -142,25 +142,17 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 
-    let matches = <Cli as CommandFactory>::command()
-        .version(VERSION.as_str())
-        .get_matches();
+    let matches = <Cli as CommandFactory>::command().version(VERSION.as_str()).get_matches();
     let args = <Cli as FromArgMatches>::from_arg_matches(&matches)?;
 
     // Skip observability setup for dump-traces-schema to avoid polluting stderr
     let skip_logging = matches!(args.command, Command::DumpTracesSchema(_));
 
     let (metrics, teardown) = if skip_logging {
-        (
-            None,
-            Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
-        )
+        (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>)
     } else {
-        let (m, t) = setup_observability(
-            args.with_open_telemetry,
-            args.with_json_traces,
-            Color::is_enabled(args.color),
-        );
+        let (m, t) =
+            setup_observability(args.with_open_telemetry, args.with_json_traces, Color::is_enabled(args.color));
         (Some(m), t)
     };
 

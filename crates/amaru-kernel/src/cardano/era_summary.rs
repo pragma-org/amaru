@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Epoch, EraBound, Slot, cardano::era_params::EraParams, cbor};
 use std::time::Duration;
+
+use crate::{Epoch, EraBound, Slot, cardano::era_params::EraParams, cbor};
 
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
 // end of each era will equal the start of the next one.
@@ -29,39 +30,25 @@ impl EraSummary {
     /// where the EraSummary doesn't have any upper bound, then we check whether the
     /// point is within a foreseeable horizon.
     pub fn contains_slot(&self, slot: &Slot, tip: &Slot, stability_window: &Slot) -> bool {
-        &self
-            .end
-            .as_ref()
-            .map(|end| end.slot)
-            .unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).slot)
+        &self.end.as_ref().map(|end| end.slot).unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).slot)
             >= slot
     }
 
     /// Like contains_slot, but doesn't enforce anything about the upper bound. So when there's no
     /// upper bound, the slot is simply always considered within the era.
     pub fn contains_slot_unchecked_horizon(&self, slot: &Slot) -> bool {
-        self.end
-            .as_ref()
-            .map(|end| &end.slot >= slot)
-            .unwrap_or(true)
+        self.end.as_ref().map(|end| &end.slot >= slot).unwrap_or(true)
     }
 
     pub fn contains_epoch(&self, epoch: &Epoch, tip: &Slot, stability_window: &Slot) -> bool {
-        &self
-            .end
-            .as_ref()
-            .map(|end| end.epoch)
-            .unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).epoch)
+        &self.end.as_ref().map(|end| end.epoch).unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).epoch)
             > epoch
     }
 
     /// Like contains_epoch, but doesn't enforce anything about the upper bound. So when there's no
     /// upper bound, the epoch is simply always considered within the era.
     pub fn contains_epoch_unchecked_horizon(&self, epoch: &Epoch) -> bool {
-        self.end
-            .as_ref()
-            .map(|end| &end.epoch > epoch)
-            .unwrap_or(true)
+        self.end.as_ref().map(|end| &end.epoch > epoch).unwrap_or(true)
     }
 
     /// Calculate a virtual end `EraBound` given a time and the last era summary that we know of.
@@ -75,26 +62,19 @@ impl EraSummary {
         // NOTE: The +1 here is justified by the fact that upper bound in era summaries are
         // exclusive. So if our tip is *exactly* at the frontier of the stability area, then
         // technically, we already can foresee time in the next epoch.
-        let end_of_stable_window =
-            start.slot.as_u64().max(tip.as_u64() + 1) + stability_window.as_u64();
+        let end_of_stable_window = start.slot.as_u64().max(tip.as_u64() + 1) + stability_window.as_u64();
 
         let delta_slots = end_of_stable_window - start.slot.as_u64();
 
         let delta_epochs = delta_slots / params.epoch_size_slots
-            + if delta_slots.is_multiple_of(params.epoch_size_slots) {
-                0
-            } else {
-                1
-            };
+            + if delta_slots.is_multiple_of(params.epoch_size_slots) { 0 } else { 1 };
 
         let max_foreseeable_epoch = start.epoch.as_u64() + delta_epochs;
 
         let foreseeable_slots = delta_epochs * params.epoch_size_slots;
 
         EraBound {
-            time: Duration::from_secs(
-                start.time.as_secs() + params.slot_length.as_secs() * foreseeable_slots,
-            ),
+            time: Duration::from_secs(start.time.as_secs() + params.slot_length.as_secs() * foreseeable_slots),
             slot: Slot::new(start.slot.as_u64() + foreseeable_slots),
             epoch: Epoch::new(max_foreseeable_epoch),
         }
@@ -133,10 +113,12 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use std::cmp::{max, min};
+
+    use proptest::prelude::*;
+
     use super::*;
     use crate::{Epoch, any_era_bound_for_epoch, any_era_params, prop_cbor_roundtrip};
-    use proptest::prelude::*;
-    use std::cmp::{max, min};
 
     prop_compose! {
         pub fn any_era_summary()(

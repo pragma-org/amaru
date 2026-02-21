@@ -85,20 +85,10 @@ mod required_fields {
     fn all_required(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {}
 
     #[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-    fn required_different_order(
-        _block_body_size: u64,
-        _block_body_hash: String,
-        _block_number: u64,
-    ) {
-    }
+    fn required_different_order(_block_body_size: u64, _block_body_hash: String, _block_number: u64) {}
 
     #[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-    fn required_plus_optional(
-        _block_body_hash: String,
-        _block_number: u64,
-        _block_body_size: u64,
-        _total_inputs: u64,
-    ) {
+    fn required_plus_optional(_block_body_hash: String, _block_number: u64, _block_body_size: u64, _total_inputs: u64) {
     }
 
     #[trace(ledger::state::EPOCH_TRANSITION)]
@@ -218,10 +208,7 @@ mod trace_record_tests {
     use super::*;
 
     fn augment_with_optional(_resolved_from_context: u64) {
-        trace_record!(
-            ledger::state::RESOLVE_INPUTS,
-            resolved_from_context = _resolved_from_context
-        );
+        trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = _resolved_from_context);
     }
 
     fn augment_with_multiple(_resolved_from_context: u64, _resolved_from_volatile: u64) {
@@ -233,18 +220,12 @@ mod trace_record_tests {
     }
 
     fn augment_with_extra(_resolved_from_context: u64, extra: &str) {
-        trace_record!(
-            ledger::state::RESOLVE_INPUTS,
-            resolved_from_context = _resolved_from_context
-        );
+        trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = _resolved_from_context);
         let _ = extra;
     }
 
     fn augment_with_expression() {
-        trace_record!(
-            ledger::state::RESOLVE_INPUTS,
-            resolved_from_context = 100_u64
-        );
+        trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = 100_u64);
     }
 
     #[test]

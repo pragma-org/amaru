@@ -20,13 +20,11 @@ pub trait HasExUnits {
 
 impl HasExUnits for Block {
     fn ex_units(&self) -> Vec<&ExUnits> {
-        self.transaction_witnesses
-            .iter()
-            .fold(Vec::new(), |mut acc: Vec<&ExUnits>, witness_set| {
-                if let Some(witnesses) = &witness_set.redeemer {
-                    acc.extend(witnesses.redeemers().values().map(|(ex_units, _)| ex_units));
-                }
-                acc
-            })
+        self.transaction_witnesses.iter().fold(Vec::new(), |mut acc: Vec<&ExUnits>, witness_set| {
+            if let Some(witnesses) = &witness_set.redeemer {
+                acc.extend(witnesses.redeemers().values().map(|(ex_units, _)| ex_units));
+            }
+            acc
+        })
     }
 }

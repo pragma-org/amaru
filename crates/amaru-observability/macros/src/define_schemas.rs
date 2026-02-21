@@ -26,9 +26,9 @@ use proc_macro::TokenStream;
 use quote::quote;
 
 use crate::utils::{
-    format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier,
-    make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_schema_field_const_name,
+    format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_ident,
+    make_instrument_macro_name, make_module_validator_name, make_record_macro_name, make_require_macro_name,
+    make_schema_field_const_name,
 };
 
 // =============================================================================
@@ -122,11 +122,7 @@ impl Schema {
 
     /// Get the full schema path including the name
     fn full_path(&self) -> String {
-        if self.categories.is_empty() {
-            self.name.clone()
-        } else {
-            format!("{}::{}", self.target_path(), self.name)
-        }
+        if self.categories.is_empty() { self.name.clone() } else { format!("{}::{}", self.target_path(), self.name) }
     }
 
     /// Set the description from a doc comment.
@@ -136,10 +132,7 @@ impl Schema {
 
     /// Get the names of all required fields.
     fn required_field_names(&self) -> Vec<String> {
-        self.required_fields
-            .iter()
-            .map(|f| f.name.clone())
-            .collect()
+        self.required_fields.iter().map(|f| f.name.clone()).collect()
     }
 
     /// Generate the validation string format: "R|req_fields|O|opt_fields"
@@ -352,36 +345,20 @@ impl ParserState {
     }
 
     /// Add a field to the current schema, checking for duplicates.
-    fn add_field_internal(
-        &mut self,
-        name: &str,
-        ty: &str,
-        is_required: bool,
-        errors: &mut Vec<String>,
-    ) {
+    fn add_field_internal(&mut self, name: &str, ty: &str, is_required: bool, errors: &mut Vec<String>) {
         let Some(schema) = self.current_schema.as_mut() else {
             return;
         };
 
         // Check for duplicate field names
-        let is_duplicate = schema
-            .required_fields
-            .iter()
-            .chain(schema.optional_fields.iter())
-            .any(|f| f.name == name);
+        let is_duplicate = schema.required_fields.iter().chain(schema.optional_fields.iter()).any(|f| f.name == name);
 
         if is_duplicate {
-            errors.push(format!(
-                "Duplicate field '{}' in schema {}",
-                name, schema.name
-            ));
+            errors.push(format!("Duplicate field '{}' in schema {}", name, schema.name));
             return;
         }
 
-        let field = SchemaField {
-            name: name.to_string(),
-            ty: ty.to_string(),
-        };
+        let field = SchemaField { name: name.to_string(), ty: ty.to_string() };
 
         if is_required {
             schema.required_fields.push(field);
@@ -461,10 +438,7 @@ fn parse_token(
                 };
 
             // Check if this starts a new scope (followed by `{`)
-            let name_token = tokens
-                .get(actual_name_idx)
-                .map(|s| s.as_str())
-                .unwrap_or("");
+            let name_token = tokens.get(actual_name_idx).map(|s| s.as_str()).unwrap_or("");
             if tokens.get(actual_name_idx + 1).map(|s| s.as_str()) == Some("{") {
                 state.try_start_scope(name_token, private, errors);
                 // Return adjusted index if we consumed the private keyword
@@ -503,10 +477,7 @@ fn try_parse_prefixed_field(tokens: &[String], index: usize) -> Option<(&str, &s
     if tokens.get(index + 2).map(|s| s.as_str()) != Some(":") {
         return None;
     }
-    let ty = tokens
-        .get(index + 3)
-        .map(|s| s.as_str())
-        .filter(|s| !s.is_empty())?;
+    let ty = tokens.get(index + 3).map(|s| s.as_str()).filter(|s| !s.is_empty())?;
     Some((name, ty))
 }
 
@@ -559,8 +530,7 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
                     }
                 }
 
-                skip_until =
-                    parse_token(token, &tokens, idx, &mut state, &mut schemas, &mut errors);
+                skip_until = parse_token(token, &tokens, idx, &mut state, &mut schemas, &mut errors);
             }
             (skip_until, state, schemas, errors)
         },
@@ -594,11 +564,7 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
 
 /// Format field list as "name:type,name:type,...".
 fn format_field_list(fields: &[SchemaField]) -> String {
-    fields
-        .iter()
-        .map(|f| format_field_spec(&f.name, &f.ty))
-        .collect::<Vec<_>>()
-        .join(",")
+    fields.iter().map(|f| format_field_spec(&f.name, &f.ty)).collect::<Vec<_>>().join(",")
 }
 
 // =============================================================================
@@ -609,10 +575,7 @@ fn format_field_list(fields: &[SchemaField]) -> String {
 ///
 /// This generates a single recursive `{SCHEMA}_REQUIRE` macro that validates all required
 /// fields are present using tt-munching. No per-field helper macros needed.
-fn generate_required_fields_macro(
-    schema: &Schema,
-    config: &GenerationConfig,
-) -> proc_macro2::TokenStream {
+fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let require_macro_name = make_require_macro_name(&schema.categories, &schema.name);
     let require_ident = make_ident(&require_macro_name);
     let macro_export = config.macro_export_attr();
@@ -644,11 +607,7 @@ fn generate_required_fields_macro(
 
     for (i, field_ident) in field_idents.iter().enumerate() {
         let field_name_str = &required_names[i];
-        let helper_name = make_ident(&format!(
-            "__{}_CHECK_{}",
-            schema.name,
-            required_names[i].to_uppercase()
-        ));
+        let helper_name = make_ident(&format!("__{}_CHECK_{}", schema.name, required_names[i].to_uppercase()));
 
         helper_macros.push(quote! {
             #macro_export
@@ -679,11 +638,7 @@ fn generate_required_fields_macro(
     let helper_calls: Vec<_> = required_names
         .iter()
         .map(|field_name| {
-            let helper_name = make_ident(&format!(
-                "__{}_CHECK_{}",
-                schema.name,
-                field_name.to_uppercase()
-            ));
+            let helper_name = make_ident(&format!("__{}_CHECK_{}", schema.name, field_name.to_uppercase()));
             quote! { #crate_prefix #helper_name!($($fields)*); }
         })
         .collect();
@@ -711,10 +666,7 @@ fn generate_required_fields_macro(
 /// - `fields(...)` with:
 ///   - Required fields: `field` - captures value from function param (validated to exist)
 ///   - Optional fields: `field = tracing::field::Empty` - set via `Span::current().record()`
-fn generate_instrument_macro(
-    schema: &Schema,
-    config: &GenerationConfig,
-) -> proc_macro2::TokenStream {
+fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let macro_name = make_instrument_macro_name(&schema.categories, &schema.name);
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
@@ -804,11 +756,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let macro_export = config.macro_export_attr();
 
     // Generate match arms for all schema fields (required + optional)
-    let all_fields: Vec<_> = schema
-        .required_fields
-        .iter()
-        .chain(schema.optional_fields.iter())
-        .collect();
+    let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
 
     // Generate patterns for lenient mode (no mode marker)
     let lenient_field_patterns: Vec<_> = all_fields
@@ -999,8 +947,7 @@ fn generate_inventory_submission(schema: &Schema) -> proc_macro2::TokenStream {
     // amaru-observability package have the package name but a different crate name.
     //
     // This is required for local schema testing
-    let is_observability_lib = std::env::var("CARGO_PKG_NAME").ok().as_deref()
-        == Some("amaru-observability")
+    let is_observability_lib = std::env::var("CARGO_PKG_NAME").ok().as_deref() == Some("amaru-observability")
         && std::env::var("CARGO_CRATE_NAME").ok().as_deref() == Some("amaru_observability");
 
     let use_stmt = if is_observability_lib {
@@ -1010,10 +957,7 @@ fn generate_inventory_submission(schema: &Schema) -> proc_macro2::TokenStream {
     };
 
     // Description should exist if validation passed, but use a fallback for error recovery
-    let description = schema
-        .description
-        .as_deref()
-        .unwrap_or("Missing description");
+    let description = schema.description.as_deref().unwrap_or("Missing description");
 
     let private = schema.private;
 
@@ -1118,10 +1062,7 @@ fn build_category_tree(schemas: &[Schema]) -> BTreeMap<String, TreeNode> {
         for category_name in &schema.categories {
             current = current
                 .entry(category_name.clone())
-                .or_insert_with(|| TreeNode::Category {
-                    name: category_name.clone(),
-                    children: BTreeMap::new(),
-                })
+                .or_insert_with(|| TreeNode::Category { name: category_name.clone(), children: BTreeMap::new() })
                 .as_category_mut()
                 .expect("Expected category node");
         }
@@ -1143,10 +1084,7 @@ impl TreeNode {
 }
 
 /// Build the complete module tree with all generated code.
-fn build_module_tree_with_metadata(
-    schemas: &[Schema],
-    config: &GenerationConfig,
-) -> proc_macro2::TokenStream {
+fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig) -> proc_macro2::TokenStream {
     let tree = build_category_tree(schemas);
 
     let mut validation_macros = Vec::new();
@@ -1175,8 +1113,7 @@ fn build_module_tree_with_metadata(
     let modules = build_modules(&tree, config);
 
     // Generate schema list helper macros
-    let schema_help_macro =
-        generate_schema_help_macros(&all_schema_paths, &all_schema_names, config);
+    let schema_help_macro = generate_schema_help_macros(&all_schema_paths, &all_schema_names, config);
 
     quote! {
         // Submit schemas to inventory for runtime registry
@@ -1225,10 +1162,7 @@ fn build_modules_noop(tree: &BTreeMap<String, TreeNode>) -> Vec<proc_macro2::Tok
 }
 
 /// Recursively build module structures from the category tree.
-fn build_modules(
-    tree: &BTreeMap<String, TreeNode>,
-    _config: &GenerationConfig,
-) -> Vec<proc_macro2::TokenStream> {
+fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) -> Vec<proc_macro2::TokenStream> {
     let mut modules = Vec::new();
 
     for (name, node) in tree {
@@ -1247,8 +1181,7 @@ fn build_modules(
                 let schema_ident = make_ident(&schema.name);
                 let schema_name_lowercase = schema.name.to_lowercase();
                 let validation_string = schema.validation_string();
-                let validation_const_name =
-                    make_schema_field_const_name(&schema.categories, &schema.name);
+                let validation_const_name = make_schema_field_const_name(&schema.categories, &schema.name);
                 let validation_const_ident = make_ident(&validation_const_name);
 
                 modules.push(quote! {
@@ -1283,11 +1216,7 @@ fn collect_category_validators(
 
     // Generate validator for this level if there are schemas
     if !schema_names_at_this_level.is_empty() && !path.is_empty() {
-        validators.push(generate_module_validator_macro(
-            path,
-            &schema_names_at_this_level,
-            config,
-        ));
+        validators.push(generate_module_validator_macro(path, &schema_names_at_this_level, config));
     }
 
     // Recurse into categories
@@ -1309,10 +1238,7 @@ fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
 
         // Report any parsing errors even in noop mode
         if !errors.is_empty() {
-            let error_msgs: Vec<_> = errors
-                .iter()
-                .map(|e| quote! { compile_error!(#e); })
-                .collect();
+            let error_msgs: Vec<_> = errors.iter().map(|e| quote! { compile_error!(#e); }).collect();
             return quote! { #(#error_msgs)* }.into();
         }
 
@@ -1339,10 +1265,7 @@ fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
     // This ensures macros are defined (preventing "cannot find macro" errors)
     // while still reporting the actual errors
     if !errors.is_empty() {
-        let error_msgs: Vec<_> = errors
-            .iter()
-            .map(|e| quote! { compile_error!(#e); })
-            .collect();
+        let error_msgs: Vec<_> = errors.iter().map(|e| quote! { compile_error!(#e); }).collect();
 
         return quote! {
             #(#error_msgs)*
@@ -1383,12 +1306,7 @@ mod tests {
     #[test]
     fn test_tokenize_nested() {
         let tokens = tokenize("cat { sub { SCHEMA { required x: u32 } } }").unwrap();
-        assert_eq!(
-            tokens,
-            vec![
-                "cat", "{", "sub", "{", "SCHEMA", "{", "required", "x", ":", "u32", "}", "}", "}"
-            ]
-        );
+        assert_eq!(tokens, vec!["cat", "{", "sub", "{", "SCHEMA", "{", "required", "x", ":", "u32", "}", "}", "}"]);
     }
 
     #[test]
@@ -1419,10 +1337,7 @@ mod tests {
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].required_fields[0].name, "slot");
         assert_eq!(schemas[0].required_fields[0].ty, "u64");
-        assert_eq!(
-            schemas[0].description,
-            Some("Validate the schema".to_string())
-        );
+        assert_eq!(schemas[0].description, Some("Validate the schema".to_string()));
     }
 
     #[test]
@@ -1495,14 +1410,8 @@ mod tests {
     #[test]
     fn test_schema_validation_string() {
         let mut schema = Schema::new("TEST", vec!["cat".to_string(), "sub".to_string()]);
-        schema.required_fields.push(SchemaField {
-            name: "id".to_string(),
-            ty: "u64".to_string(),
-        });
-        schema.optional_fields.push(SchemaField {
-            name: "name".to_string(),
-            ty: "String".to_string(),
-        });
+        schema.required_fields.push(SchemaField { name: "id".to_string(), ty: "u64".to_string() });
+        schema.optional_fields.push(SchemaField { name: "name".to_string(), ty: "String".to_string() });
         assert_eq!(schema.validation_string(), "R|id:u64|O|name:String");
     }
 
@@ -1546,10 +1455,7 @@ mod tests {
         let (schemas, errors) = extract_schemas(input);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
         assert_eq!(schemas.len(), 1);
-        assert_eq!(
-            schemas[0].description,
-            Some("This is a test schema".to_string())
-        );
+        assert_eq!(schemas[0].description, Some("This is a test schema".to_string()));
     }
 
     #[test]

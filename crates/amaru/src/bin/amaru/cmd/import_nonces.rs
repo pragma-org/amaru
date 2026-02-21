@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::PathBuf;
+
 use amaru::{DEFAULT_NETWORK, bootstrap::import_nonces, default_chain_dir, default_initial_nonces};
 use amaru_kernel::NetworkName;
 use clap::Parser;
-use std::path::PathBuf;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -52,9 +53,7 @@ pub struct Args {
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
 
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(network).into());
+    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
         _command = "import-nonces",

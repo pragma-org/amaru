@@ -12,41 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
+use amaru_kernel::{
+    AsHash, BootstrapWitness, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness, size::KEY,
+    utils::string::display_collection, verify_ed25519_signature,
+};
+use thiserror::Error;
+
 use crate::{
     context::WitnessSlice,
     rules::{TransactionField, WithPosition},
 };
-use amaru_kernel::{
-    AsHash, BootstrapWitness, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness,
-    size::KEY, utils::string::display_collection, verify_ed25519_signature,
-};
-use std::collections::BTreeSet;
-use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidVKeyWitness {
-    #[error(
-        "missing required signatures for keys or roots: [{}]",
-        display_collection(missing_keys_or_roots)
-    )]
-    MissingRequiredKeysOrRoots {
-        missing_keys_or_roots: Vec<Hash<KEY>>,
-    },
+    #[error("missing required signatures for keys or roots: [{}]", display_collection(missing_keys_or_roots))]
+    MissingRequiredKeysOrRoots { missing_keys_or_roots: Vec<Hash<KEY>> },
 
-    #[error(
-        "invalid verification key witnesses: [{}]",
-        display_collection(invalid_witnesses)
-    )]
-    InvalidSignatures {
-        invalid_witnesses: Vec<WithPosition<InvalidEd25519Signature>>,
-    },
+    #[error("invalid verification key witnesses: [{}]", display_collection(invalid_witnesses))]
+    InvalidSignatures { invalid_witnesses: Vec<WithPosition<InvalidEd25519Signature>> },
 
     #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
-    MalformedRewardAccount {
-        bytes: Vec<u8>,
-        context: TransactionField,
-        position: usize,
-    },
+    MalformedRewardAccount { bytes: Vec<u8>, context: TransactionField, position: usize },
 }
 
 pub fn execute(
@@ -72,45 +60,28 @@ pub fn execute(
     let mut required_keys_or_roots = context.required_signers();
     required_keys_or_roots.append(&mut context.required_bootstrap_roots());
 
-    let missing_keys_or_roots = required_keys_or_roots
-        .difference(&provided_keys_or_roots)
-        .copied()
-        .collect::<Vec<_>>();
+    let missing_keys_or_roots = required_keys_or_roots.difference(&provided_keys_or_roots).copied().collect::<Vec<_>>();
 
     if !missing_keys_or_roots.is_empty() {
         // TODO: (Maybe?) return distinct errors for missing keys and for missing roots.
-        return Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots {
-            missing_keys_or_roots,
-        });
+        return Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots });
     }
 
     let mut invalid_witnesses = vec![];
-    vkey_witnesses
-        .iter()
-        .enumerate()
-        .for_each(|(position, witness)| {
-            verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_slice())
-                .unwrap_or_else(|element| {
-                    invalid_witnesses.push(WithPosition { position, element })
-                })
-        });
+    vkey_witnesses.iter().enumerate().for_each(|(position, witness)| {
+        verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_slice())
+            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
+    });
 
     if !invalid_witnesses.is_empty() {
         return Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses });
     }
 
     let mut invalid_witnesses = vec![];
-    bootstrap_witnesses
-        .iter()
-        .enumerate()
-        .for_each(|(position, witness)| {
-            verify_ed25519_signature(
-                &witness.public_key,
-                &witness.signature,
-                transaction_id.as_slice(),
-            )
+    bootstrap_witnesses.iter().enumerate().for_each(|(position, witness)| {
+        verify_ed25519_signature(&witness.public_key, &witness.signature, transaction_id.as_slice())
             .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
-        });
+    });
 
     if !invalid_witnesses.is_empty() {
         return Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses });
@@ -121,17 +92,15 @@ pub fn execute(
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::{InvalidEd25519Signature, TransactionBody, WitnessSet, hash, include_cbor, include_json, json};
+    use amaru_tracing_json::assert_trace;
+    use test_case::test_case;
+
     use super::*;
     use crate::{
         context::assert::AssertValidationContext,
         rules::{WithPosition, tests::fixture_context},
     };
-    use amaru_kernel::{
-        InvalidEd25519Signature, TransactionBody, WitnessSet, hash, include_cbor, include_json,
-        json,
-    };
-    use amaru_tracing_json::assert_trace;
-    use test_case::test_case;
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -145,13 +114,7 @@ mod tests {
             (
                 fixture_context!($hash, $variant),
                 hash!($hash),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/witness.cbor"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
             )
         };
     }
@@ -214,11 +177,7 @@ mod tests {
         "missing certificate vkey"
     )]
     fn test_vkey_witness(
-        (mut ctx, transaction_id, witness_set): (
-            AssertValidationContext,
-            TransactionId,
-            WitnessSet,
-        ),
+        (mut ctx, transaction_id, witness_set): (AssertValidationContext, TransactionId, WitnessSet),
     ) -> Result<(), InvalidVKeyWitness> {
         super::execute(
             &mut ctx,
@@ -241,20 +200,8 @@ mod tests {
             (
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/witness.cbor"
-                )),
-                include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/expected.traces"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
             )
         };
     }

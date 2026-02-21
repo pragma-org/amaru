@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{error::Error, fmt::Display, path::PathBuf};
+
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_kernel::{BlockHeader, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
 use amaru_ouroboros::{DiagnosticChainStore, ReadOnlyChainStore};
@@ -20,7 +22,6 @@ use amaru_stores::rocksdb::{
     consensus::{ReadOnlyChainDB, RocksDBStore},
 };
 use clap::Parser;
-use std::{error::Error, fmt::Display, path::PathBuf};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -44,9 +45,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(args.network).into());
+    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
         _command = "dump-chain-db",
@@ -59,28 +58,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     print_iterator(
         "headers",
-        db.load_headers().map(|header| {
-            (
-                format!("\n{}", header.hash()),
-                hex::encode(to_cbor(&header)),
-            )
-        }),
+        db.load_headers().map(|header| (format!("\n{}", header.hash()), hex::encode(to_cbor(&header)))),
     );
     print_iterator(
         "parent -> children relationships\n",
-        db.load_parents_children()
-            .map(|(parent, children)| (parent, children.list_to_string(", "))),
+        db.load_parents_children().map(|(parent, children)| (parent, children.list_to_string(", "))),
     );
-    print_iterator(
-        "nonces\n",
-        db.load_nonces()
-            .map(|(hash, nonces)| (hash, hex::encode(to_cbor(&nonces)))),
-    );
-    print_iterator(
-        "blocks\n",
-        db.load_blocks()
-            .map(|(hash, block)| (hash, hex::encode(block.to_vec()))),
-    );
+    print_iterator("nonces\n", db.load_nonces().map(|(hash, nonces)| (hash, hex::encode(to_cbor(&nonces)))));
+    print_iterator("blocks\n", db.load_blocks().map(|(hash, block)| (hash, hex::encode(block.to_vec()))));
     print_best_chain(db);
     Ok(())
 }
@@ -89,10 +74,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 pub fn print_best_chain(db: ReadOnlyChainDB) {
     println!();
     let best_chain = <ReadOnlyChainDB as ReadOnlyChainStore<BlockHeader>>::retrieve_best_chain(&db);
-    println!(
-        "The best chain is:\n  {}",
-        best_chain.list_to_string("\n  ")
-    );
+    println!("The best chain is:\n  {}", best_chain.list_to_string("\n  "));
 
     println!();
     println!("The best chain length is: {}", best_chain.len());

@@ -41,9 +41,9 @@ impl From<&StakeCredential> for StakeCredentialKind {
 impl From<&Voter> for StakeCredentialKind {
     fn from(voter: &Voter) -> Self {
         match voter {
-            Voter::DRepKey(..)
-            | Voter::ConstitutionalCommitteeKey(..)
-            | Voter::StakePoolKey(..) => Self::VerificationKey,
+            Voter::DRepKey(..) | Voter::ConstitutionalCommitteeKey(..) | Voter::StakePoolKey(..) => {
+                Self::VerificationKey
+            }
             Voter::DRepScript(..) | Voter::ConstitutionalCommitteeScript(..) => Self::Script,
         }
     }

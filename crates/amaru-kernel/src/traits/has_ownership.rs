@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Certificate, ShelleyAddress, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload,
-    Voter,
-};
+use crate::{Certificate, ShelleyAddress, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload, Voter};
 
 pub trait HasOwnership {
     /// Returns ownership credential of a given entity, if any.
@@ -48,12 +45,10 @@ impl HasOwnership for ShelleyAddress {
 impl HasOwnership for Voter {
     fn owner(&self) -> StakeCredential {
         match self {
-            Self::ConstitutionalCommitteeKey(hash)
-            | Self::DRepKey(hash)
-            | Self::StakePoolKey(hash) => StakeCredential::AddrKeyhash(*hash),
-            Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => {
-                StakeCredential::ScriptHash(*hash)
+            Self::ConstitutionalCommitteeKey(hash) | Self::DRepKey(hash) | Self::StakePoolKey(hash) => {
+                StakeCredential::AddrKeyhash(*hash)
             }
+            Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => StakeCredential::ScriptHash(*hash),
         }
     }
 }

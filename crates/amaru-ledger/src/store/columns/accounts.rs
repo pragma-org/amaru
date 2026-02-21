@@ -12,21 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, StakeCredential, cbor};
+
+use crate::state::diff_bind::Resettable;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (
-    Resettable<(PoolId, CertificatePointer)>,
-    Resettable<(DRep, CertificatePointer)>,
-    Option<Lovelace>,
-    Lovelace,
-);
+pub type Value =
+    (Resettable<(PoolId, CertificatePointer)>, Resettable<(DRep, CertificatePointer)>, Option<Lovelace>, Lovelace);
 
 pub type Key = StakeCredential;
 
@@ -71,11 +68,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::Row;
-    use amaru_kernel::{
-        Lovelace, any_certificate_pointer, any_drep, any_hash28, prop_cbor_roundtrip,
-    };
+    use amaru_kernel::{Lovelace, any_certificate_pointer, any_drep, any_hash28, prop_cbor_roundtrip};
     use proptest::{option, prelude::*, prop_compose};
+
+    use super::Row;
 
     prop_compose! {
         pub fn any_row(max_slot: u64)(

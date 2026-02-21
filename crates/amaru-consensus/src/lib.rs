@@ -25,8 +25,7 @@ pub(crate) mod test {
     macro_rules! include_header {
         ($name:ident, $slot:expr) => {
             static $name: std::sync::LazyLock<BlockHeader> = std::sync::LazyLock::new(|| {
-                let data =
-                    include_bytes!(concat!("../tests/data/headers/preprod_", $slot, ".cbor"));
+                let data = include_bytes!(concat!("../tests/data/headers/preprod_", $slot, ".cbor"));
                 amaru_kernel::from_cbor(data.as_slice()).expect("invalid header")
             });
         };

@@ -42,9 +42,7 @@ impl SchemaEntry {
 
     /// Find a schema by path
     pub fn find(path: &str) -> Option<SchemaEntry> {
-        inventory::iter::<SchemaEntry>()
-            .find(|s| s.path == path)
-            .cloned()
+        inventory::iter::<SchemaEntry>().find(|s| s.path == path).cloned()
     }
 
     /// Get the number of registered schemas

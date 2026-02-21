@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::{NodeConfig, SimulateConfig};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+
+use crate::simulator::{NodeConfig, SimulateConfig};
 
 pub const TEST_DATA_DIR: &str = "test-data";
 

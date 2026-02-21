@@ -12,25 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, utils::array::into_sized_array};
-use pallas_crypto::key::ed25519;
 use std::array::TryFromSliceError;
+
+use pallas_crypto::key::ed25519;
+pub use pallas_primitives::conway::VKeyWitness;
 use thiserror::Error;
 
-pub use pallas_primitives::conway::VKeyWitness;
+use crate::{Bytes, utils::array::into_sized_array};
 
 #[derive(Debug, Error)]
 pub enum InvalidEd25519Signature {
     #[error("invalid signature size: {error:?}")]
-    InvalidSignatureSize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
+    InvalidSignatureSize { error: TryFromSliceError, expected: usize },
     #[error("invalid verification key size: {error:?}")]
-    InvalidKeySize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
+    InvalidKeySize { error: TryFromSliceError, expected: usize },
     #[error("invalid signature for given key")]
     InvalidSignature,
 }
@@ -52,9 +47,5 @@ pub fn verify_ed25519_signature(
         InvalidEd25519Signature::InvalidSignatureSize { error, expected }
     })?);
 
-    if !public_key.verify(message, &signature) {
-        Err(InvalidEd25519Signature::InvalidSignature)
-    } else {
-        Ok(())
-    }
+    if !public_key.verify(message, &signature) { Err(InvalidEd25519Signature::InvalidSignature) } else { Ok(()) }
 }

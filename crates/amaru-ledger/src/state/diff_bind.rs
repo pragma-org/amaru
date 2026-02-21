@@ -69,10 +69,7 @@ pub struct Empty;
 
 impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
     fn default() -> Self {
-        Self {
-            registered: Default::default(),
-            unregistered: Default::default(),
-        }
+        Self { registered: Default::default(), unregistered: Default::default() }
     }
 }
 
@@ -89,26 +86,14 @@ pub enum BindError<K> {
 }
 
 impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
-    pub fn register(
-        &mut self,
-        key: K,
-        value: V,
-        left: Option<L>,
-        right: Option<R>,
-    ) -> Result<(), RegisterError<K>> {
+    pub fn register(&mut self, key: K, value: V, left: Option<L>, right: Option<R>) -> Result<(), RegisterError<K>> {
         if self.registered.contains_key(&key) {
             return Err(RegisterError::AlreadyRegistered(key));
         }
 
         self.unregistered.remove(&key);
-        self.registered.insert(
-            key,
-            Bind {
-                left: Resettable::from(left),
-                right: Resettable::from(right),
-                value: Some(value),
-            },
-        );
+        self.registered
+            .insert(key, Bind { left: Resettable::from(left), right: Resettable::from(right), value: Some(value) });
 
         Ok(())
     }
@@ -123,11 +108,7 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
                 e.get_mut().left = Resettable::from(left);
             }
             Entry::Vacant(e) => {
-                e.insert(Bind {
-                    left: Resettable::from(left),
-                    right: Resettable::Unchanged,
-                    value: None,
-                });
+                e.insert(Bind { left: Resettable::from(left), right: Resettable::Unchanged, value: None });
             }
         }
 
@@ -144,11 +125,7 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
                 e.get_mut().right = Resettable::from(right);
             }
             Entry::Vacant(e) => {
-                e.insert(Bind {
-                    left: Resettable::Unchanged,
-                    right: Resettable::from(right),
-                    value: None,
-                });
+                e.insert(Bind { left: Resettable::Unchanged, right: Resettable::from(right), value: None });
             }
         }
 
@@ -168,18 +145,12 @@ mod tests {
     #[test]
     fn register_some_left_then_bind_left() {
         let mut diff_bind = DiffBind::default();
-        diff_bind
-            .register(1, "value", Some("left_1"), None::<()>)
-            .unwrap();
+        diff_bind.register(1, "value", Some("left_1"), None::<()>).unwrap();
         diff_bind.bind_left(1, Some("left_2")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Set("left_2"),
-                right: Resettable::Reset,
-                value: Some("value")
-            }),
+            Some(&Bind { left: Resettable::Set("left_2"), right: Resettable::Reset, value: Some("value") }),
             diff_bind.registered.get(&1)
         );
     }
@@ -187,18 +158,12 @@ mod tests {
     #[test]
     fn register_some_left_then_bind_right() {
         let mut diff_bind = DiffBind::default();
-        diff_bind
-            .register(1, "value", None::<()>, Some("right_1"))
-            .unwrap();
+        diff_bind.register(1, "value", None::<()>, Some("right_1")).unwrap();
         diff_bind.bind_right(1, Some("right_2")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Reset,
-                right: Resettable::Set("right_2"),
-                value: Some("value")
-            }),
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Set("right_2"), value: Some("value") }),
             diff_bind.registered.get(&1)
         );
     }
@@ -206,18 +171,12 @@ mod tests {
     #[test]
     fn register_some_left_then_unbind_left() {
         let mut diff_bind = DiffBind::default();
-        diff_bind
-            .register(1, "value", Some("left"), None::<()>)
-            .unwrap();
+        diff_bind.register(1, "value", Some("left"), None::<()>).unwrap();
         diff_bind.bind_left(1, None).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Reset,
-                right: Resettable::Reset,
-                value: Some("value")
-            }),
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Reset, value: Some("value") }),
             diff_bind.registered.get(&1)
         );
     }
@@ -225,18 +184,12 @@ mod tests {
     #[test]
     fn register_some_right_then_unbind_right() {
         let mut diff_bind = DiffBind::default();
-        diff_bind
-            .register(1, "value", None::<()>, Some("right"))
-            .unwrap();
+        diff_bind.register(1, "value", None::<()>, Some("right")).unwrap();
         diff_bind.bind_right(1, None).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Reset,
-                right: Resettable::Reset,
-                value: Some("value")
-            }),
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Reset, value: Some("value") }),
             diff_bind.registered.get(&1)
         );
     }
@@ -244,9 +197,7 @@ mod tests {
     #[test]
     fn register_then_unregister() {
         let mut diff_bind = DiffBind::default();
-        diff_bind
-            .register(1, "value", None::<()>, None::<()>)
-            .unwrap();
+        diff_bind.register(1, "value", None::<()>, None::<()>).unwrap();
         diff_bind.unregister(1);
         assert!(diff_bind.unregistered.contains(&1));
         assert!(diff_bind.registered.is_empty());
@@ -260,11 +211,7 @@ mod tests {
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Set("left"),
-                right: Resettable::Reset,
-                value: Some("value")
-            }),
+            Some(&Bind { left: Resettable::Set("left"), right: Resettable::Reset, value: Some("value") }),
             diff_bind.registered.get(&1)
         );
     }
@@ -277,11 +224,7 @@ mod tests {
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Reset,
-                right: Resettable::Set("right"),
-                value: Some("value")
-            }),
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Set("right"), value: Some("value") }),
             diff_bind.registered.get(&1)
         );
     }
@@ -295,11 +238,7 @@ mod tests {
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Set("left"),
-                right: Resettable::Set("right"),
-                value: Some("value")
-            }),
+            Some(&Bind { left: Resettable::Set("left"), right: Resettable::Set("right"), value: Some("value") }),
             diff_bind.registered.get(&1)
         );
     }
@@ -331,11 +270,7 @@ mod tests {
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Set("left"),
-                right: Resettable::Unchanged::<()>,
-                value: None::<()>
-            }),
+            Some(&Bind { left: Resettable::Set("left"), right: Resettable::Unchanged::<()>, value: None::<()> }),
             diff_bind.registered.get(&1)
         );
     }
@@ -347,11 +282,7 @@ mod tests {
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(
-            Some(&Bind {
-                left: Resettable::Unchanged::<()>,
-                right: Resettable::Set("right"),
-                value: None::<()>
-            }),
+            Some(&Bind { left: Resettable::Unchanged::<()>, right: Resettable::Set("right"), value: None::<()> }),
             diff_bind.registered.get(&1)
         );
     }

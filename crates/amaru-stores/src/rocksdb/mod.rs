@@ -12,34 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
-use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
-use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep,
-    Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId,
-    ProtocolParameters, StakeCredential, TransactionInput, cbor,
-};
-use amaru_ledger::{
-    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
-    state::diff_bind::Resettable,
-    store::{
-        Columns, EpochTransitionProgress, GovernanceActivity, HistoricalStores, OpenErrorKind,
-        ReadStore, Snapshot, Store, StoreError, TransactionalContext, columns as scolumns,
-    },
-    summary::Pots,
-};
-use amaru_observability::amaru::stores::rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS};
-use amaru_observability::{trace, trace_record};
-use rocksdb::{
-    DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode,
-    ReadOptions, Transaction,
-};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
     ops::Deref,
     path::{Path, PathBuf},
     sync::LazyLock,
+};
+
+use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
+use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
+use amaru_kernel::{
+    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory,
+    Lovelace, MemoizedTransactionOutput, PROTOCOL_VERSION_9, Point, PoolId, ProtocolParameters, StakeCredential,
+    TransactionInput, cbor,
+};
+use amaru_ledger::{
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
+    state::diff_bind::Resettable,
+    store::{
+        Columns, EpochTransitionProgress, GovernanceActivity, HistoricalStores, OpenErrorKind, ReadStore, Snapshot,
+        Store, StoreError, TransactionalContext, columns as scolumns,
+    },
+    summary::Pots,
+};
+use amaru_observability::{
+    amaru::stores::rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS},
+    trace, trace_record,
+};
+use rocksdb::{
+    DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
 use tracing::warn;
 
@@ -137,8 +139,7 @@ pub struct RocksDbConfig {
 
 #[allow(clippy::expect_used)]
 // That's fine to crash if we can't even initialize an Env for RocksDB
-static ROCKSDB_SHARED_ENV: LazyLock<Env> =
-    LazyLock::new(|| Env::new().expect("failed to create RocksDB Env"));
+static ROCKSDB_SHARED_ENV: LazyLock<Env> = LazyLock::new(|| Env::new().expect("failed to create RocksDB Env"));
 
 impl RocksDbConfig {
     pub fn new(dir: PathBuf) -> Self {
@@ -146,10 +147,7 @@ impl RocksDbConfig {
     }
 
     pub fn with_shared_env(&self) -> RocksDbConfig {
-        RocksDbConfig {
-            dir: self.dir.clone(),
-            env: Some(ROCKSDB_SHARED_ENV.clone()),
-        }
+        RocksDbConfig { dir: self.dir.clone(), env: Some(ROCKSDB_SHARED_ENV.clone()) }
     }
 }
 
@@ -166,11 +164,7 @@ impl From<&RocksDbConfig> for Options {
 impl std::fmt::Display for RocksDbConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.env.is_some() {
-            write!(
-                f,
-                "RocksDbConfig {{ dir: {}, env: shared }}",
-                self.dir.display(),
-            )
+            write!(f, "RocksDbConfig {{ dir: {}, env: shared }}", self.dir.display(),)
         } else {
             write!(f, "RocksDbConfig {{ dir: {} }}", self.dir.display(),)
         }
@@ -181,24 +175,13 @@ impl RocksDB {
     pub fn snapshots(dir: &Path) -> Result<Vec<Epoch>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
 
-        for entry in fs::read_dir(dir)
-            .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?
-            .by_ref()
+        for entry in fs::read_dir(dir).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?.by_ref()
         {
-            let entry =
-                entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?;
-            if let Ok(epoch) = entry
-                .file_name()
-                .to_str()
-                .unwrap_or_default()
-                .parse::<Epoch>()
-            {
+            let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?;
+            if let Ok(epoch) = entry.file_name().to_str().unwrap_or_default().parse::<Epoch>() {
                 snapshots.push(epoch);
             } else if entry.file_name() != DIR_LIVE_DB {
-                warn!(
-                    filename = entry.file_name().to_str().unwrap_or_default(),
-                    "new.unexpected_file"
-                );
+                warn!(filename = entry.file_name().to_str().unwrap_or_default(), "new.unexpected_file");
             }
         }
 
@@ -213,12 +196,7 @@ impl RocksDB {
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, dir.join(DIR_LIVE_DB))
-            .map(|db| Self {
-                dir,
-                incremental_save: false,
-                db,
-                ongoing_transaction: OngoingTransaction::new(),
-            })
+            .map(|db| Self { dir, incremental_save: false, db, ongoing_transaction: OngoingTransaction::new() })
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
@@ -227,12 +205,7 @@ impl RocksDB {
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, dir.join(DIR_LIVE_DB))
-            .map(|db| Self {
-                dir,
-                incremental_save: true,
-                db,
-                ongoing_transaction: OngoingTransaction::new(),
-            })
+            .map(|db| Self { dir, incremental_save: true, db, ongoing_transaction: OngoingTransaction::new() })
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
@@ -288,9 +261,8 @@ impl Store for RocksDB {
         if path.exists() {
             // RocksDB error can't be created externally, so panic instead
             // It might be better to come up with a global error type
-            fs::remove_dir_all(&path).map_err(|_| {
-                StoreError::Internal("Unable to remove existing snapshot directory".into())
-            })?;
+            fs::remove_dir_all(&path)
+                .map_err(|_| StoreError::Internal("Unable to remove existing snapshot directory".into()))?;
         }
 
         checkpoint::Checkpoint::new(&self.db)
@@ -308,10 +280,7 @@ impl Store for RocksDB {
         }
         let transaction = self.db.transaction();
         self.ongoing_transaction.set(true);
-        RocksDBTransactionalContext {
-            host: self,
-            db: transaction,
-        }
+        RocksDBTransactionalContext { host: self, db: transaction }
     }
 }
 
@@ -324,10 +293,7 @@ pub struct RocksDBHistoricalStores {
 }
 
 impl RocksDBHistoricalStores {
-    pub fn for_epoch_with(
-        config: &RocksDbConfig,
-        epoch: Epoch,
-    ) -> Result<RocksDBSnapshot, StoreError> {
+    pub fn for_epoch_with(config: &RocksDbConfig, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
         let base_dir = config.dir.clone();
         let opts = set_default_opts(config.into());
         OptimisticTransactionDB::open(&opts, base_dir.join(PathBuf::from(format!("{epoch}"))))
@@ -336,10 +302,7 @@ impl RocksDBHistoricalStores {
     }
 
     pub fn new(config: &RocksDbConfig, max_extra_ledger_snapshots: u64) -> Self {
-        RocksDBHistoricalStores {
-            config: config.clone(),
-            max_extra_ledger_snapshots,
-        }
+        RocksDBHistoricalStores { config: config.clone(), max_extra_ledger_snapshots }
     }
 }
 
@@ -349,8 +312,7 @@ impl HistoricalStores for RocksDBHistoricalStores {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
         with_snapshots(&self.config.dir, |path, epoch| {
             if epoch < desired_minimum {
-                fs::remove_dir_all(&path)
-                    .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(path, err)))?;
+                fs::remove_dir_all(&path).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(path, err)))?;
             }
             Ok(())
         })
@@ -377,25 +339,15 @@ fn with_snapshots(
     dirname: &Path,
     mut with: impl FnMut(PathBuf, Epoch) -> Result<(), StoreError>,
 ) -> Result<(), StoreError> {
-    let mut dir = fs::read_dir(dirname)
-        .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
+    let mut dir = fs::read_dir(dirname).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
 
     for entry in dir.by_ref() {
-        let entry =
-            entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
+        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
         let path = entry.path();
-        if let Ok(epoch) = entry
-            .file_name()
-            .to_str()
-            .unwrap_or_default()
-            .parse::<Epoch>()
-        {
+        if let Ok(epoch) = entry.file_name().to_str().unwrap_or_default().parse::<Epoch>() {
             with(path, epoch)?;
         } else if entry.file_name() != DIR_LIVE_DB {
-            warn!(
-                filename = entry.file_name().to_str().unwrap_or_default(),
-                "with_snapshots.unexpected_file"
-            );
+            warn!(filename = entry.file_name().to_str().unwrap_or_default(), "with_snapshots.unexpected_file");
         }
     }
 
@@ -572,19 +524,14 @@ pub struct RocksDBTransactionalContext<'a> {
 
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn commit(self) -> Result<(), StoreError> {
-        let res = self
-            .db
-            .commit()
-            .map_err(|err| StoreError::Internal(err.into()));
+        let res = self.db.commit().map_err(|err| StoreError::Internal(err.into()));
         self.host.transaction_ended();
         res
     }
 
     fn rollback(mut self) -> Result<(), StoreError> {
         let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
-        let res = transaction
-            .rollback()
-            .map_err(|err| StoreError::Internal(err.into()));
+        let res = transaction.rollback().map_err(|err| StoreError::Internal(err.into()));
         self.host.transaction_ended();
         res
     }
@@ -618,18 +565,11 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
     /// deposit.
-    fn refund(
-        &self,
-        credential: &scolumns::accounts::Key,
-        deposit: Lovelace,
-    ) -> Result<Lovelace, StoreError> {
+    fn refund(&self, credential: &scolumns::accounts::Key, deposit: Lovelace) -> Result<Lovelace, StoreError> {
         accounts::set(&self.db, credential, |balance| balance + deposit)
     }
 
-    fn set_protocol_parameters(
-        &self,
-        protocol_parameters: &ProtocolParameters,
-    ) -> Result<(), StoreError> {
+    fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<(), StoreError> {
         self.db
             .put(KEY_PROTOCOL_PARAMETERS, as_value(protocol_parameters))
             .map_err(|err| StoreError::Internal(err.into()))?;
@@ -642,24 +582,17 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         added: BTreeMap<StakeCredential, Epoch>,
         removed: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
-        self.db
-            .put(KEY_CONSTITUTIONAL_COMMITTEE, as_value(status))
-            .map_err(|err| StoreError::Internal(err.into()))?;
+        self.db.put(KEY_CONSTITUTIONAL_COMMITTEE, as_value(status)).map_err(|err| StoreError::Internal(err.into()))?;
 
         cc_members::upsert(
             &self.db,
-            removed.into_iter().map(|cold_credential| {
-                (cold_credential, (Resettable::Unchanged, Resettable::Reset))
-            }),
+            removed.into_iter().map(|cold_credential| (cold_credential, (Resettable::Unchanged, Resettable::Reset))),
         )?;
 
         cc_members::upsert(
             &self.db,
             added.into_iter().map(|(cold_credential, valid_until)| {
-                (
-                    cold_credential,
-                    (Resettable::Unchanged, Resettable::Set(valid_until)),
-                )
+                (cold_credential, (Resettable::Unchanged, Resettable::Set(valid_until)))
             }),
         )?;
 
@@ -667,23 +600,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     }
 
     fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<(), StoreError> {
-        self.db
-            .put(KEY_PROPOSALS_ROOTS, as_value(roots))
-            .map_err(|err| StoreError::Internal(err.into()))?;
+        self.db.put(KEY_PROPOSALS_ROOTS, as_value(roots)).map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
 
     fn set_constitution(&self, constitution: &Constitution) -> Result<(), StoreError> {
-        self.db
-            .put(KEY_CONSTITUTION, as_value(constitution))
-            .map_err(|err| StoreError::Internal(err.into()))?;
+        self.db.put(KEY_CONSTITUTION, as_value(constitution)).map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
 
-    fn set_governance_activity(
-        &self,
-        governance_activity: &GovernanceActivity,
-    ) -> Result<(), StoreError> {
+    fn set_governance_activity(&self, governance_activity: &GovernanceActivity) -> Result<(), StoreError> {
         self.db
             .put(KEY_GOVERNANCE_ACTIVITY, as_value(governance_activity))
             .map_err(|err| StoreError::Internal(err.into()))?;
@@ -692,10 +618,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter, Id>(
-        &self,
-        proposals: impl IntoIterator<Item = Id>,
-    ) -> Result<(), StoreError>
+    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = Id>) -> Result<(), StoreError>
     where
         Id: Deref<Target = ComparableProposalId> + 'iter,
     {
@@ -745,13 +668,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             _ => {
                 let tip = point.slot_or_default();
                 trace_record!(SAVE_POINT, slot = tip);
-                self.db
-                    .put(KEY_TIP, as_value(point))
-                    .map_err(|err| StoreError::Internal(err.into()))?;
+                self.db.put(KEY_TIP, as_value(point)).map_err(|err| StoreError::Internal(err.into()))?;
 
-                let current_epoch = era_history
-                    .slot_to_epoch(tip, tip)
-                    .map_err(|err| StoreError::Internal(err.into()))?;
+                let current_epoch =
+                    era_history.slot_to_epoch(tip, tip).map_err(|err| StoreError::Internal(err.into()))?;
 
                 if let Some(issuer) = issuer {
                     slots::put(&self.db, &tip, scolumns::slots::Row::new(*issuer))?;
@@ -799,8 +719,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     self.with_dreps(|iterator| {
                         for (_, mut entry) in iterator {
                             if let Some(row) = entry.borrow_mut() {
-                                let actual_expiry = row.valid_until
-                                    + governance_activity.consecutive_dormant_epochs as u64;
+                                let actual_expiry =
+                                    row.valid_until + governance_activity.consecutive_dormant_epochs as u64;
                                 if actual_expiry >= current_epoch {
                                     row.valid_until = actual_expiry;
                                 }
@@ -822,15 +742,12 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
     ) -> Result<(), StoreError> {
         let mut err = None;
-        let proxy = Box::new(BorrowableProxy::new(
-            pots::get(|key| self.db.get_pinned(key))?,
-            |pots| {
-                let put = pots::put(&self.db, pots);
-                if let Err(e) = put {
-                    err = Some(e);
-                }
-            },
-        ));
+        let proxy = Box::new(BorrowableProxy::new(pots::get(|key| self.db.get_pinned(key))?, |pots| {
+            let put = pots::put(&self.db, pots);
+            if let Err(e) = put {
+                err = Some(e);
+            }
+        }));
 
         with(proxy);
 
@@ -844,45 +761,27 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         with_prefix_iterator(&self.db, utxo::PREFIX, with)
     }
 
-    fn with_pools(
-        &self,
-        with: impl FnMut(scolumns::pools::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
+    fn with_pools(&self, with: impl FnMut(scolumns::pools::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, pools::PREFIX, with)
     }
 
-    fn with_accounts(
-        &self,
-        with: impl FnMut(scolumns::accounts::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
+    fn with_accounts(&self, with: impl FnMut(scolumns::accounts::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, accounts::PREFIX, with)
     }
 
-    fn with_block_issuers(
-        &self,
-        with: impl FnMut(scolumns::slots::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
+    fn with_block_issuers(&self, with: impl FnMut(scolumns::slots::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, slots::PREFIX, with)
     }
 
-    fn with_dreps(
-        &self,
-        with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
+    fn with_dreps(&self, with: impl FnMut(scolumns::dreps::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, dreps::PREFIX, with)
     }
 
-    fn with_proposals(
-        &self,
-        with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
+    fn with_proposals(&self, with: impl FnMut(scolumns::proposals::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, proposals::PREFIX, with)
     }
 
-    fn with_cc_members(
-        &self,
-        with: impl FnMut(scolumns::cc_members::Iter<'_, '_>),
-    ) -> Result<(), StoreError> {
+    fn with_cc_members(&self, with: impl FnMut(scolumns::cc_members::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, cc_members::PREFIX, with)
     }
 }
@@ -893,21 +792,19 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 /// Splits a vector of numbers into groups of continuous numbers.
 /// e.g. `[1, 2, 3, 5, 6, 8]` becomes `[[1, 2, 3], [5, 6], [8]]`.
 fn split_continuous(input: Vec<u64>) -> Vec<Vec<u64>> {
-    input
-        .into_iter()
-        .fold(vec![], |mut acc, x| match acc.last() {
-            Some(last_group) if last_group.last().is_some_and(|&last| x == last + 1) => {
-                let mut new_acc = acc[..acc.len() - 1].to_vec();
-                let mut new_group = last_group.clone();
-                new_group.push(x);
-                new_acc.push(new_group);
-                new_acc
-            }
-            _ => {
-                acc.push(vec![x]);
-                acc
-            }
-        })
+    input.into_iter().fold(vec![], |mut acc, x| match acc.last() {
+        Some(last_group) if last_group.last().is_some_and(|&last| x == last + 1) => {
+            let mut new_acc = acc[..acc.len() - 1].to_vec();
+            let mut new_group = last_group.clone();
+            new_group.push(x);
+            new_acc.push(new_group);
+            new_acc
+        }
+        _ => {
+            acc.push(vec![x]);
+            acc
+        }
+    })
 }
 
 fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
@@ -915,11 +812,7 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
     let snapshot_count = snapshots.len() as u64;
     let continuous_ranges = snapshots_ranges.len() as u64;
-    trace_record!(
-        VALIDATE_SNAPSHOTS,
-        snapshot_count = snapshot_count,
-        continuous_ranges = continuous_ranges
-    );
+    trace_record!(VALIDATE_SNAPSHOTS, snapshot_count = snapshot_count, continuous_ranges = continuous_ranges);
     if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }
@@ -969,11 +862,8 @@ where
 {
     let mut opts = ReadOptions::default();
     opts.set_prefix_same_as_start(true);
-    let mut it: rocksdb::DBRawIteratorWithThreadMode<'_, _> = (db_iter_opt)(
-        IteratorMode::From(prefix.as_ref(), Direction::Forward),
-        opts,
-    )
-    .into();
+    let mut it: rocksdb::DBRawIteratorWithThreadMode<'_, _> =
+        (db_iter_opt)(IteratorMode::From(prefix.as_ref(), Direction::Forward), opts).into();
     Ok(std::iter::from_fn(move || {
         if let Some((key, value)) = it.item() {
             let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
@@ -1012,12 +902,11 @@ fn with_prefix_iterator<
     prefix: [u8; PREFIX_LEN],
     mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
 ) -> Result<(), StoreError> {
-    let mut iterator =
-        amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
-            // We are merely iterating over a collection.
-            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-        }));
+    let mut iterator = amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+        // FIXME: clarify what kind of errors can come from the database at this point.
+        // We are merely iterating over a collection.
+        item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+    }));
 
     with(iterator.as_iter_borrow());
 
@@ -1037,30 +926,27 @@ fn with_prefix_iterator<
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{EraHistory, NetworkName};
+    use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 
+    #[cfg(not(target_os = "windows"))]
+    use crate::tests::test_read_proposal;
     use crate::{
         rocksdb::{ReadOnlyRocksDB, RocksDB, RocksDbConfig, split_continuous},
         tests::{
-            Fixture, add_test_data_to_store, test_epoch_transition, test_read_account,
-            test_read_drep, test_read_pool, test_read_utxo, test_refund_account,
-            test_remove_account, test_remove_drep, test_remove_pool, test_remove_utxo,
-            test_slot_updated,
+            Fixture, add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep, test_read_pool,
+            test_read_utxo, test_refund_account, test_remove_account, test_remove_drep, test_remove_pool,
+            test_remove_utxo, test_slot_updated,
         },
     };
-    use amaru_ledger::store::StoreError;
-
-    #[cfg(not(target_os = "windows"))]
-    use crate::tests::test_read_proposal;
 
     fn setup_rocksdb_store(runner: &mut TestRunner) -> Result<(RocksDB, Fixture), StoreError> {
-        let era_history: EraHistory =
-            (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let era_history: EraHistory = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let tmp_dir = TempDir::new().expect("failed to create temp dir");
 
-        let store = RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into()))
-            .map_err(|e| StoreError::Internal(e.into()))?;
+        let store =
+            RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into())).map_err(|e| StoreError::Internal(e.into()))?;
 
         let fixture = add_test_data_to_store(&store, &era_history, runner)?;
         Ok((store, fixture))
@@ -1069,18 +955,17 @@ mod tests {
     #[test]
     fn open_one_writer_and_one_reader() {
         use std::fs::File;
+
         use tempfile::TempDir;
 
         let dir = TempDir::new().unwrap();
         let file_path = dir.path().join("0");
         let _fake_snapshot = File::create(&file_path).unwrap();
 
-        let rw_db = RocksDB::new(&RocksDbConfig::new(dir.path().into()))
-            .inspect_err(|e| eprintln!("{e:#?}"));
+        let rw_db = RocksDB::new(&RocksDbConfig::new(dir.path().into())).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(rw_db, Ok(..)));
 
-        let ro_db = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into()))
-            .inspect_err(|e| eprintln!("{e:#?}"));
+        let ro_db = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into())).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
     }
 

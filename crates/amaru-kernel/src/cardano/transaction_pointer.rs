@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Slot, cbor};
 use std::fmt;
+
+use crate::{Slot, cbor};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct TransactionPointer {
@@ -23,11 +24,7 @@ pub struct TransactionPointer {
 
 impl fmt::Display for TransactionPointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "slot={},transaction={}",
-            &self.slot, &self.transaction_index
-        )
+        write!(f, "slot={},transaction={}", &self.slot, &self.transaction_index)
     }
 }
 
@@ -48,10 +45,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(TransactionPointer {
-                slot: d.decode_with(ctx)?,
-                transaction_index: d.decode_with(ctx)?,
-            })
+            Ok(TransactionPointer { slot: d.decode_with(ctx)?, transaction_index: d.decode_with(ctx)? })
         })
     }
 }
@@ -61,9 +55,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose};
+
     use super::*;
     use crate::{Slot, prop_cbor_roundtrip};
-    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(TransactionPointer, any_transaction_pointer(u64::MAX));
 

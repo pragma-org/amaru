@@ -12,28 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::errors::ProcessingFailed;
+use std::{fmt::Display, sync::Arc};
+
 use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, sync::Arc};
+
+use crate::errors::ProcessingFailed;
 
 /// Network operations available to a stage: fetch block and forward events to peers.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait NetworkOps {
-    fn send_forward_event(
-        &self,
-        peer: Peer,
-        header: BlockHeader,
-    ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
+    fn send_forward_event(&self, peer: Peer, header: BlockHeader) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 
-    fn send_backward_event(
-        &self,
-        peer: Peer,
-        header_tip: Tip,
-    ) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
+    fn send_backward_event(&self, peer: Peer, header_tip: Tip) -> BoxFuture<'_, Result<(), ProcessingFailed>>;
 }
 
 /// Implementation of NetworkOps using pure_stage::Effects.
@@ -46,24 +40,12 @@ impl<'a, T> Network<'a, T> {
 }
 
 impl<T: SendData + Sync> NetworkOps for Network<'_, T> {
-    fn send_forward_event(
-        &self,
-        peer: Peer,
-        header: BlockHeader,
-    ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-        self.0
-            .external(ForwardEventEffect::new(peer, ForwardEvent::Forward(header)))
+    fn send_forward_event(&self, peer: Peer, header: BlockHeader) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        self.0.external(ForwardEventEffect::new(peer, ForwardEvent::Forward(header)))
     }
 
-    fn send_backward_event(
-        &self,
-        peer: Peer,
-        header_tip: Tip,
-    ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-        self.0.external(ForwardEventEffect::new(
-            peer,
-            ForwardEvent::Backward(header_tip),
-        ))
+    fn send_backward_event(&self, peer: Peer, header_tip: Tip) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        self.0.external(ForwardEventEffect::new(peer, ForwardEvent::Backward(header_tip)))
     }
 }
 
@@ -116,10 +98,7 @@ impl ForwardEventEffect {
 
 impl ExternalEffect for ForwardEventEffect {
     #[expect(clippy::expect_used)]
-    fn run(
-        self: Box<Self>,
-        resources: Resources,
-    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+    fn run(self: Box<Self>, resources: Resources) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
         Box::pin(async move {
             let listener = resources
                 .get::<ResourceForwardEventListener>()
@@ -127,13 +106,9 @@ impl ExternalEffect for ForwardEventEffect {
                 .clone();
 
             let point = self.event.point();
-            let result: <Self as ExternalEffectAPI>::Response =
-                listener.send(self.event).await.map_err(|e| {
-                    ProcessingFailed::new(
-                        &self.peer,
-                        anyhow!("Cannot send the forward event {}: {e}", &point),
-                    )
-                });
+            let result: <Self as ExternalEffectAPI>::Response = listener.send(self.event).await.map_err(|e| {
+                ProcessingFailed::new(&self.peer, anyhow!("Cannot send the forward event {}: {e}", &point))
+            });
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }

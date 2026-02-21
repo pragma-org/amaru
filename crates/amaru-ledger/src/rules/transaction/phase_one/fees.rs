@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{PotsSlice, UtxoSlice};
 use amaru_kernel::{HasLovelace, Lovelace, MemoizedTransactionOutput, TransactionInput};
+
+use crate::context::{PotsSlice, UtxoSlice};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
@@ -22,10 +23,7 @@ pub enum InvalidFees {
     #[error(
         "collateral return value {{total_collateral_return}} is greater than total collateral input {{total_collateral_input}}"
     )]
-    CollateralReturnOverflow {
-        total_collateral_input: u64,
-        total_collateral_return: u64,
-    },
+    CollateralReturnOverflow { total_collateral_input: u64, total_collateral_return: u64 },
 }
 
 pub(crate) fn execute<C>(
@@ -43,18 +41,11 @@ where
         return Ok(());
     }
 
-    let total_collateral =
-        collateral
-            .unwrap_or(&[])
-            .iter()
-            .enumerate()
-            .try_fold(0, |total, (position, input)| {
-                let output = context
-                    .lookup(input)
-                    .ok_or(InvalidFees::UnknownCollateralInput { position })?;
+    let total_collateral = collateral.unwrap_or(&[]).iter().enumerate().try_fold(0, |total, (position, input)| {
+        let output = context.lookup(input).ok_or(InvalidFees::UnknownCollateralInput { position })?;
 
-                Ok(total + output.lovelace())
-            })?;
+        Ok(total + output.lovelace())
+    })?;
 
     let collateral_return = collateral_return.map(|o| o.lovelace()).unwrap_or_default();
 
@@ -71,15 +62,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::tests::fixture_context,
-    };
     use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
     use super::InvalidFees;
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        rules::tests::fixture_context,
+    };
 
     macro_rules! fixture {
         ($hash:literal, $is_valid:expr) => {
@@ -93,20 +84,8 @@ mod tests {
         ($hash:literal, $variant:literal, $is_valid:expr) => {
             (
                 fixture_context!($hash, $variant),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
-                include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/expected.traces"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
                 $is_valid,
             )
         };
@@ -121,12 +100,7 @@ mod tests {
         matches Err(InvalidFees::UnknownCollateralInput { position }) if position == 0;
         "Unresolved collateral")]
     fn fees(
-        (ctx, tx, expected_traces, is_valid): (
-            AssertPreparationContext,
-            TransactionBody,
-            Vec<json::Value>,
-            bool,
-        ),
+        (ctx, tx, expected_traces, is_valid): (AssertPreparationContext, TransactionBody, Vec<json::Value>, bool),
     ) -> Result<(), InvalidFees> {
         assert_trace(
             || {

@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::MemoryStore;
 use amaru_kernel::TransactionInput;
 use amaru_ledger::store::{
     StoreError,
     columns::utxo::{Key, Value},
 };
 
-pub fn add(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+use crate::in_memory::MemoryStore;
+
+pub fn add(store: &MemoryStore, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     let mut utxos = store.utxos.borrow_mut();
 
     for (input, output) in rows {
@@ -32,10 +30,7 @@ pub fn add(
     Ok(())
 }
 
-pub fn remove(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = TransactionInput>,
-) -> Result<(), StoreError> {
+pub fn remove(store: &MemoryStore, rows: impl Iterator<Item = TransactionInput>) -> Result<(), StoreError> {
     let mut utxos = store.utxos.borrow_mut();
 
     for input in rows {

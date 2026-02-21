@@ -12,24 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{
-    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-    PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice,
-    PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
-    ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem,
 };
+
 use amaru_kernel::{
-    Anchor, AsHash, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, StakeCredential, StakeCredentialKind,
-    TransactionInput, Vote, Voter, VoterKind,
+    Anchor, AsHash, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    RequiredScript, StakeCredential, StakeCredentialKind, TransactionInput, Vote, Voter, VoterKind,
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
 use amaru_observability::trace;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    mem,
+
+use crate::context::{
+    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
+    RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
+    blanket_known_scripts,
 };
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -203,20 +204,11 @@ impl DRepsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn update(
-        &mut self,
-        _drep: StakeCredential,
-        _anchor: Option<Anchor>,
-    ) -> Result<(), UpdateError<StakeCredential>> {
+    fn update(&mut self, _drep: StakeCredential, _anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
         unimplemented!()
     }
 
-    fn unregister(
-        &mut self,
-        _drep: StakeCredential,
-        _refund: Lovelace,
-        _pointer: CertificatePointer,
-    ) {
+    fn unregister(&mut self, _drep: StakeCredential, _refund: Lovelace, _pointer: CertificatePointer) {
         unimplemented!()
     }
 }
@@ -247,8 +239,7 @@ impl ProposalsSlice for AssertValidationContext {
         credential_type = StakeCredentialKind::from(&_voter),
         credential_hash = _voter.as_hash()
     )]
-    fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
-    }
+    fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {}
 }
 
 impl WitnessSlice for AssertValidationContext {

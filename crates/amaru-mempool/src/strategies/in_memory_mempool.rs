@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, to_cbor};
-use amaru_ouroboros_traits::{
-    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
-    TxRejectReason, TxSubmissionMempool, mempool::Mempool,
-};
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
     pin::Pin,
     sync::Arc,
+};
+
+use amaru_kernel::{cbor, to_cbor};
+use amaru_ouroboros_traits::{
+    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
+    TxSubmissionMempool, mempool::Mempool,
 };
 use tokio::sync::Notify;
 
@@ -47,11 +48,7 @@ impl<Tx> Default for InMemoryMempool<Tx> {
 
 impl<Tx> InMemoryMempool<Tx> {
     pub fn new(config: MempoolConfig, tx_validator: Arc<dyn CanValidateTransactions<Tx>>) -> Self {
-        InMemoryMempool {
-            config,
-            inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())),
-            tx_validator,
-        }
+        InMemoryMempool { config, inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())), tx_validator }
     }
 
     pub fn from_config(config: MempoolConfig) -> Self {
@@ -112,13 +109,7 @@ impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
         self.next_seq += 1;
 
         let tx_size = to_cbor(&tx).len() as u32;
-        let entry = MempoolEntry {
-            seq_no,
-            tx_id,
-            tx,
-            tx_size,
-            origin: tx_origin,
-        };
+        let entry = MempoolEntry { seq_no, tx_id, tx, tx_size, origin: tx_origin };
 
         self.entries_by_id.insert(tx_id, entry);
         self.entries_by_seq.insert(seq_no, tx_id);
@@ -138,10 +129,7 @@ impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
             .take(limit as usize)
             .map(|(seq, tx_id)| {
                 let Some(entry) = self.entries_by_id.get(tx_id) else {
-                    panic!(
-                        "Inconsistent mempool state: entry missing for tx_id {:?}",
-                        tx_id
-                    )
+                    panic!("Inconsistent mempool state: entry missing for tx_id {:?}", tx_id)
                 };
                 (*tx_id, entry.tx_size, *seq)
             })
@@ -153,16 +141,10 @@ impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
     /// Retrieves transactions for the given ids, sorted by their sequence number.
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
         // Make sure that the result are sorted by seq_no
-        let mut result: Vec<(&TxId, &MempoolEntry<Tx>)> = self
-            .entries_by_id
-            .iter()
-            .filter(|(key, _)| ids.contains(*key))
-            .collect();
+        let mut result: Vec<(&TxId, &MempoolEntry<Tx>)> =
+            self.entries_by_id.iter().filter(|(key, _)| ids.contains(*key)).collect();
         result.sort_by_key(|(_, entry)| entry.seq_no);
-        result
-            .into_iter()
-            .map(|(_, entry)| entry.tx.clone())
-            .collect()
+        result.into_iter().map(|(_, entry)| entry.tx.clone()).collect()
     }
 }
 
@@ -193,9 +175,7 @@ impl<Tx: Send + Sync + 'static> CanValidateTransactions<Tx> for InMemoryMempool<
     }
 }
 
-impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx>
-    for InMemoryMempool<Tx>
-{
+impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx> for InMemoryMempool<Tx> {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let mut inner = self.inner.write();
         let res = inner.insert(&self.config, tx, tx_origin);
@@ -214,10 +194,7 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<T
     }
 
     /// Waits until the mempool reaches at least the given sequence number.
-    fn wait_for_at_least(
-        &self,
-        seq_no: MempoolSeqNo,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+    fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move {
             loop {
                 // Prepare a notification future first to avoid races where we miss a notify
@@ -269,18 +246,10 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMem
         let seq_nos_to_remove: Vec<MempoolSeqNo> = inner
             .entries_by_id
             .values()
-            .filter(|entry| {
-                keys(&entry.tx)
-                    .into_iter()
-                    .any(|k| keys_to_remove.contains(&k))
-            })
+            .filter(|entry| keys(&entry.tx).into_iter().any(|k| keys_to_remove.contains(&k)))
             .map(|entry| entry.seq_no)
             .collect();
-        inner.entries_by_id.retain(|_, entry| {
-            !keys(&entry.tx)
-                .into_iter()
-                .any(|k| keys_to_remove.contains(&k))
-        });
+        inner.entries_by_id.retain(|_, entry| !keys(&entry.tx).into_iter().any(|k| keys_to_remove.contains(&k)));
         for seq_no in seq_nos_to_remove {
             inner.entries_by_seq.remove(&seq_no);
         }
@@ -289,37 +258,26 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMem
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{ops::Deref, slice, str::FromStr, time::Duration};
+
     use amaru_kernel::{Peer, cbor, cbor as minicbor};
     use assertables::assert_some_eq_x;
-    use std::{ops::Deref, slice, str::FromStr, time::Duration};
     use tokio::time::timeout;
+
+    use super::*;
 
     #[tokio::test]
     async fn insert_a_transaction() -> anyhow::Result<()> {
         let mempool = InMemoryMempool::from_config(MempoolConfig::default().with_max_txs(5));
         let tx = Tx::from_str("tx1").unwrap();
-        let (tx_id, seq_nb) = mempool
-            .insert(tx.clone(), TxOrigin::Remote(Peer::new("upstream")))
-            .unwrap();
+        let (tx_id, seq_nb) = mempool.insert(tx.clone(), TxOrigin::Remote(Peer::new("upstream"))).unwrap();
 
         assert_some_eq_x!(mempool.get_tx(&tx_id), tx.clone());
-        assert_eq!(
-            mempool.get_txs_for_ids(slice::from_ref(&tx_id)),
-            vec![tx.clone()]
-        );
+        assert_eq!(mempool.get_txs_for_ids(slice::from_ref(&tx_id)), vec![tx.clone()]);
         assert_eq!(mempool.tx_ids_since(seq_nb, 100), vec![(tx_id, 5, seq_nb)]);
+        assert!(mempool.wait_for_at_least(seq_nb).await, "should have at least seq no");
         assert!(
-            mempool.wait_for_at_least(seq_nb).await,
-            "should have at least seq no"
-        );
-        assert!(
-            timeout(
-                Duration::from_millis(100),
-                mempool.wait_for_at_least(seq_nb.add(100))
-            )
-            .await
-            .is_err(),
+            timeout(Duration::from_millis(100), mempool.wait_for_at_least(seq_nb.add(100))).await.is_err(),
             "should timeout waiting for a seq no that is too high"
         );
         Ok(())

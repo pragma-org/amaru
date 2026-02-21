@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::events::{
-    BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, Tracked, ValidateBlockEvent,
-    ValidateHeaderEvent,
-};
 use tracing::Span;
+
+use crate::events::{
+    BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, Tracked, ValidateBlockEvent, ValidateHeaderEvent,
+};
 
 /// Helper trait to remove span reparenting boilerplate.
 pub trait HasSpan {

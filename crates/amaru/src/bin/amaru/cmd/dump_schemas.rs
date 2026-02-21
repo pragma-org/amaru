@@ -26,11 +26,8 @@ pub struct Args {
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let output = generate_traces_json_schema(&SchemaEntry::all());
-    let json_string = if args.compact {
-        serde_json::to_string(&output)?
-    } else {
-        serde_json::to_string_pretty(&output)?
-    };
+    let json_string =
+        if args.compact { serde_json::to_string(&output)? } else { serde_json::to_string_pretty(&output)? };
 
     eprintln!("{}", json_string);
     Ok(())
@@ -51,17 +48,11 @@ fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
                 .map(|(name, ty)| (name.to_string(), field_to_json_type(ty)))
                 .collect::<serde_json::Map<_, _>>();
 
-            let required: Vec<_> = entry
-                .required_fields
-                .iter()
-                .map(|(name, _)| Value::String(name.to_string()))
-                .collect();
+            let required: Vec<_> =
+                entry.required_fields.iter().map(|(name, _)| Value::String(name.to_string())).collect();
 
-            let optional: Vec<_> = entry
-                .optional_fields
-                .iter()
-                .map(|(name, _)| Value::String(name.to_string()))
-                .collect();
+            let optional: Vec<_> =
+                entry.optional_fields.iter().map(|(name, _)| Value::String(name.to_string())).collect();
 
             (
                 entry.path.to_string(),

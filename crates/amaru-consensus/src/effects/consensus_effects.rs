@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::effects::{
-    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps,
-    metrics_effects::{Metrics, MetricsOps},
-};
+use std::sync::Arc;
+
 use amaru_kernel::{BlockHeader, Transaction};
 use amaru_ouroboros_traits::{ChainStore, TxSubmissionMempool};
 use amaru_protocols::{mempool_effects::MemoryPool, store_effects::Store};
 use pure_stage::{Effects, SendData};
-use std::sync::Arc;
+
+use crate::effects::{
+    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps,
+    metrics_effects::{Metrics, MetricsOps},
+};
 
 /// This trait provides access to all effectful operations needed by consensus stages.
 pub trait ConsensusOps: Send + Sync + Clone {
@@ -47,9 +49,7 @@ pub struct ConsensusEffects<T> {
 
 impl<T> Clone for ConsensusEffects<T> {
     fn clone(&self) -> Self {
-        Self {
-            effects: self.effects.clone(),
-        }
+        Self { effects: self.effects.clone() }
     }
 }
 
@@ -112,8 +112,8 @@ impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
 /// This module provides mock implementations of ConsensusOps and its sub-traits for unit testing.
 #[cfg(test)]
 pub mod tests {
-    use super::*;
-    use crate::errors::{ProcessingFailed, ValidationFailed};
+    use std::{collections::BTreeMap, future::ready, sync::Arc, time::Duration};
+
     use amaru_kernel::{Block, Peer, Point, PoolId, Slot, Tip};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
@@ -129,7 +129,9 @@ pub mod tests {
         serde::{from_cbor, to_cbor},
     };
     use serde::de::DeserializeOwned;
-    use std::{collections::BTreeMap, future::ready, sync::Arc, time::Duration};
+
+    use super::*;
+    use crate::errors::{ProcessingFailed, ValidationFailed};
 
     #[derive(Clone)]
     pub struct MockConsensusOps {
@@ -172,19 +174,11 @@ pub mod tests {
     pub struct MockNetworkOps;
 
     impl NetworkOps for MockNetworkOps {
-        fn send_forward_event(
-            &self,
-            _peer: Peer,
-            _header: BlockHeader,
-        ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        fn send_forward_event(&self, _peer: Peer, _header: BlockHeader) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
             Box::pin(ready(Ok(())))
         }
 
-        fn send_backward_event(
-            &self,
-            _peer: Peer,
-            _header_tip: Tip,
-        ) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
+        fn send_backward_event(&self, _peer: Peer, _header_tip: Tip) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
             Box::pin(ready(Ok(())))
         }
     }
@@ -207,8 +201,7 @@ pub mod tests {
             _point: &Point,
             _block: Block,
             _ctx: opentelemetry::Context,
-        ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>
-        {
+        ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
             Box::pin(async { Ok(Ok(LedgerMetrics::default())) })
         }
 
@@ -223,11 +216,7 @@ pub mod tests {
     }
 
     impl HasStakeDistribution for MockLedgerOps {
-        fn get_pool(
-            &self,
-            _slot: Slot,
-            _pool: &PoolId,
-        ) -> Result<Option<PoolSummary>, GetPoolError> {
+        fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
             Ok(None)
         }
     }
@@ -240,10 +229,7 @@ pub mod tests {
 
     impl Default for MockBaseOps {
         fn default() -> Self {
-            MockBaseOps {
-                messages: Arc::new(Mutex::new(BTreeMap::new())),
-                call_data: Arc::new(Mutex::new(None)),
-            }
+            MockBaseOps { messages: Arc::new(Mutex::new(BTreeMap::new())), call_data: Arc::new(Mutex::new(None)) }
         }
     }
 
@@ -260,16 +246,9 @@ pub mod tests {
     }
 
     impl BaseOps for MockBaseOps {
-        fn send<Msg: SendData + 'static>(
-            &self,
-            target: &StageRef<Msg>,
-            msg: Msg,
-        ) -> BoxFuture<'static, ()> {
+        fn send<Msg: SendData + 'static>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
             let mut messages = self.messages.lock();
-            messages
-                .entry(target.name().to_string())
-                .or_default()
-                .push(format!("{msg:?}"));
+            messages.entry(target.name().to_string()).or_default().push(format!("{msg:?}"));
             Box::pin(async move {})
         }
 
@@ -301,16 +280,9 @@ pub mod tests {
     }
 
     impl BaseOps for &MockBaseOps {
-        fn send<Msg: SendData + 'static>(
-            &self,
-            target: &StageRef<Msg>,
-            msg: Msg,
-        ) -> BoxFuture<'static, ()> {
+        fn send<Msg: SendData + 'static>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
             let mut messages = self.messages.lock();
-            messages
-                .entry(target.name().to_string())
-                .or_default()
-                .push(format!("{msg:?}"));
+            messages.entry(target.name().to_string()).or_default().push(format!("{msg:?}"));
             Box::pin(async move {})
         }
 

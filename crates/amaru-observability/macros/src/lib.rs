@@ -38,8 +38,9 @@
 //!
 //! When enabled, all macros become no-ops, completely removing tracing overhead.
 
-use proc_macro::TokenStream;
 use std::env::var;
+
+use proc_macro::TokenStream;
 
 mod define_schemas;
 mod traces;

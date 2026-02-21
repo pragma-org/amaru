@@ -12,40 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    governance::ratification::ProposalsRootsRc,
-    state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
-    store::{
-        self, GovernanceActivity, Store, StoreError, TransactionalContext, columns::proposals,
-    },
-};
-use amaru_kernel::{
-    Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
-    DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace,
-    MemoizedTransactionOutput, NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolParameters,
-    RationalNumber, Reward, Set, Slot, StakeCredential, StrictMaybe, TransactionInput,
-    TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
-};
-use amaru_progress_bar::ProgressBar;
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
     rc::Rc,
     sync::LazyLock,
 };
+
+use amaru_kernel::{
+    Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepRegistration,
+    DRepState, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, NetworkName,
+    PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProposalState, ProtocolParameters, RationalNumber, Reward, Set, Slot, StakeCredential, StrictMaybe,
+    TransactionInput, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
+};
+use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
+
+use crate::{
+    governance::ratification::ProposalsRootsRc,
+    state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
+    store::{self, GovernanceActivity, Store, StoreError, TransactionalContext, columns::proposals},
+};
 
 const BATCH_SIZE: usize = 1000;
 
-static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
-    LazyLock::new(|| CertificatePointer {
-        transaction: TransactionPointer {
-            slot: Slot::from(0),
-            transaction_index: 0,
-        },
-        certificate_index: 0,
-    });
+static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> = LazyLock::new(|| CertificatePointer {
+    transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+    certificate_index: 0,
+});
 
 /// (Partially) decode a Haskell cardano-node's 'NewEpochState'
 ///
@@ -117,19 +112,13 @@ pub fn import_initial_snapshot(
     })?;
 
     // Committee cold -> hot delegations
-    let cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization> =
-        decoder.decode()?;
+    let cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization> = decoder.decode()?;
 
     let governance_activity: GovernanceActivity = decoder.with_decoder(|d| {
         // Dormant Epoch
         let dormant_epoch: Epoch = d.decode()?;
-        let governance_activity = GovernanceActivity {
-            consecutive_dormant_epochs: u64::from(dormant_epoch) as u32,
-        };
-        info!(
-            dormant_epochs = governance_activity.consecutive_dormant_epochs,
-            "governance activity"
-        );
+        let governance_activity = GovernanceActivity { consecutive_dormant_epochs: u64::from(dormant_epoch) as u32 };
+        info!(dormant_epochs = governance_activity.consecutive_dormant_epochs, "governance activity");
         Ok(governance_activity)
     })?;
 
@@ -143,15 +132,7 @@ pub fn import_initial_snapshot(
 
         Ok((d.decode()?, d.decode()?, d.decode()?))
     })?;
-    import_stake_pools(
-        db,
-        point,
-        era_history,
-        epoch,
-        pools,
-        pools_updates,
-        pools_retirements,
-    )?;
+    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)?;
 
     // Deposits
     decoder.skip()?;
@@ -185,14 +166,7 @@ pub fn import_initial_snapshot(
         Ok(())
     })?;
 
-    import_utxo(
-        &mut decoder,
-        db,
-        &with_progress,
-        point,
-        era_history,
-        network,
-    )?;
+    import_utxo(&mut decoder, db, &with_progress, point, era_history, network)?;
 
     let fees: i64 = decoder.with_decoder(|d| {
         let _deposited: u64 = d.decode()?;
@@ -254,10 +228,7 @@ pub fn import_initial_snapshot(
         );
 
         let delayed: bool = d.decode()?;
-        assert!(
-            !delayed,
-            "unimplemented import scenario: snapshot contains a ratified delaying governance action"
-        );
+        assert!(!delayed, "unimplemented import scenario: snapshot contains a ratified delaying governance action");
 
         Ok(())
     })?;
@@ -297,19 +268,11 @@ pub fn import_initial_snapshot(
         // NonMyopic
         decoder.skip()?;
 
-        import_accounts(
-            db,
-            &with_progress,
-            point,
-            era_history,
-            &protocol_parameters,
-            accounts,
-            &mut rewards,
-        )?;
+        import_accounts(db, &with_progress, point, era_history, &protocol_parameters, accounts, &mut rewards)?;
 
-        let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
-            total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
-        });
+        let unclaimed_rewards = rewards
+            .into_iter()
+            .fold(0, |total, (_, rewards)| total + rewards.into_iter().fold(0, |inner, r| inner + r.amount));
 
         import_pots(
             db,
@@ -339,22 +302,9 @@ pub fn import_initial_snapshot(
 
     import_constitution(db, constitution)?;
 
-    import_constitutional_committee(
-        db,
-        point,
-        era_history,
-        &protocol_parameters,
-        cc_state,
-        cc_members,
-    )?;
+    import_constitutional_committee(db, point, era_history, &protocol_parameters, cc_state, cc_members)?;
 
-    save_point(
-        db,
-        point,
-        era_history,
-        &protocol_parameters,
-        governance_activity,
-    )?;
+    save_point(db, point, era_history, &protocol_parameters, governance_activity)?;
 
     Ok(epoch)
 }
@@ -494,9 +444,7 @@ fn import_utxo(
 
                 let mut probe = d.probe();
 
-                let io = probe
-                    .decode::<I>()
-                    .and_then(|i| probe.decode::<O>().map(|o| (i, o)));
+                let io = probe.decode::<I>().and_then(|i| probe.decode::<O>().map(|o| (i, o)));
 
                 if let Ok((i, o)) = io {
                     chunk_size += 1;
@@ -564,9 +512,7 @@ fn import_dreps(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut known_dreps = BTreeMap::new();
 
-    let era_first_epoch = era_history
-        .era_first_epoch(epoch)
-        .map_err(|e| StoreError::Internal(Box::new(e)))?;
+    let era_first_epoch = era_history.era_first_epoch(epoch).map_err(|e| StoreError::Internal(Box::new(e)))?;
 
     let transaction = db.create_transaction();
 
@@ -597,22 +543,13 @@ fn import_dreps(
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: dreps.into_iter().map(|(credential, state)| {
-                let registered_at =
-                    known_dreps
-                        .remove(&credential)
-                        .unwrap_or_else(|| CertificatePointer {
-                            transaction: TransactionPointer {
-                                slot: point.slot_or_default(),
-                                ..TransactionPointer::default()
-                            },
-                            certificate_index: 0,
-                        });
+                let registered_at = known_dreps.remove(&credential).unwrap_or_else(|| CertificatePointer {
+                    transaction: TransactionPointer { slot: point.slot_or_default(), ..TransactionPointer::default() },
+                    certificate_index: 0,
+                });
 
-                let registration = DRepRegistration {
-                    deposit: state.deposit,
-                    valid_until: state.expiry,
-                    registered_at,
-                };
+                let registration =
+                    DRepRegistration { deposit: state.deposit, valid_until: state.expiry, registered_at };
 
                 delegations.extend(state.delegators.to_vec().into_iter().map(|delegator| {
                     (
@@ -625,13 +562,7 @@ fn import_dreps(
                     )
                 }));
 
-                (
-                    credential,
-                    (
-                        Resettable::from(Option::from(state.anchor)),
-                        Some(registration),
-                    ),
-                )
+                (credential, (Resettable::from(Option::from(state.anchor)), Some(registration)))
             }),
             cc_members: iter::empty(),
             proposals: iter::empty(),
@@ -689,8 +620,7 @@ fn import_proposals(
                                 },
                                 proposal_index,
                             },
-                            valid_until: proposal.proposed_in
-                                + protocol_parameters.gov_action_lifetime,
+                            valid_until: proposal.proposed_in + protocol_parameters.gov_action_lifetime,
                             proposal: proposal.procedure.clone(),
                         },
                     ))
@@ -729,11 +659,7 @@ fn import_stake_pools(
         state.unregister(pool, epoch);
     }
 
-    info!(
-        registered = state.registered.len(),
-        retiring = state.unregistered.len(),
-        "stake_pools",
-    );
+    info!(registered = state.registered.len(), retiring = state.unregistered.len(), "stake_pools",);
     let transaction = db.create_transaction();
     transaction.with_pools(|iterator| {
         for (_, mut handle) in iterator {
@@ -752,15 +678,9 @@ fn import_stake_pools(
         None,
         store::Columns {
             utxo: iter::empty(),
-            pools: state
-                .registered
-                .into_iter()
-                .flat_map(move |(_, registrations)| {
-                    registrations
-                        .into_iter()
-                        .map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, epoch))
-                        .collect::<Vec<_>>()
-                }),
+            pools: state.registered.into_iter().flat_map(move |(_, registrations)| {
+                registrations.into_iter().map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, epoch)).collect::<Vec<_>>()
+            }),
             accounts: iter::empty(),
             dreps: iter::empty(),
             cc_members: iter::empty(),
@@ -781,12 +701,7 @@ fn import_stake_pools(
     Ok(transaction.commit()?)
 }
 
-fn import_pots(
-    db: &impl Store,
-    treasury: u64,
-    reserves: u64,
-    fees: u64,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn import_pots(db: &impl Store, treasury: u64, reserves: u64, fees: u64) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_pots(|mut row| {
         let pots = row.borrow_mut();
@@ -816,55 +731,42 @@ fn import_accounts(
 
     let mut credentials = accounts
         .into_iter()
-        .map(
-            |(
+        .map(|(credential, Account { rewards_and_deposit, pool, drep, .. })| {
+            let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
+                .unwrap_or((0, protocol_parameters.stake_credential_deposit));
+
+            let rewards_update = match rewards_updates.remove(&credential) {
+                None => 0,
+                Some(set) => set.iter().fold(0, |total, update| total + update.amount),
+            };
+
+            (
                 credential,
-                Account {
-                    rewards_and_deposit,
-                    pool,
-                    drep,
-                    ..
-                },
-            )| {
-                let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
-                    .unwrap_or((0, protocol_parameters.stake_credential_deposit));
-
-                let rewards_update = match rewards_updates.remove(&credential) {
-                    None => 0,
-                    Some(set) => set.iter().fold(0, |total, update| total + update.amount),
-                };
-
                 (
-                    credential,
-                    (
-                        Resettable::from(
-                            Option::<PoolId>::from(pool)
-                                .map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER)),
-                        ),
-                        //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                        Resettable::from(Option::<DRep>::from(drep).map(|drep| {
-                            (
-                                drep,
-                                CertificatePointer {
-                                    transaction: TransactionPointer {
-                                        slot: point.slot_or_default(),
-                                        ..TransactionPointer::default()
-                                    },
-                                    // NOTE(INITIAL_BOOTSTRAP):
-                                    //
-                                    // We use an index strictly larger than DRep registration
-                                    // certificates, to ensure that the imported delegations are
-                                    // considered valid (happened after DRep existence).
-                                    certificate_index: 1,
+                    Resettable::from(Option::<PoolId>::from(pool).map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER))),
+                    //No slot to retrieve. All registrations coming from snapshot are considered valid.
+                    Resettable::from(Option::<DRep>::from(drep).map(|drep| {
+                        (
+                            drep,
+                            CertificatePointer {
+                                transaction: TransactionPointer {
+                                    slot: point.slot_or_default(),
+                                    ..TransactionPointer::default()
                                 },
-                            )
-                        })),
-                        Some(deposit),
-                        rewards + rewards_update,
-                    ),
-                )
-            },
-        )
+                                // NOTE(INITIAL_BOOTSTRAP):
+                                //
+                                // We use an index strictly larger than DRep registration
+                                // certificates, to ensure that the imported delegations are
+                                // considered valid (happened after DRep existence).
+                                certificate_index: 1,
+                            },
+                        )
+                    })),
+                    Some(deposit),
+                    rewards + rewards_update,
+                ),
+            )
+        })
         .collect::<Vec<_>>();
 
     info!(size = credentials.len(), "credentials");
@@ -933,10 +835,7 @@ fn import_proposals_roots(
     Ok(())
 }
 
-fn import_constitution(
-    db: &impl Store,
-    constitution: Constitution,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn import_constitution(db: &impl Store, constitution: Constitution) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
     info!(
@@ -1008,12 +907,10 @@ fn import_constitutional_committee(
             votes: iter::empty(),
             cc_members: cc_members.into_iter().map(|(cold_cred, valid_until)| {
                 let hot_cred = match hot_cold_delegations.remove(&cold_cred) {
-                    Some(ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(
-                        hot_cred,
-                    )) => Resettable::Set(hot_cred),
-                    None | Some(ConstitutionalCommitteeAuthorization::Resigned(..)) => {
-                        Resettable::Reset
+                    Some(ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(hot_cred)) => {
+                        Resettable::Set(hot_cred)
                     }
+                    None | Some(ConstitutionalCommitteeAuthorization::Resigned(..)) => Resettable::Reset,
                 };
 
                 (cold_cred, (hot_cred, Resettable::Set(valid_until)))
@@ -1038,10 +935,7 @@ fn import_votes(
     let votes = actions
         .into_iter()
         .flat_map(|st| {
-            let new_ballot_id = |voter| BallotId {
-                proposal: ComparableProposalId::from(st.id.clone()),
-                voter,
-            };
+            let new_ballot_id = |voter| BallotId { proposal: ComparableProposalId::from(st.id.clone()), voter };
 
             let mut votes = Vec::new();
 
@@ -1173,16 +1067,11 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(ConstitutionalCommittee {
-                members: d.decode_with(ctx)?,
-                threshold: d.decode_with(ctx)?,
-            })
+            Ok(ConstitutionalCommittee { members: d.decode_with(ctx)?, threshold: d.decode_with(ctx)? })
         })
     }
 }
 
 fn default_governance_activity() -> GovernanceActivity {
-    GovernanceActivity {
-        consecutive_dormant_epochs: 0,
-    }
+    GovernanceActivity { consecutive_dormant_epochs: 0 }
 }

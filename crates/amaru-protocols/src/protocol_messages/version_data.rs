@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol_messages::version_number::VersionNumber;
 use amaru_kernel::{NetworkMagic, cbor};
+
+use crate::protocol_messages::version_number::VersionNumber;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct VersionData {
@@ -34,12 +35,7 @@ impl VersionData {
         peer_sharing: u8,
         query: bool,
     ) -> Self {
-        VersionData {
-            network_magic,
-            initiator_only_diffusion_mode,
-            peer_sharing,
-            query,
-        }
+        VersionData { network_magic, initiator_only_diffusion_mode, peer_sharing, query }
     }
 }
 
@@ -56,9 +52,7 @@ impl<T: AsRef<VersionNumber>> cbor::Encode<T> for VersionData {
                 .u8(self.peer_sharing)?
                 .bool(self.query)?;
         } else {
-            e.array(2)?
-                .encode(self.network_magic)?
-                .bool(self.initiator_only_diffusion_mode)?;
+            e.array(2)?.encode(self.network_magic)?.bool(self.initiator_only_diffusion_mode)?;
         }
         Ok(())
     }
@@ -73,32 +67,23 @@ impl<'b, T: AsRef<VersionNumber>> cbor::Decode<'b, T> for VersionData {
             let initiator_only_diffusion_mode = d.bool()?;
             let peer_sharing = d.u8()?;
             let query = d.bool()?;
-            Ok(Self {
-                network_magic,
-                initiator_only_diffusion_mode,
-                peer_sharing,
-                query,
-            })
+            Ok(Self { network_magic, initiator_only_diffusion_mode, peer_sharing, query })
         } else {
             let len = d.array()?;
             cbor::check_tagged_array_length(0, len, 2)?;
             let network_magic = d.decode()?;
             let initiator_only_diffusion_mode = d.bool()?;
-            Ok(Self {
-                network_magic,
-                initiator_only_diffusion_mode,
-                peer_sharing: 0,
-                query: false,
-            })
+            Ok(Self { network_magic, initiator_only_diffusion_mode, peer_sharing: 0, query: false })
         }
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
     use amaru_kernel::any_network_magic;
     use proptest::{prelude::any, prop_compose, strategy::Strategy};
+
+    use super::*;
 
     prop_compose! {
         pub fn any_version_data()(network_magic in any_network_magic(),

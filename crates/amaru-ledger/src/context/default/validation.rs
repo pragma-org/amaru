@@ -12,26 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
-        PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
-    },
-    state::volatile_db::VolatileState,
-};
-use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration,
-    Epoch, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, StakeCredential,
-    TransactionInput, Vote, Voter,
-    size::{DATUM, KEY, SCRIPT},
-};
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
 };
+
+use amaru_kernel::{
+    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    size::{DATUM, KEY, SCRIPT},
+};
 use tracing::trace;
+
+use crate::{
+    context::{
+        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        blanket_known_datums, blanket_known_scripts,
+    },
+    state::volatile_db::VolatileState,
+};
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
@@ -118,9 +119,7 @@ impl AccountsSlice for DefaultValidationContext {
         state: AccountState,
     ) -> Result<(), RegisterError<AccountState, StakeCredential>> {
         trace!(target: amaru_observability::CERTIFICATE_TARGET, ?credential, "certificate.stake.registration");
-        self.state
-            .accounts
-            .register(credential, state.deposit, state.pool, state.drep)?;
+        self.state.accounts.register(credential, state.deposit, state.pool, state.drep)?;
         Ok(())
     }
 
@@ -131,9 +130,7 @@ impl AccountsSlice for DefaultValidationContext {
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
         trace!(target: amaru_observability::CERTIFICATE_TARGET, ?credential, %pool, "certificate.stake.delegation");
-        self.state
-            .accounts
-            .bind_left(credential, Some((pool, pointer)))?;
+        self.state.accounts.bind_left(credential, Some((pool, pointer)))?;
         Ok(())
     }
 
@@ -144,9 +141,7 @@ impl AccountsSlice for DefaultValidationContext {
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, DRep>> {
         trace!(target: amaru_observability::CERTIFICATE_TARGET, ?credential, ?drep, "certificate.vote.delegation");
-        self.state
-            .accounts
-            .bind_right(credential, Some((drep, pointer)))?;
+        self.state.accounts.bind_right(credential, Some((drep, pointer)))?;
         Ok(())
     }
 
@@ -172,17 +167,11 @@ impl DRepsSlice for DefaultValidationContext {
         anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
         trace!(target: amaru_observability::CERTIFICATE_TARGET, ?drep, deposit = %registration.deposit, "certificate.drep.registration");
-        self.state
-            .dreps
-            .register(drep, registration, anchor, None)?;
+        self.state.dreps.register(drep, registration, anchor, None)?;
         Ok(())
     }
 
-    fn update(
-        &mut self,
-        drep: StakeCredential,
-        anchor: Option<Anchor>,
-    ) -> Result<(), UpdateError<StakeCredential>> {
+    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
         trace!(target: amaru_observability::CERTIFICATE_TARGET, ?drep, ?anchor, "certificate.drep.update");
         self.state.dreps.bind_left(drep, anchor)?;
         Ok(())
@@ -190,9 +179,7 @@ impl DRepsSlice for DefaultValidationContext {
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer) {
         trace!(target: amaru_observability::CERTIFICATE_TARGET, ?drep, ?refund, "certificate.drep.retirement");
-        self.state
-            .dreps_deregistrations
-            .insert(drep.clone(), pointer);
+        self.state.dreps_deregistrations.insert(drep.clone(), pointer);
         self.state.dreps.unregister(drep)
     }
 }
@@ -221,20 +208,13 @@ impl CommitteeSlice for DefaultValidationContext {
 
 impl ProposalsSlice for DefaultValidationContext {
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
-        self.state
-            .proposals
-            .register(id.into(), (proposal, pointer), None, None)
-            .unwrap_or_default(); // Can't happen as by construction key is unique
+        self.state.proposals.register(id.into(), (proposal, pointer), None, None).unwrap_or_default(); // Can't happen as by construction key is unique
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
-        self.state.votes.produce(
-            BallotId {
-                proposal: ComparableProposalId::from(proposal),
-                voter,
-            },
-            Ballot::new(vote, anchor),
-        )
+        self.state
+            .votes
+            .produce(BallotId { proposal: ComparableProposalId::from(proposal), voter }, Ballot::new(vote, anchor))
     }
 }
 

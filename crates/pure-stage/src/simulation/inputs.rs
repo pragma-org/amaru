@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Name, SendData, Sender, StageRef};
 use std::sync::Arc;
+
 use tokio::sync::{mpsc, oneshot};
+
+use crate::{Name, SendData, Sender, StageRef};
 
 #[derive(Debug)]
 pub struct Envelope {
@@ -38,11 +40,7 @@ pub struct Inputs {
 impl Inputs {
     pub fn new(buffer_size: usize) -> Self {
         let (tx, rx) = mpsc::channel(buffer_size);
-        Self {
-            tx,
-            rx,
-            peeked: None,
-        }
+        Self { tx, rx, peeked: None }
     }
 
     pub fn sender<Msg: SendData>(&self, stage: &StageRef<Msg>) -> Sender<Msg> {
@@ -53,13 +51,10 @@ impl Inputs {
             let stage_name = stage_name.clone();
             Box::pin(async move {
                 let (tx, rx) = oneshot::channel();
-                tx_main
-                    .send(Envelope::new(stage_name, Box::new(msg), tx))
-                    .await
-                    .map_err(|e| {
-                        #[expect(clippy::expect_used)]
-                        *e.0.msg.cast::<Msg>().expect("message was just boxed")
-                    })?;
+                tx_main.send(Envelope::new(stage_name, Box::new(msg), tx)).await.map_err(|e| {
+                    #[expect(clippy::expect_used)]
+                    *e.0.msg.cast::<Msg>().expect("message was just boxed")
+                })?;
                 rx.await.ok();
                 Ok(())
             })

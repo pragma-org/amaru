@@ -35,10 +35,7 @@ pub fn format_field_spec(name: &str, ty: &str) -> String {
 ///
 /// Used to identify valid Rust identifiers.
 pub fn is_identifier_start(token: &str) -> bool {
-    token
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_alphabetic() || c == '_')
+    token.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
 /// Check if a string starts with an uppercase character.
@@ -62,10 +59,7 @@ pub fn is_valid_identifier(token: &str) -> bool {
     }
 
     token.chars().all(|c| c.is_alphanumeric() || c == '_')
-        && token
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_alphabetic() || c == '_')
+        && token.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
 /// Parse a schema path and extract (schema_name, module_path) using functional approach.
@@ -180,12 +174,7 @@ pub fn make_macro_namespace(categories: &[String]) -> String {
     if categories.is_empty() {
         String::new()
     } else {
-        categories
-            .iter()
-            .map(|c| c.to_uppercase())
-            .collect::<Vec<_>>()
-            .join("__")
-            + "__"
+        categories.iter().map(|c| c.to_uppercase()).collect::<Vec<_>>().join("__") + "__"
     }
 }
 
@@ -204,14 +193,7 @@ pub fn make_module_validator_name(categories: &[String]) -> String {
     if categories.is_empty() {
         "__VALIDATE".to_string()
     } else {
-        format!(
-            "__VALIDATE_{}",
-            categories
-                .iter()
-                .map(|c| c.to_uppercase())
-                .collect::<Vec<_>>()
-                .join("_")
-        )
+        format!("__VALIDATE_{}", categories.iter().map(|c| c.to_uppercase()).collect::<Vec<_>>().join("_"))
     }
 }
 
@@ -263,10 +245,7 @@ mod tests {
     #[test]
     fn test_path_operations() {
         let path = "consensus::chain_sync::VALIDATE_HEADER";
-        assert_eq!(
-            parse_schema_path(path),
-            ("VALIDATE_HEADER", "consensus::chain_sync")
-        );
+        assert_eq!(parse_schema_path(path), ("VALIDATE_HEADER", "consensus::chain_sync"));
     }
 
     #[test]

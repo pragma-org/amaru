@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::events::ChainSyncEvent;
+use std::collections::BTreeSet;
+
 use amaru_kernel::Peer;
 use amaru_observability::trace;
 use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg};
 use pure_stage::{Effects, StageRef};
-use std::collections::BTreeSet;
 use tracing::Span;
+
+use crate::events::ChainSyncEvent;
 
 #[trace(amaru::consensus::chain_sync::PULL)]
 pub async fn stage(
@@ -37,15 +39,13 @@ pub async fn stage(
         }
         IntersectNotFound(tip) => {
             tracing::info!(peer = %msg.peer, tip_point = %tip.point(), "intersect not found");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::Done)
-                .await;
+            eff.send(&msg.handler, chainsync::InitiatorMessage::Done).await;
             tracker.caught_up(&msg.peer);
         }
         RollForward(header_content, tip) => {
             tracing::trace!(peer = %msg.peer, variant = header_content.variant.as_str(),
                 byron_prefix = ?header_content.byron_prefix, tip_point = %tip.point(), "roll forward");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                .await;
+            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext).await;
             eff.send(
                 &downstream,
                 ChainSyncEvent::RollForward {
@@ -59,16 +59,10 @@ pub async fn stage(
         }
         RollBackward(point, tip) => {
             tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "roll backward");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext)
-                .await;
+            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext).await;
             eff.send(
                 &downstream,
-                ChainSyncEvent::Rollback {
-                    peer: msg.peer,
-                    rollback_point: point,
-                    tip,
-                    span: Span::current(),
-                },
+                ChainSyncEvent::Rollback { peer: msg.peer, rollback_point: point, tip, span: Span::current() },
             )
             .await;
         }

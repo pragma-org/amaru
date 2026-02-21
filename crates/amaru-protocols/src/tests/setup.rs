@@ -12,32 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::store_effects::ResourceHeaderStore;
+use std::{net::SocketAddr, sync::Arc};
+
 use amaru_kernel::{BlockHeader, Transaction};
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros_traits::can_validate_blocks::CanValidateHeaders;
-use amaru_ouroboros_traits::can_validate_blocks::mock::{
-    MockCanValidateBlocks, MockCanValidateHeaders,
-};
 use amaru_ouroboros_traits::{
     CanValidateBlocks, ChainStore, ConnectionResource, Mempool, ResourceMempool,
+    can_validate_blocks::{
+        CanValidateHeaders,
+        mock::{MockCanValidateBlocks, MockCanValidateHeaders},
+    },
 };
-use pure_stage::StageGraph;
-use pure_stage::tokio::TokioBuilder;
+use pure_stage::{StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
-use std::net::SocketAddr;
-use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
+
+use crate::store_effects::ResourceHeaderStore;
 
 /// Log to the console (enable logs with the RUST_LOG env var, for example RUST_LOG=info)
 pub(super) fn setup_logging(enable: bool) {
     if !enable {
         return;
     };
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
 }
 
 /// Get an ephemeral localhost address by binding to port 0
@@ -63,17 +60,9 @@ pub(super) fn set_resources(
     connections: TokioConnections,
 ) -> anyhow::Result<()> {
     network.resources().put::<ResourceHeaderStore>(chain_store);
-    network
-        .resources()
-        .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
-    network
-        .resources()
-        .put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
-    network
-        .resources()
-        .put::<ConnectionResource>(Arc::new(connections));
-    network
-        .resources()
-        .put::<ResourceMempool<Transaction>>(mempool);
+    network.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+    network.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+    network.resources().put::<ConnectionResource>(Arc::new(connections));
+    network.resources().put::<ResourceMempool<Transaction>>(mempool);
     Ok(())
 }

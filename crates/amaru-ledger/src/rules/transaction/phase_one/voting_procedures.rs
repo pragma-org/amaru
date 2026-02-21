@@ -12,28 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{ProposalsSlice, WitnessSlice};
-use amaru_kernel::{
-    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose,
-    StakeCredential, Voter, VotingProcedure,
-};
 use std::collections::BTreeMap;
+
+use amaru_kernel::{
+    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose, StakeCredential,
+    Voter, VotingProcedure,
+};
+
+use crate::context::{ProposalsSlice, WitnessSlice};
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    voting_procedures: Option<
-        NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>,
-    >,
+    voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 ) where
     C: WitnessSlice + ProposalsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
-        voting_procedures
-            .into_iter()
-            .collect::<BTreeMap<_, _>>()
-            .into_iter()
-            .enumerate()
-            .for_each(|(index, (voter, votes))| {
+        voting_procedures.into_iter().collect::<BTreeMap<_, _>>().into_iter().enumerate().for_each(
+            |(index, (voter, votes))| {
                 match voter.owner() {
                     StakeCredential::ScriptHash(hash) => {
                         context.require_script_witness(RequiredScript {
@@ -47,14 +43,10 @@ pub(crate) fn execute<C>(
                 }
 
                 votes.into_iter().for_each(|(proposal_id, ballot)| {
-                    context.vote(
-                        proposal_id,
-                        voter.clone(),
-                        ballot.vote,
-                        Option::from(ballot.anchor),
-                    );
+                    context.vote(proposal_id, voter.clone(), ballot.vote, Option::from(ballot.anchor));
                 })
-            });
+            },
+        );
     }
 }
 
@@ -62,28 +54,17 @@ pub(crate) fn execute<C>(
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
     use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
+    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
+
     macro_rules! fixture {
         ($hash:literal, $variant:literal) => {
             (
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
-                include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/expected.traces"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
             )
         };
     }
@@ -100,9 +81,7 @@ mod tests {
         assert_trace(
             || {
                 let mut validation_context =
-                    AssertValidationContext::from(AssertPreparationContext {
-                        utxo: BTreeMap::new(),
-                    });
+                    AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
 
                 super::execute(&mut validation_context, voting_procedures)
             },

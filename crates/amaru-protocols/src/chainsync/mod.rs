@@ -16,28 +16,20 @@ mod initiator;
 mod messages;
 mod responder;
 
-pub use initiator::{
-    ChainSyncInitiator, ChainSyncInitiatorMsg, InitiatorMessage, InitiatorResult, initiator,
-};
+pub use initiator::{ChainSyncInitiator, ChainSyncInitiatorMsg, InitiatorMessage, InitiatorResult, initiator};
 pub use messages::HeaderContent;
 pub use responder::{ChainSyncResponder, ResponderMessage, responder};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
-    vec![
-        messages::register_deserializers(),
-        initiator::register_deserializers(),
-        responder::register_deserializers(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    vec![messages::register_deserializers(), initiator::register_deserializers(), responder::register_deserializers()]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 pub fn to_traverse(header: &messages::HeaderContent) -> Result<MultiEraHeader<'_>, String> {
     let out = match header.byron_prefix {
-        Some((subtag, _)) => {
-            MultiEraHeader::decode(header.variant.header_variant(), Some(subtag), &header.cbor)
-        }
+        Some((subtag, _)) => MultiEraHeader::decode(header.variant.header_variant(), Some(subtag), &header.cbor),
         None => MultiEraHeader::decode(header.variant.header_variant(), None, &header.cbor),
     };
 
@@ -48,15 +40,16 @@ use pallas_traverse::MultiEraHeader;
 pub use register::{register_chainsync_initiator, register_chainsync_responder};
 
 mod register {
+    use amaru_kernel::{Peer, Tip};
+    use amaru_ouroboros::ConnectionId;
+    use pure_stage::{Effects, StageRef};
+
     use super::*;
     use crate::{
         connection::ConnectionMessage,
         mux::{Frame, MuxMessage},
         protocol::{Inputs, PROTO_N2N_CHAIN_SYNC},
     };
-    use amaru_kernel::{Peer, Tip};
-    use amaru_ouroboros::ConnectionId;
-    use pure_stage::{Effects, StageRef};
 
     pub async fn register_chainsync_initiator(
         muxer: &StageRef<MuxMessage>,
@@ -76,15 +69,12 @@ mod register {
             MuxMessage::Register {
                 protocol: PROTO_N2N_CHAIN_SYNC.erase(),
                 frame: Frame::OneCborItem,
-                handler: eff
-                    .contramap(&chainsync, "chainsync_bytes", Inputs::Network)
-                    .await,
+                handler: eff.contramap(&chainsync, "chainsync_bytes", Inputs::Network).await,
                 max_buffer: 5760,
             },
         )
         .await;
-        eff.contramap(&chainsync, "chainsync_handler", Inputs::Local)
-            .await
+        eff.contramap(&chainsync, "chainsync_handler", Inputs::Local).await
     }
 
     pub async fn register_chainsync_responder(
@@ -105,14 +95,11 @@ mod register {
             MuxMessage::Register {
                 protocol: PROTO_N2N_CHAIN_SYNC.responder().erase(),
                 frame: Frame::OneCborItem,
-                handler: eff
-                    .contramap(&chainsync, "chainsync_bytes", Inputs::Network)
-                    .await,
+                handler: eff.contramap(&chainsync, "chainsync_bytes", Inputs::Network).await,
                 max_buffer: 5760,
             },
         )
         .await;
-        eff.contramap(&chainsync, "chainsync_bytes", Inputs::Local)
-            .await
+        eff.contramap(&chainsync, "chainsync_bytes", Inputs::Local).await
     }
 }

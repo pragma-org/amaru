@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::MemoryStore;
 use amaru_kernel::Epoch;
 use amaru_ledger::store::{
     StoreError,
     columns::pools::{Key, Row, Value},
 };
 use tracing::error;
+
+use crate::in_memory::MemoryStore;
 
 pub fn add(
     store: &MemoryStore,
@@ -40,10 +41,7 @@ pub fn add(
     Ok(())
 }
 
-pub fn remove(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, Epoch)>,
-) -> Result<(), StoreError> {
+pub fn remove(store: &MemoryStore, rows: impl Iterator<Item = (Key, Epoch)>) -> Result<(), StoreError> {
     let mut pools = store.pools.borrow_mut();
 
     for (pool_id, epoch) in rows {

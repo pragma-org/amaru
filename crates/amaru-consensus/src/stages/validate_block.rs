@@ -12,29 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    effects::{BaseOps, ConsensusOps, MetricsOps},
-    errors::{ConsensusError, ProcessingFailed, ValidationFailed},
-    events::{DecodedChainSyncEvent, ValidateBlockEvent},
-    span::HasSpan,
-};
 use amaru_kernel::{Block, BlockHeader, IsHeader, Peer, Point};
 use amaru_observability::amaru::consensus::chain_sync::VALIDATE_BLOCK;
 use pure_stage::StageRef;
 use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-type State = (
-    StageRef<DecodedChainSyncEvent>,
-    StageRef<ValidationFailed>,
-    StageRef<ProcessingFailed>,
-);
+use crate::{
+    effects::{BaseOps, ConsensusOps, MetricsOps},
+    errors::{ConsensusError, ProcessingFailed, ValidationFailed},
+    events::{DecodedChainSyncEvent, ValidateBlockEvent},
+    span::HasSpan,
+};
 
-pub fn stage(
-    state: State,
-    msg: ValidateBlockEvent,
-    eff: impl ConsensusOps,
-) -> impl Future<Output = State> {
+type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>, StageRef<ProcessingFailed>);
+
+pub fn stage(state: State, msg: ValidateBlockEvent, eff: impl ConsensusOps) -> impl Future<Output = State> {
     let span = tracing::trace_span!(parent: msg.span(), VALIDATE_BLOCK);
 
     async move {
@@ -48,13 +41,7 @@ pub fn stage(
 async fn process_event(msg: ValidateBlockEvent, eff: impl ConsensusOps, state: &State) {
     let (_, validation_errors, _) = state;
     match msg {
-        ValidateBlockEvent::Validated {
-            header,
-            block,
-            span,
-            peer,
-            ..
-        } => {
+        ValidateBlockEvent::Validated { header, block, span, peer, .. } => {
             let point = header.point();
 
             match block.decode_block() {
@@ -62,24 +49,11 @@ async fn process_event(msg: ValidateBlockEvent, eff: impl ConsensusOps, state: &
                     roll_forward(&eff, state, header, span, peer, point, block).await;
                 }
                 Err(err) => {
-                    fail_with(
-                        "decode_block",
-                        &eff,
-                        validation_errors,
-                        peer,
-                        point,
-                        err.into(),
-                    )
-                    .await;
+                    fail_with("decode_block", &eff, validation_errors, peer, point, err.into()).await;
                 }
             };
         }
-        ValidateBlockEvent::Rollback {
-            peer,
-            rollback_point,
-            span,
-            ..
-        } => {
+        ValidateBlockEvent::Rollback { peer, rollback_point, span, .. } => {
             rollback(&eff, state, peer, rollback_point, span).await;
         }
     }
@@ -96,83 +70,27 @@ async fn roll_forward(
     block: Block,
 ) {
     let (downstream, validation_errors, processing_errors) = state;
-    match eff
-        .ledger()
-        .validate_block(&peer, &point, block, Span::current().context())
-        .await
-    {
+    match eff.ledger().validate_block(&peer, &point, block, Span::current().context()).await {
         Ok(Ok(metrics)) => {
             eff.metrics().record(metrics.into()).await;
-            eff.base()
-                .send(
-                    downstream,
-                    DecodedChainSyncEvent::RollForward {
-                        peer,
-                        header,
-                        span: span.clone(),
-                    },
-                )
-                .await
+            eff.base().send(downstream, DecodedChainSyncEvent::RollForward { peer, header, span: span.clone() }).await
         }
         Ok(Err(err)) => {
-            fail_with(
-                "validate_block",
-                eff,
-                validation_errors,
-                peer,
-                point,
-                err.into(),
-            )
-            .await;
+            fail_with("validate_block", eff, validation_errors, peer, point, err.into()).await;
         }
         Err(err) => {
-            error_with(
-                "validate_block",
-                eff,
-                processing_errors,
-                peer,
-                point,
-                err.into(),
-            )
-            .await;
+            error_with("validate_block", eff, processing_errors, peer, point, err.into()).await;
         }
     }
 }
 
 /// Rollback the ledger to the given point.
-async fn rollback(
-    eff: &impl ConsensusOps,
-    state: &State,
-    peer: Peer,
-    rollback_point: Point,
-    span: Span,
-) {
+async fn rollback(eff: &impl ConsensusOps, state: &State, peer: Peer, rollback_point: Point, span: Span) {
     let (downstream, _, processing_errors) = state;
-    if let Err(err) = eff
-        .ledger()
-        .rollback(&peer, &rollback_point, Span::current().context())
-        .await
-    {
-        error_with(
-            "rollback_block",
-            eff,
-            processing_errors,
-            peer,
-            rollback_point,
-            err.into(),
-        )
-        .await;
+    if let Err(err) = eff.ledger().rollback(&peer, &rollback_point, Span::current().context()).await {
+        error_with("rollback_block", eff, processing_errors, peer, rollback_point, err.into()).await;
     } else {
-        eff.base()
-            .send(
-                downstream,
-                DecodedChainSyncEvent::Rollback {
-                    peer,
-                    rollback_point,
-                    span,
-                },
-            )
-            .await
+        eff.base().send(downstream, DecodedChainSyncEvent::Rollback { peer, rollback_point, span }).await
     }
 }
 
@@ -189,13 +107,7 @@ async fn fail_with(
     eff.base()
         .send(
             validation_errors,
-            ValidationFailed::new(
-                &peer,
-                ConsensusError::InvalidBlock {
-                    peer: peer.clone(),
-                    point,
-                },
-            ),
+            ValidationFailed::new(&peer, ConsensusError::InvalidBlock { peer: peer.clone(), point }),
         )
         .await;
 }
@@ -210,7 +122,5 @@ async fn error_with(
     err: anyhow::Error,
 ) {
     error!(?err, %point, "chain_sync.{error_type}.error");
-    eff.base()
-        .send(processing_errors, ProcessingFailed::new(&peer, err))
-        .await;
+    eff.base().send(processing_errors, ProcessingFailed::new(&peer, err)).await;
 }

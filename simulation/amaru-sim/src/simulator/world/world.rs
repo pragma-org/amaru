@@ -12,20 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::{
-    Envelope, NodeHandle, StepResult,
-    world::world::Next::{Continue, Done, Panic},
-};
-use amaru_kernel::utils::string::ListToString;
-use pure_stage::Instant;
-use serde::Serialize;
 use std::{
     cmp::{Ordering, Reverse},
     collections::{BTreeMap, BinaryHeap},
     fmt::{Debug, Display, Formatter},
     time::Duration,
 };
+
+use amaru_kernel::utils::string::ListToString;
+use pure_stage::Instant;
+use serde::Serialize;
 use tracing::{debug, info, trace};
+
+use crate::simulator::{
+    Envelope, NodeHandle, StepResult,
+    world::world::Next::{Continue, Done, Panic},
+};
 
 /// This data structure represents a simulated 'world' of interconnected nodes.
 /// Nodes are identified by string ids:
@@ -84,17 +86,9 @@ impl<Msg: Debug> Debug for History<Msg> {
 
 impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
     /// Create a new World with initial messages and node handles.
-    pub fn new(
-        initial_messages: Vec<Entry<Msg>>,
-        node_handles: Vec<(NodeId, NodeHandle<Msg>)>,
-    ) -> Self {
+    pub fn new(initial_messages: Vec<Entry<Msg>>, node_handles: Vec<(NodeId, NodeHandle<Msg>)>) -> Self {
         World {
-            heap: BinaryHeap::from(
-                initial_messages
-                    .into_iter()
-                    .map(Reverse)
-                    .collect::<Vec<_>>(),
-            ),
+            heap: BinaryHeap::from(initial_messages.into_iter().map(Reverse).collect::<Vec<_>>()),
             nodes: node_handles.into_iter().collect(),
             history: History(Vec::new()),
         }
@@ -121,10 +115,7 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
     /// see https://github.com/pragma-org/simulation-testing/blob/main/blog/dist/04-simulation-testing-main-loop.md
     fn step_world(&mut self) -> Next {
         match self.heap.pop() {
-            Some(Reverse(Entry {
-                arrival_time,
-                envelope,
-            })) =>
+            Some(Reverse(Entry { arrival_time, envelope })) =>
             // TODO: deal with time advance across all nodes
             // eg. run all nodes whose next action is earlier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
@@ -168,10 +159,7 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
 
                 let no_more_messages = outgoing_messages.is_empty();
                 // TODO: use a better arrival time for outgoing messages
-                self.process_outgoing(
-                    Instant::at_offset(Duration::from_millis(100)),
-                    outgoing_messages,
-                );
+                self.process_outgoing(Instant::at_offset(Duration::from_millis(100)), outgoing_messages);
 
                 if blocked_nodes_nb == self.nodes.len() && no_more_messages {
                     info!("simulate.world.done");
@@ -188,9 +176,8 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
             let outgoing_to_string = format!("[{}]", outgoing.list_to_string(", "));
             debug!(outgoing = %outgoing_to_string, "simulate.world.outgoing");
         }
-        let (client_responses, outputs): (Vec<Envelope<Msg>>, Vec<Envelope<Msg>>) = outgoing
-            .into_iter()
-            .partition(|msg| msg.dest.starts_with("c"));
+        let (client_responses, outputs): (Vec<Envelope<Msg>>, Vec<Envelope<Msg>>) =
+            outgoing.into_iter().partition(|msg| msg.dest.starts_with("c"));
         outputs
             .iter()
             .map(|envelope| Entry {
@@ -198,9 +185,7 @@ impl<Msg: PartialEq + Clone + Debug + Display> World<Msg> {
                 envelope: envelope.clone(),
             })
             .for_each(|msg| self.heap.push(Reverse(msg)));
-        client_responses
-            .iter()
-            .for_each(|msg| self.history.0.push(msg.clone()));
+        client_responses.iter().for_each(|msg| self.history.0.push(msg.clone()));
     }
 }
 
@@ -213,8 +198,6 @@ enum Next {
 
 impl<Msg> Drop for World<Msg> {
     fn drop(&mut self) {
-        self.nodes
-            .values_mut()
-            .for_each(|node_handle| (node_handle.close)());
+        self.nodes.values_mut().for_each(|node_handle| (node_handle.close)());
     }
 }

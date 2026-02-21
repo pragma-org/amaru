@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{Epoch, StakeCredential, cbor};
+
+use crate::state::diff_bind::Resettable;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::cc_members";
 
@@ -47,18 +48,16 @@ impl<C> cbor::encode::Encode<C> for Row {
 impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        Ok(Row {
-            hot_credential: d.decode_with(ctx)?,
-            valid_until: d.decode_with(ctx)?,
-        })
+        Ok(Row { hot_credential: d.decode_with(ctx)?, valid_until: d.decode_with(ctx)? })
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::*;
     use amaru_kernel::{any_stake_credential, prop_cbor_roundtrip};
     use proptest::{option, prelude::*, prop_compose};
+
+    use super::*;
 
     prop_compose! {
         pub fn any_row()(

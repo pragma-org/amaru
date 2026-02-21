@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Name, SendData};
 use std::collections::BTreeMap;
+
+use crate::{Name, SendData};
 
 pub struct Adapter {
     pub name: Name,
@@ -23,10 +24,7 @@ pub struct Adapter {
 
 impl std::fmt::Debug for Adapter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Adapter")
-            .field("name", &self.name)
-            .field("target", &self.target)
-            .finish()
+        f.debug_struct("Adapter").field("name", &self.name).field("target", &self.target).finish()
     }
 }
 

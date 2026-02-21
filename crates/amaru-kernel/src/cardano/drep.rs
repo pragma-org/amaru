@@ -13,14 +13,14 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::DRep;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use crate::{DRep, any_hash28};
     use proptest::prelude::*;
+
+    use crate::{DRep, any_hash28};
 
     pub fn any_drep() -> impl Strategy<Value = DRep> {
         prop_oneof![

@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
-use bytes::Bytes;
 use std::{cell::RefCell, fmt, num::NonZeroUsize, ops::Deref};
+
+use bytes::Bytes;
+
+use crate::cbor;
 
 // Newtype wrapper for custom Debug.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
@@ -37,19 +39,11 @@ pub struct EmptyBytesError;
 
 impl NonEmptyBytes {
     pub fn new(bytes: Bytes) -> Result<Self, EmptyBytesError> {
-        if bytes.is_empty() {
-            Err(EmptyBytesError)
-        } else {
-            Ok(Self(bytes))
-        }
+        if bytes.is_empty() { Err(EmptyBytesError) } else { Ok(Self(bytes)) }
     }
 
     pub fn from_slice(slice: &[u8]) -> Result<Self, EmptyBytesError> {
-        if slice.is_empty() {
-            Err(EmptyBytesError)
-        } else {
-            Ok(Self(Bytes::copy_from_slice(slice)))
-        }
+        if slice.is_empty() { Err(EmptyBytesError) } else { Ok(Self(Bytes::copy_from_slice(slice))) }
     }
 
     pub fn encode<T: cbor::Encode<()>>(value: &T) -> Self {
@@ -59,8 +53,7 @@ impl NonEmptyBytes {
         #[expect(clippy::expect_used)]
         BUFFER.with_borrow_mut(|buffer| {
             cbor::encode(value, &mut *buffer).expect("serialization should not fail");
-            let ret = Self::new(Bytes::copy_from_slice(buffer.as_slice()))
-                .expect("CBOR item should not be empty");
+            let ret = Self::new(Bytes::copy_from_slice(buffer.as_slice())).expect("CBOR item should not be empty");
             buffer.clear();
             ret
         })
@@ -87,11 +80,7 @@ impl TryFrom<Bytes> for NonEmptyBytes {
     type Error = EmptyBytesError;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        if bytes.is_empty() {
-            Err(EmptyBytesError)
-        } else {
-            Ok(Self(bytes))
-        }
+        if bytes.is_empty() { Err(EmptyBytesError) } else { Ok(Self(bytes)) }
     }
 }
 

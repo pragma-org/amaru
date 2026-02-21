@@ -12,18 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol::Role;
-use crate::{
-    network_effects::{Network, NetworkOps},
-    protocol::{Erased, ProtocolId, RoleT},
-};
-use amaru_kernel::NonEmptyBytes;
-use amaru_observability::trace;
-use amaru_ouroboros::ConnectionId;
-use anyhow::Context;
-use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
-use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{Effects, StageRef, TryInStage, Void};
 #[expect(clippy::disallowed_types)]
 use std::collections::HashMap;
 use std::{
@@ -31,6 +19,19 @@ use std::{
     collections::{VecDeque, hash_map::Entry},
     num::{NonZeroU16, NonZeroUsize},
     time::SystemTime,
+};
+
+use amaru_kernel::NonEmptyBytes;
+use amaru_observability::trace;
+use amaru_ouroboros::ConnectionId;
+use anyhow::Context;
+use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
+use cbor_data::{Cbor, ErrorKind, ParseError};
+use pure_stage::{Effects, StageRef, TryInStage, Void};
+
+use crate::{
+    network_effects::{Network, NetworkOps},
+    protocol::{Erased, ProtocolId, Role, RoleT},
 };
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
@@ -113,12 +114,7 @@ pub enum MuxMessage {
     ///
     /// Note that the handler explicitly needs to request each network message by sending `WantNext`.
     /// This is necessary to allow proper handling of TCP simultaneous open in the handshake protocol.
-    Register {
-        protocol: ProtocolId<Erased>,
-        frame: Frame,
-        handler: StageRef<HandlerMessage>,
-        max_buffer: usize,
-    },
+    Register { protocol: ProtocolId<Erased>, frame: Frame, handler: StageRef<HandlerMessage>, max_buffer: usize },
     /// Buffer incoming data for this protocol ID up to the given limit
     /// (this should be followed by Register eventually, to then consume the data)
     ///
@@ -161,22 +157,13 @@ impl State {
             #[expect(clippy::expect_used)]
             muxer.buffer(proto_id, limit).expect("no buffered data yet");
         }
-        Self {
-            conn: Connection::Unint(conn),
-            muxer,
-            sending: false,
-        }
+        Self { conn: Connection::Unint(conn), muxer, sending: false }
     }
 
     pub async fn init(
         &mut self,
         eff: &mut Effects<MuxMessage>,
-    ) -> (
-        &mut Muxer,
-        &mut bool,
-        &StageRef<NonEmptyBytes>,
-        &StageRef<Read>,
-    ) {
+    ) -> (&mut Muxer, &mut bool, &StageRef<NonEmptyBytes>, &StageRef<Read>) {
         match &mut self.conn {
             Connection::Unint(conn) => {
                 let writer = eff
@@ -184,35 +171,29 @@ impl State {
                         format!("writer-{}", conn),
                         move |(conn, muxer, role), data: NonEmptyBytes, eff| async move {
                             Network::new(&eff)
-                            .send(conn, data)
-                            .await
-                            .or_terminate(
-                                &eff,
-                                async |err| tracing::error!(%err, %role, "failed to send data to network"),
-                            )
-                            .await;
+                                .send(conn, data)
+                                .await
+                                .or_terminate(
+                                    &eff,
+                                    async |err| tracing::error!(%err, %role, "failed to send data to network"),
+                                )
+                                .await;
                             eff.send(&muxer, MuxMessage::Written).await;
                             (conn, muxer, role)
                         },
                     )
                     .await;
                 let writer = eff.supervise(writer, MuxMessage::Terminate);
-                let writer = eff
-                    .wire_up(writer, (*conn, eff.me(), self.muxer.role()))
-                    .await;
+                let writer = eff.wire_up(writer, (*conn, eff.me(), self.muxer.role())).await;
                 let reader = eff.stage(format!("reader-{}", conn), read_segment).await;
                 let reader = eff.supervise(reader, MuxMessage::Terminate);
-                let reader = eff
-                    .wire_up(reader, (*conn, eff.me(), self.muxer.role()))
-                    .await;
+                let reader = eff.wire_up(reader, (*conn, eff.me(), self.muxer.role())).await;
                 eff.send(&reader, Read).await;
                 self.conn = Connection::Init(writer, reader);
             }
             Connection::Init(..) => {}
         }
-        let Connection::Init(writer, reader) = &self.conn else {
-            unreachable!()
-        };
+        let Connection::Init(writer, reader) = &self.conn else { unreachable!() };
         (&mut self.muxer, &mut self.sending, writer, reader)
     }
 }
@@ -247,15 +228,8 @@ async fn handle_msg(
     reader: &StageRef<Read>,
 ) -> anyhow::Result<()> {
     match msg {
-        MuxMessage::Register {
-            protocol,
-            frame,
-            handler,
-            max_buffer,
-        } => {
-            muxer
-                .register(protocol, frame, max_buffer, handler, eff)
-                .await
+        MuxMessage::Register { protocol, frame, handler, max_buffer } => {
+            muxer.register(protocol, frame, max_buffer, handler, eff).await
         }
         MuxMessage::Buffer(proto_id, limit) => muxer.buffer(proto_id, limit),
         MuxMessage::Send(proto_id, bytes, sent) => {
@@ -276,10 +250,9 @@ async fn handle_msg(
             eff.send(reader, Read).await;
             Ok(())
         }
-        MuxMessage::WantNext(proto_id) => muxer
-            .want_next(proto_id, eff)
-            .await
-            .with_context(|| format!("reading message for protocol {}", proto_id)),
+        MuxMessage::WantNext(proto_id) => {
+            muxer.want_next(proto_id, eff).await.with_context(|| format!("reading message for protocol {}", proto_id))
+        }
         MuxMessage::Written => {
             *sending = false;
             if let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
@@ -311,10 +284,7 @@ async fn read_segment(
             )
             .await;
         let Some(header) = Header::decode(&mut data.into_inner())
-            .or_terminate(
-                &eff,
-                async |err| tracing::error!(%role, %err, "failed to decode segment header"),
-            )
+            .or_terminate(&eff, async |err| tracing::error!(%role, %err, "failed to decode segment header"))
             .await
         else {
             // sending frames without payload data is not explicitly forbidden, so we just ignore them
@@ -327,17 +297,10 @@ async fn read_segment(
     let data = Network::new(&eff)
         .recv(conn, header.length.into())
         .await
-        .or_terminate(
-            &eff,
-            async |err| tracing::error!(%role, %err, "failed to receive segment data from network"),
-        )
+        .or_terminate(&eff, async |err| tracing::error!(%role, %err, "failed to receive segment data from network"))
         .await;
 
-    eff.send(
-        &muxer,
-        MuxMessage::FromNetwork(header.timestamp, header.proto_id, data),
-    )
-    .await;
+    eff.send(&muxer, MuxMessage::FromNetwork(header.timestamp, header.proto_id, data)).await;
     (conn, muxer, role)
 }
 
@@ -365,10 +328,7 @@ impl Header {
             buffer.put_u16(bytes.len() as u16);
             buffer.extend_from_slice(bytes);
             #[expect(clippy::expect_used)]
-            buffer
-                .copy_to_bytes(buffer.remaining())
-                .try_into()
-                .expect("guaranteed by writing to the buffer")
+            buffer.copy_to_bytes(buffer.remaining()).try_into().expect("guaranteed by writing to the buffer")
         })
     }
 
@@ -376,11 +336,7 @@ impl Header {
         let timestamp = Timestamp::decode(buffer)?;
         let proto_id = ProtocolId::decode(buffer)?;
         let length = buffer.try_get_u16()?;
-        Ok(NonZeroU16::new(length).map(|length| Self {
-            timestamp,
-            proto_id,
-            length,
-        }))
+        Ok(NonZeroU16::new(length).map(|length| Self { timestamp, proto_id, length }))
     }
 }
 
@@ -397,12 +353,7 @@ pub struct Muxer {
 
 impl Muxer {
     pub fn new(role: Role) -> Self {
-        Self {
-            protocols: Protocols::new(),
-            outgoing: Vec::new(),
-            next_out: 0,
-            role,
-        }
+        Self { protocols: Protocols::new(), outgoing: Vec::new(), next_out: 0, role }
     }
 
     pub fn role(&self) -> Role {
@@ -418,8 +369,7 @@ impl Muxer {
         handler: StageRef<HandlerMessage>,
         eff: &Effects<M>,
     ) -> anyhow::Result<()> {
-        eff.send(&handler, HandlerMessage::Registered(proto_id))
-            .await;
+        eff.send(&handler, HandlerMessage::Registered(proto_id)).await;
         self.do_register(proto_id, frame, max_buffer, handler);
         Ok(())
     }
@@ -431,16 +381,8 @@ impl Muxer {
             tracing::trace!(buffer = pp.incoming.len(), "switching to ignoring mode");
             pp.incoming.clear();
         } else if pp.incoming.len() > limit {
-            tracing::warn!(
-                buffer = pp.incoming.len(),
-                limit,
-                "reducing buffer killed the connection"
-            );
-            anyhow::bail!(
-                "reducing buffer ({}) leads to excess data ({})",
-                limit,
-                pp.incoming.len()
-            );
+            tracing::warn!(buffer = pp.incoming.len(), limit, "reducing buffer killed the connection");
+            anyhow::bail!("reducing buffer ({}) leads to excess data ({})", limit, pp.incoming.len());
         }
         Ok(())
     }
@@ -480,17 +422,11 @@ impl Muxer {
     }
 
     #[trace(amaru::protocols::mux::NEXT_SEGMENT)]
-    pub async fn next_segment<M>(
-        &mut self,
-        eff: &Effects<M>,
-    ) -> Option<(ProtocolId<Erased>, Bytes)> {
+    pub async fn next_segment<M>(&mut self, eff: &Effects<M>) -> Option<(ProtocolId<Erased>, Bytes)> {
         for idx in (self.next_out..self.outgoing.len()).chain(0..self.next_out) {
             let proto_id = self.outgoing[idx];
             #[allow(clippy::expect_used)]
-            let proto = self
-                .protocols
-                .get_mut(&proto_id)
-                .expect("invariant violation");
+            let proto = self.protocols.get_mut(&proto_id).expect("invariant violation");
             let Some(bytes) = proto.next_segment(eff).await else {
                 continue;
             };
@@ -517,11 +453,7 @@ impl Muxer {
     }
 
     #[trace(amaru::protocols::mux::WANT_NEXT)]
-    pub async fn want_next<M>(
-        &mut self,
-        proto_id: ProtocolId<Erased>,
-        eff: &Effects<M>,
-    ) -> anyhow::Result<()> {
+    pub async fn want_next<M>(&mut self, proto_id: ProtocolId<Erased>, eff: &Effects<M>) -> anyhow::Result<()> {
         #[allow(clippy::expect_used)]
         self.protocols
             .get_mut(&proto_id)
@@ -574,23 +506,14 @@ impl PerProto {
         }
     }
 
-    pub async fn received<M>(
-        &mut self,
-        _timestamp: Timestamp,
-        bytes: Bytes,
-        eff: &Effects<M>,
-    ) -> anyhow::Result<()> {
+    pub async fn received<M>(&mut self, _timestamp: Timestamp, bytes: Bytes, eff: &Effects<M>) -> anyhow::Result<()> {
         if self.max_buffer == 0 {
             tracing::debug!(size = bytes.len(), "ignoring bytes");
             return Ok(());
         }
         tracing::trace!(wanted = self.wanted, "received bytes");
         if self.incoming.len() + bytes.len() > self.max_buffer {
-            tracing::info!(
-                buffered = self.incoming.len(),
-                max_buffer = self.max_buffer,
-                "message exceeds buffer"
-            );
+            tracing::info!(buffered = self.incoming.len(), max_buffer = self.max_buffer, "message exceeds buffer");
             anyhow::bail!(
                 "message (size {}) plus buffer (size {}) exceeds limit ({})",
                 bytes.len(),
@@ -603,8 +526,7 @@ impl PerProto {
             && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
         {
             tracing::trace!(len = bytes.len(), "extracted message");
-            eff.send(&self.handler, HandlerMessage::FromNetwork(bytes))
-                .await;
+            eff.send(&self.handler, HandlerMessage::FromNetwork(bytes)).await;
             self.wanted -= 1;
         }
         Ok(())
@@ -616,8 +538,7 @@ impl PerProto {
             && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
         {
             tracing::trace!(len = bytes.len(), "extracted message");
-            eff.send(&self.handler, HandlerMessage::FromNetwork(bytes))
-                .await;
+            eff.send(&self.handler, HandlerMessage::FromNetwork(bytes)).await;
         } else {
             tracing::trace!("next delivery deferred");
             self.wanted += 1;
@@ -627,8 +548,7 @@ impl PerProto {
 
     pub fn enqueue_send(&mut self, bytes: Bytes, sent: StageRef<Sent>) {
         self.outgoing.extend(&bytes);
-        self.notifiers
-            .push_back((sent, self.sent_bytes + self.outgoing.len()));
+        self.notifiers.push_back((sent, self.sent_bytes + self.outgoing.len()));
     }
 
     pub async fn next_segment<M>(&mut self, eff: &Effects<M>) -> Option<Bytes> {
@@ -652,11 +572,8 @@ impl PerProto {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        network_effects::{RecvEffect, SendEffect},
-        protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_TEST, Responder},
-    };
+    use std::{fmt, sync::Arc, time::Duration};
+
     use amaru_network::connection::TokioConnections;
     use amaru_ouroboros::ConnectionResource;
     use amaru_ouroboros_traits::ConnectionProvider;
@@ -667,7 +584,6 @@ mod tests {
         tokio::TokioBuilder,
         trace_buffer::TraceBuffer,
     };
-    use std::{fmt, sync::Arc, time::Duration};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
@@ -675,6 +591,12 @@ mod tests {
         time::timeout,
     };
     use tracing_subscriber::EnvFilter;
+
+    use super::*;
+    use crate::{
+        network_effects::{RecvEffect, SendEffect},
+        protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_TEST, Responder},
+    };
 
     /// Tests with real async behaviour unfortunately need real wall clock sleep time to allow
     /// things to propagate or assert that something doesn’t get propagated. If tests below are
@@ -706,9 +628,7 @@ mod tests {
         let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
 
         let network = TokioConnections::new(65536);
-        let conn_id = t(network.connect(vec![server_addr], Duration::from_secs(5)))
-            .await
-            .unwrap();
+        let conn_id = t(network.connect(vec![server_addr], Duration::from_secs(5))).await.unwrap();
         let mut tcp = t(server_task).await.unwrap();
 
         let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
@@ -716,18 +636,13 @@ mod tests {
         let mut graph = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
         let mux = graph.stage("mux", super::stage);
-        let mux = graph.wire_up(
-            mux,
-            State::new(conn_id, &[(PROTO_TEST.erase(), 0)], Role::Initiator),
-        );
+        let mux = graph.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 0)], Role::Initiator));
 
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
         let input = graph.input(&mux);
 
-        graph
-            .resources()
-            .put::<ConnectionResource>(Arc::new(network));
+        graph.resources().put::<ConnectionResource>(Arc::new(network));
 
         let mut running = graph.run();
         let join_handle = tokio::spawn(async move {
@@ -739,9 +654,7 @@ mod tests {
                     Blocked::Sleeping { .. } => unreachable!(),
                     Blocked::Deadlock(send_blocks) => panic!("deadlock: {:?}", send_blocks),
                     Blocked::Breakpoint(..) => unreachable!(),
-                    Blocked::Busy {
-                        external_effects, ..
-                    } => {
+                    Blocked::Busy { external_effects, .. } => {
                         assert!(external_effects > 0);
                         running.await_external_effect().await;
                     }
@@ -751,11 +664,7 @@ mod tests {
         });
 
         input
-            .send(MuxMessage::Send(
-                PROTO_TEST.erase(),
-                Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(),
-                sent,
-            ))
+            .send(MuxMessage::Send(PROTO_TEST.erase(), Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(), sent))
             .await
             .unwrap();
         let mut buf = [0u8; 11];
@@ -773,30 +682,18 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(
-            t(rx.next()).await.unwrap(),
-            HandlerMessage::Registered(PROTO_TEST.erase())
-        );
+        assert_eq!(t(rx.next()).await.unwrap(), HandlerMessage::Registered(PROTO_TEST.erase()));
 
-        input
-            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
-            .await
-            .unwrap();
+        input.send(MuxMessage::WantNext(PROTO_TEST.erase())).await.unwrap();
 
         // need to flip role bit before sending as responses
         buf[4] |= 0x80;
 
         t(tcp.write_all(&buf)).await.unwrap();
         t(tcp.flush()).await.unwrap();
-        assert_eq!(
-            t(rx.next()).await.unwrap(),
-            HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[1]).unwrap())
-        );
+        assert_eq!(t(rx.next()).await.unwrap(), HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[1]).unwrap()));
         s(rx.next()).await;
-        input
-            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
-            .await
-            .unwrap();
+        input.send(MuxMessage::WantNext(PROTO_TEST.erase())).await.unwrap();
         assert_eq!(
             t(rx.next()).await.unwrap(),
             HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[24, 33]).unwrap())
@@ -813,10 +710,7 @@ mod tests {
 
     #[test]
     fn test_muxing() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .with_test_writer()
-            .try_init();
+        let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
 
         let _guard = pure_stage::register_data_deserializer::<MuxMessage>();
         let _guard = pure_stage::register_data_deserializer::<NonEmptyBytes>();
@@ -834,11 +728,7 @@ mod tests {
             State::new(
                 conn_id,
                 // sequence of registration is the sequence of round-robin
-                &[
-                    (PROTO_TEST.erase(), 1024),
-                    (PROTO_N2N_BLOCK_FETCH.erase(), 0),
-                    (PROTO_HANDSHAKE.erase(), 1),
-                ],
+                &[(PROTO_TEST.erase(), 1024), (PROTO_N2N_BLOCK_FETCH.erase(), 0), (PROTO_HANDSHAKE.erase(), 1)],
                 Role::Initiator,
             ),
         );
@@ -847,14 +737,8 @@ mod tests {
         let running = &mut running;
 
         // set breakpoints to capture interactions with outside world
-        running.breakpoint(
-            "send",
-            |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<SendEffect>()),
-        );
-        running.breakpoint(
-            "recv",
-            |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<RecvEffect>()),
-        );
+        running.breakpoint("send", |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<SendEffect>()));
+        running.breakpoint("recv", |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<RecvEffect>()));
         running.breakpoint("spawn", |eff| matches!(eff, Effect::WireStage { .. }));
 
         // send a message to trigger creation of the writer and reader stages
@@ -869,42 +753,29 @@ mod tests {
             }],
         );
         let spawn1 = running.run_until_blocked().assert_breakpoint("spawn");
-        let writer = spawn1
-            .extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator))
-            .clone();
+        let writer = spawn1.extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator)).clone();
         running.handle_effect(spawn1);
 
         let spawn2 = running.run_until_blocked().assert_breakpoint("spawn");
-        let reader = spawn2
-            .extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator))
-            .clone();
+        let reader = spawn2.extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator)).clone();
         running.handle_effect(spawn2);
 
         {
             let mux_name = mux.name().clone();
             let writer = writer.clone();
             let reader = reader.clone();
-            running.breakpoint("mux", move |eff| {
-                matches!(eff, Effect::Send { from, to, .. } if from == &mux_name && to != &writer && to != &reader)
-            });
+            running.breakpoint(
+                "mux",
+                move |eff| matches!(eff, Effect::Send { from, to, .. } if from == &mux_name && to != &writer && to != &reader),
+            );
         }
 
         running
             .run_until_blocked()
             .assert_breakpoint("recv")
-            .assert_external(
-                &reader,
-                &RecvEffect {
-                    conn: conn_id,
-                    bytes: HEADER_LEN,
-                },
-            );
+            .assert_external(&reader, &RecvEffect { conn: conn_id, bytes: HEADER_LEN });
         let registered = running.run_until_blocked().assert_breakpoint("mux");
-        registered.assert_send(
-            &mux,
-            &chain_sync,
-            HandlerMessage::Registered(PROTO_TEST.erase()),
-        );
+        registered.assert_send(&mux, &chain_sync, HandlerMessage::Registered(PROTO_TEST.erase()));
         running.handle_effect(registered);
         running.enqueue_msg(&mux, [MuxMessage::WantNext(PROTO_TEST.erase())]);
         running.run_until_blocked().assert_busy([&reader]);
@@ -919,33 +790,23 @@ mod tests {
             let sent = StageRef::named_for_tests(&format!("sent_{id}"));
             running.enqueue_msg(
                 &mux,
-                [MuxMessage::Send(
-                    proto_id.erase(),
-                    Bytes::copy_from_slice(&bytes).try_into().unwrap(),
-                    sent.clone(),
-                )],
+                [MuxMessage::Send(proto_id.erase(), Bytes::copy_from_slice(&bytes).try_into().unwrap(), sent.clone())],
             );
             sent
         };
 
-        let assert_send = |running: &mut SimulationRunning,
-                           data: &[(usize, u8)],
-                           proto_id: ProtocolId<Initiator>| {
-            running
-                .run_until_blocked()
-                .assert_breakpoint("send")
-                .extract_external::<SendEffect>(&writer)
-                .assert_frame(conn_id, proto_id.erase(), data);
+        let assert_send = |running: &mut SimulationRunning, data: &[(usize, u8)], proto_id: ProtocolId<Initiator>| {
+            running.run_until_blocked().assert_breakpoint("send").extract_external::<SendEffect>(&writer).assert_frame(
+                conn_id,
+                proto_id.erase(),
+                data,
+            );
         };
         let resume_send = |running: &mut SimulationRunning| {
-            running
-                .resume_external::<SendEffect>(&writer, Ok(()))
-                .unwrap();
+            running.resume_external::<SendEffect>(&writer, Ok(())).unwrap();
         };
         let assert_and_resume_send =
-            |running: &mut SimulationRunning,
-             data: &[(usize, u8)],
-             proto_id: ProtocolId<Initiator>| {
+            |running: &mut SimulationRunning, data: &[(usize, u8)], proto_id: ProtocolId<Initiator>| {
                 assert_send(running, data, proto_id);
                 resume_send(running);
             };
@@ -981,66 +842,39 @@ mod tests {
         assert_respond(running, &cr4);
         assert_and_resume_send(running, &[(465, 4)], PROTO_HANDSHAKE);
 
-        let recv_header = RecvEffect {
-            conn: conn_id,
-            bytes: HEADER_LEN,
-        };
-        let recv_msg = |running: &mut SimulationRunning,
-                        proto_id: ProtocolId<Responder>,
-                        bytes: &[u8],
-                        recv: &[&[u8]]| {
-            let mut msg = Header::encode(proto_id, bytes).into_inner();
-            running
-                .resume_external::<RecvEffect>(
-                    &reader,
-                    Ok(msg.split_to(HEADER_LEN.get()).try_into().unwrap()),
-                )
-                .unwrap();
-            let msg = NonEmptyBytes::new(msg).unwrap();
-            running
-                .run_until_blocked()
-                .assert_breakpoint("recv")
-                .assert_external(
-                    &reader,
-                    &RecvEffect {
-                        conn: conn_id,
-                        bytes: msg.len(),
-                    },
-                );
-            running
-                .resume_external::<RecvEffect>(&reader, Ok(msg))
-                .unwrap();
-            for recv in recv {
-                if recv.is_empty() {
-                    running
-                        .run_until_blocked()
-                        .assert_breakpoint("recv")
-                        .assert_external(&reader, &recv_header);
-                    continue;
-                }
+        let recv_header = RecvEffect { conn: conn_id, bytes: HEADER_LEN };
+        let recv_msg =
+            |running: &mut SimulationRunning, proto_id: ProtocolId<Responder>, bytes: &[u8], recv: &[&[u8]]| {
+                let mut msg = Header::encode(proto_id, bytes).into_inner();
+                running
+                    .resume_external::<RecvEffect>(&reader, Ok(msg.split_to(HEADER_LEN.get()).try_into().unwrap()))
+                    .unwrap();
+                let msg = NonEmptyBytes::new(msg).unwrap();
                 running
                     .run_until_blocked()
-                    .assert_breakpoint("mux")
-                    .assert_send(
+                    .assert_breakpoint("recv")
+                    .assert_external(&reader, &RecvEffect { conn: conn_id, bytes: msg.len() });
+                running.resume_external::<RecvEffect>(&reader, Ok(msg)).unwrap();
+                for recv in recv {
+                    if recv.is_empty() {
+                        running.run_until_blocked().assert_breakpoint("recv").assert_external(&reader, &recv_header);
+                        continue;
+                    }
+                    running.run_until_blocked().assert_breakpoint("mux").assert_send(
                         &mux,
                         &chain_sync,
                         HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(recv).unwrap()),
                     );
-                running.resume_send(&mux, &chain_sync, None).unwrap();
-                running.enqueue_msg(&mux, [MuxMessage::WantNext(proto_id.initiator().erase())]);
-            }
-            // running.run_until_blocked().assert_busy([&reader]);
-        };
+                    running.resume_send(&mux, &chain_sync, None).unwrap();
+                    running.enqueue_msg(&mux, [MuxMessage::WantNext(proto_id.initiator().erase())]);
+                }
+                // running.run_until_blocked().assert_busy([&reader]);
+            };
 
         // send CBOR 1 followed by incomplete CBOR; "recv" effect always happens second
         recv_msg(running, PROTO_TEST.responder(), &[1, 24], &[&[1], &[]]);
         // send CBOR 25 continuation followed by CBOR 3
-        recv_msg(
-            running,
-            PROTO_TEST.responder(),
-            &[25, 3],
-            &[&[24, 25], &[], &[3]],
-        );
+        recv_msg(running, PROTO_TEST.responder(), &[25, 3], &[&[24, 25], &[], &[3]]);
 
         // test buffer size violation
         recv_msg(running, PROTO_HANDSHAKE.responder(), &[1, 2, 3], &[]);
@@ -1050,28 +884,15 @@ mod tests {
     }
 
     trait AssertBytes {
-        fn assert_frame(
-            &self,
-            conn: ConnectionId,
-            proto_id: ProtocolId<Erased>,
-            data: &[(usize, u8)],
-        );
+        fn assert_frame(&self, conn: ConnectionId, proto_id: ProtocolId<Erased>, data: &[(usize, u8)]);
     }
     impl AssertBytes for SendEffect {
-        fn assert_frame(
-            &self,
-            conn: ConnectionId,
-            proto_id: ProtocolId<Erased>,
-            data: &[(usize, u8)],
-        ) {
+        fn assert_frame(&self, conn: ConnectionId, proto_id: ProtocolId<Erased>, data: &[(usize, u8)]) {
             assert_eq!(self.conn, conn);
             let mut header = self.data.slice(..HEADER_LEN.get());
             let header = Header::decode(&mut header).unwrap().unwrap();
             assert_eq!(header.proto_id, proto_id);
-            assert_eq!(
-                header.length.get() as usize,
-                data.iter().map(|(len, _)| len).sum::<usize>()
-            );
+            assert_eq!(header.length.get() as usize, data.iter().map(|(len, _)| len).sum::<usize>());
             let mut bytes = self.data.slice(HEADER_LEN.get()..);
             for &(len, msg) in data {
                 assert_eq!(&bytes.split_to(len), &vec![msg; len]);
@@ -1092,9 +913,7 @@ mod tests {
         let server_task = tokio::spawn(async move { listener.accept().await.unwrap().0 });
 
         let network = TokioConnections::new(65536);
-        let conn_id = t(network.connect(vec![server_addr], Duration::from_secs(5)))
-            .await
-            .unwrap();
+        let conn_id = t(network.connect(vec![server_addr], Duration::from_secs(5))).await.unwrap();
         let mut tcp = t(server_task).await.unwrap();
 
         let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
@@ -1102,27 +921,18 @@ mod tests {
         let mut graph = TokioBuilder::default().with_trace_buffer(trace_buffer);
 
         let mux = graph.stage("mux", super::stage);
-        let mux = graph.wire_up(
-            mux,
-            State::new(conn_id, &[(PROTO_TEST.erase(), 0)], Role::Initiator),
-        );
+        let mux = graph.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 0)], Role::Initiator));
 
         let (output, mut rx) = graph.output::<HandlerMessage>("output", 10);
         let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
         let input = graph.input(&mux);
 
-        graph
-            .resources()
-            .put::<ConnectionResource>(Arc::new(network));
+        graph.resources().put::<ConnectionResource>(Arc::new(network));
 
         let running = graph.run(Handle::current());
 
         input
-            .send(MuxMessage::Send(
-                PROTO_TEST.erase(),
-                Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(),
-                sent,
-            ))
+            .send(MuxMessage::Send(PROTO_TEST.erase(), Bytes::copy_from_slice(&[1, 24, 33]).try_into().unwrap(), sent))
             .await
             .unwrap();
         let mut buf = [0u8; 11];
@@ -1140,30 +950,18 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(
-            t(rx.next()).await.unwrap(),
-            HandlerMessage::Registered(PROTO_TEST.erase())
-        );
+        assert_eq!(t(rx.next()).await.unwrap(), HandlerMessage::Registered(PROTO_TEST.erase()));
 
-        input
-            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
-            .await
-            .unwrap();
+        input.send(MuxMessage::WantNext(PROTO_TEST.erase())).await.unwrap();
 
         // need to flip role bit before sending as responses
         buf[4] |= 0x80;
 
         t(tcp.write_all(&buf)).await.unwrap();
         t(tcp.flush()).await.unwrap();
-        assert_eq!(
-            t(rx.next()).await.unwrap(),
-            HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[1]).unwrap())
-        );
+        assert_eq!(t(rx.next()).await.unwrap(), HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[1]).unwrap()));
         s(rx.next()).await;
-        input
-            .send(MuxMessage::WantNext(PROTO_TEST.erase()))
-            .await
-            .unwrap();
+        input.send(MuxMessage::WantNext(PROTO_TEST.erase())).await.unwrap();
         assert_eq!(
             t(rx.next()).await.unwrap(),
             HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(&[24, 33]).unwrap())

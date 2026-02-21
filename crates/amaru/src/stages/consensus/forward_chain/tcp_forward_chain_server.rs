@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::consensus::forward_chain::{
-    client_protocol::{ClientMsg, ClientOp, ClientProtocolMsg, client_protocols},
-    to_pallas_tip,
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
 };
+
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_kernel::{BlockHeader, IsHeader};
@@ -23,11 +24,12 @@ use amaru_network::point::to_network_point;
 use amaru_ouroboros_traits::ChainStore;
 use async_trait::async_trait;
 use pallas_network::{facades::PeerServer, miniprotocols::chainsync::Tip};
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
 use tokio::{net::TcpListener, runtime::Handle};
+
+use crate::stages::consensus::forward_chain::{
+    client_protocol::{ClientMsg, ClientOp, ClientProtocolMsg, client_protocols},
+    to_pallas_tip,
+};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
@@ -77,9 +79,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
             // we are syncing _and_ forwarding at the same time for demo
             // purpose, this is problematic.
             .with_mailbox_size(1_000_000)
-            .spawn_actor("chain_forward", |cell| {
-                client_supervisor(cell, store.clone(), max_peers)
-            })
+            .spawn_actor("chain_forward", |cell| client_supervisor(cell, store.clone(), max_peers))
             .me;
 
         let our_tip = Arc::new(Mutex::new(our_tip.clone()));
@@ -92,10 +92,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
                 // in particular, it isn’t possible to poll for new peers within the `schedule` method
                 match PeerServer::accept(&tcp_listener, network_magic).await {
                     Ok(peer) => {
-                        let our_tip = our_tip_clone
-                            .lock()
-                            .expect("poisoned lock for our tip")
-                            .clone();
+                        let our_tip = our_tip_clone.lock().expect("poisoned lock for our tip").clone();
                         clients_clone.send(ClientMsg::Peer(peer, our_tip));
                     }
                     Err(e) => {
@@ -109,11 +106,7 @@ impl<H: IsHeader + 'static + Clone + Send> TcpForwardChainServer<H> {
             }
         });
 
-        Ok(Self {
-            _runtime: runtime,
-            clients: clients.clone(),
-            our_tip: our_tip.clone(),
-        })
+        Ok(Self { _runtime: runtime, clients: clients.clone(), our_tip: our_tip.clone() })
     }
 }
 
@@ -124,10 +117,7 @@ impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
         match event {
             ForwardEvent::Forward(header) => {
                 {
-                    let mut our_tip = self
-                        .our_tip
-                        .lock()
-                        .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+                    let mut our_tip = self.our_tip.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
                     *our_tip = to_pallas_tip(header.tip());
                 };
 
@@ -135,10 +125,7 @@ impl ForwardEventListener for TcpForwardChainServer<BlockHeader> {
                 Ok(())
             }
             ForwardEvent::Backward(tip) => {
-                let mut our_tip = self
-                    .our_tip
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
+                let mut our_tip = self.our_tip.lock().map_err(|e| anyhow::anyhow!("Mutex poisoned: {}", e))?;
                 *our_tip = to_pallas_tip(tip);
                 self.clients.send(ClientMsg::Op(ClientOp::Backward(Tip(
                     to_network_point(tip.point()),
@@ -159,10 +146,7 @@ async fn client_supervisor<H: IsHeader + 'static + Send + Clone>(
     while let Some(msg) = cell.recv().await.has_senders() {
         match msg {
             ActoMsgSuper::Message(ClientMsg::Peer(peer, tip)) => {
-                let addr = peer
-                    .accepted_address()
-                    .map(|a| a.to_string())
-                    .unwrap_or_default();
+                let addr = peer.accepted_address().map(|a| a.to_string()).unwrap_or_default();
 
                 if clients.len() >= max_peers {
                     tracing::warn!(target: EVENT_TARGET, "max peers reached, dropping peer from {addr}");

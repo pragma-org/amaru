@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::InvalidBlockDetails;
 use amaru_kernel::Block;
+
+use super::InvalidBlockDetails;
 
 /// This validation checks that the purported block body size matches the actual block body size.
 /// The validation of the bounds happens in the networking layer
@@ -22,10 +23,7 @@ pub fn block_body_size_valid(block: &Block) -> Result<(), InvalidBlockDetails> {
     let actual_size = block.body_len();
 
     if announced_size != actual_size {
-        return Err(InvalidBlockDetails::BlockSizeMismatch {
-            supplied: announced_size,
-            actual: actual_size,
-        });
+        return Err(InvalidBlockDetails::BlockSizeMismatch { supplied: announced_size, actual: actual_size });
     }
 
     Ok(())
@@ -33,9 +31,10 @@ pub fn block_body_size_valid(block: &Block) -> Result<(), InvalidBlockDetails> {
 
 #[cfg(test)]
 mod tests {
-    use crate::rules::block::InvalidBlockDetails;
     use amaru_kernel::{Block, include_cbor};
     use test_case::test_case;
+
+    use crate::rules::block::InvalidBlockDetails;
 
     macro_rules! fixture {
         ($number:literal) => {

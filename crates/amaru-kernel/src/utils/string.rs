@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, cbor, from_cbor};
-use itertools::Itertools;
 use std::fmt::{Debug, Display};
+
+use itertools::Itertools;
+
+use crate::{Bytes, cbor, from_cbor};
 
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
     let hrp = bech32::Hrp::parse(hrp)?;
@@ -25,10 +27,7 @@ pub fn display_collection<T>(collection: impl IntoIterator<Item = T>) -> String
 where
     T: std::fmt::Display,
 {
-    collection
-        .into_iter()
-        .collect::<Vec<_>>()
-        .list_to_string(", ")
+    collection.into_iter().collect::<Vec<_>>().list_to_string(", ")
 }
 
 /// Extension trait to convert a list of displayable items into a single string.
@@ -114,8 +113,7 @@ pub fn blanket_try_from_hex_bytes<T, I: for<'d> cbor::Decode<'d, ()>>(
 ) -> Result<T, String> {
     let original_bytes = Bytes::from(hex::decode(s.as_bytes()).map_err(|e| e.to_string())?);
 
-    let value =
-        from_cbor(&original_bytes).ok_or_else(|| "failed to decode from CBOR".to_string())?;
+    let value = from_cbor(&original_bytes).ok_or_else(|| "failed to decode from CBOR".to_string())?;
 
     Ok(new(original_bytes, value))
 }

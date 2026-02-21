@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
-    StageBuildRef, StageRef, stage_ref::StageStateRef, types::MpscSender,
-};
 use std::{any::Any, fmt, future::Future};
+
 use tokio::sync::mpsc;
+
+use crate::{
+    BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender, StageBuildRef, StageRef,
+    stage_ref::StageStateRef, types::MpscSender,
+};
 
 /// A time specifying when an effect should be executed.
 /// The identifier (u64) specifies the precise effect to execute at that time in a map of
 /// scheduled effects maintained by the runtime (whether simulation or tokio).
 ///
 /// It is important to note that ScheduleId is ordered by time first, then by id.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, serde::Serialize, serde::Deserialize)]
 pub struct ScheduleId(Instant, u64);
 
 impl ScheduleId {
@@ -104,11 +104,7 @@ pub trait StageGraph {
     ///     }
     /// }
     /// ```
-    fn stage<Msg, St, F, Fut>(
-        &mut self,
-        name: impl AsRef<str>,
-        f: F,
-    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
+    fn stage<Msg, St, F, Fut>(&mut self, name: impl AsRef<str>, f: F) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
@@ -151,11 +147,7 @@ pub trait StageGraph {
     ///
     /// The returned [`Receiver`] can be used synchronously (e.g. in tests) or as an
     /// asynchronous [`Stream`](futures_util::Stream).
-    fn output<Msg>(
-        &mut self,
-        name: impl AsRef<str>,
-        send_queue_size: usize,
-    ) -> (StageRef<Msg>, Receiver<Msg>)
+    fn output<Msg>(&mut self, name: impl AsRef<str>, send_queue_size: usize) -> (StageRef<Msg>, Receiver<Msg>)
     where
         Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
     {
@@ -164,8 +156,7 @@ pub trait StageGraph {
         let tx = MpscSender { sender };
 
         let output = self.stage(name, async |tx: MpscSender<Msg>, msg: Msg, eff| {
-            eff.external(OutputEffect::new(eff.me().name().clone(), msg, tx.clone()))
-                .await;
+            eff.external(OutputEffect::new(eff.me().name().clone(), msg, tx.clone())).await;
             tx
         });
         let output = self.wire_up(output, tx);

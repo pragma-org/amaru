@@ -15,13 +15,15 @@
 
 //! This module contains some serialization and deserialization code for the Pure Stage library.
 
-use crate::SendData;
+use std::{cell::RefCell, fmt};
+
 use cbor4ii::{
     core::{Value, utils::BufWriter},
     serde::{from_slice, to_writer},
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
-use std::{cell::RefCell, fmt};
+
+use crate::SendData;
 
 /// Helper type to wrap futures/functions/etc. and thus avoid having to handroll
 /// a `Debug` implementation for a type containing the wrapped value.
@@ -67,16 +69,11 @@ pub fn never() -> ! {
 pub mod serialize_error {
     use super::*;
 
-    pub fn serialize<S: Serializer>(
-        error: &anyhow::Error,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(error: &anyhow::Error, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(error.to_string().as_str())
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<anyhow::Error, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<anyhow::Error, D::Error> {
         let s = String::deserialize(deserializer)?;
         Ok(anyhow::Error::msg(s))
     }
@@ -140,21 +137,18 @@ impl<'de> serde::de::Deserialize<'de> for Field {
 /// `#[serde(with = "pure_stage::serde::serialize_send_data")]` for serializing [`Box<dyn SendData>`](crate::SendData).
 #[allow(clippy::disallowed_types)]
 pub mod serialize_send_data {
-    use super::*;
-    use crate::SendData;
-    use serde::de::Error;
     use std::{any::type_name, collections::HashMap, fmt, sync::Arc};
 
-    pub fn serialize<S: Serializer>(
-        data: &Box<dyn SendData>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
+    use serde::de::Error;
+
+    use super::*;
+    use crate::SendData;
+
+    pub fn serialize<S: Serializer>(data: &Box<dyn SendData>, serializer: S) -> Result<S::Ok, S::Error> {
         data.serialize(serializer)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Box<dyn SendData>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Box<dyn SendData>, D::Error> {
         deserializer.deserialize_struct("SendData", &["typetag", "value"], Visitor)
     }
 
@@ -190,9 +184,7 @@ pub mod serialize_send_data {
     }
 
     type Deser = Arc<
-        dyn for<'de> Fn(
-            &mut dyn erased_serde::Deserializer<'de>,
-        ) -> Result<Box<dyn SendData>, erased_serde::Error>,
+        dyn for<'de> Fn(&mut dyn erased_serde::Deserializer<'de>) -> Result<Box<dyn SendData>, erased_serde::Error>,
     >;
     thread_local! {
         static TYPES: RefCell<HashMap<String, Deser>> = RefCell::new(HashMap::new());
@@ -206,9 +198,7 @@ pub mod serialize_send_data {
             D: Deserializer<'de>,
         {
             #[allow(clippy::expect_used)]
-            let deser = DESER
-                .with(|deser| deser.borrow_mut().take())
-                .expect("deser is set");
+            let deser = DESER.with(|deser| deser.borrow_mut().take()).expect("deser is set");
             let mut deserializer = <dyn erased_serde::Deserializer<'de>>::erase(deserializer);
             let value = deser(&mut deserializer).map_err(D::Error::custom)?;
             Ok(Dessert(value))
@@ -227,15 +217,13 @@ pub mod serialize_send_data {
         where
             A: serde::de::SeqAccess<'de>,
         {
-            let typetag = seq
-                .next_element::<String>()?
-                .ok_or_else(|| serde::de::Error::invalid_length(0, &"typetag & value"))?;
+            let typetag =
+                seq.next_element::<String>()?.ok_or_else(|| serde::de::Error::invalid_length(0, &"typetag & value"))?;
             if let Some(value) = TYPES.with(|types| {
                 if let Some(factory) = types.borrow().get(&typetag) {
                     DESER.with_borrow_mut(|deser| deser.replace(factory.clone()));
-                    let value = seq
-                        .next_element::<Dessert>()?
-                        .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
+                    let value =
+                        seq.next_element::<Dessert>()?.ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
                     Ok(Some(value.0))
                 } else {
                     Ok(None)
@@ -253,9 +241,8 @@ pub mod serialize_send_data {
         where
             A: serde::de::MapAccess<'de>,
         {
-            let (Field::Typetag, typetag) = map
-                .next_entry::<Field, String>()?
-                .ok_or_else(|| serde::de::Error::missing_field("typetag"))?
+            let (Field::Typetag, typetag) =
+                map.next_entry::<Field, String>()?.ok_or_else(|| serde::de::Error::missing_field("typetag"))?
             else {
                 return Err(serde::de::Error::custom("typetag must be encoded first"));
             };
@@ -266,9 +253,7 @@ pub mod serialize_send_data {
                         .next_entry::<Field, Dessert>()?
                         .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
                     else {
-                        return Err(serde::de::Error::custom(
-                            "value must be encoded after typetag",
-                        ));
+                        return Err(serde::de::Error::custom("value must be encoded after typetag"));
                     };
                     Ok(Some(value.0))
                 } else {
@@ -281,9 +266,7 @@ pub mod serialize_send_data {
                 .next_entry::<Field, cbor4ii::core::Value>()?
                 .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
             else {
-                return Err(serde::de::Error::custom(
-                    "value must be encoded after typetag",
-                ));
+                return Err(serde::de::Error::custom("value must be encoded after typetag"));
             };
             Ok(Box::new(SendDataValue { typetag, value }))
         }
@@ -399,9 +382,7 @@ impl From<&dyn SendData> for SendDataValue {
     #[expect(clippy::expect_used)]
     fn from(value: &dyn SendData) -> Self {
         let mut buf = cbor4ii::serde::Serializer::new(BufWriter::new(Vec::new()));
-        value
-            .serialize(&mut buf)
-            .expect("serialization should not fail");
+        value.serialize(&mut buf).expect("serialization should not fail");
         let bytes = buf.into_inner().into_inner();
         cbor4ii::serde::from_slice::<SendDataValue>(&bytes)
             .expect("deserialization of serialized SendDataValue should not fail")
@@ -410,9 +391,10 @@ impl From<&dyn SendData> for SendDataValue {
 
 #[cfg(test)]
 mod test_send_data {
+    use cbor4ii::serde::from_slice;
+
     use super::*;
     use crate::SendData;
-    use cbor4ii::serde::from_slice;
 
     #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     struct TestTuple(String, u32);
@@ -447,10 +429,7 @@ mod test_send_data {
 
     #[test]
     fn test_struct() {
-        let value = TestStruct {
-            a: "hello".to_string(),
-            b: 42,
-        };
+        let value = TestStruct { a: "hello".to_string(), b: 42 };
         let c1 = Container(Box::new(value.clone()));
         let bytes = to_cbor(&c1);
 
@@ -497,25 +476,20 @@ mod test_send_data {
 /// `#[serde(with = "pure_stage::serde::serialize_external_effect")]` for serializing [`Box<dyn ExternalEffect>`](crate::ExternalEffect).
 #[allow(clippy::disallowed_types)]
 pub mod serialize_external_effect {
-    use super::*;
-    use crate::{ExternalEffect, effect::UnknownExternalEffect};
     use std::{collections::HashMap, sync::Arc};
 
-    pub fn serialize<S: Serializer>(
-        data: &Box<dyn ExternalEffect>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
+    use super::*;
+    use crate::{ExternalEffect, effect::UnknownExternalEffect};
+
+    pub fn serialize<S: Serializer>(data: &Box<dyn ExternalEffect>, serializer: S) -> Result<S::Ok, S::Error> {
         data.serialize(serializer)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Box<dyn ExternalEffect>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Box<dyn ExternalEffect>, D::Error> {
         deserializer.deserialize_struct("SendData", &["typetag", "value"], Visitor)
     }
 
-    pub fn register_effect_deserializer<T: ExternalEffect + serde::de::DeserializeOwned>()
-    -> DropGuard {
+    pub fn register_effect_deserializer<T: ExternalEffect + serde::de::DeserializeOwned>() -> DropGuard {
         let name = std::any::type_name::<T>();
         TYPES.with_borrow_mut(|types| {
             types.insert(
@@ -562,9 +536,7 @@ pub mod serialize_external_effect {
             D: Deserializer<'de>,
         {
             #[expect(clippy::expect_used)]
-            let deser = DESER
-                .with(|deser| deser.borrow_mut().take())
-                .expect("deser is set");
+            let deser = DESER.with(|deser| deser.borrow_mut().take()).expect("deser is set");
             let mut deserializer = <dyn erased_serde::Deserializer<'de>>::erase(deserializer);
             let value = deser(&mut deserializer).map_err(D::Error::custom)?;
             Ok(Dessert(value))
@@ -583,15 +555,13 @@ pub mod serialize_external_effect {
         where
             A: serde::de::SeqAccess<'de>,
         {
-            let typetag = seq
-                .next_element::<String>()?
-                .ok_or_else(|| serde::de::Error::invalid_length(0, &"typetag & value"))?;
+            let typetag =
+                seq.next_element::<String>()?.ok_or_else(|| serde::de::Error::invalid_length(0, &"typetag & value"))?;
             if let Some(value) = TYPES.with(|types| {
                 if let Some(factory) = types.borrow().get(&typetag) {
                     DESER.with_borrow_mut(|deser| deser.replace(factory.clone()));
-                    let value = seq
-                        .next_element::<Dessert>()?
-                        .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
+                    let value =
+                        seq.next_element::<Dessert>()?.ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
                     Ok(Some(value.0))
                 } else {
                     Ok(None)
@@ -602,19 +572,15 @@ pub mod serialize_external_effect {
             let value = seq
                 .next_element::<cbor4ii::core::Value>()?
                 .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?;
-            Ok(Box::new(UnknownExternalEffect::new(SendDataValue {
-                typetag,
-                value,
-            })))
+            Ok(Box::new(UnknownExternalEffect::new(SendDataValue { typetag, value })))
         }
 
         fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
         where
             A: serde::de::MapAccess<'de>,
         {
-            let (Field::Typetag, typetag) = map
-                .next_entry::<Field, String>()?
-                .ok_or_else(|| serde::de::Error::missing_field("typetag"))?
+            let (Field::Typetag, typetag) =
+                map.next_entry::<Field, String>()?.ok_or_else(|| serde::de::Error::missing_field("typetag"))?
             else {
                 return Err(serde::de::Error::custom("typetag must be encoded first"));
             };
@@ -625,9 +591,7 @@ pub mod serialize_external_effect {
                         .next_entry::<Field, Dessert>()?
                         .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
                     else {
-                        return Err(serde::de::Error::custom(
-                            "value must be encoded after typetag",
-                        ));
+                        return Err(serde::de::Error::custom("value must be encoded after typetag"));
                     };
                     Ok(Some(value.0))
                 } else {
@@ -640,14 +604,9 @@ pub mod serialize_external_effect {
                 .next_entry::<Field, cbor4ii::core::Value>()?
                 .ok_or_else(|| serde::de::Error::invalid_length(1, &"value"))?
             else {
-                return Err(serde::de::Error::custom(
-                    "value must be encoded after typetag",
-                ));
+                return Err(serde::de::Error::custom("value must be encoded after typetag"));
             };
-            Ok(Box::new(UnknownExternalEffect::new(SendDataValue {
-                typetag,
-                value,
-            })))
+            Ok(Box::new(UnknownExternalEffect::new(SendDataValue { typetag, value })))
         }
     }
 }

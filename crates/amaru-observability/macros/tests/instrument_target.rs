@@ -20,9 +20,12 @@
 //! - Field values are auto-recorded
 //! - trace_record! records to current span
 
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
+
 use amaru_observability_macros::{define_local_schemas, trace, trace_record};
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
 use tracing::field::Visit;
 use tracing_subscriber::{Registry, layer::SubscriberExt};
 
@@ -73,12 +76,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CapturingLayer {
         _id: &tracing::span::Id,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let field_names: Vec<_> = attrs
-            .metadata()
-            .fields()
-            .iter()
-            .map(|f| f.name().to_string())
-            .collect();
+        let field_names: Vec<_> = attrs.metadata().fields().iter().map(|f| f.name().to_string()).collect();
 
         self.captured_spans.lock().unwrap().push(CapturedSpan {
             name: attrs.metadata().name().to_string(),
@@ -96,16 +94,13 @@ struct FieldValueCollector {
 
 impl Visit for FieldValueCollector {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.values
-            .insert(field.name().to_string(), format!("{:?}", value));
+        self.values.insert(field.name().to_string(), format!("{:?}", value));
     }
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.values
-            .insert(field.name().to_string(), value.to_string());
+        self.values.insert(field.name().to_string(), value.to_string());
     }
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.values
-            .insert(field.name().to_string(), value.to_string());
+        self.values.insert(field.name().to_string(), value.to_string());
     }
 }
 
@@ -148,18 +143,13 @@ fn outer_with_record(_block_body_hash: String, _block_number: u64, _block_body_s
 }
 
 fn inner_record(_total_inputs: u64) {
-    trace_record!(
-        ledger::state::CREATE_VALIDATION_CONTEXT,
-        total_inputs = _total_inputs
-    );
+    trace_record!(ledger::state::CREATE_VALIDATION_CONTEXT, total_inputs = _total_inputs);
 }
 
 #[test]
 fn test_span_target_and_name() {
     let captured = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CapturingLayer {
-        captured_spans: captured.clone(),
-    });
+    let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         evolve_nonce("test".into());
@@ -179,9 +169,7 @@ fn test_span_target_and_name() {
 #[test]
 fn test_span_level_is_trace() {
     let captured = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CapturingLayer {
-        captured_spans: captured.clone(),
-    });
+    let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         evolve_nonce("test".into());
@@ -194,9 +182,7 @@ fn test_span_level_is_trace() {
 #[test]
 fn test_schema_fields_declared() {
     let captured = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CapturingLayer {
-        captured_spans: captured.clone(),
-    });
+    let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         process_block("hash".into(), 100, 1024);
@@ -214,9 +200,7 @@ fn test_schema_fields_declared() {
 #[test]
 fn test_field_values_recorded() {
     let values = Arc::new(Mutex::new(BTreeMap::new()));
-    let subscriber = Registry::default().with(ValueCapturingLayer {
-        captured: values.clone(),
-    });
+    let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         process_block("0xabc".into(), 100, 1024);
@@ -229,9 +213,7 @@ fn test_field_values_recorded() {
 #[test]
 fn test_trace_record_records_to_span() {
     let values = Arc::new(Mutex::new(BTreeMap::new()));
-    let subscriber = Registry::default().with(ValueCapturingLayer {
-        captured: values.clone(),
-    });
+    let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
 
     tracing::subscriber::with_default(subscriber, || {
         outer_with_record("hash".into(), 100, 1024);

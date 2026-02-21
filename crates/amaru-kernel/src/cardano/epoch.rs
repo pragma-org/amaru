@@ -12,28 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor::{Decode, Decoder, Encode};
 use std::{
     fmt,
     ops::{Add, Sub},
     str::FromStr,
 };
 
+use minicbor::{Decode, Decoder, Encode};
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
-#[derive(
-    Clone,
-    Debug,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    Default,
-)]
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, serde::Serialize, serde::Deserialize, Default)]
 #[repr(transparent)]
 pub struct Epoch(u64);
 
@@ -134,8 +123,9 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     prop_compose! {
         pub fn any_epoch()(epoch in any::<u64>()) -> Epoch {

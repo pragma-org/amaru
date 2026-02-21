@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    default_initial_nonces, default_snapshots_dir, get_bootstrap_file, get_bootstrap_headers,
+use std::{
+    error::Error,
+    io,
+    path::{Path, PathBuf},
 };
-use amaru_kernel::{
-    BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor,
-};
+
+use amaru_kernel::{BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -28,17 +29,14 @@ use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use async_compression::tokio::bufread::GzipDecoder;
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{
-    error::Error,
-    io,
-    path::{Path, PathBuf},
-};
 use tokio::{
     fs::{self, File},
     io::BufReader,
 };
 use tokio_util::io::StreamReader;
 use tracing::info;
+
+use crate::{default_initial_nonces, default_snapshots_dir, get_bootstrap_file, get_bootstrap_headers};
 
 /// Configuration for a single ledger state's snapshot to be imported.
 #[derive(Debug, Deserialize)]
@@ -79,17 +77,14 @@ pub enum BootstrapError {
     DownloadInvalidStatusCode(String, reqwest::StatusCode),
 }
 
-async fn download_snapshots(
-    snapshots_content: Vec<u8>,
-    snapshots_dir: &PathBuf,
-) -> Result<(), BootstrapError> {
+async fn download_snapshots(snapshots_content: Vec<u8>, snapshots_dir: &PathBuf) -> Result<(), BootstrapError> {
     // Create the target directory if it doesn't exist
     fs::create_dir_all(snapshots_dir)
         .await
         .map_err(|e| BootstrapError::CreateSnapshotsDir(snapshots_dir.clone(), e))?;
 
-    let snapshots: Vec<Snapshot> = serde_json::from_slice(&snapshots_content)
-        .map_err(BootstrapError::MalformedSnapshotsFile)?;
+    let snapshots: Vec<Snapshot> =
+        serde_json::from_slice(&snapshots_content).map_err(BootstrapError::MalformedSnapshotsFile)?;
 
     // Create a reqwest client
     let client = reqwest::Client::new();
@@ -117,10 +112,7 @@ async fn download_snapshots(
             .await
             .map_err(|e| BootstrapError::DownloadError(snapshot.url.clone(), e))?;
         if !response.status().is_success() {
-            return Err(BootstrapError::DownloadInvalidStatusCode(
-                snapshot.url.clone(),
-                response.status(),
-            ));
+            return Err(BootstrapError::DownloadInvalidStatusCode(snapshot.url.clone(), response.status()));
         }
 
         let (tmp_path, file) = uncompress_to_temp_file(&target_path, response).await?;
@@ -149,11 +141,7 @@ async fn uncompress_to_temp_file(
 }
 
 /// Set the internal dbs in such a state that amaru can run
-pub async fn bootstrap(
-    network: NetworkName,
-    ledger_dir: PathBuf,
-    chain_dir: PathBuf,
-) -> Result<(), Box<dyn Error>> {
+pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: PathBuf) -> Result<(), Box<dyn Error>> {
     let snapshot_file_name = "snapshots.json";
     let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
     let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
@@ -161,11 +149,7 @@ pub async fn bootstrap(
     download_snapshots(snapshots_file, &snapshots_dir).await?;
     import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
     import_nonces(network.into(), &chain_dir, default_initial_nonces(network)?).await?;
-    import_headers_for_network(
-        &chain_dir,
-        get_bootstrap_headers(network)?.collect::<Vec<_>>(),
-    )
-    .await?;
+    import_headers_for_network(&chain_dir, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
 
     Ok(())
 }
@@ -175,8 +159,7 @@ where
     D: Deserializer<'de>,
 {
     let buf = <&str>::deserialize(deserializer)?;
-    Point::try_from(buf)
-        .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to point: {:?}", e)))
+    Point::try_from(buf).map_err(|e| serde::de::Error::custom(format!("cannot convert vector to point: {:?}", e)))
 }
 
 fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
@@ -185,10 +168,7 @@ fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InitialNonces {
-    #[serde(
-        serialize_with = "serialize_point",
-        deserialize_with = "deserialize_point"
-    )]
+    #[serde(serialize_with = "serialize_point", deserialize_with = "deserialize_point")]
     pub at: Point,
     pub active: Nonce,
     pub evolving: Nonce,
@@ -201,9 +181,8 @@ pub async fn import_nonces(
     chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let db = Box::new(RocksDBStore::open_and_migrate(&RocksDbConfig::new(
-        chain_db_path.into(),
-    ))?) as Box<dyn ChainStore<BlockHeader>>;
+    let db = Box::new(RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_db_path.into()))?)
+        as Box<dyn ChainStore<BlockHeader>>;
 
     let header_hash = Hash::from(&initial_nonce.at);
 
@@ -229,20 +208,14 @@ pub async fn import_nonces(
 }
 
 #[allow(clippy::unwrap_used)]
-pub async fn import_headers_for_network(
-    chain_dir: &PathBuf,
-    headers: Vec<Vec<u8>>,
-) -> Result<(), Box<dyn Error>> {
+pub async fn import_headers_for_network(chain_dir: &PathBuf, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     let db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.into()))?;
 
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).unwrap();
         let hash = block_header.hash();
 
-        info!(
-            hash = hash.to_string().chars().take(8).collect::<String>(),
-            "inserting header"
-        );
+        info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting header");
 
         db.store_header(&block_header)?;
     }
@@ -308,14 +281,8 @@ pub async fn import_snapshot(
     ledger_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(snapshot=%snapshot.display(), "Importing snapshot");
-    let point = Point::try_from(
-        snapshot
-            .as_path()
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap(),
-    )
-    .map_err(ImportError::MalformedDate)?;
+    let point = Point::try_from(snapshot.as_path().file_stem().and_then(|s| s.to_str()).unwrap())
+        .map_err(ImportError::MalformedDate)?;
 
     std::fs::create_dir_all(ledger_dir)?;
 
@@ -325,9 +292,7 @@ pub async fn import_snapshot(
 
     let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.into()))?;
     let mut file = std::fs::File::open(snapshot)?;
-    let dir = snapshot
-        .parent()
-        .ok_or(ImportError::InvalidSnapshotFile(snapshot.into()))?;
+    let dir = snapshot.parent().ok_or(ImportError::InvalidSnapshotFile(snapshot.into()))?;
 
     let era_history = make_era_history(dir, &point, network)?;
 
@@ -336,17 +301,9 @@ pub async fn import_snapshot(
     let builder = std::thread::Builder::new().stack_size(10_000_000);
     let (db, epoch) = builder
         .spawn(move || {
-            import_initial_snapshot(
-                &db,
-                &mut file,
-                &point,
-                &era_history,
-                network,
-                new_terminal_progress_bar,
-                true,
-            )
-            .map_err(|e| e.to_string())
-            .map(|epoch| (db, epoch))
+            import_initial_snapshot(&db, &mut file, &point, &era_history, network, new_terminal_progress_bar, true)
+                .map_err(|e| e.to_string())
+                .map(|epoch| (db, epoch))
         })
         .unwrap()
         .join()
@@ -362,74 +319,56 @@ pub async fn import_snapshot(
     Ok(())
 }
 
-fn make_era_history(
-    dir: &Path,
-    point: &Point,
-    network: NetworkName,
-) -> Result<EraHistory, Box<dyn std::error::Error>> {
+fn make_era_history(dir: &Path, point: &Point, network: NetworkName) -> Result<EraHistory, Box<dyn std::error::Error>> {
     match network {
         NetworkName::Testnet(_) => {
             let filename = format!("history.{}.{}.json", point.slot_or_default(), point.hash());
             let history_file = dir.join(filename);
             if !history_file.is_file() {
-                return Err(
-                    format!("cannot import testnet era history from {:?}", history_file).into(),
-                );
+                return Err(format!("cannot import testnet era history from {:?}", history_file).into());
             };
 
             Ok(serde_json::from_slice(&std::fs::read(&history_file)?)?)
         }
-        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => {
-            Ok(<&EraHistory>::from(network).clone())
-        }
+        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => Ok(<&EraHistory>::from(network).clone()),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::bootstrap::{make_era_history, sort_snapshots_by_slot};
-    use amaru_kernel::{Hash, HeaderHash, NetworkName, Point, Slot};
     use std::{path::PathBuf, str::FromStr, time::Duration};
+
+    use amaru_kernel::{Hash, HeaderHash, NetworkName, Point, Slot};
+
+    use crate::bootstrap::{make_era_history, sort_snapshots_by_slot};
 
     #[test]
     fn make_era_history_for_tesnet_given_file_exists() {
         let dir = PathBuf::from("tests/data/");
         let hash: HeaderHash =
-            Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")
-                .unwrap();
+            Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301").unwrap();
         let point = Point::Specific(56073562.into(), hash);
 
-        let history = make_era_history(&dir, &point, NetworkName::Testnet(14))
-            .expect("fail to make era history");
+        let history = make_era_history(&dir, &point, NetworkName::Testnet(14)).expect("fail to make era history");
 
         assert_eq!(
             Duration::from_secs(5100000),
-            history
-                .slot_to_relative_time_unchecked_horizon(Slot::from(5100000))
-                .unwrap()
+            history.slot_to_relative_time_unchecked_horizon(Slot::from(5100000)).unwrap()
         );
     }
 
     #[test]
     fn sort_snapshot_file_names_by_slot_number() {
         let mut paths = [
-            PathBuf::from(
-                "172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor",
-            ),
-            PathBuf::from(
-                "259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor",
-            ),
-            PathBuf::from(
-                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor",
-            ),
+            PathBuf::from("172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor"),
+            PathBuf::from("259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor"),
+            PathBuf::from("86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor"),
         ];
 
         sort_snapshots_by_slot(&mut paths);
 
         assert_eq!(
-            PathBuf::from(
-                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor"
-            ),
+            PathBuf::from("86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor"),
             paths[0]
         );
     }

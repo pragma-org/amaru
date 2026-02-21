@@ -34,17 +34,10 @@ pub fn execute(
     transaction: &TransactionBody,
     auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransactionMetadata> {
-    match (
-        transaction.auxiliary_data_hash.as_ref(),
-        auxiliary_data.map(|aux| aux.hash()),
-    ) {
+    match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data.map(|aux| aux.hash())) {
         (None, None) => Ok(()),
-        (None, Some(hash)) => {
-            Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash))
-        }
-        (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(
-            adh.clone(),
-        )),
+        (None, Some(hash)) => Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash)),
+        (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(adh.clone())),
         (Some(supplied_hash), Some(expected_hash)) => {
             let supplied_hash = Hash::from(&supplied_hash[..]);
             if expected_hash != supplied_hash {
@@ -62,9 +55,10 @@ pub fn execute(
 
 #[cfg(test)]
 mod tests {
-    use super::InvalidTransactionMetadata;
     use amaru_kernel::{AuxiliaryData, TransactionBody, include_cbor};
     use test_case::test_case;
+
+    use super::InvalidTransactionMetadata;
 
     macro_rules! fixture_tx {
         ($title:expr) => {
@@ -74,11 +68,7 @@ mod tests {
 
     macro_rules! fixture_aux_data {
         ($title:literal) => {
-            include_cbor!(concat!(
-                "transactions/preprod/",
-                $title,
-                "/auxiliary-data.cbor"
-            ))
+            include_cbor!(concat!("transactions/preprod/", $title, "/auxiliary-data.cbor"))
         };
     }
 
@@ -87,10 +77,7 @@ mod tests {
             (fixture_tx!($hash), Some(fixture_aux_data!($hash)))
         };
         ($hash:literal, $variant:literal) => {
-            (
-                fixture_tx!(concat!($hash, "/", $variant)),
-                Some(fixture_aux_data!($hash)),
-            )
+            (fixture_tx!(concat!($hash, "/", $variant)), Some(fixture_aux_data!($hash)))
         };
         ($hash:literal, $pat:pat) => {
             (fixture_tx!($hash), None)

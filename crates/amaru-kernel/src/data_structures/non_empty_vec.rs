@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{KeepRaw, cbor};
 use std::{collections::BTreeSet, fmt::Debug, ops::Deref};
+
+use crate::{KeepRaw, cbor};
 
 /// A read-only non-empty vector: an ordered set of values with at least one element.
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -36,14 +37,8 @@ impl<T: Eq> NonEmptyVec<T> {
     #[expect(clippy::expect_used)]
     pub fn pop(self) -> (T, Option<NonEmptyVec<T>>) {
         let mut vec = self.0;
-        let last = vec
-            .pop()
-            .expect("NonEmptyVec must have at least one element");
-        if vec.is_empty() {
-            (last, None)
-        } else {
-            (last, Some(NonEmptyVec(vec)))
-        }
+        let last = vec.pop().expect("NonEmptyVec must have at least one element");
+        if vec.is_empty() { (last, None) } else { (last, Some(NonEmptyVec(vec))) }
     }
 }
 
@@ -146,11 +141,13 @@ pub enum IntoNonEmptyVecError {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeSet, ops::Deref};
+
+    use proptest::{collection, prelude::*};
+    use test_case::test_case;
+
     use super::NonEmptyVec;
     use crate::{from_cbor_no_leftovers, to_cbor};
-    use proptest::{collection, prelude::*};
-    use std::{collections::BTreeSet, ops::Deref};
-    use test_case::test_case;
 
     proptest! {
         #[test]
@@ -195,10 +192,7 @@ mod tests {
     #[test_case("D9010282010203"; "leftovers")]
     #[test_case("D81B8101"; "unknown tag")]
     fn from_cbor_failures(s: &str) {
-        assert!(matches!(
-            from_cbor_no_leftovers::<NonEmptyVec<u8>>(hex::decode(s).unwrap().as_slice()),
-            Err(..),
-        ));
+        assert!(matches!(from_cbor_no_leftovers::<NonEmptyVec<u8>>(hex::decode(s).unwrap().as_slice()), Err(..),));
     }
 
     #[test]

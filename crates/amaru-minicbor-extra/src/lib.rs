@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor::{self as cbor, data::Tag};
 use std::cell::RefCell;
 
 pub use decode::*;
+use minicbor::{self as cbor, data::Tag};
 mod decode;
 
 /// The IANA Tag 258: <https://github.com/input-output-hk/cbor-sets-spec/blob/master/CBOR_SETS.md>
@@ -45,9 +45,7 @@ pub fn from_cbor<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> Option<T> {
 
 /// Decode a CBOR input, ensuring that there are no bytes leftovers once decoded. This is handy to
 /// test standalone decoders and ensures that they entirely consume their inputs.
-pub fn from_cbor_no_leftovers<T: for<'d> cbor::Decode<'d, ()>>(
-    bytes: &[u8],
-) -> Result<T, cbor::decode::Error> {
+pub fn from_cbor_no_leftovers<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> Result<T, cbor::decode::Error> {
     cbor::decode(bytes).map(|NoLeftovers(inner)| inner)
 }
 
@@ -61,17 +59,12 @@ pub fn from_cbor_no_leftovers_with<C, T: for<'d> cbor::Decode<'d, C>>(
 }
 
 /// Decode a tagged value, expecting the given tag. For a lenient version, see allow_tag.
-pub fn expect_tag(
-    d: &mut cbor::Decoder<'_>,
-    expected: impl Into<Tag>,
-) -> Result<(), cbor::decode::Error> {
+pub fn expect_tag(d: &mut cbor::Decoder<'_>, expected: impl Into<Tag>) -> Result<(), cbor::decode::Error> {
     let tag: Tag = d.tag()?;
     let expected: Tag = expected.into();
 
     if tag != expected {
-        return Err(cbor::decode::Error::message(format!(
-            "invalid CBOR tag: got {tag}, expected {expected}"
-        )));
+        return Err(cbor::decode::Error::message(format!("invalid CBOR tag: got {tag}, expected {expected}")));
     };
 
     Ok(())
@@ -81,9 +74,7 @@ pub fn allow_tag(d: &mut cbor::Decoder<'_>, expected: Tag) -> Result<(), cbor::d
     if d.datatype()? == cbor::data::Type::Tag {
         let tag = d.tag()?;
         if tag != expected {
-            return Err(cbor::decode::Error::message(format!(
-                "invalid CBOR tag: expected {expected} got {tag}"
-            )));
+            return Err(cbor::decode::Error::message(format!("invalid CBOR tag: expected {expected} got {tag}")));
         }
     }
 
@@ -110,8 +101,9 @@ impl<'a, C, A: cbor::Decode<'a, C>> cbor::decode::Decode<'a, C> for NoLeftovers<
 
 #[cfg(test)]
 mod tests {
-    use crate::{cbor, from_cbor, from_cbor_no_leftovers, to_cbor};
     use foo::Foo;
+
+    use crate::{cbor, from_cbor, from_cbor_no_leftovers, to_cbor};
 
     #[test]
     fn from_cbor_no_leftovers_catches_trailing_breaks() {
@@ -122,17 +114,11 @@ mod tests {
         impl<'d, C> cbor::decode::Decode<'d, C> for TestCase<Foo> {
             fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
                 d.array()?;
-                Ok(TestCase(Foo {
-                    field0: d.decode_with(ctx)?,
-                    field1: d.decode_with(ctx)?,
-                }))
+                Ok(TestCase(Foo { field0: d.decode_with(ctx)?, field1: d.decode_with(ctx)? }))
             }
         }
 
-        let original_foo = Foo {
-            field0: 14,
-            field1: 42,
-        };
+        let original_foo = Foo { field0: 14, field1: 42 };
 
         let bytes = to_cbor(&AsIndefinite(&original_foo));
 
@@ -147,8 +133,9 @@ mod tests {
     pub(crate) struct AsMap<A>(pub(crate) A);
 
     pub(crate) mod foo {
-        use super::{AsDefinite, AsIndefinite, AsMap};
         use minicbor as cbor;
+
+        use super::{AsDefinite, AsIndefinite, AsMap};
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub(crate) struct Foo {
@@ -217,15 +204,10 @@ mod tests {
         impl<'d, C> cbor::decode::Decode<'d, C> for AsDefinite<Foo> {
             fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
                 let len = d.array()?;
-                let foo = Foo {
-                    field0: d.decode_with(ctx)?,
-                    field1: d.decode_with(ctx)?,
-                };
+                let foo = Foo { field0: d.decode_with(ctx)?, field1: d.decode_with(ctx)? };
                 match len {
                     Some(2) => Ok(AsDefinite(foo)),
-                    _ => Err(cbor::decode::Error::message(
-                        "invalid or missing definite array length",
-                    )),
+                    _ => Err(cbor::decode::Error::message("invalid or missing definite array length")),
                 }
             }
         }
@@ -233,18 +215,13 @@ mod tests {
         impl<'d, C> cbor::decode::Decode<'d, C> for AsIndefinite<Foo> {
             fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
                 let len = d.array()?;
-                let foo = Foo {
-                    field0: d.decode_with(ctx)?,
-                    field1: d.decode_with(ctx)?,
-                };
+                let foo = Foo { field0: d.decode_with(ctx)?, field1: d.decode_with(ctx)? };
                 match len {
                     None if d.datatype()? == cbor::data::Type::Break => {
                         d.skip()?;
                         Ok(AsIndefinite(foo))
                     }
-                    _ => Err(cbor::decode::Error::message(
-                        "missing indefinite array break",
-                    )),
+                    _ => Err(cbor::decode::Error::message("missing indefinite array break")),
                 }
             }
         }

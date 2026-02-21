@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Bytes, MemoizedNativeScript, PlutusScript, cbor,
-    cbor::{bytes::ByteSlice, data::IanaTag},
-};
 use pallas_codec::utils::CborWrap;
 use pallas_primitives::{
     KeepRaw,
     conway::{NativeScript, PseudoScript},
 };
 use serde::ser::SerializeStruct;
+
+use crate::{
+    Bytes, MemoizedNativeScript, PlutusScript, cbor,
+    cbor::{bytes::ByteSlice, data::IanaTag},
+};
 
 pub type MemoizedScript = PseudoScript<MemoizedNativeScript>;
 
@@ -59,10 +60,7 @@ pub fn script_original_bytes(script: &MemoizedScript) -> &[u8] {
     }
 }
 
-pub fn decode_script<C>(
-    d: &mut cbor::Decoder<'_>,
-    ctx: &mut C,
-) -> Result<MemoizedScript, cbor::decode::Error> {
+pub fn decode_script<C>(d: &mut cbor::Decoder<'_>, ctx: &mut C) -> Result<MemoizedScript, cbor::decode::Error> {
     let tag = d.tag()?;
     if tag != IanaTag::Cbor.tag() {
         return Err(cbor::decode::Error::message(format!(
@@ -118,13 +116,9 @@ pub fn encode_script<W: cbor::encode::Write>(
     Ok(())
 }
 
-pub fn from_minted_script(
-    wrapper: CborWrap<PseudoScript<KeepRaw<'_, NativeScript>>>,
-) -> MemoizedScript {
+pub fn from_minted_script(wrapper: CborWrap<PseudoScript<KeepRaw<'_, NativeScript>>>) -> MemoizedScript {
     match wrapper.0 {
-        PseudoScript::NativeScript(script) => {
-            MemoizedScript::NativeScript(MemoizedNativeScript::from(script))
-        }
+        PseudoScript::NativeScript(script) => MemoizedScript::NativeScript(MemoizedNativeScript::from(script)),
         PseudoScript::PlutusV1Script(script) => MemoizedScript::PlutusV1Script(script),
         PseudoScript::PlutusV2Script(script) => MemoizedScript::PlutusV2Script(script),
         PseudoScript::PlutusV3Script(script) => MemoizedScript::PlutusV3Script(script),
@@ -141,15 +135,9 @@ impl TryFrom<PlaceholderScript> for MemoizedScript {
             }
             // FIXME: We should at least verify that the inner bytes are _plausible_ Plutus
             // scripts. Not just gibberish. For V1, V2 and V3.
-            PlaceholderScript::PlutusV1(bytes) => {
-                MemoizedScript::PlutusV1Script(PlutusScript(bytes))
-            }
-            PlaceholderScript::PlutusV2(bytes) => {
-                MemoizedScript::PlutusV2Script(PlutusScript(bytes))
-            }
-            PlaceholderScript::PlutusV3(bytes) => {
-                MemoizedScript::PlutusV3Script(PlutusScript(bytes))
-            }
+            PlaceholderScript::PlutusV1(bytes) => MemoizedScript::PlutusV1Script(PlutusScript(bytes)),
+            PlaceholderScript::PlutusV2(bytes) => MemoizedScript::PlutusV2Script(PlutusScript(bytes)),
+            PlaceholderScript::PlutusV3(bytes) => MemoizedScript::PlutusV3Script(PlutusScript(bytes)),
         })
     }
 }

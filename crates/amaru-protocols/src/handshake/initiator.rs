@@ -12,18 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+
 use crate::{
     handshake::{State, messages::Message},
     mux::MuxMessage,
     protocol::{
-        Initiator, Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, StageState,
-        miniprotocol, outcome,
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, StageState, miniprotocol, outcome,
     },
-    protocol_messages::{
-        handshake::HandshakeResult, version_data::VersionData, version_table::VersionTable,
-    },
+    protocol_messages::{handshake::HandshakeResult, version_data::VersionData, version_table::VersionTable},
 };
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![pure_stage::register_data_deserializer::<HandshakeInitiator>().boxed()]
@@ -46,14 +44,7 @@ impl HandshakeInitiator {
         connection: StageRef<HandshakeResult>,
         version_table: VersionTable<VersionData>,
     ) -> (State, Self) {
-        (
-            State::Propose,
-            Self {
-                muxer,
-                connection,
-                our_versions: version_table,
-            },
-        )
+        (State::Propose, Self { muxer, connection, our_versions: version_table })
     }
 }
 
@@ -78,10 +69,7 @@ impl StageState<State, Initiator> for HandshakeInitiator {
         Ok(match input {
             InitiatorResult::Propose => {
                 tracing::debug!(?self.our_versions, "proposing versions");
-                (
-                    Some(InitiatorAction::Propose(self.our_versions.clone())),
-                    self,
-                )
+                (Some(InitiatorAction::Propose(self.our_versions.clone())), self)
             }
             InitiatorResult::Conclusion(handshake_result) => {
                 tracing::debug!(?handshake_result, "conclusion");
@@ -116,57 +104,32 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Propose), Self::Propose))
     }
 
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        anyhow::ensure!(
-            self == &Self::Confirm,
-            "handshake initiator cannot receive in initial state"
-        );
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        anyhow::ensure!(self == &Self::Confirm, "handshake initiator cannot receive in initial state");
         Ok(match input {
             Message::Propose(version_table) => {
                 // TCP simultaneous open
-                (
-                    outcome().result(InitiatorResult::SimOpen(version_table)),
-                    Self::Done,
-                )
+                (outcome().result(InitiatorResult::SimOpen(version_table)), Self::Done)
             }
             Message::Accept(version_number, version_data) => (
-                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Accepted(
-                    version_number,
-                    version_data,
-                ))),
+                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Accepted(version_number, version_data))),
                 Self::Done,
             ),
-            Message::Refuse(refuse_reason) => (
-                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Refused(
-                    refuse_reason,
-                ))),
-                Self::Done,
-            ),
-            Message::QueryReply(version_table) => (
-                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Query(
-                    version_table,
-                ))),
-                Self::Done,
-            ),
+            Message::Refuse(refuse_reason) => {
+                (outcome().result(InitiatorResult::Conclusion(HandshakeResult::Refused(refuse_reason))), Self::Done)
+            }
+            Message::QueryReply(version_table) => {
+                (outcome().result(InitiatorResult::Conclusion(HandshakeResult::Query(version_table))), Self::Done)
+            }
         })
     }
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
-        anyhow::ensure!(
-            self == &Self::Propose,
-            "handshake initiator cannot send in confirmation state"
-        );
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+        anyhow::ensure!(self == &Self::Propose, "handshake initiator cannot send in confirmation state");
         Ok(match input {
-            InitiatorAction::Propose(version_table) => (
-                outcome().send(Message::Propose(version_table)).want_next(),
-                Self::Confirm,
-            ),
+            InitiatorAction::Propose(version_table) => {
+                (outcome().send(Message::Propose(version_table)).want_next(), Self::Confirm)
+            }
         })
     }
 }
@@ -192,9 +155,7 @@ pub mod tests {
     #[test]
     fn test_initiator_protocol() {
         crate::handshake::spec::<Initiator>().check(State::Propose, |msg| match msg {
-            Message::Propose(version_table) => {
-                Some(InitiatorAction::Propose(version_table.clone()))
-            }
+            Message::Propose(version_table) => Some(InitiatorAction::Propose(version_table.clone())),
             _ => None,
         });
     }

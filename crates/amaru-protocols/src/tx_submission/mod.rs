@@ -27,6 +27,10 @@ pub use outcome::*;
 #[cfg(test)]
 mod tests;
 
+use amaru_ouroboros::TxOrigin;
+pub use initiator::initiator;
+use pure_stage::{Effects, StageRef, Void};
+pub use responder::{ResponderResult, responder};
 #[cfg(test)]
 pub use tests::*;
 
@@ -35,20 +39,9 @@ use crate::{
     mux,
     protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT},
 };
-use amaru_ouroboros::TxOrigin;
-use pure_stage::{Effects, StageRef, Void};
-
-pub use initiator::initiator;
-pub use responder::{ResponderResult, responder};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
-    vec![
-        initiator::register_deserializers(),
-        responder::register_deserializers(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
 }
 
 pub fn spec<R: RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
@@ -83,36 +76,12 @@ pub async fn register_tx_submission(
 ) -> StageRef<mux::HandlerMessage> {
     let tx_submission = if role == Role::Initiator {
         let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone());
-        let tx_submission = eff
-            .wire_up(
-                eff.stage("tx_submission", initiator::initiator()).await,
-                (state, stage),
-            )
-            .await;
-        eff.contramap(
-            &tx_submission,
-            "tx_submission_handler",
-            Inputs::<Void>::Network,
-        )
-        .await
+        let tx_submission = eff.wire_up(eff.stage("tx_submission", initiator::initiator()).await, (state, stage)).await;
+        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<Void>::Network).await
     } else {
-        let (state, stage) = responder::TxSubmissionResponder::new(
-            muxer.clone(),
-            ResponderParams::new(2, 3),
-            origin,
-        );
-        let tx_submission = eff
-            .wire_up(
-                eff.stage("tx_submission", responder::responder()).await,
-                (state, stage),
-            )
-            .await;
-        eff.contramap(
-            &tx_submission,
-            "tx_submission_handler",
-            Inputs::<Void>::Network,
-        )
-        .await
+        let (state, stage) = responder::TxSubmissionResponder::new(muxer.clone(), ResponderParams::new(2, 3), origin);
+        let tx_submission = eff.wire_up(eff.stage("tx_submission", responder::responder()).await, (state, stage)).await;
+        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<Void>::Network).await
     };
 
     eff.send(
@@ -130,9 +99,7 @@ pub async fn register_tx_submission(
 }
 
 /// The state of the tx submission protocol as a whole.
-#[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum State {
     Init,
     Idle,

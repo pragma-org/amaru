@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Epoch;
 use std::collections::BTreeMap;
+
+use amaru_kernel::Epoch;
 
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value
 /// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
@@ -37,10 +38,7 @@ pub struct DiffEpochReg<K, V> {
 
 impl<K, V> Default for DiffEpochReg<K, V> {
     fn default() -> Self {
-        Self {
-            registered: Default::default(),
-            unregistered: Default::default(),
-        }
+        Self { registered: Default::default(), unregistered: Default::default() }
     }
 }
 
@@ -156,9 +154,11 @@ impl<'a, V> Fold<'a, V> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use proptest::prelude::*;
     use std::collections::{BTreeMap, btree_map};
+
+    use proptest::prelude::*;
+
+    use super::*;
 
     pub const MAX_EPOCH: u64 = 4;
 

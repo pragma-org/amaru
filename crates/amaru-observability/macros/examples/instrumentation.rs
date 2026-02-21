@@ -160,11 +160,7 @@ pub fn process_block_with_all_custom_fields(
 
 /// Example 9: Record computed metrics to current span
 pub fn add_processing_metrics() {
-    trace_record!(
-        ledger::state::RESOLVE_INPUTS,
-        resolved_from_context = 10_u64,
-        resolved_from_volatile = 20_u64
-    );
+    trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = 10_u64, resolved_from_volatile = 20_u64);
     tracing::debug!("Added computed processing metrics to current span");
 }
 
@@ -182,9 +178,7 @@ pub fn create_validation_with_context(
 
 fn main() {
     println!("This example demonstrates the observability instrumentation macros.");
-    println!(
-        "The macros use const variable paths instead of string literals for compile-time validation."
-    );
+    println!("The macros use const variable paths instead of string literals for compile-time validation.");
 }
 
 #[cfg(test)]

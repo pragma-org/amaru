@@ -26,19 +26,13 @@ const MAX_OUTSTANDING_TXS: u16 = 2;
 
 impl Default for ResponderParams {
     fn default() -> Self {
-        Self {
-            max_window: MAX_OUTSTANDING_TX_IDS,
-            fetch_batch: MAX_OUTSTANDING_TXS,
-        }
+        Self { max_window: MAX_OUTSTANDING_TX_IDS, fetch_batch: MAX_OUTSTANDING_TXS }
     }
 }
 
 impl ResponderParams {
     pub fn new(max_window: u16, fetch_batch: u16) -> Self {
-        Self {
-            max_window,
-            fetch_batch,
-        }
+        Self { max_window, fetch_batch }
     }
 }
 

@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use amaru_observability::{amaru::simulator, trace_span};
 use amaru_sim::simulator::{
-    Args, GeneratedEntries, NodeConfig, SimulateConfig, TEST_DATA_DIR, generate_entries,
-    run::spawn_node,
+    Args, GeneratedEntries, NodeConfig, SimulateConfig, TEST_DATA_DIR, generate_entries, run::spawn_node,
 };
 use amaru_tracing_json::assert_spans_trees;
 use pure_stage::{
@@ -24,7 +25,6 @@ use pure_stage::{
 };
 use rand::{SeedableRng, prelude::StdRng};
 use serde_json::json;
-use std::time::Duration;
 use tokio::runtime::Runtime;
 
 // FIXME: this test is flaky although it should not as everything is
@@ -47,33 +47,16 @@ fn run_simulator_with_traces() {
 
     let rt = Runtime::new().unwrap();
     let generate_one = |rng: RandStdRng| {
-        let generated_entries = generate_entries(
-            &node_config,
-            Instant::at_offset(Duration::from_secs(0)),
-            200.0,
-        )(rng);
+        let generated_entries = generate_entries(&node_config, Instant::at_offset(Duration::from_secs(0)), 200.0)(rng);
 
         let generation_context = generated_entries.generation_context().clone();
-        GeneratedEntries::new(
-            generated_entries
-                .entries()
-                .iter()
-                .take(1)
-                .cloned()
-                .collect(),
-            generation_context,
-        )
+        GeneratedEntries::new(generated_entries.entries().iter().take(1).cloned().collect(), generation_context)
     };
 
     let simulate_config = SimulateConfig::from(args.clone());
     let mut rng = RandStdRng(StdRng::seed_from_u64(simulate_config.seed));
     let generated_entries = generate_one(rng.derive());
-    let msg = generated_entries
-        .entries()
-        .first()
-        .unwrap()
-        .clone()
-        .envelope;
+    let msg = generated_entries.entries().first().unwrap().clone().envelope;
 
     let execute = || {
         let mut network = SimulationBuilder::default();
@@ -81,9 +64,7 @@ fn run_simulator_with_traces() {
         let mut running = network.run();
         trace_span!(simulator::node::HANDLE_MSG).in_scope(|| {
             running.enqueue_msg(&input, [msg]);
-            running
-                .run_until_blocked_incl_effects(rt.handle())
-                .assert_terminated("processing_errors");
+            running.run_until_blocked_incl_effects(rt.handle()).assert_terminated("processing_errors");
         });
     };
 

@@ -65,8 +65,9 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     pub fn any_hash28() -> impl Strategy<Value = Hash<28>> {
         any::<[u8; 28]>().prop_map(Hash::from)

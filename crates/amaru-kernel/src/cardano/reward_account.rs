@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Address, Hash, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
-    StakeAddress, StakeCredential, StakePayload,
-};
-
 pub use pallas_primitives::conway::RewardAccount;
+
+use crate::{
+    Address, Hash, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakeCredential,
+    StakePayload,
+};
 
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
 // StakeCredential) out of the box instead of row bytes.
@@ -51,12 +51,8 @@ pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddres
         StakePayload::Stake(hash) => ShelleyDelegationPart::Key(hash),
         StakePayload::Script(hash) => ShelleyDelegationPart::Script(hash),
     };
-    StakeAddress::try_from(ShelleyAddress::new(
-        network,
-        fake_payment_part,
-        delegation_part,
-    ))
-    .expect("has non-empty delegation part")
+    StakeAddress::try_from(ShelleyAddress::new(network, fake_payment_part, delegation_part))
+        .expect("has non-empty delegation part")
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -64,9 +60,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose};
+
     use super::*;
     use crate::{Bytes, Hash, RewardAccount, StakePayload, any_network};
-    use proptest::{prelude::*, prop_compose};
 
     prop_compose! {
         pub fn any_reward_account()(
