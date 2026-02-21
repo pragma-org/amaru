@@ -89,7 +89,7 @@ fn run_simulator_with_traces() {
               { "name": "chainsync.responder.protocol", "target": "amaru_protocols::chainsync::responder", "message_type": "FindIntersect" },
               { "name": "chainsync.responder.stage", "target": "amaru_protocols::chainsync::responder", "message_type": "FindIntersect" },
               { "name": "tx_submission.initiator.protocol", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
-              { "name": "txsubmission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
+              { "name": "tx_submission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
               { "name": "tx_submission.responder.protocol", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
               { "name": "tx_submission.responder.stage", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
               { "name": "chainsync.initiator.protocol", "target": "amaru_protocols::chainsync::initiator", "message_type": "IntersectFound" },
@@ -98,7 +98,7 @@ fn run_simulator_with_traces() {
               { "name": "chainsync.responder.protocol", "target": "amaru_protocols::chainsync::responder", "message_type": "RequestNext" },
               { "name": "chainsync.responder.stage", "target": "amaru_protocols::chainsync::responder", "message_type": "RequestNext" },
               { "name": "tx_submission.initiator.protocol", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
-              { "name": "txsubmission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
+              { "name": "tx_submission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
               { "name": "chainsync.responder.protocol", "target": "amaru_protocols::chainsync::responder", "message_type": "RequestNext" },
               { "name": "chainsync.responder.stage", "target": "amaru_protocols::chainsync::responder", "message_type": "RequestNext" },
               { "name": "chainsync.initiator.protocol", "target": "amaru_protocols::chainsync::initiator", "message_type": "RollBackward" },
@@ -118,7 +118,7 @@ fn run_simulator_with_traces() {
               { "name": "tx_submission.responder.protocol", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
               { "name": "tx_submission.responder.stage", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
               { "name": "tx_submission.initiator.protocol", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
-              { "name": "txsubmission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
+              { "name": "tx_submission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
               { "name": "chainsync.initiator.protocol", "target": "amaru_protocols::chainsync::initiator", "message_type": "RollForward" },
               { "name": "chainsync.initiator.stage", "target": "amaru_protocols::chainsync::initiator", "message_type": "RollForward" },
               {
@@ -148,7 +148,7 @@ fn run_simulator_with_traces() {
               { "name": "tx_submission.responder.stage", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
               { "name": "chainsync.initiator.protocol", "target": "amaru_protocols::chainsync::initiator", "message_type": "AwaitReply" },
               { "name": "tx_submission.initiator.protocol", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
-              { "name": "txsubmission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
+              { "name": "tx_submission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
               { "name": "blockfetch.responder.protocol", "target": "amaru_protocols::blockfetch::responder", "message_type": "RequestRange" },
               { "name": "blockfetch.responder.stage", "target": "amaru_protocols::blockfetch::responder", "message_type": "RequestRange" },
               { "name": "blockfetch.initiator.stage", "target": "amaru_protocols::blockfetch::initiator", "message_type": "StartBatch" },
@@ -159,13 +159,13 @@ fn run_simulator_with_traces() {
               { "name": "blockfetch.initiator.stage", "target": "amaru_protocols::blockfetch::initiator", "message_type": "BatchDone" },
               { "name": "blockfetch.initiator.protocol", "target": "amaru_protocols::blockfetch::initiator", "message_type": "Done" },
               { "name": "tx_submission.initiator.protocol", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
-              { "name": "txsubmission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
+              { "name": "tx_submission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" },
               { "name": "manager", "target": "amaru_protocols::manager", "message_type": "NewTip" },
               { "name": "connection", "target": "amaru_protocols::connection", "message_type": "NewTip", "conn_id": "0", "peer": "127.0.0.1:3001", "role": "Initiator" },
               { "name": "tx_submission.responder.protocol", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
               { "name": "tx_submission.responder.stage", "target": "amaru_protocols::tx_submission::responder", "message_type": "ReplyTxIds" },
               { "name": "tx_submission.initiator.protocol", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIdsBlocking" },
-              { "name": "txsubmission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" }
+              { "name": "tx_submission.initiator.stage", "target": "amaru_protocols::tx_submission::initiator", "message_type": "RequestTxIds" }
             ]
           }
         )],
