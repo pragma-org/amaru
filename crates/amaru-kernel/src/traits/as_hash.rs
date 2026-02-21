@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BootstrapWitness, Hash, Hasher, StakeCredential, Voter, size::CREDENTIAL};
-use sha3::{Digest, Sha3_256};
 use std::ops::Deref;
+
+use sha3::{Digest, Sha3_256};
+
+use crate::{BootstrapWitness, Hash, Hasher, StakeCredential, Voter, size::CREDENTIAL};
 
 pub trait AsHash<const SIZE: usize> {
     fn as_hash(&self) -> Hash<SIZE>;

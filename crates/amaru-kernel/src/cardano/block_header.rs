@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug, Display, Formatter},
+};
+
 use crate::{
     BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, Slot, Tip,
     cbor::{self},
     size::HEADER,
-};
-use std::{
-    cmp::Ordering,
-    fmt::{self, Debug, Display, Formatter},
 };
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -41,9 +42,7 @@ impl Display for BlockHeader {
             "{}. {}{}",
             self.slot(),
             self.hash(),
-            self.parent_hash()
-                .map(|p| format!(" ({p})"))
-                .unwrap_or_default()
+            self.parent_hash().map(|p| format!(" ({p})")).unwrap_or_default()
         ))?;
         Ok(())
     }
@@ -63,10 +62,7 @@ impl serde::Serialize for BlockHeader {
             header: &'a Header,
         }
 
-        let helper = BlockHeaderSer {
-            hash: &self.hash,
-            header: &self.header,
-        };
+        let helper = BlockHeaderSer { hash: &self.hash, header: &self.header };
 
         helper.serialize(serializer)
     }
@@ -168,10 +164,7 @@ impl From<Header> for BlockHeader {
 impl From<&Header> for BlockHeader {
     fn from(header: &Header) -> Self {
         let hash = Point::Origin.hash();
-        let mut block_header = Self {
-            header: header.clone(),
-            hash,
-        };
+        let mut block_header = Self { header: header.clone(), hash };
         block_header.recompute_hash();
         block_header
     }

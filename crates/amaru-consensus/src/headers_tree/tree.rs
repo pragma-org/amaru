@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderHash, IsHeader};
 use std::{
     collections::BTreeMap,
     fmt::{Debug, Display, Formatter},
 };
+
+use amaru_kernel::{HeaderHash, IsHeader};
 
 /// This tree structure implements parent-child relationships between nodes of type `H`.
 #[derive(Clone, PartialEq, Eq)]
@@ -55,10 +56,7 @@ impl<H> Tree<H> {
     where
         H: Clone,
     {
-        Tree {
-            value: root.clone(),
-            children: vec![],
-        }
+        Tree { value: root.clone(), children: vec![] }
     }
 
     /// Pretty print the tree using a custom formatting function for the node values
@@ -99,30 +97,18 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
         // Build parent -> children index
         let mut by_parent: BTreeMap<Option<HeaderHash>, Vec<H>> = BTreeMap::new();
         for header in headers.values() {
-            by_parent
-                .entry(header.parent())
-                .or_default()
-                .push(header.clone());
+            by_parent.entry(header.parent()).or_default().push(header.clone());
         }
 
         // Find a root (no parent or missing parent in the set)
-        if let Some(root) = headers.values().find(|header| {
-            header
-                .parent()
-                .is_none_or(|parent| !headers.contains_key(&parent))
-        }) {
+        if let Some(root) =
+            headers.values().find(|header| header.parent().is_none_or(|parent| !headers.contains_key(&parent)))
+        {
             // Recursively build the tree
-            fn build<T: IsHeader + Clone>(
-                root: T,
-                by_parent: &BTreeMap<Option<HeaderHash>, Vec<T>>,
-            ) -> Tree<T> {
+            fn build<T: IsHeader + Clone>(root: T, by_parent: &BTreeMap<Option<HeaderHash>, Vec<T>>) -> Tree<T> {
                 let mut tree = Tree::make_leaf(&root);
                 if let Some(children) = by_parent.get(&Some(root.hash())) {
-                    tree.children = children
-                        .iter()
-                        .cloned()
-                        .map(|c| build(c, by_parent))
-                        .collect();
+                    tree.children = children.iter().cloned().map(|c| build(c, by_parent)).collect();
                 }
                 tree
             }
@@ -261,11 +247,12 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
 
 #[cfg(test)]
 mod tests {
+    use proptest::{prop_assert_eq, proptest};
+
     use super::*;
     use crate::headers_tree::data_generation::{
         any_headers_tree, config_begin, generate_headers_chain, generate_headers_tree,
     };
-    use proptest::{prop_assert_eq, proptest};
 
     proptest! {
         #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
@@ -307,13 +294,7 @@ BlockHeader { hash: "f398e416d0d84882fdf482f6e7b79338108e7ddbb048a4429f1167ac74f
             ├── BlockHeader { hash: "bb113ccd9c794e5552d1a9bd3551080bab1713df181d03f4b1c13d21e1dc85c7", slot: 4, parent: Some("c15123e26610daf16e9dd13e4548df05de3ef853c49f33b1b228c7382074fa53") }
             └── BlockHeader { hash: "f74d006facd143da781c7763253efe20ae727985dbb6f93af139a137330d3b05", slot: 4, parent: Some("c15123e26610daf16e9dd13e4548df05de3ef853c49f33b1b228c7382074fa53") }
 "#;
-        assert_eq!(
-            format!("\n{tree:?}"),
-            expected,
-            "\n{}{}",
-            &tree.pretty_print_debug(),
-            expected
-        );
+        assert_eq!(format!("\n{tree:?}"), expected, "\n{}{}", &tree.pretty_print_debug(), expected);
     }
 
     #[test]
@@ -336,11 +317,6 @@ BlockHeader { hash: "f398e416d0d84882fdf482f6e7b79338108e7ddbb048a4429f1167ac74f
         root.children = vec![leaf1, leaf2];
 
         // 1 is not a fork because it has only one child
-        assert_eq!(
-            root.fork_nodes(),
-            vec!["0".to_string(), "3".to_string()],
-            "{}",
-            root.pretty_print()
-        );
+        assert_eq!(root.fork_nodes(), vec!["0".to_string(), "3".to_string()], "{}", root.pretty_print());
     }
 }

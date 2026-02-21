@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
 use std::{fmt, ops::Add};
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+use crate::cbor;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct BlockHeight(u64);
 
 impl From<u64> for BlockHeight {
@@ -83,9 +82,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::prop_compose;
+
     use super::*;
     use crate::prop_cbor_roundtrip;
-    use proptest::prop_compose;
 
     prop_cbor_roundtrip!(BlockHeight, any_block_height());
 

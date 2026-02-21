@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{error::Error, path::PathBuf};
+
 use amaru::stages::Config;
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
-use std::{error::Error, path::PathBuf};
 
 #[cfg(feature = "mithril")]
 pub(crate) mod mithril;
@@ -35,10 +36,7 @@ pub fn new_block_validator(
     let block_validator = BlockValidator::new(
         RocksDB::new(&rocks_db_config)?,
         store,
-        ArenaPool::new(
-            config.ledger_vm_alloc_arena_count,
-            config.ledger_vm_alloc_arena_size,
-        ),
+        ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size),
         network,
         era_history.clone(),
         global_parameters.clone(),

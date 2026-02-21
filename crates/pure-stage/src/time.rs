@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::drop_guard::DropGuard;
-use parking_lot::Mutex;
 use std::{
     cell::RefCell,
     fmt::{Display, Formatter},
@@ -23,6 +21,10 @@ use std::{
     },
     time::Duration,
 };
+
+use parking_lot::Mutex;
+
+use crate::drop_guard::DropGuard;
 
 /// A simulation clock that is driven explicitly by the simulation.
 pub trait Clock {
@@ -42,10 +44,7 @@ impl Clock for AtomicU64 {
 
     fn advance_to(&self, instant: Instant) {
         let nanos = instant.saturating_since(*EPOCH).as_nanos();
-        assert!(
-            nanos < u64::MAX as u128,
-            "simulation is not supposed to run for more than 584 years"
-        );
+        assert!(nanos < u64::MAX as u128, "simulation is not supposed to run for more than 584 years");
         let nanos = nanos as u64;
         let old = self.swap(nanos, Ordering::Relaxed);
         assert!(old <= nanos, "clock is not monotonic");
@@ -87,9 +86,7 @@ impl PartialEq for Instant {
 
 impl std::fmt::Debug for Instant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Instant")
-            .field(&self.saturating_since(*EPOCH))
-            .finish()
+        f.debug_tuple("Instant").field(&self.saturating_since(*EPOCH)).finish()
     }
 }
 
@@ -125,9 +122,7 @@ impl Instant {
         fn restore(tolerance: Duration) {
             TOLERANCE.with_borrow_mut(|t2| *t2 = tolerance)
         }
-        TOLERANCE.with_borrow_mut(|t| {
-            DropGuard::new(std::mem::replace(t, tolerance), restore as fn(Duration))
-        })
+        TOLERANCE.with_borrow_mut(|t| DropGuard::new(std::mem::replace(t, tolerance), restore as fn(Duration)))
     }
 
     pub(crate) fn from_tokio(instant: tokio::time::Instant) -> Self {
@@ -171,9 +166,7 @@ impl std::ops::Add<Duration> for Instant {
     #[expect(clippy::expect_used)]
     fn add(self, duration: Duration) -> Self {
         Instant(
-            self.0
-                .checked_add(duration)
-                .expect("simulation is not supposed to run for more than 290 billion years"),
+            self.0.checked_add(duration).expect("simulation is not supposed to run for more than 290 billion years"),
         )
     }
 }
@@ -184,9 +177,7 @@ impl std::ops::Sub<Duration> for Instant {
     #[expect(clippy::expect_used)]
     fn sub(self, duration: Duration) -> Self {
         Instant(
-            self.0
-                .checked_sub(duration)
-                .expect("simulation is not supposed to run for more than 290 billion years"),
+            self.0.checked_sub(duration).expect("simulation is not supposed to run for more than 290 billion years"),
         )
     }
 }

@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeSet, mem, pin::Pin};
+
 use amaru_kernel::cbor;
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
-    TxRejectReason, TxSubmissionMempool,
+    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
+    TxSubmissionMempool,
 };
 use parking_lot::RwLock;
-use std::{collections::BTreeSet, mem, pin::Pin};
 
 #[derive(Debug, Default)]
 pub struct DummyMempool<T> {
@@ -27,9 +28,7 @@ pub struct DummyMempool<T> {
 
 impl<T> DummyMempool<T> {
     pub fn new() -> Self {
-        DummyMempool {
-            inner: RwLock::new(DummyMempoolInner::new()),
-        }
+        DummyMempool { inner: RwLock::new(DummyMempoolInner::new()) }
     }
 }
 
@@ -38,9 +37,7 @@ pub struct DummyMempoolInner<T> {
     transactions: Vec<T>,
 }
 
-impl<Tx: cbor::Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx>
-    for DummyMempool<Tx>
-{
+impl<Tx: cbor::Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx> for DummyMempool<Tx> {
     fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
         Ok(())
     }
@@ -63,10 +60,7 @@ impl<Tx: cbor::Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for D
         vec![]
     }
 
-    fn wait_for_at_least(
-        &self,
-        _seq_no: MempoolSeqNo,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+    fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move { true })
     }
 
@@ -90,25 +84,21 @@ impl<Tx: cbor::Encode<()> + Send + Sync + 'static> Mempool<Tx> for DummyMempool<
         Self: Sized,
     {
         let keys_to_remove = BTreeSet::from_iter(keys(tx));
-        self.inner
-            .write()
-            .transactions
-            .retain(|tx| !keys(tx).into_iter().any(|k| keys_to_remove.contains(&k)));
+        self.inner.write().transactions.retain(|tx| !keys(tx).into_iter().any(|k| keys_to_remove.contains(&k)));
     }
 }
 
 impl<T> DummyMempoolInner<T> {
     pub fn new() -> Self {
-        DummyMempoolInner {
-            transactions: vec![],
-        }
+        DummyMempoolInner { transactions: vec![] }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use amaru_kernel::cbor;
+
+    use super::*;
 
     #[test]
     fn take_empty() {
@@ -121,10 +111,7 @@ mod tests {
         let mempool = DummyMempool::new();
         mempool.add(FakeTx::new("tx1", &[1])).unwrap();
         mempool.add(FakeTx::new("tx2", &[2])).unwrap();
-        assert_eq!(
-            mempool.take(),
-            vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]
-        );
+        assert_eq!(mempool.take(), vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]);
     }
 
     #[test]
@@ -159,10 +146,7 @@ mod tests {
 
     impl<'a> FakeTx<'a> {
         fn new(id: &'a str, inputs: &'_ [usize]) -> Self {
-            FakeTx {
-                id,
-                inputs: Vec::from(inputs),
-            }
+            FakeTx { id, inputs: Vec::from(inputs) }
         }
 
         fn keys(&self) -> Vec<usize> {

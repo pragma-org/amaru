@@ -12,19 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
-use amaru_kernel::cardano::network_block::make_network_block;
-use amaru_kernel::utils::tests::run_strategy;
+use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
+
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, Transaction, any_headers_chain_with_root, make_header,
+    BlockHeader, HeaderHash, IsHeader, Transaction, any_headers_chain_with_root,
+    cardano::network_block::make_network_block, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros_traits::{ChainStore, TxId};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
+use amaru_ouroboros_traits::{ChainStore, TxId, in_memory_consensus_store::InMemConsensusStore};
+
+use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
 
 /// Configuration for running 2 test nodes, initiator and responder communicating over TCP:
 ///  - They both have their own chain store and mempool.
@@ -53,9 +50,7 @@ impl Configuration {
             processing_wait: None,
             slow_manager: false,
         };
-        initiator
-            .with_best_chain_of_length(INITIATOR_BLOCKS_NB)
-            .with_txs(INITIATOR_TXS_NB)
+        initiator.with_best_chain_of_length(INITIATOR_BLOCKS_NB).with_txs(INITIATOR_TXS_NB)
     }
 
     pub(super) fn responder() -> Self {
@@ -68,9 +63,7 @@ impl Configuration {
             processing_wait: None,
             slow_manager: false,
         };
-        responder
-            .with_best_chain_of_length(RESPONDER_BLOCKS_NB)
-            .with_txs(RESPONDER_TXS_NB)
+        responder.with_best_chain_of_length(RESPONDER_BLOCKS_NB).with_txs(RESPONDER_TXS_NB)
     }
 
     pub(super) fn with_best_chain_of_length(mut self, chain_length: usize) -> Self {
@@ -80,10 +73,7 @@ impl Configuration {
     }
 
     #[expect(dead_code)]
-    pub(super) fn with_chain_store(
-        mut self,
-        chain_store: Arc<dyn ChainStore<BlockHeader>>,
-    ) -> Self {
+    pub(super) fn with_chain_store(mut self, chain_store: Arc<dyn ChainStore<BlockHeader>>) -> Self {
         self.chain_store = chain_store;
         self
     }
@@ -125,14 +115,10 @@ pub const INITIATOR_BLOCKS_NB: usize = 4;
 
 /// Initialize the chain store with a chain of headers.
 /// The responder chain is longer than the initiator chain to force the initiator to catch up.
-fn initialize_chain_store(
-    chain_length: usize,
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
-) -> anyhow::Result<()> {
+fn initialize_chain_store(chain_length: usize, chain_store: Arc<dyn ChainStore<BlockHeader>>) -> anyhow::Result<()> {
     // Use the same root header for both initiator and responder
-    let origin_hash: HeaderHash = amaru_kernel::Hash::from_str(
-        "4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301",
-    )?;
+    let origin_hash: HeaderHash =
+        amaru_kernel::Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")?;
     let root_header = BlockHeader::from(make_header(100_000_000, 100_000_000, Some(origin_hash)));
     chain_store.set_anchor_hash(&root_header.hash())?;
     let mut headers = run_strategy(any_headers_chain_with_root(
@@ -158,8 +144,5 @@ pub const INITIATOR_TXS_NB: u64 = 10;
 
 /// By construction we return the same tx ids as the ones created in the function above
 pub(super) fn get_tx_ids() -> Vec<TxId> {
-    create_transactions(RESPONDER_TXS_NB)
-        .into_iter()
-        .map(|tx| TxId::from(&tx))
-        .collect()
+    create_transactions(RESPONDER_TXS_NB).into_iter().map(|tx| TxId::from(&tx)).collect()
 }

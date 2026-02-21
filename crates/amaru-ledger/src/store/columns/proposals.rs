@@ -48,19 +48,16 @@ impl<C> cbor::encode::Encode<C> for Row {
 impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        Ok(Row {
-            proposed_in: d.decode_with(ctx)?,
-            valid_until: d.decode_with(ctx)?,
-            proposal: d.decode_with(ctx)?,
-        })
+        Ok(Row { proposed_in: d.decode_with(ctx)?, valid_until: d.decode_with(ctx)?, proposal: d.decode_with(ctx)? })
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::*;
     use amaru_kernel::{any_proposal, any_proposal_pointer, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
+
+    use super::*;
 
     #[cfg(not(target_os = "windows"))]
     prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row(u64::MAX));

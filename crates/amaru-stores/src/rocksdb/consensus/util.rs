@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::RocksDbConfig;
+use std::path::PathBuf;
+
 use amaru_ouroboros_traits::StoreError;
 use rocksdb::{OptimisticTransactionDB, Options};
-use std::path::PathBuf;
+
+use crate::rocksdb::RocksDbConfig;
 
 pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
 
@@ -45,9 +47,7 @@ pub fn open_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransaction
 
 /// Create or open a Chain DB for reading and writing.
 /// The DB _may_ exist, if it does not it will be created.
-pub fn open_or_create_db(
-    config: &RocksDbConfig,
-) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
+pub fn open_or_create_db(config: &RocksDbConfig) -> Result<(PathBuf, OptimisticTransactionDB), StoreError> {
     let basedir = config.dir.clone();
     let mut opts: Options = config.into();
     opts.create_if_missing(true);
@@ -55,15 +55,9 @@ pub fn open_or_create_db(
     Ok((basedir, db))
 }
 
-fn do_open_rocks_db(
-    basedir: &PathBuf,
-    mut opts: Options,
-) -> Result<OptimisticTransactionDB, StoreError> {
-    opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(
-        CONSENSUS_PREFIX_LEN,
-    ));
-    let db = OptimisticTransactionDB::open(&opts, basedir).map_err(|e| StoreError::OpenError {
-        error: e.to_string(),
-    })?;
+fn do_open_rocks_db(basedir: &PathBuf, mut opts: Options) -> Result<OptimisticTransactionDB, StoreError> {
+    opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(CONSENSUS_PREFIX_LEN));
+    let db =
+        OptimisticTransactionDB::open(&opts, basedir).map_err(|e| StoreError::OpenError { error: e.to_string() })?;
     Ok(db)
 }

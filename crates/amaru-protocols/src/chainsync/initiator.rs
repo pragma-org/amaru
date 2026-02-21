@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{BlockHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+
 use crate::{
     chainsync::messages::{HeaderContent, Message},
     mux::MuxMessage,
     protocol::{
-        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState,
-        miniprotocol, outcome,
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState, miniprotocol,
+        outcome,
     },
     store_effects::Store,
 };
-use amaru_kernel::{BlockHeader, ORIGIN_HASH, Peer, Point, Tip};
-use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -70,17 +71,7 @@ impl ChainSyncInitiator {
         muxer: StageRef<MuxMessage>,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
     ) -> (InitiatorState, Self) {
-        (
-            InitiatorState::Idle,
-            Self {
-                upstream: None,
-                peer,
-                conn_id,
-                muxer,
-                pipeline,
-                me: StageRef::blackhole(),
-            },
-        )
+        (InitiatorState::Idle, Self { upstream: None, peer, conn_id, muxer, pipeline, me: StageRef::blackhole() })
     }
 }
 
@@ -92,17 +83,12 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         proto: &InitiatorState,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(
-        Option<<InitiatorState as ProtocolState<Initiator>>::Action>,
-        Self,
-    )> {
+    ) -> anyhow::Result<(Option<<InitiatorState as ProtocolState<Initiator>>::Action>, Self)> {
         use InitiatorState::*;
 
         Ok(match (proto, input) {
             (Idle, InitiatorMessage::RequestNext) => (Some(InitiatorAction::RequestNext), self),
-            (CanAwait(_) | MustReply(_), InitiatorMessage::RequestNext) => {
-                (Some(InitiatorAction::RequestNext), self)
-            }
+            (CanAwait(_) | MustReply(_), InitiatorMessage::RequestNext) => (Some(InitiatorAction::RequestNext), self),
             (Idle, InitiatorMessage::Done) => (Some(InitiatorAction::Done), self),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -113,20 +99,11 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         _proto: &InitiatorState,
         input: <InitiatorState as ProtocolState<Initiator>>::Out,
         eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(
-        Option<<InitiatorState as ProtocolState<Initiator>>::Action>,
-        Self,
-    )> {
+    ) -> anyhow::Result<(Option<<InitiatorState as ProtocolState<Initiator>>::Action>, Self)> {
         use InitiatorAction::*;
         let action = match &input {
             InitiatorResult::Initialize => {
-                self.me = eff
-                    .contramap(
-                        eff.me(),
-                        format!("{}-handler", eff.me().name()),
-                        Inputs::Local,
-                    )
-                    .await;
+                self.me = eff.contramap(eff.me(), format!("{}-handler", eff.me().name()), Inputs::Local).await;
                 Some(Intersect(intersect_points(&Store::new(eff.clone()))))
             }
             InitiatorResult::IntersectFound(_, tip)
@@ -196,9 +173,7 @@ pub enum InitiatorResult {
     RollForward(HeaderContent, Tip),
     RollBackward(Point, Tip),
 }
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorState {
     Idle,
     CanAwait(u8),
@@ -217,26 +192,19 @@ impl ProtocolState<Initiator> for InitiatorState {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use InitiatorState::*;
 
         Ok(match (self, input) {
             (Intersect, Message::IntersectFound(point, tip)) => (
                 // only for this first time do we sent two requests
                 // this initiates the desired pipelining behaviour
-                outcome()
-                    .send(Message::RequestNext(2))
-                    .want_next()
-                    .result(InitiatorResult::IntersectFound(point, tip)),
+                outcome().send(Message::RequestNext(2)).want_next().result(InitiatorResult::IntersectFound(point, tip)),
                 CanAwait(1),
             ),
-            (Intersect, Message::IntersectNotFound(tip)) => (
-                outcome().result(InitiatorResult::IntersectNotFound(tip)),
-                Idle,
-            ),
+            (Intersect, Message::IntersectNotFound(tip)) => {
+                (outcome().result(InitiatorResult::IntersectNotFound(tip)), Idle)
+            }
             (CanAwait(n), Message::AwaitReply) => (outcome().want_next(), MustReply(*n)),
             (CanAwait(n) | MustReply(n), Message::RollForward(content, tip)) => (
                 outcome().result(InitiatorResult::RollForward(content, tip)),
@@ -250,29 +218,20 @@ impl ProtocolState<Initiator> for InitiatorState {
         })
     }
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use InitiatorState::*;
 
         Ok(match (self, input) {
-            (Idle, InitiatorAction::Intersect(points)) => (
-                outcome().send(Message::FindIntersect(points)).want_next(),
-                Intersect,
-            ),
-            (Idle, InitiatorAction::RequestNext) => (
-                outcome().send(Message::RequestNext(1)).want_next(),
-                CanAwait(0),
-            ),
-            (CanAwait(n), InitiatorAction::RequestNext) => (
-                outcome().send(Message::RequestNext(1)).want_next(),
-                CanAwait(*n + 1),
-            ),
-            (MustReply(n), InitiatorAction::RequestNext) => (
-                outcome().send(Message::RequestNext(1)).want_next(),
-                MustReply(*n + 1),
-            ),
+            (Idle, InitiatorAction::Intersect(points)) => {
+                (outcome().send(Message::FindIntersect(points)).want_next(), Intersect)
+            }
+            (Idle, InitiatorAction::RequestNext) => (outcome().send(Message::RequestNext(1)).want_next(), CanAwait(0)),
+            (CanAwait(n), InitiatorAction::RequestNext) => {
+                (outcome().send(Message::RequestNext(1)).want_next(), CanAwait(*n + 1))
+            }
+            (MustReply(n), InitiatorAction::RequestNext) => {
+                (outcome().send(Message::RequestNext(1)).want_next(), MustReply(*n + 1))
+            }
             (Idle, InitiatorAction::Done) => (outcome().send(Message::Done), Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -282,24 +241,20 @@ impl ProtocolState<Initiator> for InitiatorState {
 #[cfg(test)]
 #[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
-    use super::*;
-    use crate::protocol::ProtoSpec;
     use InitiatorState::*;
     use Message::*;
     use amaru_kernel::{EraName, Hash, HeaderHash, RawBlock, Slot, make_header, size::HEADER};
     use amaru_ouroboros_traits::{Nonces, StoreError};
+
+    use super::*;
+    use crate::protocol::ProtoSpec;
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
         // canonical states and messages
         let find_intersect = || FindIntersect(vec![Point::Origin]);
         let intersect_found = || IntersectFound(Point::Origin, Tip::origin());
         let intersect_not_found = || IntersectNotFound(Tip::origin());
-        let roll_forward = || {
-            RollForward(
-                HeaderContent::with_bytes(vec![], EraName::Conway),
-                Tip::origin(),
-            )
-        };
+        let roll_forward = || RollForward(HeaderContent::with_bytes(vec![], EraName::Conway), Tip::origin());
         let roll_backward = || RollBackward(Point::Origin, Tip::origin());
 
         let mut spec = ProtoSpec::default();
@@ -331,10 +286,7 @@ pub mod tests {
     fn test_intersect_points_includes_best_point_and_are_spaced_with_a_factor_2() {
         let store = MockChainStoreForIntersectPoints::default();
         let points = intersect_points(&store);
-        let slots = points
-            .iter()
-            .map(|p| p.slot_or_default().into())
-            .collect::<Vec<u64>>();
+        let slots = points.iter().map(|p| p.slot_or_default().into()).collect::<Vec<u64>>();
         // The expected slots contain the best point (100) and the other points are spaced with a factor of 2.
         assert_eq!(slots, vec![100, 99, 98, 96, 92, 84, 68, 36, 0]);
     }
@@ -347,9 +299,7 @@ pub mod tests {
 
     impl Default for MockChainStoreForIntersectPoints {
         fn default() -> Self {
-            Self {
-                best_point: Point::Specific(Slot::from(100), Hash::new([100u8; HEADER])),
-            }
+            Self { best_point: Point::Specific(Slot::from(100), Hash::new([100u8; HEADER])) }
         }
     }
 

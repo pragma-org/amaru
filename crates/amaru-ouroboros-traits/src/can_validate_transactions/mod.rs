@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
+
+use serde::{Deserialize, Serialize};
 
 pub mod mock;
 
@@ -34,9 +35,7 @@ impl TransactionValidationError {
         self.0
     }
 
-    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(
-        self,
-    ) -> Result<T, anyhow::Error> {
+    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(self) -> Result<T, anyhow::Error> {
         self.0.downcast::<T>()
     }
 

@@ -40,10 +40,7 @@ impl<C> cbor::encode::Encode<C> for Fruit {
 impl<'b, C> cbor::decode::Decode<'b, C> for Fruit {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let _len = d.array()?;
-        Ok(Fruit {
-            name: d.decode_with(ctx)?,
-            quantity: d.decode_with(ctx)?,
-        })
+        Ok(Fruit { name: d.decode_with(ctx)?, quantity: d.decode_with(ctx)? })
     }
 }
 
@@ -51,48 +48,21 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Fruit {
 #[expect(clippy::panic)]
 fn to_cbor<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
     let mut buffer = Vec::new();
-    cbor::encode(&value, &mut buffer)
-        .unwrap_or_else(|e| panic!("unable to encode value ({value:?}) to CBOR: {e:?}"));
+    cbor::encode(&value, &mut buffer).unwrap_or_else(|e| panic!("unable to encode value ({value:?}) to CBOR: {e:?}"));
     buffer
 }
 
 #[test]
 fn db_iterator_mutate() {
-    let db: OptimisticTransactionDB = OptimisticTransactionDB::open_default(
-        Builder::new()
-            .prefix("db_iterator_mutate-")
-            .tempdir()
-            .unwrap(),
-    )
-    .unwrap();
+    let db: OptimisticTransactionDB =
+        OptimisticTransactionDB::open_default(Builder::new().prefix("db_iterator_mutate-").tempdir().unwrap()).unwrap();
 
     let prefix = "fruit:".as_bytes();
 
     // Insert some values in a prefixed collection
-    db.put(
-        as_key(prefix, "apple"),
-        to_cbor(Fruit {
-            name: "apple".to_string(),
-            quantity: 1,
-        }),
-    )
-    .unwrap();
-    db.put(
-        as_key(prefix, "banana"),
-        to_cbor(Fruit {
-            name: "banana".to_string(),
-            quantity: 2,
-        }),
-    )
-    .unwrap();
-    db.put(
-        as_key(prefix, "kiwi"),
-        to_cbor(Fruit {
-            name: "kiwi".to_string(),
-            quantity: 3,
-        }),
-    )
-    .unwrap();
+    db.put(as_key(prefix, "apple"), to_cbor(Fruit { name: "apple".to_string(), quantity: 1 })).unwrap();
+    db.put(as_key(prefix, "banana"), to_cbor(Fruit { name: "banana".to_string(), quantity: 2 })).unwrap();
+    db.put(as_key(prefix, "kiwi"), to_cbor(Fruit { name: "kiwi".to_string(), quantity: 3 })).unwrap();
 
     // Define some handler/worker task on the iterator. Here, we drop any apple and we change
     // the quantity of banana. We expects those to be persisted in the database.
@@ -131,24 +101,15 @@ fn db_iterator_mutate() {
         // Ensure that the database is unchanged before we commit anything
         assert_eq!(
             db.get(as_key(prefix, "apple")).unwrap(),
-            Some(to_cbor(Fruit {
-                name: "apple".to_string(),
-                quantity: 1,
-            }))
+            Some(to_cbor(Fruit { name: "apple".to_string(), quantity: 1 }))
         );
         assert_eq!(
             db.get(as_key(prefix, "banana")).unwrap(),
-            Some(to_cbor(Fruit {
-                name: "banana".to_string(),
-                quantity: 2
-            }))
+            Some(to_cbor(Fruit { name: "banana".to_string(), quantity: 2 }))
         );
         assert_eq!(
             db.get(as_key(prefix, "kiwi")).unwrap(),
-            Some(to_cbor(Fruit {
-                name: "kiwi".to_string(),
-                quantity: 3
-            }))
+            Some(to_cbor(Fruit { name: "kiwi".to_string(), quantity: 3 }))
         );
 
         batch.commit().unwrap();
@@ -158,16 +119,7 @@ fn db_iterator_mutate() {
     assert_eq!(db.get(as_key(prefix, "apple")).unwrap(), None);
     assert_eq!(
         db.get(as_key(prefix, "banana")).unwrap(),
-        Some(to_cbor(Fruit {
-            name: "banana".to_string(),
-            quantity: 42
-        }))
+        Some(to_cbor(Fruit { name: "banana".to_string(), quantity: 42 }))
     );
-    assert_eq!(
-        db.get(as_key(prefix, "kiwi")).unwrap(),
-        Some(to_cbor(Fruit {
-            name: "kiwi".to_string(),
-            quantity: 3
-        }))
-    );
+    assert_eq!(db.get(as_key(prefix, "kiwi")).unwrap(), Some(to_cbor(Fruit { name: "kiwi".to_string(), quantity: 3 })));
 }

@@ -13,9 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::consensus::forward_chain::{
-    client_protocol::PrettyPoint, tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip,
-};
+use std::{fs::File, path::Path, str::FromStr, sync::Arc};
+
 use amaru_consensus::effects::{ForwardEvent, ForwardEventListener};
 use amaru_kernel::{BlockHeader, Hash, Header, HeaderHash, IsHeader, from_cbor, size::HEADER};
 use amaru_network::point::to_network_point;
@@ -28,9 +27,12 @@ use pallas_network::{
         chainsync::{NextResponse, Tip},
     },
 };
-use std::{fs::File, path::Path, str::FromStr, sync::Arc};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+
+use crate::stages::consensus::forward_chain::{
+    client_protocol::PrettyPoint, tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip,
+};
 
 pub const CHAIN_47: &str = "tests/data/chain41.json";
 pub const TIP_47: &str = "fcb4a51804f14f3f5b5ad841199b557aed0187280f7855736bdb153b0d202bb6";
@@ -42,11 +44,7 @@ pub const FIRST_HEADER: &str = "2487bd4f49c89e59bb3d2166510d3d49017674d3c3b430b9
 pub fn mk_in_memory_store(path: impl AsRef<Path>) -> Arc<dyn ChainStore<BlockHeader>> {
     let f = File::open(path).unwrap();
     let json: serde_json::Value = serde_json::from_reader(f).unwrap();
-    let headers = json
-        .pointer("/stakePools/chains")
-        .unwrap()
-        .as_array()
-        .unwrap();
+    let headers = json.pointer("/stakePools/chains").unwrap().as_array().unwrap();
 
     let store = InMemConsensusStore::new();
     let mut anchor_set = false;
@@ -99,10 +97,7 @@ pub struct TestChainForwarder {
 
 impl TestChainForwarder {
     pub async fn new(our_tip: &str) -> anyhow::Result<TestChainForwarder> {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .with_test_writer()
-            .try_init();
+        let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
 
         let store = mk_in_memory_store(CHAIN_47);
         let header = store.load_header(&hash(our_tip)).unwrap();
@@ -110,43 +105,25 @@ impl TestChainForwarder {
         let tcp_listener = TcpListener::bind("127.0.0.1:0").await?;
 
         let port = tcp_listener.local_addr()?.port();
-        let listener = TcpForwardChainServer::create(
-            store.clone(),
-            tcp_listener,
-            42,
-            1,
-            to_pallas_tip(header.tip()),
-        )?;
+        let listener = TcpForwardChainServer::create(store.clone(), tcp_listener, 42, 1, to_pallas_tip(header.tip()))?;
 
-        Ok(TestChainForwarder {
-            store,
-            listener,
-            port,
-        })
+        Ok(TestChainForwarder { store, listener, port })
     }
 
     pub async fn send_forward(&mut self, s: &str) {
         let header = self.store.load_header(&hash(s)).unwrap();
         tracing::info!("sending forward event");
-        self.listener
-            .send(ForwardEvent::Forward(header))
-            .await
-            .unwrap();
+        self.listener.send(ForwardEvent::Forward(header)).await.unwrap();
     }
 
     pub async fn send_backward(&mut self, s: &str) {
         let rollback_header = self.store.load_header(&hash(s)).unwrap();
         tracing::info!("sending rollback event");
-        self.listener
-            .send(ForwardEvent::Backward(rollback_header.tip()))
-            .await
-            .unwrap();
+        self.listener.send(ForwardEvent::Backward(rollback_header.tip())).await.unwrap();
     }
 
     pub async fn connect(&self) -> Client {
-        let client = PeerClient::connect(&format!("127.0.0.1:{}", self.port), 42)
-            .await
-            .unwrap();
+        let client = PeerClient::connect(&format!("127.0.0.1:{}", self.port), 42).await.unwrap();
         Client { client }
     }
 
@@ -162,11 +139,7 @@ pub struct Client {
 
 impl Client {
     pub async fn find_intersect(&mut self, points: Vec<Point>) -> (Option<Point>, Tip) {
-        self.client
-            .chainsync()
-            .find_intersect(points)
-            .await
-            .unwrap()
+        self.client.chainsync().find_intersect(points).await.unwrap()
     }
 
     pub async fn recv_until_await(&mut self) -> Vec<ClientMsg> {
@@ -199,16 +172,9 @@ impl Client {
     }
 
     pub async fn recv_after_await(&mut self) -> ClientMsg {
-        let msg = self
-            .client
-            .chainsync()
-            .recv_while_can_await()
-            .await
-            .unwrap();
+        let msg = self.client.chainsync().recv_while_can_await().await.unwrap();
         match msg {
-            NextResponse::RollForward(header, tip) => {
-                ClientMsg::Forward(from_cbor(&header.cbor).unwrap(), tip)
-            }
+            NextResponse::RollForward(header, tip) => ClientMsg::Forward(from_cbor(&header.cbor).unwrap(), tip),
             NextResponse::RollBackward(point, tip) => ClientMsg::Backward(point, tip),
             NextResponse::Await => panic!("unexpected await"),
         }
@@ -226,13 +192,7 @@ impl std::fmt::Debug for ClientMsg {
         match self {
             Self::Forward(header, tip) => f
                 .debug_struct("Forward")
-                .field(
-                    "header",
-                    &(
-                        header.block_height(),
-                        PrettyPoint(&to_network_point(header.point())),
-                    ),
-                )
+                .field("header", &(header.block_height(), PrettyPoint(&to_network_point(header.point()))))
                 .field("tip", &(tip.1, PrettyPoint(&tip.0)))
                 .finish(),
             Self::Backward(point, tip) => f
@@ -247,12 +207,8 @@ impl std::fmt::Debug for ClientMsg {
 impl PartialEq for ClientMsg {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (ClientMsg::Forward(lh, lt), ClientMsg::Forward(rh, rt)) => {
-                lh == rh && (&lt.0, lt.1) == (&rt.0, rt.1)
-            }
-            (ClientMsg::Backward(lp, lt), ClientMsg::Backward(rp, rt)) => {
-                lp == rp && (&lt.0, lt.1) == (&rt.0, rt.1)
-            }
+            (ClientMsg::Forward(lh, lt), ClientMsg::Forward(rh, rt)) => lh == rh && (&lt.0, lt.1) == (&rt.0, rt.1),
+            (ClientMsg::Backward(lp, lt), ClientMsg::Backward(rp, rt)) => lp == rp && (&lt.0, lt.1) == (&rt.0, rt.1),
             _ => false,
         }
     }

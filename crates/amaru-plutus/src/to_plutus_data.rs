@@ -12,17 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
+
+use amaru_kernel::{
+    Address, BigInt, Bytes, ComputeHash, Hash, Int, MaybeIndefArray, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt,
+    Nullable, PlutusData, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential,
+};
+use thiserror::Error;
+
 use crate::{
     constr,
     script_context::{CurrencySymbol, DatumOption, RequiredSigners, Script, TimeRange},
 };
-use amaru_kernel::{
-    Address, BigInt, Bytes, ComputeHash, Hash, Int, MaybeIndefArray, MemoizedDatum,
-    NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, Redeemer, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeCredential,
-};
-use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
-use thiserror::Error;
 
 /// Represents an error that occured during serialization to `PlutusData`.
 #[derive(Debug, Error)]
@@ -36,10 +37,7 @@ pub enum PlutusDataError {
 
 impl PlutusDataError {
     pub fn unsupported_version(message: impl Into<String>, version: u8) -> Self {
-        Self::UnsupportedVersion {
-            message: message.into(),
-            version,
-        }
+        Self::UnsupportedVersion { message: message.into(), version }
     }
 }
 
@@ -139,18 +137,14 @@ where
 
                 let stake_part_plutus_data = match stake_part {
                     ShelleyDelegationPart::Key(stake_keyhash) => {
-                        Some(constr!(0, [StakeCredential::AddrKeyhash(*stake_keyhash)])?)
-                            .to_plutus_data()
+                        Some(constr!(0, [StakeCredential::AddrKeyhash(*stake_keyhash)])?).to_plutus_data()
                     }
                     ShelleyDelegationPart::Script(script_hash) => {
-                        Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)])?)
-                            .to_plutus_data()
+                        Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)])?).to_plutus_data()
                     }
-                    ShelleyDelegationPart::Pointer(pointer) => Some(constr!(
-                        1,
-                        [pointer.slot(), pointer.tx_idx(), pointer.cert_idx()]
-                    )?)
-                    .to_plutus_data(),
+                    ShelleyDelegationPart::Pointer(pointer) => {
+                        Some(constr!(1, [pointer.slot(), pointer.tx_idx(), pointer.cert_idx()])?).to_plutus_data()
+                    }
                     ShelleyDelegationPart::Null => None::<StakeCredential>.to_plutus_data(),
                 }?;
 
@@ -166,9 +160,7 @@ where
 
 #[allow(clippy::expect_used)]
 fn system_time_to_posix_millis(st: SystemTime) -> u64 {
-    st.duration_since(SystemTime::UNIX_EPOCH)
-        .expect("system time before Unix epoch?")
-        .as_millis() as u64
+    st.duration_since(SystemTime::UNIX_EPOCH).expect("system time before Unix epoch?").as_millis() as u64
 }
 
 impl<const V: u8> ToPlutusData<V> for TimeRange
@@ -296,9 +288,7 @@ where
     #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         // Unwrap is safe here, u64 cannot possible be too big for the `Int` structure
-        Ok(PlutusData::BigInt(BigInt::Int(
-            Int::try_from(*self as i128).unwrap(),
-        )))
+        Ok(PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap())))
     }
 }
 
@@ -309,9 +299,7 @@ where
     #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         // Unwrap is safe here, usize cannot possible be too big for the `Int` structure
-        Ok(PlutusData::BigInt(BigInt::Int(
-            Int::try_from(*self as i128).unwrap(),
-        )))
+        Ok(PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap())))
     }
 }
 
@@ -325,9 +313,7 @@ where
             Ok(PlutusData::Array(MaybeIndefArray::Def(vec![])))
         } else {
             Ok(PlutusData::Array(MaybeIndefArray::Indef(
-                self.iter()
-                    .map(|a| a.to_plutus_data())
-                    .collect::<Result<_, _>>()?,
+                self.iter().map(|a| a.to_plutus_data()).collect::<Result<_, _>>()?,
             )))
         }
     }
@@ -350,9 +336,7 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         Ok(PlutusData::Map(
-            self.iter()
-                .map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?)))
-                .collect::<Result<_, _>>()?,
+            self.iter().map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?))).collect::<Result<_, _>>()?,
         ))
     }
 }

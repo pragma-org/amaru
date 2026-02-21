@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{NonEmptyBytes, Peer};
 use std::{
     fmt,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
@@ -22,11 +21,11 @@ use std::{
     time::Duration,
 };
 
+use amaru_kernel::{NonEmptyBytes, Peer};
+
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-#[derive(
-    Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct ConnectionId(u64);
 
 impl ConnectionId {
@@ -124,11 +123,7 @@ pub trait ConnectionProvider: Send + Sync + 'static {
 
     fn accept(&self) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
 
-    fn connect(
-        &self,
-        addr: Vec<SocketAddr>,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
+    fn connect(&self, addr: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
     fn connect_addrs(
         &self,
@@ -136,17 +131,9 @@ pub trait ConnectionProvider: Send + Sync + 'static {
         timeout: Duration,
     ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
-    fn send(
-        &self,
-        conn: ConnectionId,
-        data: NonEmptyBytes,
-    ) -> BoxFuture<'static, std::io::Result<()>>;
+    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>>;
 
-    fn recv(
-        &self,
-        conn: ConnectionId,
-        bytes: NonZeroUsize,
-    ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>>;
+    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>>;
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>>;
 }

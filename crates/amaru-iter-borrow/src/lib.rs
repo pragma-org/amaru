@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{borrow::BorrowMut, cell::RefCell, marker::PhantomData, rc::Rc};
+
 use borrowable_proxy::BorrowableProxy;
 use minicbor as cbor;
-use std::{borrow::BorrowMut, cell::RefCell, marker::PhantomData, rc::Rc};
 
 /// An iterator over borrowable items. This allows to define a Rust-idiomatic API for accessing
 /// items in read-only or read-write mode. When provided in a callback, it allows the callee to
@@ -25,11 +26,7 @@ pub type IterBorrow<'a, 'b, K, V> = Box<dyn Iterator<Item = (K, Box<dyn BorrowMu
 pub fn new<'a, const PREFIX: usize, K: Clone, V: Clone>(
     inner: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
 ) -> KeyValueIterator<'a, PREFIX, K, V> {
-    KeyValueIterator {
-        inner: Box::new(inner),
-        updates: Rc::new(RefCell::new(Vec::new())),
-        phantom_k: PhantomData,
-    }
+    KeyValueIterator { inner: Box::new(inner), updates: Rc::new(RefCell::new(Vec::new())), phantom_k: PhantomData }
 }
 
 /// A KeyValueIterator defines an abstraction on top of another iterator, that stores updates applied to
@@ -58,12 +55,8 @@ impl<const PREFIX: usize, K: Clone, V: Clone> KeyValueIterator<'_, PREFIX, K, V>
     }
 }
 
-impl<
-    'a,
-    const PREFIX: usize,
-    K: Clone + for<'d> cbor::Decode<'d, ()>,
-    V: Clone + for<'d> cbor::Decode<'d, ()>,
-> KeyValueIterator<'a, PREFIX, K, V>
+impl<'a, const PREFIX: usize, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>>
+    KeyValueIterator<'a, PREFIX, K, V>
 where
     Self: 'a,
 {
@@ -72,12 +65,8 @@ where
     }
 }
 
-impl<
-    'a,
-    const PREFIX: usize,
-    K: Clone + for<'d> cbor::Decode<'d, ()>,
-    V: Clone + for<'d> cbor::Decode<'d, ()>,
-> Iterator for KeyValueIterator<'a, PREFIX, K, V>
+impl<'a, const PREFIX: usize, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>> Iterator
+    for KeyValueIterator<'a, PREFIX, K, V>
 where
     Self: 'a,
 {
@@ -91,14 +80,9 @@ where
             // NOTE: .clone() is cheap, because `self.updates` is an Rc
             let updates = self.updates.clone();
 
-            let on_update =
-                move |new: Option<V>| updates.as_ref().borrow_mut().push((k.to_vec(), new));
+            let on_update = move |new: Option<V>| updates.as_ref().borrow_mut().push((k.to_vec(), new));
 
-            Ok((
-                key,
-                Box::new(BorrowableProxy::new(Some(original), on_update))
-                    as Box<dyn BorrowMut<Option<V>> + 'a>,
-            ))
+            Ok((key, Box::new(BorrowableProxy::new(Some(original), on_update)) as Box<dyn BorrowMut<Option<V>> + 'a>))
         })
     }
 }
@@ -127,11 +111,7 @@ pub mod borrowable_proxy {
         F: FnOnce(T),
     {
         pub fn new(item: T, hook: F) -> Self {
-            Self {
-                item: Some(item),
-                hook: Some(hook),
-                borrowed: false,
-            }
+            Self { item: Some(item), hook: Some(hook), borrowed: false }
         }
     }
 

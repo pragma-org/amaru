@@ -35,10 +35,7 @@ pub struct Ballot {
 
 impl Ballot {
     pub fn new(vote: Vote, anchor: Option<Anchor>) -> Self {
-        Self {
-            vote,
-            anchor: anchor.map(Box::new),
-        }
+        Self { vote, anchor: anchor.map(Box::new) }
     }
 
     pub fn vote(&self) -> &Vote {
@@ -67,10 +64,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(Self {
-                vote: d.decode_with(ctx)?,
-                anchor: d.decode_with(ctx)?,
-            })
+            Ok(Self { vote: d.decode_with(ctx)?, anchor: d.decode_with(ctx)? })
         })
     }
 }
@@ -80,9 +74,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{option, prelude::*};
+
     use super::Ballot;
     use crate::{any_anchor, any_vote, prop_cbor_roundtrip};
-    use proptest::{option, prelude::*};
 
     prop_compose! {
         pub fn any_ballot()(

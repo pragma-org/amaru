@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::CanValidateTransactions;
-use amaru_kernel::{Hash, Hasher, Peer, TransactionId, cbor, size::TRANSACTION_BODY};
-use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     fmt::{Display, Formatter},
     pin::Pin,
     sync::Arc,
 };
+
+use amaru_kernel::{Hash, Hasher, Peer, TransactionId, cbor, size::TRANSACTION_BODY};
+use serde::{Deserialize, Serialize};
+
+use crate::CanValidateTransactions;
 
 /// An simple mempool interface to:
 ///
@@ -46,9 +48,7 @@ pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + S
 
 pub type ResourceMempool<Tx> = Arc<dyn TxSubmissionMempool<Tx>>;
 
-pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
-    Send + Sync + CanValidateTransactions<Tx>
-{
+pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync + CanValidateTransactions<Tx> {
     /// Insert a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
@@ -88,10 +88,7 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
     ///
     /// Otherwise, if for some reason the mempool cannot reach the required number, it should return
     /// false.
-    fn wait_for_at_least(
-        &self,
-        seq_no: MempoolSeqNo,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
+    fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
 
     /// Retrieve a list of transactions for the given ids.
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx>;
@@ -101,9 +98,7 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>:
 }
 
 /// Sequence number assigned to a transaction when inserted into the mempool.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub struct MempoolSeqNo(pub u64);
 
 impl MempoolSeqNo {
@@ -116,19 +111,7 @@ impl MempoolSeqNo {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    thiserror::Error,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error, Serialize, Deserialize)]
 pub enum TxRejectReason {
     #[error("Mempool is full")]
     MempoolFull,
@@ -149,9 +132,7 @@ pub enum TxOrigin {
 
 /// Identifier for a transaction in the mempool.
 /// It is derived from the hash of the encoding of the transaction as CBOR.
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct TxId(TransactionId);
 
 impl cbor::Encode<()> for TxId {

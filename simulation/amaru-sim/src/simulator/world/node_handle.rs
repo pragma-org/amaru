@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Envelope;
-use anyhow::anyhow;
-use pure_stage::{Receiver, StageRef, simulation::running::SimulationRunning};
-use serde::{Deserialize, Serialize};
 use std::{
     fmt::{Debug, Display},
     io::{BufRead, BufReader, Write},
     path::Path,
     process::{Command, Stdio},
 };
+
+use anyhow::anyhow;
+use pure_stage::{Receiver, StageRef, simulation::running::SimulationRunning};
+use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
 use tracing::{info_span, trace};
+
+use crate::simulator::Envelope;
 
 /// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
 /// as the result of processing that message (Envelope holds source/destination values representing node ids).
@@ -35,8 +37,7 @@ use tracing::{info_span, trace};
 /// Additionally, it provides an async function to shutdown the node gracefully.
 ///
 pub struct NodeHandle<Msg> {
-    handle:
-        Box<dyn FnMut(Option<Envelope<Msg>>) -> Result<Option<Vec<Envelope<Msg>>>, anyhow::Error>>,
+    handle: Box<dyn FnMut(Option<Envelope<Msg>>) -> Result<Option<Vec<Envelope<Msg>>>, anyhow::Error>>,
     pub(crate) close: Box<dyn FnMut()>,
 }
 
@@ -48,16 +49,10 @@ impl<Msg> NodeHandle<Msg> {
         handle: F,
         close: G,
     ) -> Self {
-        Self {
-            handle: Box::new(handle),
-            close: Box::new(close),
-        }
+        Self { handle: Box::new(handle), close: Box::new(close) }
     }
 
-    pub fn handle_msg(
-        &mut self,
-        msg: Option<Envelope<Msg>>,
-    ) -> Result<Option<Vec<Envelope<Msg>>>, anyhow::Error> {
+    pub fn handle_msg(&mut self, msg: Option<Envelope<Msg>>) -> Result<Option<Vec<Envelope<Msg>>>, anyhow::Error> {
         info_span!("handle_msg").in_scope(|| (self.handle)(msg))
     }
 
@@ -86,13 +81,7 @@ impl<Msg> NodeHandle<Msg> {
         rt: Handle,
     ) -> anyhow::Result<NodeHandle<Msg>>
     where
-        Msg: PartialEq
-            + Send
-            + Debug
-            + Display
-            + serde::Serialize
-            + serde::de::DeserializeOwned
-            + 'static,
+        Msg: PartialEq + Send + Debug + Display + serde::Serialize + serde::de::DeserializeOwned + 'static,
     {
         let handle = Box::new(move |msg: Option<Envelope<Msg>>| match msg {
             Some(msg) => {
@@ -134,26 +123,17 @@ impl<Msg> NodeHandle<Msg> {
             .spawn()
             .map_err(|e| anyhow!("Failed to create process: {}", e))?;
         let mut stdin = child.stdin.take().ok_or(anyhow!("Failed to take stdin"))?;
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or(anyhow!("Failed to take stdout"))?;
+        let mut stdout = child.stdout.take().ok_or(anyhow!("Failed to take stdout"))?;
 
         let handle = Box::new(move |msg: Option<Envelope<Msg>>| {
-            let json =
-                serde_json::to_string(&msg).map_err(|e| anyhow!("Failed to encode JSON: {}", e))?;
+            let json = serde_json::to_string(&msg).map_err(|e| anyhow!("Failed to encode JSON: {}", e))?;
             println!("About to write: {}", json);
-            writeln!(stdin, "{}", json)
-                .map_err(|e| anyhow!("Failed to write to child's stdin: {}", e))?;
-            stdin
-                .flush()
-                .map_err(|e| anyhow!("Failed to flush child's stdin: {}", e))?;
+            writeln!(stdin, "{}", json).map_err(|e| anyhow!("Failed to write to child's stdin: {}", e))?;
+            stdin.flush().map_err(|e| anyhow!("Failed to flush child's stdin: {}", e))?;
 
             let mut reader = BufReader::new(&mut stdout);
             let mut line = String::new();
-            reader
-                .read_line(&mut line)
-                .map_err(|e| anyhow!("Failed to read from child's stdout: {}", e))?;
+            reader.read_line(&mut line).map_err(|e| anyhow!("Failed to read from child's stdout: {}", e))?;
 
             println!("Just read: {}", &line);
             Ok(Some(
@@ -167,10 +147,7 @@ impl<Msg> NodeHandle<Msg> {
         });
 
         let close = Box::new(move || {
-            child
-                .kill()
-                .map_err(|e| anyhow!("Failed to terminate process: {}", e))
-                .ok();
+            child.kill().map_err(|e| anyhow!("Failed to terminate process: {}", e)).ok();
         });
 
         Ok(NodeHandle::new(handle, close))

@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Effects, UnknownExternalEffect,
-    serde::{SendDataValue, to_cbor},
-};
-use anyhow::Context;
-use cbor4ii::serde::from_slice;
 use std::{
     any::{Any, type_name},
     borrow::Borrow,
@@ -27,7 +21,15 @@ use std::{
     pin::Pin,
     sync::{Arc, LazyLock},
 };
+
+use anyhow::Context;
+use cbor4ii::serde::from_slice;
 use tokio::sync::mpsc;
+
+use crate::{
+    Effects, UnknownExternalEffect,
+    serde::{SendDataValue, to_cbor},
+};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -49,13 +51,7 @@ pub trait SendData: Any + fmt::Debug + Send + 'static {
 
 impl<T> SendData for T
 where
-    T: Any
-        + PartialEq
-        + fmt::Debug
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + Send
-        + 'static,
+    T: Any + PartialEq + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
 {
     fn typetag_name(&self) -> &'static str {
         type_name::<T>()
@@ -113,11 +109,7 @@ impl dyn SendData {
     pub fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
         if (&*self as &dyn Any).is::<T>() {
             #[expect(clippy::expect_used)]
-            Ok(Box::new(
-                *(self as Box<dyn Any>)
-                    .downcast::<T>()
-                    .expect("checked above"),
-            ))
+            Ok(Box::new(*(self as Box<dyn Any>).downcast::<T>().expect("checked above")))
         } else {
             Err(self)
         }
@@ -126,12 +118,7 @@ impl dyn SendData {
     /// Cast a message to a given concrete type, yielding an informative error otherwise
     pub fn cast<T: SendData>(self: Box<Self>) -> anyhow::Result<Box<T>> {
         self.try_cast::<T>().map_err(|b| {
-            anyhow::anyhow!(
-                "message type error: expected {}, got {:?} ({})",
-                type_name::<T>(),
-                b,
-                b.typetag_name()
-            )
+            anyhow::anyhow!("message type error: expected {}, got {:?} ({})", type_name::<T>(), b, b.typetag_name())
         })
     }
 
@@ -143,8 +130,7 @@ impl dyn SendData {
             Ok(that) => return Ok(*that),
             Err(this) => this,
         };
-        deserialize_value::<T>(&*this)
-            .with_context(|| format!("deserializing `{}`", type_name::<T>()))
+        deserialize_value::<T>(&*this).with_context(|| format!("deserializing `{}`", type_name::<T>()))
     }
 
     /// Cast the SendData to a SendDataValue to be able to access its inner value.
@@ -178,11 +164,7 @@ where
 {
     let this = this.cast_ref::<SendDataValue>()?;
     let bytes = to_cbor(&this.value);
-    from_slice::<T>(&bytes).context(format!(
-        "deserializing `{}` from {:?}",
-        type_name::<T>(),
-        this
-    ))
+    from_slice::<T>(&bytes).context(format!("deserializing `{}` from {:?}", type_name::<T>(), this))
 }
 
 impl PartialEq for dyn SendData {
@@ -204,9 +186,7 @@ impl Display for Void {
 ///
 /// This is used to identify stages in the simulation, and is used in messages sent to other stages.
 /// A Name is cheap to clone and compare, and can be used as a key in a [`HashMap`](std::collections::HashMap).
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Name(Arc<str>);
 
 pub static BLACKHOLE_NAME: LazyLock<Name> = LazyLock::new(|| Name(Arc::from("")));
@@ -270,9 +250,7 @@ fn dummy_sender<T>() -> mpsc::Sender<T> {
 
 impl<T: Any> fmt::Debug for MpscSender<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("MpscSender")
-            .field(&std::any::type_name::<T>())
-            .finish()
+        f.debug_tuple("MpscSender").field(&std::any::type_name::<T>()).finish()
     }
 }
 
@@ -309,9 +287,7 @@ fn dummy_receiver<T>() -> mpsc::Receiver<T> {
 
 impl<T: Any> fmt::Debug for MpscReceiver<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("MpscReceiver")
-            .field(&std::any::type_name::<T>())
-            .finish()
+        f.debug_tuple("MpscReceiver").field(&std::any::type_name::<T>()).finish()
     }
 }
 
@@ -421,27 +397,24 @@ impl<T: Send + 'static, E: Send + 'static> TryInStage for Result<T, E> {
     }
 }
 
-pub fn err<'a, E: std::fmt::Display + Send + 'a>(
-    msg: &'a str,
-) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
+pub fn err<'a, E: std::fmt::Display + Send + 'a>(msg: &'a str) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
     move |err| Box::pin(async move { tracing::error!(%err, "{}", msg) })
 }
 
-pub fn warn<'a, E: std::fmt::Display + Send + 'a>(
-    msg: &'a str,
-) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
+pub fn warn<'a, E: std::fmt::Display + Send + 'a>(msg: &'a str) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
     move |err| Box::pin(async move { tracing::warn!(%err, "{}", msg) })
 }
 
 #[cfg(test)]
 mod test {
+    use std::{ffi::OsString, time::Duration};
+
     use crate::{
         Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage,
         serde::SendDataValue,
         simulation::SimulationBuilder,
         trace_buffer::{TerminationReason, TraceBuffer, TraceEntry},
     };
-    use std::{ffi::OsString, time::Duration};
 
     #[test]
     fn message() {
@@ -483,9 +456,8 @@ mod test {
     fn try_in_stage_option() {
         let trace = TraceBuffer::new_shared(100, 1_000_000);
         let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone());
-        let stage = network.stage("stage", async |_: u32, msg: Option<u32>, eff| {
-            msg.or_terminate(&eff, async |_| ()).await
-        });
+        let stage =
+            network.stage("stage", async |_: u32, msg: Option<u32>, eff| msg.or_terminate(&eff, async |_| ()).await);
         let stage = network.wire_up(stage, 0);
 
         let mut sim = network.run();
@@ -516,9 +488,7 @@ mod test {
     #[test]
     fn try_in_stage_result() {
         let trace = TraceBuffer::new_shared(100, 1_000_000);
-        let mut network = SimulationBuilder::default()
-            .with_trace_buffer(trace.clone())
-            .with_epoch_clock();
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace.clone()).with_epoch_clock();
         let stage = network.stage("stage", async |_: u32, msg: Result<u32, u32>, eff| {
             msg.or_terminate(&eff, async |error| {
                 eff.wait(Duration::from_secs(error.into())).await;

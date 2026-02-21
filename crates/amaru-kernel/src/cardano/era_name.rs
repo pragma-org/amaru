@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
 use std::{fmt, str::FromStr};
+
+use crate::cbor;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
 #[repr(u8)]
@@ -39,9 +40,7 @@ pub const ERA_NAMES: [EraName; 8] = [
     EraName::Dijkstra,
 ];
 
-const ERA_STRINGS: [&str; 8] = [
-    "Byron", "Shelley", "Allegra", "Mary", "Alonzo", "Babbage", "Conway", "Dijkstra",
-];
+const ERA_STRINGS: [&str; 8] = ["Byron", "Shelley", "Allegra", "Mary", "Alonzo", "Babbage", "Conway", "Dijkstra"];
 
 impl EraName {
     pub const fn is_tagged_on_network(self) -> bool {
@@ -172,10 +171,12 @@ pub fn any_era_name() -> impl proptest::prelude::Strategy<Value = EraName> {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use proptest::prelude::*;
+
     use super::*;
     use crate::to_cbor;
-    use proptest::prelude::*;
-    use std::str::FromStr;
 
     proptest! {
         #[test]
@@ -215,27 +216,18 @@ mod tests {
     #[test]
     fn cbor_encoding() {
         let cbor = to_cbor(&ERA_NAMES);
-        assert_eq!(
-            cbor,
-            &[0x88, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
-        );
+        assert_eq!(cbor, &[0x88, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
     }
 
     #[test]
     fn serde_string_encoding() {
         let string = serde_json::to_string(&ERA_NAMES).unwrap();
-        assert_eq!(
-            string,
-            r#"["Byron","Shelley","Allegra","Mary","Alonzo","Babbage","Conway","Dijkstra"]"#
-        );
+        assert_eq!(string, r#"["Byron","Shelley","Allegra","Mary","Alonzo","Babbage","Conway","Dijkstra"]"#);
     }
 
     #[test]
     fn serde_binary_encoding() {
         let bytes = cbor4ii::serde::to_vec(Vec::new(), &ERA_NAMES).unwrap();
-        assert_eq!(
-            bytes,
-            &[0x88, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
-        );
+        assert_eq!(bytes, &[0x88, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
     }
 }

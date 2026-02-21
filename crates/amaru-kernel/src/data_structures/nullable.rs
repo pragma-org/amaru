@@ -13,22 +13,18 @@
 // limitations under the License.
 
 pub use pallas_codec::utils::Nullable;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     pub fn any_nullable<T: std::fmt::Debug + Clone>(
         any_inner: impl Strategy<Value = T>,
     ) -> impl Strategy<Value = Nullable<T>> {
-        prop_oneof![
-            Just(Nullable::Undefined),
-            Just(Nullable::Null),
-            any_inner.prop_map(Nullable::Some)
-        ]
+        prop_oneof![Just(Nullable::Undefined), Just(Nullable::Null), any_inner.prop_map(Nullable::Some)]
     }
 }

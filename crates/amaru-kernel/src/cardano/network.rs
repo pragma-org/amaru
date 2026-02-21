@@ -13,14 +13,14 @@
 // limitations under the License.
 
 pub use pallas_addresses::Network;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     prop_compose! {
         pub fn any_network()(

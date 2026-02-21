@@ -12,38 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::{Envelope, bytes::Bytes};
-use amaru_consensus::events::ChainSyncEvent;
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, Peer, Point, Slot, Tip, cbor, size::HEADER};
-use pallas_primitives::babbage::{Header, MintedHeader};
 use std::{
     fmt,
     fmt::{Display, Formatter},
 };
+
+use amaru_consensus::events::ChainSyncEvent;
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, Peer, Point, Slot, Tip, cbor, size::HEADER};
+use pallas_primitives::babbage::{Header, MintedHeader};
 use tracing::Span;
+
+use crate::simulator::{Envelope, bytes::Bytes};
 
 #[derive(Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChainSyncMessage {
-    Init {
-        msg_id: u64,
-        node_id: String,
-        node_ids: Vec<String>,
-    },
-    InitOk {
-        in_reply_to: u64,
-    },
-    Fwd {
-        msg_id: u64,
-        slot: Slot,
-        hash: Bytes,
-        header: Bytes,
-    },
-    Bck {
-        msg_id: u64,
-        slot: Slot,
-        hash: Bytes,
-    },
+    Init { msg_id: u64, node_id: String, node_ids: Vec<String> },
+    InitOk { in_reply_to: u64 },
+    Fwd { msg_id: u64, slot: Slot, hash: Bytes, header: Bytes },
+    Bck { msg_id: u64, slot: Slot, hash: Bytes },
 }
 
 impl ChainSyncMessage {
@@ -81,37 +68,23 @@ impl ChainSyncMessage {
 
     /// Return the header parent hash if available
     pub fn header_parent_hash(&self) -> Option<HeaderHash> {
-        if let Some(header) = self.decode_block_header() {
-            header.header_body().prev_hash
-        } else {
-            None
-        }
+        if let Some(header) = self.decode_block_header() { header.header_body().prev_hash } else { None }
     }
 }
 
 impl fmt::Debug for ChainSyncMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChainSyncMessage::Init {
-                msg_id,
-                node_id,
-                node_ids,
-            } => f
+            ChainSyncMessage::Init { msg_id, node_id, node_ids } => f
                 .debug_struct("Init")
                 .field("msg_id", msg_id)
                 .field("node_id", node_id)
                 .field("node_ids", node_ids)
                 .finish(),
-            ChainSyncMessage::InitOk { in_reply_to } => f
-                .debug_struct("InitOk")
-                .field("in_reply_to", in_reply_to)
-                .finish(),
-            msg @ ChainSyncMessage::Fwd {
-                msg_id,
-                slot,
-                hash,
-                header,
-            } => {
+            ChainSyncMessage::InitOk { in_reply_to } => {
+                f.debug_struct("InitOk").field("in_reply_to", in_reply_to).finish()
+            }
+            msg @ ChainSyncMessage::Fwd { msg_id, slot, hash, header } => {
                 let parent_hash = msg
                     .decode_block_header()
                     .and_then(|h| {
@@ -127,20 +100,14 @@ impl fmt::Debug for ChainSyncMessage {
                     .field("slot", slot)
                     .field("hash", &hex::encode(&hash.bytes[..hash.bytes.len().min(3)]))
                     .field("parent_hash", &parent_hash)
-                    .field(
-                        "header",
-                        &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(4)]),
-                    )
+                    .field("header", &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(4)]))
                     .finish()
             }
             ChainSyncMessage::Bck { msg_id, slot, hash } => f
                 .debug_struct("Bck")
                 .field("msg_id", msg_id)
                 .field("slot", slot)
-                .field(
-                    "hash",
-                    &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)]),
-                )
+                .field("hash", &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)]))
                 .finish(),
         }
     }
@@ -149,39 +116,30 @@ impl fmt::Debug for ChainSyncMessage {
 impl Display for ChainSyncMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            ChainSyncMessage::Init {
-                msg_id,
-                node_id,
-                node_ids,
-            } => write!(
-                f,
-                "Init ({}) node_id={}, node_ids=[{}]",
-                msg_id,
-                node_id,
-                node_ids.join(", ")
-            ),
+            ChainSyncMessage::Init { msg_id, node_id, node_ids } => {
+                write!(f, "Init ({}) node_id={}, node_ids=[{}]", msg_id, node_id, node_ids.join(", "))
+            }
             ChainSyncMessage::InitOk { in_reply_to } => {
                 write!(f, "InitOk ({})", in_reply_to)
             }
-            ChainSyncMessage::Fwd {
-                msg_id,
-                slot,
-                hash,
-                header: _,
-            } => write!(
-                f,
-                "Forward ({}) {}/{}",
-                msg_id,
-                slot,
-                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
-            ),
-            ChainSyncMessage::Bck { msg_id, slot, hash } => write!(
-                f,
-                "Backward ({}) {}/{}",
-                msg_id,
-                slot,
-                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
-            ),
+            ChainSyncMessage::Fwd { msg_id, slot, hash, header: _ } => {
+                write!(
+                    f,
+                    "Forward ({}) {}/{}",
+                    msg_id,
+                    slot,
+                    hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+                )
+            }
+            ChainSyncMessage::Bck { msg_id, slot, hash } => {
+                write!(
+                    f,
+                    "Backward ({}) {}/{}",
+                    msg_id,
+                    slot,
+                    hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+                )
+            }
         }
     }
 }
@@ -192,34 +150,15 @@ impl Envelope<ChainSyncMessage> {
         let peer = Peer { name: self.src };
 
         match self.body {
-            Fwd {
-                msg_id: _,
-                slot,
-                hash,
-                header,
-            } => {
+            Fwd { msg_id: _, slot, hash, header } => {
                 let point = Point::Specific(slot, Hash::from(&*hash.bytes));
                 let tip = Tip::new(point, 0.into());
-                ChainSyncEvent::RollForward {
-                    peer,
-                    tip,
-                    raw_header: header.into(),
-                    span,
-                }
+                ChainSyncEvent::RollForward { peer, tip, raw_header: header.into(), span }
             }
-            Bck {
-                msg_id: _,
-                slot,
-                hash,
-            } => {
+            Bck { msg_id: _, slot, hash } => {
                 let point = Point::Specific(slot, Hash::from(&*hash.bytes));
                 let tip = Tip::new(point, 0.into());
-                ChainSyncEvent::Rollback {
-                    peer,
-                    rollback_point: point,
-                    tip,
-                    span,
-                }
+                ChainSyncEvent::Rollback { peer, rollback_point: point, tip, span }
             }
             _ => panic!("unsupported message type for ChainSyncEvent conversion"),
         }
@@ -228,12 +167,13 @@ impl Envelope<ChainSyncMessage> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::sync::ChainSyncMessage::{Bck, Fwd};
     use amaru_kernel::cbor;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::babbage;
     use proptest::{prelude::BoxedStrategy, proptest};
+
+    use super::*;
+    use crate::sync::ChainSyncMessage::{Bck, Fwd};
 
     proptest! {
         #[test]
@@ -247,18 +187,12 @@ mod test {
     #[test]
     fn can_retrieve_forward_from_message() {
         let fwd = some_forward();
-        let message = Envelope {
-            src: "peer1".to_string(),
-            dest: "me".to_string(),
-            body: fwd,
-        };
+        let message = Envelope { src: "peer1".to_string(), dest: "me".to_string(), body: fwd };
 
         let event = message.to_chain_sync_event(tracing::trace_span!("test"));
 
         match event {
-            ChainSyncEvent::RollForward {
-                peer, raw_header, ..
-            } => {
+            ChainSyncEvent::RollForward { peer, raw_header, .. } => {
                 assert_eq!(peer.name, "peer1");
                 assert_eq!(raw_header, hex::decode(TEST_HEADER).unwrap());
             }
@@ -274,35 +208,18 @@ mod test {
         let header_bytes = hex::decode(TEST_HEADER).unwrap();
         let header: babbage::MintedHeader<'_> = cbor::decode(&header_bytes).unwrap();
         let header_hash = Hasher::<256>::hash(header.raw_cbor());
-        Fwd {
-            msg_id: 1,
-            slot: Slot::from(1234),
-            hash: header_hash.to_vec().into(),
-            header: header_bytes.into(),
-        }
+        Fwd { msg_id: 1, slot: Slot::from(1234), hash: header_hash.to_vec().into(), header: header_bytes.into() }
     }
 
     fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
         use proptest::{collection::vec, prelude::*};
 
         prop_oneof![
-            (any::<u64>(), any::<String>(), vec(any::<String>(), 0..10)).prop_map(
-                |(msg_id, node_id, node_ids)| ChainSyncMessage::Init {
-                    msg_id,
-                    node_id,
-                    node_ids
-                }
-            ),
-            (any::<u64>()).prop_map(|msg_id| ChainSyncMessage::InitOk {
-                in_reply_to: msg_id
-            }),
+            (any::<u64>(), any::<String>(), vec(any::<String>(), 0..10))
+                .prop_map(|(msg_id, node_id, node_ids)| ChainSyncMessage::Init { msg_id, node_id, node_ids }),
+            (any::<u64>()).prop_map(|msg_id| ChainSyncMessage::InitOk { in_reply_to: msg_id }),
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
-                Fwd {
-                    msg_id,
-                    slot: Slot::from(slot),
-                    hash: hash.to_vec().into(),
-                    header: Bytes::new(),
-                }
+                Fwd { msg_id, slot: Slot::from(slot), hash: hash.to_vec().into(), header: Bytes::new() }
             }),
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| Bck {
                 msg_id,

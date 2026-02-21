@@ -17,9 +17,31 @@
 //! It is good practice to perform the stage contruction and wiring in a function that takes an
 //! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
 
+use std::{
+    any::Any,
+    collections::BTreeMap,
+    future::{Future, poll_fn},
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll, Waker},
+    time::Duration,
+};
+
+use either::Either::{Left, Right};
+use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
+use parking_lot::Mutex;
+use tokio::{
+    runtime::Handle,
+    sync::{
+        mpsc::{self, Receiver},
+        oneshot, watch,
+    },
+    task::JoinHandle,
+};
+
 use crate::{
-    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender,
-    StageBuildRef, StageGraph, StageRef,
+    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,
+    StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     drop_guard::DropGuard,
     effect::{CallExtra, CallTimeout, CanSupervise, StageEffect, StageResponse, TransitionFactory},
@@ -32,26 +54,6 @@ use crate::{
     stagegraph::StageGraphRunning,
     time::Clock,
     trace_buffer::TraceBuffer,
-};
-use either::Either::{Left, Right};
-use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
-use parking_lot::Mutex;
-use std::{
-    any::Any,
-    collections::BTreeMap,
-    future::{Future, poll_fn},
-    marker::PhantomData,
-    sync::Arc,
-    task::{Context, Poll, Waker},
-    time::Duration,
-};
-use tokio::{
-    runtime::Handle,
-    sync::{
-        mpsc::{self, Receiver},
-        oneshot, watch,
-    },
-    task::JoinHandle,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -109,12 +111,7 @@ pub struct TokioBuilder {
 impl Default for TokioBuilder {
     fn default() -> Self {
         let (termination_tx, termination_rx) = watch::channel(false);
-        Self {
-            tasks: Default::default(),
-            inner: TokioInner::new(),
-            termination_tx,
-            termination: termination_rx,
-        }
+        Self { tasks: Default::default(), inner: TokioInner::new(), termination_tx, termination: termination_rx }
     }
 }
 
@@ -127,10 +124,7 @@ impl TokioBuilder {
             termination_tx: _, // only statically spawned stages can terminate the network
         } = self;
         let inner = Arc::new(inner);
-        let handles = tasks
-            .into_iter()
-            .map(|t| rt.spawn(t(inner.clone())))
-            .collect::<Vec<_>>();
+        let handles = tasks.into_iter().map(|t| rt.spawn(t(inner.clone()))).collect::<Vec<_>>();
         inner.handles.lock().extend(handles);
 
         // abort all tasks as soon as the termination signal is received
@@ -139,10 +133,7 @@ impl TokioBuilder {
         rt.spawn(async move {
             termination2.wait_for(|x| *x).await.ok();
             let handles = inner2.handles.lock();
-            tracing::info!(
-                stages = handles.len(),
-                "termination signal received, shutting down stages"
-            );
+            tracing::info!(stages = handles.len(), "termination signal received, shutting down stages");
             for handle in handles.iter() {
                 handle.abort();
             }
@@ -173,9 +164,7 @@ struct EpochClock {
 
 impl EpochClock {
     fn new() -> Self {
-        Self {
-            offset: Mutex::new(None),
-        }
+        Self { offset: Mutex::new(None) }
     }
 }
 
@@ -211,10 +200,7 @@ impl StageGraph for TokioBuilder {
         // THIS MUST MATCH THE SIMULATION BUILDER
         let name = stage_name(&mut self.inner.stage_counter.lock(), name.as_ref());
         let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
-        self.inner
-            .senders
-            .lock()
-            .insert(name.clone(), StageOrAdapter::Stage(tx));
+        self.inner.senders.lock().insert(name.clone(), StageOrAdapter::Stage(tx));
 
         let me = StageRef::new(name.clone());
         let clock = self.inner.clock.clone();
@@ -233,11 +219,7 @@ impl StageGraph for TokioBuilder {
         });
         let network: RefAux = (rx, ff);
 
-        StageBuildRef {
-            name,
-            network: Box::new(network),
-            _ph: PhantomData,
-        }
+        StageBuildRef { name, network: Box::new(network), _ph: PhantomData }
     }
 
     #[expect(clippy::expect_used)]
@@ -247,9 +229,7 @@ impl StageGraph for TokioBuilder {
         state: St,
     ) -> StageStateRef<Msg, St> {
         let StageBuildRef { name, network, _ph } = stage;
-        let (rx, ff) = *network
-            .downcast::<RefAux>()
-            .expect("internal network type error");
+        let (rx, ff) = *network.downcast::<RefAux>().expect("internal network type error");
         let stage_name = name.clone();
         let state = Box::new(state);
         let termination_tx = self.termination_tx.clone();
@@ -272,10 +252,7 @@ impl StageGraph for TokioBuilder {
         let target = stage_ref.as_ref();
         let new_name = stage_name(&mut self.inner.stage_counter.lock(), new_name.as_ref());
         let adapter = Adapter::new(new_name.clone(), target.name().clone(), transform);
-        self.inner
-            .senders
-            .lock()
-            .insert(new_name.clone(), StageOrAdapter::Adapter(adapter));
+        self.inner.senders.lock().insert(new_name.clone(), StageOrAdapter::Adapter(adapter));
         StageRef::new(new_name)
     }
 
@@ -287,8 +264,7 @@ impl StageGraph for TokioBuilder {
         let stage = stage.as_ref();
         let mut senders = self.inner.senders.lock();
         for msg in messages {
-            if let Some((tx, msg)) =
-                find_recipient(&mut senders, stage.name().clone(), Some(Box::new(msg)))
+            if let Some((tx, msg)) = find_recipient(&mut senders, stage.name().clone(), Some(Box::new(msg)))
                 && let Err(err) = tx.try_send(msg)
             {
                 tracing::warn!("message preload failed to stage `{}`", stage.name());
@@ -379,9 +355,7 @@ async fn run_stage_boxed(
             }
 
             if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
-                tracing::debug!(
-                    "stage `{stage_name}` terminates because of an unsupervised child termination"
-                );
+                tracing::debug!("stage `{stage_name}` terminates because of an unsupervised child termination");
                 tb.lock().push_terminated_supervision(&stage_name, child);
                 break 'outer;
             }
@@ -389,15 +363,7 @@ async fn run_stage_boxed(
             inner.trace_buffer.lock().push_input(&stage_name, &msg);
 
             let f = (transition)(state, msg);
-            let result = interpreter(
-                &inner,
-                &effect,
-                &stage_name,
-                &mut timers,
-                &mut cancel_senders,
-                f,
-            )
-            .await;
+            let result = interpreter(&inner, &effect, &stage_name, &mut timers, &mut cancel_senders, f).await;
             match result {
                 Some(st) => state = st,
                 None => {
@@ -417,19 +383,14 @@ async fn run_stage_boxed(
 #[expect(clippy::expect_used, clippy::panic)]
 fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg> {
     let senders = inner.senders.lock();
-    let StageOrAdapter::Stage(tx) = senders
-        .get(stage_name)
-        .expect("stage ref contained unknown name")
-    else {
+    let StageOrAdapter::Stage(tx) = senders.get(stage_name).expect("stage ref contained unknown name") else {
         panic!("cannot obtain input for adapter");
     };
     let tx = tx.clone();
     Sender::new(Arc::new(move |msg: Msg| {
         let tx = tx.clone();
         Box::pin(async move {
-            tx.send(Box::new(msg))
-                .await
-                .map_err(|msg| *msg.0.cast::<Msg>().expect("message was just boxed"))
+            tx.send(Box::new(msg)).await.map_err(|msg| *msg.0.cast::<Msg>().expect("message was just boxed"))
         })
     }))
 }
@@ -481,9 +442,7 @@ fn interpreter(
                 }
                 StageEffect::Send(_target, Some(call), msg) => {
                     #[expect(clippy::expect_used)]
-                    let sender = call
-                        .downcast_ref::<StageRefExtra>()
-                        .expect("expected CallExtra");
+                    let sender = call.downcast_ref::<StageRefExtra>().expect("expected CallExtra");
                     if let Some(sender) = sender.lock().take() {
                         sender.send(msg).ok();
                     }
@@ -547,17 +506,9 @@ fn interpreter(
                 StageEffect::WireStage(name, transition, initial_state, tombstone) => {
                     tracing::debug!("stage `{name}` wired");
                     let (tx, rx) = mpsc::channel(inner.mailbox_size);
-                    inner
-                        .senders
-                        .lock()
-                        .insert(name.clone(), StageOrAdapter::Stage(tx));
-                    let stage = run_stage_boxed(
-                        initial_state,
-                        rx,
-                        transition.into_inner(),
-                        name.clone(),
-                        inner.clone(),
-                    );
+                    inner.senders.lock().insert(name.clone(), StageOrAdapter::Stage(tx));
+                    let stage =
+                        run_stage_boxed(initial_state, rx, transition.into_inner(), name.clone(), inner.clone());
                     let handle = tokio::spawn(stage);
                     // need to construct DropGuard before pushing into the FuturesUnordered to avoid Future being dropped
                     // before the guard is established
@@ -570,11 +521,7 @@ fn interpreter(
                     }));
                     StageResponse::Unit
                 }
-                StageEffect::Contramap {
-                    original,
-                    new_name,
-                    transform,
-                } => {
+                StageEffect::Contramap { original, new_name, transform } => {
                     tracing::debug!("contramap {original} -> {new_name}");
                     let name = stage_name(&mut inner.stage_counter.lock(), new_name.as_str());
                     inner.senders.lock().insert(
@@ -651,11 +598,7 @@ impl TokioRunning {
                     true
                 }
             });
-            if handles.is_empty() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            if handles.is_empty() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
     }

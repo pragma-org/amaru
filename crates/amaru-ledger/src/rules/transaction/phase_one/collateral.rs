@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::UtxoSlice;
-use amaru_kernel::{
-    MemoizedTransactionOutput, ProtocolParameters, TransactionInput, Value, is_locked_by_script,
-    transaction_input_to_string,
-};
 use std::{
     collections::BTreeMap,
     fmt::{self},
 };
+
+use amaru_kernel::{
+    MemoizedTransactionOutput, ProtocolParameters, TransactionInput, Value, is_locked_by_script,
+    transaction_input_to_string,
+};
 use thiserror::Error;
+
+use crate::context::UtxoSlice;
 
 /*
 * CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
@@ -53,20 +55,14 @@ impl fmt::Display for CollateralBalance {
 
 impl CollateralBalance {
     fn empty() -> Self {
-        Self {
-            coin: 0,
-            multiasset: BTreeMap::new(),
-        }
+        Self { coin: 0, multiasset: BTreeMap::new() }
     }
 
     fn sub(&mut self, other: Self) {
         self.coin -= other.coin;
 
         for (key, value) in other.multiasset {
-            self.multiasset
-                .entry(key)
-                .and_modify(|v| *v -= value)
-                .or_insert(-value);
+            self.multiasset.entry(key).and_modify(|v| *v -= value).or_insert(-value);
         }
 
         self.multiasset.retain(|_, v| *v != 0);
@@ -77,10 +73,7 @@ impl CollateralBalance {
 
         self.coin += output_balance.coin;
         for (key, value) in output_balance.multiasset {
-            self.multiasset
-                .entry(key)
-                .and_modify(|v| *v += value)
-                .or_insert(value);
+            self.multiasset.entry(key).and_modify(|v| *v += value).or_insert(value);
         }
     }
 
@@ -121,15 +114,9 @@ impl From<&Value> for CollateralBalance {
                     })
                     .collect::<BTreeMap<_, _>>();
 
-                Self {
-                    coin: *coin as i64,
-                    multiasset: map,
-                }
+                Self { coin: *coin as i64, multiasset: map }
             }
-            Value::Coin(coin) => Self {
-                coin: *coin as i64,
-                multiasset: BTreeMap::new(),
-            },
+            Value::Coin(coin) => Self { coin: *coin as i64, multiasset: BTreeMap::new() },
         }
     }
 }
@@ -172,9 +159,7 @@ pub fn execute<C>(
 where
     C: UtxoSlice,
 {
-    let collaterals = collaterals
-        .filter(|c| !c.is_empty())
-        .ok_or(InvalidCollateral::NoCollateral)?;
+    let collaterals = collaterals.filter(|c| !c.is_empty()).ok_or(InvalidCollateral::NoCollateral)?;
 
     let mut balance = CollateralBalance::empty();
 
@@ -185,9 +170,7 @@ where
     }
 
     for collateral in collaterals.iter() {
-        let output = context
-            .lookup(collateral)
-            .ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
+        let output = context.lookup(collateral).ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
 
         if is_locked_by_script(&output.address) {
             return Err(InvalidCollateral::LockedAtScriptAddress(collateral.clone()));
@@ -226,12 +209,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor};
+    use test_case::test_case;
+
     use super::InvalidCollateral;
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{
-        PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor,
-    };
-    use test_case::test_case;
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -244,13 +226,7 @@ mod tests {
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
                 PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serde::ser::SerializeStruct;
+
 use crate::{
     Hash, Legacy, MemoizedPlutusData,
     cbor::{self, IanaTag},
     size::DATUM,
 };
-use serde::ser::SerializeStruct;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoizedDatum {
@@ -45,9 +46,7 @@ impl serde::Serialize for MemoizedDatum {
 }
 
 impl<'de> serde::Deserialize<'de> for MemoizedDatum {
-    fn deserialize<D: serde::de::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<MemoizedDatum, D::Error> {
+    fn deserialize<D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<MemoizedDatum, D::Error> {
         // TODO: rename those fields eventually to something less Rust-tainted.
         #[derive(serde::Deserialize)]
         enum PlaceholderDatum {
@@ -83,10 +82,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                         cbor::decode_with(d.bytes()?, ctx)?;
                     Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
                 }
-                _ => Err(cbor::decode::Error::message(format!(
-                    "unknown datum option: {}",
-                    datum_option
-                ))),
+                _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
             }
         })
     }
@@ -96,10 +92,7 @@ impl<'b, C> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let raw = d.bytes()?;
         if raw.len() != 32 {
-            return Err(cbor::decode::Error::message(format!(
-                "expected datum hash of length 32, got {}",
-                raw.len()
-            )));
+            return Err(cbor::decode::Error::message(format!("expected datum hash of length 32, got {}", raw.len())));
         }
         Ok(Legacy(MemoizedDatum::Hash(Hash::<DATUM>::from(raw))))
     }

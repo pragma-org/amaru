@@ -12,22 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, ops::Deref};
+
+use amaru_kernel::{
+    Address, AssetName, Bytes, Certificate as PallasCertificate, ComparableProposalId, Constitution, CostModels, DRep,
+    DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, Hash, PoolVotingThresholds, Proposal, ProposalId,
+    ProtocolParamUpdate, RationalNumber, StakeCredential, StakePayload, Vote, size::CREDENTIAL,
+};
+use num::Integer;
+
 use crate::{
     PlutusDataError, ToPlutusData, constr, constr_v3,
     script_context::{
-        Certificate, CurrencySymbol, Datums, Mint, OutputRef, PlutusData, ScriptContext,
-        ScriptInfo, ScriptPurpose, StakeAddress, TransactionInput, TransactionOutput, TxInfo,
-        Value, Voter, Votes, Withdrawals,
+        Certificate, CurrencySymbol, Datums, Mint, OutputRef, PlutusData, ScriptContext, ScriptInfo, ScriptPurpose,
+        StakeAddress, TransactionInput, TransactionOutput, TxInfo, Value, Voter, Votes, Withdrawals,
     },
 };
-use amaru_kernel::{
-    Address, AssetName, Bytes, Certificate as PallasCertificate, ComparableProposalId,
-    Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction,
-    Hash, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate, RationalNumber,
-    StakeCredential, StakePayload, Vote, size::CREDENTIAL,
-};
-use num::Integer;
-use std::{collections::BTreeMap, ops::Deref};
 
 impl ToPlutusData<3> for OutputRef<'_> {
     /// Serialize an `OutputRef` as PlutusData for PlutusV3.
@@ -36,10 +36,7 @@ impl ToPlutusData<3> for OutputRef<'_> {
     /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         if let Address::Byron(_) = *self.output.address {
-            return Err(PlutusDataError::unsupported_version(
-                "byron address included in OutputRef",
-                3,
-            ));
+            return Err(PlutusDataError::unsupported_version("byron address included in OutputRef", 3));
         }
 
         constr_v3!(0, [self.input, self.output])
@@ -48,14 +45,7 @@ impl ToPlutusData<3> for OutputRef<'_> {
 
 impl ToPlutusData<3> for ScriptContext<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(
-            0,
-            [
-                self.tx_info,
-                self.redeemer,
-                self.script_purpose.to_script_info(self.datum)
-            ]
-        )
+        constr_v3!(0, [self.tx_info, self.redeemer, self.script_purpose.to_script_info(self.datum)])
     }
 }
 
@@ -166,9 +156,7 @@ impl ToPlutusData<3> for amaru_kernel::Value {
                                     .map(|(asset, amount)| {
                                         Ok((
                                             <Bytes as ToPlutusData<3>>::to_plutus_data(asset)?,
-                                            <u64 as ToPlutusData<3>>::to_plutus_data(
-                                                &amount.into(),
-                                            )?,
+                                            <u64 as ToPlutusData<3>>::to_plutus_data(&amount.into())?,
                                         ))
                                     })
                                     .collect::<Result<Vec<_>, _>>()?,
@@ -180,9 +168,7 @@ impl ToPlutusData<3> for amaru_kernel::Value {
             }
         }?;
 
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
-            entries,
-        )))
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(entries)))
     }
 }
 
@@ -238,10 +224,7 @@ impl ToPlutusData<3> for Certificate<'_> {
                 constr_v3!(3, [stake_credential, constr_v3!(1, [drep])?, deposit])
             }
             PallasCertificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
-                constr_v3!(
-                    3,
-                    [stake_credential, constr_v3!(2, [pool_id, drep])?, deposit]
-                )
+                constr_v3!(3, [stake_credential, constr_v3!(2, [pool_id, drep])?, deposit])
             }
             PallasCertificate::RegDRepCert(drep_credential, deposit, _anchor) => {
                 constr_v3!(4, [drep_credential, deposit])
@@ -299,14 +282,7 @@ impl ToPlutusData<3> for Voter {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<3> for Proposal {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(
-            0,
-            [
-                self.deposit,
-                Address::from_bytes(&self.reward_account).unwrap(),
-                self.gov_action
-            ]
-        )
+        constr_v3!(0, [self.deposit, Address::from_bytes(&self.reward_account).unwrap(), self.gov_action])
     }
 }
 
@@ -333,27 +309,18 @@ impl ToPlutusData<3> for GovernanceAction {
                 let withdrawals = withdrawals
                     .iter()
                     .map(|(reward_account, amount)| {
-                        let reward_address = if let Ok(Address::Stake(reward_address)) =
-                            Address::from_bytes(reward_account)
-                        {
-                            Ok(reward_address)
-                        } else {
-                            Err(PlutusDataError::Custom(
-                                "invalid stake address in treasury withdrawal?".into(),
-                            ))
-                        }?;
+                        let reward_address =
+                            if let Ok(Address::Stake(reward_address)) = Address::from_bytes(reward_account) {
+                                Ok(reward_address)
+                            } else {
+                                Err(PlutusDataError::Custom("invalid stake address in treasury withdrawal?".into()))
+                            }?;
 
                         Ok((reward_address, *amount))
                     })
                     .collect::<Result<Vec<(_, _)>, _>>()?;
 
-                constr_v3!(
-                    2,
-                    [
-                        pallas_codec::utils::KeyValuePairs::from(withdrawals),
-                        guardrail
-                    ]
-                )
+                constr_v3!(2, [pallas_codec::utils::KeyValuePairs::from(withdrawals), guardrail])
             }
             GovernanceAction::NoConfidence(previous_action) => {
                 constr_v3!(3, [previous_action])
@@ -391,11 +358,10 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let mut pparams = Vec::with_capacity(30);
 
-        let mut push =
-            |ix: usize, p: Result<PlutusData, PlutusDataError>| -> Result<(), PlutusDataError> {
-                pparams.push((<usize as ToPlutusData<3>>::to_plutus_data(&ix)?, p?));
-                Ok(())
-            };
+        let mut push = |ix: usize, p: Result<PlutusData, PlutusDataError>| -> Result<(), PlutusDataError> {
+            pparams.push((<usize as ToPlutusData<3>>::to_plutus_data(&ix)?, p?));
+            Ok(())
+        };
 
         if let Some(p) = self.minfee_a {
             push(0, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
@@ -455,10 +421,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
 
         // TODO: this is from Aiken, need to implement this
         if let Some(cost_models) = &self.cost_models_for_script_languages {
-            push(
-                18,
-                <CostModels as ToPlutusData<3>>::to_plutus_data(cost_models),
-            )?;
+            push(18, <CostModels as ToPlutusData<3>>::to_plutus_data(cost_models))?;
         }
 
         if let Some(ref p) = self.execution_costs {
@@ -521,9 +484,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
             push(33, p.to_plutus_data())?;
         }
 
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
-            pparams,
-        )))
+        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pparams)))
     }
 }
 
@@ -544,10 +505,7 @@ impl ToPlutusData<3> for CostModels {
 impl ToPlutusData<3> for RationalNumber {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let gcd = self.numerator.gcd(&self.denominator);
-        <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![
-            self.numerator / gcd,
-            self.denominator / gcd,
-        ])
+        <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![self.numerator / gcd, self.denominator / gcd])
     }
 }
 
@@ -645,13 +603,14 @@ impl ToPlutusData<3> for StakeAddress {
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::{NetworkName, PROTOCOL_VERSION_10, Transaction, cbor, to_cbor};
+    use test_case::test_case;
+
     use super::{
         super::test_vectors::{self, TestVector},
         *,
     };
     use crate::script_context::Redeemers;
-    use amaru_kernel::{NetworkName, PROTOCOL_VERSION_10, Transaction, cbor, to_cbor};
-    use test_case::test_case;
 
     macro_rules! fixture {
         ($title:literal) => {
@@ -676,13 +635,7 @@ mod tests {
 
         let transaction: Transaction = cbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
-        let redeemers = Redeemers::iter_from(
-            transaction
-                .witnesses
-                .redeemer
-                .as_ref()
-                .expect("no redeemers provided"),
-        );
+        let redeemers = Redeemers::iter_from(transaction.witnesses.redeemer.as_ref().expect("no redeemers provided"));
 
         let produced_contexts = redeemers
             .map(|redeemer| {
@@ -709,9 +662,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let found_match = produced_contexts
-            .iter()
-            .any(|context| context == &test_vector.expectations.script_context);
+        let found_match = produced_contexts.iter().any(|context| context == &test_vector.expectations.script_context);
 
         assert!(
             found_match,

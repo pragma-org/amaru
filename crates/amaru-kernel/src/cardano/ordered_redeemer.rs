@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AsIndex, Redeemer};
 use std::{borrow::Cow, cmp::Ordering, ops::Deref};
+
+use crate::{AsIndex, Redeemer};
 
 /// A type that provides Ord and PartialOrd instance on redeemers, to allow storing them in binary
 /// trees in a controlled order (that matches Haskell's implementation).

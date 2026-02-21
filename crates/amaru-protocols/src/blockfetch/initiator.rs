@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::VecDeque, mem, sync::Arc};
+
+use amaru_kernel::{EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock};
+use amaru_ouroboros::ConnectionId;
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+
 use crate::{
     blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
     mux::MuxMessage,
     protocol::{
-        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, StageState,
-        miniprotocol, outcome,
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, StageState, miniprotocol,
+        outcome,
     },
 };
-use amaru_kernel::{
-    EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock,
-};
-use amaru_ouroboros::ConnectionId;
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use std::{collections::VecDeque, mem, sync::Arc};
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -46,20 +46,14 @@ pub struct Blocks {
 
 impl std::fmt::Debug for Blocks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Blocks")
-            .field("blocks", &self.blocks.len())
-            .finish()
+        f.debug_struct("Blocks").field("blocks", &self.blocks.len()).finish()
     }
 }
 
 /// Message that can be sent by an internal stage to request blocks for range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
-    RequestRange {
-        from: Point,
-        through: Point,
-        cr: StageRef<Blocks>,
-    },
+    RequestRange { from: Point, through: Point, cr: StageRef<Blocks> },
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -89,14 +83,7 @@ impl BlockFetchInitiator {
     ) -> (State, Self) {
         (
             State::Idle,
-            Self {
-                muxer,
-                peer,
-                conn_id,
-                queue: VecDeque::new(),
-                blocks: Vec::new(),
-                era_history: era_history.clone(),
-            },
+            Self { muxer, peer, conn_id, queue: VecDeque::new(), blocks: Vec::new(), era_history: era_history.clone() },
         )
     }
 }
@@ -114,10 +101,7 @@ fn is_valid_block_range(
     from: Point,
     through: Point,
 ) -> bool {
-    assert!(
-        !network_blocks.is_empty(),
-        "some blocks should have been fetched from {from} to {through}"
-    );
+    assert!(!network_blocks.is_empty(), "some blocks should have been fetched from {from} to {through}");
 
     // Extract headers from all blocks
     let mut headers = Vec::with_capacity(network_blocks.len());
@@ -220,8 +204,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         match input {
             BlockFetchMessage::RequestRange { from, through, cr } => {
-                let action = (self.queue.len() < 2)
-                    .then_some(InitiatorAction::RequestRange { from, through });
+                let action = (self.queue.len() < 2).then_some(InitiatorAction::RequestRange { from, through });
                 self.queue.push_back((from, through, cr));
                 Ok((action, self))
             }
@@ -253,10 +236,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                         return eff.terminate().await;
                     }
                 } else {
-                    tracing::warn!(
-                        "received invalid block CBOR {}; terminating the connection",
-                        hex::encode(&body)
-                    );
+                    tracing::warn!("received invalid block CBOR {}; terminating the connection", hex::encode(&body));
                     return eff.terminate().await;
                 }
                 None
@@ -277,10 +257,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 self.queue.get(1)
             }
         };
-        let action = queued.map(|(from, through, _)| InitiatorAction::RequestRange {
-            from: *from,
-            through: *through,
-        });
+        let action = queued.map(|(from, through, _)| InitiatorAction::RequestRange { from: *from, through: *through });
         Ok((action, self))
     }
 
@@ -299,37 +276,25 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use Message::*;
         match (self, input) {
             (Self::Busy, StartBatch) => Ok((outcome().want_next(), Self::Streaming)),
             (Self::Busy, NoBlocks) => Ok((outcome().result(InitiatorResult::NoBlocks), Self::Idle)),
-            (Self::Streaming, Block { body }) => Ok((
-                outcome().want_next().result(InitiatorResult::Block(body)),
-                Self::Streaming,
-            )),
-            (Self::Streaming, BatchDone) => {
-                Ok((outcome().result(InitiatorResult::Done), Self::Idle))
+            (Self::Streaming, Block { body }) => {
+                Ok((outcome().want_next().result(InitiatorResult::Block(body)), Self::Streaming))
             }
+            (Self::Streaming, BatchDone) => Ok((outcome().result(InitiatorResult::Done), Self::Idle)),
             (state, msg) => anyhow::bail!("unexpected message in state {:?}: {:?}", state, msg),
         }
     }
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use InitiatorAction::*;
         match (self, input) {
-            (Self::Idle, RequestRange { from, through }) => Ok((
-                outcome()
-                    .send(Message::RequestRange { from, through })
-                    .want_next(),
-                Self::Busy,
-            )),
+            (Self::Idle, RequestRange { from, through }) => {
+                Ok((outcome().send(Message::RequestRange { from, through }).want_next(), Self::Busy))
+            }
             (Self::Idle, ClientDone) => Ok((outcome().send(Message::ClientDone), Self::Done)),
             (state, action) => {
                 anyhow::bail!("unexpected action in state {:?}: {:?}", state, action)
@@ -356,22 +321,23 @@ pub enum InitiatorAction {
 
 #[cfg(test)]
 pub mod tests {
+    use std::time::Duration;
+
+    use amaru_kernel::{
+        BlockHeader, Epoch, EraBound, EraName, EraParams, EraSummary, HeaderHash, IsHeader, Slot, any_headers_chain,
+        cbor, make_header, utils::tests::run_strategy,
+    };
+
     use super::*;
     use crate::protocol::Initiator;
-    use amaru_kernel::{
-        BlockHeader, Epoch, EraBound, EraName, EraParams, EraSummary, HeaderHash, IsHeader, Slot,
-        any_headers_chain, cbor, make_header, utils::tests::run_strategy,
-    };
-    use std::time::Duration;
 
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
     fn test_initiator_protocol() {
         crate::blockfetch::spec::<Initiator>().check(State::Idle, |msg| match msg {
-            Message::RequestRange { from, through } => Some(InitiatorAction::RequestRange {
-                from: *from,
-                through: *through,
-            }),
+            Message::RequestRange { from, through } => {
+                Some(InitiatorAction::RequestRange { from: *from, through: *through })
+            }
             Message::ClientDone => Some(InitiatorAction::ClientDone),
             _ => None,
         });
@@ -382,41 +348,23 @@ pub mod tests {
         let headers = run_strategy(any_headers_chain(1));
         let blocks = vec![make_network_block(&headers[0])];
 
-        assert!(is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            headers[0].point(),
-            headers[0].point()
-        ));
+        assert!(is_valid_block_range(&test_era_history(), &blocks, headers[0].point(), headers[0].point()));
     }
 
     #[test]
     fn test_valid_block_range_consecutive_blocks() {
         let headers = run_strategy(any_headers_chain(3));
-        let blocks = vec![
-            make_network_block(&headers[0]),
-            make_network_block(&headers[1]),
-            make_network_block(&headers[2]),
-        ];
+        let blocks =
+            vec![make_network_block(&headers[0]), make_network_block(&headers[1]), make_network_block(&headers[2])];
 
-        assert!(is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            headers[0].point(),
-            headers[2].point()
-        ));
+        assert!(is_valid_block_range(&test_era_history(), &blocks, headers[0].point(), headers[2].point()));
     }
 
     #[test]
     #[should_panic(expected = "some blocks should have been fetched")]
     fn test_empty_blocks_with_equal_range() {
         let headers = run_strategy(any_headers_chain(1));
-        is_valid_block_range(
-            &test_era_history(),
-            &[],
-            headers[0].point(),
-            headers[0].point(),
-        );
+        is_valid_block_range(&test_era_history(), &[], headers[0].point(), headers[0].point());
     }
 
     #[test]
@@ -429,19 +377,11 @@ pub mod tests {
         let block_header2 = BlockHeader::from(header2.clone());
         let point2 = block_header2.point();
 
-        let blocks = vec![
-            make_network_block(&block_header1),
-            make_network_block(&block_header2),
-        ];
+        let blocks = vec![make_network_block(&block_header1), make_network_block(&block_header2)];
 
         // Use a different 'from' point that doesn't match the first block
         let wrong_from = Point::Specific(99u64.into(), HeaderHash::from([99u8; 32]));
-        assert!(!is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            wrong_from,
-            point2
-        ));
+        assert!(!is_valid_block_range(&test_era_history(), &blocks, wrong_from, point2));
     }
 
     #[test]
@@ -454,19 +394,11 @@ pub mod tests {
         let header2 = make_header(2, 101, Some(block_header1.hash()));
         let block_header2 = BlockHeader::from(header2.clone());
 
-        let blocks = vec![
-            make_network_block(&block_header1),
-            make_network_block(&block_header2),
-        ];
+        let blocks = vec![make_network_block(&block_header1), make_network_block(&block_header2)];
 
         // Use a different 'through' point that doesn't match the last block
         let wrong_through = Point::Specific(102u64.into(), HeaderHash::from([102u8; 32]));
-        assert!(!is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            point1,
-            wrong_through
-        ));
+        assert!(!is_valid_block_range(&test_era_history(), &blocks, point1, wrong_through));
     }
 
     #[test]
@@ -480,17 +412,9 @@ pub mod tests {
         let block_header2 = BlockHeader::from(header2.clone());
         let point2 = block_header2.point();
 
-        let blocks = vec![
-            make_network_block(&block_header1),
-            make_network_block(&block_header2),
-        ];
+        let blocks = vec![make_network_block(&block_header1), make_network_block(&block_header2)];
 
-        assert!(!is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            point1,
-            point2
-        ));
+        assert!(!is_valid_block_range(&test_era_history(), &blocks, point1, point2));
     }
 
     #[test]
@@ -504,17 +428,9 @@ pub mod tests {
         let block_header2 = BlockHeader::from(header2.clone());
         let point2 = block_header2.point();
 
-        let blocks = vec![
-            make_network_block(&block_header1),
-            make_network_block(&block_header2),
-        ];
+        let blocks = vec![make_network_block(&block_header1), make_network_block(&block_header2)];
 
-        assert!(!is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            point1,
-            point2
-        ));
+        assert!(!is_valid_block_range(&test_era_history(), &blocks, point1, point2));
     }
 
     #[test]
@@ -531,17 +447,9 @@ pub mod tests {
         // Use the actual point from block_header2 so we test parent-child hash validation
         let point2 = block_header2.point();
 
-        let blocks = vec![
-            make_network_block(&block_header1),
-            make_network_block(&block_header2),
-        ];
+        let blocks = vec![make_network_block(&block_header1), make_network_block(&block_header2)];
 
-        assert!(!is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            point1,
-            point2
-        ));
+        assert!(!is_valid_block_range(&test_era_history(), &blocks, point1, point2));
     }
 
     #[test]
@@ -551,18 +459,10 @@ pub mod tests {
         let block_header1 = BlockHeader::from(header1.clone());
         let point1 = block_header1.point();
 
-        let blocks = vec![
-            make_network_block(&block_header1),
-            make_invalid_network_block(),
-        ];
+        let blocks = vec![make_network_block(&block_header1), make_invalid_network_block()];
 
         let point2 = Point::Specific(101u64.into(), HeaderHash::from([2u8; 32]));
-        assert!(!is_valid_block_range(
-            &test_era_history(),
-            &blocks,
-            point1,
-            point2
-        ));
+        assert!(!is_valid_block_range(&test_era_history(), &blocks, point1, point2));
     }
 
     // HELPERS
@@ -571,14 +471,9 @@ pub mod tests {
     pub fn test_era_history() -> Arc<EraHistory> {
         Arc::new(EraHistory::new(
             &[EraSummary {
-                start: EraBound {
-                    time: Duration::from_secs(0),
-                    slot: Slot::from(0),
-                    epoch: Epoch::from(0),
-                },
+                start: EraBound { time: Duration::from_secs(0), slot: Slot::from(0), epoch: Epoch::from(0) },
                 end: None,
-                params: EraParams::new(86400, Duration::from_secs(1), EraName::Conway)
-                    .expect("valid era params"),
+                params: EraParams::new(86400, Duration::from_secs(1), EraName::Conway).expect("valid era params"),
             }],
             Slot::from(2160 * 3),
         ))
@@ -611,9 +506,7 @@ pub mod tests {
         let era_tag = era_history.slot_to_era_tag(header.slot()).unwrap();
         encoder.encode(era_tag).expect("failed to encode tag");
         encoder.array(5).expect("failed to encode inner array");
-        encoder
-            .encode(header.header())
-            .expect("failed to encode header");
+        encoder.encode(header.header()).expect("failed to encode header");
         encoder.array(0).expect("failed to encode tx bodies");
         encoder.array(0).expect("failed to encode witnesses");
         encoder.null().expect("failed to encode auxiliary data");

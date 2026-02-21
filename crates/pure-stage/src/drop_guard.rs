@@ -28,10 +28,7 @@ where
 
 impl<T, F: FnOnce(T)> DropGuard<T, F> {
     pub const fn new(inner: T, f: F) -> Self {
-        Self {
-            inner: ManuallyDrop::new(inner),
-            f: ManuallyDrop::new(f),
-        }
+        Self { inner: ManuallyDrop::new(inner), f: ManuallyDrop::new(f) }
     }
 
     pub fn into_inner(guard: Self) -> T {

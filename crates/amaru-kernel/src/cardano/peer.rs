@@ -15,9 +15,7 @@
 use std::{fmt::Display, net::SocketAddr};
 
 /// A single peer in the network, with a unique identifier.
-#[derive(
-    Debug, PartialEq, Eq, Hash, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Peer {
     pub name: String,
 }
@@ -30,14 +28,10 @@ impl Display for Peer {
 
 impl Peer {
     pub fn new(name: &str) -> Peer {
-        Peer {
-            name: name.to_string(),
-        }
+        Peer { name: name.to_string() }
     }
 
     pub fn from_addr(addr: &SocketAddr) -> Peer {
-        Peer {
-            name: addr.to_string(),
-        }
+        Peer { name: addr.to_string() }
     }
 }

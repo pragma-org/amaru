@@ -29,9 +29,7 @@ impl Bytes {
 
 impl fmt::Debug for Bytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Bytes")
-            .field("bytes", &hex::encode(&self.bytes))
-            .finish()
+        f.debug_struct("Bytes").field("bytes", &hex::encode(&self.bytes)).finish()
     }
 }
 
@@ -63,9 +61,7 @@ impl TryFrom<&str> for Bytes {
     type Error = hex::FromHexError;
 
     fn try_from(hex_string: &str) -> Result<Self, Self::Error> {
-        Ok(Bytes {
-            bytes: hex::decode(hex_string)?,
-        })
+        Ok(Bytes { bytes: hex::decode(hex_string)? })
     }
 }
 

@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    Hash, MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript,
-    ScriptPurpose, TransactionId, TransactionPointer, size::SCRIPT,
+    Hash, MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptPurpose, TransactionId,
+    TransactionPointer, size::SCRIPT,
 };
+
+use crate::context::{ProposalsSlice, WitnessSlice};
 
 pub(crate) fn execute<C>(
     context: &mut C,
@@ -35,14 +36,8 @@ pub(crate) fn execute<C>(
             });
         }
 
-        let pointer = ProposalPointer {
-            transaction: transaction.1,
-            proposal_index,
-        };
-        let id = ProposalId {
-            transaction_id: transaction.0,
-            action_index: proposal_index as u32,
-        };
+        let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
+        let id = ProposalId { transaction_id: transaction.0, action_index: proposal_index as u32 };
         context.acknowledge(id, pointer, proposal)
     }
 }
@@ -65,13 +60,13 @@ fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{
-        Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json,
-    };
-    use amaru_tracing_json::assert_trace;
     use std::mem;
+
+    use amaru_kernel::{Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json};
+    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
+
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
 
     macro_rules! fixture {
         ($hash:literal, $pointer:expr) => {
@@ -85,21 +80,9 @@ mod tests {
         ($hash:literal, $variant:literal, $pointer:expr) => {
             (
                 fixture_context!($hash, $variant),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
                 $pointer,
-                include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/expected.traces"
-                )),
+                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
             )
         };
     }
@@ -118,13 +101,7 @@ mod tests {
         ),
     ) {
         assert_trace(
-            || {
-                super::execute(
-                    &mut ctx,
-                    (tx.id(), tx_pointer),
-                    mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
-                )
-            },
+            || super::execute(&mut ctx, (tx.id(), tx_pointer), mem::take(&mut tx.proposals).map(|xs| xs.to_vec())),
             expected_traces,
         )
     }

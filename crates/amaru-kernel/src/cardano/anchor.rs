@@ -13,15 +13,15 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::Anchor;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose, string};
+
     use super::Anchor;
     use crate::Hash;
-    use proptest::{prelude::*, prop_compose, string};
 
     prop_compose! {
         pub fn any_anchor()(

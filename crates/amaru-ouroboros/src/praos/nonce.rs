@@ -20,9 +20,7 @@ use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hasher, IsHeader, Nonce};
 /// Return `None` if header has no parent (i.e. which never happens because all our blocks have
 /// parents in Amaru).
 pub fn from_candidate<H: IsHeader>(header: &H, candidate: &Nonce) -> Option<Nonce> {
-    Some(Hasher::<256>::hash(
-        &[&candidate[..], &header.parent()?[..]].concat(),
-    ))
+    Some(Hasher::<256>::hash(&[&candidate[..], &header.parent()?[..]].concat()))
 }
 
 /// Evolve the current nonce by combining it with the current rolling nonce and the
@@ -33,11 +31,7 @@ pub fn from_candidate<H: IsHeader>(header: &H, candidate: &Nonce) -> Option<Nonc
 /// blake2b-256 hash.
 pub fn evolve<H: IsHeader>(header: &H, current: &Nonce) -> Nonce {
     Hasher::<256>::hash(
-        &[
-            &current[..],
-            &Hasher::<256>::hash(header.extended_vrf_nonce_output().as_slice())[..],
-        ]
-        .concat(),
+        &[&current[..], &Hasher::<256>::hash(header.extended_vrf_nonce_output().as_slice())[..]].concat(),
     )
 }
 
@@ -56,8 +50,7 @@ pub fn randomness_stability_window<H: IsHeader>(
 
     let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch, &tip)?;
 
-    let is_within_stability_window =
-        slot.as_u64() + randomness_stabilization_window < next_epoch_first_slot.as_u64();
+    let is_within_stability_window = slot.as_u64() + randomness_stabilization_window < next_epoch_first_slot.as_u64();
 
     Ok((epoch, is_within_stability_window))
 }

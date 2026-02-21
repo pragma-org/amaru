@@ -13,9 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::HashMap, mem::replace, sync::Arc};
+
 use anyhow::{Context as _, ensure};
 use cbor4ii::serde::from_slice;
-use std::{collections::HashMap, mem::replace, sync::Arc};
+use parking_lot::Mutex;
 
 use crate::{
     Effect, Instant, Name, SendData,
@@ -29,7 +31,6 @@ use crate::{
     time::EPOCH,
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use parking_lot::Mutex;
 
 /// A replay of a simulation.
 ///
@@ -82,13 +83,9 @@ impl Replay {
                         expected
                     );
                 }
-                TraceEntry::Resume {
-                    stage, response, ..
-                } => {
-                    let data = self
-                        .stages
-                        .get_mut(&stage)
-                        .context(format!("idx {}: stage {} not found", idx, stage))?;
+                TraceEntry::Resume { stage, response, .. } => {
+                    let data =
+                        self.stages.get_mut(&stage).context(format!("idx {}: stage {} not found", idx, stage))?;
 
                     let remaining = trace.as_slice().len();
                     self.trace_buffer.lock().set_fetch_replay(trace);
@@ -114,19 +111,15 @@ impl Replay {
                     // is the deserialized version, i.e. generic encoding;
                     // so we need to produce the generic encoding here; unfortunately, there
                     // is no direct serialization to cbor4ii `Value`, so (de)serialize
-                    let effect: Effect =
-                        from_slice(&to_cbor(&effect)).expect("internal replay error");
-                    self.pending_suspend
-                        .insert(effect.at_stage().clone(), effect);
+                    let effect: Effect = from_slice(&to_cbor(&effect)).expect("internal replay error");
+                    self.pending_suspend.insert(effect.at_stage().clone(), effect);
                 }
                 TraceEntry::Clock(instant) => {
                     self.clock = instant;
                 }
                 TraceEntry::Input { stage, input } => {
-                    let data = self
-                        .stages
-                        .get_mut(&stage)
-                        .context(format!("idx {}: stage {} not found", idx, stage))?;
+                    let data =
+                        self.stages.get_mut(&stage).context(format!("idx {}: stage {} not found", idx, stage))?;
                     match &mut data.state {
                         StageState::Idle(state) => {
                             let state = replace(state, Box::new(()));
@@ -136,10 +129,8 @@ impl Replay {
                     }
                 }
                 TraceEntry::State { stage, state } => {
-                    let data = self
-                        .stages
-                        .get_mut(&stage)
-                        .context(format!("idx {}: stage {} not found", idx, stage))?;
+                    let data =
+                        self.stages.get_mut(&stage).context(format!("idx {}: stage {} not found", idx, stage))?;
                     match &data.state {
                         StageState::Idle(s) => {
                             let state = s.deserialize_value(&*state)?;
@@ -153,18 +144,22 @@ impl Replay {
                             );
                             self.latest_state.insert(stage, state);
                         }
-                        StageState::Running(_) => anyhow::bail!(
-                            "idx {}: stage {} is running while it should be in state {:?}",
-                            idx,
-                            stage,
-                            &*state
-                        ),
-                        StageState::Terminating => anyhow::bail!(
-                            "idx {}: stage {} is terminating while it should be in state {:?}",
-                            idx,
-                            stage,
-                            &*state
-                        ),
+                        StageState::Running(_) => {
+                            anyhow::bail!(
+                                "idx {}: stage {} is running while it should be in state {:?}",
+                                idx,
+                                stage,
+                                &*state
+                            )
+                        }
+                        StageState::Terminating => {
+                            anyhow::bail!(
+                                "idx {}: stage {} is terminating while it should be in state {:?}",
+                                idx,
+                                stage,
+                                &*state
+                            )
+                        }
                     }
                 }
                 TraceEntry::Terminated { stage, reason: _ } => {
@@ -185,17 +180,11 @@ impl Replay {
     }
 
     pub fn is_running(&self, stage: &Name) -> bool {
-        matches!(
-            self.stages.get(stage).unwrap().state,
-            StageState::Running(_)
-        )
+        matches!(self.stages.get(stage).unwrap().state, StageState::Running(_))
     }
 
     pub fn is_terminating(&self, stage: &Name) -> bool {
-        matches!(
-            self.stages.get(stage).unwrap().state,
-            StageState::Terminating
-        )
+        matches!(self.stages.get(stage).unwrap().state, StageState::Terminating)
     }
 
     pub fn is_idle(&self, stage: &Name) -> bool {

@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, fmt};
+
+use amaru_kernel::{NetworkMagic, cbor};
+
 use crate::protocol_messages::{
     version_data::{PEER_SHARING_DISABLED, VersionData},
     version_number::VersionNumber,
 };
-use amaru_kernel::{NetworkMagic, cbor};
-use std::{collections::BTreeMap, fmt};
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct VersionTable<T>
@@ -29,30 +31,16 @@ where
 
 impl VersionTable<VersionData> {
     pub fn empty() -> VersionTable<VersionData> {
-        VersionTable {
-            values: BTreeMap::new(),
-        }
+        VersionTable { values: BTreeMap::new() }
     }
 
     pub fn query(network_magic: NetworkMagic) -> VersionTable<VersionData> {
         VersionTable {
             values: vec![
-                (
-                    VersionNumber::V11,
-                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
-                ),
-                (
-                    VersionNumber::V12,
-                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
-                ),
-                (
-                    VersionNumber::V13,
-                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
-                ),
-                (
-                    VersionNumber::V14,
-                    VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true),
-                ),
+                (VersionNumber::V11, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
+                (VersionNumber::V12, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
+                (VersionNumber::V13, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
+                (VersionNumber::V14, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
             ]
             .into_iter()
             .collect::<BTreeMap<VersionNumber, VersionData>>(),
@@ -66,39 +54,19 @@ impl VersionTable<VersionData> {
         let values = vec![
             (
                 VersionNumber::V11,
-                VersionData::new(
-                    network_magic,
-                    initiator_only_diffusion_mode,
-                    PEER_SHARING_DISABLED,
-                    false,
-                ),
+                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
             ),
             (
                 VersionNumber::V12,
-                VersionData::new(
-                    network_magic,
-                    initiator_only_diffusion_mode,
-                    PEER_SHARING_DISABLED,
-                    false,
-                ),
+                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
             ),
             (
                 VersionNumber::V13,
-                VersionData::new(
-                    network_magic,
-                    initiator_only_diffusion_mode,
-                    PEER_SHARING_DISABLED,
-                    false,
-                ),
+                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
             ),
             (
                 VersionNumber::V14,
-                VersionData::new(
-                    network_magic,
-                    initiator_only_diffusion_mode,
-                    PEER_SHARING_DISABLED,
-                    false,
-                ),
+                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
             ),
         ]
         .into_iter()
@@ -134,9 +102,7 @@ where
     T: fmt::Debug + Clone + cbor::Decode<'b, VersionNumber>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
-        let len = d.map()?.ok_or(cbor::decode::Error::message(
-            "expected def-length map for versiontable",
-        ))?;
+        let len = d.map()?.ok_or(cbor::decode::Error::message("expected def-length map for versiontable"))?;
         let mut values = BTreeMap::new();
 
         for _ in 0..len {
@@ -151,13 +117,14 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use amaru_kernel::prop_cbor_roundtrip;
+    use proptest::prop_compose;
+
     use super::*;
     use crate::protocol_messages::{
         version_data::{VersionData, tests::any_version_data},
         version_number::tests::any_version_number,
     };
-    use amaru_kernel::prop_cbor_roundtrip;
-    use proptest::prop_compose;
 
     prop_cbor_roundtrip!(VersionTable<VersionData>, any_version_table());
 

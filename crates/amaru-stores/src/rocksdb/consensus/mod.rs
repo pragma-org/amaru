@@ -12,23 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fs, path::PathBuf};
+
+use amaru_kernel::{
+    BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER, to_cbor,
+};
+use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
+use tracing::{Level, instrument};
+
 use crate::rocksdb::{
     RocksDbConfig,
     consensus::util::{
-        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
-        CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
+        HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
     },
 };
-use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor,
-    size::HEADER, to_cbor,
-};
-use amaru_ouroboros_traits::{
-    ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError,
-};
-use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
-use std::{fs, path::PathBuf};
-use tracing::{Level, instrument};
 
 pub mod migration;
 pub mod util;
@@ -71,10 +70,7 @@ impl RocksDBStore {
             && entries.count() > 0
         {
             return Err(StoreError::OpenError {
-                error: format!(
-                    "Cannot create RocksDB at {}, directory is not empty",
-                    basedir.display()
-                ),
+                error: format!("Cannot create RocksDB at {}, directory is not empty", basedir.display()),
             });
         }
 
@@ -100,9 +96,7 @@ impl RocksDBStore {
         let basedir = config.dir.clone();
         let opts: Options = config.into();
         DB::open_for_read_only(&opts, basedir, false)
-            .map_err(|e| StoreError::OpenError {
-                error: e.to_string(),
-            })
+            .map_err(|e| StoreError::OpenError { error: e.to_string() })
             .map(|db| ReadOnlyChainDB { db })
     }
 
@@ -121,9 +115,7 @@ impl RocksDBStore {
         let tx = self.db.transaction();
         match f(&tx) {
             Ok(result) => {
-                tx.commit().map_err(|e| StoreError::WriteError {
-                    error: e.to_string(),
-                })?;
+                tx.commit().map_err(|e| StoreError::WriteError { error: e.to_string() })?;
                 Ok(result)
             }
             Err(err) => Err(err),
@@ -131,18 +123,10 @@ impl RocksDBStore {
     }
 }
 
-pub(crate) fn store_chain_point(
-    db: &OptimisticTransactionDB,
-    point: &Point,
-) -> Result<(), StoreError> {
+pub(crate) fn store_chain_point(db: &OptimisticTransactionDB, point: &Point) -> Result<(), StoreError> {
     let slot = u64::from(point.slot_or_default()).to_be_bytes();
-    db.put(
-        [&CHAIN_PREFIX[..], &slot[..]].concat(),
-        point.hash().as_ref(),
-    )
-    .map_err(|e| StoreError::WriteError {
-        error: e.to_string(),
-    })
+    db.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
+        .map_err(|e| StoreError::WriteError { error: e.to_string() })
 }
 
 macro_rules! impl_ReadOnlyChainStore {
@@ -278,52 +262,38 @@ impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
 impl DiagnosticChainStore for ReadOnlyChainDB {
     #[allow(clippy::panic)]
     fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
-        Box::new(
-            self.db
-                .prefix_iterator(HEADER_PREFIX)
-                .filter_map(|item| match item {
-                    Ok((_k, v)) => from_cbor(v.as_ref()),
-                    Err(err) => panic!("error iterating over headers: {}", err),
-                }),
-        )
+        Box::new(self.db.prefix_iterator(HEADER_PREFIX).filter_map(|item| match item {
+            Ok((_k, v)) => from_cbor(v.as_ref()),
+            Err(err) => panic!("error iterating over headers: {}", err),
+        }))
     }
 
     #[allow(clippy::panic)]
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
-        Box::new(
-            self.db
-                .prefix_iterator(NONCES_PREFIX)
-                .filter_map(|item| match item {
-                    Ok((k, v)) => {
-                        let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
-                        from_cbor(&v).map(|nonces| (hash, nonces))
-                    }
-                    Err(err) => panic!("error iterating over nonces: {}", err),
-                }),
-        )
+        Box::new(self.db.prefix_iterator(NONCES_PREFIX).filter_map(|item| match item {
+            Ok((k, v)) => {
+                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                from_cbor(&v).map(|nonces| (hash, nonces))
+            }
+            Err(err) => panic!("error iterating over nonces: {}", err),
+        }))
     }
 
     #[allow(clippy::panic)]
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
         let mut opts = ReadOptions::default();
         opts.set_iterate_range(PrefixRange(&BLOCK_PREFIX[..]));
-        Box::new(
-            self.db
-                .iterator_opt(IteratorMode::Start, opts)
-                .map(|item| match item {
-                    Ok((k, v)) => {
-                        let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
-                        (hash, RawBlock::from(v))
-                    }
-                    Err(err) => panic!("error iterating over blocks: {}", err),
-                }),
-        )
+        Box::new(self.db.iterator_opt(IteratorMode::Start, opts).map(|item| match item {
+            Ok((k, v)) => {
+                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                (hash, RawBlock::from(v))
+            }
+            Err(err) => panic!("error iterating over blocks: {}", err),
+        }))
     }
 
     #[allow(clippy::expect_used)]
-    fn load_parents_children(
-        &self,
-    ) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
+    fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
         let mut groups: Vec<(HeaderHash, Vec<HeaderHash>)> = Vec::new();
         let mut current_parent: Option<HeaderHash> = None;
         let mut current_children: Vec<HeaderHash> = Vec::new();
@@ -383,25 +353,17 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         let tx = self.db.transaction();
         if let Some(parent) = header.parent() {
             tx.put([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat(), [])
-                .map_err(|e| StoreError::WriteError {
-                    error: e.to_string(),
-                })?;
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
         };
         tx.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header))
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })?;
-        tx.commit().map_err(|e| StoreError::WriteError {
-            error: e.to_string(),
-        })
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        tx.commit().map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.db
             .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     #[instrument(level = Level::TRACE,
@@ -411,25 +373,15 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.db
-            .put(ANCHOR_PREFIX, hash.as_ref())
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })
+        self.db.put(ANCHOR_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.db
-            .put(BEST_CHAIN_PREFIX, hash.as_ref())
-            .map_err(|e| StoreError::WriteError {
-                error: e.to_string(),
-            })
+        self.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     #[instrument(level = Level::TRACE,
@@ -449,10 +401,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
             return Err(StoreError::ReadError {
-                error: format!(
-                    "Cannot roll back chain to point {:?} as it does not exist on the best chain",
-                    point
-                ),
+                error: format!("Cannot roll back chain to point {:?} as it does not exist on the best chain", point),
             });
         };
 
@@ -468,15 +417,11 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             for kv in tx.iterator_opt(mode, opts) {
                 match kv {
                     Ok((k, _v)) => {
-                        tx.delete(k).map_err(|e| StoreError::WriteError {
-                            error: e.to_string(),
-                        })?;
+                        tx.delete(k).map_err(|e| StoreError::WriteError { error: e.to_string() })?;
                         count += 1;
                     }
                     Err(e) => {
-                        return Err(StoreError::ReadError {
-                            error: e.to_string(),
-                        });
+                        return Err(StoreError::ReadError { error: e.to_string() });
                     }
                 }
             }
@@ -488,18 +433,17 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-    use crate::rocksdb::consensus::{migration::migrate_db_path, util::CHAIN_DB_VERSION};
+    use std::{collections::BTreeMap, fs, io, path::Path, sync::Arc};
+
     use amaru_kernel::{
-        BlockHeader, Nonce, ORIGIN_HASH, any_header_hash, any_header_with_parent,
-        any_headers_chain, make_header,
+        BlockHeader, Nonce, ORIGIN_HASH, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
         utils::tests::{random_bytes, run_strategy},
     };
-    use amaru_ouroboros_traits::{
-        ChainStore, DiagnosticChainStore, in_memory_consensus_store::InMemConsensusStore,
-    };
+    use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, in_memory_consensus_store::InMemConsensusStore};
     use rocksdb::Direction;
-    use std::{collections::BTreeMap, fs, io, path::Path, sync::Arc};
+
+    use super::*;
+    use crate::rocksdb::consensus::{migration::migrate_db_path, util::CHAIN_DB_VERSION};
 
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
@@ -600,11 +544,7 @@ pub mod test {
         with_db_path(|(db, path)| {
             let mut headers: Vec<BlockHeader> = vec![];
             for i in 0..10usize {
-                let parent = if i == 0 {
-                    None
-                } else {
-                    Some(headers[i - 1].hash())
-                };
+                let parent = if i == 0 { None } else { Some(headers[i - 1].hash()) };
                 let header = make_header(i as u64, i as u64 * 10, parent).into();
                 db.store_header(&header).unwrap();
                 headers.push(header);
@@ -635,10 +575,7 @@ pub mod test {
 
             for header in &chain {
                 if let Some(parent) = header.parent() {
-                    expected
-                        .entry(parent)
-                        .or_insert_with(Vec::new)
-                        .push(header.hash());
+                    expected.entry(parent).or_insert_with(Vec::new).push(header.hash());
                 }
                 db.store_header(header).unwrap();
             }
@@ -714,10 +651,7 @@ pub mod test {
             db.set_anchor_hash(&chain[4].hash()).unwrap();
             db.set_best_chain_hash(&chain[14].hash()).unwrap();
             let result = db.retrieve_best_chain();
-            assert_eq!(
-                result,
-                chain[4..].iter().map(|h| h.hash()).collect::<Vec<_>>()
-            );
+            assert_eq!(result, chain[4..].iter().map(|h| h.hash()).collect::<Vec<_>>());
         })
     }
 
@@ -727,14 +661,9 @@ pub mod test {
             let chain = populate_db(store.clone());
             let new_tip = run_strategy(any_header_with_parent(chain[9].hash()));
 
-            store
-                .roll_forward_chain(&new_tip.point())
-                .expect("should roll forward successfully");
+            store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
 
-            assert_eq!(
-                store.load_from_best_chain(&new_tip.point()),
-                Some(new_tip.hash())
-            );
+            assert_eq!(store.load_from_best_chain(&new_tip.point()), Some(new_tip.hash()));
         });
     }
 
@@ -743,15 +672,10 @@ pub mod test {
         with_db(|store| {
             let chain = populate_db(store.clone());
 
-            store
-                .rollback_chain(&chain[5].point())
-                .expect("should rollback successfully");
+            store.rollback_chain(&chain[5].point()).expect("should rollback successfully");
 
             assert_eq!(store.load_from_best_chain(&chain[9].point()), None);
-            assert_eq!(
-                store.load_from_best_chain(&chain[5].point()),
-                Some(chain[5].hash())
-            );
+            assert_eq!(store.load_from_best_chain(&chain[5].point()), Some(chain[5].hash()));
         });
     }
 
@@ -760,9 +684,7 @@ pub mod test {
         with_db(|store| {
             let chain = populate_db(store.clone());
 
-            let result = store
-                .next_best_chain(&chain[5].point())
-                .expect("should find successor");
+            let result = store.next_best_chain(&chain[5].point()).expect("should find successor");
 
             assert_eq!(result, chain[6].point());
         });
@@ -773,9 +695,7 @@ pub mod test {
         with_db(|store| {
             let chain = populate_db(store.clone());
 
-            let result = store
-                .next_best_chain(&Point::Origin)
-                .expect("should find successor");
+            let result = store.next_best_chain(&Point::Origin).expect("should find successor");
 
             assert_eq!(result, chain[0].point());
         });
@@ -878,8 +798,7 @@ pub mod test {
         let path = tempdir.path();
         let basedir = init_dir(path);
 
-        let store = RocksDBStore::create(RocksDbConfig::new(basedir))
-            .expect("should create DB successfully");
+        let store = RocksDBStore::create(RocksDbConfig::new(basedir)).expect("should create DB successfully");
         let version = get_version(&store.db).expect("should read version successfully");
 
         assert_eq!(version, CHAIN_DB_VERSION);
@@ -899,13 +818,7 @@ pub mod test {
         migrate_to_v1(&db).expect("Migration should succeed");
 
         let header: Option<BlockHeader> = db
-            .get_pinned(
-                [
-                    &HEADER_PREFIX[..],
-                    hex::decode(SAMPLE_HASH).unwrap().as_slice(),
-                ]
-                .concat(),
-            )
+            .get_pinned([&HEADER_PREFIX[..], hex::decode(SAMPLE_HASH).unwrap().as_slice()].concat())
             .ok()
             .and_then(|bytes| from_cbor(bytes?.as_ref()));
 
@@ -926,14 +839,12 @@ pub mod test {
 
         let result = migrate_db_path(target).expect("Migration should succeed");
 
-        let db = RocksDBStore::open(&config)
-            .expect("DB should successfully be opened as it's been migrated");
+        let db = RocksDBStore::open(&config).expect("DB should successfully be opened as it's been migrated");
         assert_eq!((1, 2), result);
-        let header: Option<HeaderHash> =
-            <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
-                &db,
-                &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
-            );
+        let header: Option<HeaderHash> = <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
+            &db,
+            &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
+        );
         assert!(header.is_some(), "Sample data should be preserved");
     }
 
@@ -980,8 +891,7 @@ pub mod test {
         for slot in 1..10 {
             let prefix = [&CHAIN_PREFIX[..], &(slot as u64).to_be_bytes()[..]].concat();
             let header_hash = run_strategy(any_header_hash());
-            db.put(&prefix, header_hash)
-                .expect("should put data successfully");
+            db.put(&prefix, header_hash).expect("should put data successfully");
         }
         // iterate over chain from 4 to 8
         let slot4 = 4u64.to_be_bytes();
@@ -1004,20 +914,12 @@ pub mod test {
         }
 
         // we can delete keys the iterator has seen and not seen
-        db.delete([&CHAIN_PREFIX[..], &slot6].concat())
-            .expect("should delete data successfully");
-        db.delete([&CHAIN_PREFIX[..], &slot7].concat())
-            .expect("should delete data successfully");
+        db.delete([&CHAIN_PREFIX[..], &slot6].concat()).expect("should delete data successfully");
+        db.delete([&CHAIN_PREFIX[..], &slot7].concat()).expect("should delete data successfully");
 
         // iterator continues from where it left off, skipping deleted keys
-        assert_eq!(
-            *(iter.next().unwrap().unwrap().0),
-            [&CHAIN_PREFIX[..], &slot8].concat()
-        );
-        assert_eq!(
-            *(iter.next().unwrap().unwrap().0),
-            [&CHAIN_PREFIX[..], &slot9].concat()
-        );
+        assert_eq!(*(iter.next().unwrap().unwrap().0), [&CHAIN_PREFIX[..], &slot8].concat());
+        assert_eq!(*(iter.next().unwrap().unwrap().0), [&CHAIN_PREFIX[..], &slot9].concat());
     }
 
     // HELPERS
@@ -1028,20 +930,12 @@ pub mod test {
         let chain = run_strategy(any_headers_chain(10));
 
         // Set the anchor to the first header in the chain
-        store
-            .set_anchor_hash(&chain[0].hash())
-            .expect("should set anchor hash successfully");
+        store.set_anchor_hash(&chain[0].hash()).expect("should set anchor hash successfully");
 
         for header in chain.iter() {
-            store
-                .set_best_chain_hash(&header.hash())
-                .expect("should set best chain hash successfully");
-            store
-                .roll_forward_chain(&header.point())
-                .expect("should roll forward successfully");
-            store
-                .store_header(header)
-                .expect("should store header successfully");
+            store.set_best_chain_hash(&header.hash()).expect("should set best chain hash successfully");
+            store.roll_forward_chain(&header.point()).expect("should roll forward successfully");
+            store.store_header(header).expect("should store header successfully");
         }
         chain
     }
@@ -1078,8 +972,7 @@ pub mod test {
         for header in &chain {
             let block = RawBlock::from(random_bytes(32).as_slice());
             db.store_header(header).unwrap();
-            <RocksDBStore as ChainStore<BlockHeader>>::store_block(&db, &header.hash(), &block)
-                .unwrap();
+            <RocksDBStore as ChainStore<BlockHeader>>::store_block(&db, &header.hash(), &block).unwrap();
             let nonces = Nonces {
                 active: Nonce::from(random_bytes(32).as_slice()),
                 evolving: Nonce::from(random_bytes(32).as_slice()),
@@ -1087,37 +980,30 @@ pub mod test {
                 tail: header.parent().unwrap_or(ORIGIN_HASH),
                 epoch: Default::default(),
             };
-            <RocksDBStore as ChainStore<BlockHeader>>::put_nonces(&db, &header.hash(), &nonces)
-                .unwrap();
+            <RocksDBStore as ChainStore<BlockHeader>>::put_nonces(&db, &header.hash(), &nonces).unwrap();
         }
         <RocksDBStore as ChainStore<BlockHeader>>::set_anchor_hash(&db, &chain[1].hash()).unwrap();
-        <RocksDBStore as ChainStore<BlockHeader>>::set_best_chain_hash(&db, &chain[9].hash())
-            .unwrap();
+        <RocksDBStore as ChainStore<BlockHeader>>::set_best_chain_hash(&db, &chain[9].hash()).unwrap();
     }
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
         // try first with in-memory store
-        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> =
-            Arc::new(InMemConsensusStore::new());
+        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
         f(in_memory_store);
 
         // then with rocksdb store
         let tempdir = tempfile::tempdir().unwrap();
-        let rw_store: Arc<dyn ChainStore<BlockHeader>> =
-            Arc::new(initialise_test_rw_store(tempdir.path()));
+        let rw_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(initialise_test_rw_store(tempdir.path()));
         f(rw_store);
     }
 
     fn with_db_path(f: impl Fn((Arc<dyn ChainStore<BlockHeader>>, &Path))) {
         let tempdir = tempfile::tempdir().unwrap();
-        let rw_store: Arc<dyn ChainStore<BlockHeader>> =
-            Arc::new(initialise_test_rw_store(tempdir.path()));
+        let rw_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(initialise_test_rw_store(tempdir.path()));
         f((rw_store, tempdir.path()));
     }
 
-    fn sort_entries(
-        mut v: Vec<(HeaderHash, Vec<HeaderHash>)>,
-    ) -> Vec<(HeaderHash, Vec<HeaderHash>)> {
+    fn sort_entries(mut v: Vec<(HeaderHash, Vec<HeaderHash>)>) -> Vec<(HeaderHash, Vec<HeaderHash>)> {
         v.sort_by_key(|(k, _)| *k);
         for (_, children) in &mut v {
             children.sort();
@@ -1128,10 +1014,7 @@ pub mod test {
     // from https://nick.groenen.me/notes/recursively-copy-files-in-rust/
     // NOTE: the stored database is only valid for Unix (Linux/MacOS) systems, so
     // any test relying on it should be guarded for not running on windows
-    pub fn copy_recursively(
-        source: impl AsRef<Path>,
-        destination: impl AsRef<Path>,
-    ) -> io::Result<()> {
+    pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> io::Result<()> {
         fs::create_dir_all(&destination)?;
         for entry in fs::read_dir(source)? {
             let entry = entry?;

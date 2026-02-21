@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{simulator::Envelope, sync::ChainSyncMessage};
 use futures_util::SinkExt;
 use tokio::io::{Stdout, stdout};
 use tokio_util::codec::{FramedWrite, LinesCodec};
+
+use crate::{simulator::Envelope, sync::ChainSyncMessage};
 
 pub struct OutputWriter {
     pub writer: FramedWrite<Stdout, LinesCodec>,

@@ -14,9 +14,7 @@
 
 use amaru_kernel::cbor;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct VersionNumber(u64);
 
 impl From<u64> for VersionNumber {
@@ -74,12 +72,13 @@ impl<'b, C> cbor::Decode<'b, C> for VersionNumber {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::protocol_messages::version_number::VersionNumber;
     use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{
         prelude::{Just, Strategy},
         prop_oneof,
     };
+
+    use crate::protocol_messages::version_number::VersionNumber;
 
     prop_cbor_roundtrip!(VersionNumber, any_version_number());
 

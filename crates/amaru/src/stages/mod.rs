@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::{
-    build_stage_graph::build_stage_graph,
-    consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
+use std::{
+    fmt::{Debug, Display},
+    path::PathBuf,
+    sync::Arc,
 };
+
 use amaru_consensus::{
-    effects::{
-        ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderValidation,
-        ResourceMeter,
-    },
+    effects::{ResourceBlockValidation, ResourceForwardEventListener, ResourceHeaderValidation, ResourceMeter},
     errors::ConsensusError,
     headers_tree::HeadersTreeState,
     stages::{
@@ -30,8 +29,8 @@ use amaru_consensus::{
     },
 };
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader,
-    NetworkMagic, NetworkName, ORIGIN_HASH, Peer, Point, Tip, Transaction,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader, NetworkMagic, NetworkName,
+    ORIGIN_HASH, Peer, Point, Tip, Transaction,
 };
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_mempool::InMemoryMempool;
@@ -57,13 +56,13 @@ use pure_stage::{
     StageGraph,
     tokio::{TokioBuilder, TokioRunning},
 };
-use std::{
-    fmt::{Debug, Display},
-    path::PathBuf,
-    sync::Arc,
-};
 use tokio::runtime::Handle;
 use tracing::info;
+
+use crate::stages::{
+    build_stage_graph::build_stage_graph,
+    consensus::forward_chain::{tcp_forward_chain_server::TcpForwardChainServer, to_pallas_tip},
+};
 
 pub mod build_stage_graph;
 pub mod consensus;
@@ -152,9 +151,7 @@ impl std::str::FromStr for MaxExtraLedgerSnapshots {
             "all" => Ok(Self::All),
             _ => match s.parse() {
                 Ok(e) => Ok(Self::UpTo(e)),
-                Err(e) => Err(format!(
-                    "invalid max ledger snapshot, cannot parse value: {e}"
-                )),
+                Err(e) => Err(format!("invalid max ledger snapshot, cannot parse value: {e}")),
             },
         }
     }
@@ -189,28 +186,15 @@ pub async fn build_and_run_network(
     );
 
     let chain_store = make_chain_store(&config, &tip.hash())?;
-    let our_tip = chain_store
-        .load_header(&tip.hash())
-        .map(|h| h.tip())
-        .unwrap_or(Tip::origin());
+    let our_tip = chain_store.load_header(&tip.hash()).map(|h| h.tip()).unwrap_or(Tip::origin());
 
     let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
-    let chain_selector = make_chain_selector(
-        chain_store.clone(),
-        &peers,
-        global_parameters.consensus_security_param,
-    )?;
+    let chain_selector = make_chain_selector(chain_store.clone(), &peers, global_parameters.consensus_security_param)?;
 
-    let consensus_parameters = Arc::new(ConsensusParameters::new(
-        global_parameters.clone(),
-        era_history,
-        Default::default(),
-    ));
-    let validate_header = ValidateHeader::new(
-        consensus_parameters,
-        chain_store.clone(),
-        ledger.get_stake_distribution(),
-    );
+    let consensus_parameters =
+        Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
+    let validate_header =
+        ValidateHeader::new(consensus_parameters, chain_store.clone(), ledger.get_stake_distribution());
 
     let sync_tracker = SyncTracker::new(&peers);
 
@@ -228,8 +212,7 @@ pub async fn build_and_run_network(
     let mut network = TokioBuilder::default();
 
     let manager = network.stage("manager", manager::stage);
-    let receive_header_stage =
-        build_stage_graph(chain_selector, our_tip, manager.sender(), &mut network);
+    let receive_header_stage = build_stage_graph(chain_selector, our_tip, manager.sender(), &mut network);
 
     let pull_stage = network.stage("pull", pull::stage);
     let pull_stage = network.wire_up(pull_stage, (sync_tracker, receive_header_stage));
@@ -244,35 +227,20 @@ pub async fn build_and_run_network(
         ),
     );
     for peer in &peers {
-        let Ok(_) = network.preload(&manager, [manager::ManagerMessage::AddPeer(peer.clone())])
-        else {
+        let Ok(_) = network.preload(&manager, [manager::ManagerMessage::AddPeer(peer.clone())]) else {
             tracing::warn!("supplied more peers than can be initially connected");
             break;
         };
     }
 
     // Register resources
-    network
-        .resources()
-        .put::<ResourceHeaderStore>(chain_store.clone());
-    network
-        .resources()
-        .put::<ResourceParameters>(global_parameters.clone());
-    network
-        .resources()
-        .put::<ResourceBlockValidation>(ledger.get_block_validation());
-    network
-        .resources()
-        .put::<ResourceHeaderValidation>(Arc::new(validate_header));
-    network
-        .resources()
-        .put::<ResourceForwardEventListener>(forward_event_listener);
-    network
-        .resources()
-        .put::<ConnectionResource>(Arc::new(TokioConnections::new(65535)));
-    network
-        .resources()
-        .put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
+    network.resources().put::<ResourceHeaderStore>(chain_store.clone());
+    network.resources().put::<ResourceParameters>(global_parameters.clone());
+    network.resources().put::<ResourceBlockValidation>(ledger.get_block_validation());
+    network.resources().put::<ResourceHeaderValidation>(Arc::new(validate_header));
+    network.resources().put::<ResourceForwardEventListener>(forward_event_listener);
+    network.resources().put::<ConnectionResource>(Arc::new(TokioConnections::new(65535)));
+    network.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);
@@ -311,10 +279,7 @@ pub async fn build_and_run_network(
 // }
 
 #[expect(clippy::panic)]
-fn make_chain_store(
-    config: &Config,
-    tip: &HeaderHash,
-) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
+fn make_chain_store(config: &Config, tip: &HeaderHash) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(()) => Arc::new(InMemConsensusStore::new()),
         StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
@@ -324,10 +289,7 @@ fn make_chain_store(
     };
 
     if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
-        panic!(
-            "Tip {} not found in chain database '{}'",
-            tip, config.chain_store
-        )
+        panic!("Tip {} not found in chain database '{}'", tip, config.chain_store)
     };
 
     chain_store.set_anchor_hash(tip)?;
@@ -375,10 +337,7 @@ fn make_ledger(
     era_history: EraHistory,
     global_parameters: GlobalParameters,
 ) -> anyhow::Result<LedgerStage> {
-    let vm_eval_pool = ArenaPool::new(
-        config.ledger_vm_alloc_arena_count,
-        config.ledger_vm_alloc_arena_size,
-    );
+    let vm_eval_pool = ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size);
 
     match &config.ledger_store {
         StoreType::InMem(store) => {
@@ -395,10 +354,7 @@ fn make_ledger(
         StoreType::RocksDb(rocks_db_config) => {
             let ledger = BlockValidator::new(
                 RocksDB::new(rocks_db_config)?,
-                RocksDBHistoricalStores::new(
-                    rocks_db_config,
-                    u64::from(config.max_extra_ledger_snapshots),
-                ),
+                RocksDBHistoricalStores::new(rocks_db_config, u64::from(config.max_extra_ledger_snapshots)),
                 vm_eval_pool,
                 config.network,
                 era_history,
@@ -436,8 +392,9 @@ impl<H: IsHeader> AsTip for H {
 
 #[cfg(test)]
 mod tests {
-    use amaru_stores::rocksdb::RocksDbConfig;
     use std::path::PathBuf;
+
+    use amaru_stores::rocksdb::RocksDbConfig;
 
     use super::StoreType;
 
@@ -445,24 +402,15 @@ mod tests {
     fn test_store_path_display() {
         assert_eq!(format!("{}", StoreType::InMem(())), "<mem>");
         assert_eq!(
-            format!(
-                "{}",
-                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))
-            ),
+            format!("{}", StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))),
             "RocksDbConfig { dir: /path/to/store }"
         );
         assert_eq!(
-            format!(
-                "{}",
-                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))
-            ),
+            format!("{}", StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))),
             "RocksDbConfig { dir: ./relative/path }"
         );
         assert_eq!(
-            format!(
-                "{}",
-                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))
-            ),
+            format!("{}", StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))),
             "RocksDbConfig { dir:  }"
         );
     }

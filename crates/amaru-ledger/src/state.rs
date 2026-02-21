@@ -12,6 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    borrow::Cow,
+    cmp::max,
+    collections::{BTreeMap, VecDeque},
+    ops::Deref,
+    sync::{Arc, Mutex, MutexGuard},
+};
+
+use amaru_kernel::{
+    AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory, EraHistoryError,
+    GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters,
+    Slot, StakeCredential, StakeCredentialKind, TransactionInput, expect_stake_credential,
+};
+use amaru_metrics::ledger::LedgerMetrics;
+use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
+use amaru_plutus::arena_pool::ArenaPool;
+use anyhow::{Context, anyhow};
+use thiserror::Error;
+use tracing::{Level, Span, debug, error, info, instrument, trace, warn};
+use volatile_db::AnchoredVolatileState;
+pub use volatile_db::VolatileState;
+
 use crate::{
     context,
     context::DefaultValidationContext,
@@ -23,8 +45,8 @@ use crate::{
         volatile_db::{StoreUpdate, VolatileDB},
     },
     store::{
-        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
-        StoreError, TransactionalContext,
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
+        TransactionalContext,
         columns::{pools, proposals},
     },
     summary::{
@@ -34,30 +56,6 @@ use crate::{
         stake_distribution::StakeDistribution,
     },
 };
-use amaru_kernel::{
-    AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory,
-    EraHistoryError, GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName,
-    Point, PoolId, ProtocolParameters, Slot, StakeCredential, StakeCredentialKind,
-    TransactionInput, expect_stake_credential,
-};
-use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::{
-    HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError,
-};
-use amaru_plutus::arena_pool::ArenaPool;
-use anyhow::{Context, anyhow};
-use std::{
-    borrow::Cow,
-    cmp::max,
-    collections::{BTreeMap, VecDeque},
-    ops::Deref,
-    sync::{Arc, Mutex, MutexGuard},
-};
-use thiserror::Error;
-use tracing::{Level, Span, debug, error, info, instrument, trace, warn};
-use volatile_db::AnchoredVolatileState;
-
-pub use volatile_db::VolatileState;
 
 pub mod diff_bind;
 pub mod diff_epoch_reg;
@@ -211,10 +209,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
     pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
-        StakeDistributionObserver {
-            view: self.stake_distributions.clone(),
-            era_history: self.era_history.clone(),
-        }
+        StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
     }
 
     pub fn network(&self) -> &NetworkName {
@@ -242,13 +237,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             return Cow::Borrowed(&st.anchor.0);
         }
 
-        Cow::Owned(
-            self.stable
-                .lock()
-                .unwrap()
-                .tip()
-                .unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")),
-        )
+        Cow::Owned(self.stable.lock().unwrap().tip().unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")))
     }
 
     #[expect(clippy::unwrap_used)]
@@ -299,14 +288,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
 
         // Persist changes for this block
-        let StoreUpdate {
-            point: stable_point,
-            issuer: stable_issuer,
-            fees,
-            add,
-            remove,
-            withdrawals,
-        } = now_stable.into_store_update(current_epoch, &self.protocol_parameters);
+        let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
+            now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
         let batch = db.create_transaction();
 
@@ -329,8 +312,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 // Reset the epoch transition progress once we've successfully applied the first
                 // block of the next epoch.
                 if epoch_transitioning {
-                    let success = batch
-                        .try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
+                    let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
                     if !success {
                         unreachable!("epoch transition reset did not succeed after first block!")
                     }
@@ -353,8 +335,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     ) -> Result<ProtocolParameters, StateError> {
         // ---------------------------------------------------------------------------- End of epoch
         let batch = db.create_transaction();
-        let should_end_epoch =
-            batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
+        let should_end_epoch = batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
         if should_end_epoch {
             end_epoch(
                 &batch,
@@ -426,20 +407,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(level = Level::TRACE, skip_all)]
     fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
-        let stake_distribution = stake_distributions
-            .pop_back()
-            .ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
+        let stake_distribution =
+            stake_distributions.pop_back().ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
 
         let epoch = stake_distribution.epoch + 2;
 
         let snapshot = self.snapshots.for_epoch(epoch)?;
-        let rewards_summary = RewardsSummary::new(
-            &snapshot,
-            stake_distribution,
-            &self.global_parameters,
-            &self.protocol_parameters,
-        )
-        .map_err(StateError::Storage)?;
+        let rewards_summary =
+            RewardsSummary::new(&snapshot, stake_distribution, &self.global_parameters, &self.protocol_parameters)
+                .map_err(StateError::Storage)?;
 
         stake_distributions.push_front(compute_stake_distribution(
             &snapshot,
@@ -458,9 +434,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
         if self.volatile.len() >= self.global_parameters.consensus_security_param {
-            let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
-                unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
-            });
+            let now_stable = self
+                .volatile
+                .pop_front()
+                .unwrap_or_else(|| unreachable!("pre-condition: self.volatile.len() >= consensus_security_param"));
 
             self.apply_block(now_stable)?;
         } else {
@@ -468,10 +445,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
 
         let tip = next_state.anchor.0.slot_or_default();
-        let relative_slot = self
-            .era_history
-            .slot_in_epoch(tip, tip)
-            .map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
+        let relative_slot =
+            self.era_history.slot_in_epoch(tip, tip).map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
 
         // Once we reach the stability window, compute rewards unless we've already done so.
         //
@@ -509,12 +484,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 .resolve_input(input)
                 .cloned()
                 .inspect(|_| resolved_from_context += 1)
-                .or_else(|| {
-                    self.volatile
-                        .resolve_input(input)
-                        .inspect(|_| resolved_from_volatile += 1)
-                        .cloned()
-                })
+                .or_else(|| self.volatile.resolve_input(input).inspect(|_| resolved_from_volatile += 1).cloned())
                 .map(|output| Ok(Some(output)))
                 .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
@@ -537,10 +507,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// So this shall be used when the data is needed for a short time, and one doesn't want to
     /// the full mutex around.
     fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistributionView<'_>, StateError> {
-        let guard = self
-            .stake_distributions
-            .lock()
-            .map_err(|_| StateError::FailedToAcquireStakeDistrLock)?;
+        let guard = self.stake_distributions.lock().map_err(|_| StateError::FailedToAcquireStakeDistrLock)?;
 
         StakeDistributionView::new(guard, epoch)
     }
@@ -637,14 +604,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 let density = self.chain_density(point);
 
-                let metrics = LedgerMetrics {
-                    block_height,
-                    txs_processed,
-                    slot,
-                    slot_in_epoch,
-                    epoch,
-                    density,
-                };
+                let metrics = LedgerMetrics { block_height, txs_processed, slot, slot_in_epoch, epoch, density };
 
                 match self.forward(state.anchor(point, issuer)) {
                     Ok(()) => BlockValidation::Valid(metrics),
@@ -669,19 +629,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             return Ok(());
         }
 
-        self.volatile
-            .rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
+        self.volatile.rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
     }
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
     /// If the `Point` is older than the oldest block in the volatileDB, density is 0
     pub fn chain_density(&self, point: &Point) -> f64 {
         let latest_slot = point.slot_or_default();
-        let k_slot = self
-            .volatile
-            .view_front()
-            .map(|state| &state.anchor.0)
-            .unwrap_or(&Point::Origin)
-            .slot_or_default();
+        let k_slot =
+            self.volatile.view_front().map(|state| &state.anchor.0).unwrap_or(&Point::Origin).slot_or_default();
 
         if k_slot >= latest_slot {
             0f64
@@ -739,12 +694,8 @@ pub fn compute_stake_distribution(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
-    StakeDistribution::new(
-        snapshot,
-        protocol_parameters,
-        GovernanceSummary::new(snapshot, era_history)?,
-    )
-    .map_err(StateError::Storage)
+    StakeDistribution::new(snapshot, protocol_parameters, GovernanceSummary::new(snapshot, era_history)?)
+        .map_err(StateError::Storage)
 }
 
 // Epoch Transitions
@@ -832,9 +783,7 @@ pub fn reset_fees<'store>(db: &impl TransactionalContext<'store>) -> Result<(), 
     name = "reset.blocks_count",
     skip_all,
 )]
-pub fn reset_blocks_count<'store>(
-    db: &impl TransactionalContext<'store>,
-) -> Result<(), StoreError> {
+pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
     // TODO: If necessary, come up with a more efficient way of dropping a "table".
     // RocksDB does support batch-removing of key ranges, but somehow, not in a
     // transactional way. So it isn't as trivial to implement as it may seem.
@@ -850,18 +799,17 @@ pub fn refund_many<'store>(
     db: &impl TransactionalContext<'store>,
     mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
 ) -> Result<(), StateError> {
-    let leftovers =
-        refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
-            debug!(
-                target: EVENT_TARGET,
-                type = %StakeCredentialKind::from(&account),
-                account = %account.as_hash(),
-                %deposit,
-                "refund"
-            );
+    let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
+        debug!(
+            target: EVENT_TARGET,
+            type = %StakeCredentialKind::from(&account),
+            account = %account.as_hash(),
+            %deposit,
+            "refund"
+        );
 
-            Ok(leftovers + db.refund(&account, deposit)?)
-        })?;
+        Ok(leftovers + db.refund(&account, deposit)?)
+    })?;
 
     if leftovers > 0 {
         debug!(target: EVENT_TARGET, ?leftovers, "refund");
@@ -887,12 +835,7 @@ pub fn tick_pools<'store>(
         }
     })?;
 
-    refund_many(
-        db,
-        refunds
-            .into_iter()
-            .map(|credential| (credential, protocol_parameters.stake_pool_deposit)),
-    )
+    refund_many(db, refunds.into_iter().map(|credential| (credential, protocol_parameters.stake_pool_deposit)))
 }
 
 #[instrument(
@@ -913,17 +856,11 @@ pub fn tick_proposals<'store>(
 ) -> Result<ProtocolParameters, StateError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
-    let RatificationResult {
-        context: ctx,
-        store_updates,
-        pruned_proposals,
-    } = ctx
+    let RatificationResult { context: ctx, store_updates, pruned_proposals } = ctx
         .ratify_proposals(era_history, proposals, ProposalsRootsRc::from(roots))
         .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
 
-    store_updates
-        .into_iter()
-        .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
+    store_updates.into_iter().try_for_each(|apply_changes| apply_changes(db, &ctx))?;
 
     let mut still_active = 0;
     db.with_proposals(|iterator| {
@@ -993,15 +930,11 @@ fn new_ratification_context<'distr>(
             let members = snapshot
                 .iter_cc_members()?
                 .filter_map(|(cold_credential, row)| {
-                    row.valid_until
-                        .map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
+                    row.valid_until.map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
                 })
                 .collect();
 
-            Some(ratification::ConstitutionalCommittee::new(
-                into_safe_ratio(&threshold),
-                members,
-            ))
+            Some(ratification::ConstitutionalCommittee::new(into_safe_ratio(&threshold), members))
         }
     };
 
@@ -1010,16 +943,11 @@ fn new_ratification_context<'distr>(
     // require much memory; but it becomes a potential attack vector.
     //
     // So ideally, we should avoid loading votes in memory.
-    let votes = snapshot
-        .iter_votes()?
-        .fold(BTreeMap::new(), |mut votes, (k, v)| {
-            votes
-                .entry(k.proposal)
-                .or_insert_with(Vec::new)
-                .push((k.voter, v));
+    let votes = snapshot.iter_votes()?.fold(BTreeMap::new(), |mut votes, (k, v)| {
+        votes.entry(k.proposal).or_insert_with(Vec::new).push((k.voter, v));
 
-            votes
-        });
+        votes
+    });
 
     Ok(RatificationContext {
         // Ratification happens with one epoch of delay, and at the next epoch transition. So,
@@ -1047,10 +975,7 @@ pub struct StakeDistributionView<'a> {
 }
 
 impl<'a> StakeDistributionView<'a> {
-    pub fn new(
-        guard: MutexGuard<'a, VecDeque<StakeDistribution>>,
-        epoch: Epoch,
-    ) -> Result<Self, StateError> {
+    pub fn new(guard: MutexGuard<'a, VecDeque<StakeDistribution>>, epoch: Epoch) -> Result<Self, StateError> {
         let position = guard
             .iter()
             .position(|distr| distr.epoch == epoch)
@@ -1095,10 +1020,8 @@ impl HasStakeDistribution for StakeDistributionObserver {
             .map_err(GetPoolError::SlotToEpochConversionFailure)?
             - 2;
         let view = self.view.lock().unwrap();
-        let stake_distribution = view
-            .iter()
-            .find(|s| s.epoch == epoch)
-            .ok_or(GetPoolError::StakeDistributionNotAvailable(epoch))?;
+        let stake_distribution =
+            view.iter().find(|s| s.epoch == epoch).ok_or(GetPoolError::StakeDistributionNotAvailable(epoch))?;
 
         Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
             vrf: st.parameters.vrf,
@@ -1150,9 +1073,7 @@ pub enum StateError {
 impl From<governance::Error> for StateError {
     fn from(origin: governance::Error) -> Self {
         match origin {
-            governance::Error::EraHistoryError(slot, err) => {
-                StateError::ErrorComputingEpoch(slot, err)
-            }
+            governance::Error::EraHistoryError(slot, err) => StateError::ErrorComputingEpoch(slot, err),
             governance::Error::StoreError(err) => StateError::Storage(err),
         }
     }

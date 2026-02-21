@@ -13,27 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    BLACKHOLE_NAME, BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef,
-    StageRef,
-    effect_box::{EffectBox, airlock_effect},
-    serde::{NoDebug, SendDataValue, never, to_cbor},
-    time::Clock,
-};
-
-use crate::{
-    simulation::Transition,
-    trace_buffer::{TraceBuffer, find_next_external_resume, find_next_external_suspend},
-};
-use cbor4ii::{core::Value, serde::from_slice};
-use futures_util::FutureExt;
-use parking_lot::Mutex;
-#[cfg(target_arch = "riscv32")]
-use parking_lot::Mutex;
-use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "riscv32"))]
 use std::sync::atomic::AtomicU64;
-
 use std::{
     any::{Any, type_name},
     borrow::Borrow,
@@ -42,6 +23,22 @@ use std::{
     marker::PhantomData,
     sync::Arc,
     time::Duration,
+};
+
+use cbor4ii::{core::Value, serde::from_slice};
+use futures_util::FutureExt;
+use parking_lot::Mutex;
+#[cfg(target_arch = "riscv32")]
+use parking_lot::Mutex;
+use serde::de::DeserializeOwned;
+
+use crate::{
+    BLACKHOLE_NAME, BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
+    effect_box::{EffectBox, airlock_effect},
+    serde::{NoDebug, SendDataValue, never, to_cbor},
+    simulation::Transition,
+    time::Clock,
+    trace_buffer::{TraceBuffer, find_next_external_resume, find_next_external_suspend},
 };
 
 /// A handle for performing effects on the current stage.
@@ -74,10 +71,7 @@ impl<M> Clone for Effects<M> {
 
 impl<M> Debug for Effects<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Effects")
-            .field("me", &self.me)
-            .field("effect", &self.effect)
-            .finish()
+        f.debug_struct("Effects").field("me", &self.me).field("effect", &self.effect).finish()
     }
 }
 
@@ -90,14 +84,7 @@ impl<M: SendData> Effects<M> {
         schedule_ids: ScheduleIds,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
     ) -> Self {
-        Self {
-            me,
-            effect,
-            schedule_ids,
-            clock,
-            resources,
-            trace_buffer,
-        }
+        Self { me, effect, schedule_ids, clock, resources, trace_buffer }
     }
 
     /// Obtain a reference to the current stage.
@@ -142,9 +129,7 @@ impl ScheduleIds {
 
     pub fn next_at(&self, instant: Instant) -> ScheduleId {
         #[cfg(not(target_arch = "riscv32"))]
-        let id = self
-            .counter
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id = self.counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         #[cfg(target_arch = "riscv32")]
         let id = {
             let mut guard = self.counter.lock();
@@ -164,11 +149,7 @@ impl<M> Effects<M> {
     /// made available in the target stage’s send queue.
     pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
         let call = target.extra().cloned();
-        airlock_effect(
-            &self.effect,
-            StageEffect::Send(target.name().clone(), call, Box::new(msg)),
-            |_eff| Some(()),
-        )
+        airlock_effect(&self.effect, StageEffect::Send(target.name().clone(), call, Box::new(msg)), |_eff| Some(()))
     }
 
     /// Obtain the current simulation time.
@@ -209,31 +190,20 @@ impl<M> Effects<M> {
         msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
         if target.extra().is_some() {
-            panic!(
-                "cannot answer a call with a call ({} -> {})",
-                self.me.name(),
-                target.name()
-            );
+            panic!("cannot answer a call with a call ({} -> {})", self.me.name(), target.name());
         }
         let msg = Box::new(move |name: Name, extra: Arc<dyn Any + Send + Sync>| {
             Box::new(msg(StageRef::new(name).with_extra(extra))) as Box<dyn SendData>
         }) as CallFn;
         airlock_effect(
             &self.effect,
-            StageEffect::Call(
-                target.name().clone(),
-                timeout,
-                CallExtra::CallFn(NoDebug::new(msg)),
-            ),
+            StageEffect::Call(target.name().clone(), timeout, CallExtra::CallFn(NoDebug::new(msg))),
             |eff| match eff {
                 Some(StageResponse::CallResponse(resp)) => {
                     if resp.typetag_name() == type_name::<CallTimeout>() {
                         Some(None)
                     } else {
-                        Some(Some(
-                            resp.cast_deserialize::<Resp>()
-                                .expect("internal message type error"),
-                        ))
+                        Some(Some(resp.cast_deserialize::<Resp>().expect("internal message type error")))
                     }
                 }
                 _ => None,
@@ -252,14 +222,10 @@ impl<M> Effects<M> {
         M: SendData,
     {
         let id = self.schedule_ids.next_at(when);
-        airlock_effect(
-            &self.effect,
-            StageEffect::Schedule(Box::new(msg), id),
-            move |eff| match eff {
-                Some(StageResponse::Unit) => Some(id),
-                _ => None,
-            },
-        )
+        airlock_effect(&self.effect, StageEffect::Schedule(Box::new(msg), id), move |eff| match eff {
+            Some(StageResponse::Unit) => Some(id),
+            _ => None,
+        })
     }
 
     /// Schedule a message to be sent to the given stage after a delay.
@@ -281,51 +247,36 @@ impl<M> Effects<M> {
     /// Returns `true` if the scheduled message was found and cancelled, or `false` if it was
     /// not found (e.g., it was already sent or already cancelled).
     pub fn cancel_schedule(&self, id: ScheduleId) -> BoxFuture<'static, bool> {
-        airlock_effect(
-            &self.effect,
-            StageEffect::CancelSchedule(id),
-            |eff| match eff {
-                Some(StageResponse::CancelScheduleResponse(cancelled)) => Some(cancelled),
-                _ => None,
-            },
-        )
+        airlock_effect(&self.effect, StageEffect::CancelSchedule(id), |eff| match eff {
+            Some(StageResponse::CancelScheduleResponse(cancelled)) => Some(cancelled),
+            _ => None,
+        })
     }
 
     /// Run an effect that is not part of the StageGraph, as an asynchronous effect.
     pub fn external<T: ExternalEffectAPI>(&self, effect: T) -> BoxFuture<'static, T::Response> {
-        airlock_effect(
-            &self.effect,
-            StageEffect::External(Box::new(effect)),
-            |eff| match eff {
-                Some(StageResponse::ExternalResponse(resp)) => Some(
-                    resp.cast_deserialize::<T::Response>()
-                        .expect("internal messaging type error"),
-                ),
-                _ => None,
-            },
-        )
+        airlock_effect(&self.effect, StageEffect::External(Box::new(effect)), |eff| match eff {
+            Some(StageResponse::ExternalResponse(resp)) => {
+                Some(resp.cast_deserialize::<T::Response>().expect("internal messaging type error"))
+            }
+            _ => None,
+        })
     }
 
     /// Run an effect that is not part of the StageGraph as a synchronous effect.
     /// In that case we return the response directly.
     #[allow(clippy::panic)]
-    pub fn external_sync<T: ExternalEffectSync + serde::Serialize>(
-        &self,
-        effect: T,
-    ) -> T::Response {
-        self.trace_buffer
-            .lock()
-            .push_suspend_external(self.me.name(), &effect);
+    pub fn external_sync<T: ExternalEffectSync + serde::Serialize>(&self, effect: T) -> T::Response {
+        self.trace_buffer.lock().push_suspend_external(self.me.name(), &effect);
 
         let response = if let Some(fetch_replay) = self.trace_buffer.lock().fetch_replay_mut() {
             let Some(replayed) = find_next_external_suspend(fetch_replay, self.me.name()) else {
                 panic!("no entry found in fetch replay");
             };
-            let Effect::External { effect, .. } = from_slice(&to_cbor(&Effect::External {
-                at_stage: self.me.name().clone(),
-                effect: Box::new(effect),
-            }))
-            .expect("internal replay error") else {
+            let Effect::External { effect, .. } =
+                from_slice(&to_cbor(&Effect::External { at_stage: self.me.name().clone(), effect: Box::new(effect) }))
+                    .expect("internal replay error")
+            else {
                 panic!("serde roundtrip broken");
             };
 
@@ -346,9 +297,7 @@ impl<M> Effects<M> {
                 .expect("internal messaging type error")
         };
 
-        self.trace_buffer
-            .lock()
-            .push_resume_external(self.me.name(), &response);
+        self.trace_buffer.lock().push_resume_external(self.me.name(), &response);
         response
     }
 
@@ -402,20 +351,14 @@ impl<M> Effects<M> {
             let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
-                let msg = msg
-                    .cast_deserialize::<Msg>()
-                    .expect("internal message type error");
+                let msg = msg.cast_deserialize::<Msg>().expect("internal message type error");
                 let state = f(*state, msg, eff.clone());
                 Box::pin(async move { Box::new(state.await) as Box<dyn SendData> })
                     as BoxFuture<'static, Box<dyn SendData>>
             }) as Transition
         };
         let can_supervise = CanSupervise(name.clone());
-        crate::StageBuildRef {
-            name,
-            network: (Box::new(transition), can_supervise),
-            _ph: PhantomData,
-        }
+        crate::StageBuildRef { name, network: (Box::new(transition), can_supervise), _ph: PhantomData }
     }
 
     /// Supervise the given stage by sending the tombstone when it terminates.
@@ -428,11 +371,7 @@ impl<M> Effects<M> {
     ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, M)> {
         let StageBuildRef { name, network, .. } = stage;
 
-        crate::StageBuildRef {
-            name,
-            network: (network.0, tombstone),
-            _ph: PhantomData,
-        }
+        crate::StageBuildRef { name, network: (network.0, tombstone), _ph: PhantomData }
     }
 
     #[expect(clippy::future_not_send)]
@@ -444,9 +383,7 @@ impl<M> Effects<M> {
     ) -> StageRef<Mapped> {
         let new_name = Name::from(new_name.as_ref());
         let transform = Box::new(move |mapped: Box<dyn SendData>| {
-            let mapped = mapped
-                .cast::<Mapped>()
-                .expect("internal message type error");
+            let mapped = mapped.cast::<Mapped>().expect("internal message type error");
             let original = transform(*mapped);
             Box::new(original) as Box<dyn SendData>
         });
@@ -481,12 +418,7 @@ impl<M> Effects<M> {
 
         airlock_effect(
             &self.effect,
-            StageEffect::WireStage(
-                name.clone(),
-                NoDebug::new(transition),
-                Box::new(state),
-                Box::new(tombstone),
-            ),
+            StageEffect::WireStage(name.clone(), NoDebug::new(transition), Box::new(state), Box::new(tombstone)),
             |eff| match eff {
                 Some(StageResponse::Unit) => Some(()),
                 _ => None,
@@ -534,9 +466,7 @@ pub trait ExternalEffect: SendData {
     }
 
     /// Helper method for implementers of ExternalEffect that have a synchronous response.
-    fn wrap_sync(
-        response: <Self as ExternalEffectAPI>::Response,
-    ) -> BoxFuture<'static, Box<dyn SendData>>
+    fn wrap_sync(response: <Self as ExternalEffectAPI>::Response) -> BoxFuture<'static, Box<dyn SendData>>
     where
         Self: Sized + ExternalEffectAPI,
     {
@@ -578,17 +508,9 @@ impl dyn ExternalEffect {
     pub fn cast<T: ExternalEffect>(self: Box<Self>) -> anyhow::Result<Box<T>> {
         if (&*self as &dyn Any).is::<T>() {
             #[expect(clippy::expect_used)]
-            Ok(Box::new(
-                *(self as Box<dyn Any>)
-                    .downcast::<T>()
-                    .expect("checked above"),
-            ))
+            Ok(Box::new(*(self as Box<dyn Any>).downcast::<T>().expect("checked above")))
         } else {
-            anyhow::bail!(
-                "external effect type error: expected {}, got {:?}",
-                std::any::type_name::<T>(),
-                self
-            )
+            anyhow::bail!("external effect type error: expected {}, got {:?}", std::any::type_name::<T>(), self)
         }
     }
 }
@@ -658,9 +580,7 @@ impl ExternalEffect for UnknownExternalEffect {
 #[test]
 fn unknown_external_effect() {
     #[derive(serde::Serialize, serde::Deserialize)]
-    struct Container(
-        #[serde(with = "crate::serde::serialize_external_effect")] Box<dyn ExternalEffect>,
-    );
+    struct Container(#[serde(with = "crate::serde::serialize_external_effect")] Box<dyn ExternalEffect>);
 
     let output = crate::OutputEffect::new(Name::from("from"), 3.2, tokio::sync::mpsc::channel(1).0);
     let container = Container(Box::new(output));
@@ -672,8 +592,7 @@ fn unknown_external_effect() {
     assert_eq!(output2.msg, 3.2);
 }
 
-type CallFn =
-    Box<dyn FnOnce(Name, Arc<dyn Any + Send + Sync>) -> Box<dyn SendData> + Send + 'static>;
+type CallFn = Box<dyn FnOnce(Name, Arc<dyn Any + Send + Sync>) -> Box<dyn SendData> + Send + 'static>;
 #[derive(Debug)]
 pub enum CallExtra {
     CallFn(NoDebug<CallFn>),
@@ -778,23 +697,13 @@ impl StageEffect<Box<dyn SendData>> {
     /// Split this effect from the stage into two parts:
     /// - the marker we remember in the running simulation
     /// - the effect we emit to the outside world
-    pub(crate) fn split(
-        self,
-        at_name: Name,
-        schedule_ids: &ScheduleIds,
-        now: Instant,
-    ) -> (StageEffect<()>, Effect) {
+    pub(crate) fn split(self, at_name: Name, schedule_ids: &ScheduleIds, now: Instant) -> (StageEffect<()>, Effect) {
         #[expect(clippy::panic)]
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
-            StageEffect::Send(name, call, msg) => (
-                StageEffect::Send(name.clone(), call, ()),
-                Effect::Send {
-                    from: at_name,
-                    to: name,
-                    msg,
-                },
-            ),
+            StageEffect::Send(name, call, msg) => {
+                (StageEffect::Send(name.clone(), call, ()), Effect::Send { from: at_name, to: name, msg })
+            }
             StageEffect::Call(name, duration, msg) => {
                 let id = schedule_ids.next_at(now + duration);
                 let CallExtra::CallFn(msg) = msg else {
@@ -803,79 +712,31 @@ impl StageEffect<Box<dyn SendData>> {
                 let msg = (msg.into_inner())(at_name.clone(), Arc::new(id));
                 (
                     StageEffect::Call(name.clone(), duration, CallExtra::Scheduled(id)),
-                    Effect::Call {
-                        from: at_name,
-                        to: name,
-                        duration,
-                        msg,
-                    },
+                    Effect::Call { from: at_name, to: name, duration, msg },
                 )
             }
             StageEffect::Clock => (StageEffect::Clock, Effect::Clock { at_stage: at_name }),
-            StageEffect::Wait(duration) => (
-                StageEffect::Wait(duration),
-                Effect::Wait {
-                    at_stage: at_name,
-                    duration,
-                },
-            ),
-            StageEffect::Schedule(msg, id) => (
-                StageEffect::Schedule((), id),
-                Effect::Schedule {
-                    at_stage: at_name,
-                    msg,
-                    id,
-                },
-            ),
-            StageEffect::CancelSchedule(id) => (
-                StageEffect::CancelSchedule(id),
-                Effect::CancelSchedule {
-                    at_stage: at_name,
-                    id,
-                },
-            ),
-            StageEffect::External(effect) => (
-                StageEffect::External(Box::new(())),
-                Effect::External {
-                    at_stage: at_name,
-                    effect,
-                },
-            ),
-            StageEffect::Terminate => (
-                StageEffect::Terminate,
-                Effect::Terminate { at_stage: at_name },
-            ),
-            StageEffect::AddStage(name) => (
-                StageEffect::AddStage(name.clone()),
-                Effect::AddStage {
-                    at_stage: at_name,
-                    name,
-                },
-            ),
+            StageEffect::Wait(duration) => (StageEffect::Wait(duration), Effect::Wait { at_stage: at_name, duration }),
+            StageEffect::Schedule(msg, id) => {
+                (StageEffect::Schedule((), id), Effect::Schedule { at_stage: at_name, msg, id })
+            }
+            StageEffect::CancelSchedule(id) => {
+                (StageEffect::CancelSchedule(id), Effect::CancelSchedule { at_stage: at_name, id })
+            }
+            StageEffect::External(effect) => {
+                (StageEffect::External(Box::new(())), Effect::External { at_stage: at_name, effect })
+            }
+            StageEffect::Terminate => (StageEffect::Terminate, Effect::Terminate { at_stage: at_name }),
+            StageEffect::AddStage(name) => {
+                (StageEffect::AddStage(name.clone()), Effect::AddStage { at_stage: at_name, name })
+            }
             StageEffect::WireStage(name, transition, initial_state, tombstone) => (
                 StageEffect::WireStage(name.clone(), transition, (), ()),
-                Effect::WireStage {
-                    at_stage: at_name,
-                    name,
-                    initial_state,
-                    tombstone,
-                },
+                Effect::WireStage { at_stage: at_name, name, initial_state, tombstone },
             ),
-            StageEffect::Contramap {
-                original,
-                new_name,
-                transform,
-            } => (
-                StageEffect::Contramap {
-                    original: original.clone(),
-                    new_name: new_name.clone(),
-                    transform,
-                },
-                Effect::Contramap {
-                    at_stage: at_name,
-                    original,
-                    new_name,
-                },
+            StageEffect::Contramap { original, new_name, transform } => (
+                StageEffect::Contramap { original: original.clone(), new_name: new_name.clone(), transform },
+                Effect::Contramap { at_stage: at_name, original, new_name },
             ),
         }
     }
@@ -959,12 +820,7 @@ impl Effect {
                     "msg": format!("{msg}"),
                 })
             }
-            Effect::Call {
-                from,
-                to,
-                duration,
-                msg,
-            } => serde_json::json!({
+            Effect::Call { from, to, duration, msg } => serde_json::json!({
                 "type": "call",
                 "from": from,
                 "to": to,
@@ -1012,23 +868,14 @@ impl Effect {
                 "at_stage": at_stage,
                 "name": name,
             }),
-            Effect::WireStage {
-                at_stage,
-                name,
-                initial_state,
-                tombstone,
-            } => serde_json::json!({
+            Effect::WireStage { at_stage, name, initial_state, tombstone } => serde_json::json!({
                 "type": "wire_stage",
                 "at_stage": at_stage,
                 "name": name,
                 "initial_state": format!("{initial_state}"),
                 "tombstone": format!("{tombstone}"),
             }),
-            Effect::Contramap {
-                at_stage,
-                original,
-                new_name,
-            } => serde_json::json!({
+            Effect::Contramap { at_stage, original, new_name } => serde_json::json!({
                 "type": "contramap",
                 "at_stage": at_stage,
                 "original": original,
@@ -1045,12 +892,7 @@ impl Display for Effect {
             Effect::Send { from, to, msg } => {
                 write!(f, "send {from} -> {to}: {msg}",)
             }
-            Effect::Call {
-                from,
-                to,
-                duration,
-                msg,
-            } => {
+            Effect::Call { from, to, duration, msg } => {
                 write!(f, "call {from} -> {to}: {duration:?} {msg}")
             }
             Effect::Clock { at_stage } => write!(f, "clock {at_stage}"),
@@ -1066,20 +908,10 @@ impl Display for Effect {
             }
             Effect::Terminate { at_stage } => write!(f, "terminate {at_stage}"),
             Effect::AddStage { at_stage, name } => write!(f, "add_stage {at_stage} {name}"),
-            Effect::WireStage {
-                at_stage,
-                name,
-                initial_state,
-                tombstone,
-            } => write!(
-                f,
-                "wire_stage {at_stage} {name} {initial_state} {tombstone}"
-            ),
-            Effect::Contramap {
-                at_stage,
-                original,
-                new_name,
-            } => {
+            Effect::WireStage { at_stage, name, initial_state, tombstone } => {
+                write!(f, "wire_stage {at_stage} {name} {initial_state} {tombstone}")
+            }
+            Effect::Contramap { at_stage, original, new_name } => {
                 write!(f, "contramap {at_stage} {original} -> {new_name}")
             }
         }
@@ -1090,84 +922,46 @@ impl Display for Effect {
 impl Effect {
     /// Construct a send effect.
     pub fn send(from: impl AsRef<str>, to: impl AsRef<str>, msg: Box<dyn SendData>) -> Self {
-        Self::Send {
-            from: Name::from(from.as_ref()),
-            to: Name::from(to.as_ref()),
-            msg,
-        }
+        Self::Send { from: Name::from(from.as_ref()), to: Name::from(to.as_ref()), msg }
     }
 
     /// Construct a call effect.
-    pub fn call(
-        from: impl AsRef<str>,
-        to: impl AsRef<str>,
-        duration: Duration,
-        msg: Box<dyn SendData>,
-    ) -> Self {
-        Self::Call {
-            from: Name::from(from.as_ref()),
-            to: Name::from(to.as_ref()),
-            duration,
-            msg,
-        }
+    pub fn call(from: impl AsRef<str>, to: impl AsRef<str>, duration: Duration, msg: Box<dyn SendData>) -> Self {
+        Self::Call { from: Name::from(from.as_ref()), to: Name::from(to.as_ref()), duration, msg }
     }
 
     /// Construct a clock effect.
     pub fn clock(at_stage: impl AsRef<str>) -> Self {
-        Self::Clock {
-            at_stage: Name::from(at_stage.as_ref()),
-        }
+        Self::Clock { at_stage: Name::from(at_stage.as_ref()) }
     }
 
     /// Construct a wait effect.
     pub fn wait(at_stage: impl AsRef<str>, duration: Duration) -> Self {
-        Self::Wait {
-            at_stage: Name::from(at_stage.as_ref()),
-            duration,
-        }
+        Self::Wait { at_stage: Name::from(at_stage.as_ref()), duration }
     }
 
     /// Construct a schedule effect.
-    pub fn schedule(
-        at_stage: impl AsRef<str>,
-        msg: Box<dyn SendData>,
-        schedule_id: &ScheduleId,
-    ) -> Self {
-        Self::Schedule {
-            at_stage: Name::from(at_stage.as_ref()),
-            msg,
-            id: *schedule_id,
-        }
+    pub fn schedule(at_stage: impl AsRef<str>, msg: Box<dyn SendData>, schedule_id: &ScheduleId) -> Self {
+        Self::Schedule { at_stage: Name::from(at_stage.as_ref()), msg, id: *schedule_id }
     }
 
     pub fn cancel(at_stage: impl AsRef<str>, schedule_id: &ScheduleId) -> Self {
-        Self::CancelSchedule {
-            at_stage: Name::from(at_stage.as_ref()),
-            id: *schedule_id,
-        }
+        Self::CancelSchedule { at_stage: Name::from(at_stage.as_ref()), id: *schedule_id }
     }
 
     /// Construct an external effect.
     pub fn external(at_stage: impl AsRef<str>, effect: Box<dyn ExternalEffect>) -> Self {
-        Self::External {
-            at_stage: Name::from(at_stage.as_ref()),
-            effect,
-        }
+        Self::External { at_stage: Name::from(at_stage.as_ref()), effect }
     }
 
     /// Construct a terminate effect.
     pub fn terminate(at_stage: impl AsRef<str>) -> Self {
-        Self::Terminate {
-            at_stage: Name::from(at_stage.as_ref()),
-        }
+        Self::Terminate { at_stage: Name::from(at_stage.as_ref()) }
     }
 
     /// Construct an add stage effect.
     pub fn add_stage(at_stage: impl AsRef<str>, name: impl AsRef<str>) -> Self {
-        Self::AddStage {
-            at_stage: Name::from(at_stage.as_ref()),
-            name: Name::from(name.as_ref()),
-        }
+        Self::AddStage { at_stage: Name::from(at_stage.as_ref()), name: Name::from(name.as_ref()) }
     }
 
     /// Construct a wire stage effect.
@@ -1181,16 +975,11 @@ impl Effect {
             at_stage: Name::from(at_stage.as_ref()),
             name: Name::from(name.as_ref()),
             initial_state,
-            tombstone: tombstone
-                .unwrap_or_else(|| SendDataValue::boxed(&CanSupervise(Name::from(name.as_ref())))),
+            tombstone: tombstone.unwrap_or_else(|| SendDataValue::boxed(&CanSupervise(Name::from(name.as_ref())))),
         }
     }
 
-    pub fn contramap(
-        at_stage: impl AsRef<str>,
-        original: impl AsRef<str>,
-        new_name: impl AsRef<str>,
-    ) -> Self {
+    pub fn contramap(at_stage: impl AsRef<str>, original: impl AsRef<str>, new_name: impl AsRef<str>) -> Self {
         Self::Contramap {
             at_stage: Name::from(at_stage.as_ref()),
             original: Name::from(original.as_ref()),
@@ -1222,10 +1011,7 @@ impl Effect {
         let at_stage = at_stage.as_ref();
         match self {
             Effect::Receive { at_stage: a } if a == at_stage.name() => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for Receive at `{}`",
-                at_stage.name()
-            ),
+            _ => panic!("unexpected effect {self:?}\n  looking for Receive at `{}`", at_stage.name()),
         }
     }
 
@@ -1245,11 +1031,13 @@ impl Effect {
                 if from == at_stage.name()
                     && to == target.name()
                     && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with msg {msg:?}",
-                at_stage.name(),
-                target.name()
-            ),
+            _ => {
+                panic!(
+                    "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with msg {msg:?}",
+                    at_stage.name(),
+                    target.name()
+                )
+            }
         }
     }
 
@@ -1259,10 +1047,7 @@ impl Effect {
         let at_stage = at_stage.as_ref();
         match self {
             Effect::Clock { at_stage: a } if a == at_stage.name() => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for Clock at `{}`",
-                at_stage.name()
-            ),
+            _ => panic!("unexpected effect {self:?}\n  looking for Clock at `{}`", at_stage.name()),
         }
     }
 
@@ -1271,10 +1056,7 @@ impl Effect {
     pub fn assert_wait<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>, duration: Duration) {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::Wait {
-                at_stage: a,
-                duration: d,
-            } if a == at_stage.name() && d == &duration => {}
+            Effect::Wait { at_stage: a, duration: d } if a == at_stage.name() && d == &duration => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Wait at `{}` with duration {duration:?}",
                 at_stage.name()
@@ -1294,12 +1076,9 @@ impl Effect {
         let at_stage = at_stage.as_ref();
         let target = target.as_ref();
         match self {
-            Effect::Call {
-                from,
-                to,
-                duration: d,
-                msg,
-            } if &from == at_stage.name() && &to == target.name() && d == duration => {
+            Effect::Call { from, to, duration: d, msg }
+                if &from == at_stage.name() && &to == target.name() && d == duration =>
+            {
                 extract(*msg.cast::<Msg2>().expect("internal messaging type error"))
             }
             _ => panic!(
@@ -1312,36 +1091,21 @@ impl Effect {
 
     /// Assert that this effect is an external effect.
     #[track_caller]
-    pub fn assert_external<Eff: ExternalEffect + PartialEq>(
-        &self,
-        at_stage: impl AsRef<Name>,
-        effect: &Eff,
-    ) {
+    pub fn assert_external<Eff: ExternalEffect + PartialEq>(&self, at_stage: impl AsRef<Name>, effect: &Eff) {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::External {
-                at_stage: a,
-                effect: e,
-            } if a == at_stage && &**e as &dyn SendData == effect as &dyn SendData => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}",
-                at_stage
-            ),
+            Effect::External { at_stage: a, effect: e }
+                if a == at_stage && &**e as &dyn SendData == effect as &dyn SendData => {}
+            _ => panic!("unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}", at_stage),
         }
     }
 
     /// Extract the external effect from this effect.
     #[track_caller]
-    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq>(
-        self,
-        at_stage: impl AsRef<Name>,
-    ) -> Box<Eff> {
+    pub fn extract_external<Eff: ExternalEffectAPI + PartialEq>(self, at_stage: impl AsRef<Name>) -> Box<Eff> {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::External {
-                at_stage: a,
-                effect: e,
-            } if &a == at_stage =>
+            Effect::External { at_stage: a, effect: e } if &a == at_stage =>
             {
                 #[expect(clippy::unwrap_used)]
                 e.cast::<Eff>().unwrap()
@@ -1356,17 +1120,10 @@ impl Effect {
 
     /// Assert that this effect is an add stage effect.
     #[track_caller]
-    pub fn assert_add_stage<Msg>(
-        &self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-        name: impl AsRef<str>,
-    ) {
+    pub fn assert_add_stage<Msg>(&self, at_stage: impl AsRef<StageRef<Msg>>, name: impl AsRef<str>) {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::AddStage {
-                at_stage: a,
-                name: n,
-            } if a == at_stage.name() && n.as_str() == name.as_ref() => {}
+            Effect::AddStage { at_stage: a, name: n } if a == at_stage.name() && n.as_str() == name.as_ref() => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for AddStage at `{}` with name `{}`",
                 at_stage.name(),
@@ -1385,14 +1142,10 @@ impl Effect {
     ) {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::WireStage {
-                at_stage: a,
-                name: n,
-                initial_state: i,
-                tombstone: _,
-            } if a == at_stage.name()
-                && n.as_str() == name.as_ref()
-                && i.cast_ref::<St>().expect("type error") == &initial_state => {}
+            Effect::WireStage { at_stage: a, name: n, initial_state: i, tombstone: _ }
+                if a == at_stage.name()
+                    && n.as_str() == name.as_ref()
+                    && i.cast_ref::<St>().expect("type error") == &initial_state => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for WireStage at `{}` with name `{}`",
                 at_stage.name(),
@@ -1409,20 +1162,17 @@ impl Effect {
     ) -> &Name {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::WireStage {
-                at_stage: a,
-                name: n,
-                initial_state: i,
-                tombstone: _,
-            } if a == at_stage.name()
-                && i.cast_ref::<St>().expect("type error") == &initial_state =>
+            Effect::WireStage { at_stage: a, name: n, initial_state: i, tombstone: _ }
+                if a == at_stage.name() && i.cast_ref::<St>().expect("type error") == &initial_state =>
             {
                 n
             }
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for WireStage at `{}` with initial state {initial_state:?}",
-                at_stage.name()
-            ),
+            _ => {
+                panic!(
+                    "unexpected effect {self:?}\n  looking for WireStage at `{}` with initial state {initial_state:?}",
+                    at_stage.name()
+                )
+            }
         }
     }
 }
@@ -1432,95 +1182,60 @@ impl PartialEq for Effect {
     fn eq(&self, other: &Self) -> bool {
         match self {
             Effect::Receive { at_stage } => match other {
-                Effect::Receive {
-                    at_stage: other_at_stage,
-                } => at_stage == other_at_stage,
+                Effect::Receive { at_stage: other_at_stage } => at_stage == other_at_stage,
                 _ => false,
             },
             Effect::Send { from, to, msg } => match other {
-                Effect::Send {
-                    from: other_from,
-                    to: other_to,
-                    msg: other_msg,
-                } => from == other_from && to == other_to && msg == other_msg,
+                Effect::Send { from: other_from, to: other_to, msg: other_msg } => {
+                    from == other_from && to == other_to && msg == other_msg
+                }
                 _ => false,
             },
-            Effect::Call {
-                from,
-                to,
-                duration,
-                msg,
-            } => match other {
-                Effect::Call {
-                    from: other_from,
-                    to: other_to,
-                    duration: other_duration,
-                    msg: other_msg,
-                } => {
-                    from == other_from
-                        && to == other_to
-                        && duration == other_duration
-                        && msg == other_msg
+            Effect::Call { from, to, duration, msg } => match other {
+                Effect::Call { from: other_from, to: other_to, duration: other_duration, msg: other_msg } => {
+                    from == other_from && to == other_to && duration == other_duration && msg == other_msg
                 }
                 _ => false,
             },
             Effect::Clock { at_stage } => match other {
-                Effect::Clock {
-                    at_stage: other_at_stage,
-                } => at_stage == other_at_stage,
+                Effect::Clock { at_stage: other_at_stage } => at_stage == other_at_stage,
                 _ => false,
             },
             Effect::Wait { at_stage, duration } => match other {
-                Effect::Wait {
-                    at_stage: other_at_stage,
-                    duration: other_duration,
-                } => at_stage == other_at_stage && duration == other_duration,
+                Effect::Wait { at_stage: other_at_stage, duration: other_duration } => {
+                    at_stage == other_at_stage && duration == other_duration
+                }
                 _ => false,
             },
             Effect::Schedule { at_stage, msg, id } => match other {
-                Effect::Schedule {
-                    at_stage: other_at_stage,
-                    msg: other_msg,
-                    id: other_id,
-                } => at_stage == other_at_stage && msg == other_msg && id == other_id,
+                Effect::Schedule { at_stage: other_at_stage, msg: other_msg, id: other_id } => {
+                    at_stage == other_at_stage && msg == other_msg && id == other_id
+                }
                 _ => false,
             },
             Effect::CancelSchedule { at_stage, id } => match other {
-                Effect::CancelSchedule {
-                    at_stage: other_at_stage,
-                    id: other_id,
-                } => at_stage == other_at_stage && id == other_id,
+                Effect::CancelSchedule { at_stage: other_at_stage, id: other_id } => {
+                    at_stage == other_at_stage && id == other_id
+                }
                 _ => false,
             },
             Effect::External { at_stage, effect } => match other {
-                Effect::External {
-                    at_stage: other_at_stage,
-                    effect: other_effect,
-                } => {
-                    at_stage == other_at_stage
-                        && &**effect as &dyn SendData == &**other_effect as &dyn SendData
+                Effect::External { at_stage: other_at_stage, effect: other_effect } => {
+                    at_stage == other_at_stage && &**effect as &dyn SendData == &**other_effect as &dyn SendData
                 }
                 _ => false,
             },
             Effect::Terminate { at_stage } => match other {
-                Effect::Terminate {
-                    at_stage: other_at_stage,
-                } => at_stage == other_at_stage,
+                Effect::Terminate { at_stage: other_at_stage } => at_stage == other_at_stage,
                 _ => false,
             },
             Effect::AddStage { at_stage, name } => match other {
-                Effect::AddStage {
-                    at_stage: other_at_stage,
-                    name: other_name,
-                } => at_stage == other_at_stage && name == other_name,
+                Effect::AddStage { at_stage: other_at_stage, name: other_name } => {
+                    at_stage == other_at_stage && name == other_name
+                }
                 _ => false,
             },
-            Effect::WireStage {
-                at_stage,
-                name,
-                initial_state,
-                tombstone,
-            } => match other {
+            Effect::WireStage { at_stage, name, initial_state, tombstone } => match other {
                 Effect::WireStage {
                     at_stage: other_at_stage,
                     name: other_name,
@@ -1534,19 +1249,9 @@ impl PartialEq for Effect {
                 }
                 _ => false,
             },
-            Effect::Contramap {
-                at_stage,
-                original,
-                new_name,
-            } => match other {
-                Effect::Contramap {
-                    at_stage: other_at_stage,
-                    original: other_original,
-                    new_name: other_new_name,
-                } => {
-                    at_stage == other_at_stage
-                        && original == other_original
-                        && new_name == other_new_name
+            Effect::Contramap { at_stage, original, new_name } => match other {
+                Effect::Contramap { at_stage: other_at_stage, original: other_original, new_name: other_new_name } => {
+                    at_stage == other_at_stage && original == other_original && new_name == other_new_name
                 }
                 _ => false,
             },

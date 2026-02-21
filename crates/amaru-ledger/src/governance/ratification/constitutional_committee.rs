@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{OrphanProposal, ProposalEnum};
-use crate::summary::{SafeRatio, safe_ratio};
-use amaru_kernel::{Epoch, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential, Vote};
-use num::Zero;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
     sync::LazyLock,
 };
+
+use amaru_kernel::{Epoch, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential, Vote};
+use num::Zero;
 use tracing::warn;
+
+use super::{OrphanProposal, ProposalEnum};
+use crate::summary::{SafeRatio, safe_ratio};
 
 static ZERO: LazyLock<SafeRatio> = LazyLock::new(SafeRatio::zero);
 
@@ -40,15 +42,8 @@ pub struct ConstitutionalCommittee {
 }
 
 impl ConstitutionalCommittee {
-    pub fn new(
-        threshold: SafeRatio,
-        members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
-    ) -> Self {
-        Self {
-            threshold,
-            members,
-            active_members: RefCell::new(None),
-        }
+    pub fn new(threshold: SafeRatio, members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>) -> Self {
+        Self { threshold, members, active_members: RefCell::new(None) }
     }
 
     /// View the current threshold for that committee.
@@ -59,10 +54,7 @@ impl ConstitutionalCommittee {
     /// Obtain a set of all the hot credentials of known members, even inactive ones. Those are all
     /// potential voters (although their votes may be invalid).
     pub fn voters(&self) -> BTreeSet<&StakeCredential> {
-        self.members
-            .values()
-            .filter_map(|(hot_credential, _)| hot_credential.as_ref())
-            .collect()
+        self.members.values().filter_map(|(hot_credential, _)| hot_credential.as_ref()).collect()
     }
 
     /// Add & remove members from a committee, following some constitutional committee update.
@@ -91,10 +83,7 @@ impl ConstitutionalCommittee {
     /// - it exists
     /// - its cold key is delegated to a hot key
     /// - it hasn't expired yet
-    pub fn active_members(
-        &self,
-        current_epoch: Epoch,
-    ) -> Rc<BTreeMap<StakeCredential, StakeCredential>> {
+    pub fn active_members(&self, current_epoch: Epoch) -> Rc<BTreeMap<StakeCredential, StakeCredential>> {
         if let Some((memoized_epoch, active_members)) = self.active_members.borrow().as_ref()
             && memoized_epoch == &current_epoch
         {
@@ -167,20 +156,17 @@ impl ConstitutionalCommittee {
         // delegated to the same hot credential. But we count cold credentials, not hot ones.
         let total_active_members = active_members.len() as u64;
 
-        let (yes, no, abstain) =
-            votes
-                .iter()
-                .fold((0, 0, 0), |(yes, no, abstain), (hot_cred, vote)| {
-                    if hot_credentials.contains(hot_cred) {
-                        match vote {
-                            Vote::Yes => (yes + 1, no, abstain),
-                            Vote::No => (yes, no + 1, abstain),
-                            Vote::Abstain => (yes, no, abstain + 1),
-                        }
-                    } else {
-                        (yes, no, abstain)
-                    }
-                });
+        let (yes, no, abstain) = votes.iter().fold((0, 0, 0), |(yes, no, abstain), (hot_cred, vote)| {
+            if hot_credentials.contains(hot_cred) {
+                match vote {
+                    Vote::Yes => (yes + 1, no, abstain),
+                    Vote::No => (yes, no + 1, abstain),
+                    Vote::Abstain => (yes, no, abstain + 1),
+                }
+            } else {
+                (yes, no, abstain)
+            }
+        });
 
         let span = tracing::Span::current();
         span.record("votes.committee.yes", yes);
@@ -200,28 +186,28 @@ impl ConstitutionalCommittee {
 
 #[cfg(test)]
 mod tests {
-    use super::ConstitutionalCommittee;
-    use crate::{
-        governance::ratification::any_proposal_enum,
-        summary::{SafeRatio, into_safe_ratio},
-    };
-    use amaru_kernel::{
-        Epoch, Hash, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, StakeCredential, VOTE_NO, VOTE_YES,
-        Vote, any_rational_number, any_stake_credential, any_vote_ref,
-    };
-    use num::{One, Zero};
-    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
     use std::{
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
     };
 
+    use amaru_kernel::{
+        Epoch, Hash, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, StakeCredential, VOTE_NO, VOTE_YES, Vote,
+        any_rational_number, any_stake_credential, any_vote_ref,
+    };
+    use num::{One, Zero};
+    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
+
+    use super::ConstitutionalCommittee;
+    use crate::{
+        governance::ratification::any_proposal_enum,
+        summary::{SafeRatio, into_safe_ratio},
+    };
+
     const MIN_ARBITRARY_EPOCH: u64 = 10;
     const MAX_COMMITTEE_SIZE: usize = 10;
 
-    const NULL_HASH: [u8; 28] = [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ];
+    const NULL_HASH: [u8; 28] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     proptest! {
         #[test]
@@ -426,13 +412,8 @@ mod tests {
         }
     }
 
-    pub fn any_tally() -> impl Strategy<
-        Value = (
-            Epoch,
-            BTreeMap<StakeCredential, &'static Vote>,
-            Rc<ConstitutionalCommittee>,
-        ),
-    > {
+    pub fn any_tally()
+    -> impl Strategy<Value = (Epoch, BTreeMap<StakeCredential, &'static Vote>, Rc<ConstitutionalCommittee>)> {
         any_constitutional_committee().prop_flat_map(|committee| {
             (
                 // We fix the epoch arbitrarily, but in knowledge of 'any_epoch'; so that

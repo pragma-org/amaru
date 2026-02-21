@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
-use amaru_kernel::{
-    EraBound, EraHistory, EraName, EraParams, EraSummary, Hash, HeaderHash, NetworkName, Nonce,
-    Point, cbor,
-};
 use std::{
     path::{Path, PathBuf},
     time::Duration,
+};
+
+use amaru::{DEFAULT_NETWORK, bootstrap::InitialNonces};
+use amaru_kernel::{
+    EraBound, EraHistory, EraName, EraParams, EraSummary, Hash, HeaderHash, NetworkName, Nonce, Point, cbor,
 };
 use tokio::fs::{self};
 use tracing::{debug, info};
@@ -96,10 +96,7 @@ async fn convert_one_snapshot_file(
     fs::create_dir_all(target_dir).await?;
 
     let converted = convert_snapshot_to(snapshot, target_dir, network).await?;
-    info!(
-        "converted ledger state from {:?} to {:?}",
-        snapshot, converted
-    );
+    info!("converted ledger state from {:?} to {:?}", snapshot, converted);
     Ok(converted)
 }
 
@@ -313,11 +310,7 @@ fn decode_eras(
                 era_name: EraName::try_from(era_tag).expect("iteration over known era tags"),
             }
         };
-        let summary = EraSummary {
-            start,
-            end: Some(end),
-            params,
-        };
+        let summary = EraSummary { start, end: Some(end), params };
         eras.push(summary);
     }
     Ok(eras)
@@ -349,20 +342,20 @@ async fn write_ledger_snapshot(
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::path::PathBuf;
+
     use amaru::bootstrap::import_snapshots;
     use amaru_kernel::NetworkName;
-    use std::path::PathBuf;
     use tokio::fs;
+
+    use super::*;
 
     #[tokio::test]
     async fn fails_if_file_does_not_exist() {
         let tempdir = tempfile::tempdir().unwrap();
         let snapshot_path = PathBuf::from("does-not-exist");
 
-        let result =
-            convert_one_snapshot_file(tempdir.path(), &snapshot_path, &NetworkName::Testnet(42))
-                .await;
+        let result = convert_one_snapshot_file(tempdir.path(), &snapshot_path, &NetworkName::Testnet(42)).await;
 
         assert!(result.is_err());
     }
@@ -372,47 +365,29 @@ mod test {
         let network = NetworkName::Testnet(42);
         let tempdir = tempfile::tempdir().unwrap();
         let expected_paths = vec![
-            tempdir.path().join(
-                "86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor",
-            ),
-            tempdir.path().join(
-                "172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor",
-            ),
-            tempdir.path().join(
-                "259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor",
-            ),
+            tempdir.path().join("86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.cbor"),
+            tempdir.path().join("172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.cbor"),
+            tempdir.path().join("259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.cbor"),
         ];
 
         let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
 
         for snapshot in snapshots {
-            let args = super::Args {
-                snapshot,
-                target_dir: tempdir.path().to_path_buf(),
-                network,
-            };
+            let args = super::Args { snapshot, target_dir: tempdir.path().to_path_buf(), network };
 
-            run(args)
-                .await
-                .expect("unexpected error in conversion test");
+            run(args).await.expect("unexpected error in conversion test");
         }
 
         assert!(
             expected_paths.iter().all(|p| p.exists()),
             "missing converted snapshots in {:?}",
-            dir_content(tempdir.path())
-                .await
-                .unwrap_or_else(|_| panic!("failed to list {tempdir:?} content"))
+            dir_content(tempdir.path()).await.unwrap_or_else(|_| panic!("failed to list {tempdir:?} content"))
         );
 
         assert_import_ledger_db(&expected_paths, &tempdir.path().join("ledger.db"), network).await;
     }
 
-    async fn assert_import_ledger_db(
-        expected_paths: &Vec<PathBuf>,
-        ledger_dir: &PathBuf,
-        network: NetworkName,
-    ) {
+    async fn assert_import_ledger_db(expected_paths: &Vec<PathBuf>, ledger_dir: &PathBuf, network: NetworkName) {
         import_snapshots(network, expected_paths, ledger_dir)
             .await
             .unwrap_or_else(|e| panic!("fail to import snapshots: {e}\n{expected_paths:?}"));
@@ -424,37 +399,23 @@ mod test {
         let tempdir = tempfile::tempdir().unwrap();
         let target_dir = tempdir.path().to_path_buf();
         let expected_paths = [
-            tempdir.path().join(
-                "nonces.86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.json",
-            ),
-            tempdir.path().join(
-                "nonces.172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.json",
-            ),
-            tempdir.path().join(
-                "nonces.259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.json",
-            ),
+            tempdir.path().join("nonces.86392.1d38de4ffae6090c24151578d331b1021adb8f37d158011616db4d47d1704968.json"),
+            tempdir.path().join("nonces.172786.932b9688167139cf4792e97ae4771b6dc762ad25752908cce7b24c2917847516.json"),
+            tempdir.path().join("nonces.259174.a07da7616822a1ccb4811e907b1f3a3c5274365908a241f4d5ffab2a69eb8802.json"),
         ];
 
         let snapshots = dir_content(Path::new("tests/data/convert")).await.unwrap();
 
         for snapshot in snapshots {
-            let args = super::Args {
-                snapshot,
-                target_dir: target_dir.clone(),
-                network,
-            };
+            let args = super::Args { snapshot, target_dir: target_dir.clone(), network };
 
-            run(args)
-                .await
-                .expect("unexpected error in conversion test");
+            run(args).await.expect("unexpected error in conversion test");
         }
 
         assert!(
             expected_paths.iter().all(|p| p.exists()),
             "tempdir content {:?}",
-            dir_content(tempdir.path())
-                .await
-                .unwrap_or_else(|_| panic!("failed to list {tempdir:?} content"))
+            dir_content(tempdir.path()).await.unwrap_or_else(|_| panic!("failed to list {tempdir:?} content"))
         );
     }
 

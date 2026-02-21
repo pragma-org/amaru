@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fmt::Debug, pin::Pin};
+
 use amaru_kernel::Transaction;
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
-    TxRejectReason, TxSubmissionMempool,
+    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
+    TxSubmissionMempool,
 };
-use pure_stage::{
-    BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
-};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
 use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, pin::Pin};
 
 /// Implementation of Mempool effects using pure_stage::Effects.
 ///
@@ -42,10 +41,7 @@ impl<T> MemoryPool<T> {
     }
 
     /// This function runs an external effect synchronously.
-    pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(
-        &self,
-        effect: E,
-    ) -> E::Response
+    pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(&self, effect: E) -> E::Response
     where
         T: SendData + Sync,
     {
@@ -64,11 +60,7 @@ impl<T: SendData + Sync> TxSubmissionMempool<Transaction> for MemoryPool<T> {
     /// This effect inserts a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer
-    fn insert(
-        &self,
-        tx: Transaction,
-        tx_origin: TxOrigin,
-    ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         self.external_sync(Insert::new(tx, tx_origin))
     }
 
@@ -84,10 +76,7 @@ impl<T: SendData + Sync> TxSubmissionMempool<Transaction> for MemoryPool<T> {
     }
 
     /// This effect waits until the mempool reaches at least the given sequence number.
-    fn wait_for_at_least(
-        &self,
-        seq_no: MempoolSeqNo,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+    fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         self.effects.external(WaitForAtLeast::new(seq_no))
     }
 
@@ -120,9 +109,7 @@ impl ExternalEffect for Insert {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let mempool = resources
-                .get::<ResourceMempool<Transaction>>()
-                .expect("ResourceMempool requires a mempool");
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.insert(self.tx, self.tx_origin)
         })
     }
@@ -141,9 +128,7 @@ impl ExternalEffect for ValidateTransaction {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let mempool = resources
-                .get::<ResourceMempool<Transaction>>()
-                .expect("ResourceMempool requires a mempool");
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.validate_transaction(self.0)
         })
     }
@@ -170,9 +155,7 @@ impl ExternalEffect for GetTx {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let mempool = resources
-                .get::<ResourceMempool<Transaction>>()
-                .expect("ResourceMempool requires a mempool");
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.get_tx(&self.tx_id)
         })
     }
@@ -192,10 +175,7 @@ struct TxIdsSince {
 
 impl TxIdsSince {
     pub fn new(mempool_seqno: MempoolSeqNo, limit: u16) -> Self {
-        Self {
-            mempool_seqno,
-            limit,
-        }
+        Self { mempool_seqno, limit }
     }
 }
 
@@ -203,9 +183,7 @@ impl ExternalEffect for TxIdsSince {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let mempool = resources
-                .get::<ResourceMempool<Transaction>>()
-                .expect("ResourceMempool requires a mempool");
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.tx_ids_since(self.mempool_seqno, self.limit)
         })
     }
@@ -232,10 +210,8 @@ impl ExternalEffect for WaitForAtLeast {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
-            let mempool = resources
-                .get::<ResourceMempool<Transaction>>()
-                .expect("ResourceMempool requires a mempool")
-                .clone();
+            let mempool =
+                resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool").clone();
             mempool.wait_for_at_least(self.seq_no).await
         })
     }
@@ -252,9 +228,7 @@ struct GetTxsForIds {
 
 impl GetTxsForIds {
     pub fn new(ids: &[TxId]) -> Self {
-        Self {
-            tx_ids: ids.to_vec(),
-        }
+        Self { tx_ids: ids.to_vec() }
     }
 }
 
@@ -262,9 +236,7 @@ impl ExternalEffect for GetTxsForIds {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let mempool = resources
-                .get::<ResourceMempool<Transaction>>()
-                .expect("ResourceMempool requires a mempool");
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.get_txs_for_ids(&self.tx_ids)
         })
     }
@@ -283,9 +255,7 @@ impl ExternalEffect for LastSeqNo {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let mempool = resources
-                .get::<ResourceMempool<Transaction>>()
-                .expect("ResourceMempool requires a mempool");
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.last_seq_no()
         })
     }
@@ -299,12 +269,13 @@ impl ExternalEffectSync for LastSeqNo {}
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+
     use amaru_kernel::{Transaction, TransactionBody, WitnessSet};
     use amaru_ouroboros_traits::{
-        CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin,
-        TxRejectReason, TxSubmissionMempool,
+        CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
+        TxSubmissionMempool,
     };
-    use std::pin::Pin;
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
@@ -316,22 +287,13 @@ mod tests {
         pub fn new() -> Self {
             let body = TransactionBody::new([], [], 0);
             let witnesses = WitnessSet::default();
-            let tx: Transaction = Transaction {
-                body,
-                witnesses,
-                is_expected_valid: true,
-                auxiliary_data: None,
-            };
+            let tx: Transaction = Transaction { body, witnesses, is_expected_valid: true, auxiliary_data: None };
             Self { tx }
         }
     }
 
     impl TxSubmissionMempool<Transaction> for ConstantMempool {
-        fn insert(
-            &self,
-            tx: Transaction,
-            _tx_origin: TxOrigin,
-        ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+        fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
             Ok((TxId::from(&tx), MempoolSeqNo(1)))
         }
 
@@ -339,18 +301,11 @@ mod tests {
             Some(self.tx.clone())
         }
 
-        fn tx_ids_since(
-            &self,
-            _from_seq: MempoolSeqNo,
-            _limit: u16,
-        ) -> Vec<(TxId, u32, MempoolSeqNo)> {
+        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
             vec![(TxId::from(&self.tx), 100, MempoolSeqNo(1))]
         }
 
-        fn wait_for_at_least(
-            &self,
-            _seq_no: MempoolSeqNo,
-        ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
             Box::pin(async { true })
         }
 

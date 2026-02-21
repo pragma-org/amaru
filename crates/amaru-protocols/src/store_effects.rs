@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use amaru_kernel::{BlockHeader, GlobalParameters, HeaderHash, Point, RawBlock};
 use amaru_ouroboros_traits::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use pure_stage::{
-    BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData,
-};
-use std::sync::Arc;
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
 
 /// Implementation of ChainStore using pure_stage::Effects.
 pub struct Store<T> {
@@ -26,9 +25,7 @@ pub struct Store<T> {
 
 impl<T> Clone for Store<T> {
     fn clone(&self) -> Self {
-        Self {
-            effects: self.effects.clone(),
-        }
+        Self { effects: self.effects.clone() }
     }
 }
 
@@ -38,10 +35,7 @@ impl<T> Store<T> {
     }
 
     /// This function runs an external effect synchronously.
-    pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(
-        &self,
-        effect: E,
-    ) -> E::Response {
+    pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(&self, effect: E) -> E::Response {
         self.effects.external_sync(effect)
     }
 }
@@ -134,10 +128,8 @@ impl ExternalEffect for StoreHeaderEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("StoreHeaderEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("StoreHeaderEffect requires a chain store").clone();
             store.store_header(&self.header)
         })
     }
@@ -165,10 +157,8 @@ impl ExternalEffect for StoreBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("StoreBlockEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("StoreBlockEffect requires a chain store").clone();
             store.store_block(&self.hash, &self.block)
         })
     }
@@ -195,10 +185,8 @@ impl ExternalEffect for SetAnchorHashEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("SetAnchorHashEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("SetAnchorHashEffect requires a chain store").clone();
             store.set_anchor_hash(&self.hash)
         })
     }
@@ -225,10 +213,8 @@ impl ExternalEffect for SetBestChainHashEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("SetBestChainHashEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("SetBestChainHashEffect requires a chain store").clone();
             store.set_best_chain_hash(&self.hash)
         })
     }
@@ -256,10 +242,7 @@ impl ExternalEffect for PutNoncesEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("PutNoncesEffect requires a chain store")
-                .clone();
+            let store = resources.get::<ResourceHeaderStore>().expect("PutNoncesEffect requires a chain store").clone();
             store.put_nonces(&self.hash, &self.nonces)
         })
     }
@@ -286,10 +269,7 @@ impl ExternalEffect for HasHeaderEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("HasHeaderEffect requires a chain store")
-                .clone();
+            let store = resources.get::<ResourceHeaderStore>().expect("HasHeaderEffect requires a chain store").clone();
             store.has_header(&self.hash)
         })
     }
@@ -316,10 +296,8 @@ impl ExternalEffect for LoadFromBestChainEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("LoadFromBestChainEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("LoadFromBestChainEffect requires a chain store").clone();
             store.load_from_best_chain(&self.point)
         })
     }
@@ -346,10 +324,8 @@ impl ExternalEffect for NextBestChainEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("NextBestChainEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("NextBestChainEffect requires a chain store").clone();
             store.next_best_chain(&self.point)
         })
     }
@@ -376,10 +352,8 @@ impl ExternalEffect for LoadHeaderEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("LoadHeaderEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("LoadHeaderEffect requires a chain store").clone();
             store.load_header(&self.hash)
         })
     }
@@ -406,10 +380,8 @@ impl ExternalEffect for GetChildrenEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("GetChildrenEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("GetChildrenEffect requires a chain store").clone();
             store.get_children(&self.hash)
         })
     }
@@ -434,10 +406,8 @@ impl ExternalEffect for GetAnchorHashEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("GetAnchorHashEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("GetAnchorHashEffect requires a chain store").clone();
             store.get_anchor_hash()
         })
     }
@@ -462,10 +432,8 @@ impl ExternalEffect for GetBestChainHashEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("GetBestChainHashEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("GetBestChainHashEffect requires a chain store").clone();
             store.get_best_chain_hash()
         })
     }
@@ -492,10 +460,7 @@ impl ExternalEffect for LoadBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("LoadBlockEffect requires a chain store")
-                .clone();
+            let store = resources.get::<ResourceHeaderStore>().expect("LoadBlockEffect requires a chain store").clone();
             store.load_block(&self.hash)
         })
     }
@@ -522,10 +487,7 @@ impl ExternalEffect for GetNoncesEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("GetNoncesEffect requires a chain store")
-                .clone();
+            let store = resources.get::<ResourceHeaderStore>().expect("GetNoncesEffect requires a chain store").clone();
             store.get_nonces(&self.hash)
         })
     }
@@ -552,10 +514,8 @@ impl ExternalEffect for RollForwardChainEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("RollForwardChainEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("RollForwardChainEffect requires a chain store").clone();
             store.roll_forward_chain(&self.point)
         })
     }
@@ -582,10 +542,8 @@ impl ExternalEffect for RollBackChainEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("RollBackChainEffect requires a chain store")
-                .clone();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("RollBackChainEffect requires a chain store").clone();
             store.rollback_chain(&self.point)
         })
     }

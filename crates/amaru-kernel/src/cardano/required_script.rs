@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AsIndex, Hash, MemoizedDatum, RedeemerKey, ScriptPurpose, size::SCRIPT};
 use std::cmp::Ordering;
+
+use crate::{AsIndex, Hash, MemoizedDatum, RedeemerKey, ScriptPurpose, size::SCRIPT};
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 pub struct RequiredScript {
@@ -49,9 +50,6 @@ impl Ord for RequiredScript {
 
 impl From<&RequiredScript> for RedeemerKey {
     fn from(value: &RequiredScript) -> Self {
-        RedeemerKey {
-            tag: value.purpose,
-            index: value.index,
-        }
+        RedeemerKey { tag: value.purpose, index: value.index }
     }
 }

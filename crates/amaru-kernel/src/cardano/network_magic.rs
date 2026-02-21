@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
 use std::{env, num::ParseIntError};
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+use crate::cbor;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[repr(transparent)]
 pub struct NetworkMagic(u64);
 
@@ -48,10 +47,7 @@ impl NetworkMagic {
     }
 
     pub fn for_testing() -> Self {
-        env::var("NETWORK_MAGIC")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(Self::MAINNET)
+        env::var("NETWORK_MAGIC").ok().and_then(|s| s.parse().ok()).unwrap_or(Self::MAINNET)
     }
 }
 
@@ -90,12 +86,13 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::*;
-    use crate::prop_cbor_roundtrip;
     use proptest::{
         prelude::{Just, Strategy},
         prop_oneof,
     };
+
+    use super::*;
+    use crate::prop_cbor_roundtrip;
 
     prop_cbor_roundtrip!(NetworkMagic, any_network_magic());
 

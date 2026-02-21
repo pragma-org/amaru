@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tree::Tree;
-use assert_json_diff::assert_json_eq;
-use serde_json as json;
-use serde_json::{Value, to_string_pretty};
 use std::{
     collections::BTreeMap,
     sync::{Arc, RwLock},
 };
+
+use assert_json_diff::assert_json_eq;
+use serde_json as json;
+use serde_json::{Value, to_string_pretty};
 use tracing::Dispatch;
 use tracing_subscriber::layer::SubscriberExt;
+
+use crate::tree::Tree;
 
 pub mod tree;
 
@@ -74,10 +76,7 @@ impl JsonVisitor {
         // Safe because we just ensured steps is never empty
         let (root, children) = steps.split_first().unwrap();
 
-        let mut current_value = self
-            .fields
-            .entry(root.to_string())
-            .or_insert_with(|| json::json!({}));
+        let mut current_value = self.fields.entry(root.to_string()).or_insert_with(|| json::json!({}));
 
         for &key in children.iter().take(children.len() - 1) {
             if !current_value.is_object() {
@@ -101,10 +100,7 @@ impl JsonVisitor {
             }
 
             // Safe because we just ensured that current_value is always an object
-            current_value
-                .as_object_mut()
-                .unwrap()
-                .insert(last.to_string(), value);
+            current_value.as_object_mut().unwrap().insert(last.to_string(), value);
         }
     }
 }
@@ -134,11 +130,7 @@ impl tracing::field::Visit for JsonVisitor {
         self.add_field(field.name(), json::json!(hex::encode(value)));
     }
 
-    fn record_error(
-        &mut self,
-        field: &tracing::field::Field,
-        value: &(dyn std::error::Error + 'static),
-    ) {
+    fn record_error(&mut self, field: &tracing::field::Field, value: &(dyn std::error::Error + 'static)) {
         self.add_field(field.name(), json::json!(format!("{}", value)))
     }
 }
@@ -194,11 +186,7 @@ where
         }
     }
 
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
         let mut visitor = JsonVisitor::default();
         event.record(&mut visitor);
 
@@ -261,11 +249,7 @@ where
     let actual = as_trees(collected);
 
     if actual.len() != expected.len() {
-        eprintln!(
-            "actual spans tree count: {}, expected: {}",
-            actual.len(),
-            expected.len()
-        );
+        eprintln!("actual spans tree count: {}, expected: {}", actual.len(), expected.len());
 
         eprintln!("actual\n");
         for actual in actual.iter() {
@@ -277,11 +261,7 @@ where
             eprintln!("{}\n", to_string_pretty(expected).unwrap_or_default());
         }
 
-        assert_eq!(
-            actual.len(),
-            expected.len(),
-            "incorrect number of root spans"
-        );
+        assert_eq!(actual.len(), expected.len(), "incorrect number of root spans");
     }
 
     // make comparisons tree by tree
@@ -312,10 +292,7 @@ fn as_trees(collected: Vec<Value>) -> Vec<Value> {
         if let Some(id) = item.get("id") {
             let id_string = id.as_str().map(|s| s.to_string()).unwrap_or_default();
             if let Some(parent_id) = item.get("parent_id") {
-                let parent_id_string = parent_id
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
+                let parent_id_string = parent_id.as_str().map(|s| s.to_string()).unwrap_or_default();
                 let children = parent_child.entry(parent_id_string).or_default();
                 if !children.contains(&id_string) {
                     children.push(id_string.clone());
@@ -327,19 +304,11 @@ fn as_trees(collected: Vec<Value>) -> Vec<Value> {
         }
     }
 
-    fn make_tree(
-        root: String,
-        by_id: &BTreeMap<String, Vec<String>>,
-        values: &BTreeMap<String, Value>,
-    ) -> Tree<Value> {
+    fn make_tree(root: String, by_id: &BTreeMap<String, Vec<String>>, values: &BTreeMap<String, Value>) -> Tree<Value> {
         let value = values.get(&root).cloned().unwrap_or_default();
         let mut tree = Tree::make_leaf(strip_span(value));
         if let Some(children) = by_id.get(&root) {
-            tree.children = children
-                .iter()
-                .cloned()
-                .map(|c| make_tree(c, by_id, values))
-                .collect();
+            tree.children = children.iter().cloned().map(|c| make_tree(c, by_id, values)).collect();
         }
         tree
     }
@@ -398,9 +367,10 @@ fn strip_span(mut value: Value) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
     use tracing::{info, info_span};
+
+    use super::*;
 
     #[test]
     fn check_simple_tracing() {

@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
-use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, Slot,
-    StakeCredential, TransactionPointer, expect_stake_credential,
-};
 use std::collections::{BTreeMap, BTreeSet};
+
+use amaru_kernel::{
+    Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, Slot, StakeCredential,
+    TransactionPointer, expect_stake_credential,
+};
+
+use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
 
 #[derive(Debug)]
 pub struct GovernanceSummary {
@@ -66,76 +68,52 @@ impl GovernanceSummary {
 
         let mut deposits = BTreeMap::new();
 
-        let GovernanceActivity {
-            consecutive_dormant_epochs,
-        } = db.governance_activity()?;
+        let GovernanceActivity { consecutive_dormant_epochs } = db.governance_activity()?;
 
-        db.iter_proposals()?
-            .try_for_each(|(_, row)| -> Result<(), Error> {
-                let epoch = era_history
-                    .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
-                    .map_err(|e| Error::EraHistoryError(row.proposed_in.transaction.slot, e))?;
+        db.iter_proposals()?.try_for_each(|(_, row)| -> Result<(), Error> {
+            let epoch = era_history
+                .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
+                .map_err(|e| Error::EraHistoryError(row.proposed_in.transaction.slot, e))?;
 
-                proposals.insert((row.proposed_in.transaction, epoch));
+            proposals.insert((row.proposed_in.transaction, epoch));
 
-                // Proposals are ratified with an epoch of delay always, so deposits count towards
-                // the voting stake of DRep for an extra epoch following the proposal expiry.
-                if current_epoch <= row.valid_until + 1 {
-                    let proposal = || ProposalState {
-                        deposit: row.proposal.deposit,
-                        valid_until: row.valid_until,
-                    };
+            // Proposals are ratified with an epoch of delay always, so deposits count towards
+            // the voting stake of DRep for an extra epoch following the proposal expiry.
+            if current_epoch <= row.valid_until + 1 {
+                let proposal = || ProposalState { deposit: row.proposal.deposit, valid_until: row.valid_until };
 
-                    deposits
-                        .entry(expect_stake_credential(&row.proposal.reward_account))
-                        .and_modify(|proposals: &mut Vec<ProposalState>| proposals.push(proposal()))
-                        .or_insert_with(|| vec![proposal()]);
-                }
+                deposits
+                    .entry(expect_stake_credential(&row.proposal.reward_account))
+                    .and_modify(|proposals: &mut Vec<ProposalState>| proposals.push(proposal()))
+                    .or_insert_with(|| vec![proposal()]);
+            }
 
-                Ok(())
-            })?;
+            Ok(())
+        })?;
 
         let mut dreps = db
             .iter_dreps()?
-            .filter(
-                |(
-                    _,
-                    dreps::Row {
-                        registered_at,
-                        previous_deregistration,
-                        ..
-                    },
-                )| { Some(registered_at) > previous_deregistration.as_ref() },
-            )
-            .map(
-                |(
-                    k,
-                    dreps::Row {
-                        registered_at,
-                        previous_deregistration,
-                        valid_until,
-                        anchor,
-                        ..
-                    },
-                )| {
-                    let drep = match k {
-                        StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
-                        StakeCredential::ScriptHash(hash) => DRep::Script(hash),
-                    };
+            .filter(|(_, dreps::Row { registered_at, previous_deregistration, .. })| {
+                Some(registered_at) > previous_deregistration.as_ref()
+            })
+            .map(|(k, dreps::Row { registered_at, previous_deregistration, valid_until, anchor, .. })| {
+                let drep = match k {
+                    StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                    StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+                };
 
-                    Ok((
-                        drep,
-                        DRepState {
-                            registered_at,
-                            previous_deregistration,
-                            metadata: anchor,
-                            valid_until: Some(valid_until + consecutive_dormant_epochs as u64),
-                            // The actual stake is filled later when computing the stake distribution.
-                            stake: 0,
-                        },
-                    ))
-                },
-            )
+                Ok((
+                    drep,
+                    DRepState {
+                        registered_at,
+                        previous_deregistration,
+                        metadata: anchor,
+                        valid_until: Some(valid_until + consecutive_dormant_epochs as u64),
+                        // The actual stake is filled later when computing the stake distribution.
+                        stake: 0,
+                    },
+                ))
+            })
             .collect::<Result<BTreeMap<_, _>, Error>>()?;
 
         let default_protocol_drep = || DRepState {
@@ -143,10 +121,7 @@ impl GovernanceSummary {
             metadata: None,
             stake: 0,
             registered_at: CertificatePointer {
-                transaction: TransactionPointer {
-                    slot: Slot::from(0),
-                    transaction_index: 0,
-                },
+                transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
                 certificate_index: 0,
             },
             previous_deregistration: None,

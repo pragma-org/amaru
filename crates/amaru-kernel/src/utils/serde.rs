@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{MemoizedTransactionOutput, TransactionInput};
 use std::collections::BTreeMap;
+
+use crate::{MemoizedTransactionOutput, TransactionInput};
 
 // ----------------------------------------------------------------------------------- Generic utils
 
@@ -30,10 +31,7 @@ where
     V::Proxy: serde::Deserialize<'de>,
 {
     let entries: Vec<(K::Proxy, V::Proxy)> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(entries
-        .into_iter()
-        .map(|(k, v)| (K::from(k), V::from(v)))
-        .collect())
+    Ok(entries.into_iter().map(|(k, v)| (K::from(k), V::from(v))).collect())
 }
 
 pub fn deserialize_option_proxy<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>

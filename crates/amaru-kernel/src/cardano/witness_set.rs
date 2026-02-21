@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    BootstrapWitness, HasScriptHash, Hash, MemoizedNativeScript, MemoizedPlutusData, NonEmptyVec,
-    PlutusScript, Redeemers, ScriptKind, VKeyWitness, cbor, size::SCRIPT,
-};
 use std::collections::BTreeMap;
+
+use crate::{
+    BootstrapWitness, HasScriptHash, Hash, MemoizedNativeScript, MemoizedPlutusData, NonEmptyVec, PlutusScript,
+    Redeemers, ScriptKind, VKeyWitness, cbor, size::SCRIPT,
+};
 
 /// FIXME: Accidentally not a set
 ///
@@ -33,17 +34,7 @@ use std::collections::BTreeMap;
 ///   <https://github.com/IntersectMBO/cardano-ledger/blob/fe0af09c8667bf8ffdd17dd1a387515b9b0533bf/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L610-L624>
 ///
 ///   Importantly, this behaviour is changing again in v12, back to being a non-empty set / maps.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    cbor::Encode,
-    cbor::Decode,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 #[cbor(map)]
 pub struct WitnessSet {
     #[n(0)]
@@ -80,30 +71,15 @@ impl WitnessSet {
         let mut provided_scripts = BTreeMap::new();
 
         if let Some(native_scripts) = self.native_script.as_ref() {
-            provided_scripts.extend(
-                native_scripts
-                    .iter()
-                    .map(|native_script| (native_script.script_hash(), ScriptKind::Native)),
-            )
+            provided_scripts
+                .extend(native_scripts.iter().map(|native_script| (native_script.script_hash(), ScriptKind::Native)))
         };
 
-        collect_plutus_scripts(
-            &mut provided_scripts,
-            self.plutus_v1_script.as_ref(),
-            ScriptKind::PlutusV1,
-        );
+        collect_plutus_scripts(&mut provided_scripts, self.plutus_v1_script.as_ref(), ScriptKind::PlutusV1);
 
-        collect_plutus_scripts(
-            &mut provided_scripts,
-            self.plutus_v2_script.as_ref(),
-            ScriptKind::PlutusV2,
-        );
+        collect_plutus_scripts(&mut provided_scripts, self.plutus_v2_script.as_ref(), ScriptKind::PlutusV2);
 
-        collect_plutus_scripts(
-            &mut provided_scripts,
-            self.plutus_v3_script.as_ref(),
-            ScriptKind::PlutusV3,
-        );
+        collect_plutus_scripts(&mut provided_scripts, self.plutus_v3_script.as_ref(), ScriptKind::PlutusV3);
 
         provided_scripts
     }
@@ -120,10 +96,6 @@ fn collect_plutus_scripts<const VERSION: usize>(
     kind: ScriptKind,
 ) {
     if let Some(plutus_scripts) = scripts {
-        accum.extend(
-            plutus_scripts
-                .iter()
-                .map(|script| (script.script_hash(), kind)),
-        )
+        accum.extend(plutus_scripts.iter().map(|script| (script.script_hash(), kind)))
     }
 }

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::Blocking;
+use std::fmt::Display;
+
 use amaru_kernel::{NonEmptyBytes, Transaction, cbor, to_cbor};
 use amaru_ouroboros_traits::TxId;
-use std::fmt::Display;
+
+use crate::tx_submission::Blocking;
 
 /// Messages for the txsubmission mini-protocol.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
@@ -48,27 +50,24 @@ impl PartialOrd for Message {
 
 impl Ord for Message {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.discriminant()
-            .cmp(&other.discriminant())
-            .then_with(|| match (self, other) {
-                (Message::Init, Message::Init) => std::cmp::Ordering::Equal,
-                (Message::RequestTxIdsBlocking(a1, b1), Message::RequestTxIdsBlocking(a2, b2)) => {
-                    a1.cmp(a2).then_with(|| b1.cmp(b2))
-                }
-                (
-                    Message::RequestTxIdsNonBlocking(a1, b1),
-                    Message::RequestTxIdsNonBlocking(a2, b2),
-                ) => a1.cmp(a2).then_with(|| b1.cmp(b2)),
-                (Message::RequestTxs(a1), Message::RequestTxs(a2)) => a1.cmp(a2),
-                (Message::ReplyTxIds(a1), Message::ReplyTxIds(a2)) => a1.cmp(a2),
-                (Message::ReplyTxs(a1), Message::ReplyTxs(a2)) => {
-                    let left = to_cbor(a1);
-                    let right = to_cbor(a2);
-                    left.cmp(&right)
-                }
-                (Message::Done, Message::Done) => std::cmp::Ordering::Equal,
-                _ => unreachable!(),
-            })
+        self.discriminant().cmp(&other.discriminant()).then_with(|| match (self, other) {
+            (Message::Init, Message::Init) => std::cmp::Ordering::Equal,
+            (Message::RequestTxIdsBlocking(a1, b1), Message::RequestTxIdsBlocking(a2, b2)) => {
+                a1.cmp(a2).then_with(|| b1.cmp(b2))
+            }
+            (Message::RequestTxIdsNonBlocking(a1, b1), Message::RequestTxIdsNonBlocking(a2, b2)) => {
+                a1.cmp(a2).then_with(|| b1.cmp(b2))
+            }
+            (Message::RequestTxs(a1), Message::RequestTxs(a2)) => a1.cmp(a2),
+            (Message::ReplyTxIds(a1), Message::ReplyTxIds(a2)) => a1.cmp(a2),
+            (Message::ReplyTxs(a1), Message::ReplyTxs(a2)) => {
+                let left = to_cbor(a1);
+                let right = to_cbor(a2);
+                left.cmp(&right)
+            }
+            (Message::Done, Message::Done) => std::cmp::Ordering::Equal,
+            _ => unreachable!(),
+        })
     }
 }
 
@@ -166,9 +165,7 @@ impl<'b> cbor::Decode<'b, ()> for Message {
             }
             3 => {
                 cbor::check_tagged_array_length(3, len, 2)?;
-                Ok(Message::ReplyTxs(
-                    d.array_iter()?.collect::<Result<_, _>>()?,
-                ))
+                Ok(Message::ReplyTxs(d.array_iter()?.collect::<Result<_, _>>()?))
             }
             4 => {
                 cbor::check_tagged_array_length(4, len, 1)?;
@@ -178,9 +175,7 @@ impl<'b> cbor::Decode<'b, ()> for Message {
                 cbor::check_tagged_array_length(6, len, 1)?;
                 Ok(Message::Init)
             }
-            _ => Err(cbor::decode::Error::message(
-                "unknown variant for txsubmission message",
-            )),
+            _ => Err(cbor::decode::Error::message("unknown variant for txsubmission message")),
         }
     }
 }
@@ -199,30 +194,21 @@ impl Display for Message {
                 write!(
                     f,
                     "ReplyTxIds(ids: [{}])",
-                    ids.iter()
-                        .map(|(id, size)| format!("({}, {})", id, size))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    ids.iter().map(|(id, size)| format!("({}, {})", id, size)).collect::<Vec<_>>().join(", ")
                 )
             }
             Message::RequestTxs(ids) => {
                 write!(
                     f,
                     "RequestTxs(ids: [{}])",
-                    ids.iter()
-                        .map(|id| format!("{}", id))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    ids.iter().map(|id| format!("{}", id)).collect::<Vec<_>>().join(", ")
                 )
             }
             Message::ReplyTxs(txs) => {
                 write!(
                     f,
                     "ReplyTxs(txs: [{}])",
-                    txs.iter()
-                        .map(|tx| format!("{}", TxId::from(tx)))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    txs.iter().map(|tx| format!("{}", TxId::from(tx))).collect::<Vec<_>>().join(", ")
                 )
             }
             Message::Done => write!(f, "Done"),
@@ -240,11 +226,12 @@ pub enum TxSubmissionMessage {
 /// Roundtrip property tests for txsubmission messages.
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::tx_submission::tests::create_transaction;
     use amaru_kernel::{Hash, Transaction, prop_cbor_roundtrip};
     use prop::collection::vec;
     use proptest::{prelude::*, prop_compose};
+
+    use super::*;
+    use crate::tx_submission::tests::create_transaction;
 
     mod tx_id {
         use super::*;

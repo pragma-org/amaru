@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{Block, BlockHeader, Point};
+use amaru_metrics::ledger::LedgerMetrics;
+
 use crate::{
     CanValidateBlocks,
     can_validate_blocks::{BlockValidationError, CanValidateHeaders, HeaderValidationError},
 };
-use amaru_kernel::{Block, BlockHeader, Point};
-use amaru_metrics::ledger::LedgerMetrics;
 
 /// A fake block validator that always returns the same height.
 #[derive(Clone, Debug, Default)]

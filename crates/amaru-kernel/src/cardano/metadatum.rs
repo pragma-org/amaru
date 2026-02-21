@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Int, cbor};
 use std::collections::BTreeMap;
+
+use crate::{Int, cbor};
 
 /// A piece of (structured) metadata found in transaction.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
@@ -52,15 +53,13 @@ impl<'b, C> cbor::Decode<'b, C> for Metadatum {
                 let i = d.decode()?;
                 Ok(Metadatum::Int(i))
             }
-            Bytes => Ok(Metadatum::Bytes(Vec::from(
-                d.decode_with::<C, cbor::bytes::ByteVec>(ctx)?,
-            ))),
+            Bytes => Ok(Metadatum::Bytes(Vec::from(d.decode_with::<C, cbor::bytes::ByteVec>(ctx)?))),
             String => Ok(Metadatum::Text(d.decode_with(ctx)?)),
             Array | ArrayIndef => Ok(Metadatum::Array(d.decode_with(ctx)?)),
             Map | MapIndef => Ok(Metadatum::Map(d.decode_with(ctx)?)),
-            any => Err(cbor::decode::Error::message(format!(
-                "unexpected CBOR datatype {any:?} when decoding metadatum"
-            ))),
+            any => {
+                Err(cbor::decode::Error::message(format!("unexpected CBOR datatype {any:?} when decoding metadatum")))
+            }
         }
     }
 }
@@ -97,10 +96,12 @@ impl<C> cbor::Encode<C> for Metadatum {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use test_case::test_case;
+
     use super::Metadatum;
     use crate::{Int, from_cbor_no_leftovers};
-    use std::collections::BTreeMap;
-    use test_case::test_case;
 
     fn int(n: i128) -> Metadatum {
         Metadatum::Int(Int::try_from(n).unwrap())
@@ -209,45 +210,21 @@ mod tests {
         }
     }
 
-    #[test_case(
-        "C249010000000000000000",
-        "decode error: unexpected CBOR datatype Tag when decoding metadatum"
-    )]
+    #[test_case("C249010000000000000000", "decode error: unexpected CBOR datatype Tag when decoding metadatum")]
     #[test_case("1901", "end of input bytes")]
     #[test_case("6261", "end of input bytes")]
     #[test_case("4261", "end of input bytes")]
-    #[test_case(
-        "784C6F72656D20697073756D20646F6C6F722073697420616D6574",
-        "end of input bytes"
-    )]
-    #[test_case(
-        "C349010000000000000000",
-        "decode error: unexpected CBOR datatype Tag when decoding metadatum"
-    )]
+    #[test_case("784C6F72656D20697073756D20646F6C6F722073697420616D6574", "end of input bytes")]
+    #[test_case("C349010000000000000000", "decode error: unexpected CBOR datatype Tag when decoding metadatum")]
     #[test_case("830102", "end of input bytes")]
     #[test_case("9F0102", "end of input bytes")]
-    #[test_case(
-        "82010203",
-        "decode error: leftovers bytes after decoding after position 3"
-    )]
-    #[test_case(
-        "9F0102FF03",
-        "decode error: leftovers bytes after decoding after position 4"
-    )]
+    #[test_case("82010203", "decode error: leftovers bytes after decoding after position 3")]
+    #[test_case("9F0102FF03", "decode error: leftovers bytes after decoding after position 4")]
     #[test_case("A20102", "end of input bytes")]
     #[test_case("BF0102", "end of input bytes")]
-    #[test_case(
-        "BF01FF",
-        "decode error: unexpected CBOR datatype Break when decoding metadatum"
-    )]
-    #[test_case(
-        "A101020304",
-        "decode error: leftovers bytes after decoding after position 3"
-    )]
-    #[test_case(
-        "BF0102FF0304",
-        "decode error: leftovers bytes after decoding after position 4"
-    )]
+    #[test_case("BF01FF", "decode error: unexpected CBOR datatype Break when decoding metadatum")]
+    #[test_case("A101020304", "decode error: leftovers bytes after decoding after position 3")]
+    #[test_case("BF0102FF0304", "decode error: leftovers bytes after decoding after position 4")]
     fn decode_malformed(fixture: &str, expected: &str) {
         let bytes = hex::decode(fixture).unwrap();
         match from_cbor_no_leftovers::<Metadatum>(bytes.as_slice()) {

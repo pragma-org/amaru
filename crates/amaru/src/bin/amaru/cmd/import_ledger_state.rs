@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::PathBuf;
+
 use amaru::{
     DEFAULT_NETWORK,
     bootstrap::{ImportError, import_snapshots, import_snapshots_from_directory},
@@ -19,7 +21,6 @@ use amaru::{
 };
 use amaru_kernel::NetworkName;
 use clap::Parser;
-use std::path::PathBuf;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -75,9 +76,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
         _command = "import-ledger-state",

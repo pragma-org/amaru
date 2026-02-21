@@ -34,29 +34,20 @@ fn get_conformance_test_vectors() -> Result<()> {
     let failures_path = "tests/data/rules-conformance.failures.toml";
     println!("cargo:rerun-if-changed={failures_path}");
     let failures = match fs::read(failures_path) {
-        Ok(bytes) => {
-            toml::from_slice::<FailuresTable>(&bytes).context("could not parse failures file")?
-        }
+        Ok(bytes) => toml::from_slice::<FailuresTable>(&bytes).context("could not parse failures file")?,
         Err(_) => FailuresTable::new(),
     };
 
     let out_dir = env::var("OUT_DIR").context("OUT_DIR not set")?;
     let out_file = Path::new(&out_dir).join("test_cases.rs");
 
-    let test_data_dir = env::current_dir()?
-        .join("tests")
-        .join("data")
-        .join("rules-conformance");
+    let test_data_dir = env::current_dir()?.join("tests").join("data").join("rules-conformance");
     let mut files = Vec::new();
     visit_dirs(&test_data_dir, &mut files);
 
     let mut output = fs::File::create(out_file).context("could not write test_cases.rs")?;
 
-    writeln!(
-        &mut output,
-        "const TEST_DATA_DIR: &str = \"{}\";",
-        test_data_dir.to_string_lossy().escape_default()
-    )?;
+    writeln!(&mut output, "const TEST_DATA_DIR: &str = \"{}\";", test_data_dir.to_string_lossy().escape_default())?;
     writeln!(&mut output)?;
 
     for path in files {

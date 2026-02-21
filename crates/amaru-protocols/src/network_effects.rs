@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{net::SocketAddr, num::NonZeroUsize, time::Duration};
+
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionResource, ToSocketAddrs};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
-use std::{net::SocketAddr, num::NonZeroUsize, time::Duration};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
     vec![
@@ -33,23 +34,11 @@ pub trait NetworkOps {
 
     fn accept(&self) -> BoxFuture<'static, Result<(Peer, ConnectionId), String>>;
 
-    fn connect(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, Result<ConnectionId, String>>;
+    fn connect(&self, addr: ToSocketAddrs, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>>;
 
-    fn send(
-        &self,
-        conn: ConnectionId,
-        data: NonEmptyBytes,
-    ) -> BoxFuture<'static, Result<(), String>>;
+    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, Result<(), String>>;
 
-    fn recv(
-        &self,
-        conn: ConnectionId,
-        bytes: NonZeroUsize,
-    ) -> BoxFuture<'static, Result<NonEmptyBytes, String>>;
+    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, Result<NonEmptyBytes, String>>;
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), String>>;
 }
@@ -71,27 +60,15 @@ impl<T> NetworkOps for Network<'_, T> {
         self.0.external(AcceptEffect)
     }
 
-    fn connect(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, Result<ConnectionId, String>> {
+    fn connect(&self, addr: ToSocketAddrs, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, String>> {
         self.0.external(ConnectEffect { addr, timeout })
     }
 
-    fn send(
-        &self,
-        conn: ConnectionId,
-        data: NonEmptyBytes,
-    ) -> BoxFuture<'static, Result<(), String>> {
+    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, Result<(), String>> {
         self.0.external(SendEffect { conn, data })
     }
 
-    fn recv(
-        &self,
-        conn: ConnectionId,
-        bytes: NonZeroUsize,
-    ) -> BoxFuture<'static, Result<NonEmptyBytes, String>> {
+    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, Result<NonEmptyBytes, String>> {
         self.0.external(RecvEffect { conn, bytes })
     }
 
@@ -109,14 +86,9 @@ impl ExternalEffect for ListenEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
-            let resource = resources
-                .get::<ConnectionResource>()
-                .expect("ListenEffect requires a ConnectionResource")
-                .clone();
-            resource
-                .listen(self.addr)
-                .await
-                .map_err(|e| format!("failed to bind to {:?}: {:#}", self.addr, e))
+            let resource =
+                resources.get::<ConnectionResource>().expect("ListenEffect requires a ConnectionResource").clone();
+            resource.listen(self.addr).await.map_err(|e| format!("failed to bind to {:?}: {:#}", self.addr, e))
         })
     }
 }
@@ -132,14 +104,9 @@ impl ExternalEffect for AcceptEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
-            let resource = resources
-                .get::<ConnectionResource>()
-                .expect("AcceptEffect requires a ConnectionResource")
-                .clone();
-            resource
-                .accept()
-                .await
-                .map_err(|e| format!("failed to accept a connection: {:#}", e))
+            let resource =
+                resources.get::<ConnectionResource>().expect("AcceptEffect requires a ConnectionResource").clone();
+            resource.accept().await.map_err(|e| format!("failed to accept a connection: {:#}", e))
         })
     }
 }
@@ -158,10 +125,8 @@ impl ExternalEffect for ConnectEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
-            let resource = resources
-                .get::<ConnectionResource>()
-                .expect("ConnectEffect requires a ConnectionResource")
-                .clone();
+            let resource =
+                resources.get::<ConnectionResource>().expect("ConnectEffect requires a ConnectionResource").clone();
             resource
                 .connect_addrs(self.addr.clone(), self.timeout)
                 .await
@@ -184,10 +149,8 @@ impl ExternalEffect for SendEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
-            let resource = resources
-                .get::<ConnectionResource>()
-                .expect("SendEffect requires a ConnectionResource")
-                .clone();
+            let resource =
+                resources.get::<ConnectionResource>().expect("SendEffect requires a ConnectionResource").clone();
             resource
                 .send(self.conn, self.data)
                 .await
@@ -210,10 +173,8 @@ impl ExternalEffect for RecvEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
-            let resource = resources
-                .get::<ConnectionResource>()
-                .expect("RecvEffect requires a ConnectionResource")
-                .clone();
+            let resource =
+                resources.get::<ConnectionResource>().expect("RecvEffect requires a ConnectionResource").clone();
             resource
                 .recv(self.conn, self.bytes)
                 .await
@@ -235,14 +196,9 @@ impl ExternalEffect for CloseEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
             #[expect(clippy::expect_used)]
-            let resource = resources
-                .get::<ConnectionResource>()
-                .expect("CloseEffect requires a ConnectionResource")
-                .clone();
-            resource
-                .close(self.conn)
-                .await
-                .map_err(|e| format!("failed to close connection {}: {:#}", self.conn, e))
+            let resource =
+                resources.get::<ConnectionResource>().expect("CloseEffect requires a ConnectionResource").clone();
+            resource.close(self.conn).await.map_err(|e| format!("failed to close connection {}: {:#}", self.conn, e))
         })
     }
 }
@@ -254,9 +210,7 @@ impl ExternalEffectAPI for CloseEffect {
 /// Create a connection to an upstream node, either specified in the PEER environment variable,
 /// or to 127.0.0.1:3000
 #[cfg(test)]
-pub async fn create_connection(
-    conn: &dyn amaru_ouroboros::ConnectionProvider,
-) -> anyhow::Result<ConnectionId> {
+pub async fn create_connection(conn: &dyn amaru_ouroboros::ConnectionProvider) -> anyhow::Result<ConnectionId> {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         use amaru_network::socket_addr::resolve;
 
