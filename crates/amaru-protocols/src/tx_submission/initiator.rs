@@ -93,7 +93,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         Ok((None, self))
     }
 
-    #[instrument(name = "txsubmission.initiator.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(name = "tx_submission.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,

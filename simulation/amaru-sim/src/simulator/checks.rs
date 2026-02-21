@@ -36,7 +36,7 @@ pub fn check_chain_property(nodes: Nodes, actions: &GeneratedActions) -> TestRes
                 .expect("A ResourceHeaderStore must be available")
                 .clone();
             let actual = get_best_chain_block_headers(store.clone());
-            tracing::info!(node_id = %node.node_id(), blocks_nb = %actual.len(), "retrieved the best dowstream block headers");
+            tracing::info!(node_id = %node.node_id(), blocks_nb = %actual.len(), "retrieved the best downstream block headers");
 
             let generated_tree = actions.generated_tree();
             let best_chains = generated_tree.best_chains();

@@ -90,7 +90,7 @@ pub fn build_node(
 
     // Make the chain store, either from the network resources if already set
     // or from the configuration.
-    // This also makes sure that the chain store tip and anchors are is exactly aligned to the
+    // This also makes sure that the chain store tip and anchors are exactly aligned to the
     // ledger tip.
     let chain_store = initialize_chain_store(config, &tip.hash())?;
     let tip = chain_store.load_tip(&tip.hash()).unwrap_or(Tip::origin());
