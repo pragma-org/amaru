@@ -51,7 +51,7 @@ use cbor4ii::{
     serde::{from_slice, to_writer},
 };
 use parking_lot::Mutex;
-use tracing::{Event, Subscriber, info};
+use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 #[derive(Default)]

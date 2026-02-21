@@ -17,7 +17,6 @@ use std::{fmt, fmt::Display};
 use amaru_kernel::Block;
 use amaru_observability::trace;
 pub use block::execute as validate_block;
-use tracing::warn;
 
 use crate::context::PreparationContext;
 
