@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeSet,
-    fmt, io,
-    sync::{Arc, Mutex},
-};
+use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
 use amaru_ouroboros::ConnectionId;
@@ -37,11 +33,14 @@ use pure_stage::{
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::{Builder, Handle, Runtime};
-use tracing::{Level, subscriber::DefaultGuard};
+use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
-use crate::effects::{ResourceHeaderValidation, ValidateHeaderEffect};
+use crate::{
+    effects::{ResourceHeaderValidation, ValidateHeaderEffect},
+    stages::test_utils::{BufferWriter, Logs},
+};
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
     let store = Arc::new(InMemConsensusStore::new());
@@ -107,119 +106,6 @@ pub fn send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl SendData) -> T
     TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
 }
 
-pub struct BufferWriter {
-    buffer: Arc<Mutex<Vec<u8>>>,
-    guard: Option<DefaultGuard>,
-}
-
-impl BufferWriter {
-    fn new() -> Self {
-        Self { buffer: Arc::new(Mutex::new(Vec::new())), guard: None }
-    }
-
-    /// Extract a [`Logs`] container with all lines emitted during the test.
-    pub fn logs(&self) -> Logs {
-        let logs = String::from_utf8(self.buffer.lock().expect("log buffer poisoned").clone())
-            .expect("log should be valid UTF-8");
-        Logs::from_buffer(&logs)
-    }
-}
-
-/// Parsed log entries extracted from a [`BufferWriter`], with level-aware assertion helpers.
-pub struct Logs {
-    entries: Vec<LogEntry>,
-}
-
-impl fmt::Display for Logs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for e in &self.entries {
-            writeln!(f, "{}", e.line)?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-struct LogEntry {
-    level: Level,
-    line: String,
-}
-
-fn parse_level(line: &str) -> Level {
-    let Some(word) = line.split_whitespace().nth(1) else {
-        panic!("invalid log line: {:?}", line);
-    };
-    match word {
-        "ERROR" => Level::ERROR,
-        "WARN" => Level::WARN,
-        "INFO" => Level::INFO,
-        "DEBUG" => Level::DEBUG,
-        "TRACE" => Level::TRACE,
-        _ => panic!("invalid log level: {:?}", word),
-    }
-}
-
-impl Logs {
-    fn from_buffer(s: &str) -> Self {
-        let entries = s
-            .split('\n')
-            .filter(|line| !line.is_empty())
-            .map(|line| LogEntry { level: parse_level(line), line: line.to_string() })
-            .collect();
-        Self { entries }
-    }
-
-    /// Asserts that at least one log message exists at the given level containing the substring,
-    /// removes the first matching message, and returns `self` for method chaining.
-    #[track_caller]
-    pub fn assert_and_remove(&mut self, level: Level, substring: &[&str]) -> &mut Self {
-        let pos = self.entries.iter().position(|e| e.level == level && substring.iter().all(|s| e.line.contains(s)));
-        match pos {
-            Some(i) => {
-                self.entries.remove(i);
-                self
-            }
-            None => panic!(
-                "expected log at level {:?} containing {:?}; no such message found.\n\nLogs:\n{}",
-                level, substring, self
-            ),
-        }
-    }
-
-    /// Asserts that no log messages remain at any of the given levels.
-    #[track_caller]
-    pub fn assert_no_remaining_at(&mut self, levels: impl IntoIterator<Item = Level>) -> &mut Self {
-        let level_set: BTreeSet<_> = levels.into_iter().collect();
-        let remaining: Vec<_> = self.entries.iter().filter(|e| level_set.contains(&e.level)).cloned().collect();
-        if !remaining.is_empty() {
-            panic!(
-                "unexpected log messages at specified levels:\n\n{}\n\n(levels checked: {:?})",
-                Logs { entries: remaining },
-                level_set.iter().collect::<Vec<_>>()
-            );
-        }
-        self
-    }
-}
-
-impl Clone for BufferWriter {
-    fn clone(&self) -> Self {
-        Self { buffer: self.buffer.clone(), guard: None }
-    }
-}
-
-impl io::Write for BufferWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut guard = self.buffer.lock().expect("log buffer poisoned");
-        guard.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
@@ -259,7 +145,7 @@ pub fn setup_with_validation(
         .with_ansi(false)
         .with_writer(move || writer.clone())
         .set_default();
-    logs.guard = Some(sub);
+    logs.set_guard(sub);
 
     let guards = register_guards();
 

@@ -47,6 +47,8 @@ struct InMemConsensusStoreInner<H> {
     best_chain: HeaderHash,
     blocks: BTreeMap<HeaderHash, RawBlock>,
     chain: Vec<Point>,
+    /// Maps header hash to block validity. None = not yet validated, Some(true) = valid, Some(false) = invalid.
+    block_validity: BTreeMap<HeaderHash, bool>,
 }
 
 impl<H> Default for InMemConsensusStoreInner<H> {
@@ -65,6 +67,7 @@ impl<H> InMemConsensusStoreInner<H> {
             best_chain: NULL_HASH32,
             blocks: BTreeMap::new(),
             chain: Vec::new(),
+            block_validity: BTreeMap::new(),
         }
     }
 }
@@ -74,6 +77,14 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         let inner = self.inner.lock().unwrap();
         inner.headers.get(hash).cloned()
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>) {
+        let inner = self.inner.lock().unwrap();
+        let header = inner.headers.get(hash).cloned();
+        let validity = inner.block_validity.get(hash).copied();
+        (header, validity)
     }
 
     #[expect(clippy::unwrap_used)]
@@ -176,6 +187,13 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.chain.push(*point);
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.block_validity.insert(*hash, valid);
         Ok(())
     }
 

@@ -193,7 +193,6 @@ pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, t
 mod data_structures;
 #[cfg(any(test, feature = "test-utils"))]
 pub use data_structures::nullable::any_nullable;
-#[doc(hidden)]
 pub use data_structures::{
     ignore_eq::IgnoreEq,
     key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs},
@@ -211,7 +210,6 @@ pub use serde_json as json;
 pub mod macros;
 
 mod traits;
-#[doc(hidden)]
 pub use traits::{
     AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasNetwork, HasOwnership, HasRedeemers, HasScriptHash,
     IsHeader, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_network, has_ownership, has_redeemers,

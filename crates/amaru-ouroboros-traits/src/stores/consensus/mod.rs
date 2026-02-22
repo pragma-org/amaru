@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod in_memory_consensus_store;
+pub mod overriding_consensus_store;
 
 use std::{fmt::Display, iter::successors, sync::Arc};
 
@@ -29,6 +30,8 @@ where
 {
     /// Try to load a header by its hash.
     fn load_header(&self, hash: &HeaderHash) -> Option<H>;
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>);
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
@@ -91,6 +94,30 @@ where
         }))
     }
 
+    fn ancestors_with_validity<'a>(&'a self, start: HeaderHash) -> Box<dyn Iterator<Item = (H, Option<bool>)> + 'a>
+    where
+        H: 'a,
+    {
+        let anchor = self.get_anchor_hash();
+        let anchor_point = match self.load_header(&anchor) {
+            Some(header) => header.point(),
+            None => Point::Origin,
+        };
+
+        let (header, valid) = self.load_header_with_validity(&start);
+
+        Box::new(successors(header.map(|h| (h, valid)), move |(h, _valid)| {
+            if h.slot() <= anchor_point.slot_or_default() {
+                None
+            } else {
+                h.parent().and_then(|p| {
+                    let (h, valid) = self.load_header_with_validity(&p);
+                    h.map(|h| (h, valid))
+                })
+            }
+        }))
+    }
+
     /// Return the hashes of the ancestors of the header, including the header hash itself.
     fn ancestors_hashes<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + 'a>
     where
@@ -121,6 +148,10 @@ pub trait DiagnosticChainStore {
 impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         self.as_ref().load_header(hash)
+    }
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>) {
+        self.as_ref().load_header_with_validity(hash)
     }
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
@@ -162,9 +193,15 @@ where
     H: IsHeader,
 {
     fn store_header(&self, header: &H) -> Result<(), StoreError>;
+
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
+
+    fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError>;
+
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
 
     /// Roll forward the best chain to the given point.

@@ -17,10 +17,7 @@ use std::{error::Error, fmt::Display, path::PathBuf};
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_kernel::{BlockHeader, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
 use amaru_ouroboros::{DiagnosticChainStore, ReadOnlyChainStore};
-use amaru_stores::rocksdb::{
-    RocksDbConfig,
-    consensus::{ReadOnlyChainDB, RocksDBStore},
-};
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use tracing::info;
 
@@ -54,7 +51,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    let db: ReadOnlyChainDB = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
+    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 
     print_iterator(
         "headers",
@@ -66,26 +63,20 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     );
     print_iterator("nonces\n", db.load_nonces().map(|(hash, nonces)| (hash, hex::encode(to_cbor(&nonces)))));
     print_iterator("blocks\n", db.load_blocks().map(|(hash, block)| (hash, hex::encode(block.to_vec()))));
-    print_best_chain(db);
+    print_best_chain(&db);
     Ok(())
 }
 
 #[expect(clippy::print_stdout)]
-pub fn print_best_chain(db: ReadOnlyChainDB) {
+pub fn print_best_chain(db: &impl ReadOnlyChainStore<BlockHeader>) {
     println!();
-    let best_chain = <ReadOnlyChainDB as ReadOnlyChainStore<BlockHeader>>::retrieve_best_chain(&db);
+    let best_chain = db.retrieve_best_chain();
     println!("The best chain is:\n  {}", best_chain.list_to_string("\n  "));
 
     println!();
     println!("The best chain length is: {}", best_chain.len());
-    println!(
-        "The best chain anchor is: {}",
-        <ReadOnlyChainDB as ReadOnlyChainStore<BlockHeader>>::get_anchor_hash(&db)
-    );
-    println!(
-        "The best chain tip is: {}",
-        <ReadOnlyChainDB as ReadOnlyChainStore<BlockHeader>>::get_best_chain_hash(&db)
-    );
+    println!("The best chain anchor is: {}", db.get_anchor_hash());
+    println!("The best chain tip is: {}", db.get_best_chain_hash());
 }
 
 #[expect(clippy::print_stdout)]
