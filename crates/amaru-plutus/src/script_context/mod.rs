@@ -637,9 +637,11 @@ impl From<Lovelace> for Value<'_> {
 impl Value<'_> {
     pub fn ada(&self) -> Option<u64> {
         self.0.get(&CurrencySymbol::Lovelace).and_then(|asset_bundle| {
-            asset_bundle
-                .iter()
-                .find_map(|(name, amount)| if name.is_empty() && amount != &0 { Some(*amount) } else { None })
+            asset_bundle.iter().find_map(
+                |(name, amount)| {
+                    if name.is_empty() && amount != &0 { Some(*amount) } else { None }
+                },
+            )
         })
     }
 }

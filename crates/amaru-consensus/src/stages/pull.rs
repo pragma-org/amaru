@@ -15,13 +15,14 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::Peer;
+use amaru_observability::trace;
 use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg};
 use pure_stage::{Effects, StageRef};
-use tracing::{Span, instrument};
+use tracing::Span;
 
 use crate::events::ChainSyncEvent;
 
-#[instrument(level = "trace", name = "diffusion.chain_sync", skip_all)]
+#[trace(amaru::consensus::chain_sync::PULL)]
 pub async fn stage(
     (mut tracker, downstream): (SyncTracker, StageRef<ChainSyncEvent>),
     msg: ChainSyncInitiatorMsg,

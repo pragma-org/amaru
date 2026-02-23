@@ -19,11 +19,12 @@ use std::{
     process::{Command, Stdio},
 };
 
+use amaru_observability::{amaru::simulator, trace_span};
 use anyhow::anyhow;
 use pure_stage::{Receiver, StageRef, simulation::running::SimulationRunning};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
-use tracing::{info_span, trace};
+use tracing::trace;
 
 use crate::simulator::Envelope;
 
@@ -53,7 +54,7 @@ impl<Msg> NodeHandle<Msg> {
     }
 
     pub fn handle_msg(&mut self, msg: Option<Envelope<Msg>>) -> Result<Option<Vec<Envelope<Msg>>>, anyhow::Error> {
-        info_span!("handle_msg").in_scope(|| (self.handle)(msg))
+        trace_span!(simulator::node::HANDLE_MSG).in_scope(|| (self.handle)(msg))
     }
 
     /// Make some progress in the node execution.

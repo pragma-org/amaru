@@ -1,4 +1,5 @@
 **/Cargo.lock linguist-generated=true linguist-vendored
 **/*.snap linguist-generated=true linguist-vendored
 **/*.cbor linguist-generated=true linguist-vendored
+**/*.stderr eol=lf
 data/**/*.json linguist-generated=true linguist-vendored

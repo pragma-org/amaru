@@ -122,24 +122,20 @@ impl Display for ChainSyncMessage {
             ChainSyncMessage::InitOk { in_reply_to } => {
                 write!(f, "InitOk ({})", in_reply_to)
             }
-            ChainSyncMessage::Fwd { msg_id, slot, hash, header: _ } => {
-                write!(
-                    f,
-                    "Forward ({}) {}/{}",
-                    msg_id,
-                    slot,
-                    hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
-                )
-            }
-            ChainSyncMessage::Bck { msg_id, slot, hash } => {
-                write!(
-                    f,
-                    "Backward ({}) {}/{}",
-                    msg_id,
-                    slot,
-                    hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
-                )
-            }
+            ChainSyncMessage::Fwd { msg_id, slot, hash, header: _ } => write!(
+                f,
+                "Forward ({}) {}/{}",
+                msg_id,
+                slot,
+                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+            ),
+            ChainSyncMessage::Bck { msg_id, slot, hash } => write!(
+                f,
+                "Backward ({}) {}/{}",
+                msg_id,
+                slot,
+                hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)])
+            ),
         }
     }
 }

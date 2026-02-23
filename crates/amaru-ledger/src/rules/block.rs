@@ -22,9 +22,9 @@ use amaru_kernel::{
     Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
     TransactionPointer,
 };
+use amaru_observability::trace;
 use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
-use tracing::{Level, instrument};
 
 use crate::{
     context::ValidationContext,
@@ -139,7 +139,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
     }
 }
 
-#[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
+#[trace(amaru::ledger::state::VALIDATE_BLOCK)]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
     arena_pool: &ArenaPool,

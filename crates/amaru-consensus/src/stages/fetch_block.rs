@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use amaru_kernel::IsHeader;
+use amaru_observability::amaru::consensus::diffusion::FETCH_BLOCK;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use tracing::Instrument;
@@ -36,7 +37,7 @@ pub fn stage(
     msg: ValidateHeaderEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "diffusion.fetch_block");
+    let span = tracing::trace_span!(parent: msg.span(), FETCH_BLOCK);
     async move {
         match msg {
             ValidateHeaderEvent::Validated { peer, header, span } => {

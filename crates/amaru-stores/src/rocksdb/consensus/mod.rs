@@ -17,9 +17,9 @@ use std::{fs, path::PathBuf};
 use amaru_kernel::{
     BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER, to_cbor,
 };
+use amaru_observability::trace;
 use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
-use tracing::{Level, instrument};
 
 use crate::rocksdb::{
     RocksDbConfig,
@@ -344,10 +344,7 @@ impl DiagnosticChainStore for ReadOnlyChainDB {
 
 use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
-    #[instrument(level = Level::TRACE,
-                 skip_all,
-                 name = "consensus.store.store_header",
-                 fields(hash = %header.hash()))]
+    #[trace(amaru::stores::consensus::STORE_HEADER, hash = format!("{}", header.hash()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
         let tx = self.db.transaction();
@@ -366,10 +363,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    #[instrument(level = Level::TRACE,
-                 skip_all,
-                 name = "consensus.store.store_block",
-                 fields(hash = %hash))]
+    #[trace(amaru::stores::consensus::STORE_BLOCK, hash = format!("{}", hash))]
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
@@ -384,20 +378,16 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         self.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    #[instrument(level = Level::TRACE,
-                 skip_all,
-                 name = "consensus.store.roll_forward_chain",
-                 fields(hash = %point.hash(),
-                        slot = %point.slot_or_default()))]
+    #[trace(amaru::stores::consensus::ROLL_FORWARD_CHAIN,
+        hash = point.hash(),
+        slot = u64::from(point.slot_or_default()))]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         store_chain_point(&self.db, point)
     }
 
-    #[instrument(level = Level::TRACE,
-                 skip_all,
-                 name = "consensus.store.rollback_chain",
-                 fields(hash = %point.hash(),
-                        slot = %point.slot_or_default()))]
+    #[trace(amaru::stores::consensus::ROLLBACK_CHAIN,
+        hash = point.hash(),
+        slot = u64::from(point.slot_or_default()))]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
         if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
             return Err(StoreError::ReadError {

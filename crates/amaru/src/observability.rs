@@ -15,6 +15,7 @@
 use std::{
     env::VarError,
     error::Error,
+    fmt,
     io::{self, IsTerminal},
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
@@ -30,11 +31,12 @@ use tracing_subscriber::{
     EnvFilter, Registry,
     filter::Filtered,
     fmt::{
-        Layer,
-        format::{FmtSpan, Format, Json, JsonFields},
+        FmtContext, FormatEvent, FormatFields, FormattedFields, Layer,
+        format::{FmtSpan, Format, Json, JsonFields, Writer},
     },
     layer::{Context, Filter, Layered, SubscriberExt},
     prelude::*,
+    registry::LookupSpan,
     util::SubscriberInitExt,
 };
 
@@ -59,9 +61,71 @@ type OpenTelemetryFilter<S> =
 
 type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
-type JsonFilter<S> = Filtered<Layer<S, JsonFields, Format<Json>>, ThrottledEnvFilter, S>;
+type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
 
 type DelayedWarning = Option<Box<dyn FnOnce()>>;
+
+// -----------------------------------------------------------------------------
+// SpanJsonFormat
+//
+// Wraps the standard JSON formatter to inject `id` and `parent_id` top-level
+// fields into span lifecycle events (enter/exit). Regular log events are left
+// untouched.
+// -----------------------------------------------------------------------------
+
+pub struct SpanJsonFormat(Format<Json>);
+
+impl<S, N> FormatEvent<S, N> for SpanJsonFormat
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> fmt::Result {
+        // Render the event with the inner JSON formatter into a buffer
+        let mut buf = String::new();
+        self.0.format_event(ctx, Writer::new(&mut buf), event)?;
+
+        // Inject span-related fields before the closing '}'.
+        //  - Span lifecycle events (enter/exit): get `id`, `parent_id`, and recorded fields.
+        //  - Log events emitted inside a span: get `parent_id` only.
+        if let Some(current) = ctx.lookup_current()
+            && let Some(pos) = buf.rfind('}')
+        {
+            let mut extra = String::new();
+
+            // Inject recorded span fields (stored by the fmt layer as FormattedFields).
+            let extensions = current.extensions();
+            if let Some(fields) = extensions.get::<FormattedFields<JsonFields>>() {
+                let s = fields.as_str().trim();
+                // Strip outer braces from JSON object: {"k":v,...} -> "k":v,...
+                let inner = s.strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(s);
+                if !inner.is_empty() {
+                    extra.push(',');
+                    extra.push_str(inner);
+                }
+            }
+
+            if event.metadata().is_span() {
+                let id = current.id().into_u64();
+                extra.push_str(&format!(",\"id\":{id}"));
+            }
+            if let Some(parent) = current.parent() {
+                let parent_id = parent.id().into_u64();
+                extra.push_str(&format!(",\"parent_id\":{parent_id}"));
+            }
+            if !extra.is_empty() {
+                buf.insert_str(pos, &extra);
+            }
+        }
+
+        writer.write_str(&buf)
+    }
+}
 
 #[expect(clippy::large_enum_variant)]
 #[derive(Default)]
@@ -152,10 +216,10 @@ impl TracingSubscriber<Registry> {
 
 // -----------------------------------------------------------------------------
 // JSON TRACES
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
-    let format = || tracing_subscriber::fmt::format().json().with_span_list(false);
+    let format = || SpanJsonFormat(tracing_subscriber::fmt::format().json().with_span_list(false));
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
     let filter = || new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
 
@@ -164,9 +228,9 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             let (default_filter, warning) = filter();
             (
                 tracing_subscriber::fmt::layer()
+                    .with_span_events(events())
                     .event_format(format())
                     .fmt_fields(JsonFields::new())
-                    .with_span_events(events())
                     .with_filter(default_filter),
                 warning,
             )
@@ -175,9 +239,9 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             let (default_filter, warning) = filter();
             (
                 tracing_subscriber::fmt::layer()
+                    .with_span_events(events())
                     .event_format(format())
                     .fmt_fields(JsonFields::new())
-                    .with_span_events(events())
                     .with_filter(default_filter),
                 warning,
             )

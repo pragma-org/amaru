@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{IsHeader, Tip};
+use amaru_observability::amaru::consensus::diffusion::FORWARD_CHAIN;
 use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};
@@ -32,7 +33,7 @@ type State = (Tip, StageRef<ValidationFailed>, StageRef<ProcessingFailed>);
 /// `ForwardEventEffect`. The current node tip is maintained in order to double check that the header
 /// we sent out is correct
 pub fn stage(state: State, msg: BlockValidationResult, eff: impl ConsensusOps) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "diffusion.forward_chain");
+    let span = tracing::trace_span!(parent: msg.span(), FORWARD_CHAIN);
     async move {
         let (mut our_tip, validation_errors, processing_errors) = state;
         match msg {

@@ -619,7 +619,9 @@ impl fmt::Display for ProposalsForest {
             f,
             "Hard forks",
             Rc::new(
-                |id| if let ProposalEnum::HardFork(a, _) = &self.proposals.get(id)?.proposal { Some(a) } else { None },
+                |id| {
+                    if let ProposalEnum::HardFork(a, _) = &self.proposals.get(id)?.proposal { Some(a) } else { None }
+                },
             ),
             Rc::new(|protocol_version, _| Ok(format!("version={}.{}", protocol_version.0, protocol_version.1))),
             &self.hard_fork,

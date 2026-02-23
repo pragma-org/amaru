@@ -40,6 +40,7 @@ tracing.workspace = true
 amaru.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-consensus = { workspace = true, features = ["test-utils"] }
+amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 amaru-protocols.workspace = true
 

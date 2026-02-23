@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Block, BlockHeader, IsHeader, Peer, Point};
+use amaru_observability::amaru::consensus::chain_sync::VALIDATE_BLOCK;
 use pure_stage::StageRef;
 use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -27,7 +28,7 @@ use crate::{
 type State = (StageRef<DecodedChainSyncEvent>, StageRef<ValidationFailed>, StageRef<ProcessingFailed>);
 
 pub fn stage(state: State, msg: ValidateBlockEvent, eff: impl ConsensusOps) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), "chain_sync.validate_block");
+    let span = tracing::trace_span!(parent: msg.span(), VALIDATE_BLOCK);
 
     async move {
         process_event(msg, eff, &state).await;
