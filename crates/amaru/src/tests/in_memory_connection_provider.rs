@@ -122,6 +122,20 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 return Poll::Ready(Err(std::io::Error::other("no addresses provided")));
             };
 
+            // Check if the listener exists before allocating anything
+            {
+                let listeners = inner.listeners.lock();
+                if !listeners.contains_key(target_addr) {
+                    inner
+                        .connect_wakers
+                        .lock()
+                        .entry(*target_addr)
+                        .or_default()
+                        .push(cx.waker().clone());
+                    return Poll::Pending;
+                }
+            }
+
             // Create bidirectional channel pair using VecDeque
             let initiator_to_responder = Arc::new(Mutex::new(VecDeque::new()));
             let responder_to_initiator = Arc::new(Mutex::new(VecDeque::new()));
