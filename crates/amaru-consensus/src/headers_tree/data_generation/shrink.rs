@@ -19,7 +19,6 @@ use std::fmt::Debug;
 // Basically tries to bisect the input (git's bisect algorithm uses the same technique). Will first
 // try throwing away half of the input, but if that fails it will throw away smaller and smaller
 // parts until it finds the smallest counter example.
-#[expect(clippy::panic)]
 pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
     test: &dyn Fn(&A) -> B,
     input: &A,
@@ -30,14 +29,11 @@ pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
     let mut input = input.clone();
 
     let result = test(&input);
-    if error_predicate(&result) {
-        last_error = result;
-    } else {
-        panic!(
-            "shrink, error predicate doesn't hold for initial input: '{:?}'",
-            input
-        )
+    if !error_predicate(&result) {
+        return (result, input, number_of_shrinks);
     }
+    last_error = result;
+
     let mut n = 2;
     while input.len() >= 2 {
         let mut current = 0;
@@ -169,11 +165,8 @@ mod test {
     }
 
     #[test]
-    #[should_panic(
-        expected = "shrink, error predicate doesn't hold for initial input: '[1, 2, 3]'"
-    )]
     fn test_shrink_passing() {
-        let failing_input = vec![1, 2, 3];
+        let successful_input = vec![1, 2, 3];
 
         let test = |input: &Vec<u8>| {
             if input.contains(&4) {
@@ -183,10 +176,10 @@ mod test {
             }
         };
         assert_eq!(
-            shrink(&test, &failing_input, |err| {
+            shrink(&test, &successful_input, |err| {
                 *err == Err("Found 4".to_string())
             }),
-            (Err("Found 4".to_string()), vec![4], 0)
+            (Ok(()), vec![1, 2, 3], 0)
         )
     }
 }
