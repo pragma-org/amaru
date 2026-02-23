@@ -1031,11 +1031,13 @@ impl Effect {
                 if from == at_stage.name()
                     && to == target.name()
                     && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with msg {msg:?}",
-                at_stage.name(),
-                target.name()
-            ),
+            _ => {
+                panic!(
+                    "unexpected effect {self:?}\n  looking for Send from `{}` to `{}` with msg {msg:?}",
+                    at_stage.name(),
+                    target.name()
+                )
+            }
         }
     }
 
@@ -1165,10 +1167,12 @@ impl Effect {
             {
                 n
             }
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for WireStage at `{}` with initial state {initial_state:?}",
-                at_stage.name()
-            ),
+            _ => {
+                panic!(
+                    "unexpected effect {self:?}\n  looking for WireStage at `{}` with initial state {initial_state:?}",
+                    at_stage.name()
+                )
+            }
         }
     }
 }

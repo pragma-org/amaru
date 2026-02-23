@@ -166,18 +166,22 @@ impl Replay {
                             );
                             self.latest_state.insert(stage, state);
                         }
-                        StageState::Running(_) => anyhow::bail!(
-                            "idx {}: stage {} is running while it should be in state {:?}",
-                            idx,
-                            stage,
-                            &*state
-                        ),
-                        StageState::Terminating => anyhow::bail!(
-                            "idx {}: stage {} is terminating while it should be in state {:?}",
-                            idx,
-                            stage,
-                            &*state
-                        ),
+                        StageState::Running(_) => {
+                            anyhow::bail!(
+                                "idx {}: stage {} is running while it should be in state {:?}",
+                                idx,
+                                stage,
+                                &*state
+                            )
+                        }
+                        StageState::Terminating => {
+                            anyhow::bail!(
+                                "idx {}: stage {} is terminating while it should be in state {:?}",
+                                idx,
+                                stage,
+                                &*state
+                            )
+                        }
                     }
                 }
                 TraceEntry::Terminated { stage, reason: _ } => {

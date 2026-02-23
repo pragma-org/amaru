@@ -165,7 +165,8 @@ fn check_safe_to_reset(epoch: u64, folders: &[Folder]) -> Result<(), Box<dyn std
             "resetting to epoch {} would leave us with too few historical epochs to proceed. The earliest epoch you can reset to is {}",
             epoch,
             min_epoch + MIN_LEDGER_SNAPSHOTS,
-        ).into());
+        )
+        .into());
     }
 
     Ok(())
