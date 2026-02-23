@@ -64,9 +64,9 @@ fn run_simulator_with_traces() {
             "name": "handle_msg",
             "target": "amaru_consensus",
             "children": [
+              { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Listen" },
+              { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Listen" },
               { "name": "manager", "target": "amaru_protocols::manager", "message_type": "AddPeer" },
-              { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Listen" },
-              { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Listen" },
               { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Connect" },
               { "name": "manager", "target": "amaru_protocols::manager", "message_type": "Accepted" },
               { "name": "connection", "target": "amaru_protocols::connection", "message_type": "Initialize", "conn_id": "1", "peer": "127.0.0.1:5000", "role": "Responder" },
