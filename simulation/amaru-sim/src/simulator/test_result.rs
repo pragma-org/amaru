@@ -78,7 +78,7 @@ impl TestResult {
         Err(anyhow!("the node under test was not found"))
     }
 
-    /// Return true for a succesful result
+    /// Return true for a successful result
     pub fn is_ok(&self) -> bool {
         self.result.is_ok()
     }
