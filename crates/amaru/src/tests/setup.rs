@@ -67,7 +67,7 @@ pub fn create_node(
     node_config: &NodeTestConfig,
     stage_graph: &mut impl StageGraph,
 ) -> anyhow::Result<(StageRef<ManagerMessage>, StageRef<Action>)> {
-    let config = node_config.make_node_configuration();
+    let config = node_config.make_node_configuration()?;
     let global_parameters: &GlobalParameters = config.network.into();
     let mut global_parameters = global_parameters.clone();
 

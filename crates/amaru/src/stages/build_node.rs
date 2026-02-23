@@ -23,7 +23,7 @@ use amaru_consensus::stages::select_chain::SelectChain;
 use amaru_consensus::stages::validate_header::ValidateHeader;
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, ORIGIN_HASH, Peer,
-    Tip, Transaction,
+    Transaction,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
@@ -93,7 +93,9 @@ pub fn build_node(
     // This also makes sure that the chain store tip and anchors are exactly aligned to the
     // ledger tip.
     let chain_store = initialize_chain_store(config, &tip.hash())?;
-    let tip = chain_store.load_tip(&tip.hash()).unwrap_or(Tip::origin());
+    let tip = chain_store
+        .load_tip(&tip.hash())
+        .context("the ledger tip must exist in the chain store")?;
 
     // Make resources
     let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
