@@ -95,6 +95,9 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             // Register the responder's endpoint, the initiator is already registered in connect().
             let conn_id = inner.register_endpoint(pending.responder_endpoint);
 
+            // Set the initiator's peer_conn_id to the responder's conn_id
+            *pending.initiator_peer_conn_id_slot.lock() = Some(conn_id);
+
             tracing::debug!(
                 "accepted in-memory connection from {} with id {conn_id}",
                 pending.initiator_addr
@@ -140,10 +143,15 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             let initiator_to_responder = Arc::new(Mutex::new(VecDeque::new()));
             let responder_to_initiator = Arc::new(Mutex::new(VecDeque::new()));
 
+            // Create shared peer_conn_id slots for linking
+            let initiator_peer_conn_id_slot = Arc::new(Mutex::new(None));
+            let responder_peer_conn_id_slot = Arc::new(Mutex::new(None));
+
             // Create initiator endpoint
             let initiator_endpoint = ConnectionEndpoint {
                 read_queue: responder_to_initiator.clone(),
                 write_queue: initiator_to_responder.clone(),
+                peer_conn_id: initiator_peer_conn_id_slot.clone(),
                 ..Default::default()
             };
 
@@ -151,11 +159,17 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             let responder_endpoint = ConnectionEndpoint {
                 read_queue: initiator_to_responder,
                 write_queue: responder_to_initiator,
+                peer_conn_id: responder_peer_conn_id_slot.clone(),
                 ..Default::default()
             };
 
-            // Try to add to listener's pending queue
-            let queued = inner.connect(target_addr, responder_endpoint, cx.waker());
+            // Try to add to listener's pending queue (includes initiator's slot for accept to fill)
+            let queued = inner.connect(
+                target_addr,
+                responder_endpoint,
+                initiator_peer_conn_id_slot,
+                cx.waker(),
+            );
             if !queued {
                 // No listener yet, the waker is registered. Return Pending
                 return Poll::Pending;
@@ -163,6 +177,10 @@ impl ConnectionProvider for InMemoryConnectionProvider {
 
             // Register initiator's connection only after successfully queuing
             let conn_id = inner.register_endpoint(initiator_endpoint);
+
+            // Set responder's peer_conn_id to the initiator's conn_id
+            // (The initiator's peer_conn_id will be set by accept() when it registers the responder)
+            *responder_peer_conn_id_slot.lock() = Some(conn_id);
 
             // Wake accept wakers since we queued a connection
             provider.wake_accept_wakers();
@@ -352,7 +370,8 @@ struct ConnectionEndpoint {
     /// Waker for recv operations waiting for data
     recv_waker: Arc<Mutex<Option<Waker>>>,
     /// The peer's connection ID (for waking their recv waker on send)
-    peer_conn_id: Mutex<Option<ConnectionId>>,
+    /// This is shared between endpoints to allow linking during connection setup.
+    peer_conn_id: Arc<Mutex<Option<ConnectionId>>>,
 }
 
 impl Default for ConnectionEndpoint {
@@ -362,7 +381,7 @@ impl Default for ConnectionEndpoint {
             read_queue: Arc::new(Mutex::new(VecDeque::new())),
             write_queue: Arc::new(Mutex::new(VecDeque::new())),
             recv_waker: Arc::new(Mutex::new(None)),
-            peer_conn_id: Mutex::new(None),
+            peer_conn_id: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -393,6 +412,8 @@ struct PendingConnect {
     /// The address of the connecting (initiator) side.
     /// This identifies the downstream peer.
     initiator_addr: SocketAddr,
+    /// Shared slot to set the initiator's peer_conn_id when the responder is registered.
+    initiator_peer_conn_id_slot: Arc<Mutex<Option<ConnectionId>>>,
 }
 
 /// Shared state for the in-memory connection provider.
@@ -452,11 +473,13 @@ impl Inner {
         &self,
         target_addr: &SocketAddr,
         responder_endpoint: ConnectionEndpoint,
+        initiator_peer_conn_id_slot: Arc<Mutex<Option<ConnectionId>>>,
         waker: &Waker,
     ) -> bool {
         let pending = PendingConnect {
             responder_endpoint,
             initiator_addr: SocketAddr::from(([127, 0, 0, 1], self.new_port())),
+            initiator_peer_conn_id_slot,
         };
 
         // Try to add to listener's pending queue
