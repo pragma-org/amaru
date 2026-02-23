@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::serde::serialize_send_data;
 use crate::{
     Effect, Instant, Name, SendData, StageResponse,
     effect::{CanSupervise, ScheduleIds, StageEffect},
@@ -343,7 +344,11 @@ fn check_stage_name(
 /// in order to be able to do equality checks on it.
 fn deserialize_send_data_value(data: Box<dyn SendData>) -> anyhow::Result<Box<dyn SendData>> {
     if data.is::<SendDataValue>() {
-        Ok(From::<SendDataValue>::from(*data.cast::<SendDataValue>()?))
+        let bytes = to_cbor(&data.cast::<SendDataValue>()?);
+        let reader = cbor4ii::core::utils::SliceReader::new(bytes.as_slice());
+        let mut deserializer = cbor4ii::serde::Deserializer::new(reader);
+        serialize_send_data::deserialize(&mut deserializer)
+            .map_err(|e| anyhow::anyhow!("failed to deserialize SendDataValue: {e}"))
     } else {
         Ok(data)
     }

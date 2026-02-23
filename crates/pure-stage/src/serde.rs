@@ -408,17 +408,6 @@ impl From<&dyn SendData> for SendDataValue {
     }
 }
 
-impl From<SendDataValue> for Box<dyn SendData> {
-    #[expect(clippy::expect_used)]
-    fn from(value: SendDataValue) -> Self {
-        let bytes = to_cbor(&value);
-        let reader = cbor4ii::core::utils::SliceReader::new(bytes.as_slice());
-        let mut deserializer = cbor4ii::serde::Deserializer::new(reader);
-        serialize_send_data::deserialize(&mut deserializer)
-            .expect("deserialization should not fail")
-    }
-}
-
 #[cfg(test)]
 mod test_send_data {
     use super::*;
