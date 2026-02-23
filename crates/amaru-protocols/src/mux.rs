@@ -781,9 +781,10 @@ mod tests {
             let mux_name = mux.name().clone();
             let writer = writer.clone();
             let reader = reader.clone();
-            running.breakpoint("mux", move |eff| {
-                matches!(eff, Effect::Send { from, to, .. } if from == &mux_name && to != &writer && to != &reader)
-            });
+            running.breakpoint(
+                "mux",
+                move |eff| matches!(eff, Effect::Send { from, to, .. } if from == &mux_name && to != &writer && to != &reader),
+            );
         }
 
         running

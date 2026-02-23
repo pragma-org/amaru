@@ -226,51 +226,41 @@ fn validation_conforms_to_test_vectors() {
     let result: Result<Vec<(GeneratorContext, MutatedHeader)>, serde_json::Error> =
         serde_json::from_reader(BufReader::new(file));
 
-    result
-        .expect("cannot deserialize test vectors")
-        .iter_mut()
-        .enumerate()
-        .for_each(|(header_index, test)| {
-            let context = &test.0;
-            test.1
-                .header
-                .get_header()
-                .map(|minted_header| {
-                    let expected = &test.1.mutation;
-                    let ledger_state = Arc::new(mock_ledger_state(context));
-                    let epoch_nonce = context.nonce;
-                    let raw_header_body = minted_header.header_body.raw_cbor();
-                    let header = Header::from(minted_header);
-                    let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
-                    let assertions = praos::header::assert_all(
-                        consensus_parameters,
-                        &header,
-                        raw_header_body,
-                        ledger_state,
-                        &epoch_nonce,
-                    )
-                        .unwrap()
-                        .into_par_iter()
-                        .map(|assert| assert())
-                        .collect::<Result<Vec<_>, _>>();
+    result.expect("cannot deserialize test vectors").iter_mut().enumerate().for_each(|(header_index, test)| {
+        let context = &test.0;
+        test.1
+            .header
+            .get_header()
+            .map(|minted_header| {
+                let expected = &test.1.mutation;
+                let ledger_state = Arc::new(mock_ledger_state(context));
+                let epoch_nonce = context.nonce;
+                let raw_header_body = minted_header.header_body.raw_cbor();
+                let header = Header::from(minted_header);
+                let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
+                let assertions = praos::header::assert_all(consensus_parameters, &header, raw_header_body, ledger_state, &epoch_nonce)
+                    .unwrap()
+                    .into_par_iter()
+                    .map(|assert| assert())
+                    .collect::<Result<Vec<_>, _>>();
 
-                    match (expected, assertions) {
-                        (Mutation::NoMutation, Ok(_)) => (),
-                        (Mutation::NoMutation, Err(e)) => {
-                            panic!(
-                                "[{}] expected validation to succeed, failed with error {:?}\n header: {:?}\n context: {:?}",
-                                header_index, e, header, context
-                            )
-                        }
-                        (_, Ok(_)) => {
-                            panic!(
-                                "[{}] expected validation to fail ({:?}), but it succeeded\n header: {:?}\n context: {:?}",
-                                header_index, expected, header, context
-                            )
-                        }
-                        (_, Err(_)) => (),
+                match (expected, assertions) {
+                    (Mutation::NoMutation, Ok(_)) => (),
+                    (Mutation::NoMutation, Err(e)) => {
+                        panic!(
+                            "[{}] expected validation to succeed, failed with error {:?}\n header: {:?}\n context: {:?}",
+                            header_index, e, header, context
+                        )
                     }
-                })
-                .expect("cannot extract header from bytes");
-        });
+                    (_, Ok(_)) => {
+                        panic!(
+                            "[{}] expected validation to fail ({:?}), but it succeeded\n header: {:?}\n context: {:?}",
+                            header_index, expected, header, context
+                        )
+                    }
+                    (_, Err(_)) => (),
+                }
+            })
+            .expect("cannot extract header from bytes");
+    });
 }

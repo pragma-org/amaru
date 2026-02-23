@@ -142,13 +142,17 @@ mod internals {
 
             let memory_live_resident_bytes = meter
                 .u64_gauge("process_memory_live_resident")
-                .with_description("The amount of memory that the process allocated and which is currently mapped in physical RAM (in bytes).")
+                .with_description(
+                    "The amount of memory that the process allocated and which is currently mapped in physical RAM (in bytes).",
+                )
                 .with_unit("bytes")
                 .build();
 
             let memory_available_virtual_bytes = meter
                 .u64_gauge("process_memory_available_virtual")
-                .with_description("The amount of memory that the process can access, whether it is currently mapped in physical RAM or not (in bytes).")
+                .with_description(
+                    "The amount of memory that the process can access, whether it is currently mapped in physical RAM or not (in bytes).",
+                )
                 .with_unit("bytes")
                 .build();
 
