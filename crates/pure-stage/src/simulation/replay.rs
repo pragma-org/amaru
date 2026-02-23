@@ -237,25 +237,24 @@ impl Replay {
                 let tombstone = tombstone.try_cast::<CanSupervise>().err();
 
                 ensure!(
-                    self.stages
-                        .insert(
-                            name.clone(),
-                            StageData {
-                                name: name.clone(),
-                                mailbox: VecDeque::new(),
-                                tombstones: VecDeque::new(),
-                                state: StageState::Idle(initial_state),
-                                transition,
-                                waiting: Some(StageEffect::Receive),
-                                senders: VecDeque::new(),
-                                supervised_by: at_stage,
-                                tombstone,
-                            },
-                        )
-                        .is_none(),
+                    !self.stages.contains_key(&name),
                     "idx {}: stage {} already exists while wiring stage",
                     idx,
                     name
+                );
+                self.stages.insert(
+                    name.clone(),
+                    StageData {
+                        name: name.clone(),
+                        mailbox: VecDeque::new(),
+                        tombstones: VecDeque::new(),
+                        state: StageState::Idle(initial_state),
+                        transition,
+                        waiting: Some(StageEffect::Receive),
+                        senders: VecDeque::new(),
+                        supervised_by: at_stage,
+                        tombstone,
+                    },
                 );
                 Ok(())
             }
