@@ -133,6 +133,14 @@ pub fn build_node(
         stage_builder,
     );
 
+    // Open a port to listen for downstream peers
+    stage_builder
+        .preload(
+            &manager_stage,
+            [ManagerMessage::Listen(config.listen_address()?)],
+        )
+        .map_err(|e| anyhow!(format!("{e:?}")))?;
+
     // Connect to upstream peers
     for peer in &config.upstream_peers {
         let Ok(_) =
@@ -143,13 +151,6 @@ pub fn build_node(
         };
     }
 
-    // Open a port to listen for downstream peers
-    stage_builder
-        .preload(
-            &manager_stage,
-            [ManagerMessage::Listen(config.listen_address()?)],
-        )
-        .map_err(|e| anyhow!(format!("{e:?}")))?;
     Ok(manager_stage)
 }
 
