@@ -24,11 +24,7 @@ pub struct Row {
 
 impl Row {
     pub fn new(treasury: Lovelace, reserves: Lovelace, fees: Lovelace) -> Self {
-        Self {
-            treasury,
-            reserves,
-            fees,
-        }
+        Self { treasury, reserves, fees }
     }
 }
 
@@ -58,9 +54,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::*;
     use amaru_kernel::prop_cbor_roundtrip;
     use proptest::prelude::*;
+
+    use super::*;
 
     prop_compose! {
         pub fn any_row()(

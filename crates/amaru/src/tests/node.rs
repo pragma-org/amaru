@@ -12,19 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tests::configuration::{NodeTestConfig, NodeType};
+use std::{
+    collections::VecDeque,
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
+
 use amaru_consensus::headers_tree::data_generation::Action;
-use amaru_protocols::manager::ManagerMessage;
-use amaru_protocols::mux::HandlerMessage;
-use amaru_protocols::protocol::PROTO_N2N_CHAIN_SYNC;
+use amaru_protocols::{manager::ManagerMessage, mux::HandlerMessage, protocol::PROTO_N2N_CHAIN_SYNC};
 use futures_util::FutureExt;
 use parking_lot::Mutex;
-use pure_stage::simulation::{Blocked, SimulationRunning};
-use pure_stage::trace_buffer::TraceBuffer;
-use pure_stage::{Effect, Resources, StageGraphRunning, StageRef};
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
+use pure_stage::{
+    Effect, Resources, StageGraphRunning, StageRef,
+    simulation::{Blocked, SimulationRunning},
+    trace_buffer::TraceBuffer,
+};
+
+use crate::tests::configuration::{NodeTestConfig, NodeType};
 
 /// A node with its identifier for logging purposes.
 ///
@@ -203,9 +207,6 @@ impl Node {
 
 impl Debug for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Node")
-            .field("node_id", &self.node_id())
-            .field("config", &self.config)
-            .finish()
+        f.debug_struct("Node").field("node_id", &self.node_id()).field("config", &self.config).finish()
     }
 }

@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Bytes;
 use std::{array::TryFromSliceError, ops::Deref};
+
+use crate::Bytes;
 
 /// Turn any Bytes-like structure into a sized slice. Useful for crypto operation requiring
 /// operands with specific bytes sizes. For example:
@@ -30,9 +31,5 @@ pub fn into_sized_array<const SIZE: usize, E, T>(
 where
     T: Deref<Target = Bytes>,
 {
-    bytes
-        .deref()
-        .as_slice()
-        .try_into()
-        .map_err(|e| into_error(e, SIZE))
+    bytes.deref().as_slice().try_into().map_err(|e| into_error(e, SIZE))
 }

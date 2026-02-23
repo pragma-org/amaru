@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tests::node::Node;
-use anyhow::anyhow;
-use pure_stage::Resources;
-use pure_stage::simulation::RandStdRng;
 use std::collections::BTreeSet;
+
+use anyhow::anyhow;
+use pure_stage::{Resources, simulation::RandStdRng};
+
+use crate::tests::node::Node;
 
 /// List of nodes that are part of a simulation:
 ///
@@ -115,10 +116,7 @@ impl Nodes {
     }
 
     pub fn get_node_under_test(&mut self) -> anyhow::Result<&mut Node> {
-        self.nodes
-            .iter_mut()
-            .find(|node| node.is_node_under_test())
-            .ok_or(anyhow!("No node under test found"))
+        self.nodes.iter_mut().find(|node| node.is_node_under_test()).ok_or(anyhow!("No node under test found"))
     }
 
     pub fn to_vec(self) -> Vec<Node> {
@@ -131,13 +129,8 @@ impl Nodes {
 
     /// Pick a random non-terminated node from the list.
     fn pick_random_active_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
-        let active_indices: Vec<usize> = self
-            .nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| !n.is_terminated())
-            .map(|(i, _)| i)
-            .collect();
+        let active_indices: Vec<usize> =
+            self.nodes.iter().enumerate().filter(|(_, n)| !n.is_terminated()).map(|(i, _)| i).collect();
 
         if active_indices.is_empty() {
             return None;

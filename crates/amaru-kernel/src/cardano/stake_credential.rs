@@ -12,21 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use pallas_primitives::conway::StakeCredential;
+
 use crate::{
     Address, HasOwnership, Hash,
     size::{KEY, SCRIPT},
 };
 
-pub use pallas_primitives::conway::StakeCredential;
-
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
 // StakeCredential) out of the box instead of row bytes.
 pub fn stake_credential_from_reward_account(bytes: &[u8]) -> Option<StakeCredential> {
-    if let Ok(Address::Stake(address)) = Address::from_bytes(bytes) {
-        Some(address.owner())
-    } else {
-        None
-    }
+    if let Ok(Address::Stake(address)) = Address::from_bytes(bytes) { Some(address.owner()) } else { None }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,8 +54,9 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use crate::{Hash, StakeCredential};
     use proptest::prelude::*;
+
+    use crate::{Hash, StakeCredential};
 
     pub fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
         prop_oneof![

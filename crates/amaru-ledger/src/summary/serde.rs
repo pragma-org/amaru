@@ -15,12 +15,12 @@
 //! This module contains a variety of helpers used to produce serialised values for the various
 //! summaries.
 
-use amaru_kernel::{DRep, Network, PoolId, StakeCredential, utils::string::encode_bech32};
 use std::collections::BTreeMap;
 
+use amaru_kernel::{DRep, Network, PoolId, StakeCredential, utils::string::encode_bech32};
+
 pub fn encode_pool_id(pool_id: &PoolId) -> String {
-    encode_bech32("pool", pool_id.as_slice())
-        .unwrap_or_else(|_| unreachable!("human-readable part 'pool' is okay"))
+    encode_bech32("pool", pool_id.as_slice()).unwrap_or_else(|_| unreachable!("human-readable part 'pool' is okay"))
 }
 
 /// Serialize a (registerd) DRep to bech32, according to [CIP-0129](https://cips.cardano.org/cip/CIP-0129).
@@ -79,12 +79,8 @@ pub fn encode_stake_credential(network: Network, credential: &StakeCredential) -
             Network::Testnet | Network::Other(..) => "stake_test",
         },
         &match credential {
-            StakeCredential::AddrKeyhash(hash) => {
-                [&[0xe0 | network.value()], hash.as_slice()].concat()
-            }
-            StakeCredential::ScriptHash(hash) => {
-                [&[0xf0 | network.value()], hash.as_slice()].concat()
-            }
+            StakeCredential::AddrKeyhash(hash) => [&[0xe0 | network.value()], hash.as_slice()].concat(),
+            StakeCredential::ScriptHash(hash) => [&[0xf0 | network.value()], hash.as_slice()].concat(),
         },
     )
     .unwrap_or_else(|_| unreachable!("human-readable part 'stake_test' is okay"))
@@ -96,10 +92,7 @@ pub fn serialize_map<K, V: serde::ser::Serialize, S: serde::ser::SerializeStruct
     m: &BTreeMap<K, V>,
     serialize_key: impl Fn(&K) -> String,
 ) -> Result<(), S::Error> {
-    let mut elems = m
-        .iter()
-        .map(|(k, v)| (serialize_key(k), v))
-        .collect::<Vec<_>>();
+    let mut elems = m.iter().map(|(k, v)| (serialize_key(k), v)).collect::<Vec<_>>();
     elems.sort_by(|a, b| a.0.cmp(&b.0));
     s.serialize_field(field, &elems.into_iter().collect::<BTreeMap<String, &V>>())
 }

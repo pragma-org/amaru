@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
+
 use crate::{
     handshake::{State, messages::Message},
     mux::MuxMessage,
     protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, Responder, StageState,
-        miniprotocol, outcome,
+        Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, Responder, StageState, miniprotocol, outcome,
     },
     protocol_messages::{
         handshake::{HandshakeResult, RefuseReason},
@@ -26,8 +28,6 @@ use crate::{
         version_table::VersionTable,
     },
 };
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -53,14 +53,7 @@ impl HandshakeResponder {
         connection: StageRef<HandshakeResult>,
         version_table: VersionTable<VersionData>,
     ) -> (State, Self) {
-        (
-            State::Propose,
-            Self {
-                muxer,
-                connection,
-                our_versions: version_table,
-            },
-        )
+        (State::Propose, Self { muxer, connection, our_versions: version_table })
     }
 }
 
@@ -108,14 +101,8 @@ impl ProtocolState<Responder> for State {
     }
 
     #[instrument(name = "handshake.responder.protocol", skip_all, fields(message_type = input.message_type()))]
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        anyhow::ensure!(
-            self == &Self::Propose,
-            "handshake responder cannot receive in confirm state"
-        );
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        anyhow::ensure!(self == &Self::Propose, "handshake responder cannot receive in confirm state");
         match (self, input) {
             (Self::Propose, Message::Propose(version_table)) => {
                 Ok((outcome().result(Proposal(version_table)), Self::Confirm))
@@ -124,26 +111,14 @@ impl ProtocolState<Responder> for State {
         }
     }
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
-        anyhow::ensure!(
-            self == &Self::Confirm,
-            "handshake responder cannot send in propose state"
-        );
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+        anyhow::ensure!(self == &Self::Confirm, "handshake responder cannot send in propose state");
         Ok(match input {
-            ResponderAction::Accept(version_number, version_data) => (
-                outcome().send(Message::Accept(version_number, version_data)),
-                Self::Done,
-            ),
-            ResponderAction::Refuse(refuse_reason) => {
-                (outcome().send(Message::Refuse(refuse_reason)), Self::Done)
+            ResponderAction::Accept(version_number, version_data) => {
+                (outcome().send(Message::Accept(version_number, version_data)), Self::Done)
             }
-            ResponderAction::Query(version_table) => (
-                outcome().send(Message::QueryReply(version_table)),
-                Self::Done,
-            ),
+            ResponderAction::Refuse(refuse_reason) => (outcome().send(Message::Refuse(refuse_reason)), Self::Done),
+            ResponderAction::Query(version_table) => (outcome().send(Message::QueryReply(version_table)), Self::Done),
         })
     }
 }

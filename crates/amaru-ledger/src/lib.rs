@@ -30,10 +30,7 @@ pub(crate) mod tests {
     use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, TransactionInput, Value};
 
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
-        TransactionInput {
-            transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()),
-            index,
-        }
+        TransactionInput { transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()), index }
     }
 
     pub(crate) fn fake_output(address: &str) -> MemoizedTransactionOutput {

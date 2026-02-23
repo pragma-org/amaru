@@ -16,18 +16,20 @@ mod initiator;
 pub(crate) mod messages;
 mod responder;
 
+use std::sync::Arc;
+
+use amaru_kernel::{EraHistory, Peer, Point};
+use amaru_ouroboros::ConnectionId;
+// Re-export types
+pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
+pub use messages::Message;
+use pure_stage::{DeserializerGuards, Effects, StageRef};
+pub use responder::{BlockFetchResponder, StreamBlocks, responder};
+
 use crate::{
     mux::{Frame, MuxMessage},
     protocol::{Inputs, ProtoSpec, ProtocolState, RoleT},
 };
-use amaru_kernel::{EraHistory, Peer, Point};
-use amaru_ouroboros::ConnectionId;
-use pure_stage::{DeserializerGuards, Effects, StageRef};
-use std::sync::Arc;
-// Re-export types
-pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
-pub use messages::Message;
-pub use responder::{BlockFetchResponder, StreamBlocks, responder};
 
 pub fn spec<R: RoleT>() -> ProtoSpec<State, Message, R>
 where
@@ -36,10 +38,7 @@ where
     use State::*;
 
     let mut spec = ProtoSpec::default();
-    let request_range = || Message::RequestRange {
-        from: Point::Origin,
-        through: Point::Origin,
-    };
+    let request_range = || Message::RequestRange { from: Point::Origin, through: Point::Origin };
     let no_blocks = || Message::NoBlocks;
     let client_done = || Message::ClientDone;
     let batch_done = || Message::BatchDone;
@@ -56,18 +55,10 @@ where
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![
-        initiator::register_deserializers(),
-        responder::register_deserializers(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
 }
 
-#[derive(
-    Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum State {
     Idle,
     Busy,
@@ -94,15 +85,12 @@ pub async fn register_blockfetch_initiator<M>(
         MuxMessage::Register {
             protocol: PROTO_N2N_BLOCK_FETCH.erase(),
             frame: Frame::OneCborItem,
-            handler: eff
-                .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)
-                .await,
+            handler: eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Network).await,
             max_buffer: 2_500_000,
         },
     )
     .await;
-    eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Local)
-        .await
+    eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Local).await
 }
 
 pub async fn register_blockfetch_responder<M>(
@@ -110,24 +98,17 @@ pub async fn register_blockfetch_responder<M>(
     eff: &Effects<M>,
 ) -> StageRef<StreamBlocks> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;
-    let blockfetch = eff
-        .wire_up(
-            eff.stage("blockfetch", responder()).await,
-            BlockFetchResponder::new(muxer.clone()),
-        )
-        .await;
+    let blockfetch =
+        eff.wire_up(eff.stage("blockfetch", responder()).await, BlockFetchResponder::new(muxer.clone())).await;
     eff.send(
         muxer,
         MuxMessage::Register {
             protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
             frame: Frame::OneCborItem,
-            handler: eff
-                .contramap(&blockfetch, "blockfetch_bytes", Inputs::Network)
-                .await,
+            handler: eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Network).await,
             max_buffer: 2_500_000,
         },
     )
     .await;
-    eff.contramap(&blockfetch, "blockfetch_handler", Inputs::Local)
-        .await
+    eff.contramap(&blockfetch, "blockfetch_handler", Inputs::Local).await
 }

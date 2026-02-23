@@ -12,18 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use pure_stage::{BoxFuture, Effects, Instant, SendData, StageRef};
 use serde::de::DeserializeOwned;
-use std::time::Duration;
 
 /// Base operations available to a stage: send message, get current time, wait, terminate.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait BaseOps: Clone + Send {
-    fn send<Msg: SendData + 'static>(
-        &self,
-        target: &StageRef<Msg>,
-        msg: Msg,
-    ) -> BoxFuture<'static, ()>;
+    fn send<Msg: SendData + 'static>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()>;
 
     fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
         &self,
@@ -53,11 +50,7 @@ impl<'a, T> Base<'a, T> {
 }
 
 impl<T: SendData + Sync> BaseOps for Base<'_, T> {
-    fn send<Msg: SendData + 'static>(
-        &self,
-        target: &StageRef<Msg>,
-        msg: Msg,
-    ) -> BoxFuture<'static, ()> {
+    fn send<Msg: SendData + 'static>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
         self.0.send(target, msg)
     }
 

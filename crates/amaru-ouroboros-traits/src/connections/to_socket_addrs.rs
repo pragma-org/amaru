@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::anyhow;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+
+use anyhow::anyhow;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ToSocketAddrs {
@@ -94,15 +95,9 @@ impl ToSocketAddrs {
             ToSocketAddrs::SocketAddrV4(a) => vec![SocketAddr::V4(a)],
             ToSocketAddrs::SocketAddrV6(a) => vec![SocketAddr::V6(a)],
             ToSocketAddrs::String(s) => {
-                vec![
-                    s.parse()
-                        .map_err(|e| anyhow!(format!("invalid address '{s}': {e}")))?,
-                ]
+                vec![s.parse().map_err(|e| anyhow!(format!("invalid address '{s}': {e}")))?]
             }
-            ToSocketAddrs::IpAddrs(ips) => ips
-                .into_iter()
-                .map(|(ip, port)| SocketAddr::new(ip, port))
-                .collect(),
+            ToSocketAddrs::IpAddrs(ips) => ips.into_iter().map(|(ip, port)| SocketAddr::new(ip, port)).collect(),
             ToSocketAddrs::IpAddrV4(ip, port) => {
                 vec![SocketAddr::new(IpAddr::V4(ip), port)]
             }

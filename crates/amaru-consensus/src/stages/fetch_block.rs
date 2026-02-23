@@ -12,25 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
+use amaru_kernel::{IsHeader, Peer, Point, cardano::network_block::NetworkBlock};
+use amaru_protocols::manager::ManagerMessage;
+use pure_stage::StageRef;
+use tracing::Instrument;
+
 use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ProcessingFailed, ValidationFailed},
     events::{ValidateBlockEvent, ValidateHeaderEvent},
     span::HasSpan,
 };
-use amaru_kernel::cardano::network_block::NetworkBlock;
-use amaru_kernel::{IsHeader, Peer, Point};
-use amaru_protocols::manager::ManagerMessage;
-use pure_stage::StageRef;
-use std::time::Duration;
-use tracing::Instrument;
 
-type State = (
-    StageRef<ValidateBlockEvent>,
-    StageRef<ValidationFailed>,
-    StageRef<ProcessingFailed>,
-    StageRef<ManagerMessage>,
-);
+type State =
+    (StageRef<ValidateBlockEvent>, StageRef<ValidationFailed>, StageRef<ProcessingFailed>, StageRef<ManagerMessage>);
 
 /// This stages fetches the full block from a peer after its header has been validated.
 /// It then sends the full block to the downstream stage for validation and storage.
@@ -52,36 +49,17 @@ pub fn stage(
                         eff.base()
                             .send(
                                 &failures,
-                                ValidationFailed::new(
-                                    &peer,
-                                    ConsensusError::FetchBlockFailed(header.point()),
-                                ),
+                                ValidationFailed::new(&peer, ConsensusError::FetchBlockFailed(header.point())),
                             )
                             .await;
                     }
                     Err(e) => {
-                        eff.base()
-                            .send(&errors, ProcessingFailed::new(&peer, e))
-                            .await;
+                        eff.base().send(&errors, ProcessingFailed::new(&peer, e)).await;
                     }
                 }
             }
-            ValidateHeaderEvent::Rollback {
-                peer,
-                rollback_point,
-                span,
-                ..
-            } => {
-                eff.base()
-                    .send(
-                        &downstream,
-                        ValidateBlockEvent::Rollback {
-                            peer,
-                            rollback_point,
-                            span,
-                        },
-                    )
-                    .await
+            ValidateHeaderEvent::Rollback { peer, rollback_point, span, .. } => {
+                eff.base().send(&downstream, ValidateBlockEvent::Rollback { peer, rollback_point, span }).await
             }
         }
         (downstream, failures, errors, manager)
@@ -116,13 +94,11 @@ async fn fetch_block(
     let blocks = eff
         .base()
         // TODO(network): which timeout to use?
-        .call(manager, Duration::from_secs(5), move |cr| {
-            ManagerMessage::FetchBlocks {
-                peer: peer_clone,
-                from: point,
-                through: point,
-                cr,
-            }
+        .call(manager, Duration::from_secs(5), move |cr| ManagerMessage::FetchBlocks {
+            peer: peer_clone,
+            from: point,
+            through: point,
+            cr,
         })
         .await
         .unwrap_or_default();
@@ -136,43 +112,34 @@ async fn fetch_block(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
-    use amaru_kernel::cardano::network_block::make_network_block;
-    use amaru_kernel::{Peer, TESTNET_ERA_HISTORY, any_header, utils::tests::run_strategy};
+    use std::collections::BTreeMap;
+
+    use amaru_kernel::{
+        Peer, TESTNET_ERA_HISTORY, any_header, cardano::network_block::make_network_block, utils::tests::run_strategy,
+    };
     use amaru_protocols::blockfetch::Blocks;
     use pure_stage::StageRef;
-    use std::collections::BTreeMap;
     use tracing::Span;
+
+    use super::*;
+    use crate::{effects::mock_consensus_ops, errors::ValidationFailed};
 
     #[tokio::test]
     async fn a_block_that_can_be_fetched_is_sent_downstream() -> anyhow::Result<()> {
         let peer = Peer::new("name");
         let header = run_strategy(any_header());
-        let message = ValidateHeaderEvent::Validated {
-            peer: peer.clone(),
-            header: header.clone(),
-            span: Span::current(),
-        };
+        let message =
+            ValidateHeaderEvent::Validated { peer: peer.clone(), header: header.clone(), span: Span::current() };
         let block = make_network_block(&header, &TESTNET_ERA_HISTORY);
         let consensus_ops = mock_consensus_ops();
-        consensus_ops.mock_base.return_blocks(Blocks {
-            blocks: vec![block.clone()],
-        });
+        consensus_ops.mock_base.return_blocks(Blocks { blocks: vec![block.clone()] });
 
         stage(make_state(), message, consensus_ops.clone()).await;
 
-        let forwarded = ValidateBlockEvent::Validated {
-            peer: peer.clone(),
-            header,
-            span: Span::current(),
-        };
+        let forwarded = ValidateBlockEvent::Validated { peer: peer.clone(), header, span: Span::current() };
         assert_eq!(
             consensus_ops.mock_base.received(),
-            BTreeMap::from_iter(vec![(
-                "downstream".to_string(),
-                vec![format!("{forwarded:?}")]
-            )])
+            BTreeMap::from_iter(vec![("downstream".to_string(), vec![format!("{forwarded:?}")])])
         );
         Ok(())
     }

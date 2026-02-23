@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, Set,
-    cbor,
+    Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, Set, cbor,
     size::{KEY, VRF_KEY},
 };
 
@@ -70,9 +69,10 @@ impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
 
 impl serde::Serialize for PoolParams {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use std::collections::BTreeMap;
+
         use pallas_addresses::Address;
         use serde::ser::SerializeStruct;
-        use std::collections::BTreeMap;
 
         fn as_lovelace_map(n: u64) -> BTreeMap<String, BTreeMap<String, u64>> {
             let mut lovelace = BTreeMap::new();
@@ -99,10 +99,7 @@ impl serde::Serialize for PoolParams {
                         let mut s = serializer.serialize_struct("Relay::SingleHostAddr", 4)?;
                         s.serialize_field("type", "ipAddress")?;
                         if let Nullable::Some(ipv4) = ipv4 {
-                            s.serialize_field(
-                                "ipv4",
-                                &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]),
-                            )?;
+                            s.serialize_field("ipv4", &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]))?;
                         }
                         if let Nullable::Some(ipv6) = ipv6 {
                             let bytes: [u8; 16] = [
@@ -111,10 +108,7 @@ impl serde::Serialize for PoolParams {
                                 ipv6[11], ipv6[10], ipv6[9], ipv6[8], // 3rd fragment
                                 ipv6[15], ipv6[14], ipv6[13], ipv6[12], // 4th fragment
                             ];
-                            s.serialize_field(
-                                "ipv6",
-                                &format!("{}", std::net::Ipv6Addr::from(bytes)),
-                            )?;
+                            s.serialize_field("ipv6", &format!("{}", std::net::Ipv6Addr::from(bytes)))?;
                         }
                         if let Nullable::Some(port) = port {
                             s.serialize_field("port", port)?;
@@ -146,22 +140,9 @@ impl serde::Serialize for PoolParams {
         s.serialize_field("pledge", &as_lovelace_map(self.pledge))?;
         s.serialize_field("cost", &as_lovelace_map(self.cost))?;
         s.serialize_field("margin", &as_string_ratio(&self.margin))?;
-        s.serialize_field(
-            "rewardAccount",
-            &as_bech32_addr(&self.reward_account).map_err(serde::ser::Error::custom)?,
-        )?;
-        s.serialize_field(
-            "owners",
-            &self.owners.iter().map(hex::encode).collect::<Vec<String>>(),
-        )?;
-        s.serialize_field(
-            "relays",
-            &self
-                .relays
-                .iter()
-                .map(WrapRelay)
-                .collect::<Vec<WrapRelay<'_>>>(),
-        )?;
+        s.serialize_field("rewardAccount", &as_bech32_addr(&self.reward_account).map_err(serde::ser::Error::custom)?)?;
+        s.serialize_field("owners", &self.owners.iter().map(hex::encode).collect::<Vec<String>>())?;
+        s.serialize_field("relays", &self.relays.iter().map(WrapRelay).collect::<Vec<WrapRelay<'_>>>())?;
         if let Nullable::Some(metadata) = &self.metadata {
             s.serialize_field("metadata", metadata)?;
         }
@@ -174,21 +155,18 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose};
+
     use super::*;
     use crate::{
         Bytes, Hash, Nullable, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip,
         size::{CREDENTIAL, KEY},
     };
-    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
 
     fn any_nullable_port() -> impl Strategy<Value = Nullable<u32>> {
-        prop_oneof![
-            Just(Nullable::Undefined),
-            Just(Nullable::Null),
-            any::<u32>().prop_map(Nullable::Some),
-        ]
+        prop_oneof![Just(Nullable::Undefined), Just(Nullable::Null), any::<u32>().prop_map(Nullable::Some),]
     }
 
     fn any_nullable_ipv4() -> impl Strategy<Value = Nullable<Bytes>> {

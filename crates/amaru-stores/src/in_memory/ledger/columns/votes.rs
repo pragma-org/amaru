@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::MemoryStore;
+use std::collections::BTreeSet;
+
 use amaru_kernel::{StakeCredential, Voter};
 use amaru_ledger::store::{
     StoreError,
     columns::votes::{Key, Value},
 };
-use std::collections::BTreeSet;
+
+use crate::in_memory::MemoryStore;
 
 pub fn add(
     store: &MemoryStore,

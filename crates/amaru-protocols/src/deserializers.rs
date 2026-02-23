@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    accept, blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects,
-    tx_submission,
-};
 use pure_stage::DeserializerGuards;
+
+use crate::{
+    accept, blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects, tx_submission,
+};
 
 pub fn register_deserializers() -> DeserializerGuards {
     let mut guards: DeserializerGuards = Vec::new();

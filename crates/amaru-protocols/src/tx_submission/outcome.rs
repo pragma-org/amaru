@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};
+use std::fmt::{Display, Formatter};
+
 use amaru_ouroboros_traits::TxId;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
+
+use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};
 
 /// Outcome of a protocol state machine step
 #[derive(Debug)]
@@ -48,22 +50,13 @@ impl Display for ProtocolError {
         match self {
             ProtocolError::NoTxIdsRequested => write!(f, "0 tx ids were requested"),
             ProtocolError::BlockingRequestMadeWhenTxsStillUnacknowledged => {
-                write!(
-                    f,
-                    "a non-blocking request must be made when some txs are unacknowledged"
-                )
+                write!(f, "a non-blocking request must be made when some txs are unacknowledged")
             }
             ProtocolError::NonBlockingRequestMadeWhenAllTxsAcknowledged => {
-                write!(
-                    f,
-                    "a blocking request must be made when all the txs are acknowledged"
-                )
+                write!(f, "a blocking request must be made when all the txs are acknowledged")
             }
             ProtocolError::NoAckOrReqTxIdsRequested => {
-                write!(
-                    f,
-                    "0 transactions acknowledged and 0 transaction ids requested"
-                )
+                write!(f, "0 transactions acknowledged and 0 transaction ids requested")
             }
             ProtocolError::NoTxsRequested => write!(f, "0 transactions were requested"),
             ProtocolError::UnadvertisedTransactionIdsRequested(tx_ids) => {
@@ -73,10 +66,7 @@ impl Display for ProtocolError {
                 write!(f, "unknown transactions requested: {:?}", tx_ids)
             }
             ProtocolError::MaxOutstandingTxIdsRequested(req, limit) => {
-                write!(
-                    f,
-                    "the number of requested transaction ids exceeds the protocol limit: {req} > {limit}"
-                )
+                write!(f, "the number of requested transaction ids exceeds the protocol limit: {req} > {limit}")
             }
             ProtocolError::TooManyAcknowledgedTxs(ack, window_len) => {
                 write!(
@@ -91,22 +81,13 @@ impl Display for ProtocolError {
                 )
             }
             ProtocolError::ReceivedTxsExceedsBatchSize(received, max) => {
-                write!(
-                    f,
-                    "the number of received transactions exceeds the configured batch size: {received} > {max}"
-                )
+                write!(f, "the number of received transactions exceeds the configured batch size: {received} > {max}")
             }
             ProtocolError::SomeReceivedTxsNotInFlight(tx_ids) => {
-                write!(
-                    f,
-                    "some received transactions were not requested: {tx_ids:?}"
-                )
+                write!(f, "some received transactions were not requested: {tx_ids:?}")
             }
             ProtocolError::DuplicateTxIds(tx_ids) => {
-                write!(
-                    f,
-                    "duplicate transaction ids were found in the request: {tx_ids:?}"
-                )
+                write!(f, "duplicate transaction ids were found in the request: {tx_ids:?}")
             }
         }
     }

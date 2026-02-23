@@ -17,13 +17,14 @@ pub mod rewards;
 pub mod serde;
 pub mod stake_distribution;
 
+use ::serde::ser::SerializeStruct;
+use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber};
+use num::{BigUint, rational::Ratio};
+
 use crate::{
     store::columns::*,
     summary::serde::{encode_drep, encode_pool_id},
 };
-use ::serde::ser::SerializeStruct;
-use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber};
-use num::{BigUint, rational::Ratio};
 
 // ---------------------------------------------------------------- AccountState
 
@@ -100,11 +101,7 @@ pub struct Pots {
 
 impl From<&pots::Row> for Pots {
     fn from(pots: &pots::Row) -> Pots {
-        Pots {
-            treasury: pots.treasury,
-            reserves: pots.reserves,
-            fees: pots.fees,
-        }
+        Pots { treasury: pots.treasury, reserves: pots.reserves, fees: pots.fees }
     }
 }
 
@@ -127,10 +124,7 @@ pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
 }
 
 pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
-    SafeRatio::new(
-        BigUint::from(ratio.numerator),
-        BigUint::from(ratio.denominator),
-    )
+    SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
 }
 
 fn serialize_safe_ratio(r: &SafeRatio) -> String {

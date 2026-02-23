@@ -25,8 +25,6 @@ pub fn to_network_point(point: KernelPoint) -> NetworkPoint {
 pub fn from_network_point(point: &NetworkPoint) -> KernelPoint {
     match point {
         NetworkPoint::Origin => KernelPoint::Origin,
-        NetworkPoint::Specific(slot, hash) => {
-            KernelPoint::Specific(Slot::from(*slot), From::from(hash.as_slice()))
-        }
+        NetworkPoint::Specific(slot, hash) => KernelPoint::Specific(Slot::from(*slot), From::from(hash.as_slice())),
     }
 }

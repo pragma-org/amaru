@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
+
 use amaru_kernel::{BlockHeader, NetworkMagic, NetworkName};
 use amaru_ouroboros::ChainStore;
-use amaru_stores::in_memory::MemoryStore;
-use amaru_stores::rocksdb::RocksDbConfig;
+use amaru_stores::{in_memory::MemoryStore, rocksdb::RocksDbConfig};
 use anyhow::Context;
-use std::fmt::Display;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
 pub struct Config {
@@ -47,9 +44,7 @@ pub struct Config {
 impl Config {
     /// Parse the listen address into a `SocketAddr`.
     pub fn listen_address(&self) -> anyhow::Result<SocketAddr> {
-        self.listen_address
-            .parse()
-            .context("invalid listen address")
+        self.listen_address.parse().context("invalid listen address")
     }
 }
 
@@ -116,9 +111,7 @@ impl std::str::FromStr for MaxExtraLedgerSnapshots {
             "all" => Ok(Self::All),
             _ => match s.parse() {
                 Ok(e) => Ok(Self::UpTo(e)),
-                Err(e) => Err(format!(
-                    "invalid max ledger snapshot, cannot parse value: {e}"
-                )),
+                Err(e) => Err(format!("invalid max ledger snapshot, cannot parse value: {e}")),
             },
         }
     }
@@ -135,8 +128,9 @@ impl From<MaxExtraLedgerSnapshots> for u64 {
 
 #[cfg(test)]
 mod tests {
-    use amaru_stores::rocksdb::RocksDbConfig;
     use std::path::PathBuf;
+
+    use amaru_stores::rocksdb::RocksDbConfig;
 
     use super::StoreType;
 
@@ -144,24 +138,15 @@ mod tests {
     fn test_store_path_display() {
         assert_eq!(format!("{}", StoreType::InMem(())), "<mem>");
         assert_eq!(
-            format!(
-                "{}",
-                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))
-            ),
+            format!("{}", StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))),
             "RocksDbConfig { dir: /path/to/store }"
         );
         assert_eq!(
-            format!(
-                "{}",
-                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))
-            ),
+            format!("{}", StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("./relative/path")))),
             "RocksDbConfig { dir: ./relative/path }"
         );
         assert_eq!(
-            format!(
-                "{}",
-                StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))
-            ),
+            format!("{}", StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("")))),
             "RocksDbConfig { dir:  }"
         );
     }

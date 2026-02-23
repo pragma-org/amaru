@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    AssetName, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NULL_HASH32,
-    NetworkId, NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId,
-    RewardAccount, Set, TransactionInput, Voter, VotingProcedure, cbor,
-    size::{CREDENTIAL, KEY},
-};
 use std::mem;
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::to_cbor;
+use crate::{
+    AssetName, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NULL_HASH32, NetworkId,
+    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set,
+    TransactionInput, Voter, VotingProcedure, cbor,
+    size::{CREDENTIAL, KEY},
+};
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
 /// we may encounter.
@@ -66,9 +66,7 @@ pub struct TransactionBody {
     pub validity_interval_start: Option<u64>,
 
     #[n(9)]
-    pub mint: Option<
-        NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>,
-    >,
+    pub mint: Option<NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
 
     #[n(11)]
     pub script_data_hash: Option<Hash<32>>,
@@ -92,8 +90,7 @@ pub struct TransactionBody {
     pub reference_inputs: Option<NonEmptySet<TransactionInput>>,
 
     #[n(19)]
-    pub votes:
-        Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
+    pub votes: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 
     #[n(20)]
     pub proposals: Option<NonEmptySet<Proposal>>,
@@ -238,10 +235,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
                     22 => blanket(&mut st.optional.donation, k, d, ctx)?,
                     _ => {
                         let position = d.position();
-                        return Err(cbor::decode::Error::message(format!(
-                            "unrecognised field key: {k}"
-                        ))
-                        .at(position));
+                        return Err(cbor::decode::Error::message(format!("unrecognised field key: {k}")).at(position));
                     }
                 };
 
@@ -252,9 +246,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
         let end_position = d.position();
 
         Ok(TransactionBody {
-            hash: Hasher::<{ TransactionBody::HASH_SIZE * 8 }>::hash(
-                &original_bytes[start_position..end_position],
-            ),
+            hash: Hasher::<{ TransactionBody::HASH_SIZE * 8 }>::hash(&original_bytes[start_position..end_position]),
             original_size: (end_position - start_position) as u64, // from usize
             inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?,
             outputs: expect_field(mem::take(&mut state.required.outputs), 1, "outputs")?,
@@ -274,9 +266,7 @@ where
     T: cbor::Decode<'d, C>,
 {
     if field.is_some() {
-        return Err(cbor::decode::Error::message(format!(
-            "duplicate field entry with key {k}"
-        )));
+        return Err(cbor::decode::Error::message(format!("duplicate field entry with key {k}")));
     }
 
     *field = Some(d.decode_with(ctx)?);
@@ -285,16 +275,15 @@ where
 }
 
 fn expect_field<T>(decoded: Option<T>, key: u64, name: &str) -> Result<T, cbor::decode::Error> {
-    decoded.ok_or(cbor::decode::Error::message(format!(
-        "missing expected field '{name}' at key {key}"
-    )))
+    decoded.ok_or(cbor::decode::Error::message(format!("missing expected field '{name}' at key {key}")))
 }
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::TransactionBody;
     use crate::cbor;
-    use test_case::test_case;
 
     macro_rules! fixture {
         // Allowed eras
@@ -411,13 +400,7 @@ mod tests {
         "decode error: duplicate field entry with key 2";
         "duplicate fields keys"
     )]
-    fn decode_malformed(
-        result: Result<TransactionBody, cbor::decode::Error>,
-        expected_error: &str,
-    ) {
-        assert_eq!(
-            result.map_err(|e| e.to_string()),
-            Err(expected_error.to_string())
-        );
+    fn decode_malformed(result: Result<TransactionBody, cbor::decode::Error>, expected_error: &str) {
+        assert_eq!(result.map_err(|e| e.to_string()), Err(expected_error.to_string()));
     }
 }

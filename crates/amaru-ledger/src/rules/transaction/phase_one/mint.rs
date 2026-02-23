@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AssetName, Hash, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt, RequiredScript,
-    ScriptPurpose, size::SCRIPT,
+    AssetName, Hash, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt, RequiredScript, ScriptPurpose, size::SCRIPT,
 };
+
+use crate::context::{UtxoSlice, WitnessSlice};
 
 pub fn execute<C>(
     context: &mut C,
-    mint: Option<
-        &NonEmptyKeyValuePairs<Hash<SCRIPT>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>,
-    >,
+    mint: Option<&NonEmptyKeyValuePairs<Hash<SCRIPT>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
 ) where
     C: UtxoSlice + WitnessSlice,
 {
@@ -44,10 +42,11 @@ pub fn execute<C>(
 
 #[cfg(test)]
 mod tests {
-    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
+
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -60,35 +59,14 @@ mod tests {
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
-                include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/expected.traces"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
             )
         };
     }
 
     #[test_case(fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc"))]
-    fn test_mint(
-        (mut ctx, tx, expected_traces): (
-            AssertValidationContext,
-            TransactionBody,
-            Vec<json::Value>,
-        ),
-    ) {
-        assert_trace(
-            || super::execute(&mut ctx, tx.mint.as_ref()),
-            expected_traces,
-        )
+    fn test_mint((mut ctx, tx, expected_traces): (AssertValidationContext, TransactionBody, Vec<json::Value>)) {
+        assert_trace(|| super::execute(&mut ctx, tx.mint.as_ref()), expected_traces)
     }
 }

@@ -15,9 +15,10 @@
 /// utilities for serializing and deserializing some types that aren’t immediately
 /// supported by serde, but should be.
 pub mod bytes {
-    use crate::ed25519;
     use pallas_crypto::hash::Hash;
     use serde::Deserialize;
+
+    use crate::ed25519;
 
     pub fn serialize<S>(bytes: &impl Bytes, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -48,9 +49,7 @@ pub mod bytes {
         }
 
         fn from_slice(slice: &[u8]) -> Result<Self, String> {
-            Ok(Box::new(<[u8; N]>::try_from(slice).map_err(|_| {
-                format!("expected {} bytes, got {}", N, slice.len())
-            })?))
+            Ok(Box::new(<[u8; N]>::try_from(slice).map_err(|_| format!("expected {} bytes, got {}", N, slice.len()))?))
         }
     }
 
@@ -60,8 +59,7 @@ pub mod bytes {
         }
 
         fn from_slice(slice: &[u8]) -> Result<Self, String> {
-            Self::try_from(slice)
-                .map_err(|_| format!("expected {} bytes, got {}", Self::SIZE, slice.len()))
+            Self::try_from(slice).map_err(|_| format!("expected {} bytes, got {}", Self::SIZE, slice.len()))
         }
     }
 
@@ -71,9 +69,7 @@ pub mod bytes {
         }
 
         fn from_slice(slice: &[u8]) -> Result<Self, String> {
-            let arr: [u8; N] = slice
-                .try_into()
-                .map_err(|_| format!("expected {} bytes, got {}", N, slice.len()))?;
+            let arr: [u8; N] = slice.try_into().map_err(|_| format!("expected {} bytes, got {}", N, slice.len()))?;
             Ok(Box::new(Hash::from(&arr[..])))
         }
     }

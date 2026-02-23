@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_HASH32, PlutusScript, cbor,
-};
+use crate::{Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_HASH32, PlutusScript, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, serde::Serialize, serde::Deserialize)]
 #[cbor(map)]
@@ -104,17 +102,12 @@ impl<'b, C> cbor::Decode<'b, C> for AuxiliaryData {
             Map | MapIndef => Self::decode_shelley(d, ctx),
             Array | ArrayIndef => Self::decode_allegra(d, ctx),
             Tag => Self::decode_alonzo(d, ctx),
-            any => Err(cbor::decode::Error::message(format!(
-                "unexpected type {any} when decoding auxiliary data"
-            ))),
+            any => Err(cbor::decode::Error::message(format!("unexpected type {any} when decoding auxiliary data"))),
         }?;
 
         let end_position = d.position();
 
-        Ok(Self {
-            hash: Hasher::<256>::hash(&original_bytes[start_position..end_position]),
-            ..aux_data
-        })
+        Ok(Self { hash: Hasher::<256>::hash(&original_bytes[start_position..end_position]), ..aux_data })
     }
 }
 
@@ -126,43 +119,27 @@ impl AuxiliaryData {
     /// Decode some auxiliary data using the Shelley-era codecs.
     ///
     /// /!\ Does not compute the underlying hash digest. This is a responsibility of the caller.
-    fn decode_shelley<'b, C>(
-        d: &mut cbor::Decoder<'b>,
-        ctx: &mut C,
-    ) -> Result<Self, cbor::decode::Error> {
+    fn decode_shelley<'b, C>(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let metadata = d.decode_with(ctx)?;
-        Ok(Self {
-            metadata,
-            ..Self::default()
-        })
+        Ok(Self { metadata, ..Self::default() })
     }
 
     /// Decode some auxiliary data using the Allegra-era codecs
     ///
     /// /!\ Does not compute the underlying hash digest. This is a responsibility of the caller.
-    fn decode_allegra<'b, C>(
-        d: &mut cbor::Decoder<'b>,
-        ctx: &mut C,
-    ) -> Result<Self, cbor::decode::Error> {
+    fn decode_allegra<'b, C>(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
             let metadata = d.decode_with(ctx)?;
             let native_scripts = d.decode_with(ctx)?;
-            Ok(Self {
-                metadata,
-                native_scripts,
-                ..Self::default()
-            })
+            Ok(Self { metadata, native_scripts, ..Self::default() })
         })
     }
 
     /// Decode some auxiliary data using the Alonzo-era codecs
     ///
     /// /!\ Does not compute the underlying hash digest. This is a responsibility of the caller.
-    fn decode_alonzo<'b, C>(
-        d: &mut cbor::Decoder<'b>,
-        ctx: &mut C,
-    ) -> Result<Self, cbor::decode::Error> {
+    fn decode_alonzo<'b, C>(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         if d.tag()? != cbor::TAG_MAP_259 {
             return Err(cbor::decode::Error::tag_mismatch(cbor::TAG_MAP_259));
         }

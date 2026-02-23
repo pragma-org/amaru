@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{
-    CertificatePointer, Epoch, PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential,
-};
+use amaru_kernel::{CertificatePointer, Epoch, PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential};
 use tracing::{debug, trace};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
@@ -36,11 +34,7 @@ pub struct Row {
 
 impl Row {
     pub fn new(registered_at: CertificatePointer, current_params: PoolParams) -> Self {
-        Self {
-            registered_at,
-            current_params,
-            future_params: Vec::new(),
-        }
+        Self { registered_at, current_params, future_params: Vec::new() }
     }
 
     /// Alter a Pool object by applying updates recorded across the epoch. A pool can have two types of
@@ -78,10 +72,8 @@ impl Row {
             if let Some(epoch) = retirement
                 && epoch <= current_epoch
             {
-                let retiring = &pool
-                    .as_ref()
-                    .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
-                    .current_params;
+                let retiring =
+                    &pool.as_ref().unwrap_or_else(|| unreachable!("pre-condition: needs_update")).current_params;
 
                 let refund = expect_stake_credential(&retiring.reward_account);
 
@@ -105,11 +97,8 @@ impl Row {
                 // we enforce this invariant here is because the next action will erase the
                 // pool -- and any remaining updates with it. This would have dramatic
                 // consequences should we still have updates stashed for the future.
-                let last = pool
-                    .as_ref()
-                    .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
-                    .future_params
-                    .last();
+                let last =
+                    pool.as_ref().unwrap_or_else(|| unreachable!("pre-condition: needs_update")).future_params.last();
 
                 assert_eq!(
                     last,
@@ -125,9 +114,7 @@ impl Row {
 
             // Unwrap is safe here because we know the entry exists. Otherwise we wouldn't have got an
             // update to begin with!
-            let pool = pool
-                .as_mut()
-                .unwrap_or_else(|| unreachable!("pre-condition: needs_update"));
+            let pool = pool.as_mut().unwrap_or_else(|| unreachable!("pre-condition: needs_update"));
 
             if let Some(new_params) = update {
                 trace!(
@@ -140,8 +127,7 @@ impl Row {
             }
 
             // Regardless, always prune future params from those that are now-obsolete.
-            pool.future_params
-                .retain(|(_, epoch)| epoch > &current_epoch);
+            pool.future_params.retain(|(_, epoch)| epoch > &current_epoch);
         }
 
         None
@@ -158,10 +144,7 @@ impl Row {
     ///
     /// The boolean indicates whether any of the future params are now-obsolete as per the
     /// 'current_epoch'.
-    fn fold_future_params(
-        &self,
-        current_epoch: Epoch,
-    ) -> (Option<&PoolParams>, Option<Epoch>, bool) {
+    fn fold_future_params(&self, current_epoch: Epoch) -> (Option<&PoolParams>, Option<Epoch>, bool) {
         self.future_params.iter().fold(
             (None, None, false),
             |(update, retirement, any_now_obsolete), (params, epoch)| match params {
@@ -222,46 +205,29 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
             future_params.push(item?);
         }
 
-        Ok(Row {
-            registered_at,
-            current_params,
-            future_params,
-        })
+        Ok(Row { registered_at, current_params, future_params })
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::*;
     use amaru_kernel::{any_certificate_pointer, any_pool_params, prop_cbor_roundtrip};
     use proptest::{collection, collection::vec, prelude::*};
 
+    use super::*;
+
     pub fn any_future_params(epoch: Epoch) -> impl Strategy<Value = (Option<PoolParams>, Epoch)> {
-        prop_oneof![
-            Just((None, epoch)),
-            any_pool_params().prop_map(move |params| (Some(params), epoch))
-        ]
+        prop_oneof![Just((None, epoch)), any_pool_params().prop_map(move |params| (Some(params), epoch))]
     }
 
     // Generate arbitrary `Row`, good for serialization for not for logic.
     pub fn any_row() -> impl Strategy<Value = Row> {
-        let any_future_params = collection::vec(0..3u64, 0..3).prop_flat_map(|epochs| {
-            epochs
-                .into_iter()
-                .map(|u| any_future_params(Epoch::from(u)))
-                .collect::<Vec<_>>()
-        });
+        let any_future_params = collection::vec(0..3u64, 0..3)
+            .prop_flat_map(|epochs| epochs.into_iter().map(|u| any_future_params(Epoch::from(u))).collect::<Vec<_>>());
 
-        (
-            any_future_params,
-            any_pool_params(),
-            any_certificate_pointer(u64::MAX),
+        (any_future_params, any_pool_params(), any_certificate_pointer(u64::MAX)).prop_map(
+            |(future_params, current_params, registered_at)| Row { current_params, future_params, registered_at },
         )
-            .prop_map(|(future_params, current_params, registered_at)| Row {
-                current_params,
-                future_params,
-                registered_at,
-            })
     }
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
@@ -273,12 +239,8 @@ pub mod tests {
                 .map(|(epoch, _)| {
                     let future_params = || {
                         prop_oneof![
-                            (1..3u64)
-                                .prop_map(move |offset| (None, Epoch::from(epoch as u64) + offset)),
-                            any_pool_params().prop_map(move |params| (
-                                Some(params),
-                                Epoch::from(epoch as u64 + 1)
-                            ))
+                            (1..3u64).prop_map(move |offset| (None, Epoch::from(epoch as u64) + offset)),
+                            any_pool_params().prop_map(move |params| (Some(params), Epoch::from(epoch as u64 + 1)))
                         ]
                     };
                     vec(future_params(), 0..3)

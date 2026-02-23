@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::bootstrap::{BootstrapError, InitialNonces};
+use std::{error::Error, path::PathBuf};
+
 use amaru_kernel::NetworkName;
 use include_dir::{Dir, include_dir};
-use std::{error::Error, path::PathBuf};
+
+use crate::bootstrap::{BootstrapError, InitialNonces};
 
 pub mod bootstrap;
 pub mod exit;
@@ -63,39 +65,26 @@ pub fn default_snapshots_dir(network: NetworkName) -> String {
 }
 
 pub fn default_data_dir(network: NetworkName) -> String {
-    format!(
-        "{}/{}",
-        DEFAULT_CONFIG_DIR,
-        network.to_string().to_lowercase()
-    )
+    format!("{}/{}", DEFAULT_CONFIG_DIR, network.to_string().to_lowercase())
 }
 
 pub fn default_initial_nonces(network: NetworkName) -> Result<InitialNonces, Box<dyn Error>> {
     let default_nonces_file_name = "nonces.json";
 
-    let nonces_file = get_bootstrap_file(network, default_nonces_file_name)?.ok_or(
-        BootstrapError::MissingConfigFile(default_nonces_file_name.into()),
-    )?;
+    let nonces_file = get_bootstrap_file(network, default_nonces_file_name)?
+        .ok_or(BootstrapError::MissingConfigFile(default_nonces_file_name.into()))?;
 
     Ok(serde_json::from_slice(nonces_file.as_slice())?)
 }
 
-pub fn get_bootstrap_file(
-    network: NetworkName,
-    name: &str,
-) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+pub fn get_bootstrap_file(network: NetworkName, name: &str) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
     let path = format!("{}/{}", network.to_string().to_lowercase(), name);
     Ok(BOOTSTRAP_DIR.get_file(path).map(|f| f.contents().into()))
 }
 
-pub fn get_bootstrap_headers(
-    network: NetworkName,
-) -> Result<impl Iterator<Item = Vec<u8>>, Box<dyn Error>> {
+pub fn get_bootstrap_headers(network: NetworkName) -> Result<impl Iterator<Item = Vec<u8>>, Box<dyn Error>> {
     let path = format!("{}/headers/*", network.to_string().to_lowercase());
-    Ok(BOOTSTRAP_DIR
-        .find(&path)?
-        .filter_map(|f| f.as_file())
-        .map(|f| f.contents().into()))
+    Ok(BOOTSTRAP_DIR.find(&path)?.filter_map(|f| f.as_file()).map(|f| f.contents().into()))
 }
 
 /// Value names (a.k.a. metavar) used across command-line options.

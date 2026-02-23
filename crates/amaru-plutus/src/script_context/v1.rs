@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
+
+use amaru_kernel::{
+    Address, AssetName, Certificate as PallasCertificate, Hash, StakePayload, TransactionInput, size::DATUM,
+};
+
 use crate::{
     IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, constr, constr_v1,
     script_context::{
-        Certificate, CurrencySymbol, DatumOption, Datums, IsPrePlutusVersion3, Mint, OutputRef,
-        PlutusData, ScriptContext, ScriptPurpose, StakeAddress, TransactionOutput, TxInfo, Value,
-        Withdrawals,
+        Certificate, CurrencySymbol, DatumOption, Datums, IsPrePlutusVersion3, Mint, OutputRef, PlutusData,
+        ScriptContext, ScriptPurpose, StakeAddress, TransactionOutput, TxInfo, Value, Withdrawals,
     },
 };
-use amaru_kernel::{
-    Address, AssetName, Certificate as PallasCertificate, Hash, StakePayload, TransactionInput,
-    size::DATUM,
-};
-use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 impl ToPlutusData<1> for OutputRef<'_> {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
@@ -92,14 +92,10 @@ where
             }
             ScriptPurpose::Certifying(_ix, certificate) => constr_v1!(3, [certificate]),
 
-            ScriptPurpose::Voting(_) => Err(PlutusDataError::unsupported_version(
-                "voting purpose unsupported",
-                V,
-            )),
-            ScriptPurpose::Proposing(_, _) => Err(PlutusDataError::unsupported_version(
-                "proposing purpose unsupported",
-                V,
-            )),
+            ScriptPurpose::Voting(_) => Err(PlutusDataError::unsupported_version("voting purpose unsupported", V)),
+            ScriptPurpose::Proposing(_, _) => {
+                Err(PlutusDataError::unsupported_version("proposing purpose unsupported", V))
+            }
         }
     }
 }
@@ -118,10 +114,7 @@ where
         } else {
             let mut map = self.0.clone();
 
-            map.insert(
-                CurrencySymbol::Lovelace,
-                BTreeMap::from([(Cow::Owned(AssetName::from(vec![])), 0u64)]),
-            );
+            map.insert(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(AssetName::from(vec![])), 0u64)]));
 
             map.to_plutus_data()
         }
@@ -215,10 +208,9 @@ where
                 pool_metadata: _,
             } => constr!(3, [operator, vrf_keyhash]),
             PallasCertificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
-            certificate => Err(PlutusDataError::unsupported_version(
-                format!("illegal certificate type: {certificate:?}"),
-                V,
-            )),
+            certificate => {
+                Err(PlutusDataError::unsupported_version(format!("illegal certificate type: {certificate:?}"), V))
+            }
         }
     }
 }
@@ -249,11 +241,8 @@ where
     /// Notably, in PlutusV1 and PlutusV2, `Mint` must include a
     /// zero value lovelace asset
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let mut mint = self
-            .0
-            .iter()
-            .map(|(policy, multiasset)| (policy.to_vec(), multiasset))
-            .collect::<BTreeMap<_, _>>();
+        let mut mint =
+            self.0.iter().map(|(policy, multiasset)| (policy.to_vec(), multiasset)).collect::<BTreeMap<_, _>>();
 
         let ada_bundle = BTreeMap::from([(Cow::Owned(vec![].into()), 0)]);
         mint.insert(vec![], &ada_bundle);
@@ -277,14 +266,16 @@ impl ToPlutusData<1> for Datums<'_> {
 // This test logic is basically 100% duplicated with v3. Should be able to simplify.
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
+
+    use amaru_kernel::{NetworkName, PROTOCOL_VERSION_10, Transaction, cbor, to_cbor};
+    use test_case::test_case;
+
     use super::{
         super::test_vectors::{self, TestVector},
         *,
     };
     use crate::script_context::Redeemers;
-    use amaru_kernel::{NetworkName, PROTOCOL_VERSION_10, Transaction, cbor, to_cbor};
-    use std::ops::Deref;
-    use test_case::test_case;
 
     const PLUTUS_VERSION: u8 = 1;
 
@@ -306,13 +297,7 @@ mod tests {
 
         let transaction: Transaction = cbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
-        let redeemers = Redeemers::iter_from(
-            transaction
-                .witnesses
-                .redeemer
-                .as_ref()
-                .expect("no redeemers provided"),
-        );
+        let redeemers = Redeemers::iter_from(transaction.witnesses.redeemer.as_ref().expect("no redeemers provided"));
 
         let produced_contexts = redeemers
             .map(|redeemer| {
@@ -339,9 +324,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let found_match = produced_contexts
-            .iter()
-            .any(|context| context == &test_vector.expectations.script_context);
+        let found_match = produced_contexts.iter().any(|context| context == &test_vector.expectations.script_context);
 
         assert!(
             found_match,

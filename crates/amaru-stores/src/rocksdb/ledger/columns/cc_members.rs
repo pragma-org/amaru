@@ -12,20 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
-use amaru_ledger::store::{StoreError, columns::unsafe_decode};
+use amaru_ledger::store::{
+    StoreError,
+    columns::{
+        cc_members::{Key, Row, Value},
+        unsafe_decode,
+    },
+};
 use rocksdb::Transaction;
 
-use amaru_ledger::store::columns::cc_members::{Key, Row, Value};
+use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
 /// Name prefixed used for storing delegations entries. UTF-8 encoding for "comm"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x43, 0x4F, 0x4D, 0x4D];
 
 /// Register a new CC Member.
-pub fn upsert<DB>(
-    db: &Transaction<'_, DB>,
-    rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     for (cold_credential, (hot_credential, valid_until)) in rows {
         let key = as_key(&PREFIX, &cold_credential);
 
@@ -40,16 +42,12 @@ pub fn upsert<DB>(
             // (2) unelected-but-potential (i.e. present in ongoing proposals) CC members are *allowed*
             // to declare their hot/cold delegation. Unelected CC are conserved as being valid
             // until epoch 0.
-            .unwrap_or_else(|| Row {
-                hot_credential: None,
-                valid_until: None,
-            });
+            .unwrap_or_else(|| Row { hot_credential: None, valid_until: None });
 
         valid_until.set_or_reset(&mut row.valid_until);
         hot_credential.set_or_reset(&mut row.hot_credential);
 
-        db.put(key, as_value(row))
-            .map_err(|err| StoreError::Internal(err.into()))?;
+        db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
     }
 
     Ok(())

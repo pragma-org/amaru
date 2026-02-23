@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::manager::{ManagerConfig, ManagerMessage};
-use crate::network_effects::{AcceptError, Network, NetworkOps};
-use pure_stage::{Effects, StageRef};
 use std::net::SocketAddr;
+
+use pure_stage::{Effects, StageRef};
+
+use crate::{
+    manager::{ManagerConfig, ManagerMessage},
+    network_effects::{AcceptError, Network, NetworkOps},
+};
 
 /// Create a stage that repeatedly accepts incoming connections and notifies the manager about them.
 pub async fn stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept>) -> AcceptState {
     match Network::new(&eff).accept(state.listener_addr).await {
         Ok((peer, connection_id)) => {
-            eff.send(
-                &state.manager_stage,
-                ManagerMessage::Accepted(peer, connection_id),
-            )
-            .await;
+            eff.send(&state.manager_stage, ManagerMessage::Accepted(peer, connection_id)).await;
         }
         Err(AcceptError::ConnectionAborted) => {
             tracing::debug!("failed to accept a connection: connection aborted");
@@ -35,8 +35,7 @@ pub async fn stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept
             return eff.terminate().await;
         }
     }
-    eff.schedule_after(PullAccept, state.manager_config.accept_interval)
-        .await;
+    eff.schedule_after(PullAccept, state.manager_config.accept_interval).await;
     state
 }
 
@@ -56,11 +55,7 @@ impl AcceptState {
         manager_config: ManagerConfig,
         listener_addr: SocketAddr,
     ) -> Self {
-        Self {
-            manager_stage,
-            manager_config,
-            listener_addr,
-        }
+        Self { manager_stage, manager_config, listener_addr }
     }
 }
 

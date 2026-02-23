@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
+
 use crate::{
     keepalive::{
         State,
@@ -19,13 +24,10 @@ use crate::{
     },
     mux::MuxMessage,
     protocol::{
-        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_KEEP_ALIVE, ProtocolState, StageState,
-        miniprotocol, outcome,
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_KEEP_ALIVE, ProtocolState, StageState, miniprotocol,
+        outcome,
     },
 };
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use std::time::Duration;
-use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -59,13 +61,7 @@ pub struct KeepAliveInitiator {
 
 impl KeepAliveInitiator {
     pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (
-            State::Idle,
-            Self {
-                cookie: Cookie::new(),
-                muxer,
-            },
-        )
+        (State::Idle, Self { cookie: Cookie::new(), muxer })
     }
 }
 
@@ -81,9 +77,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         use State::*;
 
         match (proto, input) {
-            (Idle, InitiatorMessage::SendKeepAlive) => {
-                Ok((Some(InitiatorAction::SendKeepAlive(self.cookie)), self))
-            }
+            (Idle, InitiatorMessage::SendKeepAlive) => Ok((Some(InitiatorAction::SendKeepAlive(self.cookie)), self)),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         }
     }
@@ -104,8 +98,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         } else {
             Duration::from_secs(30)
         };
-        eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay)
-            .await;
+        eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
         Ok((None, self))
     }
 
@@ -122,40 +115,26 @@ impl ProtocolState<Initiator> for State {
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         // On init, trigger the first KeepAlive send via the StageState to set timers in motion
-        Ok((
-            outcome().result(InitiatorResult {
-                cookie: Cookie::new(),
-            }),
-            *self,
-        ))
+        Ok((outcome().result(InitiatorResult { cookie: Cookie::new() }), *self))
     }
 
     #[instrument(name = "keepalive.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {
-            (Waiting, Message::ResponseKeepAlive(cookie)) => {
-                (outcome().result(InitiatorResult { cookie }), Idle)
-            }
+            (Waiting, Message::ResponseKeepAlive(cookie)) => (outcome().result(InitiatorResult { cookie }), Idle),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {
-            (Idle, InitiatorAction::SendKeepAlive(cookie)) => (
-                outcome().send(Message::KeepAlive(cookie)).want_next(),
-                Waiting,
-            ),
+            (Idle, InitiatorAction::SendKeepAlive(cookie)) => {
+                (outcome().send(Message::KeepAlive(cookie)).want_next(), Waiting)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

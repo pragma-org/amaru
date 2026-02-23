@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
+
 use crate::{
     keepalive::{
         State,
@@ -19,12 +22,10 @@ use crate::{
     },
     mux::MuxMessage,
     protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_N2N_KEEP_ALIVE, ProtocolState, Responder, StageState,
-        miniprotocol, outcome,
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_KEEP_ALIVE, ProtocolState, Responder, StageState, miniprotocol,
+        outcome,
     },
 };
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -86,33 +87,22 @@ impl ProtocolState<Responder> for State {
     }
 
     #[instrument(name = "keepalive.responder.protocol", skip_all, fields(message_type = input.message_type()))]
-    fn network(
-        &self,
-        input: Self::WireMsg,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {
-            (Idle, Message::KeepAlive(cookie)) => {
-                (outcome().result(ResponderResult { cookie }), Waiting)
-            }
+            (Idle, Message::KeepAlive(cookie)) => (outcome().result(ResponderResult { cookie }), Waiting),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
-    fn local(
-        &self,
-        input: Self::Action,
-    ) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
+    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use State::*;
 
         Ok(match (self, input) {
-            (Waiting, ResponderAction::SendResponse(cookie)) => (
-                outcome()
-                    .send(Message::ResponseKeepAlive(cookie))
-                    .want_next(),
-                Idle,
-            ),
+            (Waiting, ResponderAction::SendResponse(cookie)) => {
+                (outcome().send(Message::ResponseKeepAlive(cookie)).want_next(), Idle)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

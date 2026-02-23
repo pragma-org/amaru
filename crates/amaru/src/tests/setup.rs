@@ -12,22 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::build_node::build_node;
-use crate::tests::configuration::NodeTestConfig;
-use crate::tests::in_memory_connection_provider::InMemoryConnectionProvider;
-use crate::tests::node::Node;
-use crate::tests::nodes::Nodes;
-use amaru_consensus::effects::{ResourceBlockValidation, ResourceHeaderValidation};
-use amaru_consensus::headers_tree::data_generation::Action;
-use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
-use amaru_ouroboros::can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders};
-use amaru_ouroboros::{ChainStore, ConnectionsResource, ResourceMempool};
-use amaru_protocols::manager::ManagerMessage;
-use amaru_protocols::store_effects::Store;
-use pure_stage::simulation::{RandStdRng, SimulationBuilder};
-use pure_stage::{Effects, StageGraph, StageRef};
 use std::sync::Arc;
+
+use amaru_consensus::{
+    effects::{ResourceBlockValidation, ResourceHeaderValidation},
+    headers_tree::data_generation::Action,
+};
+use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
+use amaru_ouroboros::{
+    ChainStore, ConnectionsResource, ResourceMempool,
+    can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
+};
+use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
+use pure_stage::{
+    Effects, StageGraph, StageRef,
+    simulation::{RandStdRng, SimulationBuilder},
+};
 use tracing_subscriber::EnvFilter;
+
+use crate::{
+    stages::build_node::build_node,
+    tests::{
+        configuration::NodeTestConfig, in_memory_connection_provider::InMemoryConnectionProvider, node::Node,
+        nodes::Nodes,
+    },
+};
 
 /// Create simulated nodes based on a list of configurations.
 /// The random generator is used to generate the test data that is injected into upstream nodes.
@@ -46,12 +55,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 
         let config = config.with_connections(connections.clone());
         let (manager_stage, actions_stage) = create_node(&config, &mut stage_graph)?;
-        nodes.push(Node::new(
-            config,
-            stage_graph.run(),
-            manager_stage,
-            actions_stage,
-        ));
+        nodes.push(Node::new(config, stage_graph.run(), manager_stage, actions_stage));
     }
 
     // Initialize the nodes by running until the chainsync protocol is registered
@@ -134,10 +138,7 @@ async fn actions_stage(
             tracing::info!(point = %rollback_point, "rollback");
             store.rollback_chain(&rollback_point).unwrap();
             store.set_best_chain_hash(&rollback_point.hash()).unwrap();
-            let tip = Tip::new(
-                rollback_point,
-                BlockHeight::from(rollback_point.slot_or_default().as_u64()),
-            );
+            let tip = Tip::new(rollback_point, BlockHeight::from(rollback_point.slot_or_default().as_u64()));
             eff.send(&manager_stage, ManagerMessage::NewTip(tip)).await;
         }
     }
@@ -146,19 +147,10 @@ async fn actions_stage(
 
 /// Add resources depending on the simulation configuration.
 /// For example this function can be used to set a different chain store for the initiator and the responder.
-fn set_resources(
-    node_config: &NodeTestConfig,
-    stage_graph: &mut impl StageGraph,
-) -> anyhow::Result<()> {
-    stage_graph
-        .resources()
-        .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
-    stage_graph
-        .resources()
-        .put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
-    stage_graph
-        .resources()
-        .put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
+fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<()> {
+    stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+    stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+    stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());
     Ok(())
 }
@@ -168,8 +160,5 @@ pub fn setup_logging(enable: bool) {
     if !enable {
         return;
     };
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
 }

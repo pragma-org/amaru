@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs,
-    PositiveCoin, ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script,
-    encode_script, serialize_memoized_script, size::CREDENTIAL,
-};
 use pallas_primitives::conway::Multiasset;
+
+use crate::{
+    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, PositiveCoin,
+    ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script, encode_script, serialize_memoized_script,
+    size::CREDENTIAL,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct MemoizedTransactionOutput {
@@ -125,8 +126,7 @@ fn decode_modern_output<C>(
 
     Ok(MemoizedTransactionOutput {
         is_legacy: false,
-        address: address
-            .ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Address>(0))?,
+        address: address.ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Address>(0))?,
         value: value.ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Value>(1))?,
         datum,
         script,
@@ -134,8 +134,7 @@ fn decode_modern_output<C>(
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
-    Address::from_bytes(address_bytes)
-        .map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
+    Address::from_bytes(address_bytes).map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
 }
 
 impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
@@ -187,34 +186,24 @@ impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
 
 // --------------------------------------------------------------------- Helpers
 
-fn serialize_address<S: serde::ser::Serializer>(
-    addr: &Address,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
+fn serialize_address<S: serde::ser::Serializer>(addr: &Address, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&addr.to_hex())
 }
 
-fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Address, D::Error> {
+fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Address, D::Error> {
     let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
     Address::from_hex(bytes).map_err(serde::de::Error::custom)
 }
 
 // FIXME: Eventually allow serializing complete values, not just coins.
-fn serialize_value<S: serde::ser::Serializer>(
-    value: &Value,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
+fn serialize_value<S: serde::ser::Serializer>(value: &Value, serializer: S) -> Result<S::Ok, S::Error> {
     match value {
         Value::Coin(coin) => serializer.serialize_u64(*coin),
         Value::Multiasset(coin, _) => serializer.serialize_u64(*coin),
     }
 }
 
-fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Value, D::Error> {
+fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Value, D::Error> {
     #[derive(serde::Deserialize)]
     enum ValueHelper {
         Coin(u64),
@@ -229,21 +218,19 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
             let mut converted_multiasset = Vec::new();
 
             for (policy_id, assets) in multiasset_data {
-                let policy_id = hex::decode(&policy_id).map_err(|_| {
-                    serde::de::Error::custom(format!("invalid hex string: {policy_id}"))
-                })?;
+                let policy_id = hex::decode(&policy_id)
+                    .map_err(|_| serde::de::Error::custom(format!("invalid hex string: {policy_id}")))?;
 
                 let mut converted_assets = Vec::new();
                 for (asset_name, quantity) in assets {
-                    let asset_name = hex::decode(&asset_name).map_err(|_| {
-                        serde::de::Error::custom(format!("invalid hex string: {asset_name}"))
-                    })?;
+                    let asset_name = hex::decode(&asset_name)
+                        .map_err(|_| serde::de::Error::custom(format!("invalid hex string: {asset_name}")))?;
 
                     converted_assets.push((
                         Bytes::from(asset_name),
-                        quantity.try_into().map_err(|_| {
-                            serde::de::Error::custom(format!("invalid quantity value: {quantity}"))
-                        })?,
+                        quantity
+                            .try_into()
+                            .map_err(|_| serde::de::Error::custom(format!("invalid quantity value: {quantity}")))?,
                     ));
                 }
 
@@ -257,8 +244,7 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
             }
 
             let multiasset: Multiasset<PositiveCoin> =
-                Multiasset::from_vec(converted_multiasset)
-                    .ok_or(serde::de::Error::custom("empty multiasset"))?;
+                Multiasset::from_vec(converted_multiasset).ok_or(serde::de::Error::custom("empty multiasset"))?;
             Ok(Value::Multiasset(coin, multiasset))
         }
     }
@@ -279,9 +265,7 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
 ) -> Result<Option<MemoizedScript>, D::Error> {
     match serde::Deserialize::deserialize(deserializer)? {
         None::<super::PlaceholderScript> => Ok(None),
-        Some(placeholder) => Ok(Some(
-            MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?,
-        )),
+        Some(placeholder) => Ok(Some(MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?)),
     }
 }
 
@@ -302,10 +286,7 @@ mod tests {
 
         let original = MemoizedTransactionOutput {
             is_legacy: false,
-            address: Address::from_hex(
-                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
-            )
-            .unwrap(),
+            address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
             value: Value::Coin(1500000),
             datum,
             script: None,
@@ -331,10 +312,7 @@ mod tests {
 
         let original = MemoizedTransactionOutput {
             is_legacy: true,
-            address: Address::from_hex(
-                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
-            )
-            .unwrap(),
+            address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
             value: Value::Coin(1500000),
             datum,
             script: None,
@@ -355,10 +333,7 @@ mod tests {
     fn test_encode_decode_output_no_datum_no_script() {
         let original = MemoizedTransactionOutput {
             is_legacy: false,
-            address: Address::from_hex(
-                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
-            )
-            .unwrap(),
+            address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
             value: Value::Coin(1500000),
             datum: MemoizedDatum::None,
             script: None,

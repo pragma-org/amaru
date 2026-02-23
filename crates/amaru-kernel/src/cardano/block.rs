@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::{
-    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Transaction, TransactionBody, WitnessSet,
-    cbor,
+    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Transaction, TransactionBody, WitnessSet, cbor,
     size::{BLOCK_BODY, HEADER},
 };
-use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, cbor::Encode, serde::Serialize, serde::Deserialize)]
 pub struct Block {
@@ -74,24 +74,13 @@ impl IntoIterator for Block {
             .zip(self.transaction_bodies)
             .zip(self.transaction_witnesses)
             .map(|((i, body), witnesses)| {
-                let is_expected_valid = !self
-                    .invalid_transactions
-                    .as_ref()
-                    .map(|set| set.contains(&i))
-                    .unwrap_or(false);
+                let is_expected_valid =
+                    !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
 
                 // TODO: Do not re-hash here, but get the hash while parsing.
                 let auxiliary_data: Option<AuxiliaryData> = self.auxiliary_data.remove(&i);
 
-                (
-                    i,
-                    Transaction {
-                        body,
-                        witnesses,
-                        is_expected_valid,
-                        auxiliary_data,
-                    },
-                )
+                (i, Transaction { body, witnesses, is_expected_valid, auxiliary_data })
             })
             .collect::<Vec<_>>()
             .into_iter()
@@ -118,16 +107,13 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
 
             let (header, header_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let (transaction_bodies, transaction_bodies_bytes) =
-                cbor::tee(d, |d| d.decode_with(ctx))?;
+            let (transaction_bodies, transaction_bodies_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let (transaction_witnesses, transaction_witnesses_bytes) =
-                cbor::tee(d, |d| d.decode_with(ctx))?;
+            let (transaction_witnesses, transaction_witnesses_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
             let (auxiliary_data, auxiliary_data_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let (invalid_transactions, invalid_transactions_bytes) =
-                cbor::tee(d, |d| d.decode_with(ctx))?;
+            let (invalid_transactions, invalid_transactions_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
             let mut block_body_hash = Vec::with_capacity(4 * BLOCK_BODY);
             for component in [
@@ -160,9 +146,10 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
     use crate::EraName;
-    use test_case::test_case;
 
     macro_rules! fixture {
         ($id:expr) => {{
@@ -193,19 +180,13 @@ mod tests {
         71419349,
         fixture!("0df40008e40348c40cdc3b92a1e31d0e55675ddf2bb05ff7683b38a837048bca")
     )]
-    fn decode_wellformed(
-        slot: u64,
-        (id, result): (Hash<HEADER>, Result<(EraName, Block), cbor::decode::Error>),
-    ) {
+    fn decode_wellformed(slot: u64, (id, result): (Hash<HEADER>, Result<(EraName, Block), cbor::decode::Error>)) {
         match result {
             Err(err) => panic!("{err}"),
             Ok((era_version, block)) => {
                 assert_eq!(era_version, EraName::Conway);
 
-                assert_eq!(
-                    hex::encode(&block.hash[..]),
-                    hex::encode(&block.header.header_body.block_body_hash[..]),
-                );
+                assert_eq!(hex::encode(&block.hash[..]), hex::encode(&block.header.header_body.block_body_hash[..]),);
 
                 assert_eq!(block.header_hash, id);
                 assert_eq!(block.header.header_body.slot, slot);

@@ -12,23 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::new_block_validator;
-use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger_dir};
-use amaru_consensus::store::PraosChainStore;
-use amaru_kernel::cardano::network_block::NetworkBlock;
-use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point,
-    RawBlock, to_cbor,
-};
-use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros::praos::header;
-use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
-use amaru_stores::rocksdb::{
-    RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore,
-};
-use anyhow::anyhow;
-use flate2::read::GzDecoder;
-use rayon::prelude::*;
 use std::{
     fs::{self, File},
     io::Read,
@@ -37,8 +20,23 @@ use std::{
     sync::Arc,
     time::Instant,
 };
+
+use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger_dir};
+use amaru_consensus::store::PraosChainStore;
+use amaru_kernel::{
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point, RawBlock,
+    cardano::network_block::NetworkBlock, to_cbor,
+};
+use amaru_ledger::block_validator::BlockValidator;
+use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
+use anyhow::anyhow;
+use flate2::read::GzDecoder;
+use rayon::prelude::*;
 use tar::Archive;
 use tracing::info;
+
+use crate::cmd::new_block_validator;
 
 #[derive(Debug, clap::Parser)]
 pub struct Args {
@@ -82,12 +80,7 @@ fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::
             let entry = entry.ok()?;
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) == Some("gz") {
-                Some(
-                    path.file_name()?
-                        .to_os_string()
-                        .to_string_lossy()
-                        .to_string(),
-                )
+                Some(path.file_name()?.to_os_string().to_string_lossy().to_string())
             } else {
                 None
             }
@@ -95,8 +88,7 @@ fn list_archive_names(network: NetworkName) -> Result<Vec<String>, Box<dyn std::
         .collect();
 
     fn extract_slot(s: &str) -> Option<u32> {
-        s.split_once(".")
-            .and_then(|(prefix, _)| prefix.parse::<u32>().ok())
+        s.split_once(".").and_then(|(prefix, _)| prefix.parse::<u32>().ok())
     }
 
     archives.sort_by(|a, b| {
@@ -111,11 +103,7 @@ fn load_archive(
     network: NetworkName,
     archive_path: &str,
 ) -> Result<Archive<GzDecoder<File>>, Box<dyn std::error::Error>> {
-    let file = fs::File::open(format!(
-        "{}/blocks/{}",
-        default_data_dir(network),
-        archive_path
-    ))?;
+    let file = fs::File::open(format!("{}/blocks/{}", default_data_dir(network), archive_path))?;
     let gz = GzDecoder::new(file);
     Ok(Archive::new(gz))
 }
@@ -125,11 +113,7 @@ fn create_praos_chain_store(
     chain_store: Arc<dyn ChainStore<BlockHeader>>,
     era_history: &EraHistory,
 ) -> PraosChainStore<BlockHeader> {
-    let consensus_parameters = Arc::new(ConsensusParameters::new(
-        global_parameters,
-        era_history,
-        Default::default(),
-    ));
+    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters, era_history, Default::default()));
     PraosChainStore::new(consensus_parameters, chain_store)
 }
 
@@ -148,17 +132,11 @@ async fn load_blocks(
                 .strip_suffix(".cbor")
                 .ok_or_else(|| anyhow!("Missing .cbor suffix in file: {}", file_name))?
                 .split_once('.')
-                .ok_or_else(|| {
-                    anyhow!(
-                        "Invalid filename format (expected slot.hash.cbor): {}",
-                        file_name
-                    )
-                })?;
-            let slot = slot_str
-                .parse::<u64>()
-                .map_err(|e| anyhow!("Failed to parse slot from '{}': {}", slot_str, e))?;
-            let hash = Hash::from_str(hash_str)
-                .map_err(|e| anyhow!("Failed to decode hash from '{}': {}", hash_str, e))?;
+                .ok_or_else(|| anyhow!("Invalid filename format (expected slot.hash.cbor): {}", file_name))?;
+            let slot =
+                slot_str.parse::<u64>().map_err(|e| anyhow!("Failed to parse slot from '{}': {}", slot_str, e))?;
+            let hash =
+                Hash::from_str(hash_str).map_err(|e| anyhow!("Failed to decode hash from '{}': {}", hash_str, e))?;
             let point = Point::Specific(slot.into(), hash);
             let mut block_data = Vec::new();
             entry.read_to_end(&mut block_data)?;
@@ -195,13 +173,7 @@ async fn process_block(
         consensus_parameters,
         block_header.header(),
         to_cbor(&block_header.header_body()).as_slice(),
-        Arc::new(
-            block_validator
-                .state
-                .lock()
-                .unwrap()
-                .view_stake_distribution(),
-        ),
+        Arc::new(block_validator.state.lock().unwrap().view_stake_distribution()),
         &epoch_nonce.active,
     )
     .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
@@ -218,26 +190,17 @@ async fn process_block(
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(network).into());
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(network).into());
+    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
+    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
-    let consensus_parameters = Arc::new(ConsensusParameters::new(
-        global_parameters.clone(),
-        era_history,
-        Default::default(),
-    ));
+    let consensus_parameters =
+        Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
     let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
-    let chain_store: Arc<dyn ChainStore<BlockHeader>> =
-        Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
-    let praos_chain_store =
-        create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
+    let chain_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
+    let praos_chain_store = create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
 
     // Collect .tar.gz files
     let archive_names = list_archive_names(network)?;
@@ -281,12 +244,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let duration = Instant::now().saturating_duration_since(before);
     let processed_per_seconds = processed as u64 / duration.as_secs().max(1);
-    info!(
-        processed_per_seconds,
-        processed,
-        duration = duration.as_secs(),
-        "Finished processing blocks"
-    );
+    info!(processed_per_seconds, processed, duration = duration.as_secs(), "Finished processing blocks");
 
     Ok(())
 }

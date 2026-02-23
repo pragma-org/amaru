@@ -12,27 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::manager::ManagerConfig;
-use crate::{
-    connection::{self, ConnectionMessage},
-    network_effects::create_connection,
-    protocol::Role,
-};
+use std::{sync::Arc, time::Duration};
+
 use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::ConnectionsResource;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
-use std::{sync::Arc, time::Duration};
 use tokio::{runtime::Runtime, time::timeout};
 use tracing_subscriber::EnvFilter;
+
+use crate::{
+    connection::{self, ConnectionMessage},
+    manager::ManagerConfig,
+    network_effects::create_connection,
+    protocol::Role,
+};
 
 #[test]
 #[ignore]
 fn test_keepalive_with_node() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
 
     tracing::trace!("test");
 
@@ -43,9 +42,7 @@ fn test_keepalive_with_node() {
 
     let mut network = TokioBuilder::default();
 
-    network
-        .resources()
-        .put::<ConnectionsResource>(Arc::new(conn));
+    network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let era_history: &EraHistory = NetworkName::Preprod.into();
     let connection = network.stage("connection", connection::stage);
@@ -61,9 +58,7 @@ fn test_keepalive_with_node() {
             Arc::new(era_history.clone()),
         ),
     );
-    network
-        .preload(connection, [ConnectionMessage::Initialize])
-        .unwrap();
+    network.preload(connection, [ConnectionMessage::Initialize]).unwrap();
 
     let running = network.run(rt.handle().clone());
     match rt.block_on(async { timeout(Duration::from_secs(10), running.join()).await }) {

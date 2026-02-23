@@ -12,24 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::manager;
-use crate::manager::{Manager, ManagerConfig, ManagerMessage};
-use crate::tests::accept_stage::{AcceptState, PullAccept, accept_stage};
-use crate::tests::assertions::{check_state, wait_for_termination};
-use crate::tests::chainsync_stage::{ChainSyncStageState, test_chainsync_stage};
-use crate::tests::configuration::Configuration;
-use crate::tests::setup::{ephemeral_localhost_addr, set_resources, setup_logging};
-use crate::tests::slow_manager_stage::slow_manager_stage;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
 use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::ConnectionProvider;
-use pure_stage::tokio::{TokioBuilder, TokioRunning};
-use pure_stage::{StageGraph, StageRef};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::runtime::Handle;
-use tokio::sync::Notify;
+use pure_stage::{
+    StageGraph, StageRef,
+    tokio::{TokioBuilder, TokioRunning},
+};
+use tokio::{runtime::Handle, sync::Notify};
+
+use crate::{
+    manager,
+    manager::{Manager, ManagerConfig, ManagerMessage},
+    tests::{
+        accept_stage::{AcceptState, PullAccept, accept_stage},
+        assertions::{check_state, wait_for_termination},
+        chainsync_stage::{ChainSyncStageState, test_chainsync_stage},
+        configuration::Configuration,
+        setup::{ephemeral_localhost_addr, set_resources, setup_logging},
+        slow_manager_stage::slow_manager_stage,
+    },
+};
 
 /// This test simulates a connection between an initiator and a responder over TCP.
 /// We want to observe that eventually the initiator catches up with the responder's chain
@@ -51,9 +56,7 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
     let addr = ephemeral_localhost_addr()?;
     tracing::info!("starting test at address {}", addr);
     let (initiator, initiator_done) = start_initiator_with_configuration(
-        Configuration::initiator()
-            .with_addr(addr)
-            .with_reconnect_delay(Duration::from_millis(500)),
+        Configuration::initiator().with_addr(addr).with_reconnect_delay(Duration::from_millis(500)),
     )
     .await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -71,8 +74,7 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     // start an initiator with a responder that will be slow right after connection, so that
     // the initiator doesn't start synchronizing right away
     let responder_configuration = Configuration::responder().with_slow_manager();
-    let (responder, addr, _) =
-        start_responder_with_configuration(responder_configuration.clone()).await?;
+    let (responder, addr, _) = start_responder_with_configuration(responder_configuration.clone()).await?;
     let (initiator, initiator_done) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
@@ -91,8 +93,7 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     // Restart the responder normally
     tracing::info!("restart the responder at address {}", addr);
     let responder_configuration = Configuration::responder().with_addr(addr);
-    let (responder, _, responder_done) =
-        start_responder_with_configuration(responder_configuration).await?;
+    let (responder, _, responder_done) = start_responder_with_configuration(responder_configuration).await?;
 
     // Both the initiator and the responder should eventually terminate with the same state
     tracing::info!("wait for termination");
@@ -124,19 +125,15 @@ async fn start_responder_with_configuration(
     let mut responder_network = TokioBuilder::default();
 
     let era_history: &EraHistory = NetworkName::Preprod.into();
-    let responder_manager = Manager::new(
-        NetworkMagic::PREPROD,
-        ManagerConfig::default(),
-        Arc::new(era_history.clone()),
-    );
+    let responder_manager =
+        Manager::new(NetworkMagic::PREPROD, ManagerConfig::default(), Arc::new(era_history.clone()));
 
     let responder_stage = if configuration.slow_manager {
         responder_network.stage("responder", slow_manager_stage)
     } else {
         responder_network.stage("responder", manager::stage)
     };
-    let responder_stage =
-        responder_network.wire_up(responder_stage, (responder_manager, StageRef::blackhole()));
+    let responder_stage = responder_network.wire_up(responder_stage, (responder_manager, StageRef::blackhole()));
 
     // Create a connection that notifies the accept stage about new connections
     // Note: we need to call listen() first to get the listener address for the accept stage
@@ -146,20 +143,11 @@ async fn start_responder_with_configuration(
 
     let accept_stage = responder_network.stage("accept", accept_stage);
     let notify = Arc::new(Notify::new());
-    let accept_stage = responder_network.wire_up(
-        accept_stage,
-        AcceptState::new(responder_stage.without_state(), notify.clone(), peer_addr),
-    );
-    responder_network
-        .preload(accept_stage, [PullAccept])
-        .unwrap();
+    let accept_stage = responder_network
+        .wire_up(accept_stage, AcceptState::new(responder_stage.without_state(), notify.clone(), peer_addr));
+    responder_network.preload(accept_stage, [PullAccept]).unwrap();
 
-    set_resources(
-        configuration.chain_store,
-        configuration.mempool,
-        &mut responder_network,
-        responder_connections,
-    )?;
+    set_resources(configuration.chain_store, configuration.mempool, &mut responder_network, responder_connections)?;
 
     tracing::info!("Start the responder");
     let running_responder = responder_network.run(Handle::current());
@@ -168,12 +156,8 @@ async fn start_responder_with_configuration(
 
 /// Create and start an initiator node that connects to the given port.
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
-async fn start_initiator_at(
-    addr: impl Into<Option<SocketAddr>>,
-) -> anyhow::Result<(TokioRunning, Arc<Notify>)> {
-    let addr = addr
-        .into()
-        .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3000)));
+async fn start_initiator_at(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<(TokioRunning, Arc<Notify>)> {
+    let addr = addr.into().unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3000)));
     start_initiator_with_configuration(Configuration::initiator().with_addr(addr)).await
 }
 
@@ -195,39 +179,22 @@ async fn start_initiator_with_configuration(
     let notify = Arc::new(Notify::new());
     let chainsync_stage = initiator_network.wire_up(
         chainsync_stage,
-        ChainSyncStageState::new(
-            initiator_stage.sender(),
-            configuration.processing_wait,
-            notify.clone(),
-        ),
+        ChainSyncStageState::new(initiator_stage.sender(), configuration.processing_wait, notify.clone()),
     );
 
-    let manager_config =
-        ManagerConfig::default().with_reconnect_delay(configuration.reconnect_delay);
+    let manager_config = ManagerConfig::default().with_reconnect_delay(configuration.reconnect_delay);
     let era_history: &EraHistory = NetworkName::Preprod.into();
-    let initiator_manager = Manager::new(
-        NetworkMagic::PREPROD,
-        manager_config,
-        Arc::new(era_history.clone()),
-    );
+    let initiator_manager = Manager::new(NetworkMagic::PREPROD, manager_config, Arc::new(era_history.clone()));
     let state = (initiator_manager, chainsync_stage.without_state());
     let initiator_stage = initiator_network.wire_up(initiator_stage, state);
     let initiator_sender = initiator_network.input(initiator_stage);
 
     let initiator_connections = TokioConnections::new(65535);
-    set_resources(
-        configuration.chain_store,
-        configuration.mempool,
-        &mut initiator_network,
-        initiator_connections,
-    )?;
+    set_resources(configuration.chain_store, configuration.mempool, &mut initiator_network, initiator_connections)?;
 
     tracing::info!("Start the initiator");
     let running_initiator = initiator_network.run(Handle::current());
-    initiator_sender
-        .send(ManagerMessage::AddPeer(peer.clone()))
-        .await
-        .unwrap();
+    initiator_sender.send(ManagerMessage::AddPeer(peer.clone())).await.unwrap();
 
     Ok((running_initiator, notify))
 }

@@ -12,29 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol::Role;
+use std::sync::Arc;
+
+use amaru_kernel::NetworkMagic;
+use amaru_network::connection::TokioConnections;
+use amaru_ouroboros::ConnectionsResource;
+use futures_util::StreamExt;
+use pure_stage::{Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder, trace_buffer::TraceBuffer};
+use tokio::runtime::Runtime;
+use tracing_subscriber::EnvFilter;
+
 use crate::{
     handshake,
     mux::{self, MuxMessage},
     network_effects::create_connection,
-    protocol::{Inputs, PROTO_HANDSHAKE},
+    protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
         version_data::{PEER_SHARING_DISABLED, VersionData},
         version_number::VersionNumber,
         version_table::VersionTable,
     },
 };
-use amaru_kernel::NetworkMagic;
-use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::ConnectionsResource;
-use futures_util::StreamExt;
-use pure_stage::{
-    Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder,
-    trace_buffer::TraceBuffer,
-};
-use std::sync::Arc;
-use tokio::runtime::Runtime;
-use tracing_subscriber::EnvFilter;
 
 #[test]
 #[ignore]
@@ -45,25 +43,18 @@ fn test_against_node() {
 
     let network_magic = NetworkMagic::for_testing();
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
 
     let rt = Runtime::new().unwrap();
 
     let conn = TokioConnections::new(65535);
-    let conn_id = rt
-        .block_on(async { create_connection(&conn).await })
-        .unwrap();
+    let conn_id = rt.block_on(async { create_connection(&conn).await }).unwrap();
 
     let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
     let _guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
-    network
-        .resources()
-        .put::<ConnectionsResource>(Arc::new(conn));
+    network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));
@@ -96,14 +87,10 @@ fn test_against_node() {
 
     let mut running = network.run();
 
-    running.breakpoint(
-        "output",
-        move |eff| matches!(eff, Effect::External { at_stage, .. } if at_stage == output.name()),
-    );
+    running
+        .breakpoint("output", move |eff| matches!(eff, Effect::External { at_stage, .. } if at_stage == output.name()));
 
-    let output = running
-        .run_until_blocked_incl_effects(rt.handle())
-        .assert_breakpoint("output");
+    let output = running.run_until_blocked_incl_effects(rt.handle()).assert_breakpoint("output");
     running.handle_effect(output);
     rt.block_on(running.await_external_effect()).unwrap();
     let result = rx.try_next().unwrap();
@@ -125,10 +112,7 @@ fn test_against_node_with_tokio() {
 
     let network_magic = NetworkMagic::for_testing();
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_test_writer()
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
 
     let rt = Runtime::new().unwrap();
 
@@ -139,9 +123,7 @@ fn test_against_node_with_tokio() {
     let _guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = TokioBuilder::default();
 
-    network
-        .resources()
-        .put::<ConnectionsResource>(Arc::new(conn));
+    network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));

@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::{Args, RunConfig, generate_actions};
-use amaru::tests::configuration::NodeTestConfig;
-use amaru::tests::setup::create_node;
+use amaru::tests::{configuration::NodeTestConfig, setup::create_node};
 use amaru_protocols::deserializers::register_deserializers;
-use pure_stage::simulation::SimulationBuilder;
-use pure_stage::trace_buffer::TraceEntry;
+use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceEntry};
+
+use crate::simulator::{Args, RunConfig, generate_actions};
 
 /// Replay a previous run based on a trace
 pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
@@ -28,10 +27,7 @@ pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
 
     let node_config = NodeTestConfig::default()
         .with_chain_length(args.generated_chain_depth)
-        .with_seed(
-            args.seed
-                .expect("there must be a seed to replay a simulation"),
-        )
+        .with_seed(args.seed.expect("there must be a seed to replay a simulation"))
         .with_upstream_peers(run_config.upstream_peers())
         .with_validated_blocks(vec![anchor]);
 

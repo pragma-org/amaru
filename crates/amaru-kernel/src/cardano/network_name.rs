@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use crate::{
-    EraHistory, GlobalParameters, MAINNET_ERA_HISTORY, MAINNET_GLOBAL_PARAMETERS, Network,
-    NetworkMagic, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
-    PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY, PREVIEW_GLOBAL_PARAMETERS,
-    PREVIEW_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, Slot, TESTNET_ERA_HISTORY,
+    EraHistory, GlobalParameters, MAINNET_ERA_HISTORY, MAINNET_GLOBAL_PARAMETERS, Network, NetworkMagic,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY,
+    PREVIEW_GLOBAL_PARAMETERS, PREVIEW_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, Slot, TESTNET_ERA_HISTORY,
     TESTNET_GLOBAL_PARAMETERS,
 };
 
@@ -85,14 +84,9 @@ impl std::str::FromStr for NetworkName {
             "preprod" => Ok(Self::Preprod),
             "preview" => Ok(Self::Preview),
             _ => {
-                let magic = s
-                    .strip_prefix("testnet_")
-                    .ok_or(format!("Invalid network name {}", s))?;
+                let magic = s.strip_prefix("testnet_").ok_or(format!("Invalid network name {}", s))?;
 
-                magic
-                    .parse::<u32>()
-                    .map(NetworkName::Testnet)
-                    .map_err(|e| e.to_string())
+                magic.parse::<u32>().map(NetworkName::Testnet).map_err(|e| e.to_string())
             }
         }
     }
@@ -100,11 +94,7 @@ impl std::str::FromStr for NetworkName {
 
 impl From<NetworkName> for Network {
     fn from(value: NetworkName) -> Self {
-        if value == NetworkName::Mainnet {
-            Network::Mainnet
-        } else {
-            Network::Testnet
-        }
+        if value == NetworkName::Mainnet { Network::Mainnet } else { Network::Testnet }
     }
 }
 
@@ -149,15 +139,11 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::NetworkName::{self, *};
     use proptest::{prelude::*, prop_oneof};
 
+    use super::NetworkName::{self, *};
+
     pub fn any_network_name() -> impl Strategy<Value = NetworkName> {
-        prop_oneof![
-            Just(Mainnet),
-            Just(Preprod),
-            Just(Preview),
-            (3..u32::MAX).prop_map(Testnet)
-        ]
+        prop_oneof![Just(Mainnet), Just(Preprod), Just(Preview), (3..u32::MAX).prop_map(Testnet)]
     }
 }

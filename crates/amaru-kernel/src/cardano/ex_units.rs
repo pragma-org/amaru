@@ -16,8 +16,5 @@ pub use pallas_primitives::conway::ExUnits;
 
 /// Create a new `ExUnits` that is the sum of two `ExUnits`
 pub fn sum_ex_units(left: ExUnits, right: &ExUnits) -> ExUnits {
-    ExUnits {
-        mem: left.mem + right.mem,
-        steps: left.steps + right.steps,
-    }
+    ExUnits { mem: left.mem + right.mem, steps: left.steps + right.steps }
 }

@@ -13,14 +13,14 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::ProposalProcedure as Proposal;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use crate::{Lovelace, Proposal, any_anchor, any_gov_action, any_reward_account};
     use proptest::{prelude::*, prop_compose};
+
+    use crate::{Lovelace, Proposal, any_anchor, any_gov_action, any_reward_account};
 
     prop_compose! {
         pub fn any_proposal()(

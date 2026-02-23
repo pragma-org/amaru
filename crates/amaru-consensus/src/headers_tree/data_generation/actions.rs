@@ -20,24 +20,12 @@
 //!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
 //!
 
-use crate::headers_tree::data_generation::shrink::Shrinkable;
-use crate::{
-    errors::ConsensusError,
-    headers_tree::{
-        HeadersTree, HeadersTreeDisplay,
-        Tracker::{self, Me, SomePeer},
-        data_generation::{
-            GeneratedTree,
-            SelectionResult::{Back, Forward},
-            any_tree_of_headers,
-        },
-        tree::Tree,
-    },
-    stages::select_chain::{
-        ForwardChainSelection,
-        RollbackChainSelection::{self, RollbackBeyondLimit},
-    },
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Debug, Display, Formatter},
+    sync::Arc,
 };
+
 use amaru_kernel::{
     BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
     size::HEADER,
@@ -49,10 +37,24 @@ use proptest::prelude::Strategy;
 use rand::{Rng, SeedableRng, prelude::SmallRng};
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::{Debug, Display, Formatter},
-    sync::Arc,
+
+use crate::{
+    errors::ConsensusError,
+    headers_tree::{
+        HeadersTree, HeadersTreeDisplay,
+        Tracker::{self, Me, SomePeer},
+        data_generation::{
+            GeneratedTree,
+            SelectionResult::{Back, Forward},
+            any_tree_of_headers,
+            shrink::Shrinkable,
+        },
+        tree::Tree,
+    },
+    stages::select_chain::{
+        ForwardChainSelection,
+        RollbackChainSelection::{self, RollbackBeyondLimit},
+    },
 };
 
 /// This data type models the events sent by the ChainSync mini-protocol with simplified data for the tests.
@@ -111,10 +113,7 @@ impl serde::Serialize for SimplifiedHeader {
         state.serialize_field("hash", &self.0.hash())?;
         state.serialize_field("block", &self.0.block_height())?;
         state.serialize_field("slot", &self.0.slot())?;
-        state.serialize_field(
-            "parent",
-            &self.0.parent().as_ref().map(|h| hex::encode(h.as_ref())),
-        )?;
+        state.serialize_field("parent", &self.0.parent().as_ref().map(|h| hex::encode(h.as_ref())))?;
         state.end()
     }
 }
@@ -140,10 +139,7 @@ impl<'de> serde::Deserialize<'de> for SimplifiedHeader {
             None
         };
         let header = make_header(helper.block, helper.slot, parent_hash);
-        Ok(SimplifiedHeader(BlockHeader::new(
-            header,
-            decode_hash(&helper.hash).map_err(serde::de::Error::custom)?,
-        )))
+        Ok(SimplifiedHeader(BlockHeader::new(header, decode_hash(&helper.hash).map_err(serde::de::Error::custom)?)))
     }
 }
 
@@ -160,19 +156,13 @@ impl serde::Serialize for Action {
         S: serde::Serializer,
     {
         match self {
-            Action::RollForward { peer, header } => ActionHelper::RollForward {
-                peer: peer.to_string(),
-                header: SimplifiedHeader(header.clone()),
+            Action::RollForward { peer, header } => {
+                ActionHelper::RollForward { peer: peer.to_string(), header: SimplifiedHeader(header.clone()) }
+                    .serialize(serializer)
             }
-            .serialize(serializer),
-            Action::Rollback {
-                peer,
-                rollback_point,
-            } => ActionHelper::Rollback {
-                peer: peer.to_string(),
-                rollback_point: *rollback_point,
+            Action::Rollback { peer, rollback_point } => {
+                ActionHelper::Rollback { peer: peer.to_string(), rollback_point: *rollback_point }.serialize(serializer)
             }
-            .serialize(serializer),
         }
     }
 }
@@ -185,10 +175,7 @@ enum ActionHelper {
     },
     Rollback {
         peer: String,
-        #[serde(
-            serialize_with = "serialize_point",
-            deserialize_with = "deserialize_point"
-        )]
+        #[serde(serialize_with = "serialize_point", deserialize_with = "deserialize_point")]
         rollback_point: Point,
     },
 }
@@ -200,17 +187,12 @@ impl<'de> serde::Deserialize<'de> for Action {
     {
         let helper = ActionHelper::deserialize(deserializer)?;
         match helper {
-            ActionHelper::RollForward { peer, header } => Ok(Action::RollForward {
-                peer: Peer::new(&peer),
-                header: header.0,
-            }),
-            ActionHelper::Rollback {
-                peer,
-                rollback_point,
-            } => Ok(Action::Rollback {
-                peer: Peer::new(&peer),
-                rollback_point,
-            }),
+            ActionHelper::RollForward { peer, header } => {
+                Ok(Action::RollForward { peer: Peer::new(&peer), header: header.0 })
+            }
+            ActionHelper::Rollback { peer, rollback_point } => {
+                Ok(Action::Rollback { peer: Peer::new(&peer), rollback_point })
+            }
         }
     }
 }
@@ -221,10 +203,7 @@ impl Display for Action {
             Action::RollForward { peer, header, .. } => {
                 write!(f, "Forward peer {peer} to {}", header.hash())
             }
-            Action::Rollback {
-                peer,
-                rollback_point,
-            } => write!(f, "Rollback peer {peer} to {}", rollback_point.hash()),
+            Action::Rollback { peer, rollback_point } => write!(f, "Rollback peer {peer} to {}", rollback_point.hash()),
         }
     }
 }
@@ -284,10 +263,7 @@ pub fn random_walk<R: Rng>(
     }
 
     if let Some(actions) = result.get_mut(peer) {
-        actions.push(Action::RollForward {
-            peer: peer.clone(),
-            header: tree.value.clone(),
-        })
+        actions.push(Action::RollForward { peer: peer.clone(), header: tree.value.clone() })
     }
 
     // Process the children in a random order based on a the rng
@@ -303,10 +279,7 @@ pub fn random_walk<R: Rng>(
     if let Some(parent) = parent_header
         && let Some(actions) = result.get_mut(peer)
     {
-        let rollback = Action::Rollback {
-            peer: peer.clone(),
-            rollback_point: parent.point(),
-        };
+        let rollback = Action::Rollback { peer: peer.clone(), rollback_point: parent.point() };
         if actions.last().map(|h| h.hash()) != Some(rollback.hash()) {
             actions.push(rollback)
         }
@@ -320,22 +293,12 @@ pub fn random_walk<R: Rng>(
 /// Otherwise, if we had all the actions from peer 1, then all the actions from peer 2, etc...
 /// we could end up with a tree growing beyond the `max_length` causing the tree to be pruned and
 /// the root header to be removed.
-pub fn generate_random_walks(
-    seed: u64,
-    generated_tree: &GeneratedTree,
-    peers: &[Peer],
-) -> GeneratedActions {
+pub fn generate_random_walks(seed: u64, generated_tree: &GeneratedTree, peers: &[Peer]) -> GeneratedActions {
     let mut actions_per_peer = BTreeMap::new();
     let mut rng = &mut SmallRng::seed_from_u64(seed);
 
     for peer in peers {
-        random_walk(
-            &mut rng,
-            None,
-            generated_tree.tree(),
-            peer,
-            &mut actions_per_peer,
-        );
+        random_walk(&mut rng, None, generated_tree.tree(), peer, &mut actions_per_peer);
     }
 
     // If more than 2 peers are required, duplicate peer 2 with the actions of peer 1
@@ -356,10 +319,7 @@ pub fn generate_random_walks(
         }
     }
 
-    GeneratedActions {
-        tree: generated_tree.clone(),
-        actions_per_peer,
-    }
+    GeneratedActions { tree: generated_tree.clone(), actions_per_peer }
 }
 
 /// List of actions generated for a set of peers on a given tree of headers.
@@ -371,13 +331,10 @@ pub struct GeneratedActions {
 
 impl GeneratedActions {
     pub fn set_actions(&mut self, actions: Vec<Action>) {
-        let actions_per_peer =
-            actions
-                .into_iter()
-                .fold(BTreeMap::<Peer, Vec<Action>>::new(), |mut acc, action| {
-                    acc.entry(action.peer().clone()).or_default().push(action);
-                    acc
-                });
+        let actions_per_peer = actions.into_iter().fold(BTreeMap::<Peer, Vec<Action>>::new(), |mut acc, action| {
+            acc.entry(action.peer().clone()).or_default().push(action);
+            acc
+        });
         self.actions_per_peer = actions_per_peer;
     }
 
@@ -400,11 +357,7 @@ impl GeneratedActions {
     /// Transpose the actions per peer to interleave them
     /// so that we don't have all the actions from one peer first, then all the actions from another peer, etc...
     pub fn actions(&self) -> Vec<Action> {
-        transpose(self.actions_per_peer.values())
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect()
+        transpose(self.actions_per_peer.values()).into_iter().flatten().cloned().collect()
     }
 
     pub fn statistics(&self) -> GeneratedActionsStatistics {
@@ -457,11 +410,8 @@ impl GeneratedActions {
 
 impl GeneratedActions {
     pub fn as_json(&self) -> serde_json::Value {
-        let actions_json: Vec<serde_json::Value> = self
-            .actions()
-            .iter()
-            .map(|action| to_value(GeneratedAction::from(action.clone())).unwrap())
-            .collect();
+        let actions_json: Vec<serde_json::Value> =
+            self.actions().iter().map(|action| to_value(GeneratedAction::from(action.clone())).unwrap()).collect();
 
         serde_json::json!({
             "tree": self.generated_tree().as_json(),
@@ -516,9 +466,7 @@ impl From<Action> for GeneratedAction {
             message_type: message_type.to_string(),
             src: action.peer().to_string(),
             hash: header_hash.to_string().chars().take(6).collect(),
-            parent: header_parent_hash
-                .map(|h| h.to_string().chars().take(6).collect())
-                .unwrap_or("n/a".to_string()),
+            parent: header_parent_hash.map(|h| h.to_string().chars().take(6).collect()).unwrap_or("n/a".to_string()),
             slot: slot.as_u64(),
         }
     }
@@ -584,10 +532,7 @@ pub fn any_select_chains(depth: usize, peers: &[Peer]) -> impl Strategy<Value = 
 }
 
 /// Generate a random list of actions, for a fixed number of peers, with a given tree of headers.
-pub fn any_select_chains_from_tree(
-    tree: &GeneratedTree,
-    peers: &[Peer],
-) -> impl Strategy<Value = GeneratedActions> {
+pub fn any_select_chains_from_tree(tree: &GeneratedTree, peers: &[Peer]) -> impl Strategy<Value = GeneratedActions> {
     (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, tree, peers))
 }
 
@@ -635,10 +580,7 @@ pub fn execute_actions_on_tree(
                     }
                 }
             }
-            Action::Rollback {
-                peer,
-                rollback_point,
-            } => match tree.select_rollback(peer, &rollback_point.hash()) {
+            Action::Rollback { peer, rollback_point } => match tree.select_rollback(peer, &rollback_point.hash()) {
                 Ok(result) => Back(result.clone()),
                 Err(_) => {
                     // Skip invalid actions like rolling back to a point that is not in the tree.
@@ -647,10 +589,8 @@ pub fn execute_actions_on_tree(
             },
         };
         if print {
-            diagnostics.insert(
-                (action_nb + 1, action.clone()),
-                (result.clone(), HeadersTreeDisplay::from(tree.clone())),
-            );
+            diagnostics
+                .insert((action_nb + 1, action.clone()), (result.clone(), HeadersTreeDisplay::from(tree.clone())));
         }
         results.push(result);
     }
@@ -673,9 +613,7 @@ fn print_diagnostics(
             eprintln!("\nTree after:\n{after}");
             eprintln!("----------------------------------------");
         }
-        eprintln!(
-            "Reproduce the current test case with the following actions and 'check_execution':\n"
-        );
+        eprintln!("Reproduce the current test case with the following actions and 'check_execution':\n");
         let all_lines: Vec<String> = actions.iter().map(|action| action.pretty_print()).collect();
         eprintln!("[\n{}\n]", all_lines.list_to_string(",\n"));
         eprintln!("\n----------------------------------------");
@@ -694,14 +632,8 @@ pub fn execute_json_actions(
 }
 
 pub fn actions_from_json(actions_as_list_of_strings: &[&str]) -> Vec<Action> {
-    serde_json::from_str(&format!(
-        "[{}]",
-        actions_as_list_of_strings
-            .iter()
-            .collect::<Vec<_>>()
-            .list_to_string(",")
-    ))
-    .unwrap()
+    serde_json::from_str(&format!("[{}]", actions_as_list_of_strings.iter().collect::<Vec<_>>().list_to_string(",")))
+        .unwrap()
 }
 
 /// Type alias for a chain of headers tracked by a peer
@@ -726,32 +658,25 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
         }
         let chain: &mut Chain = current_chains.get_mut(&tracker).unwrap();
         match action {
-            Action::RollForward { header, .. } => {
-                match (header.parent(), chain.last().map(|h| h.hash())) {
-                    (Some(parent_hash), Some(last_hash)) => {
-                        if parent_hash == last_hash {
-                            chain.push(header.clone())
-                        }
+            Action::RollForward { header, .. } => match (header.parent(), chain.last().map(|h| h.hash())) {
+                (Some(parent_hash), Some(last_hash)) => {
+                    if parent_hash == last_hash {
+                        chain.push(header.clone())
                     }
-                    (None, None) => chain.push(header.clone()),
-                    (Some(_), None) => {}
-                    (None, Some(_)) => {}
                 }
-            }
+                (None, None) => chain.push(header.clone()),
+                (Some(_), None) => {}
+                (None, Some(_)) => {}
+            },
             Action::Rollback { rollback_point, .. } => {
-                if let Some(rollback_position) =
-                    chain.iter().position(|h| h.hash() == rollback_point.hash())
-                {
+                if let Some(rollback_position) = chain.iter().position(|h| h.hash() == rollback_point.hash()) {
                     chain.truncate(rollback_position + 1)
                 }
             }
         }
         let best_length = current_chains.values().map(|c| c.len()).max().unwrap();
-        let best_chains = current_chains
-            .clone()
-            .into_values()
-            .filter(|c| c.len() == best_length)
-            .collect::<Vec<Chain>>();
+        let best_chains =
+            current_chains.clone().into_values().filter(|c| c.len() == best_length).collect::<Vec<Chain>>();
         current_chains.insert(Me, best_chains[0].clone());
 
         all_best_chains.push(best_chains);
@@ -772,15 +697,10 @@ pub fn make_best_chains_from_results(results: &[SelectionResult]) -> Result<Vec<
     let mut current_best_chain = vec![];
     for (i, event) in results.iter().enumerate() {
         match event {
-            Forward(ForwardChainSelection::NewTip { tip, .. }) => {
-                current_best_chain.push(tip.clone())
-            }
+            Forward(ForwardChainSelection::NewTip { tip, .. }) => current_best_chain.push(tip.clone()),
             Forward(ForwardChainSelection::NoChange) => {}
-            Forward(ForwardChainSelection::SwitchToFork(fork))
-            | Back(RollbackChainSelection::SwitchToFork(fork)) => {
-                let rollback_position = current_best_chain
-                    .iter()
-                    .position(|h| h.hash() == fork.rollback_header.hash());
+            Forward(ForwardChainSelection::SwitchToFork(fork)) | Back(RollbackChainSelection::SwitchToFork(fork)) => {
+                let rollback_position = current_best_chain.iter().position(|h| h.hash() == fork.rollback_header.hash());
                 if rollback_position.is_none() {
                     return Err(format!(
                         "after the event {} {}, we have a rollback position that does not exist with hash {}\n\ncurrent best chain:\n{}\n\nbest chains\n{}",
@@ -812,18 +732,12 @@ fn check_duplicated_forks(results: &[SelectionResult]) -> Result<(), String> {
         match result {
             Forward(ForwardChainSelection::SwitchToFork(fork)) => {
                 if !seen_forks.insert(fork) {
-                    return Err(format!(
-                        "duplicated fork {:?} following a select_forward found in results",
-                        fork,
-                    ));
+                    return Err(format!("duplicated fork {:?} following a select_forward found in results", fork,));
                 }
             }
             Back(RollbackChainSelection::SwitchToFork(fork)) => {
                 if !seen_forks.insert(fork) {
-                    return Err(format!(
-                        "duplicated fork {:?} following a select_rollback found in results",
-                        fork,
-                    ));
+                    return Err(format!("duplicated fork {:?} following a select_rollback found in results", fork,));
                 }
             }
             Forward(_) | Back(_) => {}
@@ -838,11 +752,8 @@ pub fn make_best_chain_from_results(results: &[SelectionResult]) -> Result<Chain
         match event {
             Forward(ForwardChainSelection::NewTip { tip, .. }) => best_chain.push(tip.clone()),
             Forward(ForwardChainSelection::NoChange) => {}
-            Forward(ForwardChainSelection::SwitchToFork(fork))
-            | Back(RollbackChainSelection::SwitchToFork(fork)) => {
-                let rollback_position = best_chain
-                    .iter()
-                    .position(|h| h.hash() == fork.rollback_header.hash());
+            Forward(ForwardChainSelection::SwitchToFork(fork)) | Back(RollbackChainSelection::SwitchToFork(fork)) => {
+                let rollback_position = best_chain.iter().position(|h| h.hash() == fork.rollback_header.hash());
                 if rollback_position.is_none() {
                     return Err(format!(
                         "after the event {} {}, we have a rollback position that does not exist with hash {}\n\ncurrent best chain:\n{}\n",
@@ -893,26 +804,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use crate::headers_tree::data_generation::generate_tree_of_headers;
-    use std::collections::BTreeSet;
 
     #[test]
     fn transpose_works() {
-        let rows = vec![
-            vec![1, 2, 3],
-            vec![4, 5],
-            vec![6, 7, 8, 9],
-            vec![10],
-            vec![],
-            vec![11, 12],
-        ];
-        let expected = vec![
-            vec![1, 4, 6, 10, 11],
-            vec![2, 5, 7, 12],
-            vec![3, 8],
-            vec![9],
-        ];
+        let rows = vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8, 9], vec![10], vec![], vec![11, 12]];
+        let expected = vec![vec![1, 4, 6, 10, 11], vec![2, 5, 7, 12], vec![3, 8], vec![9]];
         let result = transpose(rows);
         assert_eq!(result, expected);
     }
@@ -921,9 +821,7 @@ mod tests {
     fn test_generate_random_walks() {
         let seed = 45;
         let tree = generate_tree_of_headers(seed, 10);
-        let peers = (1..=3)
-            .map(|i| Peer::new(&format!("peer-{i}")))
-            .collect::<Vec<_>>();
+        let peers = (1..=3).map(|i| Peer::new(&format!("peer-{i}"))).collect::<Vec<_>>();
         let generated_actions = generate_random_walks(seed, &tree, &peers);
         let statistics = generated_actions.statistics();
         // uncomment for inspecting the generated tree and actions

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
+
 use amaru_kernel::{ConsensusParameters, Header, NetworkName, Nonce, cbor};
 use amaru_ouroboros::{kes, praos};
 use amaru_ouroboros_traits::has_stake_distribution::mock_ledger_state::MockLedgerState;
@@ -19,7 +21,6 @@ use ctor::ctor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_primitives::babbage;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
 /// Context from which a header has been generated.
 ///
@@ -46,10 +47,7 @@ struct GeneratorContext {
     praos_max_kes_evolution: u64,
     #[serde(rename = "kesSignKey", deserialize_with = "deserialize_secret_kes_key")]
     kes_secret_key: KesKeyWrapper,
-    #[serde(
-        rename = "coldSignKey",
-        deserialize_with = "deserialize_secret_ed25519_key"
-    )]
+    #[serde(rename = "coldSignKey", deserialize_with = "deserialize_secret_ed25519_key")]
     cold_secret_key: SecretKey,
     #[serde(rename = "vrfVKeyHash", deserialize_with = "deserialize_vrf_vkey_hash")]
     vrf_vkey_hash: Hash<32>,
@@ -70,18 +68,12 @@ impl GeneratorContext {
 impl std::fmt::Debug for GeneratorContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GeneratorContext")
-            .field(
-                "praos_slots_per_kes_period",
-                &self.praos_slots_per_kes_period,
-            )
+            .field("praos_slots_per_kes_period", &self.praos_slots_per_kes_period)
             .field("praos_max_kes_evolution", &self.praos_max_kes_evolution)
             .field("kes_secret_key", &self.kes_secret_key)
             .field("cold_secret_key", &self.cold_secret_key)
             .field("nonce", &self.nonce)
-            .field(
-                "operational_certificate_counters",
-                &self.operational_certificate_counters,
-            )
+            .field("operational_certificate_counters", &self.operational_certificate_counters)
             .field("active_slot_coeff", &self.active_slot_coeff)
             .finish()
     }
@@ -98,9 +90,7 @@ pub struct KesKeyWrapperError {
 
 impl KesKeyWrapper {
     pub fn get_kes_secret_key(&'_ mut self) -> Result<kes::SecretKey<'_>, KesKeyWrapperError> {
-        kes::SecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError {
-            reason: err.to_string(),
-        })
+        kes::SecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError { reason: err.to_string() })
     }
 }
 
@@ -119,9 +109,9 @@ where
 {
     let buf = <String>::deserialize(deserializer)?;
     let decoded = hex::decode(buf).map_err(serde::de::Error::custom)?;
-    let bytes: [u8; SecretKey::SIZE] = decoded.try_into().map_err(|e| {
-        serde::de::Error::custom(format!("cannot convert vector to secret key: {:?}", e))
-    })?;
+    let bytes: [u8; SecretKey::SIZE] = decoded
+        .try_into()
+        .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to secret key: {:?}", e)))?;
     Ok(bytes.into())
 }
 
@@ -133,10 +123,7 @@ where
     let decoded = hex::decode(buf).map_err(serde::de::Error::custom)?;
     let num_bytes = decoded.len();
     let bytes: [u8; 32] = decoded.try_into().map_err(|e| {
-        serde::de::Error::custom(format!(
-            "cannot convert vector to secret vrf key hash (len = {}): {:?}",
-            num_bytes, e
-        ))
+        serde::de::Error::custom(format!("cannot convert vector to secret vrf key hash (len = {}): {:?}", num_bytes, e))
     })?;
     Ok(Hash::new(bytes))
 }
@@ -147,9 +134,8 @@ where
 {
     let buf = <String>::deserialize(deserializer)?;
     let decoded = hex::decode(buf).map_err(serde::de::Error::custom)?;
-    let bytes = decoded.try_into().map_err(|e| {
-        serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e))
-    })?;
+    let bytes =
+        decoded.try_into().map_err(|e| serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e)))?;
     Ok(Hash::new(bytes))
 }
 

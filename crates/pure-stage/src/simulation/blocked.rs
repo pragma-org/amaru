@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Effect, Instant, Name};
 use std::fmt;
+
+use crate::{Effect, Instant, Name};
 
 /// Classification of why [`SimulationRunning::run_until_blocked`](crate::effect_box::SimulationRunning::run_until_blocked) has stopped.
 #[derive(Debug, PartialEq)]
@@ -29,10 +30,7 @@ pub enum Blocked {
     /// The given stages are suspended on effects other than [`Effect::Receive`]
     /// while none are suspended on [`Effect::Send`]. The given number of
     /// external effects are currently unresolved.
-    Busy {
-        external_effects: usize,
-        stages: Vec<Name>,
-    },
+    Busy { external_effects: usize, stages: Vec<Name> },
     /// The given stage has terminated.
     Terminated(Name),
 }
@@ -80,25 +78,17 @@ impl Blocked {
         let names = names.into_iter().collect::<Vec<_>>();
         match self {
             Blocked::Deadlock(deadlock)
-                if deadlock
-                    .iter()
-                    .all(|send| names.iter().any(|n| name_match(&send.from, n.as_ref()))) => {}
+                if deadlock.iter().all(|send| names.iter().any(|n| name_match(&send.from, n.as_ref()))) => {}
             _ => panic!("expected deadlock by {:?}, got {:?}", names, self),
         }
     }
 
     /// Assert that the blocking reason is `Busy` by at least the given stages.
     #[track_caller]
-    pub fn assert_busy(
-        &self,
-        names: impl IntoIterator<Item = impl AsRef<str> + fmt::Debug>,
-    ) -> &Self {
+    pub fn assert_busy(&self, names: impl IntoIterator<Item = impl AsRef<str> + fmt::Debug>) -> &Self {
         let names = names.into_iter().collect::<Vec<_>>();
         match self {
-            Blocked::Busy { stages, .. }
-                if names
-                    .iter()
-                    .all(|n| stages.iter().any(|s| name_match(s, n.as_ref()))) => {}
+            Blocked::Busy { stages, .. } if names.iter().all(|n| stages.iter().any(|s| name_match(s, n.as_ref()))) => {}
             _ => panic!("expected busy by {:?}, got {:?}", names, self),
         }
         self
@@ -106,10 +96,7 @@ impl Blocked {
 
     #[track_caller]
     pub fn assert_external_effects(&self, effects: usize) {
-        let Self::Busy {
-            external_effects, ..
-        } = self
-        else {
+        let Self::Busy { external_effects, .. } = self else {
             panic!("expected busy state but got {:?}", self);
         };
         assert_eq!(*external_effects, effects);
@@ -139,12 +126,7 @@ fn name_match(name: &Name, given: &str) -> bool {
     if name == given {
         return true;
     }
-    if name.starts_with(given)
-        && name
-            .get(given.len()..)
-            .expect("`given` was valid UTF-8")
-            .starts_with('-')
-    {
+    if name.starts_with(given) && name.get(given.len()..).expect("`given` was valid UTF-8").starts_with('-') {
         return name[given.len() + 1..].parse::<u64>().is_ok();
     }
     false

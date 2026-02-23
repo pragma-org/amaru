@@ -13,14 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pure_stage::{
-    Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData, StageGraph,
-    StageGraphRunning, StageRef, StageResponse, TryInStage, UnknownExternalEffect,
-    serde::SendDataValue,
-    simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
-    trace_buffer::{TraceBuffer, TraceEntry},
-};
-use rand::{SeedableRng, rngs::StdRng};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -30,6 +22,15 @@ use std::{
     task::{Context, Poll, Waker},
     time::Duration,
 };
+
+use pure_stage::{
+    Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData, StageGraph, StageGraphRunning,
+    StageRef, StageResponse, TryInStage, UnknownExternalEffect,
+    serde::SendDataValue,
+    simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
+    trace_buffer::{TraceBuffer, TraceEntry},
+};
+use rand::{SeedableRng, rngs::StdRng};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -59,9 +60,7 @@ fn basic() {
     running.effect().assert_receive(&basic);
 
     running.resume_receive(&output).unwrap();
-    let ext = running
-        .effect()
-        .extract_external::<OutputEffect<u32>>(&output);
+    let ext = running.effect().extract_external::<OutputEffect<u32>>(&output);
     assert_eq!(&*ext, &OutputEffect::fake(output.name().clone(), 2u32).0);
     let result = rt.block_on(ext.run(Resources::default()));
     // this check is also done when resuming, just want to show how to do it here
@@ -76,9 +75,8 @@ fn basic() {
 fn automatic() {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let std_rng = StdRng::from_seed([0; 32]);
-    let mut network = SimulationBuilder::default()
-        .with_trace_buffer(trace_buffer.clone())
-        .with_eval_strategy(RandStdRng(std_rng));
+    let mut network =
+        SimulationBuilder::default().with_trace_buffer(trace_buffer.clone()).with_eval_strategy(RandStdRng(std_rng));
 
     fn basic(network: &mut impl StageGraph) -> (StageRef<u32>, Receiver<u32>, StageRef<u32>) {
         let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
@@ -97,9 +95,7 @@ fn automatic() {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     running.enqueue_msg(&in_ref, [1, 2, 3]);
-    running
-        .run_until_blocked_incl_effects(rt.handle())
-        .assert_idle();
+    running.run_until_blocked_incl_effects(rt.handle()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4, 7]);
 
     let trace = trace_buffer.lock().hydrate_without_timestamps();
@@ -148,20 +144,14 @@ fn automatic() {
         "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
     ];
 
-    pretty_assertions::assert_eq!(
-        trace.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>(),
-        EXPECTED
-    );
+    pretty_assertions::assert_eq!(trace.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>(), EXPECTED);
 
     let mut network = SimulationBuilder::default();
     basic(&mut network);
     let mut replay = network.replay();
     replay.run_trace(trace).unwrap();
 
-    assert_eq!(
-        replay.latest_state(in_ref.name()),
-        Some(&State(7, output.clone()) as &dyn SendData)
-    );
+    assert_eq!(replay.latest_state(in_ref.name()), Some(&State(7, output.clone()) as &dyn SendData));
     assert_eq!(replay.is_running(in_ref.name()), false);
     assert_eq!(replay.is_idle(in_ref.name()), true);
     assert_eq!(replay.is_terminating(output.name()), false);
@@ -195,16 +185,10 @@ fn breakpoint() {
         )
     });
     running.run_until_blocked().assert_breakpoint("send4");
-    assert_eq!(
-        &rt.block_on(running.await_external_effect()).unwrap(),
-        output2.name()
-    );
+    assert_eq!(&rt.block_on(running.await_external_effect()).unwrap(), output2.name());
     assert_eq!(rt.block_on(running.await_external_effect()), None);
     running.effect().assert_receive(&output2);
-    running
-        .try_effect()
-        .unwrap_err()
-        .assert_deadlock(["basic-1"]);
+    running.try_effect().unwrap_err().assert_deadlock(["basic-1"]);
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 }
 
@@ -214,11 +198,7 @@ fn overrides() {
     let _guard = pure_stage::register_data_deserializer::<u32>();
     let _guard = pure_stage::register_effect_deserializer::<OutputEffect<u32>>();
 
-    tracing_subscriber::fmt()
-        .with_test_writer()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init()
-        .ok();
+    tracing_subscriber::fmt().with_test_writer().with_env_filter(EnvFilter::from_default_env()).try_init().ok();
 
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let guard = TraceBuffer::drop_guard(&trace_buffer);
@@ -244,9 +224,7 @@ fn overrides() {
             OverrideResult::NoMatch(eff)
         }
     });
-    running
-        .run_until_blocked_incl_effects(rt.handle())
-        .assert_idle();
+    running.run_until_blocked_incl_effects(rt.handle()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 7]);
     assert_eq!(count.load(Ordering::Relaxed), 1);
 
@@ -255,11 +233,7 @@ fn overrides() {
 
 #[test]
 fn backpressure() {
-    tracing_subscriber::fmt()
-        .with_test_writer()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init()
-        .ok();
+    tracing_subscriber::fmt().with_test_writer().with_env_filter(EnvFilter::from_default_env()).try_init().ok();
 
     let mut network = SimulationBuilder::default().with_mailbox_size(1);
 
@@ -288,18 +262,10 @@ fn backpressure() {
     });
 
     let sender_name = sender.name().clone();
-    running.breakpoint(
-        "send",
-        move |eff| matches!(eff, Effect::Receive { at_stage } if *at_stage == sender_name),
-    );
+    running.breakpoint("send", move |eff| matches!(eff, Effect::Receive { at_stage } if *at_stage == sender_name));
 
     let broken = running.run_until_blocked().assert_breakpoint("pressure");
-    assert_eq!(
-        broken,
-        Effect::Clock {
-            at_stage: pressure.name().clone(),
-        }
-    );
+    assert_eq!(broken, Effect::Clock { at_stage: pressure.name().clone() });
 
     running.run_until_blocked().assert_breakpoint("send");
     running.enqueue_msg(&sender, [2]);
@@ -342,16 +308,11 @@ fn clock() {
     let now = running.now();
     running.run_until_blocked().assert_idle();
     let later = running.now();
-    assert_eq!(
-        running.get_state(&basic).unwrap(),
-        &State2::Full(42u32, now, later)
-    );
+    assert_eq!(running.get_state(&basic).unwrap(), &State2::Full(42u32, now, later));
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
 
     running.enqueue_msg(&basic, [43]);
-    let wakeup = running
-        .run_until_blocked_or_time(later + Duration::from_millis(100))
-        .assert_sleeping();
+    let wakeup = running.run_until_blocked_or_time(later + Duration::from_millis(100)).assert_sleeping();
     assert_eq!(wakeup, later + Duration::from_secs(1));
 }
 
@@ -383,10 +344,7 @@ fn clock_manual() {
     running.run_until_sleeping_or_blocked().assert_idle();
     let later = running.now();
 
-    assert_eq!(
-        running.get_state(&stage).unwrap(),
-        &State2::Full(42u32, now, later)
-    );
+    assert_eq!(running.get_state(&stage).unwrap(), &State2::Full(42u32, now, later));
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
 
     assert!(!running.skip_to_next_wakeup(Some(later + Duration::from_secs(1))));
@@ -401,11 +359,7 @@ struct Msg3(u32, StageRef<u32>);
 
 #[test]
 fn call() {
-    tracing_subscriber::fmt()
-        .with_test_writer()
-        .with_env_filter(EnvFilter::from_default_env())
-        .try_init()
-        .ok();
+    tracing_subscriber::fmt().with_test_writer().with_env_filter(EnvFilter::from_default_env()).try_init().ok();
 
     let _guard = pure_stage::register_data_deserializer::<Msg3>();
     let trace_buffer = TraceBuffer::new_shared(1, 1000000);
@@ -414,9 +368,7 @@ fn call() {
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
     let caller = network.stage("caller", async |mut state: State3, msg: u32, eff| {
         state.0 = eff
-            .call(&state.1, Duration::from_secs(2), move |cr| {
-                Msg3(msg + 1, cr)
-            })
+            .call(&state.1, Duration::from_secs(2), move |cr| Msg3(msg + 1, cr))
             .await
             .or_terminate(&eff, async |_| ())
             .await;
@@ -440,17 +392,11 @@ fn call() {
     // also try manual mode
     sim.enqueue_msg(&caller, [2]);
     sim.resume_receive(&caller).unwrap();
-    let (msg, cr) = sim.effect().assert_call(
-        &caller,
-        &callee,
-        |msg| (msg.0 + 1, msg.1),
-        Duration::from_secs(2),
-    );
+    let (msg, cr) = sim.effect().assert_call(&caller, &callee, |msg| (msg.0 + 1, msg.1), Duration::from_secs(2));
 
     sim.try_effect().unwrap_err().assert_busy([caller.name()]);
     // this will resume receive on callee
-    sim.resume_call_send(&caller, &callee, Msg3(msg, cr.clone()))
-        .unwrap();
+    sim.resume_call_send(&caller, &callee, Msg3(msg, cr.clone())).unwrap();
     sim.effect().assert_wait(&callee, Duration::from_secs(1));
     sim.resume_wait(&callee, sim.now()).unwrap();
     sim.effect().assert_send(&callee, &cr, 8);
@@ -472,14 +418,12 @@ fn call_timeout_terminates_graph() {
 
     // caller times out quickly; callee sleeps longer -> triggers terminate
     let caller = network.stage("caller", async |state: State3, msg: u32, eff| {
-        eff.call(&state.1, Duration::from_millis(10), move |cr| {
-            Msg3(msg + 1, cr)
-        })
-        .await
-        // Returning terminate here should trigger graph termination
-        // (SimulationRunning.termination should complete)
-        .or_terminate(&eff, async |_| {})
-        .await;
+        eff.call(&state.1, Duration::from_millis(10), move |cr| Msg3(msg + 1, cr))
+            .await
+            // Returning terminate here should trigger graph termination
+            // (SimulationRunning.termination should complete)
+            .or_terminate(&eff, async |_| {})
+            .await;
         state
     });
 
@@ -496,18 +440,12 @@ fn call_timeout_terminates_graph() {
     sim.enqueue_msg(&caller, [1]);
     // Run until blocked, then assert termination flips true
     let mut term = sim.termination();
-    assert_eq!(
-        term.as_mut().poll(&mut Context::from_waker(Waker::noop())),
-        Poll::Pending
-    );
+    assert_eq!(term.as_mut().poll(&mut Context::from_waker(Waker::noop())), Poll::Pending);
 
     sim.run_until_blocked().assert_terminated(caller.name()); // drive effects
 
     assert!(sim.is_terminated(), "simulation should report terminated");
-    assert_eq!(
-        term.as_mut().poll(&mut Context::from_waker(Waker::noop())),
-        Poll::Ready(())
-    );
+    assert_eq!(term.as_mut().poll(&mut Context::from_waker(Waker::noop())), Poll::Ready(()));
 
     guard.defuse();
 }
@@ -542,15 +480,7 @@ fn create_stage_within_stage() {
                 .await;
 
             // Wire up the child stage with initial state that includes the output reference
-            let child_ref = eff
-                .wire_up(
-                    child,
-                    ChildState {
-                        value: 0u32,
-                        output: state.output.clone(),
-                    },
-                )
-                .await;
+            let child_ref = eff.wire_up(child, ChildState { value: 0u32, output: state.output.clone() }).await;
             state.child_ref = Some(child_ref);
         }
 
@@ -563,13 +493,7 @@ fn create_stage_within_stage() {
     });
 
     let (output, mut rx) = network.output("output", 10);
-    let parent = network.wire_up(
-        parent,
-        ParentState {
-            child_ref: None,
-            output: output.clone(),
-        },
-    );
+    let parent = network.wire_up(parent, ParentState { child_ref: None, output: output.clone() });
     let mut running = network.run();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -586,20 +510,11 @@ fn create_stage_within_stage() {
     add_stage_effect.assert_add_stage(&parent, "child");
     let child_ref = StageRef::named_for_tests("child-12");
 
-    running
-        .resume_add_stage(&parent, child_ref.name().clone())
-        .unwrap();
+    running.resume_add_stage(&parent, child_ref.name().clone()).unwrap();
 
     // Assert that WireStage effect is emitted
     let wire_stage_effect = running.effect();
-    wire_stage_effect.assert_wire_stage(
-        &parent,
-        "child-12",
-        ChildState {
-            value: 0u32,
-            output: output.clone(),
-        },
-    );
+    wire_stage_effect.assert_wire_stage(&parent, "child-12", ChildState { value: 0u32, output: output.clone() });
 
     // Resume the WireStage effect with the child's initial state
     running.handle_effect(wire_stage_effect);
@@ -621,15 +536,8 @@ fn create_stage_within_stage() {
     running.handle_effect(external_effect);
 
     running.effect().assert_receive(&child_ref);
-    running
-        .try_effect()
-        .unwrap_err()
-        .assert_busy(["output-2"])
-        .assert_external_effects(1);
-    assert_eq!(
-        &rt.block_on(running.await_external_effect()).unwrap(),
-        output.name()
-    );
+    running.try_effect().unwrap_err().assert_busy(["output-2"]).assert_external_effects(1);
+    assert_eq!(&rt.block_on(running.await_external_effect()).unwrap(), output.name());
     running.effect().assert_receive(&output);
 
     // Verify output received the message from the child stage
@@ -641,44 +549,23 @@ fn create_stage_within_stage() {
         vec![
             TraceEntry::state(
                 "output-2",
-                SendDataValue::from_json(
-                    "pure_stage::types::MpscSender<u32>",
-                    BTreeMap::<u8, u8>::new()
-                )
+                SendDataValue::from_json("pure_stage::types::MpscSender<u32>", BTreeMap::<u8, u8>::new())
             ),
             TraceEntry::state(
                 parent.name(),
-                SendDataValue::boxed(&ParentState {
-                    child_ref: None,
-                    output: output.clone()
-                })
+                SendDataValue::boxed(&ParentState { child_ref: None, output: output.clone() })
             ),
             TraceEntry::input(parent.name(), SendDataValue::boxed(&42u32)),
             TraceEntry::resume(parent.name(), StageResponse::Unit),
-            TraceEntry::suspend(Effect::AddStage {
-                at_stage: parent.name().clone(),
-                name: Name::from("child")
-            }),
-            TraceEntry::resume(
-                parent.name(),
-                StageResponse::AddStageResponse(child_ref.name().clone())
-            ),
+            TraceEntry::suspend(Effect::AddStage { at_stage: parent.name().clone(), name: Name::from("child") }),
+            TraceEntry::resume(parent.name(), StageResponse::AddStageResponse(child_ref.name().clone())),
             TraceEntry::suspend(Effect::wire_stage(
                 parent.name().clone(),
                 child_ref.name().clone(),
-                SendDataValue::boxed(&ChildState {
-                    value: 0u32,
-                    output: output.clone()
-                }),
+                SendDataValue::boxed(&ChildState { value: 0u32, output: output.clone() }),
                 None
             )),
-            TraceEntry::state(
-                child_ref.name(),
-                SendDataValue::boxed(&ChildState {
-                    value: 0,
-                    output: output.clone()
-                })
-            ),
+            TraceEntry::state(child_ref.name(), SendDataValue::boxed(&ChildState { value: 0, output: output.clone() })),
             TraceEntry::resume(parent.name(), StageResponse::Unit),
             TraceEntry::suspend(Effect::Send {
                 from: parent.name().clone(),
@@ -696,36 +583,22 @@ fn create_stage_within_stage() {
             TraceEntry::resume(parent.name(), StageResponse::Unit),
             TraceEntry::state(
                 parent.name(),
-                SendDataValue::boxed(&ParentState {
-                    child_ref: Some(child_ref.clone()),
-                    output: output.clone()
-                })
+                SendDataValue::boxed(&ParentState { child_ref: Some(child_ref.clone()), output: output.clone() })
             ),
             TraceEntry::resume(output.name(), StageResponse::Unit),
             TraceEntry::suspend(Effect::External {
                 at_stage: output.name().clone(),
-                effect: UnknownExternalEffect::boxed(
-                    &OutputEffect::fake(output.name().clone(), 42u32).0
-                )
+                effect: UnknownExternalEffect::boxed(&OutputEffect::fake(output.name().clone(), 42u32).0)
             }),
             TraceEntry::resume(child_ref.name(), StageResponse::Unit),
             TraceEntry::state(
                 child_ref.name(),
-                SendDataValue::boxed(&ChildState {
-                    value: 42u32,
-                    output: output.clone()
-                })
+                SendDataValue::boxed(&ChildState { value: 42u32, output: output.clone() })
             ),
-            TraceEntry::resume(
-                output.name(),
-                StageResponse::ExternalResponse(SendDataValue::boxed(&()))
-            ),
+            TraceEntry::resume(output.name(), StageResponse::ExternalResponse(SendDataValue::boxed(&()))),
             TraceEntry::state(
                 output.name(),
-                SendDataValue::from_json(
-                    "pure_stage::types::MpscSender<u32>",
-                    BTreeMap::<u8, u8>::new()
-                )
+                SendDataValue::from_json("pure_stage::types::MpscSender<u32>", BTreeMap::<u8, u8>::new())
             ),
         ]
     );

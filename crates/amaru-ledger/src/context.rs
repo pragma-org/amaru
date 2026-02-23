@@ -15,31 +15,25 @@
 pub(crate) mod assert;
 mod default;
 
-use crate::state::diff_bind;
-use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
-    size::{DATUM, KEY, SCRIPT},
-};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     marker::PhantomData,
 };
 
+use amaru_kernel::{
+    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    size::{DATUM, KEY, SCRIPT},
+};
 pub use default::*;
+
+use crate::state::diff_bind;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
-    PotsSlice
-    + UtxoSlice
-    + PoolsSlice
-    + AccountsSlice
-    + DRepsSlice
-    + CommitteeSlice
-    + WitnessSlice
-    + ProposalsSlice
+    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + ProposalsSlice
 {
     type FinalState;
 }
@@ -60,9 +54,7 @@ pub enum RegisterError<ROLE, K> {
 }
 
 impl<ROLE, K: fmt::Debug> From<diff_bind::RegisterError<K>> for RegisterError<ROLE, K> {
-    fn from(
-        diff_bind::RegisterError::AlreadyRegistered(source): diff_bind::RegisterError<K>,
-    ) -> Self {
+    fn from(diff_bind::RegisterError::AlreadyRegistered(source): diff_bind::RegisterError<K>) -> Self {
         Self::AlreadyRegistered(PhantomData {}, source)
     }
 }
@@ -206,11 +198,7 @@ pub trait DRepsSlice {
         anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>>;
 
-    fn update(
-        &mut self,
-        drep: StakeCredential,
-        anchor: Option<Anchor>,
-    ) -> Result<(), UpdateError<StakeCredential>>;
+    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>>;
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
 }

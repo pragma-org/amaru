@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{array::TryFromSliceError, ops::Deref};
+
 use kes_summed_ed25519::{
     self as kes,
     kes::{Sum6Kes, Sum6KesSig},
     traits::{KesSig, KesSk},
 };
-use std::{array::TryFromSliceError, ops::Deref};
 use thiserror::Error;
 
 // ------------------------------------------------------------------- SecretKey
@@ -130,7 +131,10 @@ impl Signature {
 impl From<&[u8; Self::SIZE]> for Signature {
     fn from(bytes: &[u8; Self::SIZE]) -> Self {
         Signature(Sum6KesSig::from_bytes(bytes).unwrap_or_else(|e| {
-            unreachable!("Impossible! Failed to create a KES signature from a slice ({}) of known size: {e:?}", hex::encode(bytes))
+            unreachable!(
+                "Impossible! Failed to create a KES signature from a slice ({}) of known size: {e:?}",
+                hex::encode(bytes)
+            )
         }))
     }
 }
@@ -207,9 +211,7 @@ mod tests {
 
     #[test]
     fn kes_signature_verify() {
-        let kes_pk_bytes =
-            hex::decode("2e5823037de29647e495b97d9dd7bf739f7ebc11d3701c8d0720f55618e1b292")
-                .unwrap();
+        let kes_pk_bytes = hex::decode("2e5823037de29647e495b97d9dd7bf739f7ebc11d3701c8d0720f55618e1b292").unwrap();
         let kes_pk = PublicKey::try_from(&kes_pk_bytes[..]).unwrap();
         let kes_signature_bytes = hex::decode(
             "20f1c8f9ae672e6ec75b0aa63a85e7ab7865b95f6b2907a26b54c14f49184ab52cf\

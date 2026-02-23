@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose,
-    TransactionInput, transaction_input_to_string,
+    AddrType, Address, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose, TransactionInput,
+    transaction_input_to_string,
 };
 use thiserror::Error;
+
+use crate::context::{UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
@@ -61,16 +62,13 @@ where
                 continue;
             }
 
-            let output = context
-                .lookup(reference_input)
-                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+            let output =
+                context.lookup(reference_input).ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
 
             let script_ref = output.script.as_ref().map(|s| s.script_hash());
 
             match &output.datum {
-                MemoizedDatum::Inline(data) => {
-                    context.acknowledge_datum(data.hash(), reference_input.clone())
-                }
+                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), reference_input.clone()),
                 MemoizedDatum::Hash(hash) => {
                     context.allow_supplemental_datum(*hash);
                 }
@@ -99,9 +97,7 @@ where
     for (input_index, original_index) in indices.iter().enumerate() {
         let input = &inputs[*original_index];
 
-        let output = context
-            .lookup(input)
-            .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
+        let output = context.lookup(input).ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
 
         let script = output.script.as_ref().map(|script| script.script_hash());
 
@@ -147,15 +143,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::tests::fixture_context,
-    };
     use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
     use super::InvalidInputs;
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        rules::tests::fixture_context,
+    };
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -168,20 +164,8 @@ mod tests {
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
-                include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/expected.traces"
-                )),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
             )
         };
     }
@@ -224,11 +208,7 @@ mod tests {
         assert_trace(
             move || {
                 let mut validation_context = AssertValidationContext::from(ctx);
-                super::execute(
-                    &mut validation_context,
-                    &tx.inputs,
-                    tx.reference_inputs.as_deref(),
-                )
+                super::execute(&mut validation_context, &tx.inputs, tx.reference_inputs.as_deref())
             },
             expected_traces,
         )

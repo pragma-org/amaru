@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::json_visitor::JsonVisitor;
-use crate::trace_collect_config::TraceCollectConfig;
+use std::sync::{Arc, RwLock};
+
 use serde_json as json;
 use serde_json::Value;
-use std::sync::{Arc, RwLock};
+
+use crate::{json_visitor::JsonVisitor, trace_collect_config::TraceCollectConfig};
 
 /// This `tracing` layer collects spans as JSON values.
 ///
@@ -123,11 +124,7 @@ where
         }
     }
 
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
         if !self.has_target(event.metadata().target()) {
             return;
         }

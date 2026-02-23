@@ -14,10 +14,14 @@
 
 pub mod columns;
 
-use crate::{
-    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
-    summary::Pots,
+use std::{
+    borrow::BorrowMut,
+    collections::{BTreeMap, BTreeSet},
+    io, iter,
+    ops::Deref,
+    path::Path,
 };
+
 use amaru_kernel::{
     CertificatePointer,
     ComparableProposalId,
@@ -40,14 +44,12 @@ use amaru_kernel::{
     cbor as minicbor,
 };
 use columns::*;
-use std::{
-    borrow::BorrowMut,
-    collections::{BTreeMap, BTreeSet},
-    io, iter,
-    ops::Deref,
-    path::Path,
-};
 use thiserror::Error;
+
+use crate::{
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
+    summary::Pots,
+};
 
 #[derive(Debug, Error)]
 #[error(transparent)]
@@ -88,21 +90,13 @@ pub enum StoreError {
 
 impl StoreError {
     pub fn missing<T: std::fmt::Debug + 'static>(name: &str) -> Self {
-        Self::Missing(
-            name.to_string(),
-            MissingKind {
-                type_name: std::any::type_name::<T>().to_string(),
-            },
-        )
+        Self::Missing(name.to_string(), MissingKind { type_name: std::any::type_name::<T>().to_string() })
     }
 }
 
 impl OpenErrorKind {
     pub fn io_with_file<P: AsRef<Path>>(file: P, error: io::Error) -> Self {
-        Self::IO {
-            file: file.as_ref().display().to_string(),
-            source: error,
-        }
+        Self::IO { file: file.as_ref().display().to_string(), source: error }
     }
 }
 

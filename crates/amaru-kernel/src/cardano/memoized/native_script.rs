@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Bytes, KeepRaw, NativeScript, cbor, from_cbor, utils::string::blanket_try_from_hex_bytes,
-};
+use crate::{Bytes, KeepRaw, NativeScript, cbor, from_cbor, utils::string::blanket_try_from_hex_bytes};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "&str")]
@@ -42,22 +40,15 @@ impl TryFrom<Bytes> for MemoizedNativeScript {
     type Error = String;
 
     fn try_from(original_bytes: Bytes) -> Result<Self, Self::Error> {
-        let expr = from_cbor(&original_bytes)
-            .ok_or_else(|| "invalid serialized native script".to_string())?;
+        let expr = from_cbor(&original_bytes).ok_or_else(|| "invalid serialized native script".to_string())?;
 
-        Ok(Self {
-            original_bytes,
-            expr,
-        })
+        Ok(Self { original_bytes, expr })
     }
 }
 
 impl From<KeepRaw<'_, NativeScript>> for MemoizedNativeScript {
     fn from(script: KeepRaw<'_, NativeScript>) -> Self {
-        Self {
-            original_bytes: Bytes::from(script.raw_cbor().to_vec()),
-            expr: script.unwrap(),
-        }
+        Self { original_bytes: Bytes::from(script.raw_cbor().to_vec()), expr: script.unwrap() }
     }
 }
 
@@ -65,10 +56,7 @@ impl TryFrom<&str> for MemoizedNativeScript {
     type Error = String;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        blanket_try_from_hex_bytes(s, |original_bytes, expr| Self {
-            original_bytes,
-            expr,
-        })
+        blanket_try_from_hex_bytes(s, |original_bytes, expr| Self { original_bytes, expr })
     }
 }
 
@@ -87,10 +75,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedNativeScript {
         let end_pos = d.position();
         let original_bytes = Bytes::from(d.input()[start_pos..end_pos].to_vec());
 
-        Ok(Self {
-            original_bytes,
-            expr,
-        })
+        Ok(Self { original_bytes, expr })
     }
 }
 
@@ -100,18 +85,17 @@ impl<C> cbor::Encode<C> for MemoizedNativeScript {
         e: &mut cbor::Encoder<W>,
         _ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.writer_mut()
-            .write_all(&self.original_bytes[..])
-            .map_err(cbor::encode::Error::write)
+        e.writer_mut().write_all(&self.original_bytes[..]).map_err(cbor::encode::Error::write)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{Hash, MaybeIndefArray, cbor, size::KEY, to_cbor};
     use pallas_primitives::conway as pallas;
     use proptest::prelude::*;
+
+    use super::*;
+    use crate::{Hash, MaybeIndefArray, cbor, size::KEY, to_cbor};
 
     // NOTE: Not using Pallas' type because (a) it has a serialization bug we still need to fix
     // and, (b) it doesn't let us encode native script using unusual encoding choices (e.g. indef
@@ -130,12 +114,8 @@ mod tests {
         fn from(script: NativeScript) -> Self {
             match script {
                 NativeScript::ScriptPubkey(sig) => Self::ScriptPubkey(sig),
-                NativeScript::ScriptAll(sigs) => {
-                    Self::ScriptAll(sigs.to_vec().into_iter().map(|s| s.into()).collect())
-                }
-                NativeScript::ScriptAny(sigs) => {
-                    Self::ScriptAny(sigs.to_vec().into_iter().map(|s| s.into()).collect())
-                }
+                NativeScript::ScriptAll(sigs) => Self::ScriptAll(sigs.to_vec().into_iter().map(|s| s.into()).collect()),
+                NativeScript::ScriptAny(sigs) => Self::ScriptAny(sigs.to_vec().into_iter().map(|s| s.into()).collect()),
                 NativeScript::ScriptNOfK(n, sigs) => {
                     Self::ScriptNOfK(n, sigs.to_vec().into_iter().map(|s| s.into()).collect())
                 }
@@ -200,22 +180,17 @@ mod tests {
         let before = any::<u64>().prop_map(NativeScript::InvalidBefore);
         let after = any::<u64>().prop_map(NativeScript::InvalidHereafter);
         if depth > 0 {
-            let all = (
-                any::<bool>(),
-                prop::collection::vec(any_native_script(depth - 1), 0..depth as usize),
-            )
-                .prop_map(|(is_def, sigs)| {
+            let all = (any::<bool>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize)).prop_map(
+                |(is_def, sigs)| {
                     NativeScript::ScriptAll(if is_def {
                         MaybeIndefArray::Def(sigs)
                     } else {
                         MaybeIndefArray::Indef(sigs)
                     })
-                });
+                },
+            );
 
-            let some = (
-                any::<bool>(),
-                prop::collection::vec(any_native_script(depth - 1), 0..depth as usize),
-            )
+            let some = (any::<bool>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
                 .prop_map(|(is_def, sigs)| {
                     NativeScript::ScriptAny(if is_def {
                         MaybeIndefArray::Def(sigs)
@@ -224,21 +199,14 @@ mod tests {
                     })
                 });
 
-            let n_of_k = (
-                any::<bool>(),
-                any::<u32>(),
-                prop::collection::vec(any_native_script(depth - 1), 0..depth as usize),
-            )
-                .prop_map(|(is_def, n, sigs)| {
-                    NativeScript::ScriptNOfK(
-                        n,
-                        if is_def {
-                            MaybeIndefArray::Def(sigs)
-                        } else {
-                            MaybeIndefArray::Indef(sigs)
-                        },
-                    )
-                });
+            let n_of_k =
+                (any::<bool>(), any::<u32>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
+                    .prop_map(|(is_def, n, sigs)| {
+                        NativeScript::ScriptNOfK(
+                            n,
+                            if is_def { MaybeIndefArray::Def(sigs) } else { MaybeIndefArray::Indef(sigs) },
+                        )
+                    });
 
             prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
         } else {

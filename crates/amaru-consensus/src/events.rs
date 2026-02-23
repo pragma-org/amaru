@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use std::{
     fmt,
     fmt::{Debug, Formatter},
 };
+
+use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use tracing::Span;
 
 /// Wrapper type to factor out caught-up messages from real events.
@@ -34,10 +35,7 @@ impl<T: Debug> fmt::Debug for Tracked<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Tracked::Wrapped(e) => write!(f, "{:?}", e),
-            Tracked::CaughtUp { peer, .. } => f
-                .debug_struct("CaughtUp")
-                .field("peer", &peer.name)
-                .finish(),
+            Tracked::CaughtUp { peer, .. } => f.debug_struct("CaughtUp").field("peer", &peer.name).finish(),
         }
     }
 }
@@ -63,26 +61,13 @@ pub enum ChainSyncEvent {
 impl fmt::Debug for ChainSyncEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChainSyncEvent::RollForward {
-                peer,
-                raw_header,
-                tip,
-                span: _,
-            } => f
+            ChainSyncEvent::RollForward { peer, raw_header, tip, span: _ } => f
                 .debug_struct("RollForward")
                 .field("peer", &peer.name)
                 .field("tip", &tip)
-                .field(
-                    "raw_header",
-                    &hex::encode(&raw_header[..raw_header.len().min(32)]),
-                )
+                .field("raw_header", &hex::encode(&raw_header[..raw_header.len().min(32)]))
                 .finish(),
-            ChainSyncEvent::Rollback {
-                peer,
-                rollback_point,
-                tip,
-                span: _,
-            } => f
+            ChainSyncEvent::Rollback { peer, rollback_point, tip, span: _ } => f
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point)
@@ -145,15 +130,9 @@ impl fmt::Debug for DecodedChainSyncEvent {
                 .field("peer", &peer.name)
                 .field("header", &header.hash().to_string())
                 .finish(),
-            DecodedChainSyncEvent::Rollback {
-                peer,
-                rollback_point,
-                ..
-            } => f
-                .debug_struct("Rollback")
-                .field("peer", &peer.name)
-                .field("rollback_point", &rollback_point)
-                .finish(),
+            DecodedChainSyncEvent::Rollback { peer, rollback_point, .. } => {
+                f.debug_struct("Rollback").field("peer", &peer.name).field("rollback_point", &rollback_point).finish()
+            }
         }
     }
 }
@@ -193,20 +172,12 @@ pub enum ValidateBlockEvent {
 impl Debug for ValidateBlockEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidateBlockEvent::Validated { peer, header, .. } => f
-                .debug_struct("Validated")
-                .field("peer", peer)
-                .field("header", header)
-                .finish(),
-            ValidateBlockEvent::Rollback {
-                peer,
-                rollback_point,
-                ..
-            } => f
-                .debug_struct("Rollback")
-                .field("peer", peer)
-                .field("rollback_point", rollback_point)
-                .finish(),
+            ValidateBlockEvent::Validated { peer, header, .. } => {
+                f.debug_struct("Validated").field("peer", peer).field("header", header).finish()
+            }
+            ValidateBlockEvent::Rollback { peer, rollback_point, .. } => {
+                f.debug_struct("Rollback").field("peer", peer).field("rollback_point", rollback_point).finish()
+            }
         }
     }
 }
@@ -215,28 +186,12 @@ impl PartialEq for ValidateBlockEvent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                ValidateBlockEvent::Validated {
-                    peer: p1,
-                    header: h1,
-                    ..
-                },
-                ValidateBlockEvent::Validated {
-                    peer: p2,
-                    header: h2,
-                    ..
-                },
+                ValidateBlockEvent::Validated { peer: p1, header: h1, .. },
+                ValidateBlockEvent::Validated { peer: p2, header: h2, .. },
             ) => p1 == p2 && h1 == h2,
             (
-                ValidateBlockEvent::Rollback {
-                    peer: p1,
-                    rollback_point: rp1,
-                    ..
-                },
-                ValidateBlockEvent::Rollback {
-                    peer: p2,
-                    rollback_point: rp2,
-                    ..
-                },
+                ValidateBlockEvent::Rollback { peer: p1, rollback_point: rp1, .. },
+                ValidateBlockEvent::Rollback { peer: p2, rollback_point: rp2, .. },
             ) => p1 == p2 && rp1 == rp2,
             _ => false,
         }
@@ -279,40 +234,16 @@ impl PartialEq for BlockValidationResult {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                BlockValidationResult::BlockValidated {
-                    peer: p1,
-                    header: hd1,
-                    ..
-                },
-                BlockValidationResult::BlockValidated {
-                    peer: p2,
-                    header: hd2,
-                    ..
-                },
+                BlockValidationResult::BlockValidated { peer: p1, header: hd1, .. },
+                BlockValidationResult::BlockValidated { peer: p2, header: hd2, .. },
             ) => p1 == p2 && hd1 == hd2,
             (
-                BlockValidationResult::BlockValidationFailed {
-                    peer: p1,
-                    point: pt1,
-                    ..
-                },
-                BlockValidationResult::BlockValidationFailed {
-                    peer: p2,
-                    point: pt2,
-                    ..
-                },
+                BlockValidationResult::BlockValidationFailed { peer: p1, point: pt1, .. },
+                BlockValidationResult::BlockValidationFailed { peer: p2, point: pt2, .. },
             ) => p1 == p2 && pt1 == pt2,
             (
-                BlockValidationResult::RolledBackTo {
-                    peer: p1,
-                    rollback_header: rp1,
-                    ..
-                },
-                BlockValidationResult::RolledBackTo {
-                    peer: p2,
-                    rollback_header: rp2,
-                    ..
-                },
+                BlockValidationResult::RolledBackTo { peer: p1, rollback_header: rp1, .. },
+                BlockValidationResult::RolledBackTo { peer: p2, rollback_header: rp2, .. },
             ) => p1 == p2 && rp1 == rp2,
             _ => false,
         }

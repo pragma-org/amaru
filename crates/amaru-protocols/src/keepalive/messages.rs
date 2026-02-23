@@ -14,9 +14,7 @@
 
 use amaru_kernel::cbor;
 
-#[derive(
-    Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Cookie(u16);
 
 impl Default for Cookie {
@@ -68,9 +66,7 @@ impl<'b, T> cbor::Decode<'b, T> for Cookie {
     }
 }
 
-#[derive(
-    Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Message {
     KeepAlive(Cookie),
     ResponseKeepAlive(Cookie),
@@ -139,10 +135,11 @@ impl<'b, T> cbor::Decode<'b, T> for Message {
 /// Roundtrip property tests for handshake messages.
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::keepalive::messages::Message::*;
     use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{prelude::*, prop_compose};
+
+    use super::*;
+    use crate::keepalive::messages::Message::*;
 
     prop_cbor_roundtrip!(Message, any_message());
 

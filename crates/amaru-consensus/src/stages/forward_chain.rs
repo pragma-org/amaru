@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{IsHeader, Tip};
+use amaru_protocols::manager::ManagerMessage;
+use pure_stage::StageRef;
+use tracing::{Instrument, error, trace};
+
 use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ProcessingFailed, ValidationFailed},
     events::BlockValidationResult,
     span::HasSpan,
 };
-use amaru_kernel::{IsHeader, Tip};
-use amaru_protocols::manager::ManagerMessage;
-use pure_stage::StageRef;
-use tracing::{Instrument, error, trace};
 
 pub const EVENT_TARGET: &str = "amaru::consensus::forward_chain";
 
@@ -40,12 +41,7 @@ impl ForwardChainState {
         validation_errors: StageRef<ValidationFailed>,
         processing_errors: StageRef<ProcessingFailed>,
     ) -> Self {
-        Self {
-            our_tip,
-            manager_stage,
-            validation_errors,
-            processing_errors,
-        }
+        Self { our_tip, manager_stage, validation_errors, processing_errors }
     }
 }
 
@@ -74,13 +70,9 @@ pub fn stage(
                     "diffusion.forward_chain.new_tip"
                 );
 
-                eff.base()
-                    .send(&state.manager_stage, ManagerMessage::NewTip(state.our_tip))
-                    .await;
+                eff.base().send(&state.manager_stage, ManagerMessage::NewTip(state.our_tip)).await;
             }
-            BlockValidationResult::RolledBackTo {
-                rollback_header, ..
-            } => {
+            BlockValidationResult::RolledBackTo { rollback_header, .. } => {
                 trace!(
                     target: EVENT_TARGET,
                     point = %rollback_header.point(),
@@ -88,9 +80,7 @@ pub fn stage(
                 );
 
                 state.our_tip = rollback_header.tip();
-                eff.base()
-                    .send(&state.manager_stage, ManagerMessage::NewTip(state.our_tip))
-                    .await;
+                eff.base().send(&state.manager_stage, ManagerMessage::NewTip(state.our_tip)).await;
             }
             BlockValidationResult::BlockValidationFailed { point, .. } => {
                 error!(

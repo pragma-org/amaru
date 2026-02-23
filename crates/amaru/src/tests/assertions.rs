@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tests::configuration::get_tx_ids;
-use amaru_kernel::Transaction;
-use amaru_kernel::utils::string::ListToString;
+use amaru_kernel::{Transaction, utils::string::ListToString};
 use amaru_ouroboros::{ResourceMempool, get_blocks};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use pure_stage::Resources;
+
+use crate::tests::configuration::get_tx_ids;
 
 /// Verify that two nodes, an initiator and a responder, have the same state:
 ///
@@ -25,27 +25,18 @@ use pure_stage::Resources;
 ///  - Same blocks.
 ///  - Same transactions.
 ///
-pub fn check_state(
-    initiator_resources: &Resources,
-    responder_resources: &Resources,
-) -> anyhow::Result<()> {
+pub fn check_state(initiator_resources: &Resources, responder_resources: &Resources) -> anyhow::Result<()> {
     let responder_chain_store = responder_resources.get::<ResourceHeaderStore>()?.clone();
-    let responder_mempool = responder_resources
-        .get::<ResourceMempool<Transaction>>()?
-        .clone();
+    let responder_mempool = responder_resources.get::<ResourceMempool<Transaction>>()?.clone();
 
     let initiator_chain_store = initiator_resources.get::<ResourceHeaderStore>()?.clone();
-    let initiator_mempool = initiator_resources
-        .get::<ResourceMempool<Transaction>>()?
-        .clone();
+    let initiator_mempool = initiator_resources.get::<ResourceMempool<Transaction>>()?.clone();
 
     // Verify that the 2 nodes have the same best chain
-    let initiator_best_chain = initiator_chain_store
-        .ancestors_hashes(&initiator_chain_store.get_best_chain_hash())
-        .collect::<Vec<_>>();
-    let responder_best_chain = responder_chain_store
-        .ancestors_hashes(&responder_chain_store.get_best_chain_hash())
-        .collect::<Vec<_>>();
+    let initiator_best_chain =
+        initiator_chain_store.ancestors_hashes(&initiator_chain_store.get_best_chain_hash()).collect::<Vec<_>>();
+    let responder_best_chain =
+        responder_chain_store.ancestors_hashes(&responder_chain_store.get_best_chain_hash()).collect::<Vec<_>>();
     assert_eq!(initiator_best_chain, responder_best_chain);
 
     // Verify that the 2 nodes have the same blocks headers
@@ -56,25 +47,14 @@ pub fn check_state(
 
     let initiator_blocks = get_blocks(initiator_chain_store);
     let responder_blocks = get_blocks(responder_chain_store);
-    assert!(
-        !initiator_blocks.is_empty(),
-        "the initiator should have blocks"
-    );
+    assert!(!initiator_blocks.is_empty(), "the initiator should have blocks");
 
     assert_eq!(
         initiator_blocks,
         responder_blocks,
         "initiator blocks {:?}\nresponder blocks {:?}",
-        initiator_blocks
-            .iter()
-            .map(|b| b.0)
-            .collect::<Vec<_>>()
-            .list_to_string(","),
-        responder_blocks
-            .iter()
-            .map(|b| b.0)
-            .collect::<Vec<_>>()
-            .list_to_string(",")
+        initiator_blocks.iter().map(|b| b.0).collect::<Vec<_>>().list_to_string(","),
+        responder_blocks.iter().map(|b| b.0).collect::<Vec<_>>().list_to_string(",")
     );
 
     // Verify that the 2 nodes have the same transactions

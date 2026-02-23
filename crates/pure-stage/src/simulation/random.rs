@@ -12,10 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Name, StageResponse};
-use rand::distr::uniform::{SampleRange, SampleUniform};
-use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::collections::VecDeque;
+
+use rand::{
+    Rng, SeedableRng,
+    distr::uniform::{SampleRange, SampleUniform},
+    rngs::StdRng,
+};
+
+use crate::{Name, StageResponse};
 
 /// A strategy for making decisions within the simulation run.
 ///
@@ -24,22 +29,14 @@ use std::collections::VecDeque;
 /// generator across threads, then the result will not be deterministic.
 pub trait EvalStrategy: Send + 'static {
     /// pick and remove an element from the queue, which is guaranteed to be non-empty
-    fn pick_runnable(
-        &mut self,
-        runnable: &mut VecDeque<(Name, StageResponse)>,
-    ) -> (Name, StageResponse);
+    fn pick_runnable(&mut self, runnable: &mut VecDeque<(Name, StageResponse)>) -> (Name, StageResponse);
 }
 
 pub struct Fifo;
 
 impl EvalStrategy for Fifo {
-    fn pick_runnable(
-        &mut self,
-        runnable: &mut VecDeque<(Name, StageResponse)>,
-    ) -> (Name, StageResponse) {
-        runnable
-            .pop_front()
-            .expect("runnable queue is guaranteed to be non-empty")
+    fn pick_runnable(&mut self, runnable: &mut VecDeque<(Name, StageResponse)>) -> (Name, StageResponse) {
+        runnable.pop_front().expect("runnable queue is guaranteed to be non-empty")
     }
 }
 
@@ -70,22 +67,14 @@ impl From<StdRng> for RandStdRng {
 }
 
 impl EvalStrategy for RandStdRng {
-    fn pick_runnable(
-        &mut self,
-        runnable: &mut VecDeque<(Name, StageResponse)>,
-    ) -> (Name, StageResponse) {
+    fn pick_runnable(&mut self, runnable: &mut VecDeque<(Name, StageResponse)>) -> (Name, StageResponse) {
         let idx = self.0.random_range(0..runnable.len());
-        runnable
-            .remove(idx)
-            .expect("runnable queue is guaranteed to be non-empty")
+        runnable.remove(idx).expect("runnable queue is guaranteed to be non-empty")
     }
 }
 
 impl EvalStrategy for Box<dyn EvalStrategy> {
-    fn pick_runnable(
-        &mut self,
-        runnable: &mut VecDeque<(Name, StageResponse)>,
-    ) -> (Name, StageResponse) {
+    fn pick_runnable(&mut self, runnable: &mut VecDeque<(Name, StageResponse)>) -> (Name, StageResponse) {
         (**self).pick_runnable(runnable)
     }
 }

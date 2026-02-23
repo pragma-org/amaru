@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BlockHeight, HeaderHash, Point, Slot, cbor};
 use std::fmt;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+use crate::{BlockHeight, HeaderHash, Point, Slot, cbor};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Tip(Point, BlockHeight);
 
 impl Tip {
@@ -80,9 +79,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::prop_compose;
+
     use super::*;
     use crate::{any_block_height, any_point, prop_cbor_roundtrip};
-    use proptest::prop_compose;
 
     prop_cbor_roundtrip!(Tip, any_tip());
 

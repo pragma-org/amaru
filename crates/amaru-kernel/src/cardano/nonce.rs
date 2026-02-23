@@ -20,9 +20,7 @@ pub type Nonce = Hash<NONCE>;
 pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
     hex::decode(hex_str)
         .map_err(|e| format!("invalid hex encoding: {e}"))
-        .and_then(|bytes| {
-            <[u8; 32]>::try_from(bytes).map_err(|_| "expected 32-byte nonce".to_string())
-        })
+        .and_then(|bytes| <[u8; 32]>::try_from(bytes).map_err(|_| "expected 32-byte nonce".to_string()))
         .map(Nonce::from)
 }
 
@@ -32,10 +30,7 @@ mod tests {
 
     #[test]
     fn test_parse_nonce() {
-        assert!(matches!(
-            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
-            Ok(..)
-        ));
+        assert!(matches!(parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"), Ok(..)));
     }
 
     #[test]
@@ -45,17 +40,11 @@ mod tests {
 
     #[test]
     fn test_parse_nonce_too_long() {
-        assert!(matches!(
-            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d1234"),
-            Err(..)
-        ));
+        assert!(matches!(parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d1234"), Err(..)));
     }
 
     #[test]
     fn test_parse_nonce_too_short() {
-        assert!(matches!(
-            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a"),
-            Err(..)
-        ));
+        assert!(matches!(parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a"), Err(..)));
     }
 }

@@ -114,17 +114,11 @@ mod test {
             // input: [6]
             // input: [42]
 
-            if input.contains(&42) {
-                Err("Found 42".to_string())
-            } else {
-                Ok(())
-            }
+            if input.contains(&42) { Err("Found 42".to_string()) } else { Ok(()) }
         };
 
         assert_eq!(
-            shrink(&test, &failing_input, |err| {
-                *err == Err("Found 42".to_string())
-            }),
+            shrink(&test, &failing_input, |err| { *err == Err("Found 42".to_string()) }),
             (Err("Found 42".to_string()), vec![42], 3)
         );
     }
@@ -149,17 +143,11 @@ mod test {
                 assert_eq!(input, &vec![42, 5, 6]);
                 return Err("Found 5".to_string());
             };
-            if input.contains(&42) {
-                Err("Found 42".to_string())
-            } else {
-                Ok(())
-            }
+            if input.contains(&42) { Err("Found 42".to_string()) } else { Ok(()) }
         };
 
         assert_eq!(
-            shrink(&test, &failing_input, |err| {
-                *err == Err("Found 42".to_string())
-            }),
+            shrink(&test, &failing_input, |err| { *err == Err("Found 42".to_string()) }),
             (Err("Found 42".to_string()), vec![42], 4)
         )
     }
@@ -169,16 +157,10 @@ mod test {
         let successful_input = vec![1, 2, 3];
 
         let test = |input: &Vec<u8>| {
-            if input.contains(&4) {
-                Err("Found 4".to_string())
-            } else {
-                Ok(())
-            }
+            if input.contains(&4) { Err("Found 4".to_string()) } else { Ok(()) }
         };
         assert_eq!(
-            shrink(&test, &successful_input, |err| {
-                *err == Err("Found 4".to_string())
-            }),
+            shrink(&test, &successful_input, |err| { *err == Err("Found 4".to_string()) }),
             (Ok(()), vec![1, 2, 3], 0)
         )
     }

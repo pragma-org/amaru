@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::RationalNumber;
 use std::fmt::{self, Write};
 
 pub use pallas_primitives::conway::ProtocolParamUpdate;
 
-pub fn display_protocol_parameters_update(
-    update: &ProtocolParamUpdate,
-    prefix: &str,
-) -> Result<String, fmt::Error> {
+use crate::RationalNumber;
+
+pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: &str) -> Result<String, fmt::Error> {
     let mut s = String::new();
 
     fn display_rational(r: &RationalNumber) -> String {
@@ -51,186 +49,66 @@ pub fn display_protocol_parameters_update(
 
     push_opt(&mut s, &mut is_first, prefix, "minfee_b", &update.minfee_b)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "max_block_body_size",
-        &update.max_block_body_size,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "max_block_body_size", &update.max_block_body_size)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "max_transaction_size",
-        &update.max_transaction_size,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "max_transaction_size", &update.max_transaction_size)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "max_block_header_size",
-        &update.max_block_header_size,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "max_block_header_size", &update.max_block_header_size)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "key_deposit",
-        &update.key_deposit,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "key_deposit", &update.key_deposit)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "pool_deposit",
-        &update.pool_deposit,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "pool_deposit", &update.pool_deposit)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "maximum_epoch",
-        &update.maximum_epoch,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "maximum_epoch", &update.maximum_epoch)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "desired_number_of_stake_pools",
-        &update.desired_number_of_stake_pools,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "desired_number_of_stake_pools", &update.desired_number_of_stake_pools)?;
 
     let pool_pledge_influence = update.pool_pledge_influence.as_ref().map(display_rational);
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "pool_pledge_influence",
-        &pool_pledge_influence,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "pool_pledge_influence", &pool_pledge_influence)?;
 
     let expansion_rate = update.expansion_rate.as_ref().map(display_rational);
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "expansion_rate",
-        &expansion_rate,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "expansion_rate", &expansion_rate)?;
 
     let treasury_growth_rate = update.treasury_growth_rate.as_ref().map(display_rational);
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "treasury_growth_rate",
-        &treasury_growth_rate,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "treasury_growth_rate", &treasury_growth_rate)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "min_pool_cost",
-        &update.min_pool_cost,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "min_pool_cost", &update.min_pool_cost)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "lovelace_per_utxo_byte",
-        &update.ada_per_utxo_byte,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "lovelace_per_utxo_byte", &update.ada_per_utxo_byte)?;
 
     // If you don’t want to expand cost models, just mark them as set.
-    let cost_models = update
-        .cost_models_for_script_languages
-        .as_ref()
-        .map(|cost_models| {
-            let mut languages = vec![];
-            if cost_models.plutus_v1.is_some() {
-                languages.push("v1");
-            }
-            if cost_models.plutus_v2.is_some() {
-                languages.push("v2");
-            }
-            if cost_models.plutus_v3.is_some() {
-                languages.push("v3");
-            }
-            languages.join(", ")
-        });
+    let cost_models = update.cost_models_for_script_languages.as_ref().map(|cost_models| {
+        let mut languages = vec![];
+        if cost_models.plutus_v1.is_some() {
+            languages.push("v1");
+        }
+        if cost_models.plutus_v2.is_some() {
+            languages.push("v2");
+        }
+        if cost_models.plutus_v3.is_some() {
+            languages.push("v3");
+        }
+        languages.join(", ")
+    });
     push_opt(&mut s, &mut is_first, prefix, "cost_models", &cost_models)?;
 
-    let execution_costs = update.execution_costs.as_ref().map(|p| {
-        format!(
-            "{{mem={}, cpu={}}}",
-            display_rational(&p.mem_price),
-            display_rational(&p.step_price)
-        )
-    });
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "execution_costs",
-        &execution_costs,
-    )?;
-
-    let max_tx_ex_units = update
-        .max_tx_ex_units
+    let execution_costs = update
+        .execution_costs
         .as_ref()
-        .map(|u| format!("{{mem={}, cpu={}}}", u.mem, u.steps));
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "max_tx_ex_units",
-        &max_tx_ex_units,
-    )?;
+        .map(|p| format!("{{mem={}, cpu={}}}", display_rational(&p.mem_price), display_rational(&p.step_price)));
+    push_opt(&mut s, &mut is_first, prefix, "execution_costs", &execution_costs)?;
 
-    let max_block_ex_units = update
-        .max_block_ex_units
-        .as_ref()
-        .map(|u| format!("{{mem={}, cpu={}}}", u.mem, u.steps));
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "max_block_ex_units",
-        &max_block_ex_units,
-    )?;
+    let max_tx_ex_units = update.max_tx_ex_units.as_ref().map(|u| format!("{{mem={}, cpu={}}}", u.mem, u.steps));
+    push_opt(&mut s, &mut is_first, prefix, "max_tx_ex_units", &max_tx_ex_units)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "max_value_size",
-        &update.max_value_size,
-    )?;
+    let max_block_ex_units = update.max_block_ex_units.as_ref().map(|u| format!("{{mem={}, cpu={}}}", u.mem, u.steps));
+    push_opt(&mut s, &mut is_first, prefix, "max_block_ex_units", &max_block_ex_units)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "collateral_percentage",
-        &update.collateral_percentage,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "max_value_size", &update.max_value_size)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "max_collateral_inputs",
-        &update.max_collateral_inputs,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "collateral_percentage", &update.collateral_percentage)?;
+
+    push_opt(&mut s, &mut is_first, prefix, "max_collateral_inputs", &update.max_collateral_inputs)?;
 
     let pool_voting = update.pool_voting_thresholds.as_ref().map(|v| {
         format!(
@@ -247,13 +125,7 @@ pub fn display_protocol_parameters_update(
             svt = display_rational(&v.security_voting_threshold),
         )
     });
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "pool_voting_thresholds",
-        &pool_voting,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "pool_voting_thresholds", &pool_voting)?;
 
     let drep_voting = update.drep_voting_thresholds.as_ref().map(|v| {
         format!(
@@ -281,29 +153,11 @@ pub fn display_protocol_parameters_update(
         )
     });
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "drep_voting_thresholds",
-        &drep_voting,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "drep_voting_thresholds", &drep_voting)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "min_committee_size",
-        &update.min_committee_size,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "min_committee_size", &update.min_committee_size)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "committee_term_limit",
-        &update.committee_term_limit,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "committee_term_limit", &update.committee_term_limit)?;
 
     push_opt(
         &mut s,
@@ -313,41 +167,14 @@ pub fn display_protocol_parameters_update(
         &update.governance_action_validity_period,
     )?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "governance_action_deposit",
-        &update.governance_action_deposit,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "governance_action_deposit", &update.governance_action_deposit)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "drep_deposit",
-        &update.drep_deposit,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "drep_deposit", &update.drep_deposit)?;
 
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "drep_inactivity_period",
-        &update.drep_inactivity_period,
-    )?;
+    push_opt(&mut s, &mut is_first, prefix, "drep_inactivity_period", &update.drep_inactivity_period)?;
 
-    let minfee_refscript_cost_per_byte = update
-        .minfee_refscript_cost_per_byte
-        .as_ref()
-        .map(display_rational);
-    push_opt(
-        &mut s,
-        &mut is_first,
-        prefix,
-        "minfee_refscript_cost_per_byte",
-        &minfee_refscript_cost_per_byte,
-    )?;
+    let minfee_refscript_cost_per_byte = update.minfee_refscript_cost_per_byte.as_ref().map(display_rational);
+    push_opt(&mut s, &mut is_first, prefix, "minfee_refscript_cost_per_byte", &minfee_refscript_cost_per_byte)?;
 
     Ok(s)
 }

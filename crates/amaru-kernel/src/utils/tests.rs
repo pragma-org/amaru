@@ -32,10 +32,7 @@ pub fn run_strategy<T>(any: impl Strategy<Value = T>) -> T {
 /// and return the generated value, panicking if generation fails.
 #[expect(clippy::unwrap_used)]
 pub fn run_strategy_with_rng<T, RNG: Rng>(rng: &mut RNG, s: impl Strategy<Value = T>) -> T {
-    let config = test_runner::Config {
-        rng_seed: RngSeed::Fixed(rng.random()),
-        ..Default::default()
-    };
+    let config = test_runner::Config { rng_seed: RngSeed::Fixed(rng.random()), ..Default::default() };
     let mut runner = TestRunner::new(config);
     s.new_tree(&mut runner).unwrap().current()
 }
