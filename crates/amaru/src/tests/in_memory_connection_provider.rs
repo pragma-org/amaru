@@ -237,26 +237,31 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
         let inner = self.inner.clone();
         Box::pin(std::future::poll_fn(move |cx| {
-            let connections = inner.connection_endpoints.lock();
-            let endpoint = match connections.get(&conn) {
-                Some(e) => e,
-                None => {
-                    return Poll::Ready(Err(std::io::Error::other(format!(
-                        "connection {conn} not found for recv"
-                    ))));
+            // Snapshot only the Arc handles we need, then release the outer lock immediately
+            let (read_buffer, read_queue, recv_waker) = {
+                let connections = inner.connection_endpoints.lock();
+                match connections.get(&conn) {
+                    Some(e) => (
+                        e.read_buffer.clone(),
+                        e.read_queue.clone(),
+                        e.recv_waker.clone(),
+                    ),
+                    None => {
+                        return Poll::Ready(Err(std::io::Error::other(format!(
+                            "connection {conn} not found for recv"
+                        ))));
+                    }
                 }
-            };
+            }; // outer lock released here
 
-            // Drain any available data from the read queue into our buffer
-            let mut buffer = endpoint.read_buffer.lock();
+            let mut buffer = read_buffer.lock();
             {
-                let mut read_queue = endpoint.read_queue.lock();
-                while let Some(data) = read_queue.pop_front() {
+                let mut rq = read_queue.lock();
+                while let Some(data) = rq.pop_front() {
                     buffer.extend_from_slice(&data);
                 }
             }
 
-            // Check if we have enough bytes in the buffer
             if buffer.remaining() >= bytes.get() {
                 #[expect(clippy::expect_used)]
                 let result = buffer
@@ -266,8 +271,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 return Poll::Ready(Ok(result));
             }
 
-            // Not enough data yet, register waker and return Pending
-            *endpoint.recv_waker.lock() = Some(cx.waker().clone());
+            *recv_waker.lock() = Some(cx.waker().clone());
             Poll::Pending
         }))
     }
@@ -340,13 +344,13 @@ impl InMemoryConnectionProvider {
 ///
 struct ConnectionEndpoint {
     /// Buffer for partial reads - data received but not yet consumed
-    read_buffer: Mutex<BytesMut>,
+    read_buffer: Arc<Mutex<BytesMut>>,
     /// Queue for data sent by the peer (shared with peer's write_queue)
     read_queue: Arc<Mutex<VecDeque<Bytes>>>,
     /// Queue to write data to peer's read_queue
     write_queue: Arc<Mutex<VecDeque<Bytes>>>,
     /// Waker for recv operations waiting for data
-    recv_waker: Mutex<Option<Waker>>,
+    recv_waker: Arc<Mutex<Option<Waker>>>,
     /// The peer's connection ID (for waking their recv waker on send)
     peer_conn_id: Mutex<Option<ConnectionId>>,
 }
@@ -354,10 +358,10 @@ struct ConnectionEndpoint {
 impl Default for ConnectionEndpoint {
     fn default() -> Self {
         Self {
-            read_buffer: Mutex::new(BytesMut::with_capacity(65536)),
+            read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(65536))),
             read_queue: Arc::new(Mutex::new(VecDeque::new())),
             write_queue: Arc::new(Mutex::new(VecDeque::new())),
-            recv_waker: Mutex::new(None),
+            recv_waker: Arc::new(Mutex::new(None)),
             peer_conn_id: Mutex::new(None),
         }
     }
