@@ -165,7 +165,7 @@ fn register_resources(
 ) {
     stage_graph
         .resources()
-        .put::<ResourceHeaderStore>(chain_store.clone());
+        .put::<ResourceHeaderStore>(chain_store);
     stage_graph
         .resources()
         .put::<ResourceParameters>(global_parameters.clone());

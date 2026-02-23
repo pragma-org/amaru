@@ -129,12 +129,15 @@ impl NodeTestConfig {
         }
     }
 
+    /// TODO: define protocol parameters for all the networks
+    #[expect(clippy::panic)]
     pub fn protocol_parameters(&self) -> ProtocolParameters {
         match self.network_name {
             NetworkName::Preprod => PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             NetworkName::Preview => PREVIEW_INITIAL_PROTOCOL_PARAMETERS.clone(),
-            NetworkName::Testnet(_) => PREVIEW_INITIAL_PROTOCOL_PARAMETERS.clone(),
-            NetworkName::Mainnet => PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+            other @ NetworkName::Mainnet | other @ NetworkName::Testnet(_) => {
+                panic!("no initial protocol parameters for {other}")
+            }
         }
     }
 
