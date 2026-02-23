@@ -14,8 +14,10 @@
 
 use crate::{
     EraHistory, GlobalParameters, MAINNET_ERA_HISTORY, MAINNET_GLOBAL_PARAMETERS, Network,
-    NetworkMagic, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PREVIEW_ERA_HISTORY,
-    PREVIEW_GLOBAL_PARAMETERS, Slot, TESTNET_ERA_HISTORY, TESTNET_GLOBAL_PARAMETERS,
+    NetworkMagic, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
+    PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY, PREVIEW_GLOBAL_PARAMETERS,
+    PREVIEW_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, Slot, TESTNET_ERA_HISTORY,
+    TESTNET_GLOBAL_PARAMETERS,
 };
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -44,6 +46,21 @@ impl From<NetworkName> for &GlobalParameters {
             NetworkName::Preprod => &PREPROD_GLOBAL_PARAMETERS,
             NetworkName::Preview => &PREVIEW_GLOBAL_PARAMETERS,
             NetworkName::Testnet(_) => &TESTNET_GLOBAL_PARAMETERS,
+        }
+    }
+}
+
+impl TryFrom<NetworkName> for &ProtocolParameters {
+    type Error = String;
+
+    /// TODO: define protocol parameters for all the networks
+    fn try_from(value: NetworkName) -> Result<Self, String> {
+        match value {
+            NetworkName::Preprod => Ok(&PREPROD_INITIAL_PROTOCOL_PARAMETERS),
+            NetworkName::Preview => Ok(&PREVIEW_INITIAL_PROTOCOL_PARAMETERS),
+            other @ NetworkName::Mainnet | other @ NetworkName::Testnet(_) => {
+                Err(format!("no initial protocol parameters for {other}"))
+            }
         }
     }
 }

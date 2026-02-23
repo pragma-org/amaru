@@ -18,16 +18,13 @@ use crate::tests::in_memory_connection_provider::InMemoryConnectionProvider;
 use crate::tests::test_data::{create_transactions, create_transactions_in_mempool};
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::cardano::network_block::make_encoded_block;
-use amaru_kernel::{
-    BlockHeader, IsHeader, MAINNET_ERA_HISTORY, NetworkName, PREPROD_ERA_HISTORY,
-    PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY, PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
-    Point, ProtocolParameters, TESTNET_ERA_HISTORY, Transaction,
-};
+use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point, ProtocolParameters, Transaction};
 use amaru_kernel::{EraHistory, Peer};
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, TxId};
 use amaru_stores::in_memory::MemoryStore;
+use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
 use std::fmt::{Debug, Formatter};
@@ -120,25 +117,12 @@ impl NodeTestConfig {
             .with_node_type(UpstreamNode)
     }
 
-    pub fn era_history(&self) -> EraHistory {
-        match self.network_name {
-            NetworkName::Preprod => PREPROD_ERA_HISTORY.clone(),
-            NetworkName::Preview => PREVIEW_ERA_HISTORY.clone(),
-            NetworkName::Testnet(_) => TESTNET_ERA_HISTORY.clone(),
-            NetworkName::Mainnet => MAINNET_ERA_HISTORY.clone(),
-        }
+    pub fn era_history(&self) -> &EraHistory {
+        self.network_name.into()
     }
 
-    /// TODO: define protocol parameters for all the networks
-    #[expect(clippy::panic)]
-    pub fn protocol_parameters(&self) -> ProtocolParameters {
-        match self.network_name {
-            NetworkName::Preprod => PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
-            NetworkName::Preview => PREVIEW_INITIAL_PROTOCOL_PARAMETERS.clone(),
-            other @ NetworkName::Mainnet | other @ NetworkName::Testnet(_) => {
-                panic!("no initial protocol parameters for {other}")
-            }
-        }
+    pub fn protocol_parameters(&self) -> anyhow::Result<&ProtocolParameters> {
+        self.network_name.try_into().map_err(|e: String| anyhow!(e))
     }
 
     pub fn with_no_upstream_peers(mut self) -> Self {
@@ -240,7 +224,7 @@ impl NodeTestConfig {
             self.chain_store
                 .store_block(
                     &header.hash(),
-                    &make_encoded_block(header, &self.era_history()),
+                    &make_encoded_block(header, self.era_history()),
                 )
                 .unwrap();
             self.chain_store
@@ -262,7 +246,7 @@ impl NodeTestConfig {
     /// Create a node configuration from the simulation configuration.
     /// This sets the ledger and chain store + the upstream peer that is
     /// eventually used to initialize the HeadersTree for chain selection.
-    pub fn make_node_configuration(&self) -> Config {
+    pub fn make_node_configuration(&self) -> anyhow::Result<Config> {
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(|p| p.name.clone()).collect(),
             network: self.network_name,
@@ -276,7 +260,10 @@ impl NodeTestConfig {
         // This ensures that build_node's initialize_chain_store won't reset the
         // chain store's best_chain_hash (only the anchor will be set, which is already
         // the same as the ledger tip).
-        let ledger_store = MemoryStore::new(self.era_history(), self.protocol_parameters());
+        let ledger_store = MemoryStore::new(
+            self.era_history().clone(),
+            self.protocol_parameters()?.clone(),
+        );
         let chain_anchor = self
             .chain_store
             .load_header(&self.chain_store.get_anchor_hash())
@@ -286,7 +273,7 @@ impl NodeTestConfig {
 
         config.ledger_store = StoreType::InMem(ledger_store);
         config.chain_store = StoreType::InMem(self.chain_store.clone());
-        config
+        Ok(config)
     }
 }
 

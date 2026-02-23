@@ -34,6 +34,7 @@ fn test_run_replay() {
     args.number_of_upstream_peers = 1;
     args.enable_shrinking = false;
     args.number_of_downstream_peers = 0;
+    args.enable_shrinking = false;
     args.test_data_dir = format!("{TEST_DATA_DIR}/run_replay");
     run_tests(args.clone()).unwrap();
 
