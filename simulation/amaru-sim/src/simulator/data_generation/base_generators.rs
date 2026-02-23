@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use pure_stage::Instant;
 use rand::{Rng, prelude::StdRng};
 use rand_distr::{Distribution, LogNormal};
-use std::time::Duration;
 
 /// Given a generator for type A, produce a generator for Vec<A> of a given size.
-pub fn generate_vec<A>(
-    generator: impl Fn(&mut StdRng) -> A,
-) -> impl Fn(usize, &mut StdRng) -> Vec<A> {
+pub fn generate_vec<A>(generator: impl Fn(&mut StdRng) -> A) -> impl Fn(usize, &mut StdRng) -> Vec<A> {
     move |size, rng| {
         let mut result = Vec::<A>::with_capacity(size);
         for _ in 0..size {
@@ -94,11 +93,13 @@ pub fn generate_arrival_times<R: Rng>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{collections::BTreeMap, time::Duration};
+
     use pure_stage::Instant;
     use rand::SeedableRng;
     use rand_distr::Exp;
-    use std::{collections::BTreeMap, time::Duration};
+
+    use super::*;
 
     #[test]
     fn test_generate_u8() {
@@ -132,21 +133,14 @@ mod tests {
         let expected = 200.0;
         let actual = sum / count as f64;
         let difference = (expected - actual).abs();
-        assert!(
-            difference < 0.01,
-            "expected: {}, actual: {}, difference: {}",
-            expected,
-            actual,
-            difference
-        )
+        assert!(difference < 0.01, "expected: {}, actual: {}, difference: {}", expected, actual, difference)
     }
 
     #[test]
     fn test_generate_arrival_times() {
         let seed = 1;
         let mut rng = StdRng::seed_from_u64(seed);
-        let result =
-            generate_arrival_times(Instant::at_offset(Duration::new(0, 0)), 200.0)(10, &mut rng);
+        let result = generate_arrival_times(Instant::at_offset(Duration::new(0, 0)), 200.0)(10, &mut rng);
 
         // We want arrival times that are roughly 1000ms apart, with some positive jitter
         // and occasional small negative jitter (for example 4956)

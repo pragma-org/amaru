@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Block;
-use crate::cardano::network_block::NetworkBlock;
-use minicbor::decode;
 use std::{fmt, ops::Deref, sync::Arc};
+
+use minicbor::decode;
+
+use crate::{Block, cardano::network_block::NetworkBlock};
 
 /// Cheaply cloneable block bytes
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
@@ -73,9 +74,13 @@ impl RawBlock {
 
 #[cfg(test)]
 mod tests {
-    use crate::cardano::network_block::{NetworkBlock, make_block_with_header};
-    use crate::{BlockHeader, TESTNET_ERA_HISTORY, make_header};
     use amaru_minicbor_extra::{from_cbor, to_cbor};
+
+    use crate::{
+        BlockHeader, TESTNET_ERA_HISTORY,
+        cardano::network_block::{NetworkBlock, make_block_with_header},
+        make_header,
+    };
 
     #[test]
     fn decode_returns_inner_block() {
@@ -90,9 +95,7 @@ mod tests {
 
         // then check that the block can be retrieved from the network block
         let network_block = NetworkBlock::new(era_history, &block).expect("make network block");
-        let decoded_block = network_block
-            .decode_block()
-            .expect("network block should decode");
+        let decoded_block = network_block.decode_block().expect("network block should decode");
         assert_eq!(decoded_block, block);
 
         // finally check that the block can be retrieved from the raw block

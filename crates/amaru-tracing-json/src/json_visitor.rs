@@ -38,10 +38,7 @@ impl JsonVisitor {
         // Safe because we just ensured steps is never empty
         let (root, children) = steps.split_first().unwrap();
 
-        let mut current_value = self
-            .fields
-            .entry(root.to_string())
-            .or_insert_with(|| json::json!({}));
+        let mut current_value = self.fields.entry(root.to_string()).or_insert_with(|| json::json!({}));
 
         for &key in children.iter().take(children.len() - 1) {
             if !current_value.is_object() {
@@ -65,10 +62,7 @@ impl JsonVisitor {
             }
 
             // Safe because we just ensured that current_value is always an object
-            current_value
-                .as_object_mut()
-                .unwrap()
-                .insert(last.to_string(), value);
+            current_value.as_object_mut().unwrap().insert(last.to_string(), value);
         }
     }
 }
@@ -98,11 +92,7 @@ impl tracing::field::Visit for JsonVisitor {
         self.add_field(field.name(), json::json!(hex::encode(value)));
     }
 
-    fn record_error(
-        &mut self,
-        field: &tracing::field::Field,
-        value: &(dyn std::error::Error + 'static),
-    ) {
+    fn record_error(&mut self, field: &tracing::field::Field, value: &(dyn std::error::Error + 'static)) {
         self.add_field(field.name(), json::json!(format!("{}", value)))
     }
 }

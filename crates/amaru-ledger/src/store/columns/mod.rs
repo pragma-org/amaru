@@ -28,10 +28,6 @@ pub mod votes;
 #[expect(clippy::panic)]
 pub fn unsafe_decode<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> T {
     cbor::decode(bytes).unwrap_or_else(|e| {
-        panic!(
-            "unable to decode {} from CBOR ({}): {e:?}",
-            std::any::type_name::<T>(),
-            hex::encode(bytes)
-        )
+        panic!("unable to decode {} from CBOR ({}): {e:?}", std::any::type_name::<T>(), hex::encode(bytes))
     })
 }

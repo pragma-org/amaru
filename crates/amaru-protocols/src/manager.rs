@@ -12,22 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::accept::PullAccept;
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
+
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
+use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
+use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
+use tracing::instrument;
+
 use crate::{
     accept,
+    accept::PullAccept,
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
     network_effects::{Network, NetworkOps},
     protocol::Role,
 };
-use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
-use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
-use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::{collections::BTreeMap, time::Duration};
-use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
@@ -85,12 +85,7 @@ enum ConnectionState {
 
 impl Manager {
     pub fn new(magic: NetworkMagic, config: ManagerConfig, era_history: Arc<EraHistory>) -> Self {
-        Self {
-            peers: BTreeMap::new(),
-            magic,
-            config,
-            era_history,
-        }
+        Self { peers: BTreeMap::new(), magic, config, era_history }
     }
 
     pub fn config(&self) -> ManagerConfig {
@@ -160,9 +155,7 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
                 }
                 None => {
                     tracing::info!(%peer, "adding peer");
-                    manager
-                        .peers
-                        .insert(peer.clone(), ConnectionState::Scheduled);
+                    manager.peers.insert(peer.clone(), ConnectionState::Scheduled);
                 }
             }
             eff.send(eff.me_ref(), ManagerMessage::Connect(peer)).await;
@@ -185,32 +178,17 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
                 }
             };
             let addr = ToSocketAddrs::String(peer.to_string());
-            let conn_id = match Network::new(&eff)
-                .connect(addr, manager.config.connection_timeout)
-                .await
-            {
+            let conn_id = match Network::new(&eff).connect(addr, manager.config.connection_timeout).await {
                 Ok(conn_id) => conn_id,
                 Err(err) => {
                     tracing::error!(?err, %peer, reconnecting_in=?manager.config.reconnect_delay, "failed to connect to peer. Scheduling reconnect");
-                    eff.schedule_after(
-                        ManagerMessage::Connect(peer),
-                        manager.config.reconnect_delay,
-                    )
-                    .await;
+                    eff.schedule_after(ManagerMessage::Connect(peer), manager.config.reconnect_delay).await;
                     assert_eq!(*entry, ConnectionState::Scheduled);
                     return (manager, chain_sync);
                 }
             };
             tracing::info!(?conn_id, %peer, "connected to peer");
-            start_connection_stage(
-                &mut manager,
-                &chain_sync,
-                &eff,
-                peer,
-                conn_id,
-                Role::Initiator,
-            )
-            .await;
+            start_connection_stage(&mut manager, &chain_sync, &eff, peer, conn_id, Role::Initiator).await;
         }
         ManagerMessage::Accepted(peer, conn_id) => {
             match manager.peers.get(&peer) {
@@ -231,15 +209,7 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
                 }
                 None => {}
             };
-            start_connection_stage(
-                &mut manager,
-                &chain_sync,
-                &eff,
-                peer,
-                conn_id,
-                Role::Responder,
-            )
-            .await;
+            start_connection_stage(&mut manager, &chain_sync, &eff, peer, conn_id, Role::Responder).await;
         }
         ManagerMessage::RemovePeer(peer) => {
             let Some(entry) = manager.peers.get_mut(&peer) else {
@@ -271,11 +241,7 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
                     // Only reconnect on the initiator side
                     if role == Role::Initiator {
                         tracing::info!(%peer, reconnecting_in=?manager.config.reconnect_delay, "initiator connection died, scheduling reconnect");
-                        eff.schedule_after(
-                            ManagerMessage::Connect(peer),
-                            manager.config.reconnect_delay,
-                        )
-                        .await;
+                        eff.schedule_after(ManagerMessage::Connect(peer), manager.config.reconnect_delay).await;
                         *peer_state = ConnectionState::Scheduled;
                     } else {
                         tracing::info!(%peer, "responder connection died, removing peer");
@@ -291,19 +257,10 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
                 }
             }
         }
-        ManagerMessage::FetchBlocks {
-            peer,
-            from,
-            through,
-            cr,
-        } => {
+        ManagerMessage::FetchBlocks { peer, from, through, cr } => {
             tracing::trace!(?from, ?through, %peer, "fetching blocks");
             if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
-                eff.send(
-                    connection,
-                    ConnectionMessage::FetchBlocks { from, through, cr },
-                )
-                .await;
+                eff.send(connection, ConnectionMessage::FetchBlocks { from, through, cr }).await;
             } else {
                 tracing::error!(%peer, "peer not found");
                 eff.send(&cr, Blocks::default()).await;
@@ -318,13 +275,9 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
                     tracing::info!(%listen_addr, "listening");
                     let accept_stage = eff.stage("accept", accept::stage).await;
                     // If the accept stage fails try to restart the listener
-                    let accept_stage =
-                        eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
+                    let accept_stage = eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
                     let accept_stage = eff
-                        .wire_up(
-                            accept_stage,
-                            accept::AcceptState::new(eff.me(), manager.config(), listen_addr),
-                        )
+                        .wire_up(accept_stage, accept::AcceptState::new(eff.me(), manager.config(), listen_addr))
                         .await;
                     eff.send(&accept_stage, PullAccept).await;
                 }
@@ -362,13 +315,8 @@ async fn start_connection_stage(
     conn_id: ConnectionId,
     role: Role,
 ) {
-    let connection = eff
-        .stage(format!("{conn_id}-{peer}"), connection::stage)
-        .await;
-    let connection = eff.supervise(
-        connection,
-        ManagerMessage::ConnectionDied(peer.clone(), conn_id, role),
-    );
+    let connection = eff.stage(format!("{conn_id}-{peer}"), connection::stage).await;
+    let connection = eff.supervise(connection, ManagerMessage::ConnectionDied(peer.clone(), conn_id, role));
     let connection = eff
         .wire_up(
             connection,
@@ -384,14 +332,9 @@ async fn start_connection_stage(
         )
         .await;
     eff.send(&connection, ConnectionMessage::Initialize).await;
-    manager
-        .peers
-        .insert(peer, ConnectionState::Connected(conn_id, connection));
+    manager.peers.insert(peer, ConnectionState::Connected(conn_id, connection));
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![
-        register_data_deserializer::<State>().boxed(),
-        register_data_deserializer::<ManagerMessage>().boxed(),
-    ]
+    vec![register_data_deserializer::<State>().boxed(), register_data_deserializer::<ManagerMessage>().boxed()]
 }

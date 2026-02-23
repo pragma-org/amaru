@@ -12,7 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::new_block_validator;
+use std::{
+    collections::BTreeMap,
+    fmt,
+    fs::{self, File},
+    io::{self, Cursor, Write},
+    path::PathBuf,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use amaru::{default_data_dir, default_ledger_dir};
 use amaru_kernel::{Hasher, NetworkName, cbor};
 use amaru_network::point::to_network_point;
@@ -26,18 +35,11 @@ use mithril_client::{
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
 use pallas_hardano::storage::immutable::read_blocks_from_point;
-use std::{
-    collections::BTreeMap,
-    fmt,
-    fs::{self, File},
-    io::{self, Cursor, Write},
-    path::PathBuf,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
 use tar::{Builder, Header};
 use tokio::sync::RwLock;
 use tracing::info;
+
+use crate::cmd::new_block_validator;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -55,12 +57,7 @@ pub struct Args {
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(
-        long,
-        value_name = "DIR",
-        env = "AMARU_LEDGER_DIR",
-        verbatim_doc_comment
-    )]
+    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR", verbatim_doc_comment)]
     ledger_dir: Option<PathBuf>,
 
     /// Path of the mithril snapshots on-disk storage.
@@ -97,11 +94,7 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
     async fn handle_event(&self, event: MithrilEvent) {
         match event {
             MithrilEvent::CardanoDatabase(cardano_database_event) => match cardano_database_event {
-                MithrilEventCardanoDatabase::Started {
-                    download_id: _,
-                    total_immutable_files,
-                    include_ancillary,
-                } => {
+                MithrilEventCardanoDatabase::Started { download_id: _, total_immutable_files, include_ancillary } => {
                     let size = match include_ancillary {
                         true => 1 + total_immutable_files,
                         false => total_immutable_files,
@@ -133,27 +126,20 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
                     // Ignore other events
                 }
             },
-            MithrilEvent::CertificateChainValidationStarted {
-                certificate_chain_validation_id: _,
-            } => {
+            MithrilEvent::CertificateChainValidationStarted { certificate_chain_validation_id: _ } => {
                 let pb = ProgressBar::new_spinner();
                 self.progress_bar.add(pb.clone());
                 let mut certificate_validation_pb = self.certificate_validation_pb.write().await;
                 *certificate_validation_pb = Some(pb);
             }
-            MithrilEvent::CertificateValidated {
-                certificate_chain_validation_id: _,
-                certificate_hash,
-            } => {
+            MithrilEvent::CertificateValidated { certificate_chain_validation_id: _, certificate_hash } => {
                 let certificate_validation_pb = self.certificate_validation_pb.read().await;
                 if let Some(progress_bar) = certificate_validation_pb.as_ref() {
                     progress_bar.set_message(format!("Certificate '{certificate_hash}' is valid"));
                     progress_bar.inc(1);
                 }
             }
-            MithrilEvent::CertificateChainValidated {
-                certificate_chain_validation_id: _,
-            } => {
+            MithrilEvent::CertificateChainValidated { certificate_chain_validation_id: _ } => {
                 let mut certificate_validation_pb = self.certificate_validation_pb.write().await;
                 if let Some(progress_bar) = certificate_validation_pb.as_ref() {
                     progress_bar.finish_with_message("Certificate chain validated");
@@ -168,10 +154,7 @@ impl FeedbackReceiver for IndicatifFeedbackReceiver {
 }
 
 #[allow(clippy::expect_used)]
-fn package_blocks(
-    network: &NetworkName,
-    blocks: &BTreeMap<String, &Vec<u8>>,
-) -> io::Result<String> {
+fn package_blocks(network: &NetworkName, blocks: &BTreeMap<String, &Vec<u8>>) -> io::Result<String> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut tar = Builder::new(encoder);
 
@@ -180,12 +163,7 @@ fn package_blocks(
         header.set_size(data.len() as u64);
         header.set_mode(0o644);
         header.set_entry_type(tar::EntryType::Regular);
-        header.set_mtime(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        );
+        header.set_mtime(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs());
         header.set_uid(0);
         header.set_gid(0);
         header.set_cksum();
@@ -198,11 +176,8 @@ fn package_blocks(
 
     let dir = format!("{}/blocks", default_data_dir(*network));
     fs::create_dir_all(&dir)?;
-    let first_block = blocks
-        .first_key_value()
-        .map(|kv| kv.0)
-        .cloned()
-        .expect("blocks map is non-empty here by construction");
+    let first_block =
+        blocks.first_key_value().map(|kv| kv.0).cloned().expect("blocks map is non-empty here by construction");
     let archive_path = format!("{}/{}.tar.gz", dir, first_block);
     let mut f = File::create(&archive_path)?;
 
@@ -218,10 +193,7 @@ fn get_latest_chunk(immutable_dir: &PathBuf) -> Result<Option<u64>, io::Error> {
         return Ok(fs::read_dir(immutable_dir)?
             .filter_map(Result::ok)
             .filter_map(|entry| entry.path().file_name()?.to_str().map(|s| s.to_owned()))
-            .filter_map(|name| {
-                name.strip_suffix(".chunk")
-                    .and_then(|id| id.parse::<u64>().ok())
-            })
+            .filter_map(|name| name.strip_suffix(".chunk").and_then(|id| id.parse::<u64>().ok()))
             .max()
             .map(|n| n - 1)); // Last immutable might not be finalized (hint from JP from Mithril team)
     }
@@ -267,11 +239,7 @@ async fn download_from_mithril(
     from_chunk: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let progress_bar = indicatif::MultiProgress::new();
-    let AggregatorDetails {
-        endpoint,
-        verification_key,
-        ancillary_verification_key,
-    } = aggregator_details(network);
+    let AggregatorDetails { endpoint, verification_key, ancillary_verification_key } = aggregator_details(network);
     let client = ClientBuilder::aggregator(endpoint, verification_key)
         .set_ancillary_verification_key(ancillary_verification_key.to_string())
         .with_origin_tag(Some("AMARU".to_string()))
@@ -281,41 +249,22 @@ async fn download_from_mithril(
     let snapshots = database_client.list().await?;
     let snapshot_list_item = snapshots.first().ok_or("no snapshot found")?;
 
-    info!(
-        hash = snapshot_list_item.hash,
-        "Downloading and verifying mithril snapshot"
-    );
+    info!(hash = snapshot_list_item.hash, "Downloading and verifying mithril snapshot");
 
     let snapshot = database_client
         .get(&snapshot_list_item.hash)
         .await?
         .ok_or(format!("snapshot not found {}", snapshot_list_item.hash))?;
-    let certificate = client
-        .certificate()
-        .verify_chain(&snapshot.certificate_hash)
-        .await?;
+    let certificate = client.certificate().verify_chain(&snapshot.certificate_hash).await?;
 
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
-    let download_unpack_options = DownloadUnpackOptions {
-        allow_override: true,
-        include_ancillary: false,
-        ..DownloadUnpackOptions::default()
-    };
-    database_client
-        .download_unpack(
-            &snapshot,
-            &immutable_file_range,
-            &target_dir,
-            download_unpack_options,
-        )
-        .await?;
+    let download_unpack_options =
+        DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
+    database_client.download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options).await?;
 
     info!("Snapshot unpacked to {:?}", target_dir);
 
-    let verified_digests = client
-        .cardano_database_v2()
-        .download_and_verify_digests(&certificate, &snapshot)
-        .await?;
+    let verified_digests = client.cardano_database_v2().download_and_verify_digests(&certificate, &snapshot).await?;
     let allow_missing_immutables_files = false;
     let merkle_proof = client
         .cardano_database_v2()
@@ -328,9 +277,7 @@ async fn download_from_mithril(
             &verified_digests,
         )
         .await?;
-    let message = MessageBuilder::new()
-        .compute_cardano_database_message(&certificate, &merkle_proof)
-        .await?;
+    let message = MessageBuilder::new().compute_cardano_database_message(&certificate, &merkle_proof).await?;
     assert!(certificate.match_message(&message));
 
     info!("Snapshot verified against certificate");
@@ -344,10 +291,7 @@ pub struct ParsedHeader {
     pub header_hash: [u8; 32],
 }
 
-fn extract_raw_cbor_value<'a>(
-    dec: &mut cbor::Decoder<'a>,
-    input: &'a [u8],
-) -> Result<&'a [u8], cbor::decode::Error> {
+fn extract_raw_cbor_value<'a>(dec: &mut cbor::Decoder<'a>, input: &'a [u8]) -> Result<&'a [u8], cbor::decode::Error> {
     let start = dec.position();
     dec.skip()?;
     let end = dec.position();
@@ -374,9 +318,7 @@ pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, cbor::de
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(network).into());
+    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
 
     let target_dir = args.snapshots_dir.join(network.to_string());
     fs::create_dir_all(&target_dir)?;
@@ -388,8 +330,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine the chunk to start from
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
-    let from_chunk =
-        latest_chunk.unwrap_or(infer_chunk_from_slot(tip.slot_or_default().into()) - 1);
+    let from_chunk = latest_chunk.unwrap_or(infer_chunk_from_slot(tip.slot_or_default().into()) - 1);
 
     info!(
         tip=%tip, from_chunk=%from_chunk,
@@ -402,9 +343,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     // Read blocks from the immutable storage and package them into .tar.gz files
     const BLOCKS_PER_ARCHIVE: usize = 20000;
-    let mut iter = read_blocks_from_point(&immutable_dir, to_network_point(tip))?
-        .map_while(Result::ok)
-        .skip(1); // Exclude the tip itself
+    let mut iter = read_blocks_from_point(&immutable_dir, to_network_point(tip))?.map_while(Result::ok).skip(1); // Exclude the tip itself
     loop {
         let chunk: Vec<_> = iter.by_ref().take(BLOCKS_PER_ARCHIVE).collect();
         if chunk.is_empty() {

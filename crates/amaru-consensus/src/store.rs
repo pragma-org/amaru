@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use amaru_kernel::{ConsensusParameters, EraHistoryError, HeaderHash, IsHeader, Nonce, Point};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{ChainStore, Nonces, Praos, StoreError};
-use std::sync::Arc;
 use thiserror::Error;
 
 /// A wrapper around a `ChainStore` that implements the `Praos` trait, supporting nonce evolution.
@@ -25,14 +26,8 @@ pub struct PraosChainStore<H> {
 }
 
 impl<H: IsHeader> PraosChainStore<H> {
-    pub fn new(
-        consensus_parameters: Arc<ConsensusParameters>,
-        store: Arc<dyn ChainStore<H>>,
-    ) -> Self {
-        PraosChainStore {
-            consensus_parameters,
-            store,
-        }
+    pub fn new(consensus_parameters: Arc<ConsensusParameters>, store: Arc<dyn ChainStore<H>>) -> Self {
+        PraosChainStore { consensus_parameters, store }
     }
 }
 
@@ -59,13 +54,10 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
 
         let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
 
-        let parent_nonces =
-            self.store
-                .get_nonces(&parent_hash)
-                .ok_or_else(|| NoncesError::UnknownParent {
-                    header: header.hash(),
-                    parent: parent_hash,
-                })?;
+        let parent_nonces = self
+            .store
+            .get_nonces(&parent_hash)
+            .ok_or_else(|| NoncesError::UnknownParent { header: header.hash(), parent: parent_hash })?;
 
         // Compute the new evolving nonce by combining it with the current one and the header's VRF
         // output.
@@ -81,16 +73,12 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
             //
             // If the epoch hasn't changed, then our active nonce is unchanged.
             active: if epoch > parent_nonces.epoch {
-                let tail = self.store.load_header(&parent_nonces.tail).ok_or(
-                    NoncesError::UnknownHeader {
-                        header: parent_nonces.tail,
-                    },
-                )?;
-                nonce::from_candidate(&tail, &parent_nonces.candidate).ok_or(
-                    NoncesError::NoParentHeader {
-                        header: parent_nonces.tail,
-                    },
-                )?
+                let tail = self
+                    .store
+                    .load_header(&parent_nonces.tail)
+                    .ok_or(NoncesError::UnknownHeader { header: parent_nonces.tail })?;
+                nonce::from_candidate(&tail, &parent_nonces.candidate)
+                    .ok_or(NoncesError::NoParentHeader { header: parent_nonces.tail })?
             } else {
                 parent_nonces.active
             },
@@ -104,21 +92,13 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
             // the rolling nonce keeps evolving in preparation of the next epoch. Another way to look
             // at it is to think that there's always an entire epoch length contributing to the nonce
             // randomness, but it spans over two epochs.
-            candidate: if is_within_stability_window {
-                evolving
-            } else {
-                parent_nonces.candidate
-            },
+            candidate: if is_within_stability_window { evolving } else { parent_nonces.candidate },
 
             // On epoch changes, the parent header is -- by definition -- the last header of the
             // previous epoch.
             //
             // Otherwise, the tail remains unchanged.
-            tail: if epoch > parent_nonces.epoch {
-                parent_hash
-            } else {
-                parent_nonces.tail
-            },
+            tail: if epoch > parent_nonces.epoch { parent_hash } else { parent_nonces.tail },
         };
 
         self.store.put_nonces(&header.hash(), &nonces)?;
@@ -130,10 +110,7 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NoncesError {
     #[error("cannot find nonces: unknown parent {parent} from header {header}")]
-    UnknownParent {
-        header: HeaderHash,
-        parent: HeaderHash,
-    },
+    UnknownParent { header: HeaderHash, parent: HeaderHash },
 
     #[error("unknown header: {header}")]
     UnknownHeader { header: HeaderHash },
@@ -150,16 +127,14 @@ pub enum NoncesError {
 
 #[cfg(test)]
 mod test {
+    use std::sync::{Arc, LazyLock};
+
+    use amaru_kernel::{BlockHeader, Epoch, GlobalParameters, IsHeader, NetworkName, from_cbor, hash, to_cbor};
+    use amaru_ouroboros_traits::{Praos, ReadOnlyChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use proptest::{prelude::*, prop_compose, proptest};
+
     use super::*;
     use crate::test::include_header;
-    use amaru_kernel::{
-        BlockHeader, Epoch, GlobalParameters, IsHeader, NetworkName, from_cbor, hash, to_cbor,
-    };
-    use amaru_ouroboros_traits::{
-        Praos, ReadOnlyChainStore, in_memory_consensus_store::InMemConsensusStore,
-    };
-    use proptest::{prelude::*, prop_compose, proptest};
-    use std::sync::{Arc, LazyLock};
 
     // Epoch 164's last header
     include_header!(PREPROD_HEADER_69638382, 69638382);
@@ -218,20 +193,14 @@ mod test {
         ));
 
         // Have at least the last header of the last epoch available.
-        store
-            .store_header(last_header_last_epoch)
-            .expect("database failure");
+        store.store_header(last_header_last_epoch).expect("database failure");
 
         // Have information about the direct parent.
-        store
-            .put_nonces(&parent.0.hash(), parent.1)
-            .expect("database failure");
+        store.put_nonces(&parent.0.hash(), parent.1).expect("database failure");
 
         // Evolve the current nonce so that 'get_nonces' can then return a result.
         let praos_store = PraosChainStore::new(consensus_parameters, store.clone());
-        praos_store
-            .evolve_nonce(current)
-            .expect("evolve nonce failed");
+        praos_store.evolve_nonce(current).expect("evolve nonce failed");
         store.get_nonces(&current.hash())
     }
 

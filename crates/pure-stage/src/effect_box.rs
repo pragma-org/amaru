@@ -22,16 +22,17 @@
 
 #![expect(clippy::panic)]
 
+use std::{future::poll_fn, sync::Arc, task::Poll};
+
+use either::Either;
+use parking_lot::Mutex;
+
 use crate::{
     BoxFuture, SendData,
     effect::{StageEffect, StageResponse},
 };
-use either::Either;
-use parking_lot::Mutex;
-use std::{future::poll_fn, sync::Arc, task::Poll};
 
-pub(crate) type EffectBox =
-    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
+pub(crate) type EffectBox = Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,

@@ -54,11 +54,7 @@ pub fn panic_handler() {
 // https://github.com/aiken-lang/aiken/blob/main/crates/aiken-project/src/pretty.rs#L126C1-L134C2
 pub fn indent(lines: &str, n: usize) -> String {
     let tab = pad_left(String::new(), n, " ");
-    lines
-        .lines()
-        .map(|line| format!("{tab}{line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
+    lines.lines().map(|line| format!("{tab}{line}")).collect::<Vec<_>>().join("\n")
 }
 
 pub fn pad_left(mut text: String, n: usize, delimiter: &str) -> String {
@@ -92,10 +88,7 @@ Version:          {}"#,
 pub fn node_version(include_commit_hash: bool) -> String {
     let version = built_info::PKG_VERSION;
     let suffix = if include_commit_hash {
-        format!(
-            "+{}",
-            built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown")
-        )
+        format!("+{}", built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown"))
     } else {
         "".to_string()
     };

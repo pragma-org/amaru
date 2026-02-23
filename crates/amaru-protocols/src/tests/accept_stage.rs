@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::manager::ManagerMessage;
-use crate::mempool_effects::MemoryPool;
-use crate::network_effects::{Network, NetworkOps};
-use crate::tests::configuration::get_tx_ids;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
 use amaru_ouroboros_traits::TxSubmissionMempool;
 use pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Notify;
+
+use crate::{
+    manager::ManagerMessage,
+    mempool_effects::MemoryPool,
+    network_effects::{Network, NetworkOps},
+    tests::configuration::get_tx_ids,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct PullAccept;
@@ -44,27 +46,15 @@ impl PartialEq for AcceptState {
 impl Eq for AcceptState {}
 
 impl AcceptState {
-    pub(super) fn new(
-        manager_stage: StageRef<ManagerMessage>,
-        notify: Arc<Notify>,
-        listener_addr: SocketAddr,
-    ) -> Self {
-        Self {
-            manager_stage,
-            listener_addr,
-            notify,
-        }
+    pub(super) fn new(manager_stage: StageRef<ManagerMessage>, notify: Arc<Notify>, listener_addr: SocketAddr) -> Self {
+        Self { manager_stage, listener_addr, notify }
     }
 }
 
 /// Create a stage that accepts incoming connections and notifies the manager
 /// about them. This can not be implemented using contramap because we need to
 /// create a sender for that stage and this is not possible with an adapted stage.
-pub async fn accept_stage(
-    state: AcceptState,
-    _msg: PullAccept,
-    eff: Effects<PullAccept>,
-) -> AcceptState {
+pub async fn accept_stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept>) -> AcceptState {
     // Terminate if the mempool already has all expected transactions
     let mempool = MemoryPool::new(eff.clone());
     let expected_tx_ids = get_tx_ids();
@@ -73,26 +63,18 @@ pub async fn accept_stage(
         tracing::info!("all txs retrieved, done");
         state.notify.notify_waiters();
     } else {
-        tracing::info!(
-            "still missing txs {}, continuing",
-            expected_tx_ids.len() - txs.len()
-        );
+        tracing::info!("still missing txs {}, continuing", expected_tx_ids.len() - txs.len());
     }
 
     match Network::new(&eff).accept(state.listener_addr).await {
         Ok((peer, connection_id)) => {
-            eff.send(
-                &state.manager_stage,
-                ManagerMessage::Accepted(peer, connection_id),
-            )
-            .await;
+            eff.send(&state.manager_stage, ManagerMessage::Accepted(peer, connection_id)).await;
         }
         Err(err) => {
             tracing::error!(?err, "failed to accept a connection");
             return eff.terminate().await;
         }
     }
-    eff.schedule_after(PullAccept, Duration::from_millis(100))
-        .await;
+    eff.schedule_after(PullAccept, Duration::from_millis(100)).await;
     state
 }

@@ -43,10 +43,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProposalPointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(ProposalPointer {
-                transaction: d.decode_with(ctx)?,
-                proposal_index: d.decode_with(ctx)?,
-            })
+            Ok(ProposalPointer { transaction: d.decode_with(ctx)?, proposal_index: d.decode_with(ctx)? })
         })
     }
 }
@@ -56,9 +53,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose};
+
     use super::*;
     use crate::{any_transaction_pointer, prop_cbor_roundtrip};
-    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(ProposalPointer, any_proposal_pointer(u64::MAX));
 

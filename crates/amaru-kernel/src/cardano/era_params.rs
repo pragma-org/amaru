@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{EraName, cbor, utils::cbor::SerialisedAsMillis};
 use std::time::Duration;
+
+use crate::{EraName, cbor, utils::cbor::SerialisedAsMillis};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EraParams {
@@ -32,11 +33,7 @@ impl EraParams {
         if slot_length.is_zero() {
             return None;
         }
-        Some(EraParams {
-            epoch_size_slots,
-            slot_length,
-            era_name,
-        })
+        Some(EraParams { epoch_size_slots, slot_length, era_name })
     }
 }
 
@@ -58,18 +55,12 @@ impl<'b, C> cbor::Decode<'b, C> for EraParams {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let len = d.array()?;
         if len != Some(3) {
-            return Err(cbor::decode::Error::message(format!(
-                "Expected 3 elements in EraParams, got {len:?}"
-            )));
+            return Err(cbor::decode::Error::message(format!("Expected 3 elements in EraParams, got {len:?}")));
         }
         let epoch_size_slots = d.decode()?;
         let slot_length: SerialisedAsMillis = d.decode()?;
         let era_name = d.decode()?;
-        Ok(EraParams {
-            epoch_size_slots,
-            slot_length: Duration::from(slot_length),
-            era_name,
-        })
+        Ok(EraParams { epoch_size_slots, slot_length: Duration::from(slot_length), era_name })
     }
 }
 
@@ -78,9 +69,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
     use crate::{any_era_name, prop_cbor_roundtrip};
-    use proptest::prelude::*;
 
     prop_compose! {
         pub fn any_era_params()(epoch_size_slots in 1u64..65535, slot_length in 1u64..65535, era_name in any_era_name()) -> EraParams {

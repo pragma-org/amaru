@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::RunConfig;
 use amaru_consensus::headers_tree::data_generation::{
     GeneratedActions, any_select_chains_from_tree, any_tree_of_headers,
 };
 use amaru_kernel::utils::tests::run_strategy_with_rng;
+
+use crate::simulator::RunConfig;
 
 /// Generates a sequence of random actions from peers on a tree of
 /// headers generated with a specified depth.
@@ -28,14 +29,8 @@ use amaru_kernel::utils::tests::run_strategy_with_rng;
 pub fn generate_actions(run_config: &RunConfig) -> GeneratedActions {
     let mut rng = run_config.rng();
     // Generate a tree of headers.
-    let generated_tree = run_strategy_with_rng(
-        &mut rng.0,
-        any_tree_of_headers(run_config.generated_chain_depth),
-    );
+    let generated_tree = run_strategy_with_rng(&mut rng.0, any_tree_of_headers(run_config.generated_chain_depth));
 
     // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
-    run_strategy_with_rng(
-        &mut rng.0,
-        any_select_chains_from_tree(&generated_tree, &run_config.upstream_peers()),
-    )
+    run_strategy_with_rng(&mut rng.0, any_select_chains_from_tree(&generated_tree, &run_config.upstream_peers()))
 }

@@ -12,17 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::RunConfig;
+use std::{
+    env,
+    fmt::{Display, Formatter},
+    fs,
+    path::Path,
+    str::FromStr,
+};
+
 use amaru::tests::configuration::NodeTestConfig;
 use anyhow::anyhow;
 use clap::Parser;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
-use std::path::Path;
-use std::str::FromStr;
-use std::{env, fs};
 use tracing_subscriber::EnvFilter;
+
+use crate::simulator::RunConfig;
 
 pub const TEST_DATA_DIR: &str = "test-data";
 
@@ -89,10 +94,7 @@ pub fn make_args() -> Args {
 
     Args {
         number_of_tests: get_env_var("AMARU_NUMBER_OF_TESTS", run_config.number_of_tests),
-        number_of_upstream_peers: get_env_var(
-            "AMARU_NUMBER_OF_UPSTREAM_PEERS",
-            run_config.number_of_upstream_peers,
-        ),
+        number_of_upstream_peers: get_env_var("AMARU_NUMBER_OF_UPSTREAM_PEERS", run_config.number_of_upstream_peers),
         number_of_downstream_peers: get_env_var(
             "AMARU_NUMBER_OF_DOWNSTREAM_PEERS",
             run_config.number_of_downstream_peers,
@@ -101,10 +103,7 @@ pub fn make_args() -> Args {
         enable_shrinking: is_true_or("AMARU_ENABLE_SHRINKING", run_config.enable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true_or("AMARU_PERSIST_ON_SUCCESS", run_config.persist_on_success),
-        test_data_dir: get_env_var(
-            "AMARU_TEST_DATA_DIR",
-            run_config.test_data_dir.to_string_lossy().to_string(),
-        ),
+        test_data_dir: get_env_var("AMARU_TEST_DATA_DIR", run_config.test_data_dir.to_string_lossy().to_string()),
     }
 }
 
@@ -144,8 +143,7 @@ impl Display for TestRun {
 pub fn get_args(test_directory: &Path, simulation_run: SimulationRun) -> anyhow::Result<Args> {
     let path = format!("{}/{simulation_run}/args.json", test_directory.display());
     let path = Path::new(&path);
-    let path = fs::canonicalize(path)
-        .map_err(|e| anyhow!("cannot canonicalize the file at {path:?}: {e}"))?;
+    let path = fs::canonicalize(path).map_err(|e| anyhow!("cannot canonicalize the file at {path:?}: {e}"))?;
     let data = fs::read(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     let args: Args = serde_json::from_slice(data.as_slice())?;
     Ok(args)
@@ -153,10 +151,7 @@ pub fn get_args(test_directory: &Path, simulation_run: SimulationRun) -> anyhow:
 
 // Parse the environment variable `var_name` as type T, or return `default` if not set or invalid.
 pub fn get_env_var<T: FromStr>(var_name: &str, default: T) -> T {
-    env::var(var_name)
-        .ok()
-        .and_then(|v| v.parse::<T>().ok())
-        .unwrap_or(default)
+    env::var(var_name).ok().and_then(|v| v.parse::<T>().ok()).unwrap_or(default)
 }
 
 // Parse the environment variable `var_name` as Some(T), or return None if not set or invalid.
@@ -172,10 +167,7 @@ pub fn is_true(var_name: &str) -> bool {
 /// Return true if the environment variable `var_name` is set to "1" or "true".
 /// Return the default value if the variable is not set.
 pub fn is_true_or(var_name: &str, default_value: bool) -> bool {
-    env::var(var_name)
-        .ok()
-        .map(is_true_value)
-        .unwrap_or(default_value)
+    env::var(var_name).ok().map(is_true_value).unwrap_or(default_value)
 }
 
 /// Return true is the given string value represents a true value.
@@ -191,13 +183,11 @@ pub fn is_true_value(value: String) -> bool {
 pub fn initialize_logs() {
     let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
     let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
-    let formatter = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            EnvFilter::builder()
-                .parse(format!("none,{}", amaru_logs))
-                .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
-        );
+    let formatter = tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(
+        EnvFilter::builder()
+            .parse(format!("none,{}", amaru_logs))
+            .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
+    );
     if amaru_logs_as_json {
         let _ = formatter.json().try_init();
     } else {

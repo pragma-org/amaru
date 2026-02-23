@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{
-    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice,
-    PrepareUtxoSlice,
-};
-use amaru_kernel::{PoolId, StakeCredential, TransactionInput};
 use std::collections::BTreeSet;
+
+use amaru_kernel::{PoolId, StakeCredential, TransactionInput};
+
+use crate::context::{
+    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice,
+};
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
 ///
@@ -32,9 +33,7 @@ pub struct DefaultPreparationContext<'a> {
 
 impl DefaultPreparationContext<'_> {
     pub fn new() -> Self {
-        Self {
-            utxo: BTreeSet::new(),
-        }
+        Self { utxo: BTreeSet::new() }
     }
 }
 

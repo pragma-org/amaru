@@ -18,28 +18,20 @@ mod responder;
 #[cfg(test)]
 mod tests;
 
+pub use messages::{Cookie, Message};
+use pure_stage::{Effects, StageRef, Void};
+
 use crate::{
     connection::ConnectionMessage,
     mux,
     protocol::{Inputs, PROTO_N2N_KEEP_ALIVE, ProtocolState},
 };
-use pure_stage::{Effects, StageRef, Void};
-
-pub use messages::{Cookie, Message};
 
 pub fn register_deserializers() -> pure_stage::DeserializerGuards {
-    vec![
-        initiator::register_deserializers(),
-        responder::register_deserializers(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum State {
     Idle,
     Waiting,
@@ -68,28 +60,12 @@ pub async fn register_keepalive(
 ) -> StageRef<crate::mux::HandlerMessage> {
     let keepalive = if role == crate::protocol::Role::Initiator {
         let (state, stage) = initiator::KeepAliveInitiator::new(muxer.clone());
-        let keepalive = eff
-            .wire_up(
-                eff.stage("keepalive", initiator::initiator()).await,
-                (state, stage),
-            )
-            .await;
-        eff.contramap(
-            &keepalive,
-            "keepalive_handler",
-            Inputs::<initiator::InitiatorMessage>::Network,
-        )
-        .await
+        let keepalive = eff.wire_up(eff.stage("keepalive", initiator::initiator()).await, (state, stage)).await;
+        eff.contramap(&keepalive, "keepalive_handler", Inputs::<initiator::InitiatorMessage>::Network).await
     } else {
         let (state, stage) = responder::KeepAliveResponder::new(muxer.clone());
-        let keepalive = eff
-            .wire_up(
-                eff.stage("keepalive", responder::responder()).await,
-                (state, stage),
-            )
-            .await;
-        eff.contramap(&keepalive, "keepalive_handler", Inputs::<Void>::Network)
-            .await
+        let keepalive = eff.wire_up(eff.stage("keepalive", responder::responder()).await, (state, stage)).await;
+        eff.contramap(&keepalive, "keepalive_handler", Inputs::<Void>::Network).await
     };
 
     eff.send(

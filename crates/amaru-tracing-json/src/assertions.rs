@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::collect::{as_trees, collect, strip_ids_and_target};
-use crate::format::format_span_trees;
-use crate::trace_collect_config::TraceCollectConfig;
 use assert_json_diff::assert_json_eq;
 use pretty_assertions::Comparison;
 use serde_json::Value;
+
+use crate::{
+    collect::{as_trees, collect, strip_ids_and_target},
+    format::format_span_trees,
+    trace_collect_config::TraceCollectConfig,
+};
 
 /// Run a function that emits tracing data.
 /// Collect the traces and assert that the collected data matches `expected`.
@@ -52,11 +55,7 @@ where
 ///
 /// The `TraceCollectConfig` configuration provides a way to control emitted spans and filter targets (included/excluded).
 #[expect(clippy::panic)]
-pub fn assert_spans_trees<F, R>(
-    run: F,
-    expected: Vec<Value>,
-    trace_collect_config: TraceCollectConfig,
-) -> R
+pub fn assert_spans_trees<F, R>(run: F, expected: Vec<Value>, trace_collect_config: TraceCollectConfig) -> R
 where
     F: FnOnce() -> R,
 {
@@ -85,9 +84,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
     use tracing::{info, info_span};
+
+    use super::*;
 
     #[test]
     fn check_simple_tracing() {
@@ -113,10 +113,7 @@ mod tests {
     #[test]
     fn check_spans_tree_is_ok() {
         assert_spans_trees(
-            || {
-                info_span!(target: "test", "foo")
-                    .in_scope(|| info_span!(target: "test", "bar").in_scope(|| {}))
-            },
+            || info_span!(target: "test", "foo").in_scope(|| info_span!(target: "test", "bar").in_scope(|| {})),
             vec![json!({
                 "target": "test",
                 "name": "foo",

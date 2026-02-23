@@ -12,20 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::pid::with_optional_pid_file;
-use amaru::stages::build_node::build_and_run_node;
-use amaru::stages::config::{Config, MaxExtraLedgerSnapshots, StoreType};
+use std::path::PathBuf;
+
 use amaru::{
-    DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir,
-    default_ledger_dir, metrics::track_system_metrics,
+    DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir, default_ledger_dir,
+    metrics::track_system_metrics,
+    stages::{
+        build_node::build_and_run_node,
+        config::{Config, MaxExtraLedgerSnapshots, StoreType},
+    },
 };
 use amaru_kernel::NetworkName;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use std::path::PathBuf;
 use thiserror::Error;
 use tracing::{error, info, warn};
+
+use crate::pid::with_optional_pid_file;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -126,18 +130,12 @@ pub struct Args {
     pid_file: Option<PathBuf>,
 }
 
-pub async fn run(
-    args: Args,
-    meter_provider: Option<SdkMeterProvider>,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result<(), Box<dyn std::error::Error>> {
     with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
         let config = parse_args(args)?;
         pre_flight_checks()?;
 
-        let metrics = meter_provider
-            .clone()
-            .map(track_system_metrics)
-            .transpose()?;
+        let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
 
         let exit = amaru::exit::hook_exit_token();
 
@@ -158,13 +156,9 @@ pub async fn run(
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let network = args.network;
 
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(network).into());
+    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
 
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(network).into());
+    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
         _command = "run",
@@ -218,10 +212,7 @@ fn pre_flight_checks() -> Result<(), PreFlightError> {
                     %EXPECTED_MIN_FOR_SOFT_FD_LIMIT,
                     "Increase the limit for open files before starting Amaru (see ulimit -n).",
                 );
-                Err(PreFlightError::NotEnoughFileDescriptors(
-                    EXPECTED_MIN_FOR_SOFT_FD_LIMIT,
-                    current_soft_fd_limit,
-                ))
+                Err(PreFlightError::NotEnoughFileDescriptors(EXPECTED_MIN_FOR_SOFT_FD_LIMIT, current_soft_fd_limit))
             } else {
                 Ok(())
             }

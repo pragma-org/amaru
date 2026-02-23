@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, Point, RawBlock};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
 };
+
+use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, Point, RawBlock};
+
+use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 
 /// An in-memory implementation of a ChainStore used by the consensus stages.
 #[derive(Clone)]
@@ -33,9 +35,7 @@ impl<H> Default for InMemConsensusStore<H> {
 
 impl<H> InMemConsensusStore<H> {
     pub fn new() -> InMemConsensusStore<H> {
-        InMemConsensusStore {
-            inner: Arc::new(Mutex::new(InMemConsensusStoreInner::new())),
-        }
+        InMemConsensusStore { inner: Arc::new(Mutex::new(InMemConsensusStoreInner::new())) }
     }
 }
 
@@ -97,11 +97,7 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     #[expect(clippy::unwrap_used)]
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
         let inner = self.inner.lock().unwrap();
-        inner
-            .parent_child_relationship
-            .get(hash)
-            .cloned()
-            .unwrap_or_default()
+        inner.parent_child_relationship.get(hash).cloned().unwrap_or_default()
     }
 
     #[expect(clippy::unwrap_used)]
@@ -127,18 +123,9 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
         let inner = self.inner.lock().unwrap();
         let min_slot = point.slot_or_default();
 
-        let next: Vec<&Point> = inner
-            .chain
-            .iter()
-            .filter(move |p| p.slot_or_default() > min_slot)
-            .take(1)
-            .collect();
+        let next: Vec<&Point> = inner.chain.iter().filter(move |p| p.slot_or_default() > min_slot).take(1).collect();
 
-        if next.is_empty() {
-            None
-        } else {
-            Some(*next[0])
-        }
+        if next.is_empty() { None } else { Some(*next[0]) }
     }
 }
 
@@ -201,10 +188,7 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
             Ok(removed)
         } else {
             Err(StoreError::ReadError {
-                error: format!(
-                    "Cannot roll back chain to point {:?} as it does not exist on the best chain",
-                    point
-                ),
+                error: format!("Cannot roll back chain to point {:?} as it does not exist on the best chain", point),
             })
         }
     }

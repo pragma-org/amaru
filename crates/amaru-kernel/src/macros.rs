@@ -81,11 +81,7 @@ macro_rules! hash {
 #[macro_export]
 macro_rules! try_include_cbor {
     ($filepath:expr) => {
-        $crate::cbor::decode(include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/data/",
-            $filepath,
-        )))
+        $crate::cbor::decode(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/", $filepath,)))
     };
 }
 
@@ -103,11 +99,7 @@ macro_rules! include_cbor {
 #[macro_export]
 macro_rules! include_json {
     ($filepath:expr) => {{
-        $crate::json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/data/",
-            $filepath,
-        )))
-        .expect(concat!("invalid json file: ", $filepath))
+        $crate::json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/", $filepath,)))
+            .expect(concat!("invalid json file: ", $filepath))
     }};
 }

@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    collections::{BTreeMap, VecDeque},
+    net::SocketAddr,
+    num::NonZeroUsize,
+    sync::{Arc, atomic::AtomicU16},
+    task::{Poll, Waker},
+    time::Duration,
+};
+
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use parking_lot::Mutex;
 use pure_stage::BoxFuture;
-use std::collections::{BTreeMap, VecDeque};
-use std::net::SocketAddr;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU16;
-use std::task::{Poll, Waker};
-use std::time::Duration;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};
 
 /// A connection provider that uses in-memory channels instead of TCP sockets.
@@ -48,17 +50,10 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 let mut listeners = inner.listeners.lock();
 
                 if listeners.contains_key(&addr) {
-                    return Err(std::io::Error::other(format!(
-                        "listener already bound to {addr}"
-                    )));
+                    return Err(std::io::Error::other(format!("listener already bound to {addr}")));
                 }
 
-                listeners.insert(
-                    addr,
-                    Listener {
-                        pending_connects: VecDeque::new(),
-                    },
-                );
+                listeners.insert(addr, Listener { pending_connects: VecDeque::new() });
             }
 
             // Wake any connect wakers waiting for this address
@@ -72,18 +67,13 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     /// Accept an incoming connection for the specified listener. Returns the peer and connection ID.
     /// If no peer is currently trying to connect, this waits until a connection is available
     /// and wakes the caller.
-    fn accept(
-        &self,
-        listener_addr: SocketAddr,
-    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
+    fn accept(&self, listener_addr: SocketAddr) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
         let inner = self.inner.clone();
         Box::pin(std::future::poll_fn(move |cx| {
             // Try to get a pending connection from the specified listener only
             let pending = {
                 let mut listeners = inner.listeners.lock();
-                listeners
-                    .get_mut(&listener_addr)
-                    .and_then(|l| l.pending_connects.pop_front())
+                listeners.get_mut(&listener_addr).and_then(|l| l.pending_connects.pop_front())
             };
 
             let Some(pending) = pending else {
@@ -98,10 +88,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             // Set the initiator's peer_conn_id to the responder's conn_id
             *pending.initiator_peer_conn_id_slot.lock() = Some(conn_id);
 
-            tracing::debug!(
-                "accepted in-memory connection from {} with id {conn_id}",
-                pending.initiator_addr
-            );
+            tracing::debug!("accepted in-memory connection from {} with id {conn_id}", pending.initiator_addr);
             Poll::Ready(Ok((Peer::from_addr(&pending.initiator_addr), conn_id)))
         }))
     }
@@ -111,11 +98,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     ///
     /// This creates 2 connection endpoints with shared read / write queues.
     ///
-    fn connect(
-        &self,
-        addr: Vec<SocketAddr>,
-        _timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+    fn connect(&self, addr: Vec<SocketAddr>, _timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
         let inner = self.inner.clone();
         let provider = self.clone();
         tracing::debug!("InMemoryConnectionProvider::connect called for {addr:?}");
@@ -129,12 +112,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             {
                 let listeners = inner.listeners.lock();
                 if !listeners.contains_key(target_addr) {
-                    inner
-                        .connect_wakers
-                        .lock()
-                        .entry(*target_addr)
-                        .or_default()
-                        .push(cx.waker().clone());
+                    inner.connect_wakers.lock().entry(*target_addr).or_default().push(cx.waker().clone());
                     return Poll::Pending;
                 }
             }
@@ -164,12 +142,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             };
 
             // Try to add to listener's pending queue (includes initiator's slot for accept to fill)
-            let queued = inner.connect(
-                target_addr,
-                responder_endpoint,
-                initiator_peer_conn_id_slot,
-                cx.waker(),
-            );
+            let queued = inner.connect(target_addr, responder_endpoint, initiator_peer_conn_id_slot, cx.waker());
             if !queued {
                 // No listener yet, the waker is registered. Return Pending
                 return Poll::Pending;
@@ -209,19 +182,15 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     /// - Add bytes to the connection write_queue (this is the read_queue of the peer on its connection)
     /// - Wake the peer so that it can read the data.
     ///
-    fn send(
-        &self,
-        conn: ConnectionId,
-        data: NonEmptyBytes,
-    ) -> BoxFuture<'static, std::io::Result<()>> {
+    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {
         let inner = self.inner.clone();
         let provider = self.clone();
         Box::pin(async move {
             let (write_queue, peer_conn_id) = {
                 let connections = inner.connection_endpoints.lock();
-                let endpoint = connections.get(&conn).ok_or_else(|| {
-                    std::io::Error::other(format!("connection {conn} not found for send"))
-                })?;
+                let endpoint = connections
+                    .get(&conn)
+                    .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for send")))?;
                 (endpoint.write_queue.clone(), *endpoint.peer_conn_id.lock())
             };
 
@@ -234,8 +203,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 // We don't know the peer's connection ID yet, so we need to wake
                 // all recv wakers. This is less efficient but correct.
                 // In practice, the peer will set their ID when they start receiving.
-                let all_conn_ids: Vec<ConnectionId> =
-                    inner.connection_endpoints.lock().keys().copied().collect();
+                let all_conn_ids: Vec<ConnectionId> = inner.connection_endpoints.lock().keys().copied().collect();
                 for id in all_conn_ids {
                     if id != conn {
                         provider.wake_recv_wakers(id);
@@ -248,22 +216,14 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     }
 
     /// Receive a new message by reading from the message queue when a new message has arrived
-    fn recv(
-        &self,
-        conn: ConnectionId,
-        bytes: NonZeroUsize,
-    ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
+    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
         let inner = self.inner.clone();
         Box::pin(std::future::poll_fn(move |cx| {
             // Snapshot only the Arc handles we need, then release the outer lock immediately
             let (read_buffer, read_queue, recv_waker) = {
                 let connections = inner.connection_endpoints.lock();
                 match connections.get(&conn) {
-                    Some(e) => (
-                        e.read_buffer.clone(),
-                        e.read_queue.clone(),
-                        e.recv_waker.clone(),
-                    ),
+                    Some(e) => (e.read_buffer.clone(), e.read_queue.clone(), e.recv_waker.clone()),
                     None => {
                         return Poll::Ready(Err(std::io::Error::other(format!(
                             "connection {conn} not found for recv"
@@ -282,10 +242,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
 
             if buffer.remaining() >= bytes.get() {
                 #[expect(clippy::expect_used)]
-                let result = buffer
-                    .copy_to_bytes(bytes.get())
-                    .try_into()
-                    .expect("guaranteed by NonZeroUsize");
+                let result = buffer.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize");
                 return Poll::Ready(Ok(result));
             }
 
@@ -301,9 +258,9 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         Box::pin(async move {
             let removed = {
                 let mut connections = inner.connection_endpoints.lock();
-                connections.remove(&conn).ok_or_else(|| {
-                    std::io::Error::other(format!("connection {conn} not found for close"))
-                })?
+                connections
+                    .remove(&conn)
+                    .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for close")))?
             };
             // Wake any recv task blocked on this connection so it gets an error, not a hang
             if let Some(waker) = removed.recv_waker.lock().take() {
@@ -327,12 +284,7 @@ impl InMemoryConnectionProvider {
 
     /// Wake connect wakers for a specific address (called when a listener is added)
     fn wake_connect_wakers(&self, addr: &SocketAddr) {
-        let wakers: Vec<Waker> = self
-            .inner
-            .connect_wakers
-            .lock()
-            .remove(addr)
-            .unwrap_or_default();
+        let wakers: Vec<Waker> = self.inner.connect_wakers.lock().remove(addr).unwrap_or_default();
         for waker in wakers {
             waker.wake();
         }
@@ -342,9 +294,7 @@ impl InMemoryConnectionProvider {
     fn wake_recv_wakers(&self, conn: ConnectionId) {
         let waker = {
             let connections = self.inner.connection_endpoints.lock();
-            connections
-                .get(&conn)
-                .and_then(|e| e.recv_waker.lock().take())
+            connections.get(&conn).and_then(|e| e.recv_waker.lock().take())
         };
         if let Some(waker) = waker {
             waker.wake();
@@ -463,8 +413,7 @@ impl Inner {
     }
 
     fn new_port(&self) -> u16 {
-        self.last_connection_port
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        self.last_connection_port.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Try to connect to a listener at the target address. If a listener exists, queue the connection and return true.
@@ -495,11 +444,7 @@ impl Inner {
 
         if !queued {
             // No listener yet, register waker
-            self.connect_wakers
-                .lock()
-                .entry(*target_addr)
-                .or_default()
-                .push(waker.clone());
+            self.connect_wakers.lock().entry(*target_addr).or_default().push(waker.clone());
         }
         queued
     }
@@ -507,8 +452,9 @@ impl Inner {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use amaru_ouroboros_traits::ConnectionProvider;
+
+    use super::*;
 
     /// Test basic connection setup and data transfer.
     #[tokio::test]
@@ -520,9 +466,7 @@ mod tests {
         provider.listen(listener_addr).await?;
 
         // Connect from initiator side
-        let initiator_conn_id = provider
-            .connect(vec![listener_addr], Duration::from_secs(1))
-            .await?;
+        let initiator_conn_id = provider.connect(vec![listener_addr], Duration::from_secs(1)).await?;
 
         // Accept on responder side
         let (_peer, responder_conn_id) = provider.accept(listener_addr).await?;
@@ -555,9 +499,7 @@ mod tests {
         let listener_addr: SocketAddr = "127.0.0.1:9001".parse().unwrap();
 
         provider.listen(listener_addr).await?;
-        let initiator_conn_id = provider
-            .connect(vec![listener_addr], Duration::from_secs(1))
-            .await?;
+        let initiator_conn_id = provider.connect(vec![listener_addr], Duration::from_secs(1)).await?;
         let (_peer, responder_conn_id) = provider.accept(listener_addr).await?;
 
         // Send multiple messages
@@ -569,9 +511,7 @@ mod tests {
 
         // Receive all messages
         for msg in &messages {
-            let received = provider
-                .recv(responder_conn_id, NonZeroUsize::new(msg.len()).unwrap())
-                .await?;
+            let received = provider.recv(responder_conn_id, NonZeroUsize::new(msg.len()).unwrap()).await?;
             assert_eq!(received.as_ref(), msg.as_bytes());
         }
 
@@ -590,11 +530,8 @@ mod tests {
         let provider_clone = provider.clone();
 
         // Start connect first (will wait for listener)
-        let connect_handle = tokio::spawn(async move {
-            provider_clone
-                .connect(vec![listener_addr], Duration::from_secs(10))
-                .await
-        });
+        let connect_handle =
+            tokio::spawn(async move { provider_clone.connect(vec![listener_addr], Duration::from_secs(10)).await });
 
         // Give connect a moment to start
         tokio::task::yield_now().await;

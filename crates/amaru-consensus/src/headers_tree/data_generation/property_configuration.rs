@@ -57,10 +57,6 @@ impl ProptestConfiguration {
 pub fn config_begin() -> ProptestConfiguration {
     // Don't output files on failures by default
     ProptestConfiguration {
-        config: Config {
-            failure_persistence: None,
-            rng_seed: RngSeed::Fixed(42),
-            ..Default::default()
-        },
+        config: Config { failure_persistence: None, rng_seed: RngSeed::Fixed(42), ..Default::default() },
     }
 }

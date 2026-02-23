@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Hash, Hasher, KeepRaw, MemoizedNativeScript, MemoizedScript, NativeScript, PlutusScript,
-    size::SCRIPT,
-};
+use crate::{Hash, Hasher, KeepRaw, MemoizedNativeScript, MemoizedScript, NativeScript, PlutusScript, size::SCRIPT};
 
 pub trait HasScriptHash {
     /*

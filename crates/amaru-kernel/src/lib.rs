@@ -17,16 +17,14 @@
 // Re-exports still needed in a few places; but that shall become redundant as soon as we have
 // properly reworked addresses.
 pub use pallas_addresses::{
-    ByronAddress, Error as AddressError, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
-    StakeAddress, StakePayload,
+    ByronAddress, Error as AddressError, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress,
+    StakePayload,
     byron::{AddrAttrProperty, AddrType, AddressPayload},
 };
-
 // TODO: Temporary re-exports until Pallas migrations
 //
 // See above.
 pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
-
 // TODO: Temporary re-exports until Pallas migrations
 //
 // See above.
@@ -69,19 +67,16 @@ pub use cardano::{
     ex_units::{ExUnits, sum_ex_units},
     ex_units_prices::ExUnitPrices,
     governance_action::GovernanceAction,
-    hash::{
-        Hash, Hasher, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, TransactionId,
-        size,
-    },
+    hash::{Hash, Hasher, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, TransactionId, size},
     header::Header,
     header_body::HeaderBody,
     int::Int,
     language::Language,
     lovelace::Lovelace,
     memoized::{
-        MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-        MemoizedTransactionOutput, decode_script, deserialize_script, encode_script,
-        from_minted_script, script_original_bytes, serialize_memoized_script, serialize_script,
+        MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
+        decode_script, deserialize_script, encode_script, from_minted_script, script_original_bytes,
+        serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
     native_script::NativeScript,
@@ -105,9 +100,9 @@ pub use cardano::{
     proposal_pointer::ProposalPointer,
     proposal_state::ProposalState,
     protocol_parameters::{
-        ConsensusParameters, GlobalParameters, MAINNET_GLOBAL_PARAMETERS,
-        PREPROD_GLOBAL_PARAMETERS, PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS,
-        PREVIEW_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, TESTNET_GLOBAL_PARAMETERS,
+        ConsensusParameters, GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
+        PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS, PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+        ProtocolParameters, TESTNET_GLOBAL_PARAMETERS,
     },
     protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
     protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, ProtocolVersion},
@@ -119,17 +114,12 @@ pub use cardano::{
     relay::Relay,
     required_script::RequiredScript,
     reward::Reward,
-    reward_account::{
-        RewardAccount, expect_stake_credential, new_stake_address,
-        reward_account_to_stake_credential,
-    },
+    reward_account::{RewardAccount, expect_stake_credential, new_stake_address, reward_account_to_stake_credential},
     reward_kind::RewardKind,
     script_kind::ScriptKind,
     script_purpose::{ScriptPurpose, script_purpose_to_string},
     slot::{Slot, SlotArithmeticError},
-    stake_credential::{
-        BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account,
-    },
+    stake_credential::{BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account},
     stake_credential_kind::StakeCredentialKind,
     tip::Tip,
     transaction::Transaction,
@@ -151,8 +141,8 @@ pub use cardano::{
     ballot::any_ballot,
     ballot_id::{any_ballot_id, any_voter},
     block_header::{
-        any_fake_header, any_header, any_header_hash, any_header_with_parent,
-        any_header_with_some_parent, any_headers_chain, any_headers_chain_with_root, make_header,
+        any_fake_header, any_header, any_header_hash, any_header_with_parent, any_header_with_some_parent,
+        any_headers_chain, any_headers_chain_with_root, make_header,
     },
     block_height::any_block_height,
     certificate_pointer::any_certificate_pointer,
@@ -173,10 +163,9 @@ pub use cardano::{
     proposal_id::{any_comparable_proposal_id, any_proposal_id},
     proposal_pointer::any_proposal_pointer,
     protocol_parameters::{
-        any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices,
-        any_ex_units, any_ex_units_prices, any_gov_action, any_guardrails_script,
-        any_pool_voting_thresholds, any_protocol_parameter, any_protocol_params_update,
-        any_protocol_version, any_withdrawal,
+        any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_ex_units,
+        any_ex_units_prices, any_gov_action, any_guardrails_script, any_pool_voting_thresholds, any_protocol_parameter,
+        any_protocol_params_update, any_protocol_version, any_withdrawal,
     },
     rational_number::any_rational_number,
     reward_account::any_reward_account,
@@ -188,9 +177,9 @@ pub use cardano::{
 
 pub mod cbor {
     pub use amaru_minicbor_extra::{
-        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, decode_break, expect_tag,
-        from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array,
-        heterogeneous_map, lazy, missing_field, tee, to_cbor, unexpected_field,
+        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, decode_break, expect_tag, from_cbor,
+        from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy,
+        missing_field, tee, to_cbor, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -217,7 +206,6 @@ pub use data_structures::{
     set::Set,
     strict_maybe::StrictMaybe,
 };
-
 pub use serde_json as json;
 
 pub mod macros;
@@ -225,9 +213,9 @@ pub mod macros;
 mod traits;
 #[doc(hidden)]
 pub use traits::{
-    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasNetwork, HasOwnership, HasRedeemers,
-    HasScriptHash, IsHeader, as_hash, as_index, as_shelley, has_ex_units, has_lovelace,
-    has_network, has_ownership, has_redeemers, has_script_hash, is_header,
+    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasNetwork, HasOwnership, HasRedeemers, HasScriptHash,
+    IsHeader, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_network, has_ownership, has_redeemers,
+    has_script_hash, is_header,
 };
 
 pub mod utils;

@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    fmt::{Display, Formatter},
+    marker::PhantomData,
+    time::Duration,
+};
+
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
-use std::fmt::{Display, Formatter};
-use std::{marker::PhantomData, time::Duration};
 
 mod check;
 mod miniprotocol;
 
 pub use check::ProtoSpec;
-pub use miniprotocol::{
-    Inputs, Miniprotocol, Outcome, ProtocolState, StageState, miniprotocol, outcome,
-};
+pub use miniprotocol::{Inputs, Miniprotocol, Outcome, ProtocolState, StageState, miniprotocol, outcome};
 
 /// Input to a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -143,9 +145,7 @@ pub trait RoleT:
     const ROLE: Option<Role>;
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Initiator;
 impl sealed::Sealed for Initiator {}
 impl RoleT for Initiator {
@@ -154,9 +154,7 @@ impl RoleT for Initiator {
     const ROLE: Option<Role> = Some(Role::Initiator);
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Responder;
 impl sealed::Sealed for Responder {}
 impl RoleT for Responder {
@@ -165,9 +163,7 @@ impl RoleT for Responder {
     const ROLE: Option<Role> = Some(Role::Responder);
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Erased;
 impl sealed::Sealed for Erased {}
 impl RoleT for Erased {
@@ -214,9 +210,7 @@ impl<R: RoleT> ProtocolId<R> {
     pub const fn for_role(self, role: Role) -> ProtocolId<Erased> {
         match (role, self.role()) {
             (Role::Initiator, Role::Initiator) | (Role::Responder, Role::Responder) => self.erase(),
-            (Role::Initiator, Role::Responder) | (Role::Responder, Role::Initiator) => {
-                self.opposite().erase()
-            }
+            (Role::Initiator, Role::Responder) | (Role::Responder, Role::Initiator) => self.opposite().erase(),
         }
     }
 

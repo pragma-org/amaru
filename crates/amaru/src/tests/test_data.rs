@@ -12,21 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY,
-};
-use amaru_ouroboros::Mempool;
 use std::sync::Arc;
+
+use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
+use amaru_ouroboros::Mempool;
 
 pub fn create_transactions(number: usize) -> Vec<Transaction> {
     (0..number).map(create_transaction).collect()
 }
 
 #[expect(clippy::unwrap_used)]
-pub fn create_transactions_in_mempool(
-    mempool: Arc<dyn Mempool<Transaction>>,
-    number: usize,
-) -> Vec<Transaction> {
+pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Transaction>>, number: usize) -> Vec<Transaction> {
     let mut txs = vec![];
     for i in 0..number {
         let tx = create_transaction(i);
@@ -38,17 +34,9 @@ pub fn create_transactions_in_mempool(
 
 /// Create a transaction with a unique input based on the given id.
 pub fn create_transaction(id: usize) -> Transaction {
-    let tx_input = TransactionInput {
-        transaction_id: Hash::new([1; TRANSACTION_BODY]),
-        index: id as u64,
-    };
+    let tx_input = TransactionInput { transaction_id: Hash::new([1; TRANSACTION_BODY]), index: id as u64 };
 
     let body = TransactionBody::new([tx_input], [], 0);
 
-    Transaction {
-        body,
-        witnesses: WitnessSet::default(),
-        is_expected_valid: true,
-        auxiliary_data: None,
-    }
+    Transaction { body, witnesses: WitnessSet::default(), is_expected_valid: true, auxiliary_data: None }
 }

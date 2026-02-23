@@ -12,15 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::{
-    accounts,
-    common::{PREFIX_LEN, as_key, as_value},
-    dreps_delegations,
-};
-use amaru_kernel::{
-    CertificatePointer, DRepRegistration, Epoch, PROTOCOL_VERSION_9, ProtocolVersion,
-    StakeCredential,
-};
+use std::collections::BTreeSet;
+
+use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, PROTOCOL_VERSION_9, ProtocolVersion, StakeCredential};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -29,22 +23,21 @@ use amaru_ledger::store::{
     },
 };
 use rocksdb::Transaction;
-use std::collections::BTreeSet;
 use tracing::{error, warn};
+
+use crate::rocksdb::{
+    accounts,
+    common::{PREFIX_LEN, as_key, as_value},
+    dreps_delegations,
+};
 
 /// Name prefixed used for storing DReps entries. UTF-8 encoding for "drep"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 
 /// Retrieve a single DRep
-pub fn get<DB>(
-    db: &Transaction<'_, DB>,
-    credential: &StakeCredential,
-) -> Result<Option<Row>, StoreError> {
+pub fn get<DB>(db: &Transaction<'_, DB>, credential: &StakeCredential) -> Result<Option<Row>, StoreError> {
     let key = as_key(&PREFIX, credential);
-    Ok(db
-        .get_pinned(&key)
-        .map_err(|err| StoreError::Internal(err.into()))?
-        .map(|d| unsafe_decode::<Row>(&d)))
+    Ok(db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)))
 }
 
 /// Register a new DRep.
@@ -64,19 +57,11 @@ pub fn add<DB>(
         // The latter is possible since we do not delete DRep from storage when they unregister;
         // but instead, we record the de-registration event; necessary to reconstruct a "valid"
         // ledger state down the line.
-        let row = if let Some(mut row) = db
-            .get_pinned(&key)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|d| unsafe_decode::<Row>(&d))
+        let row = if let Some(mut row) =
+            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
         {
             // Re-registration
-            if let Some(DRepRegistration {
-                deposit,
-                registered_at,
-                valid_until,
-                ..
-            }) = registration
-            {
+            if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
                 row.deposit = deposit;
                 row.registered_at = registered_at;
                 row.valid_until = valid_until;
@@ -85,21 +70,9 @@ pub fn add<DB>(
             }
 
             Some(row)
-        } else if let Some(DRepRegistration {
-            deposit,
-            registered_at,
-            valid_until,
-            ..
-        }) = registration
-        {
+        } else if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
             // Brand new registration.
-            Some(Row {
-                deposit,
-                registered_at,
-                valid_until,
-                anchor: None,
-                previous_deregistration: None,
-            })
+            Some(Row { deposit, registered_at, valid_until, anchor: None, previous_deregistration: None })
         } else {
             // Technically impossible, sign of a logic error.
             None
@@ -109,8 +82,7 @@ pub fn add<DB>(
             Some(mut row) => {
                 anchor.set_or_reset(&mut row.anchor);
 
-                db.put(key, as_value(row))
-                    .map_err(|err| StoreError::Internal(err.into()))?;
+                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
             }
             None => {
                 error!(
@@ -135,14 +107,11 @@ pub fn set_valid_until<DB>(
     for credential in credentials {
         let key = as_key(&PREFIX, &credential);
 
-        if let Some(mut row) = db
-            .get_pinned(&key)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|d| unsafe_decode::<Row>(&d))
+        if let Some(mut row) =
+            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
         {
             row.valid_until = valid_until;
-            db.put(key, as_value(row))
-                .map_err(|err| StoreError::Internal(err.into()))?;
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
         } else {
             warn!(
                 target: EVENT_TARGET,
@@ -172,20 +141,15 @@ pub fn remove<DB>(
         // the DRep being removed, it yields back all the accounts that have been delegated to the
         // DRep during its lifetime. And we unbind all of them.
         if protocol_version <= PROTOCOL_VERSION_9 {
-            let resets = dreps_delegations::drop(db, &drep)?
-                .into_iter()
-                .map(|delegator| (delegator, pointer));
+            let resets = dreps_delegations::drop(db, &drep)?.into_iter().map(|delegator| (delegator, pointer));
             accounts::reset_delegation(db, resets)?;
         }
 
-        if let Some(mut row) = db
-            .get_pinned(&key)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|d| unsafe_decode::<Row>(&d))
+        if let Some(mut row) =
+            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
         {
             row.previous_deregistration = Some(pointer);
-            db.put(key, as_value(row))
-                .map_err(|err| StoreError::Internal(err.into()))?;
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
         } else {
             error!(
                 target: EVENT_TARGET,

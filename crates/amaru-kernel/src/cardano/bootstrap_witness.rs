@@ -16,16 +16,14 @@ pub use pallas_primitives::conway::BootstrapWitness;
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
     use crate::{AsHash, Hash, hash, include_cbor};
-    use test_case::test_case;
 
     macro_rules! fixture {
         ($hash:literal) => {
-            (
-                include_cbor!(concat!("bootstrap_witnesses/", $hash, ".cbor")),
-                hash!($hash),
-            )
+            (include_cbor!(concat!("bootstrap_witnesses/", $hash, ".cbor")), hash!($hash))
         };
     }
 

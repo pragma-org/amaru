@@ -12,16 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(
-    clippy::wildcard_enum_match_arm,
-    clippy::unwrap_used,
-    clippy::panic,
-    clippy::expect_used
-)]
+#![expect(clippy::wildcard_enum_match_arm, clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+
+use std::{
+    collections::{BTreeMap, VecDeque},
+    mem::replace,
+    sync::Arc,
+    task::{Context, Poll, Waker},
+};
+
+use either::Either::{Left, Right};
+use futures_util::{StreamExt, stream::FuturesUnordered};
+use override_external_effect::OverrideExternalEffect;
+pub use override_external_effect::OverrideResult;
+use parking_lot::Mutex;
+use tokio::{runtime::Handle, select, sync::watch};
 
 use crate::{
-    BLACKHOLE_NAME, BoxFuture, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
-    ScheduleId, SendData, StageRef, StageResponse,
+    BLACKHOLE_NAME, BoxFuture, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources, ScheduleId,
+    SendData, StageRef, StageResponse,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::{CallExtra, CanSupervise, ScheduleIds, StageEffect},
     effect_box::EffectBox,
@@ -33,8 +42,8 @@ use crate::{
             resume::{
                 resume_add_stage_internal, resume_call_internal, resume_call_send_internal,
                 resume_cancel_schedule_internal, resume_clock_internal, resume_contramap_internal,
-                resume_external_internal, resume_receive_internal, resume_schedule_internal,
-                resume_send_internal, resume_wait_internal, resume_wire_stage_internal,
+                resume_external_internal, resume_receive_internal, resume_schedule_internal, resume_send_internal,
+                resume_wait_internal, resume_wire_stage_internal,
             },
             scheduled_runnables::ScheduledRunnables,
         },
@@ -46,18 +55,6 @@ use crate::{
     time::Clock,
     trace_buffer::{TerminationReason, TraceBuffer},
 };
-use either::Either::{Left, Right};
-use futures_util::{StreamExt, stream::FuturesUnordered};
-use override_external_effect::OverrideExternalEffect;
-pub use override_external_effect::OverrideResult;
-use parking_lot::Mutex;
-use std::{
-    collections::{BTreeMap, VecDeque},
-    mem::replace,
-    sync::Arc,
-    task::{Context, Poll, Waker},
-};
-use tokio::{runtime::Handle, select, sync::watch};
 
 mod resume;
 mod scheduled_runnables;
@@ -140,13 +137,8 @@ impl SimulationRunning {
     }
 
     /// Install a breakpoint that will be hit when an effect matching the given predicate is encountered.
-    pub fn breakpoint(
-        &mut self,
-        name: impl AsRef<str>,
-        predicate: impl Fn(&Effect) -> bool + Send + 'static,
-    ) {
-        self.breakpoints
-            .push((Name::from(name.as_ref()), Box::new(predicate)));
+    pub fn breakpoint(&mut self, name: impl AsRef<str>, predicate: impl Fn(&Effect) -> bool + Send + 'static) {
+        self.breakpoints.push((Name::from(name.as_ref()), Box::new(predicate)));
     }
 
     /// Remove all breakpoints.
@@ -156,8 +148,7 @@ impl SimulationRunning {
 
     /// Remove the breakpoint with the given name.
     pub fn clear_breakpoint(&mut self, name: impl AsRef<str>) {
-        self.breakpoints
-            .retain(|(n, _)| n.as_str() != name.as_ref());
+        self.breakpoints.retain(|(n, _)| n.as_str() != name.as_ref());
     }
 
     /// Install an override for the given external effect type.
@@ -172,9 +163,7 @@ impl SimulationRunning {
     pub fn override_external_effect<T: ExternalEffect>(
         &mut self,
         remaining: usize,
-        mut transform: impl FnMut(Box<T>) -> OverrideResult<Box<T>, Box<dyn ExternalEffect>>
-        + Send
-        + 'static,
+        mut transform: impl FnMut(Box<T>) -> OverrideResult<Box<T>, Box<dyn ExternalEffect>> + Send + 'static,
     ) {
         self.overrides.push(OverrideExternalEffect::new(
             remaining,
@@ -184,9 +173,7 @@ impl SimulationRunning {
                     // overrides by TypeId and run each in an appropriately typed closure
                     #[expect(clippy::expect_used)]
                     match transform(effect.cast::<T>().expect("checked above")) {
-                        OverrideResult::NoMatch(effect) => {
-                            OverrideResult::NoMatch(effect as Box<dyn ExternalEffect>)
-                        }
+                        OverrideResult::NoMatch(effect) => OverrideResult::NoMatch(effect as Box<dyn ExternalEffect>),
                         OverrideResult::Handled(msg) => OverrideResult::Handled(msg),
                         OverrideResult::Replaced(effect) => OverrideResult::Replaced(effect),
                     }
@@ -234,11 +221,7 @@ impl SimulationRunning {
         self.scheduled.next_wakeup_time()
     }
 
-    fn schedule_wakeup(
-        &mut self,
-        id: ScheduleId,
-        wakeup: impl FnOnce(&mut SimulationRunning) + Send + 'static,
-    ) {
+    fn schedule_wakeup(&mut self, id: ScheduleId, wakeup: impl FnOnce(&mut SimulationRunning) + Send + 'static) {
         self.scheduled.schedule(id, Box::new(wakeup));
     }
 
@@ -249,11 +232,7 @@ impl SimulationRunning {
     /// # Panics
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
-    pub fn enqueue_msg<Msg: SendData>(
-        &mut self,
-        sr: impl AsRef<StageRef<Msg>>,
-        msg: impl IntoIterator<Item = Msg>,
-    ) {
+    pub fn enqueue_msg<Msg: SendData>(&mut self, sr: impl AsRef<StageRef<Msg>>, msg: impl IntoIterator<Item = Msg>) {
         for msg in msg.into_iter() {
             let ok = deliver_message(
                 &mut self.stages,
@@ -273,10 +252,7 @@ impl SimulationRunning {
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
     pub fn mailbox_len<Msg>(&self, sr: impl AsRef<StageRef<Msg>>) -> usize {
-        let data = self
-            .stages
-            .get(sr.as_ref().name())
-            .assert_stage("which has no mailbox");
+        let data = self.stages.get(sr.as_ref().name()).assert_stage("which has no mailbox");
         data.mailbox.len()
     }
 
@@ -292,14 +268,9 @@ impl SimulationRunning {
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
     pub fn get_state<Msg, St: SendData>(&self, sr: &StageStateRef<Msg, St>) -> Option<&St> {
-        let data = self
-            .stages
-            .get(sr.name())
-            .assert_stage("which has no state");
+        let data = self.stages.get(sr.name()).assert_stage("which has no state");
         match &data.state {
-            StageState::Idle(state) => {
-                Some(state.cast_ref::<St>().expect("internal state type error"))
-            }
+            StageState::Idle(state) => Some(state.cast_ref::<St>().expect("internal state type error")),
             _ => None,
         }
     }
@@ -324,20 +295,10 @@ impl SimulationRunning {
         tracing::debug!(name = %name, "resuming stage");
         self.trace_buffer.lock().push_resume(&name, &response);
 
-        let data = self
-            .stages
-            .get_mut(&name)
-            .assert_stage("which is not runnable");
+        let data = self.stages.get_mut(&name).assert_stage("which is not runnable");
 
-        let effect = poll_stage(
-            &self.trace_buffer,
-            &self.schedule_ids,
-            data,
-            name,
-            response,
-            &self.effect,
-            self.clock.now(),
-        );
+        let effect =
+            poll_stage(&self.trace_buffer, &self.schedule_ids, data, name, response, &self.effect, self.clock.now());
 
         if !matches!(effect, Effect::Receive { .. }) {
             self.trace_buffer.lock().push_suspend(&effect);
@@ -355,12 +316,7 @@ impl SimulationRunning {
         let mut delivered = Vec::new();
         while let Some(mut envelope) = self.inputs.try_next() {
             let msg = replace(&mut envelope.msg, Box::new(()));
-            match deliver_message(
-                &mut self.stages,
-                self.mailbox_size,
-                envelope.name.clone(),
-                msg,
-            ) {
+            match deliver_message(&mut self.stages, self.mailbox_size, envelope.name.clone(), msg) {
                 DeliverMessageResult::Delivered(_) => {
                     delivered.push(envelope.name);
                     envelope.tx.send(()).ok();
@@ -511,14 +467,8 @@ impl SimulationRunning {
             .stages
             .iter()
             .filter_map(|(n, d)| {
-                matches!(
-                    d,
-                    StageOrAdapter::Stage(StageData {
-                        waiting: Some(StageEffect::Receive),
-                        ..
-                    })
-                )
-                .then_some(n.clone())
+                matches!(d, StageOrAdapter::Stage(StageData { waiting: Some(StageEffect::Receive), .. }))
+                    .then_some(n.clone())
             })
             .collect::<Vec<_>>();
         for name in receiving {
@@ -567,10 +517,8 @@ impl SimulationRunning {
                     }
                     Err(err) => {
                         tracing::warn!(%to, ?err, "cannot resume receive, shutting down simulation");
-                        let terminated = err
-                            .downcast::<resume::UnsupervisedChildTermination>()
-                            .map(|e| e.0)
-                            .unwrap_or(to);
+                        let terminated =
+                            err.downcast::<resume::UnsupervisedChildTermination>().map(|e| e.0).unwrap_or(to);
                         return Some(Blocked::Terminated(terminated));
                     }
                 }
@@ -597,11 +545,8 @@ impl SimulationRunning {
             }
             Effect::Send { from, to, .. } if to.is_empty() => {
                 tracing::info!(stage = %from, "message send to blackhole dropped");
-                let data_from = self
-                    .stages
-                    .get_mut(&from)
-                    .log_termination(&from)?
-                    .assert_stage("which cannot emit send effects");
+                let data_from =
+                    self.stages.get_mut(&from).log_termination(&from)?.assert_stage("which cannot emit send effects");
                 resume_send_internal(data_from, run, to.clone()).expect("call is always runnable");
             }
             Effect::Send { from, to, msg } => {
@@ -611,10 +556,7 @@ impl SimulationRunning {
                     .map(|d| {
                         matches!(
                             d,
-                            StageOrAdapter::Stage(StageData {
-                                waiting: Some(StageEffect::Send(_, Some(_), _)),
-                                ..
-                            })
+                            StageOrAdapter::Stage(StageData { waiting: Some(StageEffect::Send(_, Some(_), _)), .. })
                         )
                     })
                     .unwrap_or_default();
@@ -627,16 +569,11 @@ impl SimulationRunning {
                         // then the response is simply dropped and the call may time out
                         .log_termination(&from)?
                         .assert_stage("which cannot receive send effects");
-                    let id = resume_send_internal(data_from, run, to.clone())
-                        .expect("call is always runnable");
+                    let id = resume_send_internal(data_from, run, to.clone()).expect("call is always runnable");
                     if let Some(id) = id {
                         self.scheduled.remove(&id);
                     }
-                    let data_to = self
-                        .stages
-                        .get_mut(&to)
-                        .log_termination(&to)?
-                        .assert_stage("which cannot call");
+                    let data_to = self.stages.get_mut(&to).log_termination(&to)?.assert_stage("which cannot call");
                     // call response races with other responses and timeout, so failure to resume is okay
                     resume_call_internal(data_to, run, id, msg).ok();
                 } else {
@@ -647,10 +584,8 @@ impl SimulationRunning {
                             let name = data_to.name.clone();
                             if let Err(err) = resume_receive_internal(self, &name) {
                                 tracing::warn!(%from, %to, ?err, "cannot deliver send, shutting down simulation");
-                                let terminated = err
-                                    .downcast::<resume::UnsupervisedChildTermination>()
-                                    .map(|e| e.0)
-                                    .unwrap_or(name);
+                                let terminated =
+                                    err.downcast::<resume::UnsupervisedChildTermination>().map(|e| e.0).unwrap_or(name);
                                 return Some(Blocked::Terminated(terminated));
                             }
                             Some(from)
@@ -665,11 +600,8 @@ impl SimulationRunning {
                         }
                     };
                     if let Some(from) = resume {
-                        let data_from = self
-                            .stages
-                            .get_mut(&from)
-                            .log_termination(&from)?
-                            .assert_stage("which cannot have sent");
+                        let data_from =
+                            self.stages.get_mut(&from).log_termination(&from)?.assert_stage("which cannot have sent");
                         resume_send_internal(
                             data_from,
                             &mut |name, response| {
@@ -682,12 +614,7 @@ impl SimulationRunning {
                     }
                 }
             }
-            Effect::Call {
-                from,
-                to,
-                duration: _,
-                msg,
-            } => {
+            Effect::Call { from, to, duration: _, msg } => {
                 if let Err(err) = resume_call_send_internal(self, from.clone(), to.clone(), msg) {
                     tracing::warn!(%from, %to, %err, "couldn’t deliver call effect");
                     return Some(Blocked::Terminated(from));
@@ -699,8 +626,7 @@ impl SimulationRunning {
                     .get_mut(&at_stage)
                     .log_termination(&at_stage)?
                     .assert_stage("which cannot ask for the clock");
-                resume_clock_internal(data, run, self.clock.now())
-                    .expect("clock effect is always runnable");
+                resume_clock_internal(data, run, self.clock.now()).expect("clock effect is always runnable");
             }
             Effect::Wait { at_stage, duration } => {
                 let now = self.clock.now();
@@ -718,25 +644,20 @@ impl SimulationRunning {
                         },
                         sim.clock.now(),
                     )
-                        .expect("wait effect is always runnable");
+                    .expect("wait effect is always runnable");
                 });
             }
             Effect::Schedule { at_stage, msg, id } => {
-                let data = self
-                    .stages
-                    .get_mut(&at_stage)
-                    .log_termination(&at_stage)?
-                    .assert_stage("which cannot schedule");
-                resume_schedule_internal(data, run, id)
-                    .expect("schedule effect is always runnable");
+                let data =
+                    self.stages.get_mut(&at_stage).log_termination(&at_stage)?.assert_stage("which cannot schedule");
+                resume_schedule_internal(data, run, id).expect("schedule effect is always runnable");
                 // Now schedule the wakeup (after run is dropped)
                 let now = self.clock.now();
                 if id.time() > now {
                     // Schedule wakeup
                     self.schedule_wakeup(id, {
                         move |sim| {
-                            let _ =
-                                deliver_message(&mut sim.stages, sim.mailbox_size, at_stage, msg);
+                            let _ = deliver_message(&mut sim.stages, sim.mailbox_size, at_stage, msg);
                         }
                     });
                 } else {
@@ -754,10 +675,7 @@ impl SimulationRunning {
                 resume_cancel_schedule_internal(data, run, cancelled)
                     .expect("cancel_schedule effect is always runnable");
             }
-            Effect::External {
-                at_stage,
-                mut effect,
-            } => {
+            Effect::External { at_stage, mut effect } => {
                 let mut result = None;
                 for idx in 0..self.overrides.len() {
                     let over = &mut self.overrides[idx];
@@ -789,62 +707,43 @@ impl SimulationRunning {
                         .get_mut(&at_stage)
                         .log_termination(&at_stage)?
                         .assert_stage("which cannot receive external effects");
-                    resume_external_internal(data, result, run)
-                        .expect("external effect is always runnable");
+                    resume_external_internal(data, result, run).expect("external effect is always runnable");
                     return None;
                 }
                 let resources = self.resources.clone();
-                self.external_effects.push(Box::pin(async move {
-                    (at_stage, effect.run(resources).await)
-                }));
+                self.external_effects.push(Box::pin(async move { (at_stage, effect.run(resources).await) }));
             }
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
-                let (supervised_by, msg) =
-                    self.terminate_stage(at_stage.clone(), TerminationReason::Voluntary)?;
+                let (supervised_by, msg) = self.terminate_stage(at_stage.clone(), TerminationReason::Voluntary)?;
                 if supervised_by == *BLACKHOLE_NAME {
                     // top-level stage terminated, terminate the simulation
                     self.terminate.send_replace(true);
                     return Some(Blocked::Terminated(at_stage));
                 }
-                let supervisor = self
-                    .stages
-                    .get_mut(&supervised_by)
-                    .assert_stage("which cannot supervise");
+                let supervisor = self.stages.get_mut(&supervised_by).assert_stage("which cannot supervise");
                 supervisor.tombstones.push_back(msg);
                 if let Err(err) = resume_receive_internal(self, &supervised_by) {
                     tracing::warn!(%supervised_by, ?err, "shutting down simulation");
-                    let terminated = err
-                        .downcast::<resume::UnsupervisedChildTermination>()
-                        .map(|e| e.0)
-                        .unwrap_or(supervised_by);
+                    let terminated =
+                        err.downcast::<resume::UnsupervisedChildTermination>().map(|e| e.0).unwrap_or(supervised_by);
                     return Some(Blocked::Terminated(terminated));
                 }
             }
             Effect::AddStage { at_stage, name } => {
                 let name = stage_name(&mut self.stage_count, name.as_str());
-                let data = self
-                    .stages
-                    .get_mut(&at_stage)
-                    .log_termination(&at_stage)?
-                    .assert_stage("which cannot add a stage");
-                resume_add_stage_internal(data, run, name)
-                    .expect("add stage effect is always runnable");
+                let data =
+                    self.stages.get_mut(&at_stage).log_termination(&at_stage)?.assert_stage("which cannot add a stage");
+                resume_add_stage_internal(data, run, name).expect("add stage effect is always runnable");
             }
-            Effect::WireStage {
-                at_stage,
-                name,
-                initial_state,
-                tombstone,
-            } => {
+            Effect::WireStage { at_stage, name, initial_state, tombstone } => {
                 self.trace_buffer.lock().push_state(&name, &initial_state);
                 let data = self
                     .stages
                     .get_mut(&at_stage)
                     .log_termination(&at_stage)?
                     .assert_stage("which cannot wire a stage");
-                let transition = resume_wire_stage_internal(data, run)
-                    .expect("wire stage effect is always runnable");
+                let transition = resume_wire_stage_internal(data, run).expect("wire stage effect is always runnable");
                 let tombstone = tombstone.try_cast::<CanSupervise>().err();
                 self.stages.insert(
                     name.clone(),
@@ -861,27 +760,13 @@ impl SimulationRunning {
                     }),
                 );
             }
-            Effect::Contramap {
-                at_stage,
-                original,
-                new_name,
-            } => {
+            Effect::Contramap { at_stage, original, new_name } => {
                 let name = stage_name(&mut self.stage_count, new_name.as_str());
-                let data = self
-                    .stages
-                    .get_mut(&at_stage)
-                    .assert_stage("which cannot call contramap");
-                let transform =
-                    resume_contramap_internal(data, run, original.clone(), name.clone())
-                        .expect("contramap effect is always runnable");
-                self.stages.insert(
-                    name.clone(),
-                    StageOrAdapter::Adapter(Adapter {
-                        name,
-                        target: original,
-                        transform,
-                    }),
-                );
+                let data = self.stages.get_mut(&at_stage).assert_stage("which cannot call contramap");
+                let transform = resume_contramap_internal(data, run, original.clone(), name.clone())
+                    .expect("contramap effect is always runnable");
+                self.stages
+                    .insert(name.clone(), StageOrAdapter::Adapter(Adapter { name, target: original, transform }));
             }
         }
         None
@@ -920,10 +805,7 @@ impl SimulationRunning {
         };
         let senders = std::mem::take(&mut data.senders);
         for (waiting, _) in senders {
-            let data = self
-                .stages
-                .get_mut(&waiting)
-                .assert_stage("which cannot send");
+            let data = self.stages.get_mut(&waiting).assert_stage("which cannot send");
             if let Err(err) = resume_send_internal(data, run, at_stage.clone()) {
                 tracing::error!(from = %waiting, to = %at_stage, %err, "failed to resume send");
                 continue;
@@ -994,18 +876,9 @@ impl SimulationRunning {
     }
 
     /// Resume an [`Effect::Receive`].
-    pub fn resume_receive<Msg>(
-        &mut self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-    ) -> anyhow::Result<()> {
+    pub fn resume_receive<Msg>(&mut self, at_stage: impl AsRef<StageRef<Msg>>) -> anyhow::Result<()> {
         resume_receive_internal(self, at_stage.as_ref().name()).and_then(|resumed| {
-            if resumed {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!(
-                    "stage was not waiting for a receive effect"
-                ))
-            }
+            if resumed { Ok(()) } else { Err(anyhow::anyhow!("stage was not waiting for a receive effect")) }
         })
     }
 
@@ -1023,21 +896,12 @@ impl SimulationRunning {
         let to = to.as_ref();
         if to.extra().is_none()
             && let Some(msg) = msg.take()
-            && deliver_message(
-                &mut self.stages,
-                self.mailbox_size,
-                to.name().clone(),
-                Box::new(msg),
-            )
-            .is_full()
+            && deliver_message(&mut self.stages, self.mailbox_size, to.name().clone(), Box::new(msg)).is_full()
         {
             anyhow::bail!("mailbox is full while resuming send");
         }
 
-        let data = self
-            .stages
-            .get_mut(from.as_ref().name())
-            .assert_stage("which cannot send");
+        let data = self.stages.get_mut(from.as_ref().name()).assert_stage("which cannot send");
         let id = resume_send_internal(
             data,
             &mut |name, response| {
@@ -1051,10 +915,7 @@ impl SimulationRunning {
             && let Some(msg) = msg
         {
             self.scheduled.remove(&id);
-            let data = self
-                .stages
-                .get_mut(to.name())
-                .assert_stage("which cannot call");
+            let data = self.stages.get_mut(to.name()).assert_stage("which cannot call");
             resume_call_internal(
                 data,
                 &mut |name, response| {
@@ -1074,15 +935,8 @@ impl SimulationRunning {
     /// # Panics
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
-    pub fn resume_clock<Msg>(
-        &mut self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-        time: Instant,
-    ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(at_stage.as_ref().name())
-            .assert_stage("which cannot ask for the clock");
+    pub fn resume_clock<Msg>(&mut self, at_stage: impl AsRef<StageRef<Msg>>, time: Instant) -> anyhow::Result<()> {
+        let data = self.stages.get_mut(at_stage.as_ref().name()).assert_stage("which cannot ask for the clock");
         resume_clock_internal(
             data,
             &mut |name, response| {
@@ -1100,15 +954,8 @@ impl SimulationRunning {
     /// # Panics
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
-    pub fn resume_wait<Msg>(
-        &mut self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-        time: Instant,
-    ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(at_stage.as_ref().name())
-            .assert_stage("which cannot wait");
+    pub fn resume_wait<Msg>(&mut self, at_stage: impl AsRef<StageRef<Msg>>, time: Instant) -> anyhow::Result<()> {
+        let data = self.stages.get_mut(at_stage.as_ref().name()).assert_stage("which cannot wait");
         resume_wait_internal(
             data,
             &mut |name, response| {
@@ -1130,19 +977,12 @@ impl SimulationRunning {
         to: impl AsRef<StageRef<Msg2>>,
         msg: Msg2,
     ) -> anyhow::Result<()> {
-        resume_call_send_internal(
-            self,
-            from.as_ref().name().clone(),
-            to.as_ref().name().clone(),
-            Box::new(msg),
-        )
-        .and_then(|resumed| {
-            if resumed {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("stage was not waiting for a call effect"))
-            }
-        })
+        resume_call_send_internal(self, from.as_ref().name().clone(), to.as_ref().name().clone(), Box::new(msg))
+            .and_then(
+                |resumed| {
+                    if resumed { Ok(()) } else { Err(anyhow::anyhow!("stage was not waiting for a call effect")) }
+                },
+            )
     }
 
     /// Resume an [`Effect::Call`].
@@ -1156,10 +996,7 @@ impl SimulationRunning {
         msg: Resp,
     ) -> anyhow::Result<()> {
         let at_stage = at_stage.as_ref();
-        let data = self
-            .stages
-            .get_mut(at_stage.name())
-            .assert_stage("which cannot make a call");
+        let data = self.stages.get_mut(at_stage.name()).assert_stage("which cannot make a call");
         resume_call_internal(
             data,
             &mut |name, response| {
@@ -1176,15 +1013,8 @@ impl SimulationRunning {
     /// # Panics
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
-    pub fn resume_external_box(
-        &mut self,
-        at_stage: impl AsRef<Name>,
-        result: Box<dyn SendData>,
-    ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(at_stage.as_ref())
-            .assert_stage("which cannot receive external effects");
+    pub fn resume_external_box(&mut self, at_stage: impl AsRef<Name>, result: Box<dyn SendData>) -> anyhow::Result<()> {
+        let data = self.stages.get_mut(at_stage.as_ref()).assert_stage("which cannot receive external effects");
         resume_external_internal(data, result, &mut |name, response| {
             tracing::debug!(%name, ?response, "enqueuing stage");
             self.runnable.push_back((name, response));
@@ -1201,10 +1031,7 @@ impl SimulationRunning {
         at_stage: impl AsRef<Name>,
         result: Eff::Response,
     ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(at_stage.as_ref())
-            .assert_stage("which cannot receive external effects");
+        let data = self.stages.get_mut(at_stage.as_ref()).assert_stage("which cannot receive external effects");
         resume_external_internal(data, Box::new(result), &mut |name, response| {
             tracing::debug!(%name, ?response, "enqueuing stage");
             self.runnable.push_back((name, response));
@@ -1216,15 +1043,8 @@ impl SimulationRunning {
     /// # Panics
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
-    pub fn resume_add_stage<Msg>(
-        &mut self,
-        at_stage: impl AsRef<StageRef<Msg>>,
-        name: Name,
-    ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(at_stage.as_ref().name())
-            .assert_stage("which cannot add a stage");
+    pub fn resume_add_stage<Msg>(&mut self, at_stage: impl AsRef<StageRef<Msg>>, name: Name) -> anyhow::Result<()> {
+        let data = self.stages.get_mut(at_stage.as_ref().name()).assert_stage("which cannot add a stage");
         resume_add_stage_internal(
             data,
             &mut |name, response| {
@@ -1248,10 +1068,7 @@ impl SimulationRunning {
         tombstone: Option<Box<dyn SendData>>,
     ) -> anyhow::Result<()> {
         let at_stage = at_stage.as_ref();
-        let data = self
-            .stages
-            .get_mut(at_stage.name())
-            .assert_stage("which cannot wire a stage");
+        let data = self.stages.get_mut(at_stage.name()).assert_stage("which cannot wire a stage");
         let transition = resume_wire_stage_internal(data, &mut |name, response| {
             tracing::debug!(%name, ?response, "enqueuing stage");
             self.runnable.push_back((name, response));
@@ -1281,10 +1098,7 @@ impl SimulationRunning {
         original: Name,
         name: Name,
     ) -> anyhow::Result<()> {
-        let data = self
-            .stages
-            .get_mut(at_stage.as_ref().name())
-            .assert_stage("which cannot contramap");
+        let data = self.stages.get_mut(at_stage.as_ref().name()).assert_stage("which cannot contramap");
         let transform = resume_contramap_internal(
             data,
             &mut |name, response| {
@@ -1294,14 +1108,7 @@ impl SimulationRunning {
             original.clone(),
             name.clone(),
         )?;
-        self.stages.insert(
-            name.clone(),
-            StageOrAdapter::Adapter(Adapter {
-                name,
-                target: original,
-                transform,
-            }),
-        );
+        self.stages.insert(name.clone(), StageOrAdapter::Adapter(Adapter { name, target: original, transform }));
         Ok(())
     }
 }
@@ -1390,10 +1197,7 @@ mod override_external_effect {
     pub struct OverrideExternalEffect {
         remaining: usize,
         transform: Box<
-            dyn FnMut(
-                    Box<dyn ExternalEffect>,
-                )
-                    -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
+            dyn FnMut(Box<dyn ExternalEffect>) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
                 + Send
                 + 'static,
         >,
@@ -1415,18 +1219,12 @@ mod override_external_effect {
         pub fn new(
             remaining: usize,
             transform: Box<
-                dyn FnMut(
-                        Box<dyn ExternalEffect>,
-                    )
-                        -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
+                dyn FnMut(Box<dyn ExternalEffect>) -> OverrideResult<Box<dyn ExternalEffect>, Box<dyn ExternalEffect>>
                     + Send
                     + 'static,
             >,
         ) -> Self {
-            Self {
-                remaining,
-                transform,
-            }
+            Self { remaining, transform }
         }
 
         pub fn transform(
@@ -1469,37 +1267,22 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
     let mut send = Vec::new();
     let mut busy = Vec::new();
     let mut sleep = Vec::new();
-    for (k, v) in sim.stages.iter().filter_map(|(k, d)| {
-        d.as_stage()
-            .and_then(|d| d.waiting.as_ref())
-            .map(|w| (k, w))
-    }) {
+    for (k, v) in sim.stages.iter().filter_map(|(k, d)| d.as_stage().and_then(|d| d.waiting.as_ref()).map(|w| (k, w))) {
         match v {
-            StageEffect::Send(name, None, _msg) => send.push(SendBlock {
-                from: k.clone(),
-                to: name.clone(),
-                is_call: false,
-            }),
+            StageEffect::Send(name, None, _msg) => {
+                send.push(SendBlock { from: k.clone(), to: name.clone(), is_call: false })
+            }
             StageEffect::Receive => {}
             StageEffect::Wait(..) => sleep.push(k.clone()),
-            StageEffect::Call(_, _, CallExtra::Scheduled(id)) if sim.scheduled.contains(id) => {
-                sleep.push(k.clone())
-            }
+            StageEffect::Call(_, _, CallExtra::Scheduled(id)) if sim.scheduled.contains(id) => sleep.push(k.clone()),
             _ => busy.push(k.clone()),
         }
     }
 
     if !busy.is_empty() {
-        Blocked::Busy {
-            stages: busy,
-            external_effects: sim.external_effects.len(),
-        }
+        Blocked::Busy { stages: busy, external_effects: sim.external_effects.len() }
     } else if !sleep.is_empty() {
-        Blocked::Sleeping {
-            next_wakeup: sim
-                .next_wakeup()
-                .expect("stages are waiting for a wait effect"),
-        }
+        Blocked::Sleeping { next_wakeup: sim.next_wakeup().expect("stages are waiting for a wait effect") }
     } else if !send.is_empty() {
         Blocked::Deadlock(send)
     } else {
@@ -1521,10 +1304,7 @@ pub(crate) fn poll_stage(
     now: Instant,
 ) -> Effect {
     let StageState::Running(pin) = &mut data.state else {
-        panic!(
-            "runnable stage `{name}` is not running but {:?}",
-            data.state
-        );
+        panic!("runnable stage `{name}` is not running but {:?}", data.state);
     };
 
     *effect.lock() = Some(Right(response));
@@ -1582,11 +1362,7 @@ fn deliver_message(
     post_message(data, mailbox_size, msg)
 }
 
-fn post_message(
-    data: &mut StageData,
-    mailbox_size: usize,
-    msg: Box<dyn SendData>,
-) -> DeliverMessageResult<'_> {
+fn post_message(data: &mut StageData, mailbox_size: usize, msg: Box<dyn SendData>) -> DeliverMessageResult<'_> {
     if data.mailbox.len() >= mailbox_size {
         return DeliverMessageResult::Full(data, msg);
     }
@@ -1612,10 +1388,7 @@ fn simulation_invariants() {
         eff.send(&eff.me(), Msg(None)).await;
         eff.clock().await;
         eff.wait(std::time::Duration::from_secs(1)).await;
-        eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| {
-            Msg(Some(cr))
-        })
-        .await;
+        eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| Msg(Some(cr))).await;
         true
     });
 
@@ -1660,18 +1433,9 @@ fn simulation_invariants() {
     sim.invariants();
 
     for idx in 0..ops.len() {
-        let effect = if idx == 0 {
-            Effect::Receive {
-                at_stage: "stage".into(),
-            }
-        } else {
-            sim.effect()
-        };
+        let effect = if idx == 0 { Effect::Receive { at_stage: "stage".into() } } else { sim.effect() };
         tracing::info!(effect = ?effect, "effect");
-        assert!(
-            ops[idx].0(&effect),
-            "effect {effect:?} should match predicate for `{idx}`"
-        );
+        assert!(ops[idx].0(&effect), "effect {effect:?} should match predicate for `{idx}`");
         for (pred, op, name) in &ops {
             if !pred(&effect) {
                 tracing::info!("op `{}` should not work", name);

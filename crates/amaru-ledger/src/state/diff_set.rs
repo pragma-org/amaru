@@ -27,10 +27,7 @@ pub struct DiffSet<K: Ord, V> {
 
 impl<K: Ord, V> Default for DiffSet<K, V> {
     fn default() -> Self {
-        Self {
-            consumed: Default::default(),
-            produced: Default::default(),
-        }
+        Self { consumed: Default::default(), produced: Default::default() }
     }
 }
 
@@ -52,18 +49,17 @@ impl<K: Ord, V> DiffSet<K, V> {
     }
 
     pub fn as_ref(&self) -> DiffSet<&K, &V> {
-        DiffSet {
-            consumed: self.consumed.iter().collect(),
-            produced: self.produced.iter().collect(),
-        }
+        DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use proptest::prelude::*;
     use std::collections::{BTreeMap, BTreeSet};
+
+    use proptest::prelude::*;
+
+    use super::*;
 
     prop_compose! {
         fn any_diff()(

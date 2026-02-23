@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{error::Error, fs::remove_dir_all, path::PathBuf};
+
 use amaru::{DEFAULT_NETWORK, bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
 use amaru_kernel::NetworkName;
 use clap::{ArgAction, Parser};
-use std::{error::Error, fs::remove_dir_all, path::PathBuf};
 use tracing::{info, warn};
 
 #[derive(Debug, Parser)]
@@ -58,13 +59,9 @@ pub struct Args {
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
 
-    let ledger_dir = args
-        .ledger_dir
-        .unwrap_or_else(|| default_ledger_dir(network).into());
+    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
 
-    let chain_dir = args
-        .chain_dir
-        .unwrap_or_else(|| default_chain_dir(network).into());
+    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
         _command = "bootstrap",

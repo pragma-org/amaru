@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, Slot, cbor};
+use std::{
+    fmt::{Debug, Formatter},
+    sync::LazyLock,
+};
+
 use amaru_minicbor_extra::to_cbor;
-use std::fmt::{Debug, Formatter};
-use std::sync::LazyLock;
+
+use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, Slot, cbor};
 
 /// A network block contains:
 ///  - An era tag identifying the Cardano era of the block, which determines its exact encoding.
@@ -36,10 +40,7 @@ impl NetworkBlock {
     pub fn new(era_history: &EraHistory, block: &Block) -> Result<Self, EraHistoryError> {
         let era_tag = era_history.slot_to_era_tag(Slot::from(block.header.header_body.slot))?;
 
-        Ok(NetworkBlock {
-            era_tag,
-            encoded_block: to_cbor(block),
-        })
+        Ok(NetworkBlock { era_tag, encoded_block: to_cbor(block) })
     }
 
     pub fn era_tag(&self) -> EraName {
@@ -72,8 +73,7 @@ pub static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
 
 #[expect(clippy::expect_used)]
 pub static NETWORK_BLOCK: LazyLock<NetworkBlock> = LazyLock::new(|| {
-    NetworkBlock::try_from(RawBlock::from(CONWAY_BLOCK.as_slice()))
-        .expect("Failed to parse Conway3.block hex")
+    NetworkBlock::try_from(RawBlock::from(CONWAY_BLOCK.as_slice())).expect("Failed to parse Conway3.block hex")
 });
 
 impl minicbor::Encode<()> for NetworkBlock {
@@ -86,18 +86,13 @@ impl minicbor::Encode<()> for NetworkBlock {
         e.encode(self.era_tag)?;
         // Write the already-encoded CBOR term directly into the output stream.
         // This does NOT add any CBOR envelope (no bytestring tag, no extra array, etc).
-        e.writer_mut()
-            .write_all(&self.encoded_block)
-            .map_err(minicbor::encode::Error::write)?;
+        e.writer_mut().write_all(&self.encoded_block).map_err(minicbor::encode::Error::write)?;
         Ok(())
     }
 }
 
 impl<'b> minicbor::Decode<'b, ()> for NetworkBlock {
-    fn decode(
-        d: &mut minicbor::Decoder<'b>,
-        _ctx: &mut (),
-    ) -> Result<Self, minicbor::decode::Error> {
+    fn decode(d: &mut minicbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, minicbor::decode::Error> {
         let len = d.array()?;
         if len != Some(2) {
             return Err(minicbor::decode::Error::message(format!(
@@ -109,10 +104,7 @@ impl<'b> minicbor::Decode<'b, ()> for NetworkBlock {
         d.skip()?; // skip exactly one CBOR item (the block term)
         let end = d.position();
         let bytes = &d.input()[start..end];
-        Ok(NetworkBlock {
-            era_tag,
-            encoded_block: bytes.to_vec(),
-        })
+        Ok(NetworkBlock { era_tag, encoded_block: bytes.to_vec() })
     }
 }
 

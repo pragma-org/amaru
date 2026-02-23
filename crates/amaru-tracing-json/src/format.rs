@@ -51,11 +51,7 @@ fn format_array_lines(items: &[Value], indent: usize) -> Vec<String> {
     }
 
     if items.iter().all(is_scalar) {
-        let elements = items
-            .iter()
-            .map(format_scalar)
-            .collect::<Vec<_>>()
-            .join(", ");
+        let elements = items.iter().map(format_scalar).collect::<Vec<_>>().join(", ");
         return vec![format!("{}[{}]", spaces(indent), elements)];
     }
 
@@ -124,10 +120,7 @@ fn format_object_lines(map: &serde_json::Map<String, Value>, indent: usize) -> V
 }
 
 fn is_scalar(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)
-    )
+    matches!(value, Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_))
 }
 
 fn format_scalar(value: &Value) -> String {

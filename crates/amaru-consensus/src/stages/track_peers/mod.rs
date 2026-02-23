@@ -12,14 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    effects::{ConsensusEffects, ConsensusOps},
-    errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
-};
-use amaru_kernel::{
-    BlockHeader, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip,
-    from_cbor_no_leftovers,
-};
+use std::collections::BTreeMap;
+
+use amaru_kernel::{BlockHeader, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers};
 use amaru_ouroboros::ReadOnlyChainStore;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
@@ -27,9 +22,13 @@ use amaru_protocols::{
     store_effects::Store,
 };
 use pure_stage::{Effects, StageRef};
-use std::collections::BTreeMap;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use crate::{
+    effects::{ConsensusEffects, ConsensusOps},
+    errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
+};
 
 /// This is the state of the [`stage`] that tracks peers from whom we are receiving headers.
 ///
@@ -52,17 +51,8 @@ struct PerPeer {
 }
 
 impl TrackPeers {
-    pub fn new(
-        era_history: EraHistory,
-        manager: StageRef<ManagerMessage>,
-        downstream: StageRef<Tip>,
-    ) -> Self {
-        Self {
-            era_history,
-            upstream: BTreeMap::new(),
-            manager,
-            downstream,
-        }
+    pub fn new(era_history: EraHistory, manager: StageRef<ManagerMessage>, downstream: StageRef<Tip>) -> Self {
+        Self { era_history, upstream: BTreeMap::new(), manager, downstream }
     }
 
     /// Insert or replace a peer's current and highest tip. For use in tests.
@@ -85,24 +75,19 @@ impl TrackPeers {
         let header = decode_header(raw_header)?;
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
-            return Err(ConsensusError::EraNameMismatch {
-                from_raw_header: variant,
-                from_slot: era_name,
-            });
+            return Err(ConsensusError::EraNameMismatch { from_raw_header: variant, from_slot: era_name });
         }
 
         let Some(per_peer) = self.upstream.get(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         };
         if header.parent_hash().unwrap_or(ORIGIN_HASH) != per_peer.current.hash() {
-            return Err(ConsensusError::InvalidHeaderParent(Box::new(
-                InvalidHeaderParentData {
-                    peer: peer.clone(),
-                    forwarded: header.point(),
-                    actual: header.parent_hash(),
-                    expected: per_peer.current.point(),
-                },
-            )));
+            return Err(ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
+                peer: peer.clone(),
+                forwarded: header.point(),
+                actual: header.parent_hash(),
+                expected: per_peer.current.point(),
+            })));
         }
         if header.block_height() != per_peer.current.block_height() + 1 {
             return Err(ConsensusError::InvalidHeaderHeight {
@@ -112,13 +97,11 @@ impl TrackPeers {
         }
         let highest = tip.point();
         if header.point() < per_peer.current.point() || header.point() > highest {
-            return Err(ConsensusError::InvalidHeaderPoint(Box::new(
-                InvalidHeaderPoint {
-                    actual: header.point(),
-                    parent: per_peer.current.point(),
-                    highest,
-                },
-            )));
+            return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
+                actual: header.point(),
+                parent: per_peer.current.point(),
+                highest,
+            })));
         }
         eff.ledger()
             .validate_header(&header, Span::current().context())
@@ -142,9 +125,7 @@ impl TrackPeers {
         if eff.store().has_header(&header.hash()) {
             Ok(None)
         } else {
-            eff.store()
-                .store_header(&header)
-                .map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
+            eff.store().store_header(&header).map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
             Ok(Some(tip))
         }
     }
@@ -179,10 +160,8 @@ pub fn decode_header(raw_header: HeaderContent) -> Result<BlockHeader, Consensus
     if !matches!(raw_header.variant, EraName::Conway) {
         return Err(ConsensusError::InvalidHeaderVariant(raw_header.variant));
     }
-    from_cbor_no_leftovers(&raw_header.cbor).map_err(|reason| ConsensusError::CannotDecodeHeader {
-        header: raw_header.cbor,
-        reason: reason.to_string(),
-    })
+    from_cbor_no_leftovers(&raw_header.cbor)
+        .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.cbor, reason: reason.to_string() })
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -190,20 +169,11 @@ pub enum TrackPeersMsg {
     FromUpstream(ChainSyncInitiatorMsg),
 }
 
-pub async fn stage(
-    mut state: TrackPeers,
-    msg: TrackPeersMsg,
-    eff: Effects<TrackPeersMsg>,
-) -> TrackPeers {
+pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {
     use TrackPeersMsg::*;
 
     match msg {
-        FromUpstream(ChainSyncInitiatorMsg {
-            peer,
-            conn_id: _,
-            handler,
-            msg,
-        }) => {
+        FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
             use amaru_protocols::chainsync::InitiatorResult::*;
             match msg {
                 Initialize => {
@@ -217,13 +187,7 @@ pub async fn stage(
                     };
                     tracing::info!(%peer, %current, highest = %tip.point(), "intersect found");
                     let current = Tip::new(current, header.block_height());
-                    state.upstream.insert(
-                        peer,
-                        PerPeer {
-                            current,
-                            highest: tip,
-                        },
-                    );
+                    state.upstream.insert(peer, PerPeer { current, highest: tip });
                 }
                 IntersectNotFound(tip) => {
                     tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
@@ -232,39 +196,28 @@ pub async fn stage(
                 }
                 RollForward(header_content, tip) => {
                     tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
-                    eff.send(&handler, chainsync::InitiatorMessage::RequestNext)
-                        .await;
+                    eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
 
-                    let header = state
-                        .validate_header(
-                            &peer,
-                            header_content,
-                            tip,
-                            ConsensusEffects::new(eff.clone()),
-                        )
-                        .await;
+                    let header =
+                        state.validate_header(&peer, header_content, tip, ConsensusEffects::new(eff.clone())).await;
                     let header = match header {
                         Ok(header) => header,
                         Err(error) => {
                             tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                             state.upstream.remove(&peer);
-                            eff.send(&state.manager, ManagerMessage::RemovePeer(peer))
-                                .await;
+                            eff.send(&state.manager, ManagerMessage::RemovePeer(peer)).await;
                             return state;
                         }
                     };
 
                     let tip_point = tip.point();
-                    let tip = state
-                        .roll_forward(&peer, header, tip, ConsensusEffects::new(eff.clone()))
-                        .await;
+                    let tip = state.roll_forward(&peer, header, tip, ConsensusEffects::new(eff.clone())).await;
                     let tip = match tip {
                         Ok(tip) => tip,
                         Err(error) => {
                             tracing::error!(%error, %peer, "chain_sync.store_header.failed");
                             state.upstream.remove(&peer);
-                            eff.send(&state.manager, ManagerMessage::RemovePeer(peer))
-                                .await;
+                            eff.send(&state.manager, ManagerMessage::RemovePeer(peer)).await;
                             return state;
                         }
                     };
@@ -279,14 +232,12 @@ pub async fn stage(
                 RollBackward(current, tip) => {
                     tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
 
-                    if let Err(error) = state
-                        .roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone()))
-                        .await
+                    if let Err(error) =
+                        state.roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone())).await
                     {
                         tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
                         state.upstream.remove(&peer);
-                        eff.send(&state.manager, ManagerMessage::RemovePeer(peer))
-                            .await;
+                        eff.send(&state.manager, ManagerMessage::RemovePeer(peer)).await;
                         return state;
                     }
                 }

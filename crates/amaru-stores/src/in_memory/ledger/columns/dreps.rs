@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::in_memory::MemoryStore;
 use amaru_kernel::{CertificatePointer, DRepRegistration};
 use amaru_ledger::store::{
     StoreError,
@@ -20,43 +19,24 @@ use amaru_ledger::store::{
 };
 use tracing::error;
 
-pub fn add(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+use crate::in_memory::MemoryStore;
+
+pub fn add(store: &MemoryStore, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     let mut dreps = store.dreps.borrow_mut();
 
     for (credential, (anchor, registration)) in rows {
         if let Some(row) = dreps.get_mut(&credential) {
             // Re-registration or update
-            if let Some(DRepRegistration {
-                deposit,
-                registered_at,
-                valid_until,
-                ..
-            }) = registration
-            {
+            if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
                 row.deposit = deposit;
                 row.registered_at = registered_at;
                 row.valid_until = valid_until;
             }
 
             anchor.set_or_reset(&mut row.anchor);
-        } else if let Some(DRepRegistration {
-            deposit,
-            registered_at,
-            valid_until,
-            ..
-        }) = registration
-        {
+        } else if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
             // New registration
-            let mut row = Row {
-                deposit,
-                registered_at,
-                valid_until,
-                anchor: None,
-                previous_deregistration: None,
-            };
+            let mut row = Row { deposit, registered_at, valid_until, anchor: None, previous_deregistration: None };
             anchor.set_or_reset(&mut row.anchor);
             dreps.insert(credential, row);
         } else {
@@ -71,10 +51,7 @@ pub fn add(
     Ok(())
 }
 
-pub fn remove(
-    store: &MemoryStore,
-    rows: impl Iterator<Item = (Key, CertificatePointer)>,
-) -> Result<(), StoreError> {
+pub fn remove(store: &MemoryStore, rows: impl Iterator<Item = (Key, CertificatePointer)>) -> Result<(), StoreError> {
     let mut dreps = store.dreps.borrow_mut();
 
     for (credential, pointer) in rows {

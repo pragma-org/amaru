@@ -12,23 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::config::{Config, StoreType};
-use crate::tests::configuration::NodeType::{NodeUnderTest, UpstreamNode};
-use crate::tests::in_memory_connection_provider::InMemoryConnectionProvider;
-use crate::tests::test_data::{create_transactions, create_transactions_in_mempool};
+use std::{
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
+
 use amaru_consensus::headers_tree::data_generation::Action;
-use amaru_kernel::cardano::network_block::make_encoded_block;
-use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point, ProtocolParameters, Transaction};
-use amaru_kernel::{EraHistory, Peer};
+use amaru_kernel::{
+    BlockHeader, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction,
+    cardano::network_block::make_encoded_block,
+};
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::in_memory_consensus_store::InMemConsensusStore;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, TxId};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, TxId, in_memory_consensus_store::InMemConsensusStore};
 use amaru_stores::in_memory::MemoryStore;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
+
+use crate::{
+    stages::config::{Config, StoreType},
+    tests::{
+        configuration::NodeType::{NodeUnderTest, UpstreamNode},
+        in_memory_connection_provider::InMemoryConnectionProvider,
+        test_data::{create_transactions, create_transactions_in_mempool},
+    },
+};
 
 /// Configuration for running a test node:
 ///
@@ -221,24 +229,15 @@ impl NodeTestConfig {
                 header.parent_hash().unwrap_or(Point::Origin.hash())
             );
             self.chain_store.store_header(header).unwrap();
-            self.chain_store
-                .store_block(
-                    &header.hash(),
-                    &make_encoded_block(header, self.era_history()),
-                )
-                .unwrap();
-            self.chain_store
-                .roll_forward_chain(&header.point())
-                .unwrap();
+            self.chain_store.store_block(&header.hash(), &make_encoded_block(header, self.era_history())).unwrap();
+            self.chain_store.roll_forward_chain(&header.point()).unwrap();
         }
 
         if let Some(header) = headers.first() {
             tracing::info!("set the anchor to {}", header.point());
             self.chain_store.set_anchor_hash(&header.hash()).unwrap();
             tracing::info!("set the tip to {}", header.point());
-            self.chain_store
-                .set_best_chain_hash(&header.hash())
-                .unwrap();
+            self.chain_store.set_best_chain_hash(&header.hash()).unwrap();
         }
         self
     }
@@ -260,10 +259,7 @@ impl NodeTestConfig {
         // This ensures that build_node's initialize_chain_store won't reset the
         // chain store's best_chain_hash (only the anchor will be set, which is already
         // the same as the ledger tip).
-        let ledger_store = MemoryStore::new(
-            self.era_history().clone(),
-            self.protocol_parameters()?.clone(),
-        );
+        let ledger_store = MemoryStore::new(self.era_history().clone(), self.protocol_parameters()?.clone());
         let chain_anchor = self
             .chain_store
             .load_header(&self.chain_store.get_anchor_hash())
@@ -285,8 +281,5 @@ pub const INITIATOR_TXS_NB: usize = 10;
 
 /// By construction we return the same tx ids as the ones created in the function above
 pub fn get_tx_ids() -> Vec<TxId> {
-    create_transactions(RESPONDER_TXS_NB)
-        .into_iter()
-        .map(|tx| TxId::from(&tx))
-        .collect()
+    create_transactions(RESPONDER_TXS_NB).into_iter().map(|tx| TxId::from(&tx)).collect()
 }

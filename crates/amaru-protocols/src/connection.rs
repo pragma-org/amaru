@@ -12,18 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::blockfetch::StreamBlocks;
-use crate::manager::ManagerConfig;
+use std::sync::Arc;
+
+use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
+use tracing::instrument;
+
 use crate::{
     blockfetch::{
-        self, BlockFetchMessage, Blocks, register_blockfetch_initiator,
-        register_blockfetch_responder,
+        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator, register_blockfetch_responder,
     },
-    chainsync::{
-        self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder,
-    },
+    chainsync::{self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder},
     handshake,
     keepalive::register_keepalive,
+    manager::ManagerConfig,
     mux::{self, HandlerMessage, MuxMessage},
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
@@ -33,11 +36,6 @@ use crate::{
     store_effects::Store,
     tx_submission::register_tx_submission,
 };
-use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
-use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
-use std::sync::Arc;
-use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
@@ -55,18 +53,7 @@ impl Connection {
         pipeline: StageRef<ChainSyncInitiatorMsg>,
         era_history: Arc<EraHistory>,
     ) -> Self {
-        Self {
-            params: Params {
-                peer,
-                conn_id,
-                role,
-                config,
-                magic,
-                pipeline,
-                era_history,
-            },
-            state: State::Initial,
-        }
+        Self { params: Params { peer, conn_id, role, config, magic, pipeline, era_history }, state: State::Initial }
     }
 }
 
@@ -84,10 +71,7 @@ struct Params {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum State {
     Initial,
-    Handshake {
-        muxer: StageRef<MuxMessage>,
-        handshake: StageRef<Inputs<Void>>,
-    },
+    Handshake { muxer: StageRef<MuxMessage>, handshake: StageRef<Inputs<Void>> },
     Initiator(StateInitiator),
     Responder(StateResponder),
 }
@@ -119,11 +103,7 @@ pub enum ConnectionMessage {
     Initialize,
     Disconnect,
     Handshake(HandshakeResult),
-    FetchBlocks {
-        from: Point,
-        through: Point,
-        cr: StageRef<Blocks>,
-    },
+    FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks> },
     NewTip(Tip),
     // LATER: make full duplex, etc.
 }
@@ -150,40 +130,21 @@ pub async fn stage(
         (_, ConnectionMessage::Disconnect) => return eff.terminate().await,
         (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
         (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
-            do_handshake(
-                &params,
-                muxer,
-                params.pipeline.clone(),
-                handshake,
-                handshake_result,
-                eff,
-            )
-            .await
+            do_handshake(&params, muxer, params.pipeline.clone(), handshake, handshake_result, eff).await
         }
         (State::Initiator(s), ConnectionMessage::FetchBlocks { from, through, cr }) => {
-            eff.send(
-                &s.blockfetch_initiator,
-                BlockFetchMessage::RequestRange { from, through, cr },
-            )
-            .await;
+            eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, cr }).await;
             State::Initiator(s)
         }
         (State::Responder(s), ConnectionMessage::NewTip(tip)) => {
-            eff.send(
-                &s.chainsync_responder,
-                chainsync::ResponderMessage::NewTip(tip),
-            )
-            .await;
+            eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip)).await;
             State::Responder(s)
         }
         (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
             // don't propagate new tip messages when using the initiator side of a connection.
             State::Initiator(s)
         }
-        (
-            state @ (State::Initial | State::Handshake { .. }),
-            msg @ ConnectionMessage::FetchBlocks { .. },
-        ) => {
+        (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {
             // The peer might be still connecting. In that case we reschedule the message
             // If the peer eventually can't be fully initialized, the caller timeout will trigger.
             // We schedule after the reconnect delay (2s by default) which is shorter than the call
@@ -196,26 +157,11 @@ pub async fn stage(
     Connection { params, state }
 }
 
-async fn do_initialize(
-    Params {
-        conn_id,
-        role,
-        magic,
-        ..
-    }: &Params,
-    eff: Effects<ConnectionMessage>,
-) -> State {
+async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {
     let muxer = eff.stage("mux", mux::stage).await;
-    let muxer = eff
-        .wire_up(
-            muxer,
-            mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role),
-        )
-        .await;
+    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role)).await;
 
-    let handshake_result = eff
-        .contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake)
-        .await;
+    let handshake_result = eff.contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake).await;
 
     let handshake = match role {
         Role::Initiator => {
@@ -242,37 +188,21 @@ async fn do_initialize(
         }
     };
 
-    let handler = eff
-        .contramap(&handshake, "handshake_bytes", Inputs::Network)
-        .await;
+    let handler = eff.contramap(&handshake, "handshake_bytes", Inputs::Network).await;
 
     let protocol = match role {
         Role::Initiator => PROTO_HANDSHAKE.erase(),
         Role::Responder => PROTO_HANDSHAKE.responder().erase(),
     };
-    eff.send(
-        &muxer,
-        MuxMessage::Register {
-            protocol,
-            frame: mux::Frame::OneCborItem,
-            handler,
-            max_buffer: 5760,
-        },
-    )
-    .await;
+    eff.send(&muxer, MuxMessage::Register { protocol, frame: mux::Frame::OneCborItem, handler, max_buffer: 5760 })
+        .await;
 
     State::Handshake { muxer, handshake }
 }
 
 #[expect(clippy::expect_used)]
 async fn do_handshake(
-    Params {
-        role,
-        peer,
-        conn_id,
-        era_history,
-        ..
-    }: &Params,
+    Params { role, peer, conn_id, era_history, .. }: &Params,
     muxer: StageRef<MuxMessage>,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     handshake: StageRef<Inputs<Void>>,
@@ -292,20 +222,12 @@ async fn do_handshake(
     };
 
     let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
-    let tx_submission =
-        register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone())).await;
+    let tx_submission = register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone())).await;
 
     if *role == Role::Initiator {
-        let chainsync_initiator =
-            register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
-        let blockfetch_initiator = register_blockfetch_initiator(
-            &muxer,
-            peer.clone(),
-            *conn_id,
-            era_history.clone(),
-            &eff,
-        )
-        .await;
+        let chainsync_initiator = register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
+        let blockfetch_initiator =
+            register_blockfetch_initiator(&muxer, peer.clone(), *conn_id, era_history.clone(), &eff).await;
         State::Initiator(StateInitiator {
             chainsync_initiator,
             blockfetch_initiator,
@@ -322,13 +244,10 @@ async fn do_handshake(
         let upstream = if upstream == ORIGIN_HASH {
             Tip::new(Point::Origin, 0.into())
         } else {
-            let header = store
-                .load_header(&upstream)
-                .expect("best chain hash not found");
+            let header = store.load_header(&upstream).expect("best chain hash not found");
             header.tip()
         };
-        let chainsync_responder =
-            register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;
+        let chainsync_responder = register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;
         let blockfetch_responder = register_blockfetch_responder(&muxer, &eff).await;
 
         State::Responder(StateResponder {
@@ -352,9 +271,10 @@ pub fn register_deserializers() -> DeserializerGuards {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use amaru_kernel::NetworkName;
     use pure_stage::{Effect, StageGraph, simulation::SimulationBuilder};
+
+    use super::*;
 
     #[test]
     fn test_fetch_blocks_in_initial_state_reschedules() {
@@ -363,10 +283,7 @@ mod tests {
 
     #[test]
     fn test_fetch_blocks_in_handshake_state_reschedules() {
-        let handshake_state = State::Handshake {
-            muxer: StageRef::blackhole(),
-            handshake: StageRef::blackhole(),
-        };
+        let handshake_state = State::Handshake { muxer: StageRef::blackhole(), handshake: StageRef::blackhole() };
         fetch_blocks_in_disconnected_state_reschedules(handshake_state);
     }
 
@@ -392,16 +309,12 @@ mod tests {
         let mut network = SimulationBuilder::default();
 
         let connection_stage = network.stage("connection", stage);
-        let connection_stage =
-            network.wire_up(connection_stage, test_connection(connection_state.clone()));
+        let connection_stage = network.wire_up(connection_stage, test_connection(connection_state.clone()));
 
         let (blocks_output, _rx) = network.output::<Blocks>("blocks_output", 10);
 
-        let fetch_msg = ConnectionMessage::FetchBlocks {
-            from: Point::Origin,
-            through: Point::Origin,
-            cr: blocks_output,
-        };
+        let fetch_msg =
+            ConnectionMessage::FetchBlocks { from: Point::Origin, through: Point::Origin, cr: blocks_output };
 
         network.preload(&connection_stage, [fetch_msg]).unwrap();
 

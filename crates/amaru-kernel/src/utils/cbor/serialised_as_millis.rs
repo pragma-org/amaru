@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
-use num::BigUint;
 use std::time::Duration;
+
+use num::BigUint;
+
+use crate::cbor;
 
 /// A newtype wrapper meant to facilitate encoding of time::Duration as integers with millis
 /// precision. This may seem odd, but is necessary to mimicks the encoding behavior of *some*
@@ -43,9 +45,7 @@ impl SerialisedAsMillis {
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(Duration::from_millis(serde::Deserialize::deserialize(
-            deserializer,
-        )?))
+        Ok(Duration::from_millis(serde::Deserialize::deserialize(deserializer)?))
     }
 
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
@@ -102,9 +102,7 @@ impl<'b, C> cbor::Decode<'b, C> for SerialisedAsMillis {
                 }
             }
             U64 | U32 | U16 | U8 => Ok(Self(Duration::from_millis(d.u64()?))),
-            t => Err(cbor::decode::Error::message(format!(
-                "Unhandled type decoding SerialisedAsMillis: {t}"
-            ))),
+            t => Err(cbor::decode::Error::message(format!("Unhandled type decoding SerialisedAsMillis: {t}"))),
         }
     }
 }

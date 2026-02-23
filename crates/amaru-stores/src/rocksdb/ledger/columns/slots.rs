@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -22,13 +21,12 @@ use amaru_ledger::store::{
 };
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 
+use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+
 /// Name prefixed used for storing Pool entries. UTF-8 encoding for "slot"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x73, 0x6c, 0x6f, 0x74];
 
-pub fn get<T: ThreadMode>(
-    db: &OptimisticTransactionDB<T>,
-    key: &Key,
-) -> Result<Option<Value>, StoreError> {
+pub fn get<T: ThreadMode>(db: &OptimisticTransactionDB<T>, key: &Key) -> Result<Option<Value>, StoreError> {
     Ok(db
         .get_pinned(as_key(&PREFIX, key))
         .map_err(|err| StoreError::Internal(err.into()))?
@@ -36,6 +34,5 @@ pub fn get<T: ThreadMode>(
 }
 
 pub fn put<DB>(db: &Transaction<'_, DB>, key: &Key, value: Value) -> Result<(), StoreError> {
-    db.put(as_key(&PREFIX, key), as_value(value))
-        .map_err(|err| StoreError::Internal(err.into()))
+    db.put(as_key(&PREFIX, key), as_value(value)).map_err(|err| StoreError::Internal(err.into()))
 }

@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::mem::replace;
+
+use anyhow::Context;
+
 use crate::{
     Instant, Name, ScheduleId, SendData, StageResponse,
     adapter::StageOrAdapter,
@@ -23,8 +27,6 @@ use crate::{
     },
     trace_buffer::TerminationReason,
 };
-use anyhow::Context;
-use std::mem::replace;
 
 #[derive(Debug, thiserror::Error)]
 #[error("stage `{0}` terminated by unsupervised child termination")]
@@ -34,10 +36,7 @@ pub struct UnsupervisedChildTermination(pub Name);
 ///
 /// Returns `Ok(true)` if the receive was in fact resumed, `Ok(false)` if the stage was not waiting for a receive effect,
 /// or `Err` if the simulation should be terminated due to a bug or a top-level stage termination.
-pub fn resume_receive_internal(
-    simulation: &mut SimulationRunning,
-    at_stage: &Name,
-) -> anyhow::Result<bool> {
+pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Name) -> anyhow::Result<bool> {
     let data = simulation
         .stages
         .get_mut(at_stage)
@@ -60,8 +59,7 @@ pub fn resume_receive_internal(
             let (supervised_by, msg) = simulation
                 .terminate_stage(at_stage.clone(), TerminationReason::Supervision(name))
                 .ok_or_else(|| anyhow::anyhow!("stage was already terminated"))?;
-            let Some(StageOrAdapter::Stage(supervisor)) = simulation.stages.get_mut(&supervised_by)
-            else {
+            let Some(StageOrAdapter::Stage(supervisor)) = simulation.stages.get_mut(&supervised_by) else {
                 tracing::error!(%at_stage, "terminating simulation due to unsupervised stage termination");
                 simulation.terminate.send_replace(true);
                 return Err(UnsupervisedChildTermination(at_stage.clone()).into());
@@ -83,18 +81,13 @@ pub fn resume_receive_internal(
     data.waiting = None;
 
     let StageState::Idle(state) = replace(&mut data.state, StageState::Idle(Box::new(()))) else {
-        panic!(
-            "stage {} must have been Idle, was {:?}",
-            data.name, data.state
-        );
+        panic!("stage {} must have been Idle, was {:?}", data.name, data.state);
     };
 
     simulation.trace_buffer.lock().push_input(&data.name, &msg);
     data.state = StageState::Running((data.transition)(state, msg));
 
-    simulation
-        .runnable
-        .push_back((data.name.clone(), StageResponse::Unit));
+    simulation.runnable.push_back((data.name.clone(), StageResponse::Unit));
     Ok(true)
 }
 
@@ -103,29 +96,18 @@ pub fn resume_send_internal(
     run: &mut dyn FnMut(Name, StageResponse),
     to: Name,
 ) -> anyhow::Result<Option<ScheduleId>> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::Send(name, call2, _msg) if name == &to) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a send effect to `{}`, but {:?}",
-            data.name,
-            to,
-            waiting_for
-        )
+        anyhow::bail!("stage `{}` was not waiting for a send effect to `{}`, but {:?}", data.name, to, waiting_for)
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
     let Some(StageEffect::Send(_, call, _)) = data.waiting.take() else {
         panic!("checked above");
     };
-    let call = call.map(|call| {
-        *call
-            .downcast_ref::<ScheduleId>()
-            .expect("StageRef extra must be a ScheduleId")
-    });
+    let call = call.map(|call| *call.downcast_ref::<ScheduleId>().expect("StageRef extra must be a ScheduleId"));
 
     run(data.name.clone(), StageResponse::Unit);
     Ok(call)
@@ -136,17 +118,11 @@ pub fn resume_clock_internal(
     run: &mut dyn FnMut(Name, StageResponse),
     time: Instant,
 ) -> anyhow::Result<()> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::Clock) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a clock effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+        anyhow::bail!("stage `{}` was not waiting for a clock effect, but {:?}", data.name, waiting_for)
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
@@ -161,17 +137,11 @@ pub fn resume_wait_internal(
     run: &mut dyn FnMut(Name, StageResponse),
     time: Instant,
 ) -> anyhow::Result<()> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::Wait(_duration)) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a wait effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+        anyhow::bail!("stage `{}` was not waiting for a wait effect, but {:?}", data.name, waiting_for)
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
@@ -193,10 +163,7 @@ pub fn resume_call_send_internal(
     let data_from = data_from.assert_stage("which cannot receive call effects");
     let Some(StageEffect::Call(_, _, CallExtra::Scheduled(id))) = data_from.waiting.as_ref() else {
         tracing::warn!(stage = %from, "stage was not waiting for a call effect, but {:?}", data_from.waiting);
-        anyhow::bail!(
-            "stage was not waiting for a call effect, but {:?}",
-            data_from.waiting
-        );
+        anyhow::bail!("stage was not waiting for a call effect, but {:?}", data_from.waiting);
     };
     let id = *id;
 
@@ -252,18 +219,11 @@ pub fn resume_call_internal(
     id: Option<ScheduleId>,
     msg: Box<dyn SendData>,
 ) -> anyhow::Result<()> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
-    if !matches!(waiting_for, StageEffect::Call(_,_,CallExtra::Scheduled(id2)) if id.iter().all(|id| id == id2))
-    {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a call effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+    if !matches!(waiting_for, StageEffect::Call(_,_,CallExtra::Scheduled(id2)) if id.iter().all(|id| id == id2)) {
+        anyhow::bail!("stage `{}` was not waiting for a call effect, but {:?}", data.name, waiting_for)
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
@@ -278,16 +238,11 @@ pub fn resume_external_internal(
     result: Box<dyn SendData>,
     run: &mut dyn FnMut(Name, StageResponse),
 ) -> anyhow::Result<()> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::External(_)) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for an external effect",
-            data.name
-        )
+        anyhow::bail!("stage `{}` was not waiting for an external effect", data.name)
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
@@ -302,17 +257,11 @@ pub fn resume_add_stage_internal(
     run: &mut dyn FnMut(Name, StageResponse),
     name: Name,
 ) -> anyhow::Result<()> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::AddStage(_)) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for an add stage effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+        anyhow::bail!("stage `{}` was not waiting for an add stage effect, but {:?}", data.name, waiting_for)
     }
 
     // it is important that all validations (i.e. `?`) happen before this point
@@ -326,17 +275,11 @@ pub fn resume_wire_stage_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
 ) -> anyhow::Result<TransitionFactory> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::WireStage(..)) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a wire stage effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+        anyhow::bail!("stage `{}` was not waiting for a wire stage effect, but {:?}", data.name, waiting_for)
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
@@ -354,18 +297,12 @@ pub fn resume_contramap_internal(
     orig: Name,
     name: Name,
 ) -> anyhow::Result<Box<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + 'static>> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::Contramap { original, new_name, .. } if original == &orig && name.as_str().starts_with(new_name.as_str()))
     {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a contramap effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+        anyhow::bail!("stage `{}` was not waiting for a contramap effect, but {:?}", data.name, waiting_for)
     }
 
     // it is important that all validations (i.e. `?``) happen before this point
@@ -382,10 +319,8 @@ pub fn resume_schedule_internal(
     run: &mut dyn FnMut(Name, StageResponse),
     id: ScheduleId,
 ) -> anyhow::Result<()> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::Schedule(_, id2) if id2 == &id) {
         anyhow::bail!(
@@ -408,25 +343,16 @@ pub fn resume_cancel_schedule_internal(
     run: &mut dyn FnMut(Name, StageResponse),
     cancelled: bool,
 ) -> anyhow::Result<()> {
-    let waiting_for = data
-        .waiting
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
 
     if !matches!(waiting_for, StageEffect::CancelSchedule(_)) {
-        anyhow::bail!(
-            "stage `{}` was not waiting for a cancel_schedule effect, but {:?}",
-            data.name,
-            waiting_for
-        )
+        anyhow::bail!("stage `{}` was not waiting for a cancel_schedule effect, but {:?}", data.name, waiting_for)
     }
 
     // it is important that all validations (i.e. `?`) happen before this point
     data.waiting = None;
 
-    run(
-        data.name.clone(),
-        StageResponse::CancelScheduleResponse(cancelled),
-    );
+    run(data.name.clone(), StageResponse::CancelScheduleResponse(cancelled));
     Ok(())
 }

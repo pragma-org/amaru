@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::{Debug, Display, Formatter};
+
 use amaru_kernel::{Block, BlockHeader, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display, Formatter};
 use thiserror::Error;
 
 pub mod mock;
@@ -42,9 +43,7 @@ impl BlockValidationError {
         self.0
     }
 
-    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(
-        self,
-    ) -> Result<T, anyhow::Error> {
+    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(self) -> Result<T, anyhow::Error> {
         self.0.downcast::<T>()
     }
 
@@ -109,9 +108,7 @@ impl HeaderValidationError {
         self.0
     }
 
-    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(
-        self,
-    ) -> Result<T, anyhow::Error> {
+    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(self) -> Result<T, anyhow::Error> {
         self.0.downcast::<T>()
     }
 

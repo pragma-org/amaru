@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::json_layer::{JsonLayer, JsonTraceCollector};
-use crate::trace_collect_config::TraceCollectConfig;
-use crate::tree::Tree;
-use serde_json::Value;
 use std::collections::BTreeMap;
+
+use serde_json::Value;
 use tracing::Dispatch;
-use tracing_subscriber::Layer;
-use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{Layer, layer::SubscriberExt};
+
+use crate::{
+    json_layer::{JsonLayer, JsonTraceCollector},
+    trace_collect_config::TraceCollectConfig,
+    tree::Tree,
+};
 
 /// Collect tracing data emitted during the execution of `run` and also return the result of `run`.
 pub fn collect<F, R>(run: F, trace_collect_config: TraceCollectConfig) -> (R, Vec<Value>)
@@ -28,10 +31,9 @@ where
 {
     let collector = JsonTraceCollector::default();
     let layer = JsonLayer::new(collector.clone(), trace_collect_config.clone());
-    let subscriber = tracing_subscriber::registry().with(layer).with(
-        tracing_subscriber::fmt::Layer::default()
-            .with_filter(trace_collect_config.env_filter.clone()),
-    );
+    let subscriber = tracing_subscriber::registry()
+        .with(layer)
+        .with(tracing_subscriber::fmt::Layer::default().with_filter(trace_collect_config.env_filter.clone()));
     let dispatch = Dispatch::new(subscriber);
     let _guard = tracing::dispatcher::set_default(&dispatch);
     let result = run();
@@ -55,10 +57,7 @@ pub fn as_trees(collected: Vec<Value>) -> Vec<Value> {
         if let Some(id) = item.get("id") {
             let id_string = id.as_str().map(|s| s.to_string()).unwrap_or_default();
             if let Some(parent_id) = item.get("parent_id") {
-                let parent_id_string = parent_id
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
+                let parent_id_string = parent_id.as_str().map(|s| s.to_string()).unwrap_or_default();
                 let children = parent_child.entry(parent_id_string).or_default();
                 if !children.contains(&id_string) {
                     children.push(id_string.clone());
@@ -70,19 +69,11 @@ pub fn as_trees(collected: Vec<Value>) -> Vec<Value> {
         }
     }
 
-    fn make_tree(
-        root: String,
-        by_id: &BTreeMap<String, Vec<String>>,
-        values: &BTreeMap<String, Value>,
-    ) -> Tree<Value> {
+    fn make_tree(root: String, by_id: &BTreeMap<String, Vec<String>>, values: &BTreeMap<String, Value>) -> Tree<Value> {
         let value = values.get(&root).cloned().unwrap_or_default();
         let mut tree = Tree::make_leaf(strip_span(value));
         if let Some(children) = by_id.get(&root) {
-            tree.children = children
-                .iter()
-                .cloned()
-                .map(|c| make_tree(c, by_id, values))
-                .collect();
+            tree.children = children.iter().cloned().map(|c| make_tree(c, by_id, values)).collect();
         }
         tree
     }

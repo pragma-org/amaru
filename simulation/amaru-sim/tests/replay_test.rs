@@ -12,16 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fs, path::Path};
+
 use amaru_sim::simulator::{
-    RunConfig, SimulationRun, TestRun, get_args, initialize_logs, make_args, replay,
+    RunConfig, SimulationRun, TEST_DATA_DIR, TestRun, get_args, initialize_logs, make_args, replay, run_tests,
 };
-use amaru_sim::simulator::{TEST_DATA_DIR, run_tests};
 use anyhow::anyhow;
-use pure_stage::Instant;
-use pure_stage::serde::from_cbor;
-use pure_stage::trace_buffer::TraceEntry;
-use std::fs;
-use std::path::Path;
+use pure_stage::{Instant, serde::from_cbor, trace_buffer::TraceEntry};
 
 /// Test the simulation with default parameters and replay the resulting trace.
 /// We use just 1 upstream peer.
@@ -38,12 +35,8 @@ fn test_run_replay() {
     args.test_data_dir = format!("{TEST_DATA_DIR}/run_replay");
     run_tests(args.clone()).unwrap();
 
-    let traces = get_traces(
-        Path::new(&args.test_data_dir),
-        SimulationRun::Latest,
-        TestRun::Latest,
-    )
-    .expect("latest traces");
+    let traces =
+        get_traces(Path::new(&args.test_data_dir), SimulationRun::Latest, TestRun::Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -56,8 +49,7 @@ pub fn run_replay() {
     let run_config = RunConfig::default();
     let test_directory = run_config.test_data_dir.as_path();
     let args = get_args(test_directory, SimulationRun::Latest).expect("latest arguments");
-    let traces =
-        get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");
+    let traces = get_traces(test_directory, SimulationRun::Latest, TestRun::Latest).expect("latest traces");
     replay(args, traces).unwrap();
 }
 
@@ -67,12 +59,8 @@ fn get_traces(
     simulation_run: SimulationRun,
     test_run: TestRun,
 ) -> anyhow::Result<Vec<TraceEntry>> {
-    let path = format!(
-        "{}/{simulation_run}/{test_run}/traces.cbor",
-        test_directory.display()
-    );
-    let latest_trace =
-        fs::canonicalize(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let path = format!("{}/{simulation_run}/{test_run}/traces.cbor", test_directory.display());
+    let latest_trace = fs::canonicalize(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
     load_trace_entries(&latest_trace)
 }
 

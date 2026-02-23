@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Args;
+use std::path::{Path, PathBuf};
+
 use amaru_kernel::Peer;
 use pure_stage::simulation::RandStdRng;
-use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
-use std::path::{Path, PathBuf};
+use rand::{Rng, SeedableRng, prelude::StdRng};
+
+use crate::simulator::Args;
 
 /// Configuration for a simulation run
 #[derive(Debug, Clone)]
@@ -92,15 +93,11 @@ impl RunConfig {
     }
 
     pub fn upstream_peers(&self) -> Vec<Peer> {
-        (1..=self.number_of_upstream_peers)
-            .map(|i| Peer::new(&format!("127.0.0.1:300{i}")))
-            .collect()
+        (1..=self.number_of_upstream_peers).map(|i| Peer::new(&format!("127.0.0.1:300{i}"))).collect()
     }
 
     pub fn downstream_peers(&self) -> Vec<Peer> {
-        (1..=self.number_of_downstream_peers)
-            .map(|i| Peer::new(&format!("127.0.0.1:400{i}")))
-            .collect()
+        (1..=self.number_of_downstream_peers).map(|i| Peer::new(&format!("127.0.0.1:400{i}"))).collect()
     }
 
     pub fn rng(&self) -> RandStdRng {

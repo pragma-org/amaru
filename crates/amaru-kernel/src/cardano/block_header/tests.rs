@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use proptest::prelude::*;
+
 use super::*;
 use crate::{Hash, size::BLOCK_BODY};
-use proptest::prelude::*;
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
-    use crate::Bytes;
     use pallas_primitives::{VrfCert, babbage::PseudoHeader, conway::OperationalCert};
+
+    use crate::Bytes;
 
     let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash_cbor(&vec![block_number, slot]);
 
@@ -51,10 +53,7 @@ pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<BlockHeader>> {
 }
 
 /// Create a list of arbitrary headers starting from a root with the specified hash, and where chain[i] is the parent of chain[i+1]
-pub fn any_headers_chain_with_root(
-    n: usize,
-    point: Point,
-) -> impl Strategy<Value = Vec<BlockHeader>> {
+pub fn any_headers_chain_with_root(n: usize, point: Point) -> impl Strategy<Value = Vec<BlockHeader>> {
     prop::collection::vec(any_header(), n).prop_map(make_headers_with_root_point(Some(point)))
 }
 
@@ -65,9 +64,7 @@ fn make_headers() -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
 
 /// Given a list of headers, set their block_number, slot and parent fields to form a valid chain
 /// The returned headers increase their block number and slot by 1 at each step, starting from the given root point
-fn make_headers_with_root_point(
-    point: Option<Point>,
-) -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
+fn make_headers_with_root_point(point: Option<Point>) -> impl Fn(Vec<BlockHeader>) -> Vec<BlockHeader> {
     move |headers| {
         let mut parent = point.unwrap_or(Point::Origin);
         headers
@@ -89,21 +86,14 @@ fn make_headers_with_root_point(
 
 /// Create an arbitrary BlockHeader, with an arbitrary parent, possibly set to None
 pub fn any_header() -> impl Strategy<Value = BlockHeader> {
-    (
-        0u64..=1_000_000,
-        0u64..=1_000_000,
-        prop::option::weighted(0.01, any_header_hash()),
-    )
-        .prop_map(|(block_number, slot, prev_hash)| {
-            BlockHeader::from(make_header(block_number, slot, prev_hash))
-        })
+    (0u64..=1_000_000, 0u64..=1_000_000, prop::option::weighted(0.01, any_header_hash()))
+        .prop_map(|(block_number, slot, prev_hash)| BlockHeader::from(make_header(block_number, slot, prev_hash)))
 }
 
 /// Create an arbitrary BlockHeader, with an arbitrary parent
 pub fn any_header_with_parent(parent: HeaderHash) -> impl Strategy<Value = BlockHeader> {
-    (0u64..=1_000_000, 0u64..=1_000_000).prop_map(move |(block_number, slot)| {
-        BlockHeader::from(make_header(block_number, slot, Some(parent)))
-    })
+    (0u64..=1_000_000, 0u64..=1_000_000)
+        .prop_map(move |(block_number, slot)| BlockHeader::from(make_header(block_number, slot, Some(parent))))
 }
 
 /// Create an arbitrary BlockHeader, with an arbitrary parent that is guaranteed to be Some
@@ -118,13 +108,10 @@ pub fn any_header_hash() -> impl Strategy<Value = HeaderHash> {
 
 /// Create an arbitrary FakeHeader
 pub fn any_fake_header() -> impl Strategy<Value = BlockHeader> {
-    (
-        0u64..=1_000_000,
-        0u64..=1_000_000,
-        prop::option::weighted(0.01, any_header_hash()),
-    )
-        .prop_map(|(block_number, slot, parent)| {
+    (0u64..=1_000_000, 0u64..=1_000_000, prop::option::weighted(0.01, any_header_hash())).prop_map(
+        |(block_number, slot, parent)| {
             let header = make_header(block_number, slot, parent);
             BlockHeader::from(header)
-        })
+        },
+    )
 }

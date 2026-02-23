@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use minicbor as cbor;
 use std::{fs, io::Read};
+
+use minicbor as cbor;
 
 /// A decoder that only consumes bytes CHUNK_SIZE at a time. Useful to decode large files while
 /// maintaining memory usage low.
@@ -31,10 +32,7 @@ impl<'a> LazyDecoder<'a> {
     const CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2MiB, chosen at random by fair dice roll
 
     pub fn from_file(file: &'a mut fs::File) -> Self {
-        Self {
-            reader: file,
-            bytes: Vec::with_capacity(Self::CHUNK_SIZE),
-        }
+        Self { reader: file, bytes: Vec::with_capacity(Self::CHUNK_SIZE) }
     }
 
     /// Consumes enough bytes and skip the next CBOR element.
@@ -43,9 +41,7 @@ impl<'a> LazyDecoder<'a> {
     }
 
     /// Consumes enough bytes and decode the next CBOR element.
-    pub fn decode<T: for<'d> cbor::decode::Decode<'d, ()>>(
-        &mut self,
-    ) -> Result<T, Box<dyn std::error::Error>> {
+    pub fn decode<T: for<'d> cbor::decode::Decode<'d, ()>>(&mut self) -> Result<T, Box<dyn std::error::Error>> {
         self.with_decoder(|d| Ok(d.decode()?))
     }
 
@@ -60,10 +56,7 @@ impl<'a> LazyDecoder<'a> {
         loop {
             if should_read_more {
                 let mut buf = [0; Self::CHUNK_SIZE];
-                let read = self
-                    .reader
-                    .read(&mut buf)
-                    .map_err(cbor::decode::Error::custom)?;
+                let read = self.reader.read(&mut buf).map_err(cbor::decode::Error::custom)?;
                 self.bytes.extend_from_slice(&buf);
                 can_read_more = read > 0;
             }

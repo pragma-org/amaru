@@ -13,14 +13,14 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::Constitution;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use crate::{Constitution, any_anchor, any_hash28, any_nullable};
     use proptest::prelude::*;
+
+    use crate::{Constitution, any_anchor, any_hash28, any_nullable};
 
     prop_compose! {
         pub fn any_constitution()(

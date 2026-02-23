@@ -65,20 +65,14 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::ConstitutionalCommitteeStatus::{self, *};
-    use crate::{any_rational_number, prop_cbor_roundtrip};
     use proptest::prelude::*;
 
-    prop_cbor_roundtrip!(
-        ConstitutionalCommitteeStatus,
-        any_constitutional_committee_status()
-    );
+    use super::ConstitutionalCommitteeStatus::{self, *};
+    use crate::{any_rational_number, prop_cbor_roundtrip};
 
-    pub fn any_constitutional_committee_status()
-    -> impl Strategy<Value = ConstitutionalCommitteeStatus> {
-        prop_oneof![
-            Just(NoConfidence),
-            any_rational_number().prop_map(|threshold| Trusted { threshold }),
-        ]
+    prop_cbor_roundtrip!(ConstitutionalCommitteeStatus, any_constitutional_committee_status());
+
+    pub fn any_constitutional_committee_status() -> impl Strategy<Value = ConstitutionalCommitteeStatus> {
+        prop_oneof![Just(NoConfidence), any_rational_number().prop_map(|threshold| Trusted { threshold }),]
     }
 }

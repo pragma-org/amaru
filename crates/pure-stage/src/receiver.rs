@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures_util::Stream;
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+use futures_util::Stream;
 use tokio::sync::mpsc;
 
 /// The message receptacle used by [`StageGraph::output`](crate::StageGraph::output).

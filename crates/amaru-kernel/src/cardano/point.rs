@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, HeaderHash, ORIGIN_HASH, Slot, cbor, size::HEADER};
 use std::fmt::{self, Debug, Display};
 
-#[derive(
-    Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
+use crate::{Hash, HeaderHash, ORIGIN_HASH, Slot, cbor, size::HEADER};
+
+#[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     #[default]
     Origin,
@@ -77,18 +76,12 @@ impl TryFrom<&str> for Point {
         let slot = split
             .next()
             .ok_or("missing slot number before '.'")
-            .and_then(|s| {
-                s.parse::<u64>()
-                    .map_err(|_| "failed to parse point's slot as a non-negative integer")
-            })?;
+            .and_then(|s| s.parse::<u64>().map_err(|_| "failed to parse point's slot as a non-negative integer"))?;
 
         let block_header_hash = split
             .next()
             .ok_or("missing block header hash after '.'".to_string())
-            .and_then(|s| {
-                s.parse::<HeaderHash>()
-                    .map_err(|e| format!("failed to parse block header hash: {}", e))
-            })?;
+            .and_then(|s| s.parse::<HeaderHash>().map_err(|e| format!("failed to parse block header hash: {}", e)))?;
 
         Ok(Point::Specific(Slot::from(slot), block_header_hash))
     }
@@ -110,10 +103,7 @@ impl cbor::encode::Encode<()> for Point {
 }
 
 impl<'b> cbor::decode::Decode<'b, ()> for Point {
-    fn decode(
-        d: &mut cbor::decode::Decoder<'b>,
-        _ctx: &mut (),
-    ) -> Result<Self, cbor::decode::Error> {
+    fn decode(d: &mut cbor::decode::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let size = d.array()?;
 
         match size {
@@ -126,9 +116,7 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
                 }
                 Ok(Point::Specific(slot, Hash::from(hash)))
             }
-            _ => Err(cbor::decode::Error::message(
-                "can't decode Point from array of size",
-            )),
+            _ => Err(cbor::decode::Error::message("can't decode Point from array of size")),
         }
     }
 }
@@ -138,8 +126,9 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use crate::{Point, Slot, any_header_hash, prop_cbor_roundtrip};
     use proptest::prelude::*;
+
+    use crate::{Point, Slot, any_header_hash, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(Point, any_point());
 
@@ -164,9 +153,10 @@ mod tests {
 
     #[cfg(test)]
     mod internal {
+        use test_case::test_case;
+
         use super::*;
         use crate::Hash;
-        use test_case::test_case;
 
         #[test_case(Point::Origin => "Origin")]
         #[test_case(
@@ -208,18 +198,13 @@ mod tests {
         #[test]
         fn test_parse_point() {
             let error = Point::try_from("42.0123456789abcdef").unwrap_err();
-            assert_eq!(
-                error,
-                "failed to parse block header hash: Invalid string length"
-            );
+            assert_eq!(error, "failed to parse block header hash: Invalid string length");
         }
 
         #[test]
         fn test_parse_real_point() {
-            let point = Point::try_from(
-                "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
-            )
-            .unwrap();
+            let point =
+                Point::try_from("70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d").unwrap();
             match point {
                 Point::Specific(slot, _hash) => {
                     assert_eq!(70070379, slot.as_u64());

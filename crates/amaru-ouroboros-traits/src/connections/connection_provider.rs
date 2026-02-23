@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ToSocketAddrs;
-use amaru_kernel::{NonEmptyBytes, Peer};
 use std::{fmt, net::SocketAddr, num::NonZeroUsize, pin::Pin, sync::Arc, time::Duration};
+
+use amaru_kernel::{NonEmptyBytes, Peer};
+
+use crate::ToSocketAddrs;
 
 /// A trait for providing network connections.
 /// This is used to abstract over different network implementations, such as TCP,
@@ -22,16 +24,9 @@ use std::{fmt, net::SocketAddr, num::NonZeroUsize, pin::Pin, sync::Arc, time::Du
 pub trait ConnectionProvider: Send + Sync + 'static {
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 
-    fn accept(
-        &self,
-        listener_addr: SocketAddr,
-    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
+    fn accept(&self, listener_addr: SocketAddr) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
 
-    fn connect(
-        &self,
-        addr: Vec<SocketAddr>,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
+    fn connect(&self, addr: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
     fn connect_addrs(
         &self,
@@ -39,17 +34,9 @@ pub trait ConnectionProvider: Send + Sync + 'static {
         timeout: Duration,
     ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
-    fn send(
-        &self,
-        conn: ConnectionId,
-        data: NonEmptyBytes,
-    ) -> BoxFuture<'static, std::io::Result<()>>;
+    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>>;
 
-    fn recv(
-        &self,
-        conn: ConnectionId,
-        bytes: NonZeroUsize,
-    ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>>;
+    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>>;
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>>;
 }
@@ -59,9 +46,7 @@ pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Unique identifier for a connection to a peer.
 /// Note that the same connection can be used both as an initiator and a responder.
-#[derive(
-    Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct ConnectionId(u64);
 
 impl ConnectionId {

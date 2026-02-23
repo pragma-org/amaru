@@ -31,9 +31,10 @@ pub fn issuer_to_pool_id(issuer: &ed25519::PublicKey) -> PoolId {
 
 #[cfg(test)]
 mod test {
+    use pallas_codec::utils::Bytes;
+
     use super::issuer_to_pool_id;
     use crate::ed25519;
-    use pallas_codec::utils::Bytes;
 
     #[test]
     fn test_issuer_to_pool_id() {
@@ -44,8 +45,7 @@ mod test {
 
         for (issuer_vkey_str, expected_pool_id_str) in test_vector {
             let issuer_vkey: Bytes = issuer_vkey_str.parse().unwrap();
-            let pool_id =
-                issuer_to_pool_id(&ed25519::PublicKey::try_from(&issuer_vkey[..]).unwrap());
+            let pool_id = issuer_to_pool_id(&ed25519::PublicKey::try_from(&issuer_vkey[..]).unwrap());
             assert_eq!(pool_id.to_string(), expected_pool_id_str);
         }
     }

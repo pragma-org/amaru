@@ -20,15 +20,15 @@
 //!
 //!
 
-use crate::headers_tree::{HeadersTree, data_generation::Chain, tree::Tree};
-use amaru_kernel::{
-    BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER,
-};
+use std::sync::Arc;
+
+use amaru_kernel::{BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER};
 use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use proptest::prelude::Strategy;
 use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
-use std::sync::Arc;
+
+use crate::headers_tree::{HeadersTree, data_generation::Chain, tree::Tree};
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
 pub fn any_headers_tree(depth: usize) -> impl Strategy<Value = Tree<BlockHeader>> {
@@ -88,10 +88,7 @@ pub fn generate_tree_of_headers(seed: u64, depth: usize) -> GeneratedTree {
     let mut root_tree = Tree::make_leaf(&root);
     let mut spine = generate_header_subtree(&mut rng, &mut root_tree, depth, depth - 1);
     spine.insert(0, root);
-    GeneratedTree {
-        tree: root_tree,
-        depth,
-    }
+    GeneratedTree { tree: root_tree, depth }
 }
 
 /// Return only the generated tree of headers of a given depth.
@@ -134,11 +131,7 @@ fn generate_header_subtree(
         current_size += 1;
 
         // We decide to branch at 1/3rd and 2/3rds of the total depth
-        let must_branch = if total_depth >= 3 {
-            current_size % (total_depth / 3) == 0
-        } else {
-            false
-        };
+        let must_branch = if total_depth >= 3 { current_size % (total_depth / 3) == 0 } else { false };
         if must_branch {
             let min_subtree_size = (current_branch_expected_depth - current_size) / 2;
             let max_subtree_size = current_branch_expected_depth - current_size;
@@ -177,9 +170,7 @@ pub fn create_headers_tree_with_store(
         store.store_header(header).unwrap();
     }
     store.set_anchor_hash(&headers[0].hash()).unwrap();
-    store
-        .set_best_chain_hash(&headers[headers.len() - 1].hash())
-        .unwrap();
+    store.set_best_chain_hash(&headers[headers.len() - 1].hash()).unwrap();
     HeadersTree::new(store.clone(), 10)
 }
 
@@ -200,24 +191,15 @@ pub fn initialize_with_store_and_peer(
     peer: &Peer,
 ) -> HeadersTree<BlockHeader> {
     let mut tree = create_headers_tree_with_store(store, size);
-    tree.initialize_peer(peer, &tree.best_chain_tip().hash())
-        .unwrap();
+    tree.initialize_peer(peer, &tree.best_chain_tip().hash()).unwrap();
     tree
 }
 
 /// Generate a random `BlockHeader`, child of the `parent` one
 /// and store it in the provided store.
-pub fn store_header_with_parent(
-    store: Arc<dyn ChainStore<BlockHeader>>,
-    parent: &BlockHeader,
-) -> BlockHeader {
+pub fn store_header_with_parent(store: Arc<dyn ChainStore<BlockHeader>>, parent: &BlockHeader) -> BlockHeader {
     let mut std_rng = StdRng::from_seed([0; 32]);
-    let header = generate_header(
-        1,
-        parent.slot().as_u64() + 1,
-        Some(parent.hash()),
-        &mut std_rng,
-    );
+    let header = generate_header(1, parent.slot().as_u64() + 1, Some(parent.hash()), &mut std_rng);
     store.store_header(&header).unwrap();
     header
 }
@@ -248,12 +230,7 @@ fn generate_headers(
 }
 
 /// Generate a single `BlockHeader` but using the provided random generator.
-fn generate_header(
-    block: u64,
-    slot: u64,
-    parent: Option<HeaderHash>,
-    rng: &mut StdRng,
-) -> BlockHeader {
+fn generate_header(block: u64, slot: u64, parent: Option<HeaderHash>, rng: &mut StdRng) -> BlockHeader {
     let mut header: Header = make_header(block, slot, parent);
     // introduce some randomness in the header so that the hash is not predictable
     header.body_signature = Bytes::from(random_bytes_with_rng(HEADER, rng));
@@ -280,10 +257,7 @@ mod tests {
 
     // HELPERS
     fn check_nodes(node: &Tree<BlockHeader>) {
-        assert_eq!(
-            node.value.hash(),
-            BlockHeader::from(node.value.header().clone()).hash()
-        );
+        assert_eq!(node.value.hash(), BlockHeader::from(node.value.header().clone()).hash());
         for child in &node.children {
             assert_eq!(child.value.parent(), Some(node.value.hash()));
             check_nodes(child);

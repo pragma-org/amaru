@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
 use std::{cmp::Ordering, fmt, ops::Deref};
 
 pub use pallas_primitives::conway::GovActionId as ProposalId;
+
+use crate::cbor;
 
 // TODO: This type shouldn't exist, and `Ord` / `PartialOrd` should be derived in Pallas on
 // 'GovActionId' already.
@@ -31,12 +32,7 @@ impl ComparableProposalId {
         format!(
             "{}.{}",
             self.inner.action_index,
-            self.inner
-                .transaction_id
-                .to_string()
-                .chars()
-                .take(8)
-                .collect::<String>()
+            self.inner.transaction_id.to_string().chars().take(8).collect::<String>()
         )
     }
 }
@@ -57,11 +53,7 @@ impl Deref for ComparableProposalId {
 
 impl fmt::Display for ComparableProposalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}#{}",
-            self.inner.transaction_id, self.inner.action_index,
-        )
+        write!(f, "{}#{}", self.inner.transaction_id, self.inner.action_index,)
     }
 }
 
@@ -105,9 +97,7 @@ impl<C> cbor::encode::Encode<C> for ComparableProposalId {
 
 impl<'d, C> cbor::decode::Decode<'d, C> for ComparableProposalId {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Ok(Self {
-            inner: d.decode_with(ctx)?,
-        })
+        Ok(Self { inner: d.decode_with(ctx)? })
     }
 }
 
@@ -116,9 +106,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose};
+
     use super::{ComparableProposalId, ProposalId};
     use crate::{Hash, prop_cbor_roundtrip};
-    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(ComparableProposalId, any_comparable_proposal_id());
 

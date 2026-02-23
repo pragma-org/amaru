@@ -12,13 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::{WorkerError, connect_to_peer};
-use amaru::{DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, bootstrap::BootstrapError, get_bootstrap_file};
-use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Peer, Point, from_cbor};
-use amaru_network::chain_sync_client::ChainSyncClient;
-use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
-use clap::{ArgAction, Parser};
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
 use std::{
     error::Error,
     fs::File,
@@ -26,10 +19,17 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::time::timeout;
-use tracing::error;
 
-use tracing::info;
+use amaru::{DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, bootstrap::BootstrapError, get_bootstrap_file};
+use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Peer, Point, from_cbor};
+use amaru_network::chain_sync_client::ChainSyncClient;
+use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
+use clap::{ArgAction, Parser};
+use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
+use tokio::time::timeout;
+use tracing::{error, info};
+
+use crate::cmd::{WorkerError, connect_to_peer};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -123,14 +123,7 @@ async fn fetch_headers_for_network(
         // config file? The 2 headers make sense, but why starting from more than
         // one header?
         const NUM_HEADERS_TO_FETCH: usize = 2;
-        fetch_headers(
-            peer_address,
-            network,
-            headers_dir,
-            hdr,
-            NUM_HEADERS_TO_FETCH,
-        )
-        .await?;
+        fetch_headers(peer_address, network, headers_dir, hdr, NUM_HEADERS_TO_FETCH).await?;
     }
 
     Ok(())
@@ -144,8 +137,7 @@ pub(crate) async fn fetch_headers(
     max: usize,
 ) -> Result<(), Box<dyn Error>> {
     let peer_client = connect_to_peer(peer_address, &network).await?;
-    let mut client =
-        ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
+    let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
     client.find_intersection().await?;
 
     let mut count = 0;
@@ -244,8 +236,7 @@ fn handle_response(
                 })
                 .map_err(|_| WorkerError::Panic)?;
 
-            file.write_all(&content.cbor)
-                .map_err(|_| WorkerError::Panic)?;
+            file.write_all(&content.cbor).map_err(|_| WorkerError::Panic)?;
 
             *count += 1;
 
@@ -256,11 +247,7 @@ fn handle_response(
                 progress.tick(1)
             }
 
-            if *count >= max || slot.as_u64() == tip_slot {
-                Ok(Stop)
-            } else {
-                Ok(Continue)
-            }
+            if *count >= max || slot.as_u64() == tip_slot { Ok(Stop) } else { Ok(Continue) }
         }
         #[allow(clippy::unwrap_used)]
         NextResponse::RollBackward(point, tip) => {

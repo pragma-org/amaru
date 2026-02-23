@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ComparableProposalId, cbor};
 use std::rc::Rc;
+
+use amaru_kernel::{ComparableProposalId, cbor};
 
 pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;
 
@@ -49,10 +50,7 @@ impl<C, T: AsRef<ComparableProposalId>> cbor::encode::Encode<C> for GenericPropo
         e.u8(1)?;
         e.encode_with(self.hard_fork.as_ref().map(AsRef::as_ref), ctx)?;
         e.u8(2)?;
-        e.encode_with(
-            self.constitutional_committee.as_ref().map(AsRef::as_ref),
-            ctx,
-        )?;
+        e.encode_with(self.constitutional_committee.as_ref().map(AsRef::as_ref), ctx)?;
         e.u8(3)?;
         e.encode_with(self.constitution.as_ref().map(AsRef::as_ref), ctx)?;
         e.end()?;
@@ -74,12 +72,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ComparableProp
         d.u8()?;
         let constitution = d.decode_with(ctx)?;
         d.skip()?;
-        Ok(Self {
-            protocol_parameters,
-            hard_fork,
-            constitutional_committee,
-            constitution,
-        })
+        Ok(Self { protocol_parameters, hard_fork, constitutional_committee, constitution })
     }
 }
 
@@ -91,9 +84,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use super::ProposalsRoots;
     use amaru_kernel::{any_comparable_proposal_id, prop_cbor_roundtrip};
     use proptest::{option, prop_compose};
+
+    use super::ProposalsRoots;
 
     prop_cbor_roundtrip!(ProposalsRoots, any_proposals_roots());
 

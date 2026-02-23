@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use opentelemetry::trace::TracerProvider;
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
-use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use std::{
     env::VarError,
     error::Error,
@@ -23,6 +19,11 @@ use std::{
     str::FromStr,
     time::Duration,
 };
+
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
+use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tracing::{info, warn};
 use tracing_subscriber::{
     EnvFilter, Registry,
@@ -50,11 +51,8 @@ const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace,pure_stage=trace";
 
 type OpenTelemetryLayer<S> = Layered<OpenTelemetryFilter<S>, S>;
 
-type OpenTelemetryFilter<S> = Filtered<
-    tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>,
-    EnvFilter,
-    S,
->;
+type OpenTelemetryFilter<S> =
+    Filtered<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, EnvFilter, S>;
 
 type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
@@ -154,11 +152,7 @@ impl TracingSubscriber<Registry> {
 // -----------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
-    let format = || {
-        tracing_subscriber::fmt::format()
-            .json()
-            .with_span_list(false)
-    };
+    let format = || tracing_subscriber::fmt::format().json().with_span_list(false);
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
     let filter = || new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
 
@@ -201,8 +195,7 @@ impl Default for OpenTelemetryHandle {
     fn default() -> Self {
         OpenTelemetryHandle {
             metrics: None::<SdkMeterProvider>,
-            teardown: Box::new(|| Ok(()))
-                as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
+            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
         }
     }
 }
@@ -212,15 +205,11 @@ pub const DEFAULT_OTLP_SERVICE_NAME: &str = "amaru";
 pub const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
 #[expect(clippy::panic)]
-pub fn setup_open_telemetry(
-    subscriber: &mut TracingSubscriber<Registry>,
-) -> (OpenTelemetryHandle, DelayedWarning) {
+pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> (OpenTelemetryHandle, DelayedWarning) {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
-    let resource = Resource::builder()
-        .with_attribute(KeyValue::new(SERVICE_NAME, DEFAULT_OTLP_SERVICE_NAME))
-        .build();
+    let resource = Resource::builder().with_attribute(KeyValue::new(SERVICE_NAME, DEFAULT_OTLP_SERVICE_NAME)).build();
 
     // Traces & span
     let opentelemetry_provider = SdkTracerProvider::builder()
@@ -259,19 +248,15 @@ pub fn setup_open_telemetry(
     let opentelemetry_tracer = opentelemetry_provider.tracer(DEFAULT_OTLP_SERVICE_NAME);
     let (default_filter, warning) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
 
-    let opentelemetry_layer = tracing_opentelemetry::layer()
-        .with_tracer(opentelemetry_tracer)
-        .with_level(true)
-        .with_filter(default_filter);
+    let opentelemetry_layer =
+        tracing_opentelemetry::layer().with_tracer(opentelemetry_tracer).with_level(true).with_filter(default_filter);
 
     subscriber.with_open_telemetry(opentelemetry_layer);
 
     (
         OpenTelemetryHandle {
             metrics: Some(metrics_provider.clone()),
-            teardown: Box::new(|| {
-                teardown_open_telemetry(opentelemetry_provider, metrics_provider)
-            }),
+            teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider)),
         },
         warning,
     )
@@ -302,11 +287,9 @@ fn new_default_filter(var: &str, default: &str) -> (EnvFilter, DelayedWarning) {
             let var = var.to_string();
             let warning = match e.source().and_then(|e| e.downcast_ref::<VarError>()) {
                 Some(VarError::NotPresent) => {
-                    Box::new(move || info!(var, fallback, "unspecified ENV variable"))
-                        as Box<dyn FnOnce()>
+                    Box::new(move || info!(var, fallback, "unspecified ENV variable")) as Box<dyn FnOnce()>
                 }
-                _ => Box::new(move || warn!(var, fallback, reason = %e, "invalid ENV variable"))
-                    as Box<dyn FnOnce()>,
+                _ => Box::new(move || warn!(var, fallback, reason = %e, "invalid ENV variable")) as Box<dyn FnOnce()>,
             };
 
             #[expect(clippy::expect_used)]
@@ -320,10 +303,7 @@ pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
     color: bool,
-) -> (
-    Option<SdkMeterProvider>,
-    Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
-) {
+) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>) {
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { metrics, teardown }, warning_otlp) = if with_open_telemetry {
@@ -332,11 +312,7 @@ pub fn setup_observability(
         (OpenTelemetryHandle::default(), None)
     };
 
-    let warning_json = if with_json_traces {
-        setup_json_traces(&mut subscriber)
-    } else {
-        None
-    };
+    let warning_json = if with_json_traces { setup_json_traces(&mut subscriber) } else { None };
 
     subscriber.init(color);
 

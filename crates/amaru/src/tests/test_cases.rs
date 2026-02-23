@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::tests::assertions::check_state;
-use crate::tests::configuration::NodeTestConfig;
-use crate::tests::setup::{create_nodes, setup_logging};
-use amaru_kernel::utils::tests::run_strategy;
-use amaru_kernel::{Hash, Point, Slot, any_headers_chain_with_root};
+use amaru_kernel::{Hash, Point, Slot, any_headers_chain_with_root, utils::tests::run_strategy};
 use pure_stage::simulation::RandStdRng;
+
+use crate::tests::{
+    assertions::check_state,
+    configuration::NodeTestConfig,
+    setup::{create_nodes, setup_logging},
+};
 
 /// The purpose of this test is to create two nodes in memory.
 /// It uses a connection provider implemented with in-memory data structures to connect the two nodes.
@@ -34,12 +36,8 @@ fn test_connect_nodes_in_memory() -> anyhow::Result<()> {
     let mut nodes = create_nodes(
         &mut rng,
         vec![
-            NodeTestConfig::initiator()
-                .with_chain_length(5)
-                .with_validated_blocks(vec![headers[0].clone()]),
-            NodeTestConfig::responder()
-                .with_chain_length(5)
-                .with_validated_blocks(headers),
+            NodeTestConfig::initiator().with_chain_length(5).with_validated_blocks(vec![headers[0].clone()]),
+            NodeTestConfig::responder().with_chain_length(5).with_validated_blocks(headers),
         ],
     )?;
     nodes.run(&mut rng, 10000);

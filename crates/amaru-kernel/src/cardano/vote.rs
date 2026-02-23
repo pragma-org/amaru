@@ -13,14 +13,14 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::Vote;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use crate::Vote;
     use proptest::prelude::*;
+
+    use crate::Vote;
 
     pub static VOTE_YES: Vote = Vote::Yes;
     pub static VOTE_NO: Vote = Vote::No;

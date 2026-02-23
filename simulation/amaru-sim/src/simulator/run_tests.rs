@@ -12,23 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::checks::check_chain_property;
-use crate::simulator::report::{
-    create_symlink_dir, display_actions_statistics, persist_args, persist_generated_data,
-    persist_traces,
+use std::{fs::create_dir_all, iter::once, path::Path, sync::Arc, time::SystemTime};
+
+use amaru::tests::{
+    configuration::{
+        NodeTestConfig,
+        NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode},
+    },
+    setup::create_nodes,
 };
-use crate::simulator::{Args, RunConfig, TestResult, generate_actions};
-use amaru::tests::configuration::NodeTestConfig;
-use amaru::tests::configuration::NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode};
-use amaru::tests::setup::create_nodes;
 use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
 use amaru_kernel::{BlockHeader, Peer};
 use pure_stage::trace_buffer::TraceBuffer;
-use std::fs::create_dir_all;
-use std::iter::once;
-use std::path::Path;
-use std::sync::Arc;
-use std::time::SystemTime;
+
+use crate::simulator::{
+    Args, RunConfig, TestResult,
+    checks::check_chain_property,
+    generate_actions,
+    report::{create_symlink_dir, display_actions_statistics, persist_args, persist_generated_data, persist_traces},
+};
 
 /// Run the tests simulating the execution of several nodes based on the given arguments.
 pub fn run_tests(args: Args) -> anyhow::Result<()> {
@@ -55,17 +57,10 @@ pub fn run_tests(args: Args) -> anyhow::Result<()> {
 }
 
 /// Run one test and output the results in the `test_run_dir` directory.
-fn run_test_nb(
-    run_config: &RunConfig,
-    test_run_dir: &Path,
-    test_number: u32,
-) -> anyhow::Result<()> {
+fn run_test_nb(run_config: &RunConfig, test_run_dir: &Path, test_number: u32) -> anyhow::Result<()> {
     let test_run_dir_n = test_run_dir.join(format!("test-{}", test_number));
     create_dir_all(&test_run_dir_n)?;
-    create_symlink_dir(
-        test_run_dir_n.as_path(),
-        test_run_dir_n.parent().unwrap().join("latest").as_path(),
-    );
+    create_symlink_dir(test_run_dir_n.as_path(), test_run_dir_n.parent().unwrap().join("latest").as_path());
 
     tracing::info!(
         test_number, total=%run_config.number_of_tests,
@@ -92,14 +87,12 @@ fn run_test_nb(
 pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResult {
     let test = |actions: &GeneratedActions| {
         let mut rng = run_config.rng();
-        let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions))
-            .expect("failed to create nodes");
+        let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions)).expect("failed to create nodes");
 
         // Scale steps based on number of peers (more peers = more stages = more effects)
         let base_steps = 10000;
         let per_peer_steps = 2000;
-        let total_peers = run_config.number_of_upstream_peers as usize
-            + run_config.number_of_downstream_peers as usize;
+        let total_peers = run_config.number_of_upstream_peers as usize + run_config.number_of_downstream_peers as usize;
         let steps = base_steps + (total_peers * per_peer_steps);
 
         nodes.run(&mut rng, steps);
@@ -108,9 +101,7 @@ pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResul
 
     if run_config.enable_shrinking {
         let (test_result, _shrunk_actions, number_of_shrinks) =
-            shrink(&test, actions, |test_result: &TestResult| {
-                test_result.is_err()
-            });
+            shrink(&test, actions, |test_result: &TestResult| test_result.is_err());
         test_result.set_number_of_shrinks(number_of_shrinks)
     } else {
         test(actions)
@@ -162,22 +153,12 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
         })
         .collect::<Vec<_>>();
 
-    upstream_nodes
-        .into_iter()
-        .chain(once(node_under_test))
-        .chain(downstream_nodes)
-        .collect()
+    upstream_nodes.into_iter().chain(once(node_under_test)).chain(downstream_nodes).collect()
 }
 
 /// Extract all the actions to be executed by a given peer
 fn get_peer_actions(actions: &GeneratedActions, peer: &Peer) -> Vec<Action> {
-    actions
-        .actions_per_peer()
-        .get(peer)
-        .into_iter()
-        .flatten()
-        .cloned()
-        .collect::<Vec<_>>()
+    actions.actions_per_peer().get(peer).into_iter().flatten().cloned().collect::<Vec<_>>()
 }
 
 /// Extract all the block headers forwarded by a given peer

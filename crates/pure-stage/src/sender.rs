@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::BoxFuture;
 use std::{fmt, sync::Arc};
+
+use crate::BoxFuture;
 
 /// A handle for sending messages to a stage from outside the simulation.
 ///
@@ -24,24 +25,18 @@ pub struct Sender<Msg> {
 
 impl<Msg> Clone for Sender<Msg> {
     fn clone(&self) -> Self {
-        Self {
-            tx: self.tx.clone(),
-        }
+        Self { tx: self.tx.clone() }
     }
 }
 
 impl<Msg> fmt::Debug for Sender<Msg> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Sender")
-            .field("Msg", &std::any::type_name::<Msg>())
-            .finish()
+        f.debug_struct("Sender").field("Msg", &std::any::type_name::<Msg>()).finish()
     }
 }
 
 impl<Msg> Sender<Msg> {
-    pub(crate) fn new(
-        tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), Msg>> + Send + Sync>,
-    ) -> Self {
+    pub(crate) fn new(tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), Msg>> + Send + Sync>) -> Self {
         Self { tx }
     }
 

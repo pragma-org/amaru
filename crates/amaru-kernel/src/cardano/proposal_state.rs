@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Epoch, PoolId, Proposal, ProposalId, StakeCredential, Vote, cbor};
 use std::collections::BTreeMap;
+
+use crate::{Epoch, PoolId, Proposal, ProposalId, StakeCredential, Vote, cbor};
 
 #[derive(Debug)]
 pub struct ProposalState {
@@ -37,14 +38,6 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProposalState {
         let proposed_in = d.decode_with(ctx)?;
         let expires_after = d.decode_with(ctx)?;
 
-        Ok(ProposalState {
-            id,
-            procedure,
-            proposed_in,
-            expires_after,
-            dreps_votes,
-            pools_votes,
-            committee_votes,
-        })
+        Ok(ProposalState { id, procedure, proposed_in, expires_after, dreps_votes, pools_votes, committee_votes })
     }
 }

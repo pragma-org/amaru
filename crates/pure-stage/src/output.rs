@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ExternalEffect, ExternalEffectAPI, Name, Resources, SendData, types::MpscSender};
 use std::fmt;
+
 use tokio::sync::mpsc;
+
+use crate::{ExternalEffect, ExternalEffectAPI, Name, Resources, SendData, types::MpscSender};
 
 /// An effect that sends a message to an output channel.
 ///
@@ -30,24 +32,13 @@ pub struct OutputEffect<Msg> {
 
 impl<Msg> OutputEffect<Msg> {
     pub fn new(name: Name, msg: Msg, sender: mpsc::Sender<Msg>) -> Self {
-        Self {
-            name,
-            msg,
-            sender: MpscSender { sender },
-        }
+        Self { name, msg, sender: MpscSender { sender } }
     }
 
     /// Create a fake output effect for testing.
     pub fn fake(name: Name, msg: Msg) -> (Self, mpsc::Receiver<Msg>) {
         let (tx, rx) = mpsc::channel(1);
-        (
-            Self {
-                name,
-                msg,
-                sender: MpscSender { sender: tx },
-            },
-            rx,
-        )
+        (Self { name, msg, sender: MpscSender { sender: tx } }, rx)
     }
 }
 

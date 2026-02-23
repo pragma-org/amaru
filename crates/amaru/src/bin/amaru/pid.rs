@@ -36,16 +36,11 @@ impl ProcessIdHandle {
             fs::create_dir_all(parent)?;
         }
 
-        let mut file = match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
+        let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => file,
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-                if let Some(existing_pid) = fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|content| content.trim().parse::<u32>().ok())
+                if let Some(existing_pid) =
+                    fs::read_to_string(&path).ok().and_then(|content| content.trim().parse::<u32>().ok())
                 {
                     if process_exists(existing_pid) {
                         return Err(format!(
@@ -55,10 +50,7 @@ impl ProcessIdHandle {
                         .into());
                     }
                     fs::remove_file(&path)?;
-                    fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&path)?
+                    fs::OpenOptions::new().write(true).create_new(true).open(&path)?
                 } else {
                     return Err(err.into());
                 }
@@ -89,11 +81,7 @@ impl Display for ProcessIdHandle {
 
 #[cfg(unix)]
 fn process_exists(pid: u32) -> bool {
-    Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+    Command::new("kill").args(["-0", &pid.to_string()]).output().map(|output| output.status.success()).unwrap_or(false)
 }
 
 #[cfg(windows)]
@@ -116,13 +104,7 @@ where
     let guard = maybe_path
         .map(|path| {
             ProcessIdHandle::new(path)
-                .inspect(|pid_file| {
-                    debug!(
-                        "created PID File {}, current PID: {}",
-                        pid_file,
-                        pid_file.pid()
-                    )
-                })
+                .inspect(|pid_file| debug!("created PID File {}, current PID: {}", pid_file, pid_file.pid()))
                 .inspect_err(|e| warn!("failed to create or write to PID file: {} ", e))
         })
         .and_then(|result| result.ok());

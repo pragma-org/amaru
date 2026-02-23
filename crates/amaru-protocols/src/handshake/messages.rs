@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::protocol_messages::{
-    handshake::RefuseReason, version_number::VersionNumber, version_table::VersionTable,
-};
-use amaru_kernel::cbor;
 use std::fmt;
+
+use amaru_kernel::cbor;
+
+use crate::protocol_messages::{handshake::RefuseReason, version_number::VersionNumber, version_table::VersionTable};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Message<D>
@@ -109,10 +109,7 @@ where
                 let version_table = d.decode()?;
                 Ok(Message::QueryReply(version_table))
             }
-            n => Err(cbor::decode::Error::message(format!(
-                "unknown variant for handshake message: {}",
-                n,
-            ))),
+            n => Err(cbor::decode::Error::message(format!("unknown variant for handshake message: {}", n,))),
         }
     }
 }
@@ -120,6 +117,9 @@ where
 /// Roundtrip property tests for handshake messages.
 #[cfg(test)]
 pub(crate) mod tests {
+    use amaru_kernel::prop_cbor_roundtrip;
+    use proptest::{prelude::*, prop_compose};
+
     use super::*;
     use crate::{
         handshake::messages::Message::*,
@@ -130,8 +130,6 @@ pub(crate) mod tests {
             version_table::tests::any_version_table,
         },
     };
-    use amaru_kernel::prop_cbor_roundtrip;
-    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(Message<VersionData>, any_message());
 

@@ -12,22 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::errors::ConsensusError::*;
-use amaru_consensus::stages::forward_chain::ForwardChainState;
-use amaru_consensus::stages::pull;
-use amaru_consensus::stages::pull::SyncTracker;
 use amaru_consensus::{
     effects::ConsensusEffects,
-    errors::{ProcessingFailed, ValidationFailed},
+    errors::{ConsensusError::*, ProcessingFailed, ValidationFailed},
     stages::{
-        fetch_block, forward_chain, receive_header,
+        fetch_block, forward_chain,
+        forward_chain::ForwardChainState,
+        pull,
+        pull::SyncTracker,
+        receive_header,
         select_chain::{self, SelectChain},
         validate_block, validate_header,
     },
 };
 use amaru_kernel::Tip;
-use amaru_protocols::manager;
-use amaru_protocols::manager::{Manager, ManagerMessage};
+use amaru_protocols::{
+    manager,
+    manager::{Manager, ManagerMessage},
+};
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
 
 /// Create a graph of processing stages for the node.
@@ -48,32 +50,16 @@ pub fn build_stage_graph(
     our_tip: Tip,
     stage_graph: &mut impl StageGraph,
 ) -> StageRef<ManagerMessage> {
-    let receive_header_stage = stage_graph.stage(
-        "receive_header",
-        with_consensus_effects(receive_header::stage),
-    );
-    let validate_header_stage = stage_graph.stage(
-        "validate_header",
-        with_consensus_effects(validate_header::stage),
-    );
-    let fetch_block_stage =
-        stage_graph.stage("fetch_block", with_consensus_effects(fetch_block::stage));
-    let validate_block_stage = stage_graph.stage(
-        "validate_block",
-        with_consensus_effects(validate_block::stage),
-    );
-    let select_chain_stage =
-        stage_graph.stage("select_chain", with_consensus_effects(select_chain::stage));
-    let forward_chain_stage = stage_graph.stage(
-        "forward_chain",
-        with_consensus_effects(forward_chain::stage),
-    );
+    let receive_header_stage = stage_graph.stage("receive_header", with_consensus_effects(receive_header::stage));
+    let validate_header_stage = stage_graph.stage("validate_header", with_consensus_effects(validate_header::stage));
+    let fetch_block_stage = stage_graph.stage("fetch_block", with_consensus_effects(fetch_block::stage));
+    let validate_block_stage = stage_graph.stage("validate_block", with_consensus_effects(validate_block::stage));
+    let select_chain_stage = stage_graph.stage("select_chain", with_consensus_effects(select_chain::stage));
+    let forward_chain_stage = stage_graph.stage("forward_chain", with_consensus_effects(forward_chain::stage));
 
-    let validation_errors_stage = stage_graph.stage(
-        "validation_errors",
-        async move |manager_stage, error, eff| {
-            let ValidationFailed { peer, error } = error;
-            match error {
+    let validation_errors_stage = stage_graph.stage("validation_errors", async move |manager_stage, error, eff| {
+        let ValidationFailed { peer, error } = error;
+        match error {
                 MissingTip
                 | InvalidHeaderHeight { .. }
                 | InvalidHeader(_, _)
@@ -103,26 +89,18 @@ pub fn build_stage_graph(
                     tracing::error!(%peer, %error, "internal error");
                 }
             }
-            manager_stage
-        },
-    );
+        manager_stage
+    });
 
-    let processing_errors_stage = stage_graph.stage(
-        "processing_errors",
-        async |_, error: ProcessingFailed, eff| {
-            tracing::error!(%error, "stage error");
-            // termination here will tear down the entire stage graph
-            eff.terminate().await
-        },
-    );
+    let processing_errors_stage = stage_graph.stage("processing_errors", async |_, error: ProcessingFailed, eff| {
+        tracing::error!(%error, "stage error");
+        // termination here will tear down the entire stage graph
+        eff.terminate().await
+    });
 
     let manager_stage = stage_graph.stage("manager", manager::stage);
-    let processing_errors_stage = stage_graph
-        .wire_up(processing_errors_stage, ())
-        .without_state();
-    let validation_errors_stage = stage_graph
-        .wire_up(validation_errors_stage, manager_stage.sender())
-        .without_state();
+    let processing_errors_stage = stage_graph.wire_up(processing_errors_stage, ()).without_state();
+    let validation_errors_stage = stage_graph.wire_up(validation_errors_stage, manager_stage.sender()).without_state();
 
     let forward_chain_stage = stage_graph
         .wire_up(
@@ -137,24 +115,13 @@ pub fn build_stage_graph(
         .without_state();
 
     let select_chain_stage = stage_graph
-        .wire_up(
-            select_chain_stage,
-            (
-                chain_selector,
-                forward_chain_stage,
-                validation_errors_stage.clone(),
-            ),
-        )
+        .wire_up(select_chain_stage, (chain_selector, forward_chain_stage, validation_errors_stage.clone()))
         .without_state();
 
     let validate_block_stage = stage_graph
         .wire_up(
             validate_block_stage,
-            (
-                select_chain_stage,
-                validation_errors_stage.clone(),
-                processing_errors_stage.clone(),
-            ),
+            (select_chain_stage, validation_errors_stage.clone(), processing_errors_stage.clone()),
         )
         .without_state();
 
@@ -171,38 +138,25 @@ pub fn build_stage_graph(
         .without_state();
 
     let validate_header_stage = stage_graph
-        .wire_up(
-            validate_header_stage,
-            (fetch_block_stage, validation_errors_stage.clone()),
-        )
+        .wire_up(validate_header_stage, (fetch_block_stage, validation_errors_stage.clone()))
         .without_state();
 
     let receive_header_stage = stage_graph
         .wire_up(
             receive_header_stage,
-            receive_header::State::new(
-                validate_header_stage,
-                validation_errors_stage,
-                processing_errors_stage,
-            ),
+            receive_header::State::new(validate_header_stage, validation_errors_stage, processing_errors_stage),
         )
         .without_state();
 
     let pull_stage = stage_graph.stage("pull", pull::stage);
-    let pull_stage = stage_graph
-        .wire_up(pull_stage, (sync_tracker, receive_header_stage))
-        .without_state();
-    stage_graph
-        .wire_up(manager_stage, (manager, pull_stage))
-        .without_state()
+    let pull_stage = stage_graph.wire_up(pull_stage, (sync_tracker, receive_header_stage)).without_state();
+    stage_graph.wire_up(manager_stage, (manager, pull_stage)).without_state()
 }
 
 /// Wrap a function taking `ConsensusEffects` so that it can be used in a stage graph that provides
 /// the `Effects` type. The `ConsensusEffects` provide a higher-level API for executing external effects
 /// during the consensus stages.
-fn with_consensus_effects<Msg, St, F1, Fut>(
-    mut f: F1,
-) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send
+fn with_consensus_effects<Msg, St, F1, Fut>(mut f: F1) -> impl FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send
 where
     F1: FnMut(St, Msg, ConsensusEffects<Msg>) -> Fut + 'static + Send,
     Fut: Future<Output = St> + 'static + Send,

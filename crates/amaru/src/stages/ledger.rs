@@ -12,15 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::config::{Config, StoreType};
+use std::sync::Arc;
+
 use amaru_kernel::{EraHistory, GlobalParameters, Point};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros::{CanValidateBlocks, HasStakeDistribution};
 use amaru_plutus::arena_pool::ArenaPool;
-use amaru_stores::in_memory::MemoryStore;
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
+use amaru_stores::{
+    in_memory::MemoryStore,
+    rocksdb::{RocksDB, RocksDBHistoricalStores},
+};
 use anyhow::anyhow;
-use std::sync::Arc;
+
+use crate::stages::config::{Config, StoreType};
 
 /// Representation of the ledger as used by the consensus stages.
 /// It is either implemented in memory for tests or on disk for production.
@@ -35,10 +39,7 @@ impl Ledger {
         era_history: EraHistory,
         global_parameters: GlobalParameters,
     ) -> anyhow::Result<Ledger> {
-        let vm_eval_pool = ArenaPool::new(
-            config.ledger_vm_alloc_arena_count,
-            config.ledger_vm_alloc_arena_size,
-        );
+        let vm_eval_pool = ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size);
 
         match &config.ledger_store {
             StoreType::InMem(store) => {
@@ -55,10 +56,7 @@ impl Ledger {
             StoreType::RocksDb(rocks_db_config) => {
                 let ledger = BlockValidator::new(
                     RocksDB::new(rocks_db_config)?,
-                    RocksDBHistoricalStores::new(
-                        rocks_db_config,
-                        u64::from(config.max_extra_ledger_snapshots),
-                    ),
+                    RocksDBHistoricalStores::new(rocks_db_config, u64::from(config.max_extra_ledger_snapshots)),
                     vm_eval_pool,
                     config.network,
                     era_history,

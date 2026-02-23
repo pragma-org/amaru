@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::RunConfig;
+use std::{
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
+
 use amaru::tests::nodes::Nodes;
 use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
+
+use crate::simulator::RunConfig;
 
 /// Result for the execution of one test on a set of nodes.
 /// This result can be used as an input during shrinking with a list of actions that becomes
@@ -44,22 +48,12 @@ impl Debug for TestResult {
 impl TestResult {
     /// Create a successful test result
     pub fn ok(nodes: Nodes, generated_actions: GeneratedActions) -> Self {
-        TestResult {
-            nodes,
-            generated_actions,
-            result: Ok(()),
-            number_of_shrinks: 0,
-        }
+        TestResult { nodes, generated_actions, result: Ok(()), number_of_shrinks: 0 }
     }
 
     /// Create a failed test result
     pub fn ko(nodes: Nodes, generated_actions: GeneratedActions, error: anyhow::Error) -> Self {
-        TestResult {
-            nodes,
-            generated_actions,
-            result: Err(error),
-            number_of_shrinks: 0,
-        }
+        TestResult { nodes, generated_actions, result: Err(error), number_of_shrinks: 0 }
     }
 
     /// Set the number of shrinks eventually executed to get that result
@@ -92,18 +86,9 @@ impl TestResult {
     pub fn finalize_result(self, run_config: &RunConfig, test_number: u32) -> anyhow::Result<()> {
         if let Err(reason) = &self.result {
             let mut formatted = String::new();
-            self.generated_actions
-                .actions()
-                .iter()
-                .enumerate()
-                .for_each(|(index, action)| {
-                    formatted += &format!(
-                        "{:5}.  {:?} ==> {:?}\n",
-                        index,
-                        action.peer(),
-                        action.hash()
-                    )
-                });
+            self.generated_actions.actions().iter().enumerate().for_each(|(index, action)| {
+                formatted += &format!("{:5}.  {:?} ==> {:?}\n", index, action.peer(), action.hash())
+            });
 
             let error = format!(
                 "\nFailed after {test_number} tests\n\n \

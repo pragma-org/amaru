@@ -37,10 +37,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for BallotId {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(Self {
-                proposal: d.decode_with(ctx)?,
-                voter: d.decode_with(ctx)?,
-            })
+            Ok(Self { proposal: d.decode_with(ctx)?, voter: d.decode_with(ctx)? })
         })
     }
 }
@@ -50,9 +47,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use proptest::{prelude::*, prop_compose};
+
     use super::BallotId;
     use crate::{Voter, any_comparable_proposal_id, any_hash28, prop_cbor_roundtrip};
-    use proptest::{prelude::*, prop_compose};
 
     prop_cbor_roundtrip!(BallotId, any_ballot_id());
 

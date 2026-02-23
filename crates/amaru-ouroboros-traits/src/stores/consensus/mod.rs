@@ -14,12 +14,14 @@
 
 pub mod in_memory_consensus_store;
 
-use crate::Nonces;
-use amaru_kernel::cardano::network_block::NetworkBlock;
-use amaru_kernel::{Block, BlockHeader, HeaderHash, IsHeader, Point, RawBlock, Tip};
-use std::sync::Arc;
-use std::{fmt::Display, iter::successors};
+use std::{fmt::Display, iter::successors, sync::Arc};
+
+use amaru_kernel::{
+    Block, BlockHeader, HeaderHash, IsHeader, Point, RawBlock, Tip, cardano::network_block::NetworkBlock,
+};
 use thiserror::Error;
+
+use crate::Nonces;
 
 pub trait ReadOnlyChainStore<H>
 where
@@ -90,10 +92,7 @@ where
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes<'a>(
-        &'a self,
-        hash: &HeaderHash,
-    ) -> Box<dyn Iterator<Item = HeaderHash> + 'a>
+    fn ancestors_hashes<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + 'a>
     where
         H: 'a,
     {
@@ -116,8 +115,7 @@ pub trait DiagnosticChainStore {
     /// Load all nonces in the store.
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_>;
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_>;
-    fn load_parents_children(&self)
-    -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_>;
+    fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_>;
 }
 
 impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
@@ -193,11 +191,9 @@ impl Display for StoreError {
             StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
             StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
             StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
-            StoreError::IncompatibleChainStoreVersions { stored, current } => write!(
-                f,
-                "Incompatible DB Versions: found {}, expected {}",
-                stored, current
-            ),
+            StoreError::IncompatibleChainStoreVersions { stored, current } => {
+                write!(f, "Incompatible DB Versions: found {}, expected {}", stored, current)
+            }
         }
     }
 }
@@ -232,10 +228,6 @@ pub fn get_best_chain_block_headers(store: Arc<dyn ChainStore<BlockHeader>>) -> 
     store
         .retrieve_best_chain()
         .iter()
-        .map(|h| {
-            store
-                .load_header(h)
-                .expect("missing header for the best chain")
-        })
+        .map(|h| store.load_header(h).expect("missing header for the best chain"))
         .collect()
 }

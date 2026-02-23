@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Args;
+use std::{fs::File, io::Write, path::Path, sync::Arc};
+
 use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
-use std::sync::Arc;
+
+use crate::simulator::Args;
 
 /// Persist the generated data for a given test run
 pub fn persist_generated_data(
@@ -36,11 +35,7 @@ pub fn persist_generated_data(
 }
 
 /// Persist the trace buffer both as cbor (for replay) and json (for animations).
-pub fn persist_traces(
-    dir: &Path,
-    trace_buffer: Arc<Mutex<TraceBuffer>>,
-    persist: bool,
-) -> Result<(), anyhow::Error> {
+pub fn persist_traces(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>, persist: bool) -> Result<(), anyhow::Error> {
     if !persist {
         return Ok(());
     }
@@ -51,10 +46,7 @@ pub fn persist_traces(
 }
 
 /// Persist the traces to a CBOR file
-pub fn persist_traces_as_cbor(
-    dir: &Path,
-    trace_buffer: Arc<Mutex<TraceBuffer>>,
-) -> Result<(), anyhow::Error> {
+pub fn persist_traces_as_cbor(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Result<(), anyhow::Error> {
     if trace_buffer.lock().is_empty() {
         return Ok(());
     }
@@ -67,18 +59,12 @@ pub fn persist_traces_as_cbor(
 }
 
 /// Persist the traces to a JSON file
-pub fn persist_traces_as_json(
-    dir: &Path,
-    trace_buffer: Arc<Mutex<TraceBuffer>>,
-) -> Result<(), anyhow::Error> {
+pub fn persist_traces_as_json(dir: &Path, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Result<(), anyhow::Error> {
     let path = dir.join("traces.json");
     let mut file = File::create(&path)?;
 
     let traces = trace_buffer.lock().hydrate();
-    let traces = traces
-        .iter()
-        .map(|trace| trace.1.to_json())
-        .collect::<Vec<_>>();
+    let traces = traces.iter().map(|trace| trace.1.to_json()).collect::<Vec<_>>();
     file.write_all(serde_json::to_string_pretty(&serde_json::json!(traces))?.as_bytes())?;
     Ok(())
 }
@@ -99,9 +85,7 @@ pub fn persist_args(dir: &Path, args: &Args, persist: bool) -> Result<(), anyhow
 pub fn create_symlink_dir(target: &Path, link: &Path) {
     // Clean up existing link or directory first
     if link.exists() {
-        std::fs::remove_file(link)
-            .or_else(|_| std::fs::remove_dir_all(link))
-            .ok();
+        std::fs::remove_file(link).or_else(|_| std::fs::remove_dir_all(link)).ok();
     }
 
     let abs_target = std::fs::canonicalize(target).unwrap();

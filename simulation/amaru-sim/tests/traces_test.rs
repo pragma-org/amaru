@@ -14,11 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::tests::configuration::NodeTestConfig;
-use amaru::tests::setup::create_nodes;
+use amaru::tests::{configuration::NodeTestConfig, setup::create_nodes};
 use amaru_consensus::headers_tree::data_generation::Action;
-use amaru_kernel::utils::tests::run_strategy;
-use amaru_kernel::{Peer, any_headers_chain};
+use amaru_kernel::{Peer, any_headers_chain, utils::tests::run_strategy};
 use amaru_tracing_json::{TraceCollectConfig, assert_spans_trees};
 use pure_stage::simulation::RandStdRng;
 use serde_json::json;
@@ -33,22 +31,17 @@ use tracing::info_span;
 fn run_simulator_with_traces() {
     let execute = || {
         let headers = run_strategy(any_headers_chain(3));
-        let actions = vec![Action::RollForward {
-            peer: Peer::new("1"),
-            header: headers[1].clone(),
-        }];
+        let actions = vec![Action::RollForward { peer: Peer::new("1"), header: headers[1].clone() }];
         let responder_config = NodeTestConfig::responder()
             .with_chain_length(3)
             .with_validated_blocks(headers.clone())
             .with_actions(actions);
-        let initiator_config = NodeTestConfig::initiator()
-            .with_chain_length(3)
-            .with_validated_blocks(vec![headers[0].clone()]);
+        let initiator_config =
+            NodeTestConfig::initiator().with_chain_length(3).with_validated_blocks(vec![headers[0].clone()]);
 
         let mut rng = RandStdRng::from_seed(42);
         info_span!(target: "amaru_consensus", "handle_msg").in_scope(|| {
-            let mut nodes =
-                create_nodes(&mut rng, vec![initiator_config, responder_config]).unwrap();
+            let mut nodes = create_nodes(&mut rng, vec![initiator_config, responder_config]).unwrap();
             nodes.run(&mut rng, 10000);
         });
     };

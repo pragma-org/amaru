@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::socket_addr::resolve;
+use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
+
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
 use pure_stage::BoxFuture;
 use socket2::{Domain, Socket, Type};
-use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -30,6 +30,8 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::Instrument;
+
+use crate::socket_addr::resolve;
 
 pub struct Connection {
     peer_addr: SocketAddr,
@@ -44,10 +46,7 @@ impl Connection {
         let peer_addr = reader.peer_addr()?;
         Ok(Self {
             peer_addr,
-            reader: Arc::new(AsyncMutex::new((
-                reader,
-                BytesMut::with_capacity(read_buf_size),
-            ))),
+            reader: Arc::new(AsyncMutex::new((reader, BytesMut::with_capacity(read_buf_size)))),
             writer: Arc::new(AsyncMutex::new(writer)),
         })
     }
@@ -63,9 +62,7 @@ struct Connections {
 
 impl Connections {
     fn new() -> Self {
-        Self {
-            connections: BTreeMap::new(),
-        }
+        Self { connections: BTreeMap::new() }
     }
 
     fn add_connection(&mut self, connection: Connection) -> ConnectionId {
@@ -126,11 +123,7 @@ impl TokioConnections {
     }
 }
 
-async fn connect(
-    addr: Vec<SocketAddr>,
-    resource: Arc<Inner>,
-    timeout: Duration,
-) -> std::io::Result<ConnectionId> {
+async fn connect(addr: Vec<SocketAddr>, resource: Arc<Inner>, timeout: Duration) -> std::io::Result<ConnectionId> {
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&*addr)).await??;
     tracing::debug!(?addr, "connected");
     let mut connections = resource.connections.lock();
@@ -145,9 +138,7 @@ impl ConnectionProvider for TokioConnections {
         Box::pin(
             async move {
                 if inner.tasks.lock().contains_key(&addr) {
-                    return Err(std::io::Error::other(format!(
-                        "listener already bound to {addr}"
-                    )));
+                    return Err(std::io::Error::other(format!("listener already bound to {addr}")));
                 }
 
                 // Bind the listener with SO_REUSEADDR
@@ -161,8 +152,7 @@ impl ConnectionProvider for TokioConnections {
                     // this task contains the listener and the sender, dropping them upon abort()
                     async move {
                         while let Ok((stream, peer_addr)) = listener.accept().await {
-                            let Ok(_) = incoming_tx.send(PendingAccept { stream, peer_addr }).await
-                            else {
+                            let Ok(_) = incoming_tx.send(PendingAccept { stream, peer_addr }).await else {
                                 break;
                             };
                         }
@@ -181,10 +171,7 @@ impl ConnectionProvider for TokioConnections {
 
     /// NOTE: For now there is only one listener used in the tokio implementation so we don't need
     /// to use the _listener_addr.
-    fn accept(
-        &self,
-        _listener_addr: SocketAddr,
-    ) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
+    fn accept(&self, _listener_addr: SocketAddr) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
         let inner = self.inner.clone();
 
         Box::pin(
@@ -192,17 +179,12 @@ impl ConnectionProvider for TokioConnections {
                 let mut rx = inner.incoming_rx.lock().await;
 
                 #[expect(clippy::expect_used)]
-                let PendingAccept { stream, peer_addr } = rx
-                    .recv()
-                    .await
-                    .expect("sender cannot be dropped since we hold Inner");
+                let PendingAccept { stream, peer_addr } =
+                    rx.recv().await.expect("sender cannot be dropped since we hold Inner");
                 drop(rx);
 
                 tracing::debug!(%peer_addr, "accepted connection");
-                let id = inner
-                    .connections
-                    .lock()
-                    .add_connection(Connection::new(stream, inner.read_buf_size)?);
+                let id = inner.connections.lock().add_connection(Connection::new(stream, inner.read_buf_size)?);
 
                 Ok((Peer::from_addr(&peer_addr), id))
             }
@@ -210,16 +192,9 @@ impl ConnectionProvider for TokioConnections {
         )
     }
 
-    fn connect(
-        &self,
-        addr: Vec<SocketAddr>,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+    fn connect(&self, addr: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
         let addr2 = addr.clone();
-        Box::pin(
-            connect(addr, self.inner.clone(), timeout)
-                .instrument(tracing::debug_span!("connect", ?addr2)),
-        )
+        Box::pin(connect(addr, self.inner.clone(), timeout).instrument(tracing::debug_span!("connect", ?addr2)))
     }
 
     fn connect_addrs(
@@ -239,11 +214,7 @@ impl ConnectionProvider for TokioConnections {
         )
     }
 
-    fn send(
-        &self,
-        conn: ConnectionId,
-        data: NonEmptyBytes,
-    ) -> BoxFuture<'static, std::io::Result<()>> {
+    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {
         let resource = self.inner.clone();
         let len = data.len();
         Box::pin(
@@ -252,27 +223,17 @@ impl ConnectionProvider for TokioConnections {
                     .connections
                     .lock()
                     .get(&conn)
-                    .ok_or_else(|| {
-                        std::io::Error::other(format!("connection {conn} not found for send"))
-                    })?
+                    .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for send")))?
                     .writer
                     .clone();
-                tokio::time::timeout(
-                    Duration::from_secs(100),
-                    connection.lock().await.write_all(&data),
-                )
-                .await??;
+                tokio::time::timeout(Duration::from_secs(100), connection.lock().await.write_all(&data)).await??;
                 Ok(())
             }
             .instrument(tracing::trace_span!("send", %conn, len)),
         )
     }
 
-    fn recv(
-        &self,
-        conn: ConnectionId,
-        bytes: NonZeroUsize,
-    ) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
+    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
         let resource = self.inner.clone();
         Box::pin(
             async move {
@@ -280,9 +241,7 @@ impl ConnectionProvider for TokioConnections {
                     .connections
                     .lock()
                     .get(&conn)
-                    .ok_or_else(|| {
-                        std::io::Error::other(format!("connection {conn} not found for recv"))
-                    })?
+                    .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for recv")))?
                     .reader
                     .clone();
                 let mut guard = connection.lock().await;
@@ -294,10 +253,7 @@ impl ConnectionProvider for TokioConnections {
                     };
                 }
                 #[expect(clippy::expect_used)]
-                Ok(buf
-                    .copy_to_bytes(bytes.get())
-                    .try_into()
-                    .expect("guaranteed by NonZeroUsize"))
+                Ok(buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize"))
             }
             .instrument(tracing::trace_span!("recv", %conn, bytes)),
         )
@@ -348,9 +304,10 @@ fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use bytes::Bytes;
     use tokio::{task::JoinHandle, time::timeout};
+
+    use super::*;
 
     #[tokio::test]
     async fn connect_to_a_server() -> anyhow::Result<()> {
@@ -370,13 +327,9 @@ mod tests {
 
         // Use TokioConnections to connect to the listener.
         let connections = TokioConnections::new(1024);
-        let connection_id = connections
-            .connect(vec![addr], Duration::from_secs(1))
-            .await?;
+        let connection_id = connections.connect(vec![addr], Duration::from_secs(1)).await?;
         connections.send(connection_id, non_empty(b"ping")).await?;
-        let reply = connections
-            .recv(connection_id, const { NonZeroUsize::new(4).unwrap() })
-            .await?;
+        let reply = connections.recv(connection_id, const { NonZeroUsize::new(4).unwrap() }).await?;
         assert_eq!(reply.as_ref(), b"pong");
 
         connections.close(connection_id).await?;
@@ -408,12 +361,8 @@ mod tests {
         });
 
         // Receive "hello" from the client and respond with "world".
-        let connection_id = timeout(Duration::from_secs(1), connections.accept(listen_addr))
-            .await??
-            .1;
-        let result = connections
-            .recv(connection_id, const { NonZeroUsize::new(5).unwrap() })
-            .await?;
+        let connection_id = timeout(Duration::from_secs(1), connections.accept(listen_addr)).await??.1;
+        let result = connections.recv(connection_id, const { NonZeroUsize::new(5).unwrap() }).await?;
         assert_eq!(result.as_ref(), b"hello");
 
         connections.send(connection_id, non_empty(b"world")).await?;
@@ -426,8 +375,6 @@ mod tests {
     // HELPERS
 
     fn non_empty(data: &'static [u8]) -> NonEmptyBytes {
-        Bytes::from_static(data)
-            .try_into()
-            .expect("test data must be non-empty")
+        Bytes::from_static(data).try_into().expect("test data must be non-empty")
     }
 }
