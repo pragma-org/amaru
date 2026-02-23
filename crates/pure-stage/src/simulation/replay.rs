@@ -314,7 +314,7 @@ impl Replay {
         })?;
         data.waiting.take().with_context(|| {
             format!(
-                "idx {}: stage {} was not waiting for any effect while handling add stage",
+                "idx {}: stage {} was not waiting for any effect while handling {effect_name}",
                 idx, at_stage
             )
         })

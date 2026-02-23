@@ -119,7 +119,7 @@ impl ExternalEffect for ListenEffect {
             #[expect(clippy::expect_used)]
             let resource = resources
                 .get::<ConnectionsResource>()
-                .expect("ListenEffect requires a ConnectionResource")
+                .expect("ListenEffect requires a ConnectionsResource")
                 .clone();
             resource
                 .listen(self.addr)
@@ -154,7 +154,7 @@ impl ExternalEffect for AcceptEffect {
             #[expect(clippy::expect_used)]
             let resource = resources
                 .get::<ConnectionsResource>()
-                .expect("AcceptEffect requires a ConnectionResource")
+                .expect("AcceptEffect requires a ConnectionsResource")
                 .clone();
             #[expect(clippy::wildcard_enum_match_arm)]
             resource
@@ -200,7 +200,7 @@ impl ExternalEffect for ConnectEffect {
             #[expect(clippy::expect_used)]
             let resource = resources
                 .get::<ConnectionsResource>()
-                .expect("ConnectEffect requires a ConnectionResource")
+                .expect("ConnectEffect requires a ConnectionsResource")
                 .clone();
             resource
                 .connect_addrs(self.addr.clone(), self.timeout)
@@ -242,7 +242,7 @@ impl ExternalEffect for SendEffect {
             #[expect(clippy::expect_used)]
             let resource = resources
                 .get::<ConnectionsResource>()
-                .expect("SendEffect requires a ConnectionResource")
+                .expect("SendEffect requires a ConnectionsResource")
                 .clone();
             resource
                 .send(self.conn, self.data)
@@ -284,7 +284,7 @@ impl ExternalEffect for RecvEffect {
             #[expect(clippy::expect_used)]
             let resource = resources
                 .get::<ConnectionsResource>()
-                .expect("RecvEffect requires a ConnectionResource")
+                .expect("RecvEffect requires a ConnectionsResource")
                 .clone();
             resource
                 .recv(self.conn, self.bytes)
@@ -325,7 +325,7 @@ impl ExternalEffect for CloseEffect {
             #[expect(clippy::expect_used)]
             let resource = resources
                 .get::<ConnectionsResource>()
-                .expect("CloseEffect requires a ConnectionResource")
+                .expect("CloseEffect requires a ConnectionsResource")
                 .clone();
             resource.close(self.conn).await.map_err(|e| CloseError {
                 conn: self.conn,
