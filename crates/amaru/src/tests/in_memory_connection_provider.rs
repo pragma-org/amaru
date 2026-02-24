@@ -106,18 +106,24 @@ impl ConnectionProvider for InMemoryConnectionProvider {
         tracing::debug!("InMemoryConnectionProvider::connect called for {addr:?}");
 
         Box::pin(std::future::poll_fn(move |cx| {
-            let Some(target_addr) = addr.first() else {
+            if addr.is_empty() {
                 return Poll::Ready(Err(std::io::Error::other("no addresses provided")));
+            }
+
+            // Find an address that has a listener
+            let target_addr = {
+                let listeners = inner.listeners.lock();
+                addr.iter().copied().find(|a| listeners.contains_key(a))
             };
 
-            // Check if the listener exists before allocating anything
-            {
-                let listeners = inner.listeners.lock();
-                if !listeners.contains_key(target_addr) {
-                    inner.connect_wakers.lock().entry(*target_addr).or_default().push(cx.waker().clone());
-                    return Poll::Pending;
+            let Some(target_addr) = target_addr else {
+                // No listener for any address yet, register wakers for all addresses
+                let mut wakers = inner.connect_wakers.lock();
+                for a in &addr {
+                    wakers.entry(*a).or_default().push(cx.waker().clone());
                 }
-            }
+                return Poll::Pending;
+            };
 
             // Create bidirectional channel pair using VecDeque
             let initiator_to_responder = Arc::new(Mutex::new(VecDeque::new()));
@@ -144,7 +150,7 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             };
 
             // Try to add to listener's pending queue (includes initiator's slot for accept to fill)
-            let queued = inner.connect(target_addr, responder_endpoint, initiator_peer_conn_id_slot, cx.waker());
+            let queued = inner.connect(&target_addr, responder_endpoint, initiator_peer_conn_id_slot, cx.waker());
             if !queued {
                 // No listener yet, the waker is registered. Return Pending
                 return Poll::Pending;
