@@ -168,15 +168,18 @@ where
             .and_then(|value| value.as_str().map(|s| s.to_string()))
             .unwrap_or_default();
 
-        let mut event_json = json::json!({
-            "name": name,
-            "type": "event",
-            "level": format!("{}", event.metadata().level()),
-        });
+        let mut event_json = json::json!({});
 
+        // Merge user fields first so reserved keys always win
         for (key, value) in visitor.fields {
             event_json[key] = value.clone();
         }
+
+        // Set reserved keys after to prevent user-field clobbering
+        event_json["name"] = Value::String(name);
+        event_json["type"] = Value::String("event".to_string());
+        event_json["level"] = Value::String(format!("{}", event.metadata().level()));
+        event_json["target"] = Value::String(event.metadata().target().to_string());
 
         self.collector.insert(event_json);
     }
