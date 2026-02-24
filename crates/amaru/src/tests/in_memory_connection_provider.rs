@@ -40,7 +40,7 @@ pub struct InMemoryConnectionProvider {
 
 impl ConnectionProvider for InMemoryConnectionProvider {
     /// Create a new listener for the given address.
-    /// Fails if the address is already in use (this is a configuration error).
+    /// If a listener already exists for this address, it is removed to allow supervised restarts.
     fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
         let inner = self.inner.clone();
         let provider = self.clone();
@@ -49,8 +49,10 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             {
                 let mut listeners = inner.listeners.lock();
 
-                if listeners.contains_key(&addr) {
-                    return Err(std::io::Error::other(format!("listener already bound to {addr}")));
+                // If a listener already exists for this address, remove it.
+                // This allows supervised restarts to work correctly.
+                if listeners.remove(&addr).is_some() {
+                    tracing::info!(%addr, "removing existing listener for restart");
                 }
 
                 listeners.insert(addr, Listener { pending_connects: VecDeque::new() });

@@ -138,8 +138,14 @@ impl ConnectionProvider for TokioConnections {
 
         Box::pin(
             async move {
-                if inner.tasks.lock().contains_key(&addr) {
-                    return Err(std::io::Error::other(format!("listener already bound to {addr}")));
+                // If a listener already exists for this address, abort and remove it.
+                // This allows supervised restarts to work correctly.
+                let existing_task = inner.tasks.lock().remove(&addr);
+                if let Some(task) = existing_task {
+                    tracing::info!(%addr, "aborting existing listener task for restart");
+                    task.abort();
+                    // Wait for the task to complete so the TcpListener is dropped and the port is released.
+                    let _ = task.await;
                 }
 
                 // Bind the listener with SO_REUSEADDR

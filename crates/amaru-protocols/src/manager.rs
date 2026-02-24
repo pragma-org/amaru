@@ -274,7 +274,8 @@ pub async fn stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessag
                 Ok(listen_addr) => {
                     tracing::info!(%listen_addr, "listening");
                     let accept_stage = eff.stage("accept", accept::stage).await;
-                    // If the accept stage fails try to restart the listener
+                    // If the accept stage fails, the tombstone message triggers a restart.
+                    // The listen() call is idempotent and will clean up the old listener.
                     let accept_stage = eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
                     let accept_stage = eff
                         .wire_up(accept_stage, accept::AcceptState::new(eff.me(), manager.config(), listen_addr))
