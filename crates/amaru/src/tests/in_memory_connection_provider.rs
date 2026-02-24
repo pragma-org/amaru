@@ -260,18 +260,31 @@ impl ConnectionProvider for InMemoryConnectionProvider {
     }
 
     /// Close a connection, given its connection id.
-    /// This just removes the corresponding endpoint from the endpoints map.
+    /// This removes the corresponding endpoint from the endpoints map and also removes the peer's
+    /// endpoint so that both sides get notified of the closure.
+    /// Closing an already-closed connection is a no-op (idempotent).
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let removed = {
+            let (removed, peer) = {
                 let mut connections = inner.connection_endpoints.lock();
-                connections
-                    .remove(&conn)
-                    .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for close")))?
+                let Some(removed) = connections.remove(&conn) else {
+                    // Connection already closed (possibly by peer), treat as success
+                    tracing::debug!("in-memory connection {conn} already closed");
+                    return Ok(());
+                };
+                let peer_id = *removed.peer_conn_id.lock();
+                let peer = peer_id.and_then(|id| connections.remove(&id));
+                (removed, peer)
             };
             // Wake any recv task blocked on this connection so it gets an error, not a hang
             if let Some(waker) = removed.recv_waker.lock().take() {
+                waker.wake();
+            }
+            // Wake the peer's recv task so they also get an error instead of hanging
+            if let Some(peer) = peer
+                && let Some(waker) = peer.recv_waker.lock().take()
+            {
                 waker.wake();
             }
 
