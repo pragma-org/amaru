@@ -255,6 +255,9 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 }
             }; // outer lock released here
 
+            // Register waker before draining to prevent lost wakes.
+            *recv_waker.lock() = Some(cx.waker().clone());
+
             let mut buffer = read_buffer.lock();
             {
                 let mut rq = read_queue.lock();
@@ -269,7 +272,6 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 return Poll::Ready(Ok(result));
             }
 
-            *recv_waker.lock() = Some(cx.waker().clone());
             Poll::Pending
         }))
     }
