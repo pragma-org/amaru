@@ -122,12 +122,22 @@ where
                 return;
             }
             let mut span_json = json::json!({
-                "id": Value::String(format!("{id:?}")),
-                "name": span.name().to_string(),
-                "type": "span".to_string(),
-                "level": format!("{}", span.metadata().level()),
                 "target": span.metadata().target(),
             });
+
+            // Merge user fields first so reserved keys always win
+            if let Some(fields) = span.extensions().get::<json::Map<String, Value>>() {
+                for (key, value) in fields {
+                    span_json[key] = value.clone();
+                }
+            }
+
+            // Set reserved keys after to prevent user-field clobbering
+            span_json["id"] = Value::String(format!("{id:?}"));
+            span_json["name"] = Value::String(span.name().to_string());
+            span_json["type"] = Value::String("span".to_string());
+            span_json["level"] = Value::String(format!("{}", span.metadata().level()));
+            span_json["target"] = Value::String(span.metadata().target().to_string());
 
             // Walk up the parent chain to find the nearest collected ancestor
             // (i.e., one whose target passes our filter)
@@ -138,12 +148,6 @@ where
                     break;
                 }
                 current_parent = parent.parent();
-            }
-
-            if let Some(fields) = span.extensions().get::<json::Map<String, Value>>() {
-                for (key, value) in fields {
-                    span_json[key] = value.clone();
-                }
             }
 
             self.collector.insert(span_json);
