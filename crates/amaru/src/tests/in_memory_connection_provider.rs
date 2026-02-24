@@ -49,10 +49,25 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             {
                 let mut listeners = inner.listeners.lock();
 
-                // If a listener already exists for this address, remove it.
-                // This allows supervised restarts to work correctly.
-                if listeners.remove(&addr).is_some() {
+                if let Some(old_listener) = listeners.remove(&addr) {
                     tracing::info!(%addr, "removing existing listener for restart");
+
+                    // Clean up initiator endpoints as well and wake their recv wakers.
+                    // These connections already registered their initiator endpoint in
+                    // connection_endpoints, so we need to remove them and wake their recv wakers.
+                    let mut connections = inner.connection_endpoints.lock();
+                    for pending in old_listener.pending_connects {
+                        if let Some(initiator_conn_id) = *pending.responder_endpoint.peer_conn_id.lock()
+                            && let Some(initiator_endpoint) = connections.remove(&initiator_conn_id)
+                        {
+                            if let Some(waker) = initiator_endpoint.recv_waker.lock().take() {
+                                waker.wake();
+                            }
+                            tracing::debug!(
+                                "cleaned up orphaned initiator connection {initiator_conn_id} during listener restart"
+                            );
+                        }
+                    }
                 }
 
                 listeners.insert(addr, Listener { pending_connects: VecDeque::new() });
