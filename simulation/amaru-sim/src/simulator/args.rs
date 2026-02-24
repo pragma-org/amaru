@@ -177,7 +177,7 @@ pub fn is_true_value(value: String) -> bool {
 
 /// Initialize logging based on environment variables:
 ///
-///  - `AMARU_SIMULATION_LOG`: sets the log filter (default: none)
+///  - `AMARU_SIMULATION_LOG`: sets the log filter (default: off)
 ///  - `AMARU_SIMULATION_LOG_AS_JSON`: if set to "1" or "true", logs are formatted as JSON
 ///
 pub fn initialize_logs() {
@@ -185,7 +185,7 @@ pub fn initialize_logs() {
     let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
     let formatter = tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(
         EnvFilter::builder()
-            .parse(format!("none,{}", amaru_logs))
+            .parse(format!("off,{}", amaru_logs))
             .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
     );
     if amaru_logs_as_json {
