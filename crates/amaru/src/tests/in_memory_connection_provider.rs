@@ -418,6 +418,8 @@ struct Inner {
     listeners: Mutex<BTreeMap<SocketAddr, Listener>>,
     /// All active connection endpoints by ConnectionId
     connection_endpoints: Mutex<BTreeMap<ConnectionId, ConnectionEndpoint>>,
+    /// The next connection identifier to assign
+    next_connection_id: Mutex<ConnectionId>,
     /// Counter for generating ports for initiators
     last_connection_port: AtomicU16,
     /// Wakers for accept operations waiting for connections
@@ -431,6 +433,7 @@ impl Default for Inner {
         Self {
             listeners: Mutex::new(BTreeMap::new()),
             connection_endpoints: Mutex::new(BTreeMap::new()),
+            next_connection_id: Mutex::new(ConnectionId::initial()),
             last_connection_port: AtomicU16::new(5000),
             accept_wakers: Mutex::new(Vec::new()),
             connect_wakers: Mutex::new(BTreeMap::new()),
@@ -440,12 +443,14 @@ impl Default for Inner {
 
 impl Inner {
     fn register_endpoint(&self, endpoint: ConnectionEndpoint) -> ConnectionId {
-        let mut connections = self.connection_endpoints.lock();
-        let connection_id = if let Some((&last_id, _)) = connections.iter().next_back() {
-            last_id.next()
-        } else {
-            ConnectionId::initial()
+        let connection_id = {
+            let mut next_id = self.next_connection_id.lock();
+            let connection_id = *next_id;
+            *next_id = connection_id.next();
+            connection_id
         };
+
+        let mut connections = self.connection_endpoints.lock();
         connections.insert(connection_id, endpoint);
         connection_id
     }
