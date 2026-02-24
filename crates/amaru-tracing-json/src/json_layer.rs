@@ -76,31 +76,57 @@ where
         id: &tracing::span::Id,
         ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
+        let mut visitor = JsonVisitor::default();
+        attrs.record(&mut visitor);
+
         if let Some(span) = ctx.span(id) {
             if !self.has_target(span.metadata().target()) {
                 return;
             }
-            let mut visitor = JsonVisitor::default();
-            attrs.record(&mut visitor);
-
             // Store the fields in the span for later use
             let mut extensions = span.extensions_mut();
             extensions.insert(visitor.fields);
         }
     }
 
-    fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_record(
+        &self,
+        id: &tracing::span::Id,
+        values: &tracing::span::Record<'_>,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = JsonVisitor::default();
+        values.record(&mut visitor);
+
         if let Some(span) = ctx.span(id) {
             if !self.has_target(span.metadata().target()) {
                 return;
             }
+            let mut extensions = span.extensions_mut();
+            if let Some(fields) = extensions.get_mut::<json::Map<String, Value>>() {
+                // Merge the new fields into existing ones
+                for (key, value) in visitor.fields {
+                    fields.insert(key, value);
+                }
+            }
+        }
+    }
 
+    fn on_enter(&self, _id: &tracing::span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        // We collect span data on close instead of enter to capture all recorded fields
+    }
+
+    fn on_close(&self, id: tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+        if let Some(span) = ctx.span(&id) {
+            if !self.has_target(span.metadata().target()) {
+                return;
+            }
             let mut span_json = json::json!({
                 "id": Value::String(format!("{id:?}")),
                 "name": span.name().to_string(),
-                "target": span.metadata().target().to_string(),
                 "type": "span".to_string(),
                 "level": format!("{}", span.metadata().level()),
+                "target": span.metadata().target(),
             });
 
             // Walk up the parent chain to find the nearest collected ancestor

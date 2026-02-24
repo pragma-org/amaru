@@ -36,6 +36,7 @@ tracing-opentelemetry.workspace = true
 amaru-kernel.workspace = true
 amaru-mempool.workspace = true
 amaru-metrics.workspace = true
+amaru-observability.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-ouroboros.workspace = true
 amaru-protocols.workspace = true
