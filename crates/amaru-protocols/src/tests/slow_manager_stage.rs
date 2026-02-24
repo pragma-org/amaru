@@ -18,12 +18,12 @@ use pure_stage::Effects;
 
 use crate::{
     manager,
-    manager::{ManagerMessage, State},
+    manager::{Manager, ManagerMessage},
 };
 
 /// This stage allows us to simulate a responder node that will not respond right away with
 /// all the data that the initiator is requesting. This is useful for testing the reconnection logic.
-pub async fn slow_manager_stage(state: State, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> State {
+pub async fn slow_manager_stage(manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
     match msg {
         ManagerMessage::AddPeer(_) => {}
         ManagerMessage::ConnectionDied(_, _, _) => {}
@@ -38,5 +38,5 @@ pub async fn slow_manager_stage(state: State, msg: ManagerMessage, eff: Effects<
         ManagerMessage::Listen(_) => {}
         ManagerMessage::NewTip(_) => {}
     }
-    manager::stage(state, msg, eff).await
+    manager::stage(manager, msg, eff).await
 }

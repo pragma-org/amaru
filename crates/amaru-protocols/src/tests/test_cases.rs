@@ -24,6 +24,7 @@ use pure_stage::{
 use tokio::{runtime::Handle, sync::Notify};
 
 use crate::{
+    chainsync::ChainSyncInitiatorMsg,
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
     tests::{
@@ -161,15 +162,13 @@ async fn start_responder_with_configuration(
 ) -> anyhow::Result<(TokioRunning, SocketAddr, Arc<Notify>)> {
     tracing::info!("Creating the responder");
     let mut responder_network = TokioBuilder::default();
-
-    let responder_manager = create_manager(ManagerConfig::default());
-
     let responder_stage = if configuration.slow_manager {
         responder_network.stage("responder", slow_manager_stage)
     } else {
         responder_network.stage("responder", manager::stage)
     };
-    let responder_stage = responder_network.wire_up(responder_stage, (responder_manager, StageRef::blackhole()));
+    let responder_manager = create_manager(ManagerConfig::default(), StageRef::blackhole());
+    let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
 
     // Create a connection that notifies the accept stage about new connections
     // Note: we need to call listen() first to get the listener address for the accept stage
@@ -219,9 +218,8 @@ async fn start_initiator_with_configuration(
     );
 
     let manager_config = ManagerConfig::default().with_reconnect_delay(configuration.reconnect_delay);
-    let initiator_manager = create_manager(manager_config);
-    let state = (initiator_manager, chainsync_stage.without_state());
-    let initiator_stage = initiator_network.wire_up(initiator_stage, state);
+    let initiator_manager = create_manager(manager_config, chainsync_stage.without_state());
+    let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
     let initiator_sender = initiator_network.input(initiator_stage);
 
     let initiator_connections = TokioConnections::new(CONNECTION_BUFFER_SIZE);
@@ -249,8 +247,6 @@ async fn start_responder_with_failing_accept(
     tracing::info!("Creating the responder with failing accept (fail_after={}, fail_count={})", fail_after, fail_count);
     let mut responder_network = TokioBuilder::default();
 
-    let responder_manager = create_manager(ManagerConfig::default());
-
     // Create the chainsync stage for tracking completion
     let chainsync_stage = responder_network.stage("chainsync", test_chainsync_stage);
     let notify = Arc::new(Notify::new());
@@ -261,10 +257,10 @@ async fn start_responder_with_failing_accept(
     // Wire up the chainsync stage first (manager needs its reference)
     let chainsync_stage = responder_network
         .wire_up(chainsync_stage, ChainSyncStageState::new(responder_stage.sender(), None, notify.clone()));
+    let responder_manager = create_manager(ManagerConfig::default(), chainsync_stage.without_state());
 
     // Wire up the manager stage
-    let responder_stage =
-        responder_network.wire_up(responder_stage, (responder_manager, chainsync_stage.without_state()));
+    let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
     let responder_sender = responder_network.input(responder_stage);
 
     // Create a FailingConnectionProvider that wraps TokioConnections.
@@ -301,6 +297,6 @@ fn era_history() -> Arc<EraHistory> {
     Arc::new(era_history.clone())
 }
 
-fn create_manager(config: ManagerConfig) -> Manager {
-    Manager::new(NetworkMagic::PREPROD, config, era_history())
+fn create_manager(config: ManagerConfig, chainsync_stage: StageRef<ChainSyncInitiatorMsg>) -> Manager {
+    Manager::new(NetworkMagic::PREPROD, config, era_history(), chainsync_stage)
 }

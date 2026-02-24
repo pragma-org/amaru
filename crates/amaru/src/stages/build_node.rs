@@ -28,7 +28,7 @@ use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, ResourceMempool};
 use amaru_protocols::{
-    manager::{Manager, ManagerConfig, ManagerMessage},
+    manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
@@ -99,13 +99,13 @@ pub fn build_node(
     let chain_selector = make_chain_selector(chain_store.clone(), &peers, global_parameters.consensus_security_param)?;
     let validate_header =
         make_validate_header(global_parameters, era_history, chain_store.clone(), ledger.get_stake_distribution()?);
-    let manager = Manager::new(config.network_magic, ManagerConfig::default(), Arc::new(era_history.clone()));
 
     // Register resources
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
 
     // Build the stage graph and return a reference to the manager stage
-    let manager_stage = build_stage_graph(chain_selector, SyncTracker::new(&peers), manager, tip, stage_builder);
+    let manager_stage =
+        build_stage_graph(config, era_history, chain_selector, SyncTracker::new(&peers), tip, stage_builder);
 
     // Open a port to listen for downstream peers
     stage_builder

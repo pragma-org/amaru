@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use amaru_consensus::{
     effects::ConsensusEffects,
     errors::{ConsensusError::*, ProcessingFailed, ValidationFailed},
@@ -25,12 +27,14 @@ use amaru_consensus::{
         validate_block, validate_header,
     },
 };
-use amaru_kernel::Tip;
+use amaru_kernel::{EraHistory, Tip};
 use amaru_protocols::{
     manager,
-    manager::{Manager, ManagerMessage},
+    manager::{Manager, ManagerConfig, ManagerMessage},
 };
 use pure_stage::{Effects, SendData, StageGraph, StageRef};
+
+use crate::stages::config::Config;
 
 /// Create a graph of processing stages for the node.
 ///
@@ -44,9 +48,10 @@ use pure_stage::{Effects, SendData, StageGraph, StageRef};
 /// We terminate the node in case of a failure, while we just log errors.
 ///
 pub fn build_stage_graph(
+    config: &Config,
+    era_history: &EraHistory,
     chain_selector: SelectChain,
     sync_tracker: SyncTracker,
-    manager: Manager,
     our_tip: Tip,
     stage_graph: &mut impl StageGraph,
 ) -> StageRef<ManagerMessage> {
@@ -149,8 +154,15 @@ pub fn build_stage_graph(
         .without_state();
 
     let pull_stage = stage_graph.stage("pull", pull::stage);
-    let pull_stage = stage_graph.wire_up(pull_stage, (sync_tracker, receive_header_stage)).without_state();
-    stage_graph.wire_up(manager_stage, (manager, pull_stage)).without_state()
+    let manager = Manager::new(
+        config.network_magic,
+        ManagerConfig::default(),
+        Arc::new(era_history.clone()),
+        pull_stage.sender(),
+    );
+
+    stage_graph.wire_up(pull_stage, (sync_tracker, receive_header_stage));
+    stage_graph.wire_up(manager_stage, manager).without_state()
 }
 
 /// Wrap a function taking `ConsensusEffects` so that it can be used in a stage graph that provides
