@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{IsHeader, Tip};
+use amaru_observability::amaru::consensus::diffusion::FORWARD_CHAIN;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use tracing::{Instrument, error, trace};
@@ -53,7 +54,7 @@ pub fn stage(
     msg: BlockValidationResult,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = ForwardChainState> {
-    let span = tracing::trace_span!(parent: msg.span(), "diffusion.forward_chain");
+    let span = tracing::trace_span!(parent: msg.span(), FORWARD_CHAIN);
     async move {
         match msg {
             BlockValidationResult::BlockValidated { header, .. } => {

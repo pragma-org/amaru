@@ -41,6 +41,15 @@ where
                 .collect::<Result<Vec<_>, _>>()
                 .map(|vec| vec.join("\n  - "))
                 .unwrap_or_else(|e| format!("error: invalid JSON traces: {e}"))
+        );
+        eprintln!(
+            "expected traces:\n  - {}",
+            expected
+                .iter()
+                .map(serde_json::to_string)
+                .collect::<Result<Vec<_>, _>>()
+                .map(|vec| vec.join("\n  - "))
+                .unwrap_or_else(|e| format!("error: invalid JSON traces: {e}"))
         )
     }
 
@@ -91,6 +100,8 @@ mod tests {
 
     #[test]
     fn check_simple_tracing() {
+        // Note: spans are collected on close (after all events inside have been emitted)
+        // to capture any fields recorded during the span's lifetime
         assert_eq!(
             assert_trace(
                 || {
@@ -101,9 +112,9 @@ mod tests {
                     })
                 },
                 vec![
-                    json!({ "name": "foo", "type": "span", "level": "INFO" }),
                     json!({ "name": "basic", "a": 1, "type": "event", "level": "INFO" }),
                     json!({ "name": "nested_fields", "a": { "foo": 1, "bar": 2 }, "level": "INFO", "type": "event" }),
+                    json!({ "name": "foo", "type": "span", "level": "INFO" }),
                 ],
             ),
             "result"
@@ -131,8 +142,9 @@ mod tests {
             || info_span!("foo").in_scope(|| info_span!("bar").in_scope(|| {})),
             vec![json!({
                 "name": "foo",
+                "target": "amaru_tracing_json::assertions::tests",
                 "children": [
-                    json!({ "name": "bar2"})]
+                    json!({ "name": "bar2", "target": "amaru_tracing_json::assertions::tests"})]
             })],
             TraceCollectConfig::default(),
         )
