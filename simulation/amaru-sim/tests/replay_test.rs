@@ -59,7 +59,7 @@ fn get_traces(
     test_run: TestRun,
 ) -> anyhow::Result<Vec<TraceEntry>> {
     let path = format!("{}/{simulation_run}/{test_run}/traces.cbor", test_directory.display());
-    let latest_trace = fs::canonicalize(&path).map_err(|e| anyhow!("cannot read the file at {path:?}: {e}"))?;
+    let latest_trace = fs::canonicalize(&path).map_err(|e| anyhow!("cannot canonicalize the path {path:?}: {e}"))?;
     load_trace_entries(&latest_trace)
 }
 
