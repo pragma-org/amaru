@@ -78,12 +78,12 @@ pub fn build_stage_graph(
                 | InvalidHeaderParent(_)
                 | RollForwardChainFailed(_, _)
                 | RollbackChainFailed(_, _)
-                | FetchBlockFailed(_)
                 | CannotDecodeHeader { .. } | EraHistoryError(_) => {
                     tracing::warn!(%peer, %error, "peer sent invalid data, disconnecting");
                     eff.send(&manager_stage, ManagerMessage::RemovePeer(peer)).await;
                 }
                  StoreHeaderFailed(_, _)
+                | FetchBlockFailed(_)
                 | RemoveHeaderFailed(_, _)
                 | SetAnchorHashFailed(_, _)
                 | SetBestChainHashFailed(_, _)
