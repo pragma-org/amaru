@@ -200,13 +200,13 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
 
     async fn local(
         mut self,
-        _proto: &State,
+        proto: &State,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         match input {
             BlockFetchMessage::RequestRange { from, through, cr } => {
-                let action = (self.queue.len() < 2).then_some(InitiatorAction::RequestRange { from, through });
+                let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
                 self.queue.push_back((from, through, cr));
                 Ok((action, self))
             }

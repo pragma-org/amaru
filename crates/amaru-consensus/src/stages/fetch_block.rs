@@ -20,6 +20,12 @@ use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use tracing::Instrument;
 
+/// Maximum number of retry attempts for fetching a block
+const MAX_FETCH_RETRIES: u32 = 3;
+
+/// Base delay between retry attempts (will be multiplied by attempt number for backoff)
+const RETRY_BASE_DELAY_MS: u64 = 500;
+
 use crate::{
     effects::{BaseOps, ConsensusOps},
     errors::{ConsensusError, ProcessingFailed, ValidationFailed},
@@ -84,31 +90,53 @@ async fn load_or_fetch_block(
 }
 
 /// Fetch a block from a given peer by calling the Manager and use the connection for that specific
-/// peer.
+/// peer. Retries up to MAX_FETCH_RETRIES times with exponential backoff on failure.
 async fn fetch_block(
     manager: &StageRef<ManagerMessage>,
     eff: &impl ConsensusOps,
     point: Point,
     peer: &Peer,
 ) -> anyhow::Result<Option<NetworkBlock>> {
-    let peer_clone = peer.clone();
-    let blocks = eff
-        .base()
-        // TODO(network): which timeout to use?
-        .call(manager, Duration::from_secs(5), move |cr| ManagerMessage::FetchBlocks {
-            peer: peer_clone,
-            from: point,
-            through: point,
-            cr,
-        })
-        .await
-        .unwrap_or_default();
-    let Some(block) = blocks.blocks.into_iter().next() else {
-        return Ok(None);
-    };
+    for attempt in 1..=MAX_FETCH_RETRIES {
+        let peer_clone = peer.clone();
+        let blocks = eff
+            .base()
+            // TODO(network): which timeout to use?
+            .call(manager, Duration::from_secs(5), move |cr| ManagerMessage::FetchBlocks {
+                peer: peer_clone,
+                from: point,
+                through: point,
+                cr,
+            })
+            .await
+            .unwrap_or_default();
 
-    eff.store().store_block(&point.hash(), &block.raw_block())?;
-    Ok(Some(block))
+        if let Some(block) = blocks.blocks.into_iter().next() {
+            eff.store().store_block(&point.hash(), &block.raw_block())?;
+            return Ok(Some(block));
+        }
+
+        if attempt < MAX_FETCH_RETRIES {
+            let delay = Duration::from_millis(RETRY_BASE_DELAY_MS * u64::from(attempt));
+            tracing::warn!(
+                %point,
+                %peer,
+                attempt,
+                max_attempts = MAX_FETCH_RETRIES,
+                delay_ms = delay.as_millis(),
+                "block fetch failed, retrying"
+            );
+            eff.base().wait(delay).await;
+        }
+    }
+
+    tracing::error!(
+        %point,
+        %peer,
+        attempts = MAX_FETCH_RETRIES,
+        "block fetch failed after all retry attempts"
+    );
+    Ok(None)
 }
 
 #[cfg(test)]
