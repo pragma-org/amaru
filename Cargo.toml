@@ -7,6 +7,8 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
+keywords = ["cardano", "blockchain", "node", "ouroboros", "crypto"]
+categories = ["cryptography::cryptocurrencies"]
 rust-version = "1.93"                                    # ⚠️ Also change in rust-toolchain.toml
 
 [workspace]
