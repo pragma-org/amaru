@@ -27,6 +27,7 @@ use std::{
     time::Duration,
 };
 
+use amaru_observability::{amaru::stage, trace_span};
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
@@ -38,7 +39,6 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use amaru_observability::{amaru::stage, trace_span};
 
 use crate::{
     BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,

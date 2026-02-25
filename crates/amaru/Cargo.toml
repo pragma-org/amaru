@@ -18,6 +18,7 @@ default-run = "amaru"
 [[bin]]
 name = "amaru"
 path = "src/bin/amaru/main.rs"
+doc = false
 
 [[bin]]
 name = "amaru-ledger"
