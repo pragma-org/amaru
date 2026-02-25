@@ -21,7 +21,7 @@ use std::sync::Arc;
 use amaru_kernel::{EraHistory, Peer, Point};
 use amaru_ouroboros::ConnectionId;
 // Re-export types
-pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
+pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, Blocks2, initiator};
 pub use messages::Message;
 use pure_stage::{DeserializerGuards, Effects, StageRef};
 pub use responder::{BlockFetchResponder, StreamBlocks, responder};
