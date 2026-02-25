@@ -10,7 +10,7 @@ documentation = "https://docs.rs/amaru"
 rust-version = "1.93"                                    # ⚠️ Also change in rust-toolchain.toml
 
 [workspace]
-members = ["crates/*", "simulation/*"]
+members = ["crates/*", "crates/amaru-observability/macros/", "simulation/*"]
 default-members = ["crates/*"]
 resolver = "2"
 
