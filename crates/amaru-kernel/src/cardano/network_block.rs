@@ -43,6 +43,10 @@ impl NetworkBlock {
         Ok(NetworkBlock { era_tag, encoded_block: to_cbor(block) })
     }
 
+    pub fn len(&self) -> usize {
+        self.encoded_block.len()
+    }
+
     pub fn era_tag(&self) -> EraName {
         self.era_tag
     }

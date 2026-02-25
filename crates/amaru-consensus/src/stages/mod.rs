@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod fetch_block;
+pub mod fetch_blocks;
 pub mod forward_chain;
 pub mod pull;
 pub mod receive_header;
