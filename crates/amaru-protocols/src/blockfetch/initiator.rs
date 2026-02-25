@@ -17,6 +17,7 @@ use std::{collections::VecDeque, mem, sync::Arc};
 use amaru_kernel::{EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
@@ -30,6 +31,7 @@ use crate::{
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<BlockFetchInitiator>().boxed(),
+        pure_stage::register_data_deserializer::<(State, BlockFetchInitiator)>().boxed(),
         pure_stage::register_data_deserializer::<BlockFetchMessage>().boxed(),
         pure_stage::register_data_deserializer::<Blocks>().boxed(),
     ]
@@ -198,19 +200,20 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
 
     async fn local(
         mut self,
-        _proto: &State,
+        proto: &State,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         match input {
             BlockFetchMessage::RequestRange { from, through, cr } => {
-                let action = (self.queue.len() < 2).then_some(InitiatorAction::RequestRange { from, through });
+                let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
                 self.queue.push_back((from, through, cr));
                 Ok((action, self))
             }
         }
     }
 
+    #[instrument(name = "blockfetch.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     #[expect(clippy::expect_used)]
     async fn network(
         mut self,
@@ -276,6 +279,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
+    #[instrument(name = "blockfetch.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use Message::*;
         match (self, input) {
@@ -310,6 +314,17 @@ pub enum InitiatorResult {
     NoBlocks,
     Block(Vec<u8>),
     Done,
+}
+
+impl InitiatorResult {
+    fn message_type(&self) -> &'static str {
+        match self {
+            Self::Initialize => "Initialize",
+            Self::NoBlocks => "NoBlocks",
+            Self::Block(_) => "Block",
+            Self::Done => "Done",
+        }
+    }
 }
 
 /// Outcome action of the local stage, to be used by the initiator protocol stage.

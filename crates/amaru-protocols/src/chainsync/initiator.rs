@@ -15,6 +15,7 @@
 use amaru_kernel::{BlockHeader, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
@@ -29,6 +30,7 @@ use crate::{
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
+        pure_stage::register_data_deserializer::<(InitiatorState, ChainSyncInitiator)>().boxed(),
         pure_stage::register_data_deserializer::<ChainSyncInitiatorMsg>().boxed(),
         pure_stage::register_data_deserializer::<ChainSyncInitiator>().boxed(),
     ]
@@ -45,6 +47,15 @@ pub enum InitiatorMessage {
     Done,
 }
 
+impl InitiatorMessage {
+    pub fn message_type(&self) -> &str {
+        match self {
+            InitiatorMessage::RequestNext => "RequestNext",
+            InitiatorMessage::Done => "Done",
+        }
+    }
+}
+
 /// Message sent from the handler to the consensus pipeline
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncInitiatorMsg {
@@ -52,6 +63,18 @@ pub struct ChainSyncInitiatorMsg {
     pub conn_id: ConnectionId,
     pub handler: StageRef<InitiatorMessage>,
     pub msg: InitiatorResult,
+}
+
+impl ChainSyncInitiatorMsg {
+    pub fn message_type(&self) -> &str {
+        match self.msg {
+            InitiatorResult::Initialize => "Initialize",
+            InitiatorResult::IntersectFound(_, _) => "IntersectFound",
+            InitiatorResult::IntersectNotFound(_) => "IntersectNotFound",
+            InitiatorResult::RollForward(_, _) => "RollForward",
+            InitiatorResult::RollBackward(_, _) => "RollBackward",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -94,6 +117,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         })
     }
 
+    #[instrument(name = "chainsync.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &InitiatorState,
@@ -173,6 +197,19 @@ pub enum InitiatorResult {
     RollForward(HeaderContent, Tip),
     RollBackward(Point, Tip),
 }
+
+impl InitiatorResult {
+    pub fn message_type(&self) -> &str {
+        match self {
+            InitiatorResult::Initialize => "Initialize",
+            InitiatorResult::IntersectFound(_, _) => "IntersectFound",
+            InitiatorResult::IntersectNotFound(_) => "IntersectNotFound",
+            InitiatorResult::RollForward(_, _) => "RollForward",
+            InitiatorResult::RollBackward(_, _) => "RollBackward",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorState {
     Idle,
@@ -192,6 +229,7 @@ impl ProtocolState<Initiator> for InitiatorState {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
+    #[instrument(name = "chainsync.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use InitiatorState::*;
 

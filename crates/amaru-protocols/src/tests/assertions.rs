@@ -14,10 +14,8 @@
 
 use std::{sync::Arc, time::Duration};
 
-use amaru_kernel::{
-    Block, BlockHeader, HeaderHash, Transaction, cardano::network_block::NetworkBlock, utils::string::ListToString,
-};
-use amaru_ouroboros_traits::{ChainStore, ResourceMempool};
+use amaru_kernel::{Transaction, utils::string::ListToString};
+use amaru_ouroboros_traits::{ResourceMempool, get_blocks};
 use pure_stage::tokio::TokioRunning;
 use tokio::sync::Notify;
 
@@ -75,22 +73,4 @@ pub(super) fn check_state(initiator: TokioRunning, responder: TokioRunning) -> a
         initiator_mempool.get_txs_for_ids(tx_ids.as_slice())
     );
     Ok(())
-}
-
-/// Retrieve all blocks from the chain store starting from the best chain tip down to the root.
-pub(super) fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
-    store
-        .retrieve_best_chain()
-        .iter()
-        .map(|h| {
-            let b = store.load_block(h).unwrap().expect("missing block for best-chain header");
-            (
-                *h,
-                NetworkBlock::try_from(b)
-                    .expect("failed to decode raw block")
-                    .decode_block()
-                    .expect("failed to decode block"),
-            )
-        })
-        .collect()
 }

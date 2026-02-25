@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_ouroboros_traits::TxSubmissionMempool;
 use pure_stage::{Effects, StageRef};
@@ -32,21 +32,22 @@ pub struct PullAccept;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AcceptState {
     manager_stage: StageRef<ManagerMessage>,
+    listener_addr: SocketAddr,
     #[serde(skip)]
     notify: Arc<Notify>,
 }
 
 impl PartialEq for AcceptState {
     fn eq(&self, other: &Self) -> bool {
-        self.manager_stage == other.manager_stage
+        self.manager_stage == other.manager_stage && self.listener_addr == other.listener_addr
     }
 }
 
 impl Eq for AcceptState {}
 
 impl AcceptState {
-    pub(super) fn new(manager_stage: StageRef<ManagerMessage>, notify: Arc<Notify>) -> Self {
-        Self { manager_stage, notify }
+    pub(super) fn new(manager_stage: StageRef<ManagerMessage>, notify: Arc<Notify>, listener_addr: SocketAddr) -> Self {
+        Self { manager_stage, listener_addr, notify }
     }
 }
 
@@ -65,7 +66,7 @@ pub async fn accept_stage(state: AcceptState, _msg: PullAccept, eff: Effects<Pul
         tracing::info!("still missing txs {}, continuing", expected_tx_ids.len() - txs.len());
     }
 
-    match Network::new(&eff).accept().await {
+    match Network::new(&eff).accept(state.listener_addr).await {
         Ok((peer, connection_id)) => {
             eff.send(&state.manager_stage, ManagerMessage::Accepted(peer, connection_id)).await;
         }

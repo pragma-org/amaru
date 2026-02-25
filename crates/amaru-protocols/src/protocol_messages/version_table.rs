@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    fmt::{Debug, Display},
+};
 
 use amaru_kernel::{NetworkMagic, cbor};
 
@@ -22,10 +26,7 @@ use crate::protocol_messages::{
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub struct VersionTable<T>
-where
-    T: fmt::Debug + Clone,
-{
+pub struct VersionTable<T> {
     pub values: BTreeMap<VersionNumber, T>,
 }
 
@@ -73,6 +74,20 @@ impl VersionTable<VersionData> {
         .collect::<BTreeMap<VersionNumber, VersionData>>();
 
         VersionTable { values }
+    }
+}
+
+impl<T: Display + Ord> Display for VersionTable<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut entries = self.values.iter().collect::<Vec<_>>();
+        entries.sort();
+        for (idx, (version, data)) in entries.into_iter().enumerate() {
+            if idx > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}: {}", version.as_u64(), data)?;
+        }
+        Ok(())
     }
 }
 

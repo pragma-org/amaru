@@ -20,7 +20,7 @@ use amaru_protocols::{mempool_effects::MemoryPool, store_effects::Store};
 use pure_stage::{Effects, SendData};
 
 use crate::effects::{
-    Base, BaseOps, Ledger, LedgerOps, Network, NetworkOps,
+    Base, BaseOps, Ledger, LedgerOps,
     metrics_effects::{Metrics, MetricsOps},
 };
 
@@ -28,8 +28,6 @@ use crate::effects::{
 pub trait ConsensusOps: Send + Sync + Clone {
     /// Return a ChainStore implementation to store headers, get the best chain tip etc...
     fn store(&self) -> Arc<dyn ChainStore<BlockHeader>>;
-    /// Return a NetworkOps implementation to access network operations, like fetch_block
-    fn network(&self) -> impl NetworkOps;
     /// Return a TxSubmissionMempool implementation to access mempool operations, like get_tx to retrieve a transaction
     /// from the mempool.
     fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Transaction>>;
@@ -66,10 +64,6 @@ impl<T: SendData + Sync> ConsensusEffects<T> {
         Arc::new(MemoryPool::new(self.effects.clone()))
     }
 
-    pub fn network(&self) -> impl NetworkOps {
-        Network::new(&self.effects)
-    }
-
     pub fn ledger(&self) -> Arc<dyn LedgerOps> {
         Arc::new(Ledger::new(self.effects.clone()))
     }
@@ -92,10 +86,6 @@ impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
         self.mempool()
     }
 
-    fn network(&self) -> impl NetworkOps {
-        self.network()
-    }
-
     fn ledger(&self) -> Arc<dyn LedgerOps> {
         self.ledger()
     }
@@ -112,9 +102,9 @@ impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
 /// This module provides mock implementations of ConsensusOps and its sub-traits for unit testing.
 #[cfg(test)]
 pub mod tests {
-    use std::{collections::BTreeMap, future::ready, sync::Arc, time::Duration};
+    use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
-    use amaru_kernel::{Block, Peer, Point, PoolId, Slot, Tip};
+    use amaru_kernel::{Block, Peer, Point, PoolId, Slot};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
     use amaru_ouroboros::has_stake_distribution::GetPoolError;
@@ -131,13 +121,12 @@ pub mod tests {
     use serde::de::DeserializeOwned;
 
     use super::*;
-    use crate::errors::{ProcessingFailed, ValidationFailed};
+    use crate::errors::ValidationFailed;
 
     #[derive(Clone)]
     pub struct MockConsensusOps {
         pub mock_store: InMemConsensusStore<BlockHeader>,
         pub mock_mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
-        pub mock_network: MockNetworkOps,
         pub mock_ledger: MockLedgerOps,
         pub mock_base: MockBaseOps,
         pub mock_metrics: MockMetricsOps,
@@ -147,10 +136,6 @@ pub mod tests {
     impl ConsensusOps for MockConsensusOps {
         fn store(&self) -> Arc<dyn ChainStore<BlockHeader>> {
             Arc::new(self.mock_store.clone())
-        }
-
-        fn network(&self) -> impl NetworkOps {
-            self.mock_network.clone()
         }
 
         fn mempool(&self) -> Arc<dyn TxSubmissionMempool<Transaction>> {
@@ -167,19 +152,6 @@ pub mod tests {
 
         fn metrics(&self) -> impl MetricsOps {
             self.mock_metrics.clone()
-        }
-    }
-
-    #[derive(Clone, Default)]
-    pub struct MockNetworkOps;
-
-    impl NetworkOps for MockNetworkOps {
-        fn send_forward_event(&self, _peer: Peer, _header: BlockHeader) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(ready(Ok(())))
-        }
-
-        fn send_backward_event(&self, _peer: Peer, _header_tip: Tip) -> BoxFuture<'_, Result<(), ProcessingFailed>> {
-            Box::pin(ready(Ok(())))
         }
     }
 
@@ -327,7 +299,6 @@ pub mod tests {
         MockConsensusOps {
             mock_store: InMemConsensusStore::new(),
             mock_mempool: Arc::new(InMemoryMempool::default()),
-            mock_network: MockNetworkOps,
             mock_ledger: MockLedgerOps,
             mock_base: MockBaseOps::default(),
             mock_metrics: MockMetricsOps,

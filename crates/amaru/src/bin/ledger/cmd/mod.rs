@@ -14,7 +14,7 @@
 
 use std::{error::Error, path::PathBuf};
 
-use amaru::stages::Config;
+use amaru::stages::config::Config;
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_plutus::arena_pool::ArenaPool;

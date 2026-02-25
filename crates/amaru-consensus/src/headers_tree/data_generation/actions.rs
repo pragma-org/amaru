@@ -27,7 +27,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, make_header,
+    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
     size::HEADER,
     utils::string::{ListToString, ListsToString},
 };
@@ -35,6 +35,8 @@ use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsens
 use hex::FromHexError;
 use proptest::prelude::Strategy;
 use rand::{Rng, SeedableRng, prelude::SmallRng};
+use serde::{Deserialize, Serialize};
+use serde_json::to_value;
 
 use crate::{
     errors::ConsensusError,
@@ -45,6 +47,7 @@ use crate::{
             GeneratedTree,
             SelectionResult::{Back, Forward},
             any_tree_of_headers,
+            shrink::Shrinkable,
         },
         tree::Tree,
     },
@@ -60,26 +63,41 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Action {
     RollForward { peer: Peer, header: BlockHeader },
-    RollBack { peer: Peer, rollback_point: Point },
+    Rollback { peer: Peer, rollback_point: Point },
 }
 
 impl Action {
     pub fn hash(&self) -> HeaderHash {
         match self {
             Action::RollForward { header, .. } => header.hash(),
-            Action::RollBack { rollback_point, .. } => rollback_point.hash(),
+            Action::Rollback { rollback_point, .. } => rollback_point.hash(),
         }
     }
 
-    pub fn set_peer(self, peer: &Peer) -> Self {
+    pub fn parent_hash(&self) -> Option<HeaderHash> {
         match self {
-            Action::RollForward { header, .. } => Action::RollForward { peer: peer.clone(), header },
-            Action::RollBack { rollback_point, .. } => Action::RollBack { peer: peer.clone(), rollback_point },
+            Action::RollForward { header, .. } => header.parent(),
+            Action::Rollback { .. } => None,
+        }
+    }
+
+    pub fn slot(&self) -> Slot {
+        match self {
+            Action::RollForward { header, .. } => header.slot(),
+            Action::Rollback { rollback_point, .. } => rollback_point.slot_or_default(),
         }
     }
 
     pub fn pretty_print(&self) -> String {
         format!("r#\"{}\"#", &serde_json::to_string(self).unwrap())
+    }
+
+    pub fn set_peer(mut self, peer: &Peer) -> Self {
+        match &mut self {
+            Action::RollForward { peer: p, .. } => *p = peer.clone(),
+            Action::Rollback { peer: p, .. } => *p = peer.clone(),
+        }
+        self
     }
 }
 
@@ -142,8 +160,8 @@ impl serde::Serialize for Action {
                 ActionHelper::RollForward { peer: peer.to_string(), header: SimplifiedHeader(header.clone()) }
                     .serialize(serializer)
             }
-            Action::RollBack { peer, rollback_point } => {
-                ActionHelper::RollBack { peer: peer.to_string(), rollback_point: *rollback_point }.serialize(serializer)
+            Action::Rollback { peer, rollback_point } => {
+                ActionHelper::Rollback { peer: peer.to_string(), rollback_point: *rollback_point }.serialize(serializer)
             }
         }
     }
@@ -155,7 +173,7 @@ enum ActionHelper {
         peer: String,
         header: SimplifiedHeader,
     },
-    RollBack {
+    Rollback {
         peer: String,
         #[serde(serialize_with = "serialize_point", deserialize_with = "deserialize_point")]
         rollback_point: Point,
@@ -172,8 +190,8 @@ impl<'de> serde::Deserialize<'de> for Action {
             ActionHelper::RollForward { peer, header } => {
                 Ok(Action::RollForward { peer: Peer::new(&peer), header: header.0 })
             }
-            ActionHelper::RollBack { peer, rollback_point } => {
-                Ok(Action::RollBack { peer: Peer::new(&peer), rollback_point })
+            ActionHelper::Rollback { peer, rollback_point } => {
+                Ok(Action::Rollback { peer: Peer::new(&peer), rollback_point })
             }
         }
     }
@@ -182,10 +200,10 @@ impl<'de> serde::Deserialize<'de> for Action {
 impl Display for Action {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Action::RollForward { peer, header } => {
+            Action::RollForward { peer, header, .. } => {
                 write!(f, "Forward peer {peer} to {}", header.hash())
             }
-            Action::RollBack { peer, rollback_point } => write!(f, "Rollback peer {peer} to {}", rollback_point.hash()),
+            Action::Rollback { peer, rollback_point } => write!(f, "Rollback peer {peer} to {}", rollback_point.hash()),
         }
     }
 }
@@ -195,13 +213,13 @@ impl Action {
     pub fn peer(&self) -> &Peer {
         match self {
             Action::RollForward { peer, .. } => peer,
-            Action::RollBack { peer, .. } => peer,
+            Action::Rollback { peer, .. } => peer,
         }
     }
 
     /// Return `true` if the action is a rollback
     pub fn is_rollback(&self) -> bool {
-        matches!(self, Action::RollBack { .. })
+        matches!(self, Action::Rollback { .. })
     }
 }
 
@@ -235,6 +253,7 @@ impl Display for SelectionResult {
 /// Generate a random list of Actions for a given peer on a given tree of headers.
 pub fn random_walk<R: Rng>(
     rng: &mut R,
+    parent_header: Option<BlockHeader>,
     tree: &Tree<BlockHeader>,
     peer: &Peer,
     result: &mut BTreeMap<Peer, Vec<Action>>,
@@ -253,15 +272,14 @@ pub fn random_walk<R: Rng>(
 
     // Start a new random walk for each child
     for child in children.iter() {
-        random_walk(rng, child, peer, result);
+        random_walk(rng, Some(tree.value.clone()), child, peer, result);
     }
 
     // Come back to the parent node to explore another tree branch
-    if let Some(parent) = tree.value.parent()
+    if let Some(parent) = parent_header
         && let Some(actions) = result.get_mut(peer)
     {
-        let rollback =
-            Action::RollBack { peer: peer.clone(), rollback_point: Point::Specific(tree.value.slot(), parent) };
+        let rollback = Action::Rollback { peer: peer.clone(), rollback_point: parent.point() };
         if actions.last().map(|h| h.hash()) != Some(rollback.hash()) {
             actions.push(rollback)
         }
@@ -275,30 +293,28 @@ pub fn random_walk<R: Rng>(
 /// Otherwise, if we had all the actions from peer 1, then all the actions from peer 2, etc...
 /// we could end up with a tree growing beyond the `max_length` causing the tree to be pruned and
 /// the root header to be removed.
-pub fn generate_random_walks(seed: u64, generated_tree: &GeneratedTree, peers_nb: usize) -> GeneratedActions {
+pub fn generate_random_walks(seed: u64, generated_tree: &GeneratedTree, peers: &[Peer]) -> GeneratedActions {
     let mut actions_per_peer = BTreeMap::new();
     let mut rng = &mut SmallRng::seed_from_u64(seed);
 
-    for i in 0..peers_nb {
-        let current_peer = Peer::new(&format!("{}", i + 1));
-
-        random_walk(&mut rng, generated_tree.tree(), &current_peer, &mut actions_per_peer);
+    for peer in peers {
+        random_walk(&mut rng, None, generated_tree.tree(), peer, &mut actions_per_peer);
     }
 
     // If more than 2 peers are required, duplicate peer 2 with the actions of peer 1
-    if peers_nb > 2 {
-        let peer_1 = Peer::new("1");
-        let peer_2 = Peer::new("2");
+    if peers.len() > 2 {
+        let peer_1 = &peers[0];
+        let peer_2 = &peers[1];
         let mut duplicate_actions = vec![];
-        for action in actions_per_peer.get(&peer_1).cloned().unwrap_or_default() {
-            duplicate_actions.push(action.set_peer(&peer_2));
+        for action in actions_per_peer.get(peer_1).cloned().unwrap_or_default() {
+            duplicate_actions.push(action.set_peer(peer_2));
         }
-        actions_per_peer.insert(peer_2, duplicate_actions);
+        actions_per_peer.insert(peer_2.clone(), duplicate_actions);
     }
 
     // Truncate actions to avoid a final list of rollbacks to the root of the tree
     for actions in actions_per_peer.values_mut() {
-        while let Some(Action::RollBack { .. }) = actions.last() {
+        while let Some(Action::Rollback { .. }) = actions.last() {
             actions.pop();
         }
     }
@@ -307,13 +323,25 @@ pub fn generate_random_walks(seed: u64, generated_tree: &GeneratedTree, peers_nb
 }
 
 /// List of actions generated for a set of peers on a given tree of headers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GeneratedActions {
     tree: GeneratedTree,
     actions_per_peer: BTreeMap<Peer, Vec<Action>>,
 }
 
 impl GeneratedActions {
+    pub fn set_actions(&mut self, actions: Vec<Action>) {
+        let actions_per_peer = actions.into_iter().fold(BTreeMap::<Peer, Vec<Action>>::new(), |mut acc, action| {
+            acc.entry(action.peer().clone()).or_default().push(action);
+            acc
+        });
+        self.actions_per_peer = actions_per_peer;
+    }
+
+    pub fn get_anchor(&self) -> BlockHeader {
+        self.tree.tree().value.clone()
+    }
+
     pub fn generated_tree(&self) -> &GeneratedTree {
         &self.tree
     }
@@ -339,6 +367,130 @@ impl GeneratedActions {
             number_of_nodes: self.tree.nodes().len(),
             number_of_fork_nodes: fork_nodes.len(),
         }
+    }
+}
+
+impl Debug for GeneratedActions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let lines = self.display_as_lines();
+        for line in lines {
+            writeln!(f, "{}", line)?;
+        }
+        Ok(())
+    }
+}
+
+impl GeneratedActions {
+    /// Return the actions as a list of lines, ready to be printed out.
+    /// This is used in the Debug implementation but can also be fed to logs
+    pub fn display_as_lines(&self) -> Vec<String> {
+        let actions = self.actions();
+        let mut result = vec![];
+        result.push("ALL ACTIONS".to_string());
+        for action in actions.iter() {
+            result.push(Self::display_action(action))
+        }
+
+        result.push("BY PEER".to_string());
+        for (peer, actions) in self.actions_per_peer.iter() {
+            result.push(format!("\nActions from peer {}", peer));
+            for action in actions.iter() {
+                result.push(Self::display_action(action))
+            }
+        }
+
+        result
+    }
+
+    /// Display a single action as a formatted string
+    fn display_action(action: &Action) -> String {
+        GeneratedAction::from(action.clone()).to_string()
+    }
+}
+
+impl GeneratedActions {
+    pub fn as_json(&self) -> serde_json::Value {
+        let actions_json: Vec<serde_json::Value> =
+            self.actions().iter().map(|action| to_value(GeneratedAction::from(action.clone())).unwrap()).collect();
+
+        serde_json::json!({
+            "tree": self.generated_tree().as_json(),
+            "messages": actions_json,
+        })
+    }
+
+    /// Export the generated entries to a JSON file at the given path.
+    pub fn export_to_file(&self, path: &str) {
+        use std::{fs::File, io::Write};
+
+        let mut file = File::create(path).unwrap();
+        let content = self.as_json().to_string();
+        file.write_all(content.as_bytes()).unwrap();
+    }
+}
+
+/// A single generated action formatted for display and serialization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GeneratedAction {
+    message_type: String,
+    src: String,
+    hash: String,
+    parent: String,
+    slot: u64,
+}
+
+impl Display for GeneratedAction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "{message_type:<3} {src} {slot:>5} {hash:>6} (parent {parent_hash:>6})",
+            message_type = self.message_type,
+            src = self.src,
+            slot = self.slot,
+            hash = self.hash,
+            parent_hash = self.parent,
+        ))
+    }
+}
+
+impl From<Action> for GeneratedAction {
+    fn from(action: Action) -> Self {
+        let message_type = match action {
+            Action::RollForward { .. } => "FWD",
+            Action::Rollback { .. } => "BCK",
+        };
+        let header_hash = action.hash();
+        let header_parent_hash = action.parent_hash();
+        let slot = action.slot();
+
+        GeneratedAction {
+            message_type: message_type.to_string(),
+            src: action.peer().to_string(),
+            hash: header_hash.to_string().chars().take(6).collect(),
+            parent: header_parent_hash.map(|h| h.to_string().chars().take(6).collect()).unwrap_or("n/a".to_string()),
+            slot: slot.as_u64(),
+        }
+    }
+}
+
+impl Shrinkable for GeneratedActions {
+    fn complement(&self, from: usize, to: usize) -> Self
+    where
+        Self: Sized,
+    {
+        let mut complement: Vec<Action> = Vec::new();
+        let actions = self.actions();
+
+        complement.extend_from_slice(&actions[..to]);
+        if from < self.len() {
+            complement.extend_from_slice(&actions[from..]);
+        };
+        let mut generated_actions = self.clone();
+        generated_actions.set_actions(complement);
+        generated_actions
+    }
+
+    fn len(&self) -> usize {
+        self.actions().len()
     }
 }
 
@@ -372,16 +524,16 @@ impl GeneratedActionsStatistics {
 /// Generate a random list of actions, for a number of peers.
 ///
 /// We first generate a tree of headers of depth `depth` with some branches.
-/// Then we execute a random walk on that tree for `peers_nb` peers.
-pub fn any_select_chains(depth: usize, peers_nb: usize) -> impl Strategy<Value = GeneratedActions> {
+/// Then we execute a random walk on that tree for given peers.
+pub fn any_select_chains(depth: usize, peers: &[Peer]) -> impl Strategy<Value = GeneratedActions> {
     any_tree_of_headers(depth).prop_flat_map(move |generated_tree| {
-        (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, peers_nb))
+        (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, peers))
     })
 }
 
 /// Generate a random list of actions, for a fixed number of peers, with a given tree of headers.
-pub fn any_select_chains_from_tree(tree: &GeneratedTree, peers_nb: usize) -> impl Strategy<Value = GeneratedActions> {
-    (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, tree, peers_nb))
+pub fn any_select_chains_from_tree(tree: &GeneratedTree, peers: &[Peer]) -> impl Strategy<Value = GeneratedActions> {
+    (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, tree, peers))
 }
 
 /// Create an empty `HeadersTree` handling chains of maximum length `max_length` and
@@ -415,7 +567,7 @@ pub fn execute_actions_on_tree(
 
     for (action_nb, action) in actions.iter().enumerate() {
         let result = match action {
-            Action::RollForward { peer, header } => {
+            Action::RollForward { peer, header, .. } => {
                 // make sure that the header is in the store before rolling forward
                 if !store.has_header(&header.hash()) {
                     store.store_header(header).unwrap();
@@ -428,7 +580,7 @@ pub fn execute_actions_on_tree(
                     }
                 }
             }
-            Action::RollBack { peer, rollback_point } => match tree.select_rollback(peer, &rollback_point.hash()) {
+            Action::Rollback { peer, rollback_point } => match tree.select_rollback(peer, &rollback_point.hash()) {
                 Ok(result) => Back(result.clone()),
                 Err(_) => {
                     // Skip invalid actions like rolling back to a point that is not in the tree.
@@ -516,7 +668,7 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<Chain>> {
                 (Some(_), None) => {}
                 (None, Some(_)) => {}
             },
-            Action::RollBack { rollback_point, .. } => {
+            Action::Rollback { rollback_point, .. } => {
                 if let Some(rollback_position) = chain.iter().position(|h| h.hash() == rollback_point.hash()) {
                     chain.truncate(rollback_position + 1)
                 }
@@ -669,7 +821,8 @@ mod tests {
     fn test_generate_random_walks() {
         let seed = 45;
         let tree = generate_tree_of_headers(seed, 10);
-        let generated_actions = generate_random_walks(seed, &tree, 3);
+        let peers = (1..=3).map(|i| Peer::new(&format!("peer-{i}"))).collect::<Vec<_>>();
+        let generated_actions = generate_random_walks(seed, &tree, &peers);
         let statistics = generated_actions.statistics();
         // uncomment for inspecting the generated tree and actions
         // let generated_tree = generated_actions.generated_tree();
