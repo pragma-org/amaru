@@ -47,12 +47,12 @@ pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) 
     }
 }
 
-/// Create a list of arbitrary headers starting from a root, and where chain[i] is the parent of chain[i+1]
+/// Create a list of arbitrary headers starting from a root, and where chain\[i\] is the parent of chain\[i+1\]
 pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<BlockHeader>> {
     prop::collection::vec(any_header(), n).prop_map(make_headers())
 }
 
-/// Create a list of arbitrary headers starting from a root with the specified hash, and where chain[i] is the parent of chain[i+1]
+/// Create a list of arbitrary headers starting from a root with the specified hash, and where chain\[i\] is the parent of chain\[i+1\]
 pub fn any_headers_chain_with_root(n: usize, point: Point) -> impl Strategy<Value = Vec<BlockHeader>> {
     prop::collection::vec(any_header(), n).prop_map(make_headers_with_root_point(Some(point)))
 }

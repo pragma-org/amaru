@@ -79,7 +79,7 @@ impl ArenaPool {
     }
 }
 
-/// RAII Guard for the PooledArena (https://rust-unofficial.github.io/patterns/patterns/behavioural/RAII.html)
+/// RAII Guard for the PooledArena (<https://rust-unofficial.github.io/patterns/patterns/behavioural/RAII.html>)
 ///
 /// Returns arenas to the pool when dropped
 pub struct PooledArena {

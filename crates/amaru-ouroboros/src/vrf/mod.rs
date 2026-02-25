@@ -215,8 +215,8 @@ impl From<&Proof> for Hash<{ Proof::HASH_SIZE }> {
 
 // ---------------------------------------------------------------------- Errors
 
-/// error that can be returned if the verification of a [`VrfProof`] fails
-/// see [`VrfProof::verify`]
+/// error that can be returned if the verification of a [`VrfProof03`] fails
+/// see [`VrfProof03::verify`]
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[error("VRF proof verification failed: {:?}", .0)]
 pub struct ProofVerifyError(

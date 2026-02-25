@@ -172,7 +172,7 @@ pub trait StageGraph {
 
 /// A trait for running stage graphs.
 ///
-/// This trait is implemented by the return value of the [`StageGraph::run`] method.
+/// This trait is implemented by the return value of the [`SimulationBuilder::run`](crate::simulation::SimulationBuilder::run) method.
 pub trait StageGraphRunning {
     /// Returns true if the stage graph has observed a termination signal.
     fn is_terminated(&self) -> bool;

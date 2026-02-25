@@ -100,7 +100,7 @@ impl Clock for TokioClock {
 /// A [`StageGraph`] implementation that dispatches each stage as a task on the Tokio global pool.
 ///
 /// *This is currently only a minimal sketch that will likely not fit the intended design.
-/// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::effect_box::SimulationBuilder)
+/// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::simulation::SimulationBuilder)
 /// implementation.*
 pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, ()>>>,

@@ -30,9 +30,9 @@
 //! This module contains the [`SimulationBuilder`] and [`SimulationRunning`] types, which are
 //! used to build and run a simulation.
 //!
-//! The simulation is a fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
+//! The simulation is a fully controllable and deterministic [`StageGraph`] for testing purposes.
 //! Execution is controlled entirely via the [`SimulationRunning`] handle returned from
-//! [`StageGraph::run`](crate::StageGraph::run).
+//! [`SimulationBuilder::run`].
 //!
 
 use std::{
@@ -62,10 +62,10 @@ use crate::{
     trace_buffer::TraceBuffer,
 };
 
-/// A fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
+/// A fully controllable and deterministic [`StageGraph`] for testing purposes.
 ///
 /// Execution is controlled entirely via the [`SimulationRunning`] handle returned from
-/// [`StageGraph::run`](crate::StageGraph::run).
+/// [`SimulationBuilder::run`].
 ///
 /// The general principle is that each stage is suspended whenever it needs new
 /// input (even when there is a message available in the mailbox) or when it uses

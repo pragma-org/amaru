@@ -44,7 +44,7 @@ static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> = LazyLock::new
 
 /// (Partially) decode a Haskell cardano-node's 'NewEpochState'
 ///
-/// -> https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345
+/// -> <https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345>
 ///
 /// We rely on data present in these to bootstrap Amaru's initial state.
 #[allow(clippy::too_many_arguments)]

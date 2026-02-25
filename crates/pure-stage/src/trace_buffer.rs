@@ -53,7 +53,7 @@ pub struct TraceBuffer {
 ///
 /// However, we need the entries in the continuation of the running program and we cannot clone,
 /// so there is a variant of this enum with the very same structure the captures only references
-/// to work around this problem: [`TraceEntryRef`].
+/// to work around this problem: `TraceEntryRef`.
 #[derive(PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TraceEntry {
     Suspend(Effect),

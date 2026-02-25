@@ -16,8 +16,8 @@
 //! used to build and run a simulation.
 //!
 //! The simulation is a fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
-//! Execution is controlled entirely via the [`SimulationRunning`] handle returned from
-//! [`StageGraph::run`](crate::StageGraph::run).
+//! Execution is controlled entirely via the [`SimulationRunning`](crate::simulation::SimulationRunning) handle returned from
+//! [`SimulationBuilder::run`](crate::simulation::SimulationBuilder::run).
 //!
 
 #![expect(clippy::panic)]
