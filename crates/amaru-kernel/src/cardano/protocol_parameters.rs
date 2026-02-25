@@ -25,9 +25,9 @@ use crate::{
 mod default;
 pub use default::*;
 
-/// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
+/// Model from <https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda>
 /// Some of the names have been adapted to improve readability.
-/// Also see https://github.com/IntersectMBO/cardano-ledger/blob/d90eb4df4651970972d860e95f1a3697a3de8977/eras/conway/impl/cddl-files/conway.cddl#L324
+/// Also see <https://github.com/IntersectMBO/cardano-ledger/blob/d90eb4df4651970972d860e95f1a3697a3de8977/eras/conway/impl/cddl-files/conway.cddl#L324>
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProtocolParameters {
     // Outside of all groups.

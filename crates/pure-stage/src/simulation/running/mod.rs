@@ -59,7 +59,7 @@ use crate::{
 mod resume;
 mod scheduled_runnables;
 
-/// A handle to a running [`SimulationBuilder`](crate::effect_box::SimulationBuilder).
+/// A handle to a running [`crate::simulation::SimulationBuilder`].
 ///
 /// It allows fine-grained control over single-stepping the simulation and when each
 /// stage effect is resumed (using [`Self::try_effect`] and [`Self::handle_effect`],

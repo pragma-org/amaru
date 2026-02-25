@@ -27,7 +27,6 @@ use std::{
     time::Duration,
 };
 
-use amaru_observability::{amaru::stage, trace_span};
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
@@ -39,6 +38,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use amaru_observability::{amaru::stage, trace_span};
 
 use crate::{
     BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,
@@ -100,7 +100,7 @@ impl Clock for TokioClock {
 /// A [`StageGraph`] implementation that dispatches each stage as a task on the Tokio global pool.
 ///
 /// *This is currently only a minimal sketch that will likely not fit the intended design.
-/// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::effect_box::SimulationBuilder)
+/// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::simulation::SimulationBuilder)
 /// implementation.*
 pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, ()>>>,

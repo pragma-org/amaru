@@ -28,12 +28,12 @@ use tracing::trace;
 
 use crate::simulator::Envelope;
 
-/// A `NodeHandle` is an async function that sends an Envelope<Msg> to a node and returns a list of Envelope<Msg>.
+/// A `NodeHandle` is an async function that sends an `Envelope<Msg>` to a node and returns a list of `Envelope<Msg>`.
 /// as the result of processing that message (Envelope holds source/destination values representing node ids).
 ///
 /// If no message is provided (i.e., None), the node is given a chance to make progress.
 /// If the node can made progress and is not blocked, it returns None, indicating that further progress can be made later.
-/// Otherwise, it returns Some(Vec<Envelope<Msg>>), representing the outgoing messages produced by the node so far.
+/// Otherwise, it returns Some(Vec<`Envelope<Msg>`>), representing the outgoing messages produced by the node so far.
 ///
 /// Additionally, it provides an async function to shutdown the node gracefully.
 ///

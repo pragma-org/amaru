@@ -63,7 +63,7 @@ impl From<&Point> for HeaderHash {
 
 /// Utility function to parse a point from a string.
 ///
-/// Expects the input to be of the form '<point>.<hash>', where `<point>` is a number and `<hash>`
+/// Expects the input to be of the form `<point>.<hash>`, where `<point>` is a number and `<hash>`
 /// is a hex-encoded 32 bytes hash.
 /// The first argument is the string to parse, the `bail` function is user to
 /// produce the error type `E` in case of failure to parse.

@@ -273,7 +273,7 @@ pub mod serialize_send_data {
     }
 }
 
-/// This is the wrapper representation of a [`SendData`](crate::SendData) value after being deserialized.
+/// This is the wrapper representation of a [`SendData`] value after being deserialized.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SendDataValue {
     pub typetag: String,
@@ -360,10 +360,10 @@ impl SendDataValue {
         Self::from(value as &dyn SendData)
     }
 
-    /// Construct a boxed [`SendData`](crate::SendData) value from a concrete type.
+    /// Construct a boxed [`SendData`] value from a concrete type.
     ///
     /// This is a convenience function that serializes the value to a vector of bytes and then
-    /// deserializes it back into a boxed [`SendData`](crate::SendData) value. It is mostly
+    /// deserializes it back into a boxed [`SendData`] value. It is mostly
     /// useful in tests.
     pub fn boxed<T: SendData>(value: &T) -> Box<dyn SendData> {
         Box::new(Self::new(value))

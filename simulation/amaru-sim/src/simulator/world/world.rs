@@ -47,7 +47,7 @@ pub struct World<Msg> {
     history: History<Msg>,
 }
 
-/// An `Entry` represents a message (Envelope<Msg>) scheduled to be delivered at a specific time (Instant).
+/// An `Entry` represents a message (`Envelope<Msg>`) scheduled to be delivered at a specific time (`Instant`).
 /// Entries are ordered by their arrival_time to facilitate priority queueing.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Entry<Msg> {

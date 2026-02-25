@@ -476,7 +476,7 @@ impl ProposalsForestCompass {
 ///
 /// For example:
 ///
-/// ```ignore
+/// ```text
 /// Protocol Parameter Updates
 /// └─ 0.f6cb185a1f:
 ///    │ · min_fee_b=42

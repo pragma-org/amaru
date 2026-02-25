@@ -18,7 +18,7 @@ use pure_stage::Instant;
 use rand::{Rng, prelude::StdRng};
 use rand_distr::{Distribution, LogNormal};
 
-/// Given a generator for type A, produce a generator for Vec<A> of a given size.
+/// Given a generator for type `A`, produce a generator for `Vec<A>` of a given size.
 pub fn generate_vec<A>(generator: impl Fn(&mut StdRng) -> A) -> impl Fn(usize, &mut StdRng) -> Vec<A> {
     move |size, rng| {
         let mut result = Vec::<A>::with_capacity(size);

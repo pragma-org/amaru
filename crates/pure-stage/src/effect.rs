@@ -449,7 +449,7 @@ pub trait ExternalEffect: SendData {
     /// Implementations typically retrieve shared services via typed lookups
     /// (e.g., `resources.get::<Arc<MyStore>>()?`).
     ///
-    /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::effect_box::SimulationRunning::handle_effect).
+    /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
 
     /// Helper method for implementers of ExternalEffect.

@@ -22,6 +22,7 @@ path = "src/bin/amaru/main.rs"
 [[bin]]
 name = "amaru-ledger"
 path = "src/bin/ledger/main.rs"
+doc = false
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -102,3 +103,7 @@ amaru-kernel = { workspace = true, features = ["test-utils"] }
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
 amaru-kernel.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["-D", "warnings"]
