@@ -78,7 +78,7 @@ echo "[amaru] waiting ${delay}s for cardano-node to initialize..."
 sleep $delay
 echo "[amaru] starting..."
 cd $AMARU_DIR
-export AMARU_TRACE=warn,amaru_consensus=debug
+export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
 cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --listen-address 0.0.0.0:$LISTEN_PORT 2>&1 | tee '$LOGDIR/amaru.log'
 sleep 999999
@@ -93,7 +93,7 @@ echo "[amaru-downstream] waiting ${delay}s for amaru to initialize..."
 sleep $delay
 echo "[amaru-downstream] starting..."
 cd $AMARU_DIR
-export AMARU_TRACE=warn,amaru_consensus=debug
+export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
 cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$LISTEN_PORT --listen-address 0.0.0.0:$DOWNSTREAM_LISTEN_PORT --chain-dir ./chain.preprod.downstream.db --ledger-dir ./ledger.preprod.downstream.db 2>&1 | tee '$LOGDIR/amaru-downstream.log'
 sleep 999999
