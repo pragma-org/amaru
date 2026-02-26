@@ -61,7 +61,7 @@ env:
     ~/.cargo/git/db/
     target/
   INPUT_TIMEOUT: ${{ inputs.timeout }}
-  AMARU_TRACE: ${{ inputs.demo_trace_level }}
+  AMARU_TRACE: ${{ inputs.demo_trace_level || 'info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info' }}
   RUSTUP_LOG: error
 
 permissions:
@@ -91,7 +91,7 @@ jobs:
             target_epoch: 176
           - name: preview
             magic: 2
-            target_epoch: 280
+            target_epoch: 680
             tests-may-fail: true
         cardano_node_version: [10.5.3]
     env:

@@ -9,7 +9,7 @@ on:
         options: [preprod, preview]
         required: false
       demo_target_epoch:
-        description: "Override DEMO_TARGET_EPOCH (leave empty for latest)"
+        description: "Override DEMO_TARGET_EPOCH (leave empty for fixed epoch)"
         required: false
       timeout:
         description: "Override timeout for snapshot tests"
@@ -31,12 +31,11 @@ env:
     ~/.cargo/registry/cache/
     ~/.cargo/git/db/
     target/
-  INPUT_TIMEOUT: ${{ github.event.inputs.timeout }}
-  AMARU_TRACE: ${{ github.event.inputs.demo_trace_level }}
   RUSTUP_LOG: error
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   build:
@@ -187,229 +186,24 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
-  snapshots-instance-choice:
-    name: End-to-end snapshot preparation
-    runs-on: ubuntu-22.04
-    outputs:
-      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-22.04' }}
-    steps:
-      - id: alt-runner
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-        run: echo "runner=buildjet-4vcpu-ubuntu-2204" >> $GITHUB_OUTPUT
-
   snapshots:
     name: End-to-end snapshot tests
-    needs: snapshots-instance-choice
-    runs-on: ${{ needs.snapshots-instance-choice.outputs.runner }}
-    strategy:
-      matrix:
-        network:
-          - name: preprod
-            magic: 1
-            target_epoch: 176
-            default-timeout-light-run: 15
-            default-timeout-full-run: 60
-          - name: preview
-            magic: 2
-            target_epoch: 680
-            tests-may-fail: true
-            default-timeout-light-run: 15
-            default-timeout-full-run: 60
-        cardano_node_version: [10.5.3]
-    env:
-      AMARU_TRACE: info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info
-      AMARU_NETWORK: ${{ matrix.network.name }}
-      BUILD_PROFILE: test
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
-      CARDANO_CLI_VERSION: 10.11.0.0
-      DEFAULT_TIMEOUT_LIGHT: ${{ matrix.network.default-timeout-light-run }}
-      DEFAULT_TIMEOUT_FULL: ${{ matrix.network.default-timeout-full-run }}
     if: ${{ !github.event.pull_request.draft }}
-    continue-on-error: true
-
-    steps:
-      - name: Gate and prepare environment
-        shell: bash
-        continue-on-error: true
-        run: |
-          set -eux
-
-          SHOULD_RUN=true
-
-          # Skip this network test if a specific network is requested
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
-            [ -n "${{ github.event.inputs.network }}" ] && \
-            [ "${{ github.event.inputs.network }}" != "${{ matrix.network.name }}" ]; then
-            SHOULD_RUN=false
-          fi
-
-          if [ "$SHOULD_RUN" != "true" ]; then
-            echo "Skipping network '${{ matrix.network.name }}' as per workflow_dispatch input"
-            exit 1
-          fi
-
-          TIMEOUT_RUN="${DEFAULT_TIMEOUT_LIGHT}"
-          if [ -n "${{ github.event.inputs.demo_target_epoch }}" ]; then
-            DEMO_TARGET_EPOCH="${{ github.event.inputs.demo_target_epoch }}"
-            echo "Using DEMO_TARGET_EPOCH from workflow_dispatch: $DEMO_TARGET_EPOCH"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            DEMO_TARGET_EPOCH=${{ matrix.network.target_epoch }}
-            echo "Using DEMO_TARGET_EPOCH from matrix.network: $DEMO_TARGET_EPOCH"
-          else
-            # For pushes, we will retrieve the latest epoch in a later step
-            DEMO_TARGET_EPOCH=""
-            TIMEOUT_RUN="${DEFAULT_TIMEOUT_FULL}"
-          fi
-
-          if [ -n "$INPUT_TIMEOUT" ]; then
-            echo "Using INPUT_TIMEOUT from workflow_dispatch: $INPUT_TIMEOUT"
-            TIMEOUT_RUN="${INPUT_TIMEOUT}"
-          fi
-
-          # Make sure to export all env variables for subsequent steps
-          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
-          echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
-
-      - name: Support longpaths
-        run: git config --system core.longpaths true
-        if: contains(needs.snapshots-instance-choice.outputs.runner, 'windows')
-      - uses: actions/checkout@v4
-
-      - name: Reclaim Disk Space
-        run: |
-          chmod +x ./scripts/cleanup-runner.sh
-          ./scripts/cleanup-runner.sh
-
-      - id: timestamp
-        shell: bash
-        run: |
-          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
-      - name: Download (Haskell) cardano-node's db
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "${{ runner.temp }}/db"
-          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "${{ runner.temp }}/db"
-          touch ${{ runner.temp }}/db/clean
-
-      - name: Spawn Haskell Node
-        id: spawn-cardano-node
-        shell: bash
-        run: |
-          docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
-          make HASKELL_NODE_CONFIG_DIR=cardano-node-config AMARU_NETWORK=${{ matrix.network.name }} download-haskell-config
-          jq 'del(.bootstrapPeers)' ./cardano-node-config/topology.json > cardano-node-config/topology.patched.json
-          mv cardano-node-config/topology.patched.json cardano-node-config/topology.json
-          docker run -d --name cardano-node \
-            -v ${{ runner.temp }}/db:/db \
-            -v ${{ runner.temp }}/ipc:/ipc \
-            -v ./cardano-node-config:/config \
-            -v ./cardano-node-config:/genesis \
-            -p 3001:3001 \
-            ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }} run \
-              --config /config/config.json \
-              --database-path /db \
-              --socket-path /ipc/node.socket \
-              --topology /config/topology.json
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
-
-      - name: Build Amaru
-        shell: bash
-        run: |
-          cargo test --profile $BUILD_PROFILE --no-run -p amaru
-
-      - name: Cache Amaru's ledger.${{ matrix.network.name }}.db
-        id: cache-ledger-db
-        uses: actions/cache/restore@v4
-        with:
-          path: ./ledger.${{ matrix.network.name }}.db
-          # If the ledger store serialisation format changes and become
-          # incompatible, it is necessary to bump the index below to invalidate
-          # the cached ledger snapshots, and recompute them from the CBOR ones
-          # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
-          restore-keys: |
-            ${{ runner.OS }}-ledger-cache-v12
-
-      - name: Full bootstrap amaru
-        if: steps.cache-ledger-db.outputs.cache-hit == ''
-        shell: bash
-        run: |
-          make bootstrap
-
-      - name: Light bootstrap amaru
-        if: steps.cache-ledger-db.outputs.cache-hit != ''
-        shell: bash
-        run: |
-          make import-headers
-          make import-nonces
-
-      - uses: actions/cache/save@v4
-        if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
-        with:
-          path: ./ledger.${{ matrix.network.name }}.db
-          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
-
-      - name: Retrieve latest epoch if needed
-        if: env.DEMO_TARGET_EPOCH == ''
-        shell: bash
-        run: |
-          curl -L -o cardano-cli.tar.gz \
-            "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${CARDANO_CLI_VERSION}/cardano-cli-${CARDANO_CLI_VERSION}-x86_64-linux.tar.gz"
-
-          mkdir -p cardano-cli-bin
-          tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
-          mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
-          chmod +x cardano-cli-bin/cardano-cli
-
-          DEMO_TARGET_EPOCH=$(
-            sudo $PWD/cardano-cli-bin/cardano-cli query tip \
-              --socket-path ${{ runner.temp }}/ipc/node.socket \
-              --testnet-magic ${{ matrix.network.magic }} \
-            | jq '.epoch - 1'
-          )
-
-          echo "Auto-resolved DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
-
-          # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
-          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
-
-      - name: Run node
-        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
-        shell: bash
-        run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
-
-      - name: Run tests
-        if: github.event_name == 'pull_request'
-        continue-on-error: ${{ matrix.network.tests-may-fail || false }}
-        shell: bash
-        run: |
-          make test-e2e
-
-      - name: Teardown haskell node
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          docker logs --tail 200 cardano-node || true
-          docker stop cardano-node
-          docker rm cardano-node
-
-      - uses: actions/cache/save@v4
-        if: github.event_name == 'push'
-        with:
-          path: ${{ runner.temp }}/db-${{ matrix.network.name }}
-          key: cardano-node-ogmios-${{ matrix.network.name }}-${{ steps.timestamp.outputs.value }}
+    uses: ./.github/workflows/snapshot-tests.yml
+    with:
+      use_fixed_epoch: true
+      default_timeout: 15
+      network: ${{ github.event.inputs.network || '' }}
+      demo_target_epoch: ${{ github.event.inputs.demo_target_epoch || '' }}
+      timeout: ${{ github.event.inputs.timeout || '' }}
+      demo_trace_level: ${{ github.event.inputs.demo_trace_level || '' }}
+      use_buildjet_runner: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+      run_tests: ${{ github.event_name == 'pull_request' }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+      CARDANO_NODE_BUCKET_NAME: ${{ secrets.CARDANO_NODE_BUCKET_NAME }}
 
   examples:
     name: Examples
