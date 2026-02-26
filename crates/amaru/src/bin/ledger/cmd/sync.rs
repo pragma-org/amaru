@@ -28,8 +28,7 @@ use amaru_kernel::{
     cardano::network_block::NetworkBlock, to_cbor,
 };
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros::praos::header;
-use amaru_ouroboros_traits::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
+use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use flate2::read::GzDecoder;

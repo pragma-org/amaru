@@ -44,6 +44,7 @@ use std::{
 };
 
 use parking_lot::Mutex;
+use rand::{SeedableRng, prelude::StdRng};
 
 use crate::{
     BLACKHOLE_NAME, Clock, Name, Resources, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph, StageRef,
@@ -51,6 +52,7 @@ use crate::{
     effect::{Effects, StageEffect},
     effect_box::EffectBox,
     simulation::{
+        RandStdRng,
         inputs::Inputs,
         random::{EvalStrategy, Fifo},
         replay::Replay,
@@ -148,6 +150,10 @@ impl SimulationBuilder {
         self
     }
 
+    pub fn with_seed(self, seed: u64) -> Self {
+        self.with_eval_strategy(RandStdRng(StdRng::seed_from_u64(seed)))
+    }
+
     pub fn replay(self) -> Replay {
         let stages = self
             .stages
@@ -176,7 +182,7 @@ impl SimulationBuilder {
                 ))
             })
             .collect();
-        Replay::new(stages, self.effect, self.trace_buffer)
+        Replay::new(stages, self.effect, self.trace_buffer, self.schedule_ids)
     }
 
     pub fn run(self) -> SimulationRunning {

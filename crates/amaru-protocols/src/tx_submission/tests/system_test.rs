@@ -17,7 +17,7 @@ use std::{sync::Arc, time::Duration};
 use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ConnectionResource, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros::{ConnectionsResource, in_memory_consensus_store::InMemConsensusStore};
 use amaru_ouroboros_traits::ResourceMempool;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use tokio::{runtime::Handle, time::timeout};
@@ -47,7 +47,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
 
     let mut network = TokioBuilder::default();
 
-    network.resources().put::<ConnectionResource>(Arc::new(conn));
+    network.resources().put::<ConnectionsResource>(Arc::new(conn));
     network.resources().put::<ResourceHeaderStore>(Arc::new(InMemConsensusStore::new()));
     network.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 

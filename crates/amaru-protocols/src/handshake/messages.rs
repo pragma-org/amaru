@@ -29,6 +29,20 @@ where
     QueryReply(VersionTable<D>),
 }
 
+impl<D> Message<D>
+where
+    D: fmt::Debug + Clone,
+{
+    pub fn message_type(&self) -> &str {
+        match self {
+            Message::Propose(_) => "Propose",
+            Message::Accept(_, _) => "Accept",
+            Message::Refuse(_) => "Refuse",
+            Message::QueryReply(_) => "QueryReply",
+        }
+    }
+}
+
 impl<D> cbor::Encode<()> for Message<D>
 where
     D: fmt::Debug + Clone + cbor::Encode<VersionNumber>,

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     handshake::{State, messages::Message},
@@ -24,7 +25,10 @@ use crate::{
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![pure_stage::register_data_deserializer::<HandshakeInitiator>().boxed()]
+    vec![
+        pure_stage::register_data_deserializer::<HandshakeInitiator>().boxed(),
+        pure_stage::register_data_deserializer::<(State, HandshakeInitiator)>().boxed(),
+    ]
 }
 
 pub fn initiator() -> Miniprotocol<State, HandshakeInitiator, Initiator> {
@@ -60,6 +64,7 @@ impl StageState<State, Initiator> for HandshakeInitiator {
         match input {}
     }
 
+    #[instrument(name = "handshake.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         self,
         _proto: &State,
@@ -104,6 +109,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Propose), Self::Propose))
     }
 
+    #[instrument(name = "handshake.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         anyhow::ensure!(self == &Self::Confirm, "handshake initiator cannot receive in initial state");
         Ok(match input {
@@ -139,6 +145,16 @@ pub enum InitiatorResult {
     Propose,
     Conclusion(HandshakeResult),
     SimOpen(VersionTable<VersionData>),
+}
+
+impl InitiatorResult {
+    pub fn message_type(&self) -> &str {
+        match self {
+            Self::Propose => "Propose",
+            Self::Conclusion(_) => "Conclusion",
+            Self::SimOpen(_) => "SimOpen",
+        }
+    }
 }
 
 #[derive(Debug)]

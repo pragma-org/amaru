@@ -16,7 +16,7 @@ use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer};
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::ConnectionResource;
+use amaru_ouroboros::ConnectionsResource;
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use tokio::{runtime::Runtime, time::timeout};
 use tracing_subscriber::EnvFilter;
@@ -42,7 +42,7 @@ fn test_keepalive_with_node() {
 
     let mut network = TokioBuilder::default();
 
-    network.resources().put::<ConnectionResource>(Arc::new(conn));
+    network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let era_history: &EraHistory = NetworkName::Preprod.into();
     let connection = network.stage("connection", connection::stage);

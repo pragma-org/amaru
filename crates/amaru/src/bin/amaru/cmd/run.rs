@@ -17,7 +17,10 @@ use std::path::PathBuf;
 use amaru::{
     DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir, default_ledger_dir,
     metrics::track_system_metrics,
-    stages::{Config, MaxExtraLedgerSnapshots, StoreType, build_and_run_network},
+    stages::{
+        build_node::build_and_run_node,
+        config::{Config, MaxExtraLedgerSnapshots, StoreType},
+    },
 };
 use amaru_kernel::NetworkName;
 use amaru_stores::rocksdb::RocksDbConfig;
@@ -136,9 +139,10 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
 
         let exit = amaru::exit::hook_exit_token();
 
-        let _ = build_and_run_network(config, meter_provider).await?;
+        let running = build_and_run_node(config, meter_provider)?;
 
         exit.cancelled().await;
+        running.abort();
 
         if let Some(handle) = metrics {
             handle.abort();

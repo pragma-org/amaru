@@ -14,11 +14,17 @@
 
 use std::time::Duration;
 
-use amaru_kernel::IsHeader;
+use amaru_kernel::{IsHeader, Peer, Point, cardano::network_block::NetworkBlock};
 use amaru_observability::amaru::consensus::diffusion::FETCH_BLOCK;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::StageRef;
 use tracing::Instrument;
+
+/// Maximum number of retry attempts for fetching a block
+const MAX_FETCH_RETRIES: u32 = 3;
+
+/// Base delay between retry attempts (will be multiplied by attempt number for backoff)
+const RETRY_BASE_DELAY_MS: u64 = 500;
 
 use crate::{
     effects::{BaseOps, ConsensusOps},
@@ -41,34 +47,23 @@ pub fn stage(
     async move {
         match msg {
             ValidateHeaderEvent::Validated { peer, header, span } => {
-                let point = header.point();
-                let peer2 = peer.clone();
-                let blocks = eff
-                    .base()
-                    // TODO(network): which timeout to use?
-                    .call(&manager, Duration::from_secs(5), move |cr| ManagerMessage::FetchBlocks {
-                        peer: peer2,
-                        from: point,
-                        through: point,
-                        cr,
-                    })
-                    .await
-                    .unwrap_or_default();
-                let Some(block) = blocks.blocks.into_iter().next() else {
-                    eff.base()
-                        .send(&failures, ValidationFailed::new(&peer, ConsensusError::FetchBlockFailed(point)))
-                        .await;
-                    return (downstream, failures, errors, manager);
-                };
-
-                let result = eff.store().store_block(&header.hash(), &block.raw_block());
-                if let Err(e) = result {
-                    eff.base().send(&errors, ProcessingFailed::new(&peer, e.into())).await;
-                    return (downstream, failures, errors, manager);
+                match load_or_fetch_block(&manager, &eff, header.point(), &peer).await {
+                    Ok(Some(_)) => {
+                        let validated = ValidateBlockEvent::Validated { peer, header, span };
+                        eff.base().send(&downstream, validated).await;
+                    }
+                    Ok(None) => {
+                        eff.base()
+                            .send(
+                                &failures,
+                                ValidationFailed::new(&peer, ConsensusError::FetchBlockFailed(header.point())),
+                            )
+                            .await;
+                    }
+                    Err(e) => {
+                        eff.base().send(&errors, ProcessingFailed::new(&peer, e)).await;
+                    }
                 }
-
-                let validated = ValidateBlockEvent::Validated { peer, header, block, span };
-                eff.base().send(&downstream, validated).await
             }
             ValidateHeaderEvent::Rollback { peer, rollback_point, span, .. } => {
                 eff.base().send(&downstream, ValidateBlockEvent::Rollback { peer, rollback_point, span }).await
@@ -79,11 +74,78 @@ pub fn stage(
     .instrument(span)
 }
 
+/// Check if we already downloaded a given block or fetch it from the peer.
+async fn load_or_fetch_block(
+    manager: &StageRef<ManagerMessage>,
+    eff: &impl ConsensusOps,
+    point: Point,
+    peer: &Peer,
+) -> anyhow::Result<Option<NetworkBlock>> {
+    if let Some(block) = eff.store().load_block(&point.hash())? {
+        tracing::trace!(%point, "block already in store, skipping fetch");
+        Ok(Some(NetworkBlock::try_from(block)?))
+    } else {
+        fetch_block(manager, eff, point, peer).await
+    }
+}
+
+/// Fetch a block from a given peer by calling the Manager and use the connection for that specific
+/// peer. Retries up to MAX_FETCH_RETRIES times with exponential backoff on failure.
+async fn fetch_block(
+    manager: &StageRef<ManagerMessage>,
+    eff: &impl ConsensusOps,
+    point: Point,
+    peer: &Peer,
+) -> anyhow::Result<Option<NetworkBlock>> {
+    for attempt in 1..=MAX_FETCH_RETRIES {
+        let peer_clone = peer.clone();
+        let blocks = eff
+            .base()
+            // TODO(network): which timeout to use?
+            .call(manager, Duration::from_secs(5), move |cr| ManagerMessage::FetchBlocks {
+                peer: peer_clone,
+                from: point,
+                through: point,
+                cr,
+            })
+            .await
+            .unwrap_or_default();
+
+        if let Some(block) = blocks.blocks.into_iter().next() {
+            eff.store().store_block(&point.hash(), &block.raw_block())?;
+            return Ok(Some(block));
+        }
+
+        if attempt < MAX_FETCH_RETRIES {
+            let delay = Duration::from_millis(RETRY_BASE_DELAY_MS * u64::from(attempt));
+            tracing::warn!(
+                %point,
+                %peer,
+                attempt,
+                max_attempts = MAX_FETCH_RETRIES,
+                delay_ms = delay.as_millis(),
+                "block fetch failed, retrying"
+            );
+            eff.base().wait(delay).await;
+        }
+    }
+
+    tracing::error!(
+        %point,
+        %peer,
+        attempts = MAX_FETCH_RETRIES,
+        "block fetch failed after all retry attempts"
+    );
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{Peer, any_header, cardano::network_block::make_network_block, utils::tests::run_strategy};
+    use amaru_kernel::{
+        Peer, TESTNET_ERA_HISTORY, any_header, cardano::network_block::make_network_block, utils::tests::run_strategy,
+    };
     use amaru_protocols::blockfetch::Blocks;
     use pure_stage::StageRef;
     use tracing::Span;
@@ -97,13 +159,13 @@ mod tests {
         let header = run_strategy(any_header());
         let message =
             ValidateHeaderEvent::Validated { peer: peer.clone(), header: header.clone(), span: Span::current() };
-        let block = make_network_block(&header);
+        let block = make_network_block(&header, &TESTNET_ERA_HISTORY);
         let consensus_ops = mock_consensus_ops();
         consensus_ops.mock_base.return_blocks(Blocks { blocks: vec![block.clone()] });
 
         stage(make_state(), message, consensus_ops.clone()).await;
 
-        let forwarded = ValidateBlockEvent::Validated { peer: peer.clone(), header, block, span: Span::current() };
+        let forwarded = ValidateBlockEvent::Validated { peer: peer.clone(), header, span: Span::current() };
         assert_eq!(
             consensus_ops.mock_base.received(),
             BTreeMap::from_iter(vec![("downstream".to_string(), vec![format!("{forwarded:?}")])])

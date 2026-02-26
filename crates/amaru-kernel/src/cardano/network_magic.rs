@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, num::ParseIntError};
+use std::{
+    env,
+    fmt::{Display, Formatter},
+    num::ParseIntError,
+};
 
 use crate::cbor;
 
@@ -48,6 +52,18 @@ impl NetworkMagic {
 
     pub fn for_testing() -> Self {
         env::var("NETWORK_MAGIC").ok().and_then(|s| s.parse().ok()).unwrap_or(Self::MAINNET)
+    }
+}
+
+impl Display for NetworkMagic {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::TESTNET => write!(f, "testnet"),
+            Self::MAINNET => write!(f, "mainnet"),
+            Self::PREVIEW => write!(f, "preview"),
+            Self::PREPROD => write!(f, "preprod"),
+            _ => self.0.fmt(f),
+        }
     }
 }
 

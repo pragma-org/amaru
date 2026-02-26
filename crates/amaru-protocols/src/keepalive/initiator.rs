@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     keepalive::{
@@ -31,6 +32,7 @@ use crate::{
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
+        pure_stage::register_data_deserializer::<(State, KeepAliveInitiator)>().boxed(),
         pure_stage::register_data_deserializer::<KeepAliveInitiator>().boxed(),
     ]
 }
@@ -80,6 +82,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         }
     }
 
+    #[instrument(name = "keepalive.initiator.stage", skip_all, fields(cookie = input.cookie.as_u16()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -115,6 +118,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult { cookie: Cookie::new() }), *self))
     }
 
+    #[instrument(name = "keepalive.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use State::*;
 

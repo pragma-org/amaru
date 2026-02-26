@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::NetworkMagic;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::ConnectionResource;
+use amaru_ouroboros::ConnectionsResource;
 use futures_util::StreamExt;
 use pure_stage::{Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder, trace_buffer::TraceBuffer};
 use tokio::runtime::Runtime;
@@ -54,7 +54,7 @@ fn test_against_node() {
     let _guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
-    network.resources().put::<ConnectionResource>(Arc::new(conn));
+    network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));
@@ -123,7 +123,7 @@ fn test_against_node_with_tokio() {
     let _guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = TokioBuilder::default();
 
-    network.resources().put::<ConnectionResource>(Arc::new(conn));
+    network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
     let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator));

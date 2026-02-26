@@ -17,7 +17,7 @@ use std::{sync::Arc, time::Duration};
 use amaru_kernel::{BlockHeader, Header, IsHeader, Point, cbor};
 use amaru_ouroboros_traits::ChainStore;
 use pallas_primitives::babbage::MintedHeader;
-use pure_stage::{Effects, StageRef, TryInStage};
+use pure_stage::{Effects, StageRef};
 use tokio::sync::Notify;
 
 use crate::{
@@ -114,8 +114,7 @@ pub(super) async fn test_chainsync_stage(
                         cr,
                     })
                     .await
-                    .or_terminate(&eff, async |_| tracing::error!("failed to fetch blocks"))
-                    .await;
+                    .unwrap_or_default();
 
                 state.total_requested_blocks += state.blocks_to_fetch.len();
                 // store the fetched blocks with their corresponding headers.

@@ -14,6 +14,7 @@
 
 use amaru_kernel::{Block, BlockHeader, IsHeader, Peer, Point};
 use amaru_observability::amaru::consensus::chain_sync::VALIDATE_BLOCK;
+use anyhow::anyhow;
 use pure_stage::StageRef;
 use tracing::{Instrument, Span, debug, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -39,19 +40,38 @@ pub fn stage(state: State, msg: ValidateBlockEvent, eff: impl ConsensusOps) -> i
 
 /// Process a single ValidateBlockEvent, either rolling forward or rolling back.
 async fn process_event(msg: ValidateBlockEvent, eff: impl ConsensusOps, state: &State) {
-    let (_, validation_errors, _) = state;
+    let (_, validation_errors, processing_errors) = state;
     match msg {
-        ValidateBlockEvent::Validated { header, block, span, peer, .. } => {
+        ValidateBlockEvent::Validated { header, span, peer, .. } => {
             let point = header.point();
-
-            match block.decode_block() {
-                Ok(block) => {
-                    roll_forward(&eff, state, header, span, peer, point, block).await;
+            let hash = header.hash();
+            match eff.store().load_block(&hash) {
+                Ok(Some(block)) => {
+                    match block.decode() {
+                        Ok(block) => {
+                            roll_forward(&eff, state, header, span, peer, point, block).await;
+                        }
+                        Err(err) => {
+                            fail_with("decode_block", &eff, validation_errors, peer, point, err.into()).await;
+                        }
+                    };
+                }
+                Ok(None) => {
+                    // The block is expected to be stored when fetching it in a previous stage
+                    error_with(
+                        "load_block",
+                        &eff,
+                        processing_errors,
+                        peer,
+                        point,
+                        anyhow!("the block {} must exist in the chain store", hash),
+                    )
+                    .await;
                 }
                 Err(err) => {
-                    fail_with("decode_block", &eff, validation_errors, peer, point, err.into()).await;
+                    error_with("load_block", &eff, processing_errors, peer, point, err.into()).await;
                 }
-            };
+            }
         }
         ValidateBlockEvent::Rollback { peer, rollback_point, span, .. } => {
             rollback(&eff, state, peer, rollback_point, span).await;

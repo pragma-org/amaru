@@ -14,7 +14,11 @@
 
 use std::collections::VecDeque;
 
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{
+    Rng, SeedableRng,
+    distr::uniform::{SampleRange, SampleUniform},
+    rngs::StdRng,
+};
 
 use crate::{Name, StageResponse};
 
@@ -39,8 +43,20 @@ impl EvalStrategy for Fifo {
 pub struct RandStdRng(pub StdRng);
 
 impl RandStdRng {
+    pub fn from_seed(seed: u64) -> Self {
+        RandStdRng(StdRng::seed_from_u64(seed))
+    }
+
     pub fn derive(&mut self) -> Self {
         RandStdRng(StdRng::seed_from_u64(self.0.random()))
+    }
+
+    pub fn random_range<T, R>(&mut self, range: R) -> T
+    where
+        T: SampleUniform,
+        R: SampleRange<T>,
+    {
+        self.0.random_range(range)
     }
 }
 
@@ -54,5 +70,11 @@ impl EvalStrategy for RandStdRng {
     fn pick_runnable(&mut self, runnable: &mut VecDeque<(Name, StageResponse)>) -> (Name, StageResponse) {
         let idx = self.0.random_range(0..runnable.len());
         runnable.remove(idx).expect("runnable queue is guaranteed to be non-empty")
+    }
+}
+
+impl EvalStrategy for Box<dyn EvalStrategy> {
+    fn pick_runnable(&mut self, runnable: &mut VecDeque<(Name, StageResponse)>) -> (Name, StageResponse) {
+        (**self).pick_runnable(runnable)
     }
 }

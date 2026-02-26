@@ -14,9 +14,11 @@
 
 pub mod in_memory_consensus_store;
 
-use std::{fmt::Display, iter::successors};
+use std::{fmt::Display, iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock};
+use amaru_kernel::{
+    Block, BlockHeader, HeaderHash, IsHeader, Point, RawBlock, Tip, cardano::network_block::NetworkBlock,
+};
 use thiserror::Error;
 
 use crate::Nonces;
@@ -43,6 +45,11 @@ where
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
+
+    /// Retrieve the tip of a block header given its hash.
+    fn load_tip(&self, hash: &HeaderHash) -> Option<Tip> {
+        self.load_header(hash).map(|h| h.tip())
+    }
 
     /// Return the hashes of the best chain fragment, starting from the anchor.
     fn retrieve_best_chain(&self) -> Vec<HeaderHash> {
@@ -189,4 +196,38 @@ impl Display for StoreError {
             }
         }
     }
+}
+
+/// Retrieve all blocks from the chain store starting from the anchor to the best chain tip.
+#[cfg(feature = "test-utils")]
+#[expect(clippy::expect_used)]
+pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
+    store
+        .retrieve_best_chain()
+        .iter()
+        .map(|h| {
+            let b = store
+                .load_block(h)
+                .expect("load_block should not raise an error")
+                .expect("missing block for a header on the best chain");
+            (
+                *h,
+                NetworkBlock::try_from(b)
+                    .expect("failed to decode raw block")
+                    .decode_block()
+                    .expect("failed to decode block"),
+            )
+        })
+        .collect()
+}
+
+/// Retrieve all blocks headers from the chain store starting from anchor to the best chain tip.
+#[cfg(feature = "test-utils")]
+#[expect(clippy::expect_used)]
+pub fn get_best_chain_block_headers(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
+    store
+        .retrieve_best_chain()
+        .iter()
+        .map(|h| store.load_header(h).expect("missing header for the best chain"))
+        .collect()
 }

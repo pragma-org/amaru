@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
-use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
-use pure_stage::{Effects, StageRef};
+use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
+use tracing::instrument;
 
 use crate::{
+    accept,
+    accept::PullAccept,
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
@@ -26,7 +29,7 @@ use crate::{
     protocol::Role,
 };
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
     AddPeer(Peer),
     /// Internal message sent from the connection stage only!
@@ -39,12 +42,29 @@ pub enum ManagerMessage {
     Connect(Peer),
     Accepted(Peer, ConnectionId),
     RemovePeer(Peer),
+    Listen(SocketAddr),
     FetchBlocks {
         peer: Peer,
         from: Point,
         through: Point,
         cr: StageRef<Blocks>,
     },
+    NewTip(Tip),
+}
+
+impl ManagerMessage {
+    fn message_type(&self) -> &'static str {
+        match self {
+            ManagerMessage::AddPeer(_) => "AddPeer",
+            ManagerMessage::ConnectionDied(..) => "ConnectionDied",
+            ManagerMessage::Connect(_) => "Connect",
+            ManagerMessage::Accepted(..) => "Accepted",
+            ManagerMessage::RemovePeer(_) => "RemovePeer",
+            ManagerMessage::Listen(_) => "Listen",
+            ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
+            ManagerMessage::NewTip(_) => "NewTip",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -52,8 +72,8 @@ pub struct Manager {
     peers: BTreeMap<Peer, ConnectionState>,
     magic: NetworkMagic,
     config: ManagerConfig,
-    chain_sync: StageRef<ChainSyncInitiatorMsg>,
     era_history: Arc<EraHistory>,
+    chain_sync: StageRef<ChainSyncInitiatorMsg>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -68,10 +88,14 @@ impl Manager {
     pub fn new(
         magic: NetworkMagic,
         config: ManagerConfig,
-        chain_sync: StageRef<ChainSyncInitiatorMsg>,
         era_history: Arc<EraHistory>,
+        chain_sync: StageRef<ChainSyncInitiatorMsg>,
     ) -> Self {
-        Self { peers: BTreeMap::new(), magic, config, chain_sync, era_history }
+        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync }
+    }
+
+    pub fn config(&self) -> ManagerConfig {
+        self.config
     }
 }
 
@@ -80,6 +104,7 @@ impl Manager {
 pub struct ManagerConfig {
     pub connection_timeout: Duration,
     pub reconnect_delay: Duration,
+    pub accept_interval: Duration,
 }
 
 impl ManagerConfig {
@@ -92,11 +117,20 @@ impl ManagerConfig {
         self.connection_timeout = connection_timeout;
         self
     }
+
+    pub fn with_accept_interval(mut self, accept_interval: Duration) -> Self {
+        self.accept_interval = accept_interval;
+        self
+    }
 }
 
 impl Default for ManagerConfig {
     fn default() -> Self {
-        Self { connection_timeout: Duration::from_secs(10), reconnect_delay: Duration::from_secs(2) }
+        Self {
+            connection_timeout: Duration::from_secs(10),
+            reconnect_delay: Duration::from_secs(2),
+            accept_interval: Duration::from_millis(100),
+        }
     }
 }
 
@@ -107,6 +141,7 @@ impl Default for ManagerConfig {
 /// - RemovePeer: remove a peer from the manager, which will terminate a connection if currently connected
 ///
 /// A peer can be added right after being removed even though the socket will be closed asynchronously.
+#[instrument(name = "manager", skip_all, fields(message_type = msg.message_type()))]
 pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
     match msg {
         ManagerMessage::AddPeer(peer) => {
@@ -233,6 +268,36 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 eff.send(&cr, Blocks::default()).await;
             }
         }
+        ManagerMessage::Listen(listen_addr) => {
+            let network = Network::new(&eff);
+            // If we cannot listen to this address we terminate the node because this means that
+            // the configuration needs to be reviewed.
+            match network.listen(listen_addr).await {
+                Ok(listen_addr) => {
+                    tracing::info!(%listen_addr, "listening");
+                    let accept_stage = eff.stage("accept", accept::stage).await;
+                    // If the accept stage fails, the tombstone message triggers a restart.
+                    // The listen() call is idempotent and will clean up the old listener.
+                    let accept_stage = eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
+                    let accept_stage = eff
+                        .wire_up(accept_stage, accept::AcceptState::new(eff.me(), manager.config(), listen_addr))
+                        .await;
+                    eff.send(&accept_stage, PullAccept).await;
+                }
+                Err(error) => {
+                    tracing::error!(%listen_addr, %error, "cannot listen");
+                    return eff.terminate().await;
+                }
+            }
+        }
+        ManagerMessage::NewTip(tip) => {
+            // forward to all peers
+            for peer in &manager.peers {
+                if let ConnectionState::Connected(_, connection) = peer.1 {
+                    eff.send(connection, ConnectionMessage::NewTip(tip)).await;
+                }
+            }
+        }
     }
     manager
 }
@@ -270,4 +335,8 @@ async fn start_connection_stage(
         .await;
     eff.send(&connection, ConnectionMessage::Initialize).await;
     manager.peers.insert(peer, ConnectionState::Connected(conn_id, connection));
+}
+
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![register_data_deserializer::<Manager>().boxed(), register_data_deserializer::<ManagerMessage>().boxed()]
 }

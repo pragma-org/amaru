@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     keepalive::{
@@ -27,7 +28,10 @@ use crate::{
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![pure_stage::register_data_deserializer::<KeepAliveResponder>().boxed()]
+    vec![
+        pure_stage::register_data_deserializer::<KeepAliveResponder>().boxed(),
+        pure_stage::register_data_deserializer::<(State, KeepAliveResponder)>().boxed(),
+    ]
 }
 
 pub fn responder() -> Miniprotocol<State, KeepAliveResponder, Responder> {
@@ -57,6 +61,7 @@ impl StageState<State, Responder> for KeepAliveResponder {
         match input {}
     }
 
+    #[instrument(name = "keepalive.responder.stage", skip_all, fields(cookie = input.cookie.as_u16()))]
     async fn network(
         self,
         _proto: &State,
@@ -81,6 +86,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "keepalive.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use State::*;
 

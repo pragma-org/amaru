@@ -15,7 +15,7 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, Transaction, any_headers_chain_with_root,
+    BlockHeader, HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction, any_headers_chain_with_root,
     cardano::network_block::make_network_block, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
@@ -133,7 +133,7 @@ fn initialize_chain_store(chain_length: usize, chain_store: Arc<dyn ChainStore<B
         chain_store.set_best_chain_hash(&header.hash())?;
 
         tracing::info!("storing block for header {}", header.point());
-        let network_block = make_network_block(header);
+        let network_block = make_network_block(header, &PREPROD_ERA_HISTORY);
         chain_store.store_block(&header.hash(), &network_block.raw_block())?;
     }
     Ok(())

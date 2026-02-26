@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
-use pure_stage::{Effects, StageRef, Void};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
+use tracing::instrument;
 
 use crate::{
     blockfetch::{
@@ -103,9 +104,23 @@ pub enum ConnectionMessage {
     Disconnect,
     Handshake(HandshakeResult),
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks> },
+    NewTip(Tip),
     // LATER: make full duplex, etc.
 }
 
+impl ConnectionMessage {
+    fn message_type(&self) -> &'static str {
+        match self {
+            ConnectionMessage::Initialize => "Initialize",
+            ConnectionMessage::Disconnect => "Disconnect",
+            ConnectionMessage::Handshake(_) => "Handshake",
+            ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
+            ConnectionMessage::NewTip(_) => "NewTip",
+        }
+    }
+}
+
+#[instrument(name = "connection", skip_all, fields(message_type = msg.message_type(), conn_id = %params.conn_id, peer = %params.peer, role = ?params.role))]
 pub async fn stage(
     Connection { params, state }: Connection,
     msg: ConnectionMessage,
@@ -119,6 +134,14 @@ pub async fn stage(
         }
         (State::Initiator(s), ConnectionMessage::FetchBlocks { from, through, cr }) => {
             eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, cr }).await;
+            State::Initiator(s)
+        }
+        (State::Responder(s), ConnectionMessage::NewTip(tip)) => {
+            eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip)).await;
+            State::Responder(s)
+        }
+        (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
+            // don't propagate new tip messages when using the initiator side of a connection.
             State::Initiator(s)
         }
         (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {
@@ -236,6 +259,14 @@ async fn do_handshake(
             tx_submission,
         })
     }
+}
+
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![
+        register_data_deserializer::<(ConnectionId, StageRef<mux::MuxMessage>, Role)>().boxed(),
+        register_data_deserializer::<Connection>().boxed(),
+        register_data_deserializer::<ConnectionMessage>().boxed(),
+    ]
 }
 
 #[cfg(test)]

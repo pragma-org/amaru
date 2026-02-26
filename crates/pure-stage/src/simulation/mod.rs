@@ -17,7 +17,7 @@
 mod blocked;
 mod inputs;
 mod random;
-mod replay;
+pub mod replay;
 pub mod running;
 pub mod simulation_builder;
 mod state;

@@ -27,7 +27,7 @@ use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{Effects, StageRef, TryInStage, Void};
+use pure_stage::{EPOCH, Effects, Instant, StageRef, TryInStage, Void};
 
 use crate::{
     network_effects::{Network, NetworkOps},
@@ -52,7 +52,7 @@ const MAX_SEGMENT_SIZE: usize = 65535;
 pub struct Timestamp(u32);
 
 impl Timestamp {
-    fn now() -> Self {
+    pub fn now() -> Self {
         #[expect(clippy::expect_used)]
         Self(
             SystemTime::now()
@@ -64,6 +64,10 @@ impl Timestamp {
 
     fn encode(self, buffer: &mut BytesMut) {
         buffer.put_u32(self.0);
+    }
+
+    pub fn from_instant(instant: Instant) -> Self {
+        Self(instant.saturating_since(*EPOCH).as_micros() as u32)
     }
 
     fn decode(buffer: &mut Bytes) -> Result<Self, TryGetError> {
@@ -237,7 +241,8 @@ async fn handle_msg(
             muxer.outgoing(proto_id, bytes.into(), sent);
             if !*sending && let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
-                eff.send(writer, Header::encode(proto_id, &bytes)).await;
+                let header = muxer.encode_header(eff, proto_id, &bytes).await;
+                eff.send(writer, header).await;
             }
             Ok(())
         }
@@ -257,7 +262,8 @@ async fn handle_msg(
             *sending = false;
             if let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
-                eff.send(writer, Header::encode(proto_id, &bytes)).await;
+                let header = muxer.encode_header(eff, proto_id, &bytes).await;
+                eff.send(writer, header).await;
             }
             Ok(())
         }
@@ -316,14 +322,14 @@ struct Header {
 const HEADER_LEN: NonZeroUsize = NonZeroUsize::new(8).expect("8 is a valid non-zero size");
 
 impl Header {
-    pub fn encode<R: RoleT>(proto_id: ProtocolId<R>, bytes: impl AsRef<[u8]>) -> NonEmptyBytes {
+    pub fn encode<R: RoleT>(proto_id: ProtocolId<R>, bytes: impl AsRef<[u8]>, timestamp: Timestamp) -> NonEmptyBytes {
         thread_local! {
             static BUFFER: RefCell<BytesMut> = RefCell::new(BytesMut::with_capacity(HEADER_LEN.get() + MAX_SEGMENT_SIZE));
         }
         let bytes = bytes.as_ref();
         BUFFER.with_borrow_mut(move |buffer| {
             buffer.clear();
-            Timestamp::now().encode(buffer);
+            timestamp.encode(buffer);
             proto_id.encode(buffer);
             buffer.put_u16(bytes.len() as u16);
             buffer.extend_from_slice(bytes);
@@ -358,6 +364,17 @@ impl Muxer {
 
     pub fn role(&self) -> Role {
         self.role
+    }
+
+    async fn encode_header<M>(
+        &mut self,
+        eff: &Effects<M>,
+        proto_id: ProtocolId<Erased>,
+        bytes: &Bytes,
+    ) -> NonEmptyBytes {
+        let instant = eff.clock().await;
+        let timestamp = Timestamp::from_instant(instant);
+        Header::encode(proto_id, bytes, timestamp)
     }
 
     #[trace(amaru::protocols::mux::REGISTER)]
@@ -575,7 +592,7 @@ mod tests {
     use std::{fmt, sync::Arc, time::Duration};
 
     use amaru_network::connection::TokioConnections;
-    use amaru_ouroboros::ConnectionResource;
+    use amaru_ouroboros::ConnectionsResource;
     use amaru_ouroboros_traits::ConnectionProvider;
     use futures_util::StreamExt;
     use pure_stage::{
@@ -642,7 +659,7 @@ mod tests {
         let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
         let input = graph.input(&mux);
 
-        graph.resources().put::<ConnectionResource>(Arc::new(network));
+        graph.resources().put::<ConnectionsResource>(Arc::new(network));
 
         let mut running = graph.run();
         let join_handle = tokio::spawn(async move {
@@ -845,7 +862,7 @@ mod tests {
         let recv_header = RecvEffect { conn: conn_id, bytes: HEADER_LEN };
         let recv_msg =
             |running: &mut SimulationRunning, proto_id: ProtocolId<Responder>, bytes: &[u8], recv: &[&[u8]]| {
-                let mut msg = Header::encode(proto_id, bytes).into_inner();
+                let mut msg = Header::encode(proto_id, bytes, Timestamp::now()).into_inner();
                 running
                     .resume_external::<RecvEffect>(&reader, Ok(msg.split_to(HEADER_LEN.get()).try_into().unwrap()))
                     .unwrap();
@@ -927,7 +944,7 @@ mod tests {
         let (sent, mut sent_rx) = graph.output::<Sent>("sent", 10);
         let input = graph.input(&mux);
 
-        graph.resources().put::<ConnectionResource>(Arc::new(network));
+        graph.resources().put::<ConnectionsResource>(Arc::new(network));
 
         let running = graph.run(Handle::current());
 

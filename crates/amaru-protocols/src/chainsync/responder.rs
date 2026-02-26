@@ -18,6 +18,7 @@ use amaru_kernel::{BlockHeader, EraName, IsHeader, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
@@ -32,6 +33,7 @@ use crate::{
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<ResponderMessage>().boxed(),
+        pure_stage::register_data_deserializer::<(ResponderState, ChainSyncResponder)>().boxed(),
         pure_stage::register_data_deserializer::<ChainSyncResponder>().boxed(),
     ]
 }
@@ -76,6 +78,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
             ResponderMessage::NewTip(tip) => {
+                tracing::trace!(%tip, "New tip");
                 self.upstream = tip;
                 let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
                     .context("failed to get next header")?;
@@ -84,6 +87,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         }
     }
 
+    #[instrument(name = "chainsync.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         proto: &ResponderState,
@@ -134,6 +138,7 @@ fn next_header(
     if *pointer == tip.point() {
         return Ok((matches!(state, ResponderState::CanAwait { .. })).then_some(ResponderAction::AwaitReply));
     }
+
     if store.load_from_best_chain(pointer).is_none() {
         // client is on a different fork, we need to roll backward
         let header = store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
@@ -163,6 +168,7 @@ fn intersect(
     if points.is_empty() {
         return Ok(ResponderAction::IntersectNotFound(tip));
     }
+
     points.sort_by_key(|p| Reverse(*p));
 
     for point in &points {
@@ -188,6 +194,17 @@ pub enum ResponderResult {
     RequestNext,
     Done,
 }
+
+impl ResponderResult {
+    fn message_type(&self) -> &'static str {
+        match self {
+            ResponderResult::FindIntersect(_) => "FindIntersect",
+            ResponderResult::RequestNext => "RequestNext",
+            ResponderResult::Done => "Done",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
 pub enum ResponderState {
     Idle { send_rollback: bool },
@@ -207,6 +224,7 @@ impl ProtocolState<Responder> for ResponderState {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "chainsync.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use ResponderState::*;
 

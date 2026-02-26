@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_sim::simulator::{Args, run::run};
+use std::process::exit;
+
+use amaru_sim::simulator::{Args, run_tests};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -27,5 +29,8 @@ fn main() {
 
     // It might be necessary to run the simulation with a larger stack with RUST_MIN_STACK=16777216 (16MB)
     // because of the deep recursion used when generating data for large chains.
-    run(args);
+    if let Err(e) = run_tests(args) {
+        eprintln!("Error running tests: {e}");
+        exit(1);
+    }
 }

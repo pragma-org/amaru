@@ -38,7 +38,7 @@ fn main() {
         },
         stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
     };
-    use amaru_kernel::{BlockHeader, IsHeader};
+    use amaru_kernel::{BlockHeader, IsHeader, Peer};
     use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
@@ -55,15 +55,15 @@ fn main() {
 
     // A more realistic bench would use around 200 peers but this would make the bench take a really
     // long time to run.
-    let peers_nb = 10;
+    let peers = (1..=10).map(|i| Peer::new(&format!("peer-{i}"))).collect::<Vec<_>>();
 
     // Create a large tree of headers and random actions to be executed on a HeadersTree
     // from the list of peers.
-    let generated_tree = generate_tree_of_headers(seed, depth);
+    let generated_tree = generate_tree_of_headers(seed, depth as usize);
     let tree = generated_tree.tree();
     assert!(tree.nodes().len() > 3000, "there are {} nodes", tree.nodes().len());
 
-    let generated_actions = generate_random_walks(seed, &generated_tree, peers_nb);
+    let generated_actions = generate_random_walks(seed, &generated_tree, &peers);
     let actions = generated_actions.actions();
     assert!(actions.len() > 5000);
 
@@ -77,7 +77,7 @@ fn main() {
         store
     };
 
-    let mut headers_tree = HeadersTree::new(store.clone(), max_length);
+    let mut headers_tree = HeadersTree::new(store.clone(), max_length as usize);
     for header in tree.nodes() {
         store.store_header(&header).unwrap();
     }
@@ -100,7 +100,7 @@ fn main() {
 
     eprintln!("tree size: {}", tree.size());
     eprintln!("tree leaves: {}", tree.leaves().len());
-    eprintln!("number of peers: {}", peers_nb);
+    eprintln!("number of peers: {}", peers.len());
     eprintln!("number of actions: {}", actions.len());
     eprintln!("number of rollbacks: {}", actions.iter().filter(|a| a.is_rollback()).count());
     eprintln!("time after executing actions: {:?}", elapsed);

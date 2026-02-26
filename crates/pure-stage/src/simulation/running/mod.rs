@@ -461,7 +461,7 @@ impl SimulationRunning {
         }
     }
 
-    fn receive_inputs(&mut self) {
+    pub fn receive_inputs(&mut self) {
         self.try_inputs();
         let receiving = self
             .stages

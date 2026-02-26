@@ -217,6 +217,7 @@ jobs:
             default-timeout-full-run: 60
         cardano_node_version: [10.5.3]
     env:
+      AMARU_TRACE: info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info
       AMARU_NETWORK: ${{ matrix.network.name }}
       BUILD_PROFILE: test
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

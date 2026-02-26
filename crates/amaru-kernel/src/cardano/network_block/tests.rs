@@ -15,24 +15,31 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::{BlockHeader, any_header};
+use crate::{BlockHeader, EraHistory, any_header};
 
-pub fn make_network_block(header: &BlockHeader) -> NetworkBlock {
+/// Create a network block with the correct era tag based on the header's slot and era history.
+#[expect(clippy::expect_used)]
+pub fn make_network_block(header: &BlockHeader, era_history: &EraHistory) -> NetworkBlock {
     let block = make_block_with_header(header);
-    NetworkBlock { era_tag: EraName::Conway, encoded_block: to_cbor(&block) }
+    NetworkBlock::new(era_history, &block).expect("make network block")
 }
 
-pub fn make_encoded_block(header: &BlockHeader) -> RawBlock {
-    let network_block = make_network_block(header);
+/// Create an encoded block with the correct era tag based on the header's slot and era history.
+pub fn make_encoded_block(header: &BlockHeader, era_history: &EraHistory) -> RawBlock {
+    let network_block = make_network_block(header, era_history);
     RawBlock::from(to_cbor(&network_block).as_slice())
 }
 
+#[expect(clippy::expect_used)]
 pub fn make_block_with_header(header: &BlockHeader) -> Block {
     let mut block = make_block();
     block.header = header.header().clone();
-    block
+    // Re-encode and decode to rebuild the cached metadata fields.
+    let bytes = to_cbor(&block);
+    cbor::decode(bytes.as_slice()).expect("block encoding should round-trip")
 }
 
+/// Generate an arbitrary network block at Conway era for property-based testing.
 pub fn any_network_block() -> impl Strategy<Value = NetworkBlock> {
     any_header().prop_map(|header| {
         let block = make_block_with_header(&header);

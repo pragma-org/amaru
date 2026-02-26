@@ -22,6 +22,7 @@ use amaru_kernel::Transaction;
 use amaru_ouroboros::TxSubmissionMempool;
 use amaru_ouroboros_traits::{TxId, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     mempool_effects::MemoryPool,
@@ -33,7 +34,10 @@ use crate::{
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed()]
+    vec![
+        pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed(),
+        pure_stage::register_data_deserializer::<(State, TxSubmissionResponder)>().boxed(),
+    ]
 }
 
 pub fn responder() -> Miniprotocol<State, TxSubmissionResponder, Responder> {
@@ -52,6 +56,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         match input {}
     }
 
+    #[instrument(name = "tx_submission.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -88,6 +93,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "tx_submission.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Init, Message::Init) => (outcome().result(ResponderResult::Init), State::Idle),
@@ -126,6 +132,17 @@ pub enum ResponderResult {
     ReplyTxIds(Vec<(TxId, u32)>),
     ReplyTxs(Vec<Transaction>),
     Done,
+}
+
+impl ResponderResult {
+    pub fn message_type(&self) -> &str {
+        match self {
+            ResponderResult::Init => "Init",
+            ResponderResult::ReplyTxIds(_) => "ReplyTxIds",
+            ResponderResult::ReplyTxs(_) => "ReplyTxs",
+            ResponderResult::Done => "Done",
+        }
+    }
 }
 
 impl Display for ResponderResult {

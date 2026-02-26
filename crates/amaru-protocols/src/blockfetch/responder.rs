@@ -17,6 +17,7 @@ use std::fmt::Debug;
 use amaru_kernel::{BlockHeader, IsHeader, NonEmptyVec, Point, RawBlock};
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     blockfetch::{State, messages::Message},
@@ -29,7 +30,10 @@ use crate::{
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![pure_stage::register_data_deserializer::<BlockFetchResponder>().boxed()]
+    vec![
+        pure_stage::register_data_deserializer::<BlockFetchResponder>().boxed(),
+        pure_stage::register_data_deserializer::<(State, BlockFetchResponder)>().boxed(),
+    ]
 }
 
 pub fn responder() -> Miniprotocol<State, BlockFetchResponder, Responder> {
@@ -179,6 +183,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
         }
     }
 
+    #[instrument(name = "blockfetch.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         self,
         _proto: &State,
@@ -214,6 +219,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
+    #[instrument(name = "blockfetch.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use Message::*;
         match (self, input) {
@@ -255,12 +261,22 @@ pub enum ResponderResult {
     Done,
 }
 
+impl ResponderResult {
+    pub fn message_type(&self) -> &'static str {
+        match self {
+            ResponderResult::RequestRange { .. } => "RequestRange",
+            ResponderResult::Done => "Done",
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use std::sync::Arc;
 
     use amaru_kernel::{
-        BlockHeader, EraName, IsHeader, Slot, any_fake_header, any_headers_chain, any_headers_chain_with_root,
+        BlockHeader, EraName, IsHeader, Slot, TESTNET_ERA_HISTORY, any_fake_header, any_headers_chain,
+        any_headers_chain_with_root,
         cardano::network_block::{NetworkBlock, make_encoded_block},
         utils::tests::run_strategy,
     };
@@ -483,7 +499,7 @@ pub mod tests {
 
     fn store_blocks(store: Arc<InMemConsensusStore<BlockHeader>>, headers: &[BlockHeader]) {
         for h in headers {
-            let raw_block = make_encoded_block(h);
+            let raw_block = make_encoded_block(h, &TESTNET_ERA_HISTORY);
             store.store_block(&h.hash(), &raw_block).unwrap();
         }
     }

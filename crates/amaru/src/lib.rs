@@ -25,6 +25,8 @@ pub mod metrics;
 pub mod observability;
 pub mod panic;
 
+pub mod tests;
+
 /// Sync pipeline
 ///
 /// The sync pipeline is responsible for fetching blocks from the upstream node and

@@ -24,6 +24,7 @@ use pure_stage::{
 use tokio::{runtime::Handle, sync::Notify};
 
 use crate::{
+    chainsync::ChainSyncInitiatorMsg,
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
     tests::{
@@ -31,7 +32,10 @@ use crate::{
         assertions::{check_state, wait_for_termination},
         chainsync_stage::{ChainSyncStageState, test_chainsync_stage},
         configuration::Configuration,
-        setup::{ephemeral_localhost_addr, set_resources, setup_logging},
+        setup::{
+            FailingConnectionProvider, ephemeral_localhost_addr, set_resources, set_resources_with_connections,
+            setup_logging,
+        },
         slow_manager_stage::slow_manager_stage,
     },
 };
@@ -41,7 +45,7 @@ use crate::{
 /// and that both nodes have the same blocks and transactions.
 #[tokio::test]
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
-    setup_logging(true);
+    setup_logging();
     let (responder, addr, responder_done) = start_responder().await?;
     let (initiator, initiator_done) = start_initiator_at(addr).await?;
 
@@ -52,7 +56,7 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
-    setup_logging(true);
+    setup_logging();
     let addr = ephemeral_localhost_addr()?;
     tracing::info!("starting test at address {}", addr);
     let (initiator, initiator_done) = start_initiator_with_configuration(
@@ -69,7 +73,7 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::Result<()> {
-    setup_logging(true);
+    setup_logging();
 
     // start an initiator with a responder that will be slow right after connection, so that
     // the initiator doesn't start synchronizing right away
@@ -103,6 +107,41 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     Ok(())
 }
 
+/// Test that the accept stage supervision restarts the listener when the accept stage fails.
+/// This test uses a FailingConnectionProvider that fails after accepting one connection,
+/// which triggers the supervision to restart the listener via ManagerMessage::Listen.
+#[tokio::test]
+async fn test_accept_stage_supervised_restart() -> anyhow::Result<()> {
+    setup_logging();
+
+    // Start a responder with a FailingConnectionProvider that:
+    // - Succeeds for the first accept (fail_after=1)
+    // - Then fails once (fail_count=1), triggering a supervised restart
+    // - Then succeeds for all subsequent accepts
+    // The manager will handle ManagerMessage::Listen and create a supervised accept stage.
+    // When the accept fails, the supervision will send Listen again, restarting the listener.
+    let (responder, addr, responder_done) =
+        start_responder_with_failing_accept(Configuration::responder(), 1, 1).await?;
+
+    // Start an initiator that will connect to the responder
+    let (initiator, initiator_done) = start_initiator_with_configuration(
+        Configuration::initiator()
+            .with_addr(addr)
+            .with_reconnect_delay(Duration::from_millis(500))
+            .with_processing_wait(Duration::from_millis(100)),
+    )
+    .await?;
+
+    // Both the initiator and the responder should eventually terminate with the same state.
+    // This proves that after the accept stage failed and was restarted via supervision,
+    // the responder was able to accept new connections and complete the sync.
+    tracing::info!("wait for termination");
+    wait_for_termination(responder_done, initiator_done).await?;
+    check_state(initiator, responder)?;
+
+    Ok(())
+}
+
 /// Create and start a responder node that listens for incoming connections on a free port found at
 /// runtime. Return the address it is listening on.
 async fn start_responder() -> anyhow::Result<(TokioRunning, SocketAddr, Arc<Notify>)> {
@@ -123,33 +162,27 @@ async fn start_responder_with_configuration(
 ) -> anyhow::Result<(TokioRunning, SocketAddr, Arc<Notify>)> {
     tracing::info!("Creating the responder");
     let mut responder_network = TokioBuilder::default();
-
-    let era_history: &EraHistory = NetworkName::Preprod.into();
-    let responder_manager = Manager::new(
-        NetworkMagic::PREPROD,
-        ManagerConfig::default(),
-        StageRef::blackhole(),
-        Arc::new(era_history.clone()),
-    );
-
     let responder_stage = if configuration.slow_manager {
         responder_network.stage("responder", slow_manager_stage)
     } else {
         responder_network.stage("responder", manager::stage)
     };
+    let responder_manager = create_manager(ManagerConfig::default(), StageRef::blackhole());
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
+
+    // Create a connection that notifies the accept stage about new connections
+    // Note: we need to call listen() first to get the listener address for the accept stage
+    let responder_connections = TokioConnections::new(CONNECTION_BUFFER_SIZE);
+    let peer_addr = responder_connections.listen(configuration.addr).await?;
+    tracing::info!("Responder listening on {}", peer_addr);
 
     let accept_stage = responder_network.stage("accept", accept_stage);
     let notify = Arc::new(Notify::new());
-    let accept_stage =
-        responder_network.wire_up(accept_stage, AcceptState::new(responder_stage.without_state(), notify.clone()));
+    let accept_stage = responder_network
+        .wire_up(accept_stage, AcceptState::new(responder_stage.without_state(), notify.clone(), peer_addr));
     responder_network.preload(accept_stage, [PullAccept]).unwrap();
 
-    // Create a connection that notifies the accept stage about new connections
-    let responder_connections = TokioConnections::new(65535);
-    let peer_addr = responder_connections.listen(configuration.addr).await?;
     set_resources(configuration.chain_store, configuration.mempool, &mut responder_network, responder_connections)?;
-    tracing::info!("Responder listening on {}", peer_addr);
 
     tracing::info!("Start the responder");
     let running_responder = responder_network.run(Handle::current());
@@ -185,17 +218,11 @@ async fn start_initiator_with_configuration(
     );
 
     let manager_config = ManagerConfig::default().with_reconnect_delay(configuration.reconnect_delay);
-    let era_history: &EraHistory = NetworkName::Preprod.into();
-    let initiator_manager = Manager::new(
-        NetworkMagic::PREPROD,
-        manager_config,
-        chainsync_stage.without_state(),
-        Arc::new(era_history.clone()),
-    );
+    let initiator_manager = create_manager(manager_config, chainsync_stage.without_state());
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
     let initiator_sender = initiator_network.input(initiator_stage);
 
-    let initiator_connections = TokioConnections::new(65535);
+    let initiator_connections = TokioConnections::new(CONNECTION_BUFFER_SIZE);
     set_resources(configuration.chain_store, configuration.mempool, &mut initiator_network, initiator_connections)?;
 
     tracing::info!("Start the initiator");
@@ -203,4 +230,73 @@ async fn start_initiator_with_configuration(
     initiator_sender.send(ManagerMessage::AddPeer(peer.clone())).await.unwrap();
 
     Ok((running_initiator, notify))
+}
+
+/// Create and start a responder node that uses the manager's supervised accept stage.
+/// This setup tests the supervision restart mechanism: when the accept stage fails,
+/// the manager receives a tombstone message (ManagerMessage::Listen) and restarts the listener.
+///
+/// Parameters:
+/// - `fail_after`: Number of successful accepts before failures start
+/// - `fail_count`: Number of failures to simulate before returning to normal operation
+async fn start_responder_with_failing_accept(
+    configuration: Configuration,
+    fail_after: usize,
+    fail_count: usize,
+) -> anyhow::Result<(TokioRunning, SocketAddr, Arc<Notify>)> {
+    tracing::info!("Creating the responder with failing accept (fail_after={}, fail_count={})", fail_after, fail_count);
+    let mut responder_network = TokioBuilder::default();
+
+    // Create the chainsync stage for tracking completion
+    let chainsync_stage = responder_network.stage("chainsync", test_chainsync_stage);
+    let notify = Arc::new(Notify::new());
+
+    // Create the manager stage - it will handle ManagerMessage::Listen and create the supervised accept stage
+    let responder_stage = responder_network.stage("responder", manager::stage);
+
+    // Wire up the chainsync stage first (manager needs its reference)
+    let chainsync_stage = responder_network
+        .wire_up(chainsync_stage, ChainSyncStageState::new(responder_stage.sender(), None, notify.clone()));
+    let responder_manager = create_manager(ManagerConfig::default(), chainsync_stage.without_state());
+
+    // Wire up the manager stage
+    let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
+    let responder_sender = responder_network.input(responder_stage);
+
+    // Create a FailingConnectionProvider that wraps TokioConnections.
+    // First, we need to listen to get the actual bound address.
+    let inner_connections = TokioConnections::new(CONNECTION_BUFFER_SIZE);
+    let peer_addr = inner_connections.listen(configuration.addr).await?;
+    tracing::info!("Responder will listen on {}", peer_addr);
+
+    // Create the failing provider - it will be used by the manager when it handles Listen
+    let failing_connections = FailingConnectionProvider::new(inner_connections, fail_after, fail_count);
+
+    set_resources_with_connections(
+        configuration.chain_store,
+        configuration.mempool,
+        &mut responder_network,
+        Arc::new(failing_connections),
+    )?;
+
+    tracing::info!("Start the responder");
+    let running_responder = responder_network.run(Handle::current());
+
+    // Send ManagerMessage::Listen to trigger the manager to create the supervised accept stage.
+    // Note: The listen() call is idempotent, so calling it again on the same address will work.
+    responder_sender.send(ManagerMessage::Listen(peer_addr)).await.unwrap();
+
+    Ok((running_responder, peer_addr, notify))
+}
+
+/// Buffer size for TCP connections in tests.
+const CONNECTION_BUFFER_SIZE: usize = 65535;
+
+fn era_history() -> Arc<EraHistory> {
+    let era_history: &EraHistory = NetworkName::Preprod.into();
+    Arc::new(era_history.clone())
+}
+
+fn create_manager(config: ManagerConfig, chainsync_stage: StageRef<ChainSyncInitiatorMsg>) -> Manager {
+    Manager::new(NetworkMagic::PREPROD, config, era_history(), chainsync_stage)
 }

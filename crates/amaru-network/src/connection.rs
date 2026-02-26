@@ -138,8 +138,14 @@ impl ConnectionProvider for TokioConnections {
 
         Box::pin(
             async move {
-                if inner.tasks.lock().contains_key(&addr) {
-                    return Err(std::io::Error::other(format!("listener already bound to {addr}")));
+                // If a listener already exists for this address, abort and remove it.
+                // This allows supervised restarts to work correctly.
+                let existing_task = inner.tasks.lock().remove(&addr);
+                if let Some(task) = existing_task {
+                    tracing::info!(%addr, "aborting existing listener task for restart");
+                    task.abort();
+                    // Wait for the task to complete so the TcpListener is dropped and the port is released.
+                    let _ = task.await;
                 }
 
                 // Bind the listener with SO_REUSEADDR
@@ -170,7 +176,9 @@ impl ConnectionProvider for TokioConnections {
         )
     }
 
-    fn accept(&self) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
+    /// NOTE: For now there is only one listener used in the tokio implementation so we don't need
+    /// to use the _listener_addr.
+    fn accept(&self, _listener_addr: SocketAddr) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>> {
         let inner = self.inner.clone();
 
         Box::pin(
@@ -346,7 +354,8 @@ mod tests {
         // to an ephemeral port.
         let connections = TokioConnections::new(1024);
 
-        let addr = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        let listen_addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let addr = connections.listen(listen_addr).await?;
 
         // Start a client that connects to the listener and
         // sends "hello", expecting "world" in response.
@@ -362,7 +371,7 @@ mod tests {
         });
 
         // Receive "hello" from the client and respond with "world".
-        let connection_id = timeout(Duration::from_secs(1), connections.accept()).await??.1;
+        let connection_id = timeout(Duration::from_secs(1), connections.accept(listen_addr)).await??.1;
         let result = connections.recv(connection_id, const { NonZeroUsize::new(5).unwrap() }).await?;
         assert_eq!(result.as_ref(), b"hello");
 

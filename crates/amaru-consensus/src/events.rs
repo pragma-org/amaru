@@ -17,7 +17,7 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip, cardano::network_block::NetworkBlock};
+use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
 use tracing::Span;
 
 /// Wrapper type to factor out caught-up messages from real events.
@@ -145,8 +145,6 @@ pub enum ValidateBlockEvent {
     Validated {
         peer: Peer,
         header: BlockHeader,
-        #[serde(skip, default = "NetworkBlock::fake")]
-        block: NetworkBlock,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -161,8 +159,8 @@ pub enum ValidateBlockEvent {
 impl Debug for ValidateBlockEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidateBlockEvent::Validated { peer, header, block, .. } => {
-                f.debug_struct("Validated").field("peer", peer).field("header", header).field("block", block).finish()
+            ValidateBlockEvent::Validated { peer, header, .. } => {
+                f.debug_struct("Validated").field("peer", peer).field("header", header).finish()
             }
             ValidateBlockEvent::Rollback { peer, rollback_point, .. } => {
                 f.debug_struct("Rollback").field("peer", peer).field("rollback_point", rollback_point).finish()

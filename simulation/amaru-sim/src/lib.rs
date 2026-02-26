@@ -13,4 +13,3 @@
 // limitations under the License.
 
 pub mod simulator;
-pub mod sync;

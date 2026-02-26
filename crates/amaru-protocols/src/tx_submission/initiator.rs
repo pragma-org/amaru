@@ -55,6 +55,7 @@ use amaru_kernel::{Transaction, utils::string::display_collection};
 use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
 use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::instrument;
 
 use crate::{
     mempool_effects::MemoryPool,
@@ -71,6 +72,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<Void>().boxed(),
         pure_stage::register_data_deserializer::<TxSubmissionInitiator>().boxed(),
+        pure_stage::register_data_deserializer::<(State, TxSubmissionInitiator)>().boxed(),
     ]
 }
 
@@ -91,6 +93,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         Ok((None, self))
     }
 
+    #[instrument(name = "tx_submission.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -126,6 +129,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
+    #[instrument(name = "tx_submission.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
@@ -194,6 +198,15 @@ impl Display for InitiatorAction {
 pub enum InitiatorResult {
     RequestTxIds { ack: u16, req: u16, blocking: Blocking },
     RequestTxs(Vec<TxId>),
+}
+
+impl InitiatorResult {
+    pub fn message_type(&self) -> &str {
+        match self {
+            Self::RequestTxIds { .. } => "RequestTxIds",
+            Self::RequestTxs(_) => "RequestTxs",
+        }
+    }
 }
 
 impl Display for InitiatorResult {

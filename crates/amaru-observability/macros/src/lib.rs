@@ -123,7 +123,7 @@ pub fn trace(args: TokenStream, input: TokenStream) -> TokenStream {
 /// fn apply_block(block: &Block) {
 ///     // Record to span only
 ///     trace_record!(ledger::state::APPLY_BLOCK, size = block.size());
-///     
+///
 ///     // Record to span and emit INFO log event
 ///     trace_record!(INFO, ledger::state::APPLY_BLOCK, tx_count = block.transactions.len());
 /// }
