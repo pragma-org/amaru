@@ -1,0 +1,41 @@
+name: Nightly Snapshot Tests
+
+on:
+  schedule:
+    # Run every night at 2:00 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Network to run
+        type: choice
+        options: [both, preprod, preview]
+        required: false
+      timeout:
+        description: "Override timeout for snapshot tests"
+        required: false
+      demo_trace_level:
+        description: "Override AMARU_TRACE (leave empty for default)"
+        required: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  snapshots:
+    name: Nightly snapshot tests
+    uses: ./.github/workflows/snapshot-tests.yml
+    with:
+      use_fixed_epoch: false
+      default_timeout: 60
+      network: ${{ github.event.inputs.network == 'both' && '' || github.event.inputs.network || '' }}
+      timeout: ${{ github.event.inputs.timeout || '' }}
+      demo_trace_level: ${{ github.event.inputs.demo_trace_level || '' }}
+      use_buildjet_runner: true
+      run_tests: true
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+      CARDANO_NODE_BUCKET_NAME: ${{ secrets.CARDANO_NODE_BUCKET_NAME }}
