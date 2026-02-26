@@ -23,4 +23,5 @@ pub mod select_chain_new;
 pub mod test_utils;
 pub mod track_peers;
 pub mod validate_block;
+pub mod validate_block2;
 pub mod validate_header;
