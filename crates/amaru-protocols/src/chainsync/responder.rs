@@ -164,20 +164,16 @@ fn intersect(
         return Ok(ResponderAction::IntersectNotFound(tip));
     }
     points.sort_by_key(|p| Reverse(*p));
-    let header = store.load_header(&tip.hash()).ok_or_else(|| anyhow::anyhow!("tip not found"))?;
-    for header in store.ancestors(header) {
-        let point = header.point();
-        if points.contains(&point) {
-            return Ok(ResponderAction::IntersectFound(point, tip));
-        }
-        if Some(&point) < points.last() {
-            break;
+
+    for point in &points {
+        if store.load_from_best_chain(point).is_some() {
+            return Ok(ResponderAction::IntersectFound(*point, tip));
         }
     }
     Ok(ResponderAction::IntersectNotFound(tip))
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ResponderAction {
     IntersectFound(Point, Tip),
     IntersectNotFound(Tip),
@@ -256,11 +252,64 @@ impl ProtocolState<Responder> for ResponderState {
 }
 
 #[cfg(test)]
-#[expect(clippy::wildcard_enum_match_arm)]
 mod tests {
+    use std::sync::Arc;
+
+    use amaru_kernel::{BlockHeader, Hash, Slot, make_header, size::HEADER};
+    use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+
     use super::*;
     use crate::{chainsync::initiator::InitiatorState, protocol::ProtoSpec};
 
+    #[test]
+    fn intersect_finds_point_on_best_chain() {
+        let (store, points) = build_chain_store(10, 0);
+        let tip = make_tip(&points);
+
+        let result = intersect(vec![points[5]], store.as_ref(), tip).unwrap();
+        assert_eq!(result, ResponderAction::IntersectFound(points[5], tip));
+    }
+
+    #[test]
+    fn intersect_returns_most_recent_matching_point() {
+        let (store, points) = build_chain_store(10, 0);
+        let tip = make_tip(&points);
+
+        // points are sorted highest-first, so point[7] should be found first
+        let result = intersect(vec![points[3], points[7]], store.as_ref(), tip).unwrap();
+        assert_eq!(result, ResponderAction::IntersectFound(points[7], tip));
+    }
+
+    #[test]
+    fn intersect_finds_point_before_anchor() {
+        // Anchor at index 5, but point[2] is still on the best chain index
+        let (store, points) = build_chain_store(10, 5);
+        let tip = make_tip(&points);
+
+        let result = intersect(vec![points[2]], store.as_ref(), tip).unwrap();
+        assert_eq!(result, ResponderAction::IntersectFound(points[2], tip));
+    }
+
+    #[test]
+    fn intersect_not_found_with_empty_points() {
+        let (store, points) = build_chain_store(10, 0);
+        let tip = make_tip(&points);
+
+        let result = intersect(vec![], store.as_ref(), tip).unwrap();
+        assert_eq!(result, ResponderAction::IntersectNotFound(tip));
+    }
+
+    #[test]
+    fn intersect_not_found_with_unknown_points() {
+        let (store, points) = build_chain_store(10, 0);
+        let tip = make_tip(&points);
+
+        let unknown = Point::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
+        let result = intersect(vec![unknown], store.as_ref(), tip).unwrap();
+        assert_eq!(result, ResponderAction::IntersectNotFound(tip));
+    }
+
+    #[expect(clippy::wildcard_enum_match_arm)]
     #[test]
     fn test_responder_protocol() {
         use Message::{
@@ -309,5 +358,35 @@ mod tests {
             Intersect => InitiatorState::Intersect,
             Done => InitiatorState::Done,
         });
+    }
+
+    // HELPERS
+
+    /// Build an in-memory chain store with `n` headers on the best chain,
+    /// and set the anchor at `anchor_index`.
+    fn build_chain_store(n: u64, anchor_index: u64) -> (Arc<InMemConsensusStore<BlockHeader>>, Vec<Point>) {
+        let store = Arc::new(InMemConsensusStore::new());
+        let mut points = Vec::new();
+        let mut prev_hash = None;
+
+        for slot in 0..n {
+            let header_raw = make_header(slot, slot, prev_hash);
+            let hash = Hash::new([slot as u8; HEADER]);
+            let header = BlockHeader::new(header_raw, hash);
+            store.store_header(&header).unwrap();
+            let point = Point::Specific(Slot::from(slot), hash);
+            store.roll_forward_chain(&point).unwrap();
+            points.push(point);
+            prev_hash = Some(hash);
+        }
+
+        store.set_anchor_hash(&points[anchor_index as usize].hash()).unwrap();
+        store.set_best_chain_hash(&points.last().unwrap().hash()).unwrap();
+        (store, points)
+    }
+
+    fn make_tip(points: &[Point]) -> Tip {
+        let last = points.last().unwrap();
+        Tip::new(*last, 0.into())
     }
 }
