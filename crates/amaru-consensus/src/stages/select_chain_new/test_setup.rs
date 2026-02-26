@@ -77,7 +77,7 @@ impl HeaderTree {
 pub struct TestPrep {
     pub state: SelectChain,
     pub rt: Runtime,
-    pub downstream: StageRef<Tip>,
+    pub downstream: StageRef<(Tip, Point)>,
     pub headers: HeaderTree,
     pub store: Arc<dyn ChainStore<BlockHeader>>,
 }
@@ -107,6 +107,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<SelectChain>().boxed(),
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
+        pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),

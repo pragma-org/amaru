@@ -21,7 +21,7 @@ use pure_stage::{Effects, StageRef, TryInStage};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SelectChain {
-    downstream: StageRef<Tip>,
+    downstream: StageRef<(Tip, Point)>,
     /// Maps all block tree tips to the list of headers whose blocks are yet to be validated
     /// (oldest first)
     tips: BTreeMap<HeaderHash, Vec<HeaderHash>>,
@@ -29,7 +29,7 @@ pub struct SelectChain {
 }
 
 impl SelectChain {
-    pub fn new(downstream: StageRef<Tip>, best_tip: Tip) -> Self {
+    pub fn new(downstream: StageRef<(Tip, Point)>, best_tip: Tip) -> Self {
         let mut tips = BTreeMap::new();
         if best_tip != Tip::origin() {
             tips.insert(best_tip.hash(), vec![]);
@@ -40,13 +40,13 @@ impl SelectChain {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SelectChainMsg {
-    TipFromUpstream(Tip),
+    TipFromUpstream(Tip, Point),
     BlockValidationResult(Point, bool),
 }
 
 pub async fn stage(state: SelectChain, msg: SelectChainMsg, eff: Effects<SelectChainMsg>) -> SelectChain {
     match msg {
-        SelectChainMsg::TipFromUpstream(tip) => state.handle_tip_from_upstream(tip, eff).await,
+        SelectChainMsg::TipFromUpstream(tip, parent) => state.handle_tip_from_upstream(tip, parent, eff).await,
         SelectChainMsg::BlockValidationResult(point, valid) => {
             state.handle_block_validation_result(point, valid, eff).await
         }
@@ -54,66 +54,70 @@ pub async fn stage(state: SelectChain, msg: SelectChainMsg, eff: Effects<SelectC
 }
 
 impl SelectChain {
-    async fn handle_tip_from_upstream(mut self, tip: Tip, eff: Effects<SelectChainMsg>) -> SelectChain {
+    /// Handle a tip from upstream.
+    ///
+    /// The `tip` and `parent` refer to headers that are guaranteed to be stored in the chain store
+    /// by the track_peers stage.
+    async fn handle_tip_from_upstream(mut self, tip: Tip, parent: Point, eff: Effects<SelectChainMsg>) -> SelectChain {
         let store = Store::new(eff.clone());
 
-        let (Some(header), valid) = store.load_header_with_validity(&tip.hash()) else {
+        let Some((_header, valid)) = store.load_header_with_validity(&tip.hash()) else {
             tracing::error!(%tip, "tip not found");
             return eff.terminate().await;
         };
 
         if let Some(valid) = valid {
-            tracing::warn!(%tip, %valid, "got tip from upstream that was already validated");
-            return self;
+            // track_peers only sends a tip if the header was just stored, so it cannot be already validated
+            tracing::error!(%tip, %valid, "got tip from upstream that was already validated");
+            return eff.terminate().await;
         } else {
             tracing::debug!(%tip, "got new tip from upstream");
         }
 
-        if let Some(parent) = header.parent_hash() {
-            // if parent is in tips, extend that chain; otherwise check store for fragment
-            if let Some(mut chain) = self.tips.remove(&parent) {
-                tracing::debug!(%parent, %tip, "extending chain");
-                chain.push(tip.hash());
-                self.tips.insert(tip.hash(), chain);
-            } else {
-                // the message type allows that we get a Tip that was already sent earlier, the track_peers stage
-                // shouldn’t send this, so we don’t defend against it here
-                let mut valid = true;
-                let mut extending = false;
-                let mut ancestors = store
-                    .ancestors_with_validity(parent)
-                    .take_while(|(h, v)| {
-                        if *v == Some(false) {
-                            valid = false;
-                            false
-                        } else {
-                            if self.tips.remove(&h.hash()).is_some() {
-                                extending = true;
-                            };
-                            v.is_none()
-                        }
-                    })
-                    .map(|(h, _)| h.hash())
-                    .collect::<Vec<_>>();
-                if valid {
-                    let action = if extending { "extending" } else { "new" };
-                    tracing::debug!(%parent, %tip, "{action} chain");
-                    ancestors.reverse();
-                    ancestors.push(tip.hash());
-                    self.tips.insert(tip.hash(), ancestors);
-                } else {
-                    tracing::info!(%parent, %tip, "upstream tip depends on invalid block");
-                }
-            }
-        } else {
+        if parent == Point::Origin {
             tracing::debug!(%tip, "new chain from origin");
             self.tips.insert(tip.hash(), vec![tip.hash()]);
+        } else
+        // if parent is in tips, extend that chain; otherwise check store for fragment
+        if let Some(mut chain) = self.tips.remove(&parent.hash()) {
+            tracing::debug!(%parent, %tip, "extending chain");
+            chain.push(tip.hash());
+            self.tips.insert(tip.hash(), chain);
+        } else {
+            // the message type allows that we get a Tip that was already sent earlier, the track_peers stage
+            // shouldn’t send this, so we don’t defend against it here
+            let mut valid = true;
+            let mut extending = false;
+            let mut ancestors = store
+                .ancestors_with_validity(parent.hash())
+                .take_while(|(h, v)| {
+                    if *v == Some(false) {
+                        valid = false;
+                        false
+                    } else {
+                        if self.tips.remove(&h.hash()).is_some() {
+                            extending = true;
+                        };
+                        v.is_none()
+                    }
+                })
+                .map(|(h, _)| h.hash())
+                .collect::<Vec<_>>();
+            if valid {
+                let action = if extending { "extending" } else { "new" };
+                tracing::debug!(%parent, %tip, "{action} chain");
+                ancestors.reverse();
+                ancestors.push(tip.hash());
+                self.tips.insert(tip.hash(), ancestors);
+            } else {
+                tracing::info!(%parent, %tip, "upstream tip depends on invalid block");
+            }
         }
 
         if self.tips.contains_key(&tip.hash()) && cmp_tip(&tip, &self.best_tip) == Ordering::Greater {
             tracing::debug!(%tip, "new best tip candidate");
             self.best_tip = tip;
-            eff.send(&self.downstream, tip).await;
+            eff.send(&self.downstream, (tip, parent)).await;
         }
         self
     }
@@ -157,19 +161,36 @@ impl SelectChain {
             if !self.tips.contains_key(&self.best_tip.hash()) {
                 tracing::info!(%removed, "best tip candidate invalidated");
                 // need to pick new best tip
-                self.best_tip = self
+                let parent;
+                (self.best_tip, parent) = self
                     .tips
                     .keys()
-                    .filter_map(|h| store.load_header(h).map(|h| h.tip()))
-                    .max_by(cmp_tip)
+                    .filter_map(|h| store.load_header(h).map(|h| (h.tip(), h.parent_hash())))
+                    .max_by(|a, b| cmp_tip(&a.0, &b.0))
                     .unwrap_or_else(|| {
-                        store.load_header(&store.get_best_chain_hash()).map(|h| h.tip()).unwrap_or(Tip::origin())
+                        store
+                            .load_header(&store.get_best_chain_hash())
+                            .map(|h| (h.tip(), h.parent_hash()))
+                            .unwrap_or((Tip::origin(), None))
                     });
                 if self.best_tip != Tip::origin() {
+                    tracing::debug!(%self.best_tip, "new best tip candidate");
+                    let parent = if let Some(parent) = parent {
+                        store
+                            .load_tip(&parent)
+                            .or_terminate(store.eff(), async |_| {
+                                tracing::error!("failed to load parent of best tip candidate");
+                            })
+                            .await
+                            .point()
+                    } else {
+                        Point::Origin
+                    };
+                    eff.send(&self.downstream, (self.best_tip, parent)).await;
                     self.tips.entry(self.best_tip.hash()).or_insert(vec![]);
+                } else {
+                    tracing::warn!("falling back to origin");
                 }
-                tracing::debug!(%self.best_tip, "new best tip candidate");
-                eff.send(&self.downstream, self.best_tip).await;
             } else if removed > 0 {
                 tracing::warn!(%removed, "chain fork(s) removed due to invalid block");
             }

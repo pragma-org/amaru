@@ -230,7 +230,7 @@ mod tests {
             self.store.load_header(hash)
         }
 
-        fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<BlockHeader>, Option<bool>) {
+        fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
             self.store.load_header_with_validity(hash)
         }
 

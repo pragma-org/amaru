@@ -308,7 +308,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             validate_header_effect("tp-1", header.clone()),
             has_header_effect("tp-1", header.hash()),
             store_header_effect("tp-1", header.clone()),
-            send("tp-1", "downstream", header.tip()),
+            send("tp-1", "downstream", (header.tip(), parent.point())),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );

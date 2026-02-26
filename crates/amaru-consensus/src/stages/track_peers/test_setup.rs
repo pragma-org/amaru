@@ -113,6 +113,7 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<chainsync::InitiatorMessage>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
+        pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),

@@ -80,11 +80,11 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>) {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
         let inner = self.inner.lock().unwrap();
         let header = inner.headers.get(hash).cloned();
         let validity = inner.block_validity.get(hash).copied();
-        (header, validity)
+        header.map(|h| (h, validity))
     }
 
     #[expect(clippy::unwrap_used)]

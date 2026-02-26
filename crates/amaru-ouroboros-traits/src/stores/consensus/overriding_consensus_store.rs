@@ -26,7 +26,7 @@ use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 struct Overrides<H> {
     load_header: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> Option<H> + Send>>,
     load_header_with_validity:
-        Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> (Option<H>, Option<bool>) + Send>>,
+        Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> Option<(H, Option<bool>)> + Send>>,
     get_children: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> Vec<HeaderHash> + Send>>,
     get_anchor_hash: Option<Box<dyn FnMut(&dyn ChainStore<H>) -> HeaderHash + Send>>,
     get_best_chain_hash: Option<Box<dyn FnMut(&dyn ChainStore<H>) -> HeaderHash + Send>>,
@@ -105,7 +105,7 @@ impl<H: IsHeader + Send + Sync + 'static> OverridingChainStoreBuilder<H> {
 
     pub fn with_load_header_with_validity<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn ChainStore<H>, &HeaderHash) -> (Option<H>, Option<bool>) + Send + 'static,
+        F: FnMut(&dyn ChainStore<H>, &HeaderHash) -> Option<(H, Option<bool>)> + Send + 'static,
     {
         self.overrides.load_header_with_validity = Some(Box::new(f));
         self
@@ -253,7 +253,7 @@ impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingCh
         }
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>) {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.load_header_with_validity {
             Some(f) => f(self.inner.as_ref(), hash),

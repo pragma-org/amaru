@@ -34,6 +34,10 @@ impl<T> Store<T> {
         Store { effects }
     }
 
+    pub fn eff(&self) -> &Effects<T> {
+        &self.effects
+    }
+
     /// This function runs an external effect synchronously.
     pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(&self, effect: E) -> E::Response {
         self.effects.external_sync(effect)
@@ -45,7 +49,7 @@ impl<T> ReadOnlyChainStore<BlockHeader> for Store<T> {
         self.external_sync(LoadHeaderEffect::new(*hash))
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<BlockHeader>, Option<bool>) {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
         self.external_sync(LoadHeaderWithValidityEffect::new(*hash))
     }
 
@@ -398,7 +402,7 @@ impl ExternalEffect for LoadHeaderWithValidityEffect {
 }
 
 impl ExternalEffectAPI for LoadHeaderWithValidityEffect {
-    type Response = (Option<BlockHeader>, Option<bool>);
+    type Response = Option<(BlockHeader, Option<bool>)>;
 }
 
 impl ExternalEffectSync for LoadHeaderWithValidityEffect {}

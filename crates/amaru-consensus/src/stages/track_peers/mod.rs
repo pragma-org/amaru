@@ -41,7 +41,7 @@ pub struct TrackPeers {
     era_history: EraHistory,
     upstream: BTreeMap<Peer, PerPeer>,
     manager: StageRef<ManagerMessage>,
-    downstream: StageRef<Tip>,
+    downstream: StageRef<(Tip, Point)>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -51,7 +51,7 @@ struct PerPeer {
 }
 
 impl TrackPeers {
-    pub fn new(era_history: EraHistory, manager: StageRef<ManagerMessage>, downstream: StageRef<Tip>) -> Self {
+    pub fn new(era_history: EraHistory, manager: StageRef<ManagerMessage>, downstream: StageRef<(Tip, Point)>) -> Self {
         Self { era_history, upstream: BTreeMap::new(), manager, downstream }
     }
 
@@ -70,7 +70,7 @@ impl TrackPeers {
         raw_header: HeaderContent,
         tip: Tip,
         eff: impl ConsensusOps,
-    ) -> Result<BlockHeader, ConsensusError> {
+    ) -> Result<(BlockHeader, Point), ConsensusError> {
         let variant = raw_header.variant;
         let header = decode_header(raw_header)?;
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
@@ -95,8 +95,10 @@ impl TrackPeers {
                 expected: per_peer.current.block_height() + 1,
             });
         }
+        // this is the point up to which the upstream peer has validated its best chain, which
+        // can be less advanced than the currently transmitted header
         let highest = tip.point();
-        if header.point() < per_peer.current.point() || header.point() > highest {
+        if header.point() < per_peer.current.point() {
             return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                 actual: header.point(),
                 parent: per_peer.current.point(),
@@ -107,7 +109,7 @@ impl TrackPeers {
             .validate_header(&header, Span::current().context())
             .await
             .map_err(|e| ConsensusError::InvalidHeader(header.point(), e))?;
-        Ok(header)
+        Ok((header, per_peer.current.point()))
     }
 
     async fn roll_forward(
@@ -122,6 +124,7 @@ impl TrackPeers {
         };
         per_peer.current = header.tip();
         per_peer.highest = tip;
+        let tip = header.tip();
         if eff.store().has_header(&header.hash()) {
             Ok(None)
         } else {
@@ -147,6 +150,81 @@ impl TrackPeers {
         per_peer.current = Tip::new(current, header.block_height());
         per_peer.highest = tip;
         Ok(())
+    }
+
+    async fn handle_from_upstream(
+        &mut self,
+        peer: Peer,
+        handler: StageRef<chainsync::InitiatorMessage>,
+        msg: chainsync::InitiatorResult,
+        eff: Effects<TrackPeersMsg>,
+    ) {
+        use amaru_protocols::chainsync::InitiatorResult::*;
+        match msg {
+            Initialize => {
+                tracing::info!(%peer,"initializing chainsync");
+            }
+            IntersectFound(current, tip) => {
+                let Some(header) = Store::new(eff.clone()).load_header(&current.hash()) else {
+                    tracing::warn!(%peer, %current, %tip, reason = "peer sent unknown intersection point", "stopping chainsync");
+                    eff.send(&handler, chainsync::InitiatorMessage::Done).await;
+                    return;
+                };
+                tracing::info!(%peer, %current, highest = %tip.point(), "intersect found");
+                let current = Tip::new(current, header.block_height());
+                self.upstream.insert(peer, PerPeer { current, highest: tip });
+            }
+            IntersectNotFound(tip) => {
+                tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
+                eff.send(&handler, chainsync::InitiatorMessage::Done).await;
+                self.upstream.remove(&peer);
+            }
+            RollForward(header_content, tip) => {
+                tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
+                eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
+
+                let header = self.validate_header(&peer, header_content, tip, ConsensusEffects::new(eff.clone())).await;
+                let (header, parent) = match header {
+                    Ok(header) => header,
+                    Err(error) => {
+                        tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
+                        self.upstream.remove(&peer);
+                        eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
+                        return;
+                    }
+                };
+
+                let tip_point = header.point();
+                let tip = self.roll_forward(&peer, header, tip, ConsensusEffects::new(eff.clone())).await;
+                let tip = match tip {
+                    Ok(tip) => tip,
+                    Err(error) => {
+                        tracing::error!(%error, %peer, "chain_sync.store_header.failed");
+                        self.upstream.remove(&peer);
+                        eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
+                        return;
+                    }
+                };
+
+                if let Some(tip) = tip {
+                    tracing::debug!(%peer, tip = %tip.point(), "roll forward with new header");
+                    eff.send(&self.downstream, (tip, parent)).await;
+                } else {
+                    tracing::debug!(%peer, tip = %tip_point, "roll forward, header already stored");
+                }
+            }
+            RollBackward(current, tip) => {
+                tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
+                eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
+
+                if let Err(error) = self.roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone())).await {
+                    tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
+                    self.upstream.remove(&peer);
+                    eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -174,74 +252,7 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
 
     match msg {
         FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
-            use amaru_protocols::chainsync::InitiatorResult::*;
-            match msg {
-                Initialize => {
-                    tracing::info!(%peer,"initializing chainsync");
-                }
-                IntersectFound(current, tip) => {
-                    let Some(header) = Store::new(eff.clone()).load_header(&current.hash()) else {
-                        tracing::warn!(%peer, %current, %tip, reason = "peer sent unknown intersection point", "stopping chainsync");
-                        eff.send(&handler, chainsync::InitiatorMessage::Done).await;
-                        return state;
-                    };
-                    tracing::info!(%peer, %current, highest = %tip.point(), "intersect found");
-                    let current = Tip::new(current, header.block_height());
-                    state.upstream.insert(peer, PerPeer { current, highest: tip });
-                }
-                IntersectNotFound(tip) => {
-                    tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
-                    eff.send(&handler, chainsync::InitiatorMessage::Done).await;
-                    state.upstream.remove(&peer);
-                }
-                RollForward(header_content, tip) => {
-                    tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
-                    eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
-
-                    let header =
-                        state.validate_header(&peer, header_content, tip, ConsensusEffects::new(eff.clone())).await;
-                    let header = match header {
-                        Ok(header) => header,
-                        Err(error) => {
-                            tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
-                            state.upstream.remove(&peer);
-                            eff.send(&state.manager, ManagerMessage::RemovePeer(peer)).await;
-                            return state;
-                        }
-                    };
-
-                    let tip_point = tip.point();
-                    let tip = state.roll_forward(&peer, header, tip, ConsensusEffects::new(eff.clone())).await;
-                    let tip = match tip {
-                        Ok(tip) => tip,
-                        Err(error) => {
-                            tracing::error!(%error, %peer, "chain_sync.store_header.failed");
-                            state.upstream.remove(&peer);
-                            eff.send(&state.manager, ManagerMessage::RemovePeer(peer)).await;
-                            return state;
-                        }
-                    };
-
-                    if let Some(tip) = tip {
-                        tracing::debug!(%peer, tip = %tip.point(), "roll forward with new header");
-                        eff.send(&state.downstream, tip).await;
-                    } else {
-                        tracing::debug!(%peer, tip = %tip_point, "roll forward, header already stored");
-                    }
-                }
-                RollBackward(current, tip) => {
-                    tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
-
-                    if let Err(error) =
-                        state.roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone())).await
-                    {
-                        tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
-                        state.upstream.remove(&peer);
-                        eff.send(&state.manager, ManagerMessage::RemovePeer(peer)).await;
-                        return state;
-                    }
-                }
-            }
+            state.handle_from_upstream(peer, handler, msg, eff).await;
         }
     }
     state

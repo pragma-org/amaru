@@ -31,7 +31,7 @@ where
     /// Try to load a header by its hash.
     fn load_header(&self, hash: &HeaderHash) -> Option<H>;
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>);
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)>;
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
@@ -104,16 +104,13 @@ where
             None => Point::Origin,
         };
 
-        let (header, valid) = self.load_header_with_validity(&start);
+        let header_opt = self.load_header_with_validity(&start);
 
-        Box::new(successors(header.map(|h| (h, valid)), move |(h, _valid)| {
+        Box::new(successors(header_opt, move |(h, _valid)| {
             if h.slot() <= anchor_point.slot_or_default() {
                 None
             } else {
-                h.parent().and_then(|p| {
-                    let (h, valid) = self.load_header_with_validity(&p);
-                    h.map(|h| (h, valid))
-                })
+                h.parent().and_then(|p| self.load_header_with_validity(&p))
             }
         }))
     }
@@ -150,7 +147,7 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
         self.as_ref().load_header(hash)
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>) {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
 

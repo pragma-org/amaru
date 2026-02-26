@@ -186,7 +186,7 @@ where
         self.db.get_pinned_opt(prefix, &ReadOptions::default()).ok().and_then(|bytes| from_cbor(bytes?.as_ref()))
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> (Option<H>, Option<bool>) {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
         let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
         let head_len = prefix.len() - 1;
         let mut results = self.db.multi_get_opt([&prefix[..head_len], &prefix], &ReadOptions::default()).into_iter();
@@ -195,7 +195,7 @@ where
             let bytes = bytes.ok()??;
             if bytes.len() == 1 { Some(bytes[0] == 1) } else { None }
         });
-        (header, validity)
+        header.map(|h| (h, validity))
     }
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {

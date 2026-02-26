@@ -347,7 +347,7 @@ pub mod tests {
             self.best_point.hash()
         }
 
-        fn load_header_with_validity(&self, _hash: &HeaderHash) -> (Option<BlockHeader>, Option<bool>) {
+        fn load_header_with_validity(&self, _hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
             todo!()
         }
 
