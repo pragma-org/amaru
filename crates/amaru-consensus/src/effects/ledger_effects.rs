@@ -57,6 +57,10 @@ impl<T> Ledger<T> {
     pub fn new(effects: Effects<T>) -> Ledger<T> {
         Ledger(effects)
     }
+
+    pub fn eff(&self) -> &Effects<T> {
+        &self.0
+    }
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<T> {
