@@ -181,7 +181,9 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
                 handshake::HandshakeResponder::new(
                     muxer.clone(),
                     handshake_result,
-                    VersionTable::v11_and_above(*magic, true),
+                    // Use InitiatorAndResponderDiffusionMode (false) so downstream peers
+                    // know we can serve as ChainSync/BlockFetch server
+                    VersionTable::v11_and_above(*magic, false),
                 ),
             )
             .await
