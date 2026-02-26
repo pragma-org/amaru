@@ -12,7 +12,7 @@ categories = ["cryptography::cryptocurrencies"]
 rust-version = "1.93"                                    # ⚠️ Also change in rust-toolchain.toml
 
 [workspace]
-members = ["crates/*", "crates/amaru-observability/macros/", "crates/vendor/*", "simulation/*"]
+members = ["crates/*", "crates/amaru-observability/macros/", "simulation/*"]
 exclude = ["crates/vendor"]
 default-members = ["crates/*"]
 resolver = "2"

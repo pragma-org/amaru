@@ -53,7 +53,7 @@ pub mod serial;
         feature = "simd_backend",
         any(target_feature = "avx2", target_feature = "avx512ifma")
     ),
-    all(feature = "nightly", rustdoc)
+    all(feature = "nightly")
 ))]
 #[cfg_attr(
     feature = "nightly",
