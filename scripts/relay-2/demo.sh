@@ -2,23 +2,24 @@
 set -euo pipefail
 
 # ---------- config ----------
-SESSION="${SESSION:-amaru-demo}"
+SESSION="${SESSION:-amaru-relay-2}"
 
-# Derive AMARU_DIR from script location (scripts/relay-1/demo.sh -> amaru root)
+# Derive AMARU_DIR from script location (scripts/relay-2/demo.sh -> amaru root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AMARU_DIR="${AMARU_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
-LOGDIR="${LOGDIR:-/tmp/amaru-demo}"
-RUNDIR="${RUNDIR:-$AMARU_DIR/scripts/relay-1/run}"
+LOGDIR="${LOGDIR:-/tmp/amaru-relay-2}"
+RUNDIR="${RUNDIR:-$AMARU_DIR/scripts/relay-2/run}"
 
 # Cardano node configuration
 CARDANO_NODE="${CARDANO_NODE:-}"  # path to cardano-node executable
-CARDANO_NODE_CONFIG_DIR="${CARDANO_NODE_CONFIG_DIR:-}"  # directory with config.json, topology.json, etc.
+CARDANO_NODE_CONFIG_DIR="${CARDANO_NODE_CONFIG_DIR:-}"  # directory with config.json, topology.json for upstream
+CARDANO_NODE_DOWNSTREAM_CONFIG_DIR="${CARDANO_NODE_DOWNSTREAM_CONFIG_DIR:-}"  # directory for downstream cardano-node
 
 # Deterministic ports (can be overridden with env vars)
-UPSTREAM_PORT="${UPSTREAM_PORT:-3001}" # cardano-node listener
-LISTEN_PORT="${LISTEN_PORT:-4001}"  # amaru listener (for downstream)
-DOWNSTREAM_LISTEN_PORT="${DOWNSTREAM_LISTEN_PORT:-4002}"  # amaru downstream listener
+UPSTREAM_PORT="${UPSTREAM_PORT:-3001}"    # cardano-node upstream listener
+LISTEN_PORT="${LISTEN_PORT:-4001}"        # amaru listener (for downstream)
+DOWNSTREAM_PORT="${DOWNSTREAM_PORT:-3002}" # cardano-node downstream listener
 
 # ---------- helpers ----------
 ensure_dirs() {
@@ -64,7 +65,7 @@ pane_run() {
 cmd_upstream() {
   cat <<EOF
 printf '\033]2;upstream\033\\\\'
-echo "[upstream] starting..."
+echo "[upstream] starting cardano-node..."
 $CARDANO_NODE run --config $CARDANO_NODE_CONFIG_DIR/config.json --topology $CARDANO_NODE_CONFIG_DIR/topology.json --database-path $CARDANO_NODE_CONFIG_DIR/db --socket-path $CARDANO_NODE_CONFIG_DIR/node.socket --port $UPSTREAM_PORT 2>&1 | tee '$LOGDIR/upstream.log'
 sleep 999999
 EOF
@@ -74,7 +75,7 @@ cmd_amaru() {
   local delay="${UPSTREAM_INIT_DELAY:-10}"
   cat <<EOF
 printf '\033]2;amaru\033\\\\'
-echo "[amaru] waiting ${delay}s for cardano-node to initialize..."
+echo "[amaru] waiting ${delay}s for upstream cardano-node to initialize..."
 sleep $delay
 echo "[amaru] starting..."
 cd $AMARU_DIR
@@ -85,27 +86,24 @@ sleep 999999
 EOF
 }
 
-cmd_amaru_downstream() {
+cmd_downstream() {
   local delay="${DOWNSTREAM_INIT_DELAY:-15}"
   cat <<EOF
-printf '\033]2;amaru-downstream\033\\\\'
-echo "[amaru-downstream] waiting ${delay}s for amaru to initialize..."
+printf '\033]2;downstream\033\\\\'
+echo "[downstream] waiting ${delay}s for amaru to initialize..."
 sleep $delay
-echo "[amaru-downstream] starting..."
-cd $AMARU_DIR
-export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
-ulimit -n 65536
-cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$LISTEN_PORT --listen-address 0.0.0.0:$DOWNSTREAM_LISTEN_PORT --chain-dir ./chain.preprod.downstream.db --ledger-dir ./ledger.preprod.downstream.db 2>&1 | tee '$LOGDIR/amaru-downstream.log'
+echo "[downstream] starting cardano-node..."
+$CARDANO_NODE run --config $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR/config.json --topology $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR/topology.json --database-path $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR/db --socket-path $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR/node.socket --port $DOWNSTREAM_PORT 2>&1 | tee '$LOGDIR/downstream.log'
 sleep 999999
 EOF
 }
 
 cmd_watch() {
-  # Curated view: tweak grep patterns to your log messages (handshake, ChainSync, BlockFetch…)
+  # Curated view: tweak grep patterns to your log messages (handshake, ChainSync, BlockFetch...)
   cat <<EOF
 printf '\033]2;watch\033\\\\'
-echo "[watch] tailing logs (Ctrl-c in this pane won't stop the session; use ./demo-tmux.sh stop)"
-( tail -n +1 -F '$LOGDIR/upstream.log' '$LOGDIR/amaru.log' '$LOGDIR/amaru-downstream.log' | sed -E -e 's|^|[log] |' -e 's|\\[upstream\\]|[upstream]|g' ) | grep -E --line-buffered -i 'connected|handshake|chainsync|blockfetch|tip|accepted|peer|error|warn|TODO|\\[log\\]' || true
+echo "[watch] tailing logs (Ctrl-c in this pane won't stop the session; use ./demo.sh stop)"
+( tail -n +1 -F '$LOGDIR/upstream.log' '$LOGDIR/amaru.log' '$LOGDIR/downstream.log' | sed -E -e 's|^|[log] |' -e 's|\\[upstream\\]|[upstream]|g' ) | grep -E --line-buffered -i 'connected|handshake|chainsync|blockfetch|tip|accepted|peer|error|warn|TODO|\\[log\\]' || true
 EOF
 }
 
@@ -118,15 +116,14 @@ start() {
   [[ -d "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR does not exist: $CARDANO_NODE_CONFIG_DIR"
   [[ -f "$CARDANO_NODE_CONFIG_DIR/config.json" ]] || die "config.json not found in $CARDANO_NODE_CONFIG_DIR"
   [[ -f "$CARDANO_NODE_CONFIG_DIR/topology.json" ]] || die "topology.json not found in $CARDANO_NODE_CONFIG_DIR"
+  [[ -n "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR" ]] || die "CARDANO_NODE_DOWNSTREAM_CONFIG_DIR must be set (directory for downstream cardano-node)"
+  [[ -d "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR" ]] || die "CARDANO_NODE_DOWNSTREAM_CONFIG_DIR does not exist: $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR"
+  [[ -f "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR/config.json" ]] || die "config.json not found in $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR"
+  [[ -f "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR/topology.json" ]] || die "topology.json not found in $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR"
   [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
 
   ensure_dirs
   rm -f "$LOGDIR"/*.log 2>/dev/null || true
-
-  # Copy upstream databases for the downstream node
-  rm -rf "$AMARU_DIR/chain.preprod.downstream.db" "$AMARU_DIR/ledger.preprod.downstream.db"
-  cp -r "$AMARU_DIR/chain.preprod.db" "$AMARU_DIR/chain.preprod.downstream.db"
-  cp -r "$AMARU_DIR/ledger.preprod.db" "$AMARU_DIR/ledger.preprod.downstream.db"
 
   # reset session
   tmux_kill_session
@@ -142,7 +139,7 @@ start() {
 
   # Name panes
   tmux select-pane -t "$SESSION:nodes.0" -T "upstream"
-  tmux select-pane -t "$SESSION:nodes.1" -T "amaru-downstream"
+  tmux select-pane -t "$SESSION:nodes.1" -T "downstream"
   tmux select-pane -t "$SESSION:nodes.2" -T "amaru"
 
   # Add watch window
@@ -151,7 +148,7 @@ start() {
 
   # Run commands
   pane_run "$SESSION:nodes.0" "$(cmd_upstream)"
-  pane_run "$SESSION:nodes.1" "$(cmd_amaru_downstream)"
+  pane_run "$SESSION:nodes.1" "$(cmd_downstream)"
   pane_run "$SESSION:nodes.2" "$(cmd_amaru)"
   pane_run "$SESSION:watch.0" "$(cmd_watch)"
 
@@ -161,17 +158,19 @@ start() {
 }
 
 restart() {
-  local pane="${1:?usage: $0 restart <upstream|amaru|amaru-downstream>}"
+  local pane="${1:?usage: $0 restart <upstream|amaru|downstream>}"
   [[ -n "$CARDANO_NODE" ]] || die "CARDANO_NODE must be set (path to cardano-node executable)"
   [[ -x "$CARDANO_NODE" ]] || die "CARDANO_NODE is not executable: $CARDANO_NODE"
   [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set"
   [[ -d "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR does not exist: $CARDANO_NODE_CONFIG_DIR"
+  [[ -n "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR" ]] || die "CARDANO_NODE_DOWNSTREAM_CONFIG_DIR must be set"
+  [[ -d "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR" ]] || die "CARDANO_NODE_DOWNSTREAM_CONFIG_DIR does not exist: $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR"
   [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
   case "$pane" in
-    upstream)          pane_run "$SESSION:nodes.0" "$(cmd_upstream)" ;;
-    amaru-downstream)  pane_run "$SESSION:nodes.1" "$(cmd_amaru_downstream)" ;;
-    amaru)             pane_run "$SESSION:nodes.2" "$(cmd_amaru)" ;;
-    *) die "unknown pane: $pane (choose upstream, amaru, or amaru-downstream)" ;;
+    upstream)    pane_run "$SESSION:nodes.0" "$(cmd_upstream)" ;;
+    downstream)  pane_run "$SESSION:nodes.1" "$(cmd_downstream)" ;;
+    amaru)       pane_run "$SESSION:nodes.2" "$(cmd_amaru)" ;;
+    *) die "unknown pane: $pane (choose upstream, amaru, or downstream)" ;;
   esac
 }
 
