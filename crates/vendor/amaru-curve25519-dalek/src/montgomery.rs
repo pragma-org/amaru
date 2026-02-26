@@ -55,13 +55,8 @@ use constants::{APLUS2_OVER_FOUR, MONTGOMERY_A, MONTGOMERY_A_NEG};
 use edwards::{CompressedEdwardsY, EdwardsPoint};
 use field::FieldElement;
 use scalar::Scalar;
-
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
 use traits::Identity;
-
-use subtle::Choice;
-use subtle::ConstantTimeEq;
-use subtle::{ConditionallyNegatable, ConditionallySelectable};
-
 use zeroize::Zeroize;
 
 /// Holds the \\(u\\)-coordinate of a point on the Montgomery form of
@@ -151,7 +146,9 @@ impl MontgomeryPoint {
 
         let u = FieldElement::from_bytes(&self.0);
 
-        if u == FieldElement::minus_one() { return None; }
+        if u == FieldElement::minus_one() {
+            return None;
+        }
 
         let one = FieldElement::one();
 
@@ -204,10 +201,7 @@ struct ProjectivePoint {
 
 impl Identity for ProjectivePoint {
     fn identity() -> ProjectivePoint {
-        ProjectivePoint {
-            U: FieldElement::one(),
-            W: FieldElement::zero(),
-        }
+        ProjectivePoint { U: FieldElement::one(), W: FieldElement::zero() }
     }
 }
 
@@ -218,11 +212,7 @@ impl Default for ProjectivePoint {
 }
 
 impl ConditionallySelectable for ProjectivePoint {
-    fn conditional_select(
-        a: &ProjectivePoint,
-        b: &ProjectivePoint,
-        choice: Choice,
-    ) -> ProjectivePoint {
+    fn conditional_select(a: &ProjectivePoint, b: &ProjectivePoint, choice: Choice) -> ProjectivePoint {
         ProjectivePoint {
             U: FieldElement::conditional_select(&a.U, &b.U, choice),
             W: FieldElement::conditional_select(&a.W, &b.W, choice),
@@ -257,44 +247,40 @@ impl ProjectivePoint {
 /// $$
 ///     (U\_Q : W\_Q) \gets u(P + Q).
 /// $$
-fn differential_add_and_double(
-    P: &mut ProjectivePoint,
-    Q: &mut ProjectivePoint,
-    affine_PmQ: &FieldElement,
-) {
+fn differential_add_and_double(P: &mut ProjectivePoint, Q: &mut ProjectivePoint, affine_PmQ: &FieldElement) {
     let t0 = &P.U + &P.W;
     let t1 = &P.U - &P.W;
     let t2 = &Q.U + &Q.W;
     let t3 = &Q.U - &Q.W;
 
-    let t4 = t0.square();   // (U_P + W_P)^2 = U_P^2 + 2 U_P W_P + W_P^2
-    let t5 = t1.square();   // (U_P - W_P)^2 = U_P^2 - 2 U_P W_P + W_P^2
+    let t4 = t0.square(); // (U_P + W_P)^2 = U_P^2 + 2 U_P W_P + W_P^2
+    let t5 = t1.square(); // (U_P - W_P)^2 = U_P^2 - 2 U_P W_P + W_P^2
 
-    let t6 = &t4 - &t5;     // 4 U_P W_P
+    let t6 = &t4 - &t5; // 4 U_P W_P
 
-    let t7 = &t0 * &t3;     // (U_P + W_P) (U_Q - W_Q) = U_P U_Q + W_P U_Q - U_P W_Q - W_P W_Q
-    let t8 = &t1 * &t2;     // (U_P - W_P) (U_Q + W_Q) = U_P U_Q - W_P U_Q + U_P W_Q - W_P W_Q
+    let t7 = &t0 * &t3; // (U_P + W_P) (U_Q - W_Q) = U_P U_Q + W_P U_Q - U_P W_Q - W_P W_Q
+    let t8 = &t1 * &t2; // (U_P - W_P) (U_Q + W_Q) = U_P U_Q - W_P U_Q + U_P W_Q - W_P W_Q
 
-    let t9  = &t7 + &t8;    // 2 (U_P U_Q - W_P W_Q)
-    let t10 = &t7 - &t8;    // 2 (W_P U_Q - U_P W_Q)
+    let t9 = &t7 + &t8; // 2 (U_P U_Q - W_P W_Q)
+    let t10 = &t7 - &t8; // 2 (W_P U_Q - U_P W_Q)
 
-    let t11 =  t9.square(); // 4 (U_P U_Q - W_P W_Q)^2
+    let t11 = t9.square(); // 4 (U_P U_Q - W_P W_Q)^2
     let t12 = t10.square(); // 4 (W_P U_Q - U_P W_Q)^2
 
     let t13 = &APLUS2_OVER_FOUR * &t6; // (A + 2) U_P U_Q
 
-    let t14 = &t4 * &t5;    // ((U_P + W_P)(U_P - W_P))^2 = (U_P^2 - W_P^2)^2
-    let t15 = &t13 + &t5;   // (U_P - W_P)^2 + (A + 2) U_P W_P
+    let t14 = &t4 * &t5; // ((U_P + W_P)(U_P - W_P))^2 = (U_P^2 - W_P^2)^2
+    let t15 = &t13 + &t5; // (U_P - W_P)^2 + (A + 2) U_P W_P
 
-    let t16 = &t6 * &t15;   // 4 (U_P W_P) ((U_P - W_P)^2 + (A + 2) U_P W_P)
+    let t16 = &t6 * &t15; // 4 (U_P W_P) ((U_P - W_P)^2 + (A + 2) U_P W_P)
 
     let t17 = affine_PmQ * &t12; // U_D * 4 (W_P U_Q - U_P W_Q)^2
-    let t18 = t11;               // W_D * 4 (U_P U_Q - W_P W_Q)^2
+    let t18 = t11; // W_D * 4 (U_P U_Q - W_P W_Q)^2
 
-    P.U = t14;  // U_{P'} = (U_P + W_P)^2 (U_P - W_P)^2
-    P.W = t16;  // W_{P'} = (4 U_P W_P) ((U_P - W_P)^2 + ((A + 2)/4) 4 U_P W_P)
-    Q.U = t18;  // U_{Q'} = W_D * 4 (U_P U_Q - W_P W_Q)^2
-    Q.W = t17;  // W_{Q'} = U_D * 4 (W_P U_Q - U_P W_Q)^2
+    P.U = t14; // U_{P'} = (U_P + W_P)^2 (U_P - W_P)^2
+    P.W = t16; // W_{P'} = (4 U_P W_P) ((U_P - W_P)^2 + ((A + 2)/4) 4 U_P W_P)
+    Q.U = t18; // U_{Q'} = W_D * 4 (U_P U_Q - W_P W_Q)^2
+    Q.W = t17; // W_{Q'} = U_D * 4 (W_P U_Q - U_P W_Q)^2
 }
 
 define_mul_assign_variants!(LHS = MontgomeryPoint, RHS = Scalar);
@@ -311,10 +297,7 @@ impl<'a, 'b> Mul<&'b Scalar> for &'a MontgomeryPoint {
         // Algorithm 8 of Costello-Smith 2017
         let affine_u = FieldElement::from_bytes(&self.0);
         let mut x0 = ProjectivePoint::identity();
-        let mut x1 = ProjectivePoint {
-            U: affine_u,
-            W: FieldElement::one(),
-        };
+        let mut x1 = ProjectivePoint { U: affine_u, W: FieldElement::one() };
 
         let bits: [i8; 256] = scalar.bits();
 
@@ -352,11 +335,12 @@ impl<'a, 'b> Mul<&'b MontgomeryPoint> for &'a Scalar {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use constants;
     use core::convert::TryInto;
 
+    use constants;
     use rand_core::OsRng;
+
+    use super::*;
 
     #[test]
     fn identity_in_different_coordinates() {
@@ -391,24 +375,15 @@ mod test {
     #[test]
     fn basepoint_montgomery_to_edwards() {
         // sign bit = 0 => basepoint
-        assert_eq!(
-            constants::ED25519_BASEPOINT_POINT,
-            constants::X25519_BASEPOINT.to_edwards(0).unwrap()
-        );
+        assert_eq!(constants::ED25519_BASEPOINT_POINT, constants::X25519_BASEPOINT.to_edwards(0).unwrap());
         // sign bit = 1 => minus basepoint
-        assert_eq!(
-            - constants::ED25519_BASEPOINT_POINT,
-            constants::X25519_BASEPOINT.to_edwards(1).unwrap()
-        );
+        assert_eq!(-constants::ED25519_BASEPOINT_POINT, constants::X25519_BASEPOINT.to_edwards(1).unwrap());
     }
 
     /// Test Edwards -> Montgomery on the X/Ed25519 basepoint
     #[test]
     fn basepoint_edwards_to_montgomery() {
-        assert_eq!(
-            constants::ED25519_BASEPOINT_POINT.to_montgomery(),
-            constants::X25519_BASEPOINT
-        );
+        assert_eq!(constants::ED25519_BASEPOINT_POINT.to_montgomery(), constants::X25519_BASEPOINT);
     }
 
     /// Check that Montgomery -> Edwards fails for points on the twist.
@@ -417,7 +392,7 @@ mod test {
         let one = FieldElement::one();
 
         // u = 2 corresponds to a point on the twist.
-        let two = MontgomeryPoint((&one+&one).to_bytes());
+        let two = MontgomeryPoint((&one + &one).to_bytes());
 
         assert!(two.to_edwards(0).is_none());
 
@@ -431,7 +406,8 @@ mod test {
 
     #[test]
     fn eq_defined_mod_p() {
-        let mut u18_bytes = [0u8; 32]; u18_bytes[0] = 18;
+        let mut u18_bytes = [0u8; 32];
+        u18_bytes[0] = 18;
         let u18 = MontgomeryPoint(u18_bytes);
         let u18_unred = MontgomeryPoint([255; 32]);
 
@@ -453,9 +429,8 @@ mod test {
     }
 
     const ELLIGATOR_CORRECT_OUTPUT: [u8; 32] = [
-        0x5f, 0x35, 0x20, 0x00, 0x1c, 0x6c, 0x99, 0x36, 0xa3, 0x12, 0x06, 0xaf, 0xe7, 0xc7, 0xac,
-        0x22, 0x4e, 0x88, 0x61, 0x61, 0x9b, 0xf9, 0x88, 0x72, 0x44, 0x49, 0x15, 0x89, 0x9d, 0x95,
-        0xf4, 0x6e,
+        0x5f, 0x35, 0x20, 0x00, 0x1c, 0x6c, 0x99, 0x36, 0xa3, 0x12, 0x06, 0xaf, 0xe7, 0xc7, 0xac, 0x22, 0x4e, 0x88,
+        0x61, 0x61, 0x9b, 0xf9, 0x88, 0x72, 0x44, 0x49, 0x15, 0x89, 0x9d, 0x95, 0xf4, 0x6e,
     ];
 
     #[test]

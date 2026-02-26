@@ -11,8 +11,7 @@
 
 #![allow(non_snake_case)]
 
-use backend::vector::BASEPOINT_ODD_LOOKUP_TABLE;
-use backend::vector::{CachedPoint, ExtendedPoint};
+use backend::vector::{CachedPoint, ExtendedPoint, BASEPOINT_ODD_LOOKUP_TABLE};
 use edwards::EdwardsPoint;
 use scalar::Scalar;
 use traits::Identity;

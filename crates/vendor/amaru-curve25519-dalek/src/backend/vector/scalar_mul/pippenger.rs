@@ -13,11 +13,10 @@ use core::borrow::Borrow;
 
 use backend::vector::{CachedPoint, ExtendedPoint};
 use edwards::EdwardsPoint;
-use scalar::Scalar;
-use traits::{Identity, VartimeMultiscalarMul};
-
 #[allow(unused_imports)]
 use prelude::*;
+use scalar::Scalar;
+use traits::{Identity, VartimeMultiscalarMul};
 
 /// Implements a version of Pippenger's algorithm.
 ///
@@ -50,24 +49,16 @@ impl VartimeMultiscalarMul for Pippenger {
 
         // Collect optimized scalars and points in a buffer for repeated access
         // (scanning the whole collection per each digit position).
-        let scalars = scalars
-            .into_iter()
-            .map(|s| s.borrow().to_radix_2w(w));
+        let scalars = scalars.into_iter().map(|s| s.borrow().to_radix_2w(w));
 
-        let points = points
-            .into_iter()
-            .map(|p| p.map(|P| CachedPoint::from(ExtendedPoint::from(P))));
+        let points = points.into_iter().map(|p| p.map(|P| CachedPoint::from(ExtendedPoint::from(P))));
 
-        let scalars_points = scalars
-            .zip(points)
-            .map(|(s, maybe_p)| maybe_p.map(|p| (s, p)))
-            .collect::<Option<Vec<_>>>()?;
+        let scalars_points =
+            scalars.zip(points).map(|(s, maybe_p)| maybe_p.map(|p| (s, p))).collect::<Option<Vec<_>>>()?;
 
         // Prepare 2^w/2 buckets.
         // buckets[i] corresponds to a multiplication factor (i+1).
-        let mut buckets: Vec<ExtendedPoint> = (0..buckets_count)
-            .map(|_| ExtendedPoint::identity())
-            .collect();
+        let mut buckets: Vec<ExtendedPoint> = (0..buckets_count).map(|_| ExtendedPoint::identity()).collect();
 
         let mut columns = (0..digits_count).rev().map(|digit_index| {
             // Clear the buckets when processing another digit.
@@ -102,8 +93,7 @@ impl VartimeMultiscalarMul for Pippenger {
             let mut buckets_intermediate_sum = buckets[buckets_count - 1];
             let mut buckets_sum = buckets[buckets_count - 1];
             for i in (0..(buckets_count - 1)).rev() {
-                buckets_intermediate_sum =
-                    &buckets_intermediate_sum + &CachedPoint::from(buckets[i]);
+                buckets_intermediate_sum = &buckets_intermediate_sum + &CachedPoint::from(buckets[i]);
                 buckets_sum = &buckets_sum + &CachedPoint::from(buckets_intermediate_sum);
             }
 
@@ -114,21 +104,16 @@ impl VartimeMultiscalarMul for Pippenger {
         // `unwrap()` always succeeds because we know we have more than zero digits.
         let hi_column = columns.next().unwrap();
 
-        Some(
-            columns
-                .fold(hi_column, |total, p| {
-                    &total.mul_by_pow_2(w as u32) + &CachedPoint::from(p)
-                })
-                .into(),
-        )
+        Some(columns.fold(hi_column, |total, p| &total.mul_by_pow_2(w as u32) + &CachedPoint::from(p)).into())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use constants;
     use scalar::Scalar;
+
+    use super::*;
 
     #[test]
     fn test_vartime_pippenger() {
@@ -136,18 +121,12 @@ mod test {
         let mut n = 512;
         let x = Scalar::from(2128506u64).invert();
         let y = Scalar::from(4443282u64).invert();
-        let points: Vec<_> = (0..n)
-            .map(|i| constants::ED25519_BASEPOINT_POINT * Scalar::from(1 + i as u64))
-            .collect();
+        let points: Vec<_> = (0..n).map(|i| constants::ED25519_BASEPOINT_POINT * Scalar::from(1 + i as u64)).collect();
         let scalars: Vec<_> = (0..n)
             .map(|i| x + (Scalar::from(i as u64) * y)) // fast way to make ~random but deterministic scalars
             .collect();
 
-        let premultiplied: Vec<EdwardsPoint> = scalars
-            .iter()
-            .zip(points.iter())
-            .map(|(sc, pt)| sc * pt)
-            .collect();
+        let premultiplied: Vec<EdwardsPoint> = scalars.iter().zip(points.iter()).map(|(sc, pt)| sc * pt).collect();
 
         while n > 0 {
             let scalars = &scalars[0..n].to_vec();

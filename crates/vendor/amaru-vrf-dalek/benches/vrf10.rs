@@ -1,7 +1,8 @@
+use std::time::Duration;
+
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
-use std::time::Duration;
 #[allow(unused_must_use)]
 use vrf_dalek::vrf10::{PublicKey10, SecretKey10, VrfProof10};
 use vrf_dalek::vrf10_batchcompat::{BatchItem, BatchVerifier, VrfProof10BatchCompat};
@@ -20,9 +21,7 @@ fn vrf10(c: &mut Criterion) {
     });
     group.bench_function("Verification", |b| {
         b.iter(|| {
-            vrf_proof
-                .verify(&public_key, &alpha_string)
-                .expect("Should pass.");
+            vrf_proof.verify(&public_key, &alpha_string).expect("Should pass.");
         })
     });
 }
@@ -64,28 +63,18 @@ fn vrf10_batchcompat(c: &mut Criterion) {
             proofs.push(vrf_proof);
         }
 
-        group.bench_with_input(
-            BenchmarkId::new("Batch Verification (and insertion)", size),
-            &size,
-            |b, &size| {
-                b.iter(|| {
-                    let mut batch_verifier = BatchVerifier::new(size);
+        group.bench_with_input(BenchmarkId::new("Batch Verification (and insertion)", size), &size, |b, &size| {
+            b.iter(|| {
+                let mut batch_verifier = BatchVerifier::new(size);
 
-                    for (proof, (&pk, output)) in proofs.iter().zip(pks.iter().zip(outputs.iter()))
-                    {
-                        batch_verifier
-                            .insert(BatchItem {
-                                output: output.clone(),
-                                proof: proof.clone(),
-                                key: pk,
-                                msg: alpha.clone(),
-                            })
-                            .expect("Should not fail");
-                    }
-                    batch_verifier.verify().expect("Should pass");
-                })
-            },
-        );
+                for (proof, (&pk, output)) in proofs.iter().zip(pks.iter().zip(outputs.iter())) {
+                    batch_verifier
+                        .insert(BatchItem { output: output.clone(), proof: proof.clone(), key: pk, msg: alpha.clone() })
+                        .expect("Should not fail");
+                }
+                batch_verifier.verify().expect("Should pass");
+            })
+        });
     }
 }
 

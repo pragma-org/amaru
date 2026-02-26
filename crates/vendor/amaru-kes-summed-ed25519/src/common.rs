@@ -1,12 +1,15 @@
 //! Structures common to all constructions of key evolving signatures
-use crate::errors::Error;
-use blake2::digest::{Update, VariableOutput};
-use blake2::Blake2bVar;
+use std::{convert::TryInto, fmt};
+
+use blake2::{
+    digest::{Update, VariableOutput},
+    Blake2bVar,
+};
 use ed25519_dalek as ed25519;
 #[cfg(feature = "serde_enabled")]
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
-use std::fmt;
+
+use crate::errors::Error;
 
 /// ED25519 secret key size
 pub const INDIVIDUAL_SECRET_SIZE: usize = 32;
@@ -25,9 +28,7 @@ pub struct Seed;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde_enabled", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde_enabled", serde_as)]
-pub struct PublicKey(
-    #[cfg_attr(feature = "serde_enabled", serde_as(as = "Bytes"))] pub(crate) [u8; PUBLIC_KEY_SIZE],
-);
+pub struct PublicKey(#[cfg_attr(feature = "serde_enabled", serde_as(as = "Bytes"))] pub(crate) [u8; PUBLIC_KEY_SIZE]);
 
 impl PublicKey {
     pub(crate) fn from_ed25519_verifyingkey(public: &ed25519::VerifyingKey) -> Self {
@@ -37,12 +38,8 @@ impl PublicKey {
     }
 
     pub(crate) fn as_ed25519(&self) -> Result<ed25519::VerifyingKey, Error> {
-        ed25519::VerifyingKey::from_bytes(
-            self.as_bytes()
-                .try_into()
-                .expect("Won't fail as slice has size 32."),
-        )
-        .or(Err(Error::Ed25519InvalidCompressedFormat))
+        ed25519::VerifyingKey::from_bytes(self.as_bytes().try_into().expect("Won't fail as slice has size 32."))
+            .or(Err(Error::Ed25519InvalidCompressedFormat))
     }
 
     /// Return `Self` as its byte representation.
@@ -97,15 +94,11 @@ impl Seed {
         let mut hasher = Blake2bVar::new(32).expect("valid size");
         hasher.update(&[1]);
         hasher.update(bytes);
-        hasher
-            .finalize_variable(&mut left_seed)
-            .expect("valid size");
+        hasher.finalize_variable(&mut left_seed).expect("valid size");
         let mut hasher = Blake2bVar::new(32).expect("valid size");
         hasher.update(&[2]);
         hasher.update(bytes);
-        hasher
-            .finalize_variable(&mut right_seed)
-            .expect("valid size");
+        hasher.finalize_variable(&mut right_seed).expect("valid size");
 
         bytes.copy_from_slice(&[0u8; Self::SIZE]);
 

@@ -36,8 +36,7 @@
 //!         B.writeFile "<PATH>/key6Sig5.bin" (rawSerialiseSigKES kesSignatureFive)
 //! ```
 //!
-use kes_summed_ed25519::kes::*;
-use kes_summed_ed25519::traits::KesSk;
+use kes_summed_ed25519::{kes::*, traits::KesSk};
 
 // The following function is required for parsing a Cardano Shelley formatted key
 // into a secret key in this library. Mainly, it appends the period = 0 formatted
@@ -57,8 +56,8 @@ fn haskel_depth_1() {
 
     let mut key_buffer = [0u8; Sum1Kes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
 
     let (skey, _) = Sum1Kes::keygen(&mut key_buffer, &mut seed);
@@ -73,8 +72,8 @@ fn haskell_depth_6() {
 
     let mut key_buffer = [0u8; Sum6Kes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
     let (mut skey, _) = Sum6Kes::keygen(&mut key_buffer, &mut seed);
 
@@ -92,8 +91,8 @@ fn haskell_signature_6() {
 
     let mut key_buffer = [0u8; Sum6Kes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
     let message = b"test message";
     let (skey, _) = Sum6Kes::keygen(&mut key_buffer, &mut seed);
@@ -107,8 +106,8 @@ fn haskell_signature_6_update_5() {
 
     let mut key_buffer = [0u8; Sum6Kes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
     let message = b"test message";
     let (mut skey, _) = Sum6Kes::keygen(&mut key_buffer, &mut seed);
@@ -130,8 +129,8 @@ fn haskel_compact_depth_1() {
 
     let mut key_buffer = [0u8; Sum1CompactKes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
     let (skey, _) = Sum1CompactKes::keygen(&mut key_buffer, &mut seed);
 
@@ -145,8 +144,8 @@ fn haskell_compact_depth_6() {
 
     let mut key_buffer = [0u8; Sum6CompactKes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
     let (mut skey, _) = Sum6CompactKes::keygen(&mut key_buffer, &mut seed);
 
@@ -164,8 +163,8 @@ fn haskell_compact_signature_6() {
 
     let mut key_buffer = [0u8; Sum6CompactKes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
     let message = b"test message";
     let (skey, _) = Sum6CompactKes::keygen(&mut key_buffer, &mut seed);
@@ -179,8 +178,8 @@ fn haskell_compact_signature_6_update_5() {
 
     let mut key_buffer = [0u8; Sum6CompactKes::SIZE + 4];
     let mut seed = [
-        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98,
-        121, 116, 101, 32, 111, 102, 32, 108, 101, 110, 103, 104, 116,
+        116, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103, 32, 111, 102, 32, 51, 50, 32, 98, 121, 116, 101, 32, 111,
+        102, 32, 108, 101, 110, 103, 104, 116,
     ];
     let message = b"test message";
     let (mut skey, _) = Sum6CompactKes::keygen(&mut key_buffer, &mut seed);

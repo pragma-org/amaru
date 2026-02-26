@@ -13,10 +13,8 @@
 #![cfg_attr(feature = "nightly", feature(test))]
 #![cfg_attr(feature = "nightly", feature(doc_cfg))]
 #![cfg_attr(feature = "simd_backend", feature(stdsimd))]
-
 // Refuse to compile if documentation is missing.
 #![deny(missing_docs)]
-
 #![doc(html_logo_url = "https://doc.dalek.rs/assets/dalek-logo-clear.png")]
 #![doc(html_root_url = "https://docs.rs/curve25519-dalek/3.2.0")]
 

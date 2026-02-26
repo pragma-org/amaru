@@ -1,6 +1,5 @@
 //! Traits that define a KES signature instance
-use crate::common::PublicKey;
-use crate::errors::Error;
+use crate::{common::PublicKey, errors::Error};
 
 /// Trait that defined a Kes secret key
 pub trait KesSk<'a>: Sized {

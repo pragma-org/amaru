@@ -3,17 +3,18 @@
 //! case, the single instance is ed25519.
 use std::convert::TryInto;
 
-use crate::common::{PublicKey, Seed};
-use crate::errors::Error;
-use crate::traits::{KesCompactSig, KesSig, KesSk};
 use ed25519_dalek::{
-    Signature as EdSignature, Signer, SigningKey as EdSigningKey, VerifyingKey as EdPublicKey,
-    SIGNATURE_LENGTH,
+    Signature as EdSignature, Signer, SigningKey as EdSigningKey, VerifyingKey as EdPublicKey, SIGNATURE_LENGTH,
 };
 pub use ed25519_dalek::{PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH};
-
 #[cfg(feature = "serde_enabled")]
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    common::{PublicKey, Seed},
+    errors::Error,
+    traits::{KesCompactSig, KesSig, KesSk},
+};
 
 #[derive(Debug)]
 /// Single KES instance, which is a wrapper over ed25519.
@@ -23,9 +24,7 @@ pub struct Sum0Kes<'a>(pub(crate) &'a mut [u8]);
 #[cfg_attr(feature = "serde_enabled", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde_enabled", serde_as)]
 /// Single KES Signature instance, which is a wrapper over ed25519.
-pub struct Sum0KesSig(
-    #[cfg_attr(feature = "serde_enabled", serde_as(as = "Bytes"))] pub(crate) EdSignature,
-);
+pub struct Sum0KesSig(#[cfg_attr(feature = "serde_enabled", serde_as(as = "Bytes"))] pub(crate) EdSignature);
 
 impl<'a> Drop for Sum0Kes<'a> {
     fn drop(&mut self) {
@@ -42,9 +41,7 @@ impl<'a> KesSk<'a> for Sum0Kes<'a> {
         assert_eq!(master_seed.len(), 32);
 
         let secret = EdSigningKey::from_bytes(
-            &master_seed
-                .try_into()
-                .expect("Seed is defined with 32 bytes, so it won't fail."),
+            &master_seed.try_into().expect("Seed is defined with 32 bytes, so it won't fail."),
         );
 
         let public = (&secret).into();
@@ -52,10 +49,7 @@ impl<'a> KesSk<'a> for Sum0Kes<'a> {
         key_buffer[..32].copy_from_slice(&secret.to_bytes());
         drop(secret);
         master_seed.copy_from_slice(&[0u8; 32]);
-        (
-            Sum0Kes(key_buffer),
-            PublicKey::from_ed25519_verifyingkey(&public),
-        )
+        (Sum0Kes(key_buffer), PublicKey::from_ed25519_verifyingkey(&public))
     }
 
     fn update(&mut self) -> Result<(), Error> {
@@ -64,10 +58,7 @@ impl<'a> KesSk<'a> for Sum0Kes<'a> {
 
     fn sign(&self, m: &[u8]) -> Sum0KesSig {
         let secret = EdSigningKey::from_bytes(
-            self.0
-                .as_ref()
-                .try_into()
-                .expect("Seed is defined with 32 bytes, so it won't fail."),
+            self.0.as_ref().try_into().expect("Seed is defined with 32 bytes, so it won't fail."),
         );
         Sum0KesSig(secret.sign(m))
     }
@@ -98,23 +89,15 @@ impl<'a> Sum0Kes<'a> {
         let secret = if let Some(seed) = opt_seed {
             assert_eq!(in_slice.len(), Self::SIZE, "Input size is incorrect.");
 
-            let sk =
-                EdSigningKey::from_bytes(&seed.try_into().expect("Size of the seed is incorrect."));
+            let sk = EdSigningKey::from_bytes(&seed.try_into().expect("Size of the seed is incorrect."));
 
             seed.copy_from_slice(&[0u8; 32]);
             sk
         } else {
-            assert_eq!(
-                in_slice.len(),
-                Self::SIZE + Seed::SIZE,
-                "Input size is incorrect."
-            );
+            assert_eq!(in_slice.len(), Self::SIZE + Seed::SIZE, "Input size is incorrect.");
 
-            let sk = EdSigningKey::from_bytes(
-                &in_slice[Self::SIZE..]
-                    .try_into()
-                    .expect("Size of the seed is incorrect."),
-            );
+            let sk =
+                EdSigningKey::from_bytes(&in_slice[Self::SIZE..].try_into().expect("Size of the seed is incorrect."));
 
             in_slice[Self::SIZE..].copy_from_slice(&[0u8; 32]);
             sk
@@ -191,27 +174,19 @@ impl<'a> KesSk<'a> for Sum0CompactKes<'a> {
         assert_eq!(master_seed.len(), 32);
 
         let secret = EdSigningKey::from_bytes(
-            &master_seed
-                .try_into()
-                .expect("Seed is defined with 32 bytes, so it won't fail."),
+            &master_seed.try_into().expect("Seed is defined with 32 bytes, so it won't fail."),
         );
         let public = (&secret).into();
         // We copy the secret key to the key buffer and we drop the secret key (which zeros de data)
         key_buffer[..32].copy_from_slice(&secret.to_bytes());
         drop(secret);
         master_seed.copy_from_slice(&[0u8; 32]);
-        (
-            Sum0CompactKes(key_buffer),
-            PublicKey::from_ed25519_verifyingkey(&public),
-        )
+        (Sum0CompactKes(key_buffer), PublicKey::from_ed25519_verifyingkey(&public))
     }
 
     fn sign(&self, m: &[u8]) -> Sum0CompactKesSig {
         let secret = EdSigningKey::from_bytes(
-            self.0
-                .as_ref()
-                .try_into()
-                .expect("Seed is defined with 32 bytes, so it won't fail."),
+            self.0.as_ref().try_into().expect("Seed is defined with 32 bytes, so it won't fail."),
         );
         let public = (&secret).into();
         Sum0CompactKesSig(secret.sign(m), public)
@@ -255,23 +230,15 @@ impl<'a> Sum0CompactKes<'a> {
         let secret = if let Some(seed) = opt_seed {
             assert_eq!(in_slice.len(), Self::SIZE, "Input size is incorrect.");
 
-            let sk =
-                EdSigningKey::from_bytes(&seed.try_into().expect("Size of the seed is incorrect."));
+            let sk = EdSigningKey::from_bytes(&seed.try_into().expect("Size of the seed is incorrect."));
 
             seed.copy_from_slice(&[0u8; 32]);
             sk
         } else {
-            assert_eq!(
-                in_slice.len(),
-                Self::SIZE + Seed::SIZE,
-                "Input size is incorrect."
-            );
+            assert_eq!(in_slice.len(), Self::SIZE + Seed::SIZE, "Input size is incorrect.");
 
-            let sk = EdSigningKey::from_bytes(
-                &in_slice[Self::SIZE..]
-                    .try_into()
-                    .expect("Size of the seed is incorrect."),
-            );
+            let sk =
+                EdSigningKey::from_bytes(&in_slice[Self::SIZE..].try_into().expect("Size of the seed is incorrect."));
 
             in_slice[Self::SIZE..].copy_from_slice(&[0u8; 32]);
             sk
@@ -288,8 +255,7 @@ impl<'a> Sum0CompactKes<'a> {
     }
 
     pub(crate) fn sign_from_slice(sk: &[u8], m: &[u8], _period: u32) -> <Self as KesSk<'a>>::Sig {
-        let secret =
-            EdSigningKey::from_bytes(sk.try_into().expect("Size of the seed is incorrect."));
+        let secret = EdSigningKey::from_bytes(sk.try_into().expect("Size of the seed is incorrect."));
         let public = (&secret).into();
         Sum0CompactKesSig(secret.sign(m), public)
     }

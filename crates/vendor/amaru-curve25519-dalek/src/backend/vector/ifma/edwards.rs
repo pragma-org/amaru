@@ -9,18 +9,17 @@
 
 #![allow(non_snake_case)]
 
-use traits::Identity;
-
 use std::ops::{Add, Neg, Sub};
 
-use subtle::Choice;
-use subtle::ConditionallySelectable;
-
 use edwards;
+use subtle::{Choice, ConditionallySelectable};
+use traits::Identity;
 use window::{LookupTable, NafLookupTable5, NafLookupTable8};
 
-use super::constants;
-use super::field::{F51x4Reduced, F51x4Unreduced, Lanes, Shuffle};
+use super::{
+    constants,
+    field::{F51x4Reduced, F51x4Unreduced, Lanes, Shuffle},
+};
 
 #[derive(Copy, Clone, Debug)]
 pub struct ExtendedPoint(pub(super) F51x4Unreduced);
@@ -38,12 +37,7 @@ impl From<ExtendedPoint> for edwards::EdwardsPoint {
     fn from(P: ExtendedPoint) -> edwards::EdwardsPoint {
         let reduced = F51x4Reduced::from(P.0);
         let tmp = F51x4Unreduced::from(reduced).split();
-        edwards::EdwardsPoint {
-            X: tmp[0],
-            Y: tmp[1],
-            Z: tmp[2],
-            T: tmp[3],
-        }
+        edwards::EdwardsPoint { X: tmp[0], Y: tmp[1], Z: tmp[2], T: tmp[3] }
     }
 }
 
@@ -76,7 +70,7 @@ impl ExtendedPoint {
         // (Y1 X1 T1 Z1) -- uses vpshufd (1c latency @ 1/c)
         let mut tmp0 = self.0.shuffle(Shuffle::BADC);
 
-        // (X1+Y1 X1+Y1 X1+Y1 X1+Y1) -- can use vpinserti128 
+        // (X1+Y1 X1+Y1 X1+Y1 X1+Y1) -- can use vpinserti128
         let mut tmp1 = (self.0 + tmp0).shuffle(Shuffle::ABAB);
 
         // (X1 Y1 Z1 X1+Y1)

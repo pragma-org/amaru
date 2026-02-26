@@ -12,15 +12,12 @@
 //! Field arithmetic modulo \\(p = 2\^{255} - 19\\), using \\(64\\)-bit
 //! limbs with \\(128\\)-bit products.
 
-use core::fmt::Debug;
-use core::ops::Neg;
-use core::ops::{Add, AddAssign};
-use core::ops::{Mul, MulAssign};
-use core::ops::{Sub, SubAssign};
+use core::{
+    fmt::Debug,
+    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+};
 
-use subtle::Choice;
-use subtle::ConditionallySelectable;
-
+use subtle::{Choice, ConditionallySelectable};
 use zeroize::Zeroize;
 
 /// A `FieldElement51` represents an element of the field
@@ -39,7 +36,7 @@ use zeroize::Zeroize;
 /// The backend-specific type `FieldElement51` should not be used
 /// outside of the `curve25519_dalek::field` module.
 #[derive(Copy, Clone)]
-pub struct FieldElement51(pub (crate) [u64; 5]);
+pub struct FieldElement51(pub(crate) [u64; 5]);
 
 impl Debug for FieldElement51 {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
@@ -112,7 +109,9 @@ impl<'a, 'b> Mul<&'b FieldElement51> for &'a FieldElement51 {
         /// Helper function to multiply two 64-bit integers with 128
         /// bits of output.
         #[inline(always)]
-        fn m(x: u64, y: u64) -> u128 { (x as u128) * (y as u128) }
+        fn m(x: u64, y: u64) -> u128 {
+            (x as u128) * (y as u128)
+        }
 
         // Alias self, _rhs for more readable formulas
         let a: &[u64; 5] = &self.0;
@@ -137,11 +136,11 @@ impl<'a, 'b> Mul<&'b FieldElement51> for &'a FieldElement51 {
         let b4_19 = b[4] * 19;
 
         // Multiply to get 128-bit coefficients of output
-        let     c0: u128 = m(a[0],b[0]) + m(a[4],b1_19) + m(a[3],b2_19) + m(a[2],b3_19) + m(a[1],b4_19);
-        let mut c1: u128 = m(a[1],b[0]) + m(a[0],b[1])  + m(a[4],b2_19) + m(a[3],b3_19) + m(a[2],b4_19);
-        let mut c2: u128 = m(a[2],b[0]) + m(a[1],b[1])  + m(a[0],b[2])  + m(a[4],b3_19) + m(a[3],b4_19);
-        let mut c3: u128 = m(a[3],b[0]) + m(a[2],b[1])  + m(a[1],b[2])  + m(a[0],b[3])  + m(a[4],b4_19);
-        let mut c4: u128 = m(a[4],b[0]) + m(a[3],b[1])  + m(a[2],b[2])  + m(a[1],b[3])  + m(a[0],b[4]);
+        let c0: u128 = m(a[0], b[0]) + m(a[4], b1_19) + m(a[3], b2_19) + m(a[2], b3_19) + m(a[1], b4_19);
+        let mut c1: u128 = m(a[1], b[0]) + m(a[0], b[1]) + m(a[4], b2_19) + m(a[3], b3_19) + m(a[2], b4_19);
+        let mut c2: u128 = m(a[2], b[0]) + m(a[1], b[1]) + m(a[0], b[2]) + m(a[4], b3_19) + m(a[3], b4_19);
+        let mut c3: u128 = m(a[3], b[0]) + m(a[2], b[1]) + m(a[1], b[2]) + m(a[0], b[3]) + m(a[4], b4_19);
+        let mut c4: u128 = m(a[4], b[0]) + m(a[3], b[1]) + m(a[2], b[2]) + m(a[1], b[3]) + m(a[0], b[4]);
 
         // How big are the c[i]? We have
         //
@@ -155,11 +154,16 @@ impl<'a, 'b> Mul<&'b FieldElement51> for &'a FieldElement51 {
         //    b < 3.365.
         //
         // So we require b < 3 to ensure this fits.
-        debug_assert!(a[0] < (1 << 54)); debug_assert!(b[0] < (1 << 54));
-        debug_assert!(a[1] < (1 << 54)); debug_assert!(b[1] < (1 << 54));
-        debug_assert!(a[2] < (1 << 54)); debug_assert!(b[2] < (1 << 54));
-        debug_assert!(a[3] < (1 << 54)); debug_assert!(b[3] < (1 << 54));
-        debug_assert!(a[4] < (1 << 54)); debug_assert!(b[4] < (1 << 54));
+        debug_assert!(a[0] < (1 << 54));
+        debug_assert!(b[0] < (1 << 54));
+        debug_assert!(a[1] < (1 << 54));
+        debug_assert!(b[1] < (1 << 54));
+        debug_assert!(a[2] < (1 << 54));
+        debug_assert!(b[2] < (1 << 54));
+        debug_assert!(a[3] < (1 << 54));
+        debug_assert!(b[3] < (1 << 54));
+        debug_assert!(a[4] < (1 << 54));
+        debug_assert!(b[4] < (1 << 54));
 
         // Casting to u64 and back tells the compiler that the carry is
         // bounded by 2^64, so that the addition is a u128 + u64 rather
@@ -219,11 +223,7 @@ impl<'a> Neg for &'a FieldElement51 {
 }
 
 impl ConditionallySelectable for FieldElement51 {
-    fn conditional_select(
-        a: &FieldElement51,
-        b: &FieldElement51,
-        choice: Choice,
-    ) -> FieldElement51 {
+    fn conditional_select(a: &FieldElement51, b: &FieldElement51, choice: Choice) -> FieldElement51 {
         FieldElement51([
             u64::conditional_select(&a.0[0], &b.0[0], choice),
             u64::conditional_select(&a.0[1], &b.0[1], choice),
@@ -266,12 +266,12 @@ impl FieldElement51 {
 
     /// Construct zero.
     pub fn zero() -> FieldElement51 {
-        FieldElement51([ 0, 0, 0, 0, 0 ])
+        FieldElement51([0, 0, 0, 0, 0])
     }
 
     /// Construct one.
     pub fn one() -> FieldElement51 {
-        FieldElement51([ 1, 0, 0, 0, 0 ])
+        FieldElement51([1, 0, 0, 0, 0])
     }
 
     /// Construct -1.
@@ -330,29 +330,27 @@ impl FieldElement51 {
     ///
     pub fn from_bytes(bytes: &[u8; 32]) -> FieldElement51 {
         let load8 = |input: &[u8]| -> u64 {
-               (input[0] as u64)
-            | ((input[1] as u64) << 8)
-            | ((input[2] as u64) << 16)
-            | ((input[3] as u64) << 24)
-            | ((input[4] as u64) << 32)
-            | ((input[5] as u64) << 40)
-            | ((input[6] as u64) << 48)
-            | ((input[7] as u64) << 56)
+            (input[0] as u64)
+                | ((input[1] as u64) << 8)
+                | ((input[2] as u64) << 16)
+                | ((input[3] as u64) << 24)
+                | ((input[4] as u64) << 32)
+                | ((input[5] as u64) << 40)
+                | ((input[6] as u64) << 48)
+                | ((input[7] as u64) << 56)
         };
 
         let low_51_bit_mask = (1u64 << 51) - 1;
         FieldElement51(
-        // load bits [  0, 64), no shift
-        [  load8(&bytes[ 0..])        & low_51_bit_mask
-        // load bits [ 48,112), shift to [ 51,112)
-        , (load8(&bytes[ 6..]) >>  3) & low_51_bit_mask
-        // load bits [ 96,160), shift to [102,160)
-        , (load8(&bytes[12..]) >>  6) & low_51_bit_mask
-        // load bits [152,216), shift to [153,216)
-        , (load8(&bytes[19..]) >>  1) & low_51_bit_mask
-        // load bits [192,256), shift to [204,112)
-        , (load8(&bytes[24..]) >> 12) & low_51_bit_mask
-        ])
+            // load bits [  0, 64), no shift
+            [
+                load8(&bytes[0..]) & low_51_bit_mask, // load bits [ 48,112), shift to [ 51,112)
+                (load8(&bytes[6..]) >> 3) & low_51_bit_mask, // load bits [ 96,160), shift to [102,160)
+                (load8(&bytes[12..]) >> 6) & low_51_bit_mask, // load bits [152,216), shift to [153,216)
+                (load8(&bytes[19..]) >> 1) & low_51_bit_mask, // load bits [192,256), shift to [204,112)
+                (load8(&bytes[24..]) >> 12) & low_51_bit_mask,
+            ],
+        )
     }
 
     /// Serialize this `FieldElement51` to a 32-byte array.  The
@@ -384,56 +382,56 @@ impl FieldElement51 {
 
         // Now we can compute r as r = h - pq = r - (2^255-19)q = r + 19q - 2^255q
 
-        limbs[0] += 19*q;
+        limbs[0] += 19 * q;
 
         // Now carry the result to compute r + 19q ...
         let low_51_bit_mask = (1u64 << 51) - 1;
-        limbs[1] +=  limbs[0] >> 51;
+        limbs[1] += limbs[0] >> 51;
         limbs[0] = limbs[0] & low_51_bit_mask;
-        limbs[2] +=  limbs[1] >> 51;
+        limbs[2] += limbs[1] >> 51;
         limbs[1] = limbs[1] & low_51_bit_mask;
-        limbs[3] +=  limbs[2] >> 51;
+        limbs[3] += limbs[2] >> 51;
         limbs[2] = limbs[2] & low_51_bit_mask;
-        limbs[4] +=  limbs[3] >> 51;
+        limbs[4] += limbs[3] >> 51;
         limbs[3] = limbs[3] & low_51_bit_mask;
         // ... but instead of carrying (limbs[4] >> 51) = 2^255q
         // into another limb, discard it, subtracting the value
         limbs[4] = limbs[4] & low_51_bit_mask;
 
         // Now arrange the bits of the limbs.
-        let mut s = [0u8;32];
-        s[ 0] =   limbs[0]        as u8;
-        s[ 1] =  (limbs[0] >>  8) as u8;
-        s[ 2] =  (limbs[0] >> 16) as u8;
-        s[ 3] =  (limbs[0] >> 24) as u8;
-        s[ 4] =  (limbs[0] >> 32) as u8;
-        s[ 5] =  (limbs[0] >> 40) as u8;
-        s[ 6] = ((limbs[0] >> 48) | (limbs[1] << 3)) as u8;
-        s[ 7] =  (limbs[1] >>  5) as u8;
-        s[ 8] =  (limbs[1] >> 13) as u8;
-        s[ 9] =  (limbs[1] >> 21) as u8;
-        s[10] =  (limbs[1] >> 29) as u8;
-        s[11] =  (limbs[1] >> 37) as u8;
+        let mut s = [0u8; 32];
+        s[0] = limbs[0] as u8;
+        s[1] = (limbs[0] >> 8) as u8;
+        s[2] = (limbs[0] >> 16) as u8;
+        s[3] = (limbs[0] >> 24) as u8;
+        s[4] = (limbs[0] >> 32) as u8;
+        s[5] = (limbs[0] >> 40) as u8;
+        s[6] = ((limbs[0] >> 48) | (limbs[1] << 3)) as u8;
+        s[7] = (limbs[1] >> 5) as u8;
+        s[8] = (limbs[1] >> 13) as u8;
+        s[9] = (limbs[1] >> 21) as u8;
+        s[10] = (limbs[1] >> 29) as u8;
+        s[11] = (limbs[1] >> 37) as u8;
         s[12] = ((limbs[1] >> 45) | (limbs[2] << 6)) as u8;
-        s[13] =  (limbs[2] >>  2) as u8;
-        s[14] =  (limbs[2] >> 10) as u8;
-        s[15] =  (limbs[2] >> 18) as u8;
-        s[16] =  (limbs[2] >> 26) as u8;
-        s[17] =  (limbs[2] >> 34) as u8;
-        s[18] =  (limbs[2] >> 42) as u8;
+        s[13] = (limbs[2] >> 2) as u8;
+        s[14] = (limbs[2] >> 10) as u8;
+        s[15] = (limbs[2] >> 18) as u8;
+        s[16] = (limbs[2] >> 26) as u8;
+        s[17] = (limbs[2] >> 34) as u8;
+        s[18] = (limbs[2] >> 42) as u8;
         s[19] = ((limbs[2] >> 50) | (limbs[3] << 1)) as u8;
-        s[20] =  (limbs[3] >>  7) as u8;
-        s[21] =  (limbs[3] >> 15) as u8;
-        s[22] =  (limbs[3] >> 23) as u8;
-        s[23] =  (limbs[3] >> 31) as u8;
-        s[24] =  (limbs[3] >> 39) as u8;
+        s[20] = (limbs[3] >> 7) as u8;
+        s[21] = (limbs[3] >> 15) as u8;
+        s[22] = (limbs[3] >> 23) as u8;
+        s[23] = (limbs[3] >> 31) as u8;
+        s[24] = (limbs[3] >> 39) as u8;
         s[25] = ((limbs[3] >> 47) | (limbs[4] << 4)) as u8;
-        s[26] =  (limbs[4] >>  4) as u8;
-        s[27] =  (limbs[4] >> 12) as u8;
-        s[28] =  (limbs[4] >> 20) as u8;
-        s[29] =  (limbs[4] >> 28) as u8;
-        s[30] =  (limbs[4] >> 36) as u8;
-        s[31] =  (limbs[4] >> 44) as u8;
+        s[26] = (limbs[4] >> 4) as u8;
+        s[27] = (limbs[4] >> 12) as u8;
+        s[28] = (limbs[4] >> 20) as u8;
+        s[29] = (limbs[4] >> 28) as u8;
+        s[30] = (limbs[4] >> 36) as u8;
+        s[31] = (limbs[4] >> 44) as u8;
 
         // High bit should be zero.
         debug_assert!((s[31] & 0b1000_0000u8) == 0u8);
@@ -443,12 +441,13 @@ impl FieldElement51 {
 
     /// Given `k > 0`, return `self^(2^k)`.
     pub fn pow2k(&self, mut k: u32) -> FieldElement51 {
-
-        debug_assert!( k > 0 );
+        debug_assert!(k > 0);
 
         /// Multiply two 64-bit integers with 128 bits of output.
         #[inline(always)]
-        fn m(x: u64, y: u64) -> u128 { (x as u128) * (y as u128) }
+        fn m(x: u64, y: u64) -> u128 {
+            (x as u128) * (y as u128)
+        }
 
         let mut a: [u64; 5] = self.0;
 
@@ -474,11 +473,11 @@ impl FieldElement51 {
             // The 128-bit multiplications by 2 turn into 1 slr + 1 slrd each,
             // which doesn't seem any better or worse than doing them as precomputations
             // on the 64-bit inputs.
-            let     c0: u128 = m(a[0],  a[0]) + 2*( m(a[1], a4_19) + m(a[2], a3_19) );
-            let mut c1: u128 = m(a[3], a3_19) + 2*( m(a[0],  a[1]) + m(a[2], a4_19) );
-            let mut c2: u128 = m(a[1],  a[1]) + 2*( m(a[0],  a[2]) + m(a[4], a3_19) );
-            let mut c3: u128 = m(a[4], a4_19) + 2*( m(a[0],  a[3]) + m(a[1],  a[2]) );
-            let mut c4: u128 = m(a[2],  a[2]) + 2*( m(a[0],  a[4]) + m(a[1],  a[3]) );
+            let c0: u128 = m(a[0], a[0]) + 2 * (m(a[1], a4_19) + m(a[2], a3_19));
+            let mut c1: u128 = m(a[3], a3_19) + 2 * (m(a[0], a[1]) + m(a[2], a4_19));
+            let mut c2: u128 = m(a[1], a[1]) + 2 * (m(a[0], a[2]) + m(a[4], a3_19));
+            let mut c3: u128 = m(a[4], a4_19) + 2 * (m(a[0], a[3]) + m(a[1], a[2]));
+            let mut c4: u128 = m(a[2], a[2]) + 2 * (m(a[0], a[4]) + m(a[1], a[3]));
 
             // Same bound as in multiply:
             //    c[i] < 2^(102 + 2*b) * (1+i + (4-i)*19)

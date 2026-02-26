@@ -35,19 +35,20 @@
 
 #![allow(non_snake_case)]
 
-use core::convert::From;
-use core::ops::{Add, Neg, Sub};
-
-use subtle::Choice;
-use subtle::ConditionallySelectable;
+use core::{
+    convert::From,
+    ops::{Add, Neg, Sub},
+};
 
 use edwards;
+use subtle::{Choice, ConditionallySelectable};
+use traits::Identity;
 use window::{LookupTable, NafLookupTable5, NafLookupTable8};
 
-use traits::Identity;
-
-use super::constants;
-use super::field::{FieldElement2625x4, Lanes, Shuffle};
+use super::{
+    constants,
+    field::{FieldElement2625x4, Lanes, Shuffle},
+};
 
 /// A point on Curve25519, using parallel Edwards formulas for curve
 /// operations.
@@ -68,12 +69,7 @@ impl From<edwards::EdwardsPoint> for ExtendedPoint {
 impl From<ExtendedPoint> for edwards::EdwardsPoint {
     fn from(P: ExtendedPoint) -> edwards::EdwardsPoint {
         let tmp = P.0.split();
-        edwards::EdwardsPoint {
-            X: tmp[0],
-            Y: tmp[1],
-            Z: tmp[2],
-            T: tmp[3],
-        }
+        edwards::EdwardsPoint { X: tmp[0], Y: tmp[1], Z: tmp[2], T: tmp[3] }
     }
 }
 
@@ -361,18 +357,18 @@ mod test {
         print_var!(S7);
         println!("");
 
-        let S8  =  &S4 *    &FieldElement51([  121666,0,0,0,0]);  // R5
-        let S9  =  &S5 *    &FieldElement51([  121666,0,0,0,0]);  // R6
-        let S10 =  &S6 *    &FieldElement51([2*121666,0,0,0,0]);  // R8
-        let S11 =  &S7 * &(-&FieldElement51([2*121665,0,0,0,0])); // R7
+        let S8 = &S4 * &FieldElement51([121666, 0, 0, 0, 0]); // R5
+        let S9 = &S5 * &FieldElement51([121666, 0, 0, 0, 0]); // R6
+        let S10 = &S6 * &FieldElement51([2 * 121666, 0, 0, 0, 0]); // R8
+        let S11 = &S7 * &(-&FieldElement51([2 * 121665, 0, 0, 0, 0])); // R7
         print_var!(S8);
         print_var!(S9);
         print_var!(S10);
         print_var!(S11);
         println!("");
 
-        let S12 =  &S9 - &S8;  // R1
-        let S13 =  &S9 + &S8;  // R4
+        let S12 = &S9 - &S8; // R1
+        let S13 = &S9 + &S8; // R4
         let S14 = &S10 - &S11; // R2
         let S15 = &S10 + &S11; // R3
         print_var!(S12);
@@ -386,12 +382,7 @@ mod test {
         let Z3 = &S15 * &S14; // R2 * R3
         let T3 = &S12 * &S13; // R1 * R4
 
-        edwards::EdwardsPoint {
-            X: X3,
-            Y: Y3,
-            Z: Z3,
-            T: T3,
-        }
+        edwards::EdwardsPoint { X: X3, Y: Y3, Z: Z3, T: T3 }
     }
 
     fn addition_test_helper(P: edwards::EdwardsPoint, Q: edwards::EdwardsPoint) {
@@ -484,12 +475,7 @@ mod test {
         let Z3 = &S8 * &S6;
         let T3 = &S5 * &S9;
 
-        edwards::EdwardsPoint {
-            X: X3,
-            Y: Y3,
-            Z: Z3,
-            T: T3,
-        }
+        edwards::EdwardsPoint { X: X3, Y: Y3, Z: Z3, T: T3 }
     }
 
     fn doubling_test_helper(P: edwards::EdwardsPoint) {
@@ -525,8 +511,8 @@ mod test {
 
     #[test]
     fn basepoint_odd_lookup_table_verify() {
+        use backend::vector::avx2::constants::BASEPOINT_ODD_LOOKUP_TABLE;
         use constants;
-        use backend::vector::avx2::constants::{BASEPOINT_ODD_LOOKUP_TABLE};
 
         let basepoint_odd_table = NafLookupTable8::<CachedPoint>::from(&constants::ED25519_BASEPOINT_POINT);
         println!("basepoint_odd_lookup_table = {:?}", basepoint_odd_table);

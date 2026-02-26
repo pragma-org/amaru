@@ -1,9 +1,10 @@
 //! # Errors
 //! Errors specific to KES signatures
 
-use crate::common::Depth;
 use ed25519_dalek as ed25519;
 use thiserror::Error;
+
+use crate::common::Depth;
 
 #[derive(Debug, Error, Clone)]
 /// Enum of error associated with KES signatures

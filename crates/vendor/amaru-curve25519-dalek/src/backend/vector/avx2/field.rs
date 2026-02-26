@@ -41,10 +41,12 @@ const C_LANES64: u8 = 0b00_11_00_00;
 const D_LANES64: u8 = 0b11_00_00_00;
 
 use core::ops::{Add, Mul, Neg};
-use packed_simd::{i32x8, u32x8, u64x4, IntoBits};
 
-use backend::vector::avx2::constants::{P_TIMES_16_HI, P_TIMES_16_LO, P_TIMES_2_HI, P_TIMES_2_LO};
-use backend::serial::u64::field::FieldElement51;
+use backend::{
+    serial::u64::field::FieldElement51,
+    vector::avx2::constants::{P_TIMES_16_HI, P_TIMES_16_LO, P_TIMES_2_HI, P_TIMES_2_LO},
+};
+use packed_simd::{i32x8, u32x8, u64x4, IntoBits};
 
 /// Unpack 32-bit lanes into 64-bit lanes:
 /// ```ascii,no_run
@@ -61,8 +63,7 @@ fn unpack_pair(src: u32x8) -> (u32x8, u32x8) {
     let b: u32x8;
     let zero = i32x8::new(0, 0, 0, 0, 0, 0, 0, 0);
     unsafe {
-        use core::arch::x86_64::_mm256_unpackhi_epi32;
-        use core::arch::x86_64::_mm256_unpacklo_epi32;
+        use core::arch::x86_64::{_mm256_unpackhi_epi32, _mm256_unpacklo_epi32};
         a = _mm256_unpacklo_epi32(src.into_bits(), zero.into_bits()).into_bits();
         b = _mm256_unpackhi_epi32(src.into_bits(), zero.into_bits()).into_bits();
     }
@@ -81,8 +82,7 @@ fn unpack_pair(src: u32x8) -> (u32x8, u32x8) {
 #[inline(always)]
 fn repack_pair(x: u32x8, y: u32x8) -> u32x8 {
     unsafe {
-        use core::arch::x86_64::_mm256_blend_epi32;
-        use core::arch::x86_64::_mm256_shuffle_epi32;
+        use core::arch::x86_64::{_mm256_blend_epi32, _mm256_shuffle_epi32};
 
         // Input: x = (a0, 0, b0, 0, c0, 0, d0, 0)
         // Input: y = (a1, 0, b1, 0, c1, 0, d1, 0)
@@ -144,15 +144,10 @@ pub enum Shuffle {
 #[derive(Clone, Copy, Debug)]
 pub struct FieldElement2625x4(pub(crate) [u32x8; 5]);
 
-use subtle::Choice;
-use subtle::ConditionallySelectable;
+use subtle::{Choice, ConditionallySelectable};
 
 impl ConditionallySelectable for FieldElement2625x4 {
-    fn conditional_select(
-        a: &FieldElement2625x4,
-        b: &FieldElement2625x4,
-        choice: Choice,
-    ) -> FieldElement2625x4 {
+    fn conditional_select(a: &FieldElement2625x4, b: &FieldElement2625x4, choice: Choice) -> FieldElement2625x4 {
         let mask = (-(choice.unwrap_u8() as i32)) as u32;
         let mask_vec = u32x8::splat(mask);
         FieldElement2625x4([
@@ -164,11 +159,7 @@ impl ConditionallySelectable for FieldElement2625x4 {
         ])
     }
 
-    fn conditional_assign(
-        &mut self,
-        other: &FieldElement2625x4,
-        choice: Choice,
-    ) {
+    fn conditional_assign(&mut self, other: &FieldElement2625x4, choice: Choice) {
         let mask = (-(choice.unwrap_u8() as i32)) as u32;
         let mask_vec = u32x8::splat(mask);
         self.0[0] ^= mask_vec & (self.0[0] ^ other.0[0]);
@@ -185,12 +176,12 @@ impl FieldElement2625x4 {
     pub fn split(&self) -> [FieldElement51; 4] {
         let mut out = [FieldElement51::zero(); 4];
         for i in 0..5 {
-            let a_2i   = self.0[i].extract(0) as u64; //
-            let b_2i   = self.0[i].extract(1) as u64; //
+            let a_2i = self.0[i].extract(0) as u64; //
+            let b_2i = self.0[i].extract(1) as u64; //
             let a_2i_1 = self.0[i].extract(2) as u64; // `.
             let b_2i_1 = self.0[i].extract(3) as u64; //  | pre-swapped to avoid
-            let c_2i   = self.0[i].extract(4) as u64; //  | a cross lane shuffle
-            let d_2i   = self.0[i].extract(5) as u64; // .'
+            let c_2i = self.0[i].extract(4) as u64; //  | a cross lane shuffle
+            let d_2i = self.0[i].extract(5) as u64; // .'
             let c_2i_1 = self.0[i].extract(6) as u64; //
             let d_2i_1 = self.0[i].extract(7) as u64; //
 
@@ -276,37 +267,27 @@ impl FieldElement2625x4 {
                 // which does not require a shuffle immediate but *is* lowered
                 // to immediate shuffles anyways).
                 match control {
-                    Lanes::C => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), C_LANES as i32).into_bits()
-                    }
-                    Lanes::D => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), D_LANES as i32).into_bits()
-                    }
+                    Lanes::C => _mm256_blend_epi32(x.into_bits(), y.into_bits(), C_LANES as i32).into_bits(),
+                    Lanes::D => _mm256_blend_epi32(x.into_bits(), y.into_bits(), D_LANES as i32).into_bits(),
                     Lanes::AD => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | D_LANES) as i32)
-                            .into_bits()
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | D_LANES) as i32).into_bits()
                     }
                     Lanes::AB => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | B_LANES) as i32)
-                            .into_bits()
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | B_LANES) as i32).into_bits()
                     }
                     Lanes::AC => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | C_LANES) as i32)
-                            .into_bits()
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | C_LANES) as i32).into_bits()
                     }
                     Lanes::CD => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (C_LANES | D_LANES) as i32)
-                            .into_bits()
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (C_LANES | D_LANES) as i32).into_bits()
                     }
                     Lanes::BC => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (B_LANES | C_LANES) as i32)
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (B_LANES | C_LANES) as i32).into_bits()
+                    }
+                    Lanes::ABCD => {
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | B_LANES | C_LANES | D_LANES) as i32)
                             .into_bits()
                     }
-                    Lanes::ABCD => _mm256_blend_epi32(
-                        x.into_bits(),
-                        y.into_bits(),
-                        (A_LANES | B_LANES | C_LANES | D_LANES) as i32,
-                    ).into_bits(),
                 }
             }
         }
@@ -344,13 +325,13 @@ impl FieldElement2625x4 {
         let mut buf = [u32x8::splat(0); 5];
         let low_26_bits = (1 << 26) - 1;
         for i in 0..5 {
-            let a_2i   = (x0.0[i] & low_26_bits) as u32;
+            let a_2i = (x0.0[i] & low_26_bits) as u32;
             let a_2i_1 = (x0.0[i] >> 26) as u32;
-            let b_2i   = (x1.0[i] & low_26_bits) as u32;
+            let b_2i = (x1.0[i] & low_26_bits) as u32;
             let b_2i_1 = (x1.0[i] >> 26) as u32;
-            let c_2i   = (x2.0[i] & low_26_bits) as u32;
+            let c_2i = (x2.0[i] & low_26_bits) as u32;
             let c_2i_1 = (x2.0[i] >> 26) as u32;
-            let d_2i   = (x3.0[i] & low_26_bits) as u32;
+            let d_2i = (x3.0[i] & low_26_bits) as u32;
             let d_2i_1 = (x3.0[i] >> 26) as u32;
 
             buf[i] = u32x8::new(a_2i, b_2i, a_2i_1, b_2i_1, c_2i, d_2i, c_2i_1, d_2i_1);
@@ -432,8 +413,7 @@ impl FieldElement2625x4 {
         // The carryouts are bounded by 2^(32 - 25) = 2^7.
         let rotated_carryout = |v: u32x8| -> u32x8 {
             unsafe {
-                use core::arch::x86_64::_mm256_srlv_epi32;
-                use core::arch::x86_64::_mm256_shuffle_epi32;
+                use core::arch::x86_64::{_mm256_shuffle_epi32, _mm256_srlv_epi32};
 
                 let c = _mm256_srlv_epi32(v.into_bits(), shifts.into_bits());
                 _mm256_shuffle_epi32(c, 0b01_00_11_10).into_bits()
@@ -479,8 +459,7 @@ impl FieldElement2625x4 {
         v[4] = (v[4] & masks) + combine(c76, c98);
 
         let c9_19: u32x8 = unsafe {
-            use core::arch::x86_64::_mm256_mul_epu32;
-            use core::arch::x86_64::_mm256_shuffle_epi32;
+            use core::arch::x86_64::{_mm256_mul_epu32, _mm256_shuffle_epi32};
 
             // Need to rearrange c98, since vpmuludq uses the low
             // 32-bits of each 64-bit lane to compute the product:
@@ -539,13 +518,18 @@ impl FieldElement2625x4 {
         };
 
         // Perform two halves of the carry chain in parallel.
-        carry(&mut z, 0); carry(&mut z, 4);
-        carry(&mut z, 1); carry(&mut z, 5);
-        carry(&mut z, 2); carry(&mut z, 6);
-        carry(&mut z, 3); carry(&mut z, 7);
+        carry(&mut z, 0);
+        carry(&mut z, 4);
+        carry(&mut z, 1);
+        carry(&mut z, 5);
+        carry(&mut z, 2);
+        carry(&mut z, 6);
+        carry(&mut z, 3);
+        carry(&mut z, 7);
         // Since z[3] < 2^64, c < 2^(64-25) = 2^39,
         // so    z[4] < 2^26 + 2^39 < 2^39.0002
-        carry(&mut z, 4); carry(&mut z, 8);
+        carry(&mut z, 4);
+        carry(&mut z, 8);
         // Now z[4] < 2^26
         // and z[5] < 2^25 + 2^13.0002 < 2^25.0004 (good enough)
 
@@ -559,7 +543,7 @@ impl FieldElement2625x4 {
         let c = z[9] >> 25;
         z[9] = z[9] & LOW_25_BITS;
         let mut c0: u64x4 = c & LOW_26_BITS; // c0 < 2^26;
-        let mut c1: u64x4 = c >> 26;         // c1 < 2^(39-26) = 2^13;
+        let mut c1: u64x4 = c >> 26; // c1 < 2^(39-26) = 2^13;
 
         unsafe {
             use core::arch::x86_64::_mm256_mul_epu32;
@@ -618,31 +602,33 @@ impl FieldElement2625x4 {
         let (x6, x7) = unpack_pair(self.0[3]);
         let (x8, x9) = unpack_pair(self.0[4]);
 
-        let x0_2   = x0 << 1;
-        let x1_2   = x1 << 1;
-        let x2_2   = x2 << 1;
-        let x3_2   = x3 << 1;
-        let x4_2   = x4 << 1;
-        let x5_2   = x5 << 1;
-        let x6_2   = x6 << 1;
-        let x7_2   = x7 << 1;
+        let x0_2 = x0 << 1;
+        let x1_2 = x1 << 1;
+        let x2_2 = x2 << 1;
+        let x3_2 = x3 << 1;
+        let x4_2 = x4 << 1;
+        let x5_2 = x5 << 1;
+        let x6_2 = x6 << 1;
+        let x7_2 = x7 << 1;
 
-        let x5_19  = m_lo(v19, x5);
-        let x6_19  = m_lo(v19, x6);
-        let x7_19  = m_lo(v19, x7);
-        let x8_19  = m_lo(v19, x8);
-        let x9_19  = m_lo(v19, x9);
+        let x5_19 = m_lo(v19, x5);
+        let x6_19 = m_lo(v19, x6);
+        let x7_19 = m_lo(v19, x7);
+        let x8_19 = m_lo(v19, x8);
+        let x9_19 = m_lo(v19, x9);
 
-        let mut z0 = m(x0,  x0) + m(x2_2,x8_19) + m(x4_2,x6_19) + ((m(x1_2,x9_19) +  m(x3_2,x7_19) +    m(x5,x5_19)) << 1);
-        let mut z1 = m(x0_2,x1) + m(x3_2,x8_19) + m(x5_2,x6_19) +                  ((m(x2,x9_19)   +    m(x4,x7_19)) << 1);
-        let mut z2 = m(x0_2,x2) + m(x1_2,x1)    + m(x4_2,x8_19) + m(x6,x6_19)    + ((m(x3_2,x9_19) +  m(x5_2,x7_19)) << 1);
-        let mut z3 = m(x0_2,x3) + m(x1_2,x2)    + m(x5_2,x8_19) +                  ((m(x4,x9_19)   +    m(x6,x7_19)) << 1);
-        let mut z4 = m(x0_2,x4) + m(x1_2,x3_2)  + m(x2,  x2)    + m(x6_2,x8_19)  + ((m(x5_2,x9_19) +    m(x7,x7_19)) << 1);
-        let mut z5 = m(x0_2,x5) + m(x1_2,x4)    + m(x2_2,x3)    + m(x7_2,x8_19)                    +  ((m(x6,x9_19)) << 1);
-        let mut z6 = m(x0_2,x6) + m(x1_2,x5_2)  + m(x2_2,x4)    + m(x3_2,x3) + m(x8,x8_19)        + ((m(x7_2,x9_19)) << 1);
-        let mut z7 = m(x0_2,x7) + m(x1_2,x6)    + m(x2_2,x5)    + m(x3_2,x4)                      +   ((m(x8,x9_19)) << 1);
-        let mut z8 = m(x0_2,x8) + m(x1_2,x7_2)  + m(x2_2,x6)    + m(x3_2,x5_2) + m(x4,x4)         +   ((m(x9,x9_19)) << 1);
-        let mut z9 = m(x0_2,x9) + m(x1_2,x8)    + m(x2_2,x7)    + m(x3_2,x6) + m(x4_2,x5);
+        let mut z0 =
+            m(x0, x0) + m(x2_2, x8_19) + m(x4_2, x6_19) + ((m(x1_2, x9_19) + m(x3_2, x7_19) + m(x5, x5_19)) << 1);
+        let mut z1 = m(x0_2, x1) + m(x3_2, x8_19) + m(x5_2, x6_19) + ((m(x2, x9_19) + m(x4, x7_19)) << 1);
+        let mut z2 =
+            m(x0_2, x2) + m(x1_2, x1) + m(x4_2, x8_19) + m(x6, x6_19) + ((m(x3_2, x9_19) + m(x5_2, x7_19)) << 1);
+        let mut z3 = m(x0_2, x3) + m(x1_2, x2) + m(x5_2, x8_19) + ((m(x4, x9_19) + m(x6, x7_19)) << 1);
+        let mut z4 = m(x0_2, x4) + m(x1_2, x3_2) + m(x2, x2) + m(x6_2, x8_19) + ((m(x5_2, x9_19) + m(x7, x7_19)) << 1);
+        let mut z5 = m(x0_2, x5) + m(x1_2, x4) + m(x2_2, x3) + m(x7_2, x8_19) + ((m(x6, x9_19)) << 1);
+        let mut z6 = m(x0_2, x6) + m(x1_2, x5_2) + m(x2_2, x4) + m(x3_2, x3) + m(x8, x8_19) + ((m(x7_2, x9_19)) << 1);
+        let mut z7 = m(x0_2, x7) + m(x1_2, x6) + m(x2_2, x5) + m(x3_2, x4) + ((m(x8, x9_19)) << 1);
+        let mut z8 = m(x0_2, x8) + m(x1_2, x7_2) + m(x2_2, x6) + m(x3_2, x5_2) + m(x4, x4) + ((m(x9, x9_19)) << 1);
+        let mut z9 = m(x0_2, x9) + m(x1_2, x8) + m(x2_2, x7) + m(x3_2, x6) + m(x4_2, x5);
 
         // The biggest z_i is bounded as z_i < 249*2^(51 + 2*b);
         // if b < 1.5 we get z_i < 4485585228861014016.
@@ -709,7 +695,8 @@ impl Neg for FieldElement2625x4 {
             P_TIMES_16_HI - self.0[2],
             P_TIMES_16_HI - self.0[3],
             P_TIMES_16_HI - self.0[4],
-        ]).reduce()
+        ])
+        .reduce()
     }
 }
 
@@ -821,16 +808,106 @@ impl<'a, 'b> Mul<&'b FieldElement2625x4> for &'a FieldElement2625x4 {
         let x7_2 = x7 + x7;
         let x9_2 = x9 + x9;
 
-        let z0 = m(x0,y0) + m(x1_2,y9_19) + m(x2,y8_19) + m(x3_2,y7_19) + m(x4,y6_19) + m(x5_2,y5_19) + m(x6,y4_19) + m(x7_2,y3_19) + m(x8,y2_19) + m(x9_2,y1_19);
-        let z1 = m(x0,y1) +   m(x1,y0)    + m(x2,y9_19) +   m(x3,y8_19) + m(x4,y7_19) +   m(x5,y6_19) + m(x6,y5_19) +   m(x7,y4_19) + m(x8,y3_19) + m(x9,y2_19);
-        let z2 = m(x0,y2) + m(x1_2,y1)    + m(x2,y0)    + m(x3_2,y9_19) + m(x4,y8_19) + m(x5_2,y7_19) + m(x6,y6_19) + m(x7_2,y5_19) + m(x8,y4_19) + m(x9_2,y3_19);
-        let z3 = m(x0,y3) +   m(x1,y2)    + m(x2,y1)    +   m(x3,y0)    + m(x4,y9_19) +   m(x5,y8_19) + m(x6,y7_19) +   m(x7,y6_19) + m(x8,y5_19) + m(x9,y4_19);
-        let z4 = m(x0,y4) + m(x1_2,y3)    + m(x2,y2)    + m(x3_2,y1)    + m(x4,y0)    + m(x5_2,y9_19) + m(x6,y8_19) + m(x7_2,y7_19) + m(x8,y6_19) + m(x9_2,y5_19);
-        let z5 = m(x0,y5) +   m(x1,y4)    + m(x2,y3)    +   m(x3,y2)    + m(x4,y1)    +   m(x5,y0)    + m(x6,y9_19) +   m(x7,y8_19) + m(x8,y7_19) + m(x9,y6_19);
-        let z6 = m(x0,y6) + m(x1_2,y5)    + m(x2,y4)    + m(x3_2,y3)    + m(x4,y2)    + m(x5_2,y1)    + m(x6,y0)    + m(x7_2,y9_19) + m(x8,y8_19) + m(x9_2,y7_19);
-        let z7 = m(x0,y7) +   m(x1,y6)    + m(x2,y5)    +   m(x3,y4)    + m(x4,y3)    +   m(x5,y2)    + m(x6,y1)    +   m(x7,y0)    + m(x8,y9_19) + m(x9,y8_19);
-        let z8 = m(x0,y8) + m(x1_2,y7)    + m(x2,y6)    + m(x3_2,y5)    + m(x4,y4)    + m(x5_2,y3)    + m(x6,y2)    + m(x7_2,y1)    + m(x8,y0)    + m(x9_2,y9_19);
-        let z9 = m(x0,y9) +   m(x1,y8)    + m(x2,y7)    +   m(x3,y6)    + m(x4,y5)    +   m(x5,y4)    + m(x6,y3)    +   m(x7,y2)    + m(x8,y1)    + m(x9,y0);
+        let z0 = m(x0, y0)
+            + m(x1_2, y9_19)
+            + m(x2, y8_19)
+            + m(x3_2, y7_19)
+            + m(x4, y6_19)
+            + m(x5_2, y5_19)
+            + m(x6, y4_19)
+            + m(x7_2, y3_19)
+            + m(x8, y2_19)
+            + m(x9_2, y1_19);
+        let z1 = m(x0, y1)
+            + m(x1, y0)
+            + m(x2, y9_19)
+            + m(x3, y8_19)
+            + m(x4, y7_19)
+            + m(x5, y6_19)
+            + m(x6, y5_19)
+            + m(x7, y4_19)
+            + m(x8, y3_19)
+            + m(x9, y2_19);
+        let z2 = m(x0, y2)
+            + m(x1_2, y1)
+            + m(x2, y0)
+            + m(x3_2, y9_19)
+            + m(x4, y8_19)
+            + m(x5_2, y7_19)
+            + m(x6, y6_19)
+            + m(x7_2, y5_19)
+            + m(x8, y4_19)
+            + m(x9_2, y3_19);
+        let z3 = m(x0, y3)
+            + m(x1, y2)
+            + m(x2, y1)
+            + m(x3, y0)
+            + m(x4, y9_19)
+            + m(x5, y8_19)
+            + m(x6, y7_19)
+            + m(x7, y6_19)
+            + m(x8, y5_19)
+            + m(x9, y4_19);
+        let z4 = m(x0, y4)
+            + m(x1_2, y3)
+            + m(x2, y2)
+            + m(x3_2, y1)
+            + m(x4, y0)
+            + m(x5_2, y9_19)
+            + m(x6, y8_19)
+            + m(x7_2, y7_19)
+            + m(x8, y6_19)
+            + m(x9_2, y5_19);
+        let z5 = m(x0, y5)
+            + m(x1, y4)
+            + m(x2, y3)
+            + m(x3, y2)
+            + m(x4, y1)
+            + m(x5, y0)
+            + m(x6, y9_19)
+            + m(x7, y8_19)
+            + m(x8, y7_19)
+            + m(x9, y6_19);
+        let z6 = m(x0, y6)
+            + m(x1_2, y5)
+            + m(x2, y4)
+            + m(x3_2, y3)
+            + m(x4, y2)
+            + m(x5_2, y1)
+            + m(x6, y0)
+            + m(x7_2, y9_19)
+            + m(x8, y8_19)
+            + m(x9_2, y7_19);
+        let z7 = m(x0, y7)
+            + m(x1, y6)
+            + m(x2, y5)
+            + m(x3, y4)
+            + m(x4, y3)
+            + m(x5, y2)
+            + m(x6, y1)
+            + m(x7, y0)
+            + m(x8, y9_19)
+            + m(x9, y8_19);
+        let z8 = m(x0, y8)
+            + m(x1_2, y7)
+            + m(x2, y6)
+            + m(x3_2, y5)
+            + m(x4, y4)
+            + m(x5_2, y3)
+            + m(x6, y2)
+            + m(x7_2, y1)
+            + m(x8, y0)
+            + m(x9_2, y9_19);
+        let z9 = m(x0, y9)
+            + m(x1, y8)
+            + m(x2, y7)
+            + m(x3, y6)
+            + m(x4, y5)
+            + m(x5, y4)
+            + m(x6, y3)
+            + m(x7, y2)
+            + m(x8, y1)
+            + m(x9, y0);
 
         // The bounds on z[i] are the same as in the serial 32-bit code
         // and the comment below is copied from there:
@@ -882,7 +959,7 @@ mod test {
     fn scale_by_curve_constants() {
         let mut x = FieldElement2625x4::splat(&FieldElement51::one());
 
-        x = x * (121666, 121666, 2*121666, 2*121665);
+        x = x * (121666, 121666, 2 * 121666, 2 * 121665);
 
         let xs = x.split();
         assert_eq!(xs[0], FieldElement51([121666, 0, 0, 0, 0]));

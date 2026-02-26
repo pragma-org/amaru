@@ -1,11 +1,12 @@
 #[macro_use]
 extern crate criterion;
 use criterion::Criterion;
-use kes_summed_ed25519::kes::{
-    Sum1CompactKes, Sum2CompactKes, Sum3CompactKes, Sum4CompactKes, Sum5CompactKes, Sum6CompactKes,
-    Sum7CompactKes,
+use kes_summed_ed25519::{
+    kes::{
+        Sum1CompactKes, Sum2CompactKes, Sum3CompactKes, Sum4CompactKes, Sum5CompactKes, Sum6CompactKes, Sum7CompactKes,
+    },
+    traits::{KesCompactSig, KesSk},
 };
-use kes_summed_ed25519::traits::{KesCompactSig, KesSk};
 
 // Implementing benches with macros, because the closure of benched function creates problems with lifetime of KES
 macro_rules! bench_keygen {
@@ -25,19 +26,16 @@ macro_rules! bench_keygen {
 macro_rules! update_with_depth {
     ($name:ident, $kes:ident, $depth:expr, $nb_update:expr) => {
         fn $name(c: &mut Criterion) {
-            c.bench_function(
-                format!("KeyGen and Update with depth: {}", $depth).as_str(),
-                move |b| {
-                    b.iter(|| {
-                        let mut seed = [0u8; 32];
-                        let mut key_buffer = [0u8; $kes::SIZE + 4];
-                        let (mut sk_orig, _) = $kes::keygen(&mut key_buffer, &mut seed);
-                        for _ in 0..($nb_update - 1) {
-                            sk_orig.update().unwrap();
-                        }
-                    })
-                },
-            );
+            c.bench_function(format!("KeyGen and Update with depth: {}", $depth).as_str(), move |b| {
+                b.iter(|| {
+                    let mut seed = [0u8; 32];
+                    let mut key_buffer = [0u8; $kes::SIZE + 4];
+                    let (mut sk_orig, _) = $kes::keygen(&mut key_buffer, &mut seed);
+                    for _ in 0..($nb_update - 1) {
+                        sk_orig.update().unwrap();
+                    }
+                })
+            });
         }
     };
 }
@@ -89,13 +87,6 @@ criterion_group!(
     keygen_depth7,
 );
 
-criterion_group!(
-    keyopts_benches,
-    sign_depth5,
-    verify_depth7,
-    update2_depth2,
-    update4_depth4,
-    update16_depth7,
-);
+criterion_group!(keyopts_benches, sign_depth5, verify_depth7, update2_depth2, update4_depth4, update16_depth7,);
 
 criterion_main!(keygen_benches, keyopts_benches);

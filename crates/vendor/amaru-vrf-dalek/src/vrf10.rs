@@ -1,19 +1,16 @@
 //! Implementation of version 10 of the [standard draft](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-10).
+use std::{fmt::Debug, iter, ops::Neg, ptr};
+
 use curve25519_dalek::{
     constants::ED25519_BASEPOINT_POINT,
     edwards::{CompressedEdwardsY, EdwardsPoint},
     scalar::Scalar,
     traits::VartimeMultiscalarMul,
 };
-
-use super::constants::*;
-use super::errors::VrfError;
-
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha512};
-use std::fmt::Debug;
-use std::ops::Neg;
-use std::{iter, ptr};
+
+use super::{constants::*, errors::VrfError};
 
 /// Byte size of the proof
 pub const PROOF_SIZE: usize = 80;
@@ -155,9 +152,7 @@ impl VrfProof10 {
 
         while counter < 64 {
             hash_input[2 + PUBLIC_KEY_SIZE + alpha_string.len()] = counter.to_be_bytes()[0];
-            if let Some(result) =
-                CompressedEdwardsY::from_slice(&Sha512::digest(&hash_input)[..32]).decompress()
-            {
+            if let Some(result) = CompressedEdwardsY::from_slice(&Sha512::digest(&hash_input)[..32]).decompress() {
                 return result.mul_by_cofactor();
             };
 
@@ -168,10 +163,7 @@ impl VrfProof10 {
     }
 
     /// Nonce generation function, following the 10 specification.
-    pub(crate) fn nonce_generation10(
-        secret_extension: [u8; 32],
-        compressed_h: CompressedEdwardsY,
-    ) -> Scalar {
+    pub(crate) fn nonce_generation10(secret_extension: [u8; 32], compressed_h: CompressedEdwardsY) -> Scalar {
         let mut nonce_gen_input = [0u8; 64];
         let h_bytes = compressed_h.to_bytes();
 
@@ -208,9 +200,7 @@ impl VrfProof10 {
     /// Generate a `VrfProof` from an array of bytes with the correct size. This function does not
     /// check the validity of the proof.
     pub fn from_bytes(bytes: &[u8; PROOF_SIZE]) -> Result<Self, VrfError> {
-        let gamma = CompressedEdwardsY::from_slice(&bytes[..32])
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let gamma = CompressedEdwardsY::from_slice(&bytes[..32]).decompress().ok_or(VrfError::DecompressionFailed)?;
 
         let mut challenge_bytes = [0u8; 32];
         challenge_bytes[..16].copy_from_slice(&bytes[32..48]);
@@ -218,14 +208,9 @@ impl VrfProof10 {
 
         let mut response_bytes = [0u8; 32];
         response_bytes.copy_from_slice(&bytes[48..]);
-        let response =
-            Scalar::from_canonical_bytes(response_bytes).ok_or(VrfError::DecompressionFailed)?;
+        let response = Scalar::from_canonical_bytes(response_bytes).ok_or(VrfError::DecompressionFailed)?;
 
-        Ok(Self {
-            gamma,
-            challenge,
-            response,
-        })
+        Ok(Self { gamma, challenge, response })
     }
 
     /// Convert the proof into its byte representation. As specified in the 10 specification, the
@@ -262,11 +247,7 @@ impl VrfProof10 {
     /// - Compute `Gamma = secret_scalar *  H`
     /// - Generate a proof of discrete logarithm equality between `PK` and `Gamma` with
     ///   bases `generator` and `H` respectively.
-    pub fn generate(
-        public_key: &PublicKey10,
-        secret_key: &SecretKey10,
-        alpha_string: &[u8],
-    ) -> Self {
+    pub fn generate(public_key: &PublicKey10, secret_key: &SecretKey10, alpha_string: &[u8]) -> Self {
         let (secret_scalar, secret_extension) = secret_key.extend();
 
         let h = Self::hash_to_curve(public_key, alpha_string);
@@ -280,41 +261,26 @@ impl VrfProof10 {
         let announcement_h = k * h;
 
         // Now we compute the challenge
-        let challenge =
-            Self::compute_challenge(&compressed_h, &gamma, &announcement_base, &announcement_h);
+        let challenge = Self::compute_challenge(&compressed_h, &gamma, &announcement_base, &announcement_h);
 
         // And finally the response of the sigma protocol
         let response = k + challenge * secret_scalar;
-        Self {
-            gamma,
-            challenge,
-            response,
-        }
+        Self { gamma, challenge, response }
     }
 
     /// Verify VRF function, following the specification.
-    pub fn verify(
-        &self,
-        public_key: &PublicKey10,
-        alpha_string: &[u8],
-    ) -> Result<[u8; OUTPUT_SIZE], VrfError> {
+    pub fn verify(&self, public_key: &PublicKey10, alpha_string: &[u8]) -> Result<[u8; OUTPUT_SIZE], VrfError> {
         let h = Self::hash_to_curve(public_key, alpha_string);
         let compressed_h = h.compress();
 
-        let decompressed_pk = public_key
-            .0
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let decompressed_pk = public_key.0.decompress().ok_or(VrfError::DecompressionFailed)?;
 
         if decompressed_pk.is_small_order() {
             return Err(VrfError::PkSmallOrder);
         }
 
-        let U = EdwardsPoint::vartime_double_scalar_mul_basepoint(
-            &self.challenge.neg(),
-            &decompressed_pk,
-            &self.response,
-        );
+        let U =
+            EdwardsPoint::vartime_double_scalar_mul_basepoint(&self.challenge.neg(), &decompressed_pk, &self.response);
         let V = EdwardsPoint::vartime_multiscalar_mul(
             iter::once(self.response).chain(iter::once(self.challenge.neg())),
             iter::once(h).chain(iter::once(self.gamma)),
@@ -389,12 +355,7 @@ mod test {
             );
 
             let output = proof.verify(&pk, &alpha_string).unwrap();
-            assert_eq!(
-                output[..],
-                hex::decode(vector[3]).unwrap(),
-                "Output comparison failed at iteration {}",
-                index
-            );
+            assert_eq!(output[..], hex::decode(vector[3]).unwrap(), "Output comparison failed at iteration {}", index);
         }
     }
 }

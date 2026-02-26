@@ -15,9 +15,8 @@
 
 use core::borrow::Borrow;
 
-use subtle;
-
 use scalar::Scalar;
+use subtle;
 
 // ------------------------------------------------------------------------
 // Public Traits
@@ -234,11 +233,7 @@ pub trait VartimeMultiscalarMul {
         J::Item: Borrow<Self::Point>,
         Self::Point: Clone,
     {
-        Self::optional_multiscalar_mul(
-            scalars,
-            points.into_iter().map(|P| Some(P.borrow().clone())),
-        )
-        .unwrap()
+        Self::optional_multiscalar_mul(scalars, points.into_iter().map(|P| Some(P.borrow().clone()))).unwrap()
     }
 }
 
@@ -300,12 +295,7 @@ pub trait VartimePrecomputedMultiscalarMul: Sized {
     {
         use core::iter;
 
-        Self::vartime_mixed_multiscalar_mul(
-            self,
-            static_scalars,
-            iter::empty::<Scalar>(),
-            iter::empty::<Self::Point>(),
-        )
+        Self::vartime_mixed_multiscalar_mul(self, static_scalars, iter::empty::<Scalar>(), iter::empty::<Self::Point>())
     }
 
     /// Given `static_scalars`, an iterator of public scalars

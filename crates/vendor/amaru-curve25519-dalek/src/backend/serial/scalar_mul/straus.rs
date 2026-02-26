@@ -16,12 +16,10 @@
 use core::borrow::Borrow;
 
 use edwards::EdwardsPoint;
-use scalar::Scalar;
-use traits::MultiscalarMul;
-use traits::VartimeMultiscalarMul;
-
 #[allow(unused_imports)]
 use prelude::*;
+use scalar::Scalar;
+use traits::{MultiscalarMul, VartimeMultiscalarMul};
 
 /// Perform multiscalar multiplication by the interleaved window
 /// method, also known as Straus' method (since it was apparently
@@ -107,24 +105,18 @@ impl MultiscalarMul for Straus {
         J: IntoIterator,
         J::Item: Borrow<EdwardsPoint>,
     {
+        use backend::serial::curve_models::ProjectiveNielsPoint;
+        use traits::Identity;
+        use window::LookupTable;
         use zeroize::Zeroizing;
 
-        use backend::serial::curve_models::ProjectiveNielsPoint;
-        use window::LookupTable;
-        use traits::Identity;
-
-        let lookup_tables: Vec<_> = points
-            .into_iter()
-            .map(|point| LookupTable::<ProjectiveNielsPoint>::from(point.borrow()))
-            .collect();
+        let lookup_tables: Vec<_> =
+            points.into_iter().map(|point| LookupTable::<ProjectiveNielsPoint>::from(point.borrow())).collect();
 
         // This puts the scalar digits into a heap-allocated Vec.
         // To ensure that these are erased, pass ownership of the Vec into a
         // Zeroizing wrapper.
-        let scalar_digits_vec: Vec<_> = scalars
-            .into_iter()
-            .map(|s| s.borrow().to_radix_16())
-            .collect();
+        let scalar_digits_vec: Vec<_> = scalars.into_iter().map(|s| s.borrow().to_radix_16()).collect();
         let scalar_digits = Zeroizing::new(scalar_digits_vec);
 
         let mut Q = EdwardsPoint::identity();
@@ -162,13 +154,10 @@ impl VartimeMultiscalarMul for Straus {
         J: IntoIterator<Item = Option<EdwardsPoint>>,
     {
         use backend::serial::curve_models::{CompletedPoint, ProjectiveNielsPoint, ProjectivePoint};
-        use window::NafLookupTable5;
         use traits::Identity;
+        use window::NafLookupTable5;
 
-        let nafs: Vec<_> = scalars
-            .into_iter()
-            .map(|c| c.borrow().non_adjacent_form(5))
-            .collect();
+        let nafs: Vec<_> = scalars.into_iter().map(|c| c.borrow().non_adjacent_form(5)).collect();
 
         let lookup_tables = points
             .into_iter()

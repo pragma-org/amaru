@@ -8,27 +8,22 @@
 //! one includes the (two) announcements and the response. This allows for an equality check,
 //! rather than a computation, of the announcements, which in turn allows for
 //! batch verification.
-use super::vrf10::SUITE_TEMP;
+use std::{iter, ops::Neg};
 
+#[cfg(feature = "batch_deterministic")]
+use blake3;
 use curve25519_dalek::{
     constants::ED25519_BASEPOINT_POINT,
     edwards::{CompressedEdwardsY, EdwardsPoint},
     scalar::Scalar,
-    traits::VartimeMultiscalarMul,
+    traits::{IsIdentity, VartimeMultiscalarMul},
 };
-
-use super::constants::*;
-use super::errors::VrfError;
-
-use crate::vrf10::{PublicKey10, SecretKey10, VrfProof10};
-#[cfg(feature = "batch_deterministic")]
-use blake3;
-use curve25519_dalek::traits::IsIdentity;
 #[cfg(not(feature = "batch_deterministic"))]
 use rand_core::{CryptoRng, OsRng, RngCore};
 use sha2::{Digest, Sha512};
-use std::iter;
-use std::ops::Neg;
+
+use super::{constants::*, errors::VrfError, vrf10::SUITE_TEMP};
+use crate::vrf10::{PublicKey10, SecretKey10, VrfProof10};
 
 /// Byte size of the proof
 pub const PROOF_SIZE: usize = 128;
@@ -66,33 +61,23 @@ impl VrfProof10BatchCompat {
     /// Generate a `VrfProof` from an array of bytes with the correct size. This function does not
     /// check the validity of the proof.
     pub fn from_bytes(bytes: &[u8; PROOF_SIZE]) -> Result<Self, VrfError> {
-        let gamma = CompressedEdwardsY::from_slice(&bytes[..32])
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let gamma = CompressedEdwardsY::from_slice(&bytes[..32]).decompress().ok_or(VrfError::DecompressionFailed)?;
 
         let mut u_point_bytes = [0u8; 32];
         u_point_bytes[..32].copy_from_slice(&bytes[32..64]);
-        let u_point = CompressedEdwardsY::from_slice(&u_point_bytes[..32])
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let u_point =
+            CompressedEdwardsY::from_slice(&u_point_bytes[..32]).decompress().ok_or(VrfError::DecompressionFailed)?;
 
         let mut v_point_bytes = [0u8; 32];
         v_point_bytes[..32].copy_from_slice(&bytes[64..96]);
-        let v_point = CompressedEdwardsY::from_slice(&v_point_bytes[..32])
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let v_point =
+            CompressedEdwardsY::from_slice(&v_point_bytes[..32]).decompress().ok_or(VrfError::DecompressionFailed)?;
 
         let mut response_bytes = [0u8; 32];
         response_bytes.copy_from_slice(&bytes[96..]);
-        let response =
-            Scalar::from_canonical_bytes(response_bytes).ok_or(VrfError::DecompressionFailed)?;
+        let response = Scalar::from_canonical_bytes(response_bytes).ok_or(VrfError::DecompressionFailed)?;
 
-        Ok(Self {
-            gamma,
-            u_point,
-            v_point,
-            response,
-        })
+        Ok(Self { gamma, u_point, v_point, response })
     }
 
     /// Convert the proof into its byte representation.
@@ -126,11 +111,7 @@ impl VrfProof10BatchCompat {
     /// - Compute `Gamma = secret_scalar *  H`
     /// - Generate a proof of discrete logarithm equality between `PK` and `Gamma` with
     ///   bases `generator` and `H` respectively.
-    pub fn generate(
-        public_key: &PublicKey10,
-        secret_key: &SecretKey10,
-        alpha_string: &[u8],
-    ) -> Self {
+    pub fn generate(public_key: &PublicKey10, secret_key: &SecretKey10, alpha_string: &[u8]) -> Self {
         let (secret_scalar, secret_extension) = secret_key.extend();
 
         let h = Self::hash_to_curve(public_key, alpha_string);
@@ -144,45 +125,27 @@ impl VrfProof10BatchCompat {
         let announcement_h = k * h;
 
         // Now we compute the challenge
-        let challenge =
-            Self::compute_challenge(&compressed_h, &gamma, &announcement_base, &announcement_h);
+        let challenge = Self::compute_challenge(&compressed_h, &gamma, &announcement_base, &announcement_h);
 
         // And finally the response of the sigma protocol
         let response = k + challenge * secret_scalar;
-        Self {
-            gamma,
-            u_point: announcement_base,
-            v_point: announcement_h,
-            response,
-        }
+        Self { gamma, u_point: announcement_base, v_point: announcement_h, response }
     }
 
     /// Verify VRF function, following the spec.
-    pub fn verify(
-        &self,
-        public_key: &PublicKey10,
-        alpha_string: &[u8],
-    ) -> Result<[u8; OUTPUT_SIZE], VrfError> {
+    pub fn verify(&self, public_key: &PublicKey10, alpha_string: &[u8]) -> Result<[u8; OUTPUT_SIZE], VrfError> {
         let h = Self::hash_to_curve(public_key, alpha_string);
         let compressed_h = h.compress();
 
-        let decompressed_pk = public_key
-            .0
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let decompressed_pk = public_key.0.decompress().ok_or(VrfError::DecompressionFailed)?;
 
         if decompressed_pk.is_small_order() {
             return Err(VrfError::PkSmallOrder);
         }
 
-        let challenge =
-            Self::compute_challenge(&compressed_h, &self.gamma, &self.u_point, &self.v_point);
+        let challenge = Self::compute_challenge(&compressed_h, &self.gamma, &self.u_point, &self.v_point);
 
-        let U = EdwardsPoint::vartime_double_scalar_mul_basepoint(
-            &challenge.neg(),
-            &decompressed_pk,
-            &self.response,
-        );
+        let U = EdwardsPoint::vartime_double_scalar_mul_basepoint(&challenge.neg(), &decompressed_pk, &self.response);
         let V = EdwardsPoint::vartime_multiscalar_mul(
             iter::once(self.response).chain(iter::once(challenge.neg())),
             iter::once(h).chain(iter::once(self.gamma)),
@@ -233,11 +196,7 @@ impl BatchVerifier {
         if item.output != item.proof.proof_to_hash() {
             return Err(VrfError::VrfOutputInvalid);
         }
-        let decompressed_pk = item
-            .key
-            .0
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let decompressed_pk = item.key.0.decompress().ok_or(VrfError::DecompressionFailed)?;
 
         if decompressed_pk.is_small_order() {
             return Err(VrfError::PkSmallOrder);
@@ -363,11 +322,7 @@ impl BatchVerifier {
         if item.output != item.proof.proof_to_hash() {
             return Err(VrfError::VrfOutputInvalid);
         }
-        let decompressed_pk = item
-            .key
-            .0
-            .decompress()
-            .ok_or(VrfError::DecompressionFailed)?;
+        let decompressed_pk = item.key.0.decompress().ok_or(VrfError::DecompressionFailed)?;
 
         if decompressed_pk.is_small_order() {
             return Err(VrfError::PkSmallOrder);
@@ -454,9 +409,10 @@ pub struct BatchItem {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use rand_chacha::ChaCha20Rng;
     use rand_core::{RngCore, SeedableRng};
+
+    use super::*;
 
     //////////////////////////////////////////////////////////////////////////////////////////////////
     // VRF test vector from standard                                                                //
@@ -512,12 +468,7 @@ mod test {
             );
 
             let output = proof.verify(&pk, &alpha_string).unwrap();
-            assert_eq!(
-                output[..],
-                hex::decode(vector[3]).unwrap(),
-                "Output comparison failed at iteration {}",
-                index
-            );
+            assert_eq!(output[..], hex::decode(vector[3]).unwrap(), "Output comparison failed at iteration {}", index);
         }
     }
 

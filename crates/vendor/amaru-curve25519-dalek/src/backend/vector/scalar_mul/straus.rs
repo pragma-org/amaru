@@ -13,16 +13,14 @@
 
 use core::borrow::Borrow;
 
-use zeroize::Zeroizing;
-
 use backend::vector::{CachedPoint, ExtendedPoint};
 use edwards::EdwardsPoint;
-use scalar::Scalar;
-use window::{LookupTable, NafLookupTable5};
-use traits::{Identity, MultiscalarMul, VartimeMultiscalarMul};
-
 #[allow(unused_imports)]
 use prelude::*;
+use scalar::Scalar;
+use traits::{Identity, MultiscalarMul, VartimeMultiscalarMul};
+use window::{LookupTable, NafLookupTable5};
+use zeroize::Zeroizing;
 
 /// Multiscalar multiplication using interleaved window / Straus'
 /// method.  See the `Straus` struct in the serial backend for more
@@ -46,15 +44,10 @@ impl MultiscalarMul for Straus {
     {
         // Construct a lookup table of [P,2P,3P,4P,5P,6P,7P,8P]
         // for each input point P
-        let lookup_tables: Vec<_> = points
-            .into_iter()
-            .map(|point| LookupTable::<CachedPoint>::from(point.borrow()))
-            .collect();
+        let lookup_tables: Vec<_> =
+            points.into_iter().map(|point| LookupTable::<CachedPoint>::from(point.borrow())).collect();
 
-        let scalar_digits_vec: Vec<_> = scalars
-            .into_iter()
-            .map(|s| s.borrow().to_radix_16())
-            .collect();
+        let scalar_digits_vec: Vec<_> = scalars.into_iter().map(|s| s.borrow().to_radix_16()).collect();
         // Pass ownership to a `Zeroizing` wrapper
         let scalar_digits = Zeroizing::new(scalar_digits_vec);
 
@@ -80,10 +73,7 @@ impl VartimeMultiscalarMul for Straus {
         I::Item: Borrow<Scalar>,
         J: IntoIterator<Item = Option<EdwardsPoint>>,
     {
-        let nafs: Vec<_> = scalars
-            .into_iter()
-            .map(|c| c.borrow().non_adjacent_form(5))
-            .collect();
+        let nafs: Vec<_> = scalars.into_iter().map(|c| c.borrow().non_adjacent_form(5)).collect();
         let lookup_tables: Vec<_> = points
             .into_iter()
             .map(|P_opt| P_opt.map(|P| NafLookupTable5::<CachedPoint>::from(&P)))

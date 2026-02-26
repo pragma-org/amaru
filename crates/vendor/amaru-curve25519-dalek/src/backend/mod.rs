@@ -49,17 +49,11 @@ compile_error!(
 pub mod serial;
 
 #[cfg(any(
-    all(
-        feature = "simd_backend",
-        any(target_feature = "avx2", target_feature = "avx512ifma")
-    ),
+    all(feature = "simd_backend", any(target_feature = "avx2", target_feature = "avx512ifma")),
     all(feature = "nightly")
 ))]
 #[cfg_attr(
     feature = "nightly",
-    doc(cfg(any(all(
-        feature = "simd_backend",
-        any(target_feature = "avx2", target_feature = "avx512ifma")
-    ))))
+    doc(cfg(any(all(feature = "simd_backend", any(target_feature = "avx2", target_feature = "avx512ifma")))))
 )]
 pub mod vector;

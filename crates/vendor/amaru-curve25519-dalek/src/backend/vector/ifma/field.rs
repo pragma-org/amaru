@@ -12,9 +12,9 @@
 #![allow(non_snake_case)]
 
 use core::ops::{Add, Mul, Neg};
-use packed_simd::{u64x4, IntoBits};
 
 use backend::serial::u64::field::FieldElement51;
+use packed_simd::{u64x4, IntoBits};
 
 /// A wrapper around `vpmadd52luq` that works on `u64x4`.
 #[inline(always)]
@@ -103,12 +103,7 @@ impl F51x4Unreduced {
         F51x4Unreduced([u64x4::splat(0); 5])
     }
 
-    pub fn new(
-        x0: &FieldElement51,
-        x1: &FieldElement51,
-        x2: &FieldElement51,
-        x3: &FieldElement51,
-    ) -> F51x4Unreduced {
+    pub fn new(x0: &FieldElement51, x1: &FieldElement51, x2: &FieldElement51, x3: &FieldElement51) -> F51x4Unreduced {
         F51x4Unreduced([
             u64x4::new(x0.0[0], x1.0[0], x2.0[0], x3.0[0]),
             u64x4::new(x0.0[1], x1.0[1], x2.0[1], x3.0[1]),
@@ -121,34 +116,10 @@ impl F51x4Unreduced {
     pub fn split(&self) -> [FieldElement51; 4] {
         let x = &self.0;
         [
-            FieldElement51([
-                x[0].extract(0),
-                x[1].extract(0),
-                x[2].extract(0),
-                x[3].extract(0),
-                x[4].extract(0),
-            ]),
-            FieldElement51([
-                x[0].extract(1),
-                x[1].extract(1),
-                x[2].extract(1),
-                x[3].extract(1),
-                x[4].extract(1),
-            ]),
-            FieldElement51([
-                x[0].extract(2),
-                x[1].extract(2),
-                x[2].extract(2),
-                x[3].extract(2),
-                x[4].extract(2),
-            ]),
-            FieldElement51([
-                x[0].extract(3),
-                x[1].extract(3),
-                x[2].extract(3),
-                x[3].extract(3),
-                x[4].extract(3),
-            ]),
+            FieldElement51([x[0].extract(0), x[1].extract(0), x[2].extract(0), x[3].extract(0), x[4].extract(0)]),
+            FieldElement51([x[0].extract(1), x[1].extract(1), x[2].extract(1), x[3].extract(1), x[4].extract(1)]),
+            FieldElement51([x[0].extract(2), x[1].extract(2), x[2].extract(2), x[3].extract(2), x[4].extract(2)]),
+            FieldElement51([x[0].extract(3), x[1].extract(3), x[2].extract(3), x[3].extract(3), x[4].extract(3)]),
         ]
     }
 
@@ -166,13 +137,7 @@ impl F51x4Unreduced {
     pub fn negate_lazy(&self) -> F51x4Unreduced {
         let lo = u64x4::splat(36028797018963664u64);
         let hi = u64x4::splat(36028797018963952u64);
-        F51x4Unreduced([
-            lo - self.0[0],
-            hi - self.0[1],
-            hi - self.0[2],
-            hi - self.0[3],
-            hi - self.0[4],
-        ])
+        F51x4Unreduced([lo - self.0[0], hi - self.0[1], hi - self.0[2], hi - self.0[3], hi - self.0[4]])
     }
 
     #[inline]
@@ -206,8 +171,7 @@ impl Neg for F51x4Reduced {
     }
 }
 
-use subtle::Choice;
-use subtle::ConditionallySelectable;
+use subtle::{Choice, ConditionallySelectable};
 
 impl ConditionallySelectable for F51x4Reduced {
     #[inline]
@@ -425,12 +389,7 @@ impl<'a> Mul<(u32, u32, u32, u32)> for &'a F51x4Reduced {
     fn mul(self, scalars: (u32, u32, u32, u32)) -> F51x4Unreduced {
         unsafe {
             let x = &self.0;
-            let y = u64x4::new(
-                scalars.0 as u64,
-                scalars.1 as u64,
-                scalars.2 as u64,
-                scalars.3 as u64,
-            );
+            let y = u64x4::new(scalars.0 as u64, scalars.1 as u64, scalars.2 as u64, scalars.3 as u64);
             let r19 = u64x4::splat(19);
 
             let mut z0_1 = u64x4::splat(0);
@@ -459,13 +418,7 @@ impl<'a> Mul<(u32, u32, u32, u32)> for &'a F51x4Reduced {
             z1_2 = madd52hi(z1_2, y, x[0]);
             z0_1 = madd52lo(z0_1, z5_2 + z5_2, r19);
 
-            F51x4Unreduced([
-                z0_1,
-                z1_1 + z1_2 + z1_2,
-                z2_1 + z2_2 + z2_2,
-                z3_1 + z3_2 + z3_2,
-                z4_1 + z4_2 + z4_2,
-            ])
+            F51x4Unreduced([z0_1, z1_1 + z1_2 + z1_2, z2_1 + z2_2 + z2_2, z3_1 + z3_2 + z3_2, z4_1 + z4_2 + z4_2])
         }
     }
 }
@@ -647,13 +600,7 @@ mod test {
         // Invert a small field element to get a big one
         let a = FieldElement51([2438, 24, 243, 0, 0]).invert();
         // ... but now multiply it by 16 without reducing coeffs
-        let a16 = FieldElement51([
-            a.0[0] << 4,
-            a.0[1] << 4,
-            a.0[2] << 4,
-            a.0[3] << 4,
-            a.0[4] << 4,
-        ]);
+        let a16 = FieldElement51([a.0[0] << 4, a.0[1] << 4, a.0[2] << 4, a.0[3] << 4, a.0[4] << 4]);
 
         let a16x4 = F51x4Unreduced::new(&a16, &a16, &a16, &a16);
         let splits = a16x4.split();
@@ -668,13 +615,7 @@ mod test {
         // Invert a small field element to get a big one
         let a = FieldElement51([2438, 24, 243, 0, 0]).invert();
         // ... but now multiply it by 128 without reducing coeffs
-        let abig = FieldElement51([
-            a.0[0] << 4,
-            a.0[1] << 4,
-            a.0[2] << 4,
-            a.0[3] << 4,
-            a.0[4] << 4,
-        ]);
+        let abig = FieldElement51([a.0[0] << 4, a.0[1] << 4, a.0[2] << 4, a.0[3] << 4, a.0[4] << 4]);
 
         let abigx4: F51x4Reduced = F51x4Unreduced::new(&abig, &abig, &abig, &abig).into();
 

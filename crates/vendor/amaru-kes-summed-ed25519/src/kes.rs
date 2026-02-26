@@ -4,16 +4,18 @@
 //! The goal is to provide a similar construction to what is achieved in [sumed25519](./../sumed25519)
 //! while maintaining code simplicity, and a smaller crate to facilitate audit and maintenance.
 
-use crate::common::{Depth, Seed};
-use crate::common::{PublicKey, INDIVIDUAL_SECRET_SIZE, PUBLIC_KEY_SIZE, SIGMA_SIZE};
-use crate::errors::Error;
-use crate::single_kes::{Sum0CompactKes, Sum0CompactKesSig, Sum0Kes, Sum0KesSig};
-use crate::traits::{KesCompactSig, KesSig, KesSk};
 use std::cmp::Ordering;
 
 #[cfg(feature = "serde_enabled")]
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
+
+use crate::{
+    common::{Depth, PublicKey, Seed, INDIVIDUAL_SECRET_SIZE, PUBLIC_KEY_SIZE, SIGMA_SIZE},
+    errors::Error,
+    single_kes::{Sum0CompactKes, Sum0CompactKesSig, Sum0Kes, Sum0KesSig},
+    traits::{KesCompactSig, KesSig, KesSk},
+};
 
 macro_rules! sum_kes {
     ($name:ident, $signame:ident, $sk:ident, $sigma:ident, $depth:expr, $doc:expr) => {
@@ -39,8 +41,7 @@ macro_rules! sum_kes {
         // First we implement the KES traits.
         impl<'a> KesSk<'a> for $name<'a> {
             type Sig = $signame;
-            const SIZE: usize =
-                INDIVIDUAL_SECRET_SIZE + $depth * 32 + $depth * (PUBLIC_KEY_SIZE * 2);
+            const SIZE: usize = INDIVIDUAL_SECRET_SIZE + $depth * 32 + $depth * (PUBLIC_KEY_SIZE * 2);
             fn keygen(key_buffer: &'a mut [u8], seed: &'a mut [u8]) -> (Self, PublicKey) {
                 assert_eq!(key_buffer.len(), Self::SIZE + 4);
                 assert_eq!(seed.len(), 32);
@@ -97,8 +98,7 @@ macro_rules! sum_kes {
                 if period < Depth($depth).half() {
                     self.sigma.verify(period, &self.lhs_pk, m)?;
                 } else {
-                    self.sigma
-                        .verify(period - &Depth($depth).half(), &self.rhs_pk, m)?
+                    self.sigma.verify(period - &Depth($depth).half(), &self.rhs_pk, m)?
                 }
 
                 Ok(())
@@ -116,29 +116,21 @@ macro_rules! sum_kes {
                     Ordering::Equal => {
                         $sk::keygen_slice(&mut key_slice[..$sk::SIZE + 32], None);
                     }
-                    Ordering::Greater => $sk::update_slice(
-                        &mut key_slice[..$sk::SIZE],
-                        period - &Depth($depth).half(),
-                    )?,
+                    Ordering::Greater => {
+                        $sk::update_slice(&mut key_slice[..$sk::SIZE], period - &Depth($depth).half())?
+                    }
                 }
 
                 Ok(())
             }
 
-            pub(crate) fn keygen_slice(
-                in_slice: &mut [u8],
-                opt_seed: Option<&mut [u8]>,
-            ) -> PublicKey {
+            pub(crate) fn keygen_slice(in_slice: &mut [u8], opt_seed: Option<&mut [u8]>) -> PublicKey {
                 let (mut r0, mut seed) = if let Some(in_seed) = opt_seed {
                     assert_eq!(in_slice.len(), Self::SIZE, "Input size is incorrect.");
                     assert_eq!(in_seed.len(), Seed::SIZE, "Input seed is incorrect.");
                     Seed::split_slice(in_seed)
                 } else {
-                    assert_eq!(
-                        in_slice.len(),
-                        Self::SIZE + Seed::SIZE,
-                        "Input size is incorrect."
-                    );
+                    assert_eq!(in_slice.len(), Self::SIZE + Seed::SIZE, "Input size is incorrect.");
                     Seed::split_slice(&mut in_slice[Self::SIZE..])
                 };
 
@@ -167,19 +159,14 @@ macro_rules! sum_kes {
                     .expect("Won't fail as slice has size 32");
                 let rhs_pk = PublicKey::from_bytes(&sk[$sk::SIZE + 64..$sk::SIZE + 96])
                     .expect("Won't fail as slice has size 32");
-                $signame {
-                    sigma,
-                    lhs_pk,
-                    rhs_pk,
-                }
+                $signame { sigma, lhs_pk, rhs_pk }
             }
 
             /// Convert KES sk to PublicKey
             pub fn to_pk(&self) -> PublicKey {
-                let pk0 = PublicKey::from_bytes(
-                    &self.0[Self::SIZE - PUBLIC_KEY_SIZE * 2..Self::SIZE - PUBLIC_KEY_SIZE],
-                )
-                .expect("Key size is valid.");
+                let pk0 =
+                    PublicKey::from_bytes(&self.0[Self::SIZE - PUBLIC_KEY_SIZE * 2..Self::SIZE - PUBLIC_KEY_SIZE])
+                        .expect("Key size is valid.");
                 let pk1 = PublicKey::from_bytes(&self.0[Self::SIZE - PUBLIC_KEY_SIZE..Self::SIZE])
                     .expect("Key size is valid");
 
@@ -212,16 +199,10 @@ macro_rules! sum_kes {
                 }
 
                 let sigma = $sigma::from_bytes(&bytes[..$sigma::SIZE])?;
-                let lhs_pk =
-                    PublicKey::from_bytes(&bytes[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE])?;
-                let rhs_pk = PublicKey::from_bytes(
-                    &bytes[$sigma::SIZE + PUBLIC_KEY_SIZE..$sigma::SIZE + 2 * PUBLIC_KEY_SIZE],
-                )?;
-                Ok(Self {
-                    sigma,
-                    lhs_pk,
-                    rhs_pk,
-                })
+                let lhs_pk = PublicKey::from_bytes(&bytes[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE])?;
+                let rhs_pk =
+                    PublicKey::from_bytes(&bytes[$sigma::SIZE + PUBLIC_KEY_SIZE..$sigma::SIZE + 2 * PUBLIC_KEY_SIZE])?;
+                Ok(Self { sigma, lhs_pk, rhs_pk })
             }
 
             /// Convert `Self` into it's byte representation. In particular, the encoding returns
@@ -230,8 +211,7 @@ macro_rules! sum_kes {
             pub fn to_bytes(&self) -> [u8; Self::SIZE] {
                 let mut data = [0u8; Self::SIZE];
                 data[..$sigma::SIZE].copy_from_slice(&self.sigma.to_bytes());
-                data[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE]
-                    .copy_from_slice(self.lhs_pk.as_ref());
+                data[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE].copy_from_slice(self.lhs_pk.as_ref());
                 data[$sigma::SIZE + PUBLIC_KEY_SIZE..$sigma::SIZE + 2 * PUBLIC_KEY_SIZE]
                     .copy_from_slice(self.rhs_pk.as_ref());
 
@@ -257,8 +237,7 @@ macro_rules! sum_compact_kes {
         // First we implement the KES traits.
         impl<'a> KesSk<'a> for $name<'a> {
             type Sig = $signame;
-            const SIZE: usize =
-                INDIVIDUAL_SECRET_SIZE + $depth * 32 + $depth * (PUBLIC_KEY_SIZE * 2);
+            const SIZE: usize = INDIVIDUAL_SECRET_SIZE + $depth * 32 + $depth * (PUBLIC_KEY_SIZE * 2);
 
             /// Function that takes a mutable
             fn keygen(key_buffer: &'a mut [u8], master_seed: &mut [u8]) -> (Self, PublicKey) {
@@ -340,29 +319,21 @@ macro_rules! sum_compact_kes {
                     Ordering::Equal => {
                         $sk::keygen_slice(&mut key_slice[..$sk::SIZE + 32], None);
                     }
-                    Ordering::Greater => $sk::update_slice(
-                        &mut key_slice[..$sk::SIZE],
-                        period - &Depth($depth).half(),
-                    )?,
+                    Ordering::Greater => {
+                        $sk::update_slice(&mut key_slice[..$sk::SIZE], period - &Depth($depth).half())?
+                    }
                 }
 
                 Ok(())
             }
 
-            pub(crate) fn keygen_slice(
-                in_slice: &mut [u8],
-                opt_seed: Option<&mut [u8]>,
-            ) -> PublicKey {
+            pub(crate) fn keygen_slice(in_slice: &mut [u8], opt_seed: Option<&mut [u8]>) -> PublicKey {
                 let (mut r0, mut seed) = if let Some(in_seed) = opt_seed {
                     assert_eq!(in_slice.len(), Self::SIZE, "Size of the seed is incorrect.");
                     assert_eq!(in_seed.len(), Seed::SIZE, "Input seed is incorrect.");
                     Seed::split_slice(in_seed)
                 } else {
-                    assert_eq!(
-                        in_slice.len(),
-                        Self::SIZE + Seed::SIZE,
-                        "Input size is incorrect."
-                    );
+                    assert_eq!(in_slice.len(), Self::SIZE + Seed::SIZE, "Input size is incorrect.");
                     Seed::split_slice(&mut in_slice[Self::SIZE..])
                 };
 
@@ -383,11 +354,7 @@ macro_rules! sum_compact_kes {
                 pk
             }
 
-            pub(crate) fn sign_from_slice(
-                sk: &[u8],
-                m: &[u8],
-                period: u32,
-            ) -> <Self as KesSk<'a>>::Sig {
+            pub(crate) fn sign_from_slice(sk: &[u8], m: &[u8], period: u32) -> <Self as KesSk<'a>>::Sig {
                 let t0 = Depth($depth).half();
                 let mut pk_bytes = [0u8; 32];
                 let sigma = if period < t0 {
@@ -404,10 +371,9 @@ macro_rules! sum_compact_kes {
 
             /// Convert KES key to public key
             pub fn to_pk(&self) -> PublicKey {
-                let pk0 = PublicKey::from_bytes(
-                    &self.0[Self::SIZE - PUBLIC_KEY_SIZE * 2..Self::SIZE - PUBLIC_KEY_SIZE],
-                )
-                .expect("Key size is valid.");
+                let pk0 =
+                    PublicKey::from_bytes(&self.0[Self::SIZE - PUBLIC_KEY_SIZE * 2..Self::SIZE - PUBLIC_KEY_SIZE])
+                        .expect("Key size is valid.");
                 let pk1 = PublicKey::from_bytes(&self.0[Self::SIZE - PUBLIC_KEY_SIZE..Self::SIZE])
                     .expect("Key size is valid");
 
@@ -440,8 +406,7 @@ macro_rules! sum_compact_kes {
                 }
 
                 let sigma = $sigma::from_bytes(&bytes[..$sigma::SIZE])?;
-                let pk =
-                    PublicKey::from_bytes(&bytes[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE])?;
+                let pk = PublicKey::from_bytes(&bytes[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE])?;
 
                 Ok(Self { sigma, pk })
             }
@@ -452,8 +417,7 @@ macro_rules! sum_compact_kes {
             pub fn to_bytes(&self) -> [u8; Self::SIZE] {
                 let mut data = [0u8; Self::SIZE];
                 data[..$sigma::SIZE].copy_from_slice(&self.sigma.to_bytes());
-                data[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE]
-                    .copy_from_slice(self.pk.as_ref());
+                data[$sigma::SIZE..$sigma::SIZE + PUBLIC_KEY_SIZE].copy_from_slice(self.pk.as_ref());
 
                 data
             }
@@ -461,62 +425,13 @@ macro_rules! sum_compact_kes {
     };
 }
 
-sum_kes!(
-    Sum1Kes,
-    Sum1KesSig,
-    Sum0Kes,
-    Sum0KesSig,
-    1,
-    "KES implementation with depth 1"
-);
-sum_kes!(
-    Sum2Kes,
-    Sum2KesSig,
-    Sum1Kes,
-    Sum1KesSig,
-    2,
-    "KES implementation with depth 2"
-);
-sum_kes!(
-    Sum3Kes,
-    Sum3KesSig,
-    Sum2Kes,
-    Sum2KesSig,
-    3,
-    "KES implementation with depth 3"
-);
-sum_kes!(
-    Sum4Kes,
-    Sum4KesSig,
-    Sum3Kes,
-    Sum3KesSig,
-    4,
-    "KES implementation with depth 4"
-);
-sum_kes!(
-    Sum5Kes,
-    Sum5KesSig,
-    Sum4Kes,
-    Sum4KesSig,
-    5,
-    "KES implementation with depth 5"
-);
-sum_kes!(
-    Sum6Kes,
-    Sum6KesSig,
-    Sum5Kes,
-    Sum5KesSig,
-    6,
-    "KES implementation with depth 6"
-);
-sum_kes!(
-    Sum7Kes,
-    Sum7KesSig,
-    Sum6Kes,
-    Sum6KesSig,
-    7,
-    "KES implementation with depth 7"
-);
+sum_kes!(Sum1Kes, Sum1KesSig, Sum0Kes, Sum0KesSig, 1, "KES implementation with depth 1");
+sum_kes!(Sum2Kes, Sum2KesSig, Sum1Kes, Sum1KesSig, 2, "KES implementation with depth 2");
+sum_kes!(Sum3Kes, Sum3KesSig, Sum2Kes, Sum2KesSig, 3, "KES implementation with depth 3");
+sum_kes!(Sum4Kes, Sum4KesSig, Sum3Kes, Sum3KesSig, 4, "KES implementation with depth 4");
+sum_kes!(Sum5Kes, Sum5KesSig, Sum4Kes, Sum4KesSig, 5, "KES implementation with depth 5");
+sum_kes!(Sum6Kes, Sum6KesSig, Sum5Kes, Sum5KesSig, 6, "KES implementation with depth 6");
+sum_kes!(Sum7Kes, Sum7KesSig, Sum6Kes, Sum6KesSig, 7, "KES implementation with depth 7");
 
 sum_compact_kes!(
     Sum1CompactKes,

@@ -33,9 +33,10 @@ pub type VrfProof = VrfProof10;
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use rand_chacha::ChaCha20Rng;
     use rand_core::SeedableRng;
+
+    use super::*;
 
     #[test]
     fn verify_vrf() {
@@ -64,10 +65,7 @@ mod test {
         let deserialised_proof = VrfProof::from_bytes(&serialised_proof);
         assert!(deserialised_proof.is_ok());
 
-        assert!(deserialised_proof
-            .unwrap()
-            .verify(&public_key, &alpha_string)
-            .is_ok());
+        assert!(deserialised_proof.unwrap().verify(&public_key, &alpha_string).is_ok());
     }
 
     #[test]
