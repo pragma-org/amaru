@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Publish vendor crates first (in dependency order), then workspace crates.
+# Sleeps are needed to allow crates.io to index each crate before the next
+# dependent crate is published.
+#
+# amaru-ledger, amaru-stores, amaru-consensus, and amaru (binary) are skipped:
+# they depend on uplc-turbo which has no crates.io release yet.
+
+cargo publish --manifest-path crates/vendor/amaru-curve25519-dalek/Cargo.toml
+
+cargo publish --manifest-path crates/vendor/amaru-kes-summed-ed25519/Cargo.toml
+
+# Wait for amaru-curve25519-dalek to be indexed before publishing amaru-vrf-dalek
+sleep 60
+cargo publish --manifest-path crates/vendor/amaru-vrf-dalek/Cargo.toml
+
+# Wait for vendor crates to be fully indexed before publishing workspace crates
+sleep 60
+cargo publish -p amaru-iter-borrow         && sleep 30
+cargo publish -p amaru-minicbor-extra      && sleep 30
+cargo publish -p amaru-tracing-json        && sleep 30
+cargo publish -p amaru-metrics             && sleep 30
+cargo publish -p amaru-progress-bar        && sleep 30
+cargo publish -p amaru-observability-macros && sleep 30
+cargo publish -p amaru-kernel              && sleep 30
+cargo publish -p amaru-observability       && sleep 30
+cargo publish -p amaru-ouroboros-traits    && sleep 30
+cargo publish -p amaru-plutus              && sleep 30
+cargo publish -p amaru-ouroboros           && sleep 30
+cargo publish -p amaru-mempool             && sleep 30
+cargo publish -p pure-stage                && sleep 30
+cargo publish -p amaru-network             && sleep 30
+cargo publish -p amaru-protocols
