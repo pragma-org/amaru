@@ -18,9 +18,9 @@ use std::{
     sync::{Arc, Condvar, Mutex},
 };
 
-use bumpalo::Bump;
+use uplc_turbo::{arena::Arena, bumpalo::Bump};
 
-pub type BumpPool = Mutex<VecDeque<Bump>>;
+pub type BumpPool = Mutex<VecDeque<Arena>>;
 
 /// A bounded pool of Bumpalo arenas
 ///
@@ -46,7 +46,7 @@ impl ArenaPool {
     pub fn new(size: usize, initial_capacity: usize) -> Self {
         let mut arenas = VecDeque::with_capacity(size);
         for _ in 0..size {
-            arenas.push_back(Bump::with_capacity(initial_capacity));
+            arenas.push_back(Arena::from_bump(Bump::with_capacity(initial_capacity)));
         }
 
         Self { inner: Arc::new(Inner { arenas: Mutex::new(arenas), condvar: Condvar::new() }) }
@@ -83,12 +83,12 @@ impl ArenaPool {
 ///
 /// Returns arenas to the pool when dropped
 pub struct PooledArena {
-    arena: ManuallyDrop<Bump>,
+    arena: ManuallyDrop<Arena>,
     pool: Arc<Inner>,
 }
 
-impl AsRef<Bump> for PooledArena {
-    fn as_ref(&self) -> &Bump {
+impl AsRef<Arena> for PooledArena {
+    fn as_ref(&self) -> &Arena {
         &self.arena
     }
 }
@@ -106,7 +106,7 @@ impl Drop for PooledArena {
 }
 
 impl std::ops::Deref for PooledArena {
-    type Target = Bump;
+    type Target = Arena;
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()
