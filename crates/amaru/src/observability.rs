@@ -42,7 +42,7 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru_consensus=debug,amaru::ledger=debug,pure_stage=warn";
+const DEFAULT_AMARU_LOG_FILTER: &str = "info,amaru_consensus=debug,amaru::ledger=debug,pure_stage=warn";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
@@ -430,7 +430,12 @@ impl<S: Subscriber> Filter<S> for ThrottledEnvFilter {
 
 fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedWarning) {
     let (filter, warning) = match EnvFilter::try_from_env(var) {
-        Ok(filter) => (filter, None),
+        Ok(filter) => {
+            let var = var.to_string();
+            let value = std::env::var(&var).unwrap_or_default();
+            let notice = Box::new(move || info!(var, value, "using ENV variable")) as Box<dyn FnOnce()>;
+            (filter, Some(notice))
+        }
         Err(e) => {
             // Notice stashed for when the tracing system is up.
             let fallback = default.to_string();
