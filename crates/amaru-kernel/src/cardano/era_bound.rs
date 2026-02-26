@@ -62,8 +62,8 @@ mod tests {
     use crate::prop_cbor_roundtrip;
 
     prop_compose! {
-        pub fn any_era_bound_time()(ms in any::<u64>()) -> Duration {
-            Duration::from_secs(ms)
+        pub fn any_era_bound_time()(secs in any::<u32>()) -> Duration {
+            Duration::from_secs(secs as u64)
         }
     }
 
