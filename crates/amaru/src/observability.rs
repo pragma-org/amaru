@@ -42,11 +42,11 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "info,amaru_consensus=debug,amaru::ledger=debug,pure_stage=warn";
+const DEFAULT_AMARU_LOG_FILTER: &str = "info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
-const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace,pure_stage=trace";
+const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace,pure_stage=trace,amaru_protocols=warn,amaru_consensus=info";
 
 const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
 
