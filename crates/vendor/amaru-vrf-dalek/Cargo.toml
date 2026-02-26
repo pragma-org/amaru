@@ -14,7 +14,7 @@ name = "vrf_dalek"
 # the sign bit in the elligator function. However, the exposure that curve25519-dalek offers, does not allow us to
 # modify the elligator function. Therefore we rely on a fork that simply sets the bit. This fork should be only
 # one commit ahead over the tag of version 3.2.0. And the sole change is the sign flip.
-curve25519-dalek-fork = { package = "amaru-curve25519-dalek", path = "../amaru-curve25519-dalek" }
+curve25519-dalek-fork = { package = "amaru-curve25519-dalek", path = "../amaru-curve25519-dalek", version = "3.2.0" }
 curve25519-dalek = { version = "3" }
 rand_core = "0.5"
 sha2 = "0.9"

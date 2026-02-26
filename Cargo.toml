@@ -116,10 +116,10 @@ pure-stage = { path = "crates/pure-stage" }
 uplc-turbo = { git = "https://github.com/pragma-org/uplc" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
-vrf_dalek = { package = "amaru-vrf-dalek", path = "crates/vendor/amaru-vrf-dalek" }
-kes-summed-ed25519 = { package = "amaru-kes-summed-ed25519", path = "crates/vendor/amaru-kes-summed-ed25519" }
+vrf_dalek = { package = "amaru-vrf-dalek", path = "crates/vendor/amaru-vrf-dalek", version = "0.1.0" }
+kes-summed-ed25519 = { package = "amaru-kes-summed-ed25519", path = "crates/vendor/amaru-kes-summed-ed25519", version = "0.2.1" }
 # curve25519-dalek fork used by vrf_dalek (txpipe/curve25519-dalek@70a36f41, branch ietf03_vrf_compat_ell2)
-amaru-curve25519-dalek = { package = "amaru-curve25519-dalek", path = "crates/vendor/amaru-curve25519-dalek" }
+amaru-curve25519-dalek = { package = "amaru-curve25519-dalek", path = "crates/vendor/amaru-curve25519-dalek", version = "3.2.0" }
 
 # dev-dependencies
 assertables = "9.8.2"
