@@ -42,7 +42,7 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=debug,pure_stage=warn";
+const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru_consensus=debug,amaru::ledger=debug,pure_stage=warn";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
