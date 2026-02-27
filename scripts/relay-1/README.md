@@ -2,7 +2,7 @@
 
 This demo shows the use of an Amaru node between a Haskell node (upstream) and another Amaru node (downstream):
 
-```text
+```
 cardano-node ──────→ amaru ──────→ amaru-downstream
 (port: 3001)         (peer: 3001,   (peer: 4001,
                       listen: 4001)  listen: 4002)

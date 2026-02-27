@@ -8,6 +8,8 @@ cardano-node ──────→ amaru ──────→ cardano-node
                       listen: 4001)  topology→4001)
 ```
 
+3 nodes total: 1 cardano-node source, 1 Amaru relay, 1 cardano-node downstream.
+
 This differs from relay-1 which has `cardano-node -> Amaru -> Amaru`.
 
 ## Prerequisites
