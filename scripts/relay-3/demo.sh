@@ -23,6 +23,9 @@ CENTER_LISTEN_PORT="${CENTER_LISTEN_PORT:-4002}"            # amaru-center liste
 AMARU_DOWNSTREAM_LISTEN_PORT="${AMARU_DOWNSTREAM_LISTEN_PORT:-4003}"  # amaru-downstream listener
 DOWNSTREAM_PORT="${DOWNSTREAM_PORT:-3002}"                  # cardano-node downstream listener
 
+# OpenTelemetry (opt-in): set AMARU_OTEL=true to export spans to an OTLP collector (e.g. otel-ui)
+AMARU_OTEL="${AMARU_OTEL:-false}"
+
 # ---------- helpers ----------
 ensure_dirs() {
   mkdir -p "$LOGDIR" "$RUNDIR"
@@ -63,6 +66,18 @@ pane_run() {
   tmux send-keys -t "$target" "set -eo pipefail; cd '$AMARU_DIR'; $oneline" C-m
 }
 
+# Generate otel env exports for a given service name (empty string if AMARU_OTEL is not true)
+otel_exports() {
+  local service_name="$1"
+  if [ "$AMARU_OTEL" = "true" ]; then
+    cat <<OTEL
+export AMARU_WITH_OPEN_TELEMETRY=true
+export OTEL_SERVICE_NAME=$service_name
+export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4317}"
+OTEL
+  fi
+}
+
 # ---------- commands ----------
 cmd_cardano_upstream() {
   cat <<EOF
@@ -81,6 +96,7 @@ echo "[amaru-upstream] waiting ${delay}s for cardano-node to initialize..."
 sleep $delay
 echo "[amaru-upstream] starting..."
 cd $AMARU_DIR
+$(otel_exports "amaru-upstream")
 export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
 cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --listen-address 0.0.0.0:$AMARU_UPSTREAM_LISTEN_PORT --chain-dir $RUNDIR/amaru-upstream/chain.preprod.db --ledger-dir $RUNDIR/amaru-upstream/ledger.preprod.db 2>&1 | tee '$LOGDIR/amaru-upstream.log'
@@ -96,6 +112,7 @@ echo "[amaru-center] waiting ${delay}s for upstream nodes to initialize..."
 sleep $delay
 echo "[amaru-center] starting..."
 cd $AMARU_DIR
+$(otel_exports "amaru-center")
 export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
 cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --peer-address 127.0.0.1:$AMARU_UPSTREAM_LISTEN_PORT --listen-address 0.0.0.0:$CENTER_LISTEN_PORT --chain-dir $RUNDIR/amaru-center/chain.preprod.db --ledger-dir $RUNDIR/amaru-center/ledger.preprod.db 2>&1 | tee '$LOGDIR/amaru-center.log'
@@ -111,6 +128,7 @@ echo "[amaru-downstream] waiting ${delay}s for amaru-center to initialize..."
 sleep $delay
 echo "[amaru-downstream] starting..."
 cd $AMARU_DIR
+$(otel_exports "amaru-downstream")
 export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
 cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$CENTER_LISTEN_PORT --listen-address 0.0.0.0:$AMARU_DOWNSTREAM_LISTEN_PORT --chain-dir $RUNDIR/amaru-downstream/chain.preprod.db --ledger-dir $RUNDIR/amaru-downstream/ledger.preprod.db 2>&1 | tee '$LOGDIR/amaru-downstream.log'
