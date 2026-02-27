@@ -97,7 +97,7 @@ sleep $delay
 echo "[amaru-upstream] starting..."
 cd $AMARU_DIR
 $(otel_exports "amaru-upstream")
-export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
+export AMARU_TRACE=warn,amaru::consensus=info,amaru::ledger=info
 ulimit -n 65536
 cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --listen-address 0.0.0.0:$AMARU_UPSTREAM_LISTEN_PORT --chain-dir $RUNDIR/amaru-upstream/chain.preprod.db --ledger-dir $RUNDIR/amaru-upstream/ledger.preprod.db 2>&1 | tee '$LOGDIR/amaru-upstream.log'
 sleep 999999
