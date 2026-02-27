@@ -23,7 +23,6 @@ async-trait = "0.1.83"
 assert-json-diff = "2.0.2"
 bech32 = "0.11.0"
 binrw = "0.15.0"
-bumpalo = { version = "3.16.0", features = ["collections"] }
 bytes = "1.10.1"
 cbor-data = "0.8.19"
 cbor4ii = { version = "1.1.1", features = ["serde1", "use_std"] }
