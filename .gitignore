@@ -54,3 +54,6 @@ data/**/blocks/**
 
 # Test arguments, generated data and traces created during the simulation
 simulation/amaru-sim/test-data/
+
+# Relay demos data
+scripts/relay*/run/**

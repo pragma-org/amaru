@@ -80,7 +80,7 @@ echo "[amaru] starting..."
 cd $AMARU_DIR
 export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
-cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --listen-address 0.0.0.0:$LISTEN_PORT 2>&1 | tee '$LOGDIR/amaru.log'
+cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --listen-address 0.0.0.0:$LISTEN_PORT --chain-dir $RUNDIR/amaru/chain.preprod.db --ledger-dir $RUNDIR/amaru/ledger.preprod.db 2>&1 | tee '$LOGDIR/amaru.log'
 sleep 999999
 EOF
 }
@@ -95,7 +95,7 @@ echo "[amaru-downstream] starting..."
 cd $AMARU_DIR
 export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
-cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$LISTEN_PORT --listen-address 0.0.0.0:$DOWNSTREAM_LISTEN_PORT --chain-dir ./chain.preprod.downstream.db --ledger-dir ./ledger.preprod.downstream.db 2>&1 | tee '$LOGDIR/amaru-downstream.log'
+cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$LISTEN_PORT --listen-address 0.0.0.0:$DOWNSTREAM_LISTEN_PORT --chain-dir $RUNDIR/amaru-downstream/chain.preprod.db --ledger-dir $RUNDIR/amaru-downstream/ledger.preprod.db 2>&1 | tee '$LOGDIR/amaru-downstream.log'
 sleep 999999
 EOF
 }
@@ -123,10 +123,13 @@ start() {
   ensure_dirs
   rm -f "$LOGDIR"/*.log 2>/dev/null || true
 
-  # Copy upstream databases for the downstream node
-  rm -rf "$AMARU_DIR/chain.preprod.downstream.db" "$AMARU_DIR/ledger.preprod.downstream.db"
-  cp -r "$AMARU_DIR/chain.preprod.db" "$AMARU_DIR/chain.preprod.downstream.db"
-  cp -r "$AMARU_DIR/ledger.preprod.db" "$AMARU_DIR/ledger.preprod.downstream.db"
+  # Copy databases into isolated run directories
+  rm -rf "$RUNDIR/amaru" "$RUNDIR/amaru-downstream"
+  mkdir -p "$RUNDIR/amaru" "$RUNDIR/amaru-downstream"
+  cp -r "$AMARU_DIR/chain.preprod.db" "$RUNDIR/amaru/chain.preprod.db"
+  cp -r "$AMARU_DIR/ledger.preprod.db" "$RUNDIR/amaru/ledger.preprod.db"
+  cp -r "$AMARU_DIR/chain.preprod.db" "$RUNDIR/amaru-downstream/chain.preprod.db"
+  cp -r "$AMARU_DIR/ledger.preprod.db" "$RUNDIR/amaru-downstream/ledger.preprod.db"
 
   # reset session
   tmux_kill_session

@@ -81,7 +81,7 @@ echo "[amaru] starting..."
 cd $AMARU_DIR
 export AMARU_TRACE=warn,amaru_consensus=debug,amaru::ledger=info
 ulimit -n 65536
-cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --listen-address 0.0.0.0:$LISTEN_PORT 2>&1 | tee '$LOGDIR/amaru.log'
+cargo run --profile dev -- --with-json-traces run --peer-address 127.0.0.1:$UPSTREAM_PORT --listen-address 0.0.0.0:$LISTEN_PORT --chain-dir $RUNDIR/amaru/chain.preprod.db --ledger-dir $RUNDIR/amaru/ledger.preprod.db 2>&1 | tee '$LOGDIR/amaru.log'
 sleep 999999
 EOF
 }
@@ -124,6 +124,12 @@ start() {
 
   ensure_dirs
   rm -f "$LOGDIR"/*.log 2>/dev/null || true
+
+  # Copy databases into isolated run directory
+  rm -rf "$RUNDIR/amaru"
+  mkdir -p "$RUNDIR/amaru"
+  cp -r "$AMARU_DIR/chain.preprod.db" "$RUNDIR/amaru/chain.preprod.db"
+  cp -r "$AMARU_DIR/ledger.preprod.db" "$RUNDIR/amaru/ledger.preprod.db"
 
   # reset session
   tmux_kill_session
