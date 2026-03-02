@@ -246,7 +246,7 @@ jobs:
       - name: Publish crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: ./scripts/publish-crates
+        run: cargo release publish --workspace --no-confirm
 
   merge-artifacts:
     name: Merge build artifacts
