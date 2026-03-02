@@ -232,12 +232,12 @@
     </div>
 
     <div class="controls">
-        <label for="speed">Speed</label>
-        <input id="speed" type="range" min="0.05" max="2.0" step="0.05" value="1.0"/>
-        <span id="speedVal">1.0×</span>
+        <label for="speed">Delay</label>
+        <input id="speed" type="range" min="50" max="2000" step="50" value="500"/>
+        <span id="speedVal">500ms</span>
     </div>
 
-    <div id="latestTime">Latest arrival: 0.000s</div>
+    <div id="latestTime">Step 0 / 0</div>
 </header>
 
 <div id="canvasWrap">
@@ -255,17 +255,15 @@
     let contentBounds = {x: 0, y: 0, width: 0, height: 0};
 
     let nodeByHash = new Map(); // hash -> { x, y, slot, gEl, circleEl }
-    let rafId = null;
+    let timerId = null;
     let running = false;
-    let simStart = 0;      // performance.now() baseline (kept for compatibility, not required)
-    let pausedAt = 0;
-    let speed = 1.0;      // default from slider
+    let stepDelay = 500;  // ms between steps
     let iStep = 0;        // how many messages have been applied so far
-    let schedule = [];     // [{arrival: Number(sec), src: 'c1'|'c2', hash: string, shown: boolean}]
-    // Keep one live badge per src (e.g., c1, c2) and move it on each arrival
+    let schedule = [];     // messages array used directly in order
+    // Keep one live badge per src and move it on each arrival
     const srcBadges = new Map(); // src -> { g, rect, text }
     const srcAtNode = new Map();     // src -> node hash where it currently sits
-    const nodeStacks = new Map();    // node hash -> array of { src, arrival } objects
+    const nodeStacks = new Map();    // node hash -> array of { src } objects
     const STACK_GAP = 6;             // px gap between stacked labels
     const reachedNodes = new Set(); // set of node hashes reached by any src
     let currentDeepestSlot = -Infinity;
@@ -293,8 +291,8 @@
     const stepFwdBtn = document.getElementById('stepFwd');
 
     // Initialize speed UI
-    speed = parseFloat(speedSlider.value || '1.0');
-    speedVal.textContent = speed.toFixed(2) + '×';
+    stepDelay = parseInt(speedSlider.value || '500', 10);
+    speedVal.textContent = stepDelay + 'ms';
 
     playPauseBtn.addEventListener('click', () => {
         if (!running) {
@@ -302,10 +300,8 @@
             return;
         }
         running = false;
-        pausedAt = performance.now();
         playPauseBtn.textContent = 'Play';
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = null;
+        if (timerId) { clearInterval(timerId); timerId = null; }
     });
 
     restartBtn.addEventListener('click', () => {
@@ -313,8 +309,13 @@
     });
 
     speedSlider.addEventListener('input', () => {
-        speed = parseFloat(speedSlider.value || '1.0');
-        speedVal.textContent = speed.toFixed(2) + '×';
+        stepDelay = parseInt(speedSlider.value || '500', 10);
+        speedVal.textContent = stepDelay + 'ms';
+        // If running, restart the timer with the new delay
+        if (running) {
+            if (timerId) clearInterval(timerId);
+            timerId = setInterval(tickStep, stepDelay);
+        }
     });
 
     loadDataBtn.onclick = () => dataFile.click();
@@ -367,9 +368,9 @@
                 tree = payload.tree;
                 messages = payload.messages;
                 // Stop any existing animation loop and prepare to restart
-                if (rafId) {
-                    cancelAnimationFrame(rafId);
-                    rafId = null;
+                if (timerId) {
+                    clearInterval(timerId);
+                    timerId = null;
                 }
                 running = false;
                 playPauseBtn.textContent = 'Pause';
@@ -381,7 +382,7 @@
                 // Allow reloading the same file again (reset the file input)
                 dataFile.value = '';
             } catch (err) {
-                alert('Failed to load data.json: ' + (err && err.message ? err.message : String(err)));
+                alert('Failed to load actions.json: ' + (err && err.message ? err.message : String(err)));
             }
         };
         reader.readAsText(file);
@@ -573,24 +574,8 @@
         if (gScene) zoomFit();
     });
 
-    function parseSeconds(s) {
-        if (typeof s === 'number') return s;
-        if (!s) return 0;
-
-        const str = String(s).trim();
-
-        if (str.endsWith('ms')) {
-            const v = parseFloat(str.slice(0, -2)); // drop "ms"
-            return isNaN(v) ? 0 : v / 1000; // convert ms -> s
-        }
-
-        if (str.endsWith('s')) {
-            const v = parseFloat(str.slice(0, -1)); // drop "s"
-            return isNaN(v) ? 0 : v;
-        }
-
-        const v = parseFloat(str);
-        return isNaN(v) ? 0 : v;
+    function portFromSrc(src) {
+        return src.split(':').pop() || src;
     }
 
     function ensureBadgeForSrc(src) {
@@ -603,7 +588,7 @@
         const r = document.createElementNS(svgns, 'rect');
         const tx = document.createElementNS(svgns, 'text');
         tx.setAttribute('text-anchor', 'middle');
-        tx.textContent = src.toUpperCase();
+        tx.textContent = portFromSrc(src);
         // Apply deterministic per-src colors (inline styles override CSS)
         const {bg, border, text} = colorForSrc(src);
         r.style.fill = bg;
@@ -649,8 +634,8 @@
     function repositionNodeBadges(nodeHash) {
         let list = nodeStacks.get(nodeHash);
         if (!list || !list.length) return;
-        // Sort by arrival time ascending (earliest first)
-        list = [...list].sort((a, b) => a.arrival - b.arrival);
+        // Sort by src name for deterministic ordering
+        list = [...list].sort((a, b) => a.src.localeCompare(b.src));
         nodeStacks.set(nodeHash, list);
 
         const pos = nodeByHash.get(nodeHash);
@@ -661,11 +646,10 @@
         const baseY = pos.y - HASH_TEXT_OFFSET - HASH_GAP;
         let currentOffset = 0;
 
-        // Iterate from end to start so the earliest (index 0) is painted last and ends up on TOP
+        // Iterate from end to start so the first (index 0) is painted last and ends up on TOP
         for (let idx = list.length - 1; idx >= 0; idx--) {
-            const {src, arrival} = list[idx];
-            // Label now includes the arrival time next to the src, e.g. "C1 1.234s"
-            const labelText = `${src.toUpperCase()} ${arrival.toFixed(3)}s`;
+            const {src} = list[idx];
+            const labelText = portFromSrc(src);
 
             const {w, h} = measureLabel(labelText);
             const entry = ensureBadgeForSrc(src);
@@ -684,7 +668,6 @@
             entry.rect.setAttribute('height', h);
             entry.rect.setAttribute('opacity', 1);
 
-            // Update text content to include arrival time
             entry.text.textContent = labelText;
             entry.text.setAttribute('x', pos.x);
             entry.text.setAttribute('y', y + h / 2 + 4);
@@ -719,10 +702,9 @@
     }
 
 
-    function showSrcBadge(hash, src, atSeconds) {
+    function showSrcBadge(hash, src) {
         const pos = nodeByHash.get(hash);
         if (!pos) return;
-        const labelText = src.toUpperCase();
         // Ensure the badge exists
         ensureBadgeForSrc(src);
 
@@ -738,9 +720,9 @@
             }
         }
 
-        // 2) Add src with its arrival time to the new node stack
+        // 2) Add src to the new node stack
         const list = nodeStacks.get(hash) || [];
-        list.push({src, arrival: atSeconds});
+        list.push({src});
         nodeStacks.set(hash, list);
         srcAtNode.set(src, hash);
 
@@ -769,25 +751,21 @@
     function resetSimulation() {
         clearMessageState();
 
-        // Build schedule from messages
+        // Use messages directly in order — each message is one step
         schedule = (messages || []).map(m => ({
-            arrival: parseSeconds(m.arrival_time),
             src: m.src,
             hash: m.hash,
-            shown: false
-        })).sort((a, b) => a.arrival - b.arrival);
+        }));
 
         iStep = 0;
-        latestTimeEl.textContent = 'Latest arrival: 0.000s';
-        // startLoop() will cancel any existing RAF, reset running/nowStart,
-        // and set the play/pause label appropriately.
+        latestTimeEl.textContent = `Step 0 / ${schedule.length}`;
         startLoop();
     }
 
     function renderUpToStep(targetIndex) {
         if (!schedule || !schedule.length) {
             clearMessageState();
-            latestTimeEl.textContent = 'Latest arrival: 0.000s';
+            latestTimeEl.textContent = 'Step 0 / 0';
             iStep = 0;
             return;
         }
@@ -797,63 +775,49 @@
 
         clearMessageState();
 
-        let latest = 0;
         for (let i = 0; i < target; i++) {
             const item = schedule[i];
-            showSrcBadge(item.hash, item.src, item.arrival);
-            latest = item.arrival;
+            showSrcBadge(item.hash, item.src);
         }
 
-        latestTimeEl.textContent = `Latest arrival: ${latest.toFixed(3)}s`;
+        latestTimeEl.textContent = `Step ${target} / ${maxIdx}`;
         iStep = target;
+    }
+
+    function tickStep() {
+        if (!running || !schedule || !schedule.length) return;
+
+        if (iStep >= schedule.length) {
+            running = false;
+            playPauseBtn.textContent = 'Play';
+            if (timerId) { clearInterval(timerId); timerId = null; }
+            return;
+        }
+
+        const item = schedule[iStep];
+        showSrcBadge(item.hash, item.src);
+        iStep++;
+        latestTimeEl.textContent = `Step ${iStep} / ${schedule.length}`;
+
+        if (iStep >= schedule.length) {
+            running = false;
+            playPauseBtn.textContent = 'Play';
+            if (timerId) { clearInterval(timerId); timerId = null; }
+        }
     }
 
     function startLoop() {
         if (!schedule || !schedule.length) {
-            latestTimeEl.textContent = 'Latest arrival: 0.000s';
+            latestTimeEl.textContent = 'Step 0 / 0';
             return;
         }
 
-        if (rafId) cancelAnimationFrame(rafId);
+        if (timerId) { clearInterval(timerId); timerId = null; }
 
         running = true;
         playPauseBtn.textContent = 'Pause';
 
-        const nowStart = performance.now();
-        const baseArrival = (iStep > 0 && iStep <= schedule.length)
-            ? schedule[iStep - 1].arrival
-            : 0;
-
-        const step = () => {
-            if (!running) return;
-
-            const elapsedSec = ((performance.now() - nowStart) / 1000) * speed;
-            const t = baseArrival + elapsedSec;
-
-            let latest = (iStep > 0 && iStep <= schedule.length)
-                ? schedule[iStep - 1].arrival
-                : 0;
-
-            while (iStep < schedule.length && t >= schedule[iStep].arrival) {
-                const item = schedule[iStep];
-                showSrcBadge(item.hash, item.src, item.arrival);
-                latest = item.arrival;
-                iStep++;
-            }
-
-            latestTimeEl.textContent = `Latest arrival: ${latest.toFixed(3)}s`;
-
-            if (iStep >= schedule.length) {
-                running = false;
-                playPauseBtn.textContent = 'Play';
-                rafId = null;
-                return;
-            }
-
-            rafId = requestAnimationFrame(step);
-        };
-
-        rafId = requestAnimationFrame(step);
+        timerId = setInterval(tickStep, stepDelay);
     }
 
     function startVisualization(treeData, messagesData) {
@@ -866,10 +830,7 @@
             if (!schedule || !schedule.length) return;
             running = false;
             playPauseBtn.textContent = 'Play';
-            if (rafId) {
-                cancelAnimationFrame(rafId);
-                rafId = null;
-            }
+            if (timerId) { clearInterval(timerId); timerId = null; }
             renderUpToStep(iStep - 1);
         });
     }
@@ -879,10 +840,7 @@
             if (!schedule || !schedule.length) return;
             running = false;
             playPauseBtn.textContent = 'Play';
-            if (rafId) {
-                cancelAnimationFrame(rafId);
-                rafId = null;
-            }
+            if (timerId) { clearInterval(timerId); timerId = null; }
             renderUpToStep(iStep + 1);
         });
     }
