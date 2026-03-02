@@ -25,7 +25,7 @@ use amaru_ouroboros::{
 };
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{
-    Effects, StageGraph, StageRef,
+    Effects, StageGraph, StageRef, TryInStage,
     simulation::{RandStdRng, SimulationBuilder},
 };
 use tracing_subscriber::EnvFilter;
@@ -84,7 +84,7 @@ pub fn create_node(
     // The actions stage allows us to send NewTip messages to the manager so that chainsync
     // events can be sent to the node under test.
     let actions_stage = stage_graph.stage("actions", actions_stage);
-    let actions_stage = stage_graph.wire_up(actions_stage, manager_stage.clone());
+    let actions_stage = stage_graph.wire_up(actions_stage, (manager_stage.clone(), node_config.seed));
 
     set_resources(node_config, stage_graph)?;
     Ok((manager_stage, actions_stage.without_state()))
@@ -110,6 +110,8 @@ pub fn start_initiator(
     Ok(())
 }
 
+type ActionsState = (StageRef<ManagerMessage>, u64);
+
 /// Create an "actions" stage to send NewTip messages to the Manager, and eventually to the node
 /// under test.
 ///
@@ -117,32 +119,46 @@ pub fn start_initiator(
 /// to the same tip. This way, when the chainsync miniprotocol executes, it grabs consistent headers
 /// from the ChainStore.
 ///
-#[expect(clippy::unwrap_used)]
-async fn actions_stage(
-    manager_stage: StageRef<ManagerMessage>,
-    msg: Action,
-    eff: Effects<Action>,
-) -> StageRef<ManagerMessage> {
+async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -> ActionsState {
+    let (manager_stage, seed) = &state;
     tracing::info!("Received action: {msg:?}");
     let store = Store::new(eff.clone());
-    match msg {
+    let tip = match &msg {
         Action::RollForward { header, .. } => {
             tracing::info!(point = %header.point(), "rollforward");
-            store.store_header(&header).unwrap();
-            store.roll_forward_chain(&header.point()).unwrap();
-            store.set_best_chain_hash(&header.hash()).unwrap();
-            let tip = Tip::new(header.point(), BlockHeight::from(header.slot().as_u64()));
-            eff.send(&manager_stage, ManagerMessage::NewTip(tip)).await;
+            store
+                .store_header(header)
+                .or_terminate(&eff, |e| async move {
+                    tracing::error!("Cannot store the header {}: {e:?}. The seed is {seed}", &header);
+                })
+                .await;
+            store
+                .roll_forward_chain(&header.point())
+                .or_terminate(&eff, |e| async move {
+                    tracing::error!("Cannot rollforward chain: {e:?}. The seed is {seed}");
+                })
+                .await;
+            Tip::new(header.point(), BlockHeight::from(header.slot().as_u64()))
         }
         Action::Rollback { rollback_point, .. } => {
             tracing::info!(point = %rollback_point, "rollback");
-            store.rollback_chain(&rollback_point).unwrap();
-            store.set_best_chain_hash(&rollback_point.hash()).unwrap();
-            let tip = Tip::new(rollback_point, BlockHeight::from(rollback_point.slot_or_default().as_u64()));
-            eff.send(&manager_stage, ManagerMessage::NewTip(tip)).await;
+            store
+                .rollback_chain(rollback_point)
+                .or_terminate(&eff, |e| async move {
+                    tracing::error!("Cannot rollback the chain to {}: {e:?}. The seed is {seed}", &rollback_point,);
+                })
+                .await;
+            Tip::new(*rollback_point, BlockHeight::from(rollback_point.slot_or_default().as_u64()))
         }
-    }
-    manager_stage
+    };
+    store
+        .set_best_chain_hash(&msg.hash())
+        .or_terminate(&eff, |e| async move {
+            tracing::error!("Cannot set the best chain: {e:?}. The seed is {seed}");
+        })
+        .await;
+    eff.send(manager_stage, ManagerMessage::NewTip(tip)).await;
+    state
 }
 
 /// Add resources depending on the simulation configuration.
