@@ -117,7 +117,15 @@ pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResul
 pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<NodeTestConfig> {
     let upstream_peers = run_config.upstream_peers();
 
-    let upstream_nodes = upstream_peers
+    // Only create nodes for peers that have actions. During shrinking, some peers may lose
+    // all their actions, so we skip creating nodes for them.
+    let active_peers: Vec<_> = upstream_peers
+        .iter()
+        .filter(|peer| !get_peer_actions(actions, peer).is_empty())
+        .cloned()
+        .collect();
+
+    let upstream_nodes = active_peers
         .iter()
         .map(|peer| {
             NodeTestConfig::default()
@@ -135,7 +143,7 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
     let node_under_test = NodeTestConfig::default()
         .with_listen_address(listen_address)
         .with_chain_length(run_config.generated_chain_depth)
-        .with_upstream_peers(upstream_peers)
+        .with_upstream_peers(active_peers)
         .with_trace_buffer(trace_buffer)
         .with_validated_blocks(vec![actions.get_anchor()])
         .with_node_type(NodeUnderTest);
