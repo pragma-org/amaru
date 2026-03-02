@@ -24,6 +24,7 @@ use amaru_ouroboros::{
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
 };
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
+use anyhow::anyhow;
 use pure_stage::{
     Effects, StageGraph, StageRef, TryInStage,
     simulation::{RandStdRng, SimulationBuilder},
@@ -79,7 +80,8 @@ pub fn create_node(
     // in order to simulate what happens when new tips are added and trigger a move of the best
     // chain anchor.
     global_parameters.consensus_security_param = node_config.chain_length;
-    let manager_stage = build_node(&config, &global_parameters, None, stage_graph)?;
+    let manager_stage = build_node(&config, &global_parameters, None, stage_graph)
+        .map_err(|e| anyhow!("Cannot build node.\nThe node config is\n{:?}\n\nThe error is {e:?}", node_config))?;
 
     // The actions stage allows us to send NewTip messages to the manager so that chainsync
     // events can be sent to the node under test.

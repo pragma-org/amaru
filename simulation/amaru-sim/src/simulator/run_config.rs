@@ -93,11 +93,11 @@ impl RunConfig {
     }
 
     pub fn upstream_peers(&self) -> Vec<Peer> {
-        (1..=self.number_of_upstream_peers).map(|i| Peer::new(&format!("127.0.0.1:300{i}"))).collect()
+        (1..=self.number_of_upstream_peers as u16).map(|i| Peer::new(&format!("127.0.0.1:{}", 30000 + i))).collect()
     }
 
     pub fn downstream_peers(&self) -> Vec<Peer> {
-        (1..=self.number_of_downstream_peers).map(|i| Peer::new(&format!("127.0.0.1:400{i}"))).collect()
+        (1..=self.number_of_downstream_peers as u16).map(|i| Peer::new(&format!("127.0.0.1:{}", 40000 + i))).collect()
     }
 
     pub fn rng(&self) -> RandStdRng {
