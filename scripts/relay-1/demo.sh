@@ -8,7 +8,7 @@ SESSION="${SESSION:-amaru-demo}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AMARU_DIR="${AMARU_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
-LOGDIR="${LOGDIR:-/tmp/amaru-demo}"
+LOGDIR="${LOGDIR:-/tmp/amaru-relay-1}"
 RUNDIR="${RUNDIR:-$AMARU_DIR/scripts/relay-1/run}"
 
 # Cardano node configuration
