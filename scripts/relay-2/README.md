@@ -2,9 +2,10 @@
 
 This demo shows the use of an Amaru node acting as a relay between two Haskell cardano-nodes:
 
-```
-cardano-node (upstream) --> Amaru --> cardano-node (downstream)
-     :3001                  :4001          :3002
+```text
+cardano-node ──────→ amaru ──────→ cardano-node
+(port: 3001)         (peer: 3001,   (port: 3002,
+                      listen: 4001)  topology→4001)
 ```
 
 This differs from relay-1 which has `cardano-node -> Amaru -> Amaru`.
@@ -13,8 +14,8 @@ This differs from relay-1 which has `cardano-node -> Amaru -> Amaru`.
 
 - A `cardano-node` executable (installed via package manager, built from source, etc.)
 - **Two separate** directories with cardano-node configuration files:
-  - Upstream: `config.json`, `topology.json` pointing to public network peers
-  - Downstream: `config.json`, `topology.json` pointing to Amaru (127.0.0.1:4001)
+    - Upstream: `config.json`, `topology.json` pointing to public network peers
+    - Downstream: `config.json`, `topology.json` pointing to Amaru (127.0.0.1:4001)
 - The amaru node checked-out from https://github.com/pragma-org/amaru and bootstrapped with
   `make AMARU_NETWORK=preprod bootstrap`
 
@@ -22,15 +23,15 @@ This differs from relay-1 which has `cardano-node -> Amaru -> Amaru`.
 
 The following environment variables configure the demo:
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CARDANO_NODE` | **Yes** | - | Path to the cardano-node executable |
-| `CARDANO_NODE_CONFIG_DIR` | **Yes** | - | Directory for upstream cardano-node (config.json, topology.json, etc.) |
-| `CARDANO_NODE_DOWNSTREAM_CONFIG_DIR` | **Yes** | - | Directory for downstream cardano-node |
-| `AMARU_DIR` | No | Script-derived | Path to the amaru project directory |
-| `UPSTREAM_PORT` | No | 3001 | Port for upstream cardano-node listener |
-| `LISTEN_PORT` | No | 4001 | Port for amaru listener (for downstream) |
-| `DOWNSTREAM_PORT` | No | 3002 | Port for downstream cardano-node listener |
+| Variable                             | Required | Default        | Description                                                            |
+|--------------------------------------|----------|----------------|------------------------------------------------------------------------|
+| `CARDANO_NODE`                       | **Yes**  | -              | Path to the cardano-node executable                                    |
+| `CARDANO_NODE_CONFIG_DIR`            | **Yes**  | -              | Directory for upstream cardano-node (config.json, topology.json, etc.) |
+| `CARDANO_NODE_DOWNSTREAM_CONFIG_DIR` | **Yes**  | -              | Directory for downstream cardano-node                                  |
+| `AMARU_DIR`                          | No       | Script-derived | Path to the amaru project directory                                    |
+| `UPSTREAM_PORT`                      | No       | 3001           | Port for upstream cardano-node listener                                |
+| `LISTEN_PORT`                        | No       | 4001           | Port for amaru listener (for downstream)                               |
+| `DOWNSTREAM_PORT`                    | No       | 3002           | Port for downstream cardano-node listener                              |
 
 ## Downstream Topology Configuration
 
@@ -42,7 +43,10 @@ The downstream cardano-node's `topology.json` must point to amaru's listen addre
   "localRoots": [
     {
       "accessPoints": [
-        { "address": "127.0.0.1", "port": 4001 }
+        {
+          "address": "127.0.0.1",
+          "port": 4001
+        }
       ],
       "advertise": false,
       "trustable": true,

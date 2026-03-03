@@ -213,6 +213,14 @@ start() {
   exec tmux attach -t "$SESSION"
 }
 
+restart_pane() {
+  local target="$1"; shift
+  local cmd="$*"
+  tmux send-keys -t "$target" C-c 2>/dev/null || true
+  sleep 1
+  pane_run "$target" "$cmd"
+}
+
 restart() {
   local pane="${1:?usage: $0 restart <cardano-upstream|amaru-upstream|amaru-center|amaru-downstream|cardano-downstream>}"
   [[ -n "$CARDANO_NODE" ]] || die "CARDANO_NODE must be set (path to cardano-node executable)"
@@ -223,11 +231,11 @@ restart() {
   [[ -d "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR" ]] || die "CARDANO_NODE_DOWNSTREAM_CONFIG_DIR does not exist: $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR"
   [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
   case "$pane" in
-    cardano-upstream)    pane_run "$SESSION:nodes.0" "$(cmd_cardano_upstream)" ;;
-    amaru-upstream)      pane_run "$SESSION:nodes.1" "$(cmd_amaru_upstream)" ;;
-    amaru-center)        pane_run "$SESSION:nodes.2" "$(cmd_amaru_center)" ;;
-    cardano-downstream)  pane_run "$SESSION:nodes.3" "$(cmd_cardano_downstream)" ;;
-    amaru-downstream)    pane_run "$SESSION:nodes.4" "$(cmd_amaru_downstream)" ;;
+    cardano-upstream)    restart_pane "$SESSION:nodes.0" "$(cmd_cardano_upstream)" ;;
+    amaru-upstream)      restart_pane "$SESSION:nodes.1" "$(cmd_amaru_upstream)" ;;
+    amaru-center)        restart_pane "$SESSION:nodes.2" "$(cmd_amaru_center)" ;;
+    cardano-downstream)  restart_pane "$SESSION:nodes.3" "$(cmd_cardano_downstream)" ;;
+    amaru-downstream)    restart_pane "$SESSION:nodes.4" "$(cmd_amaru_downstream)" ;;
     *) die "unknown pane: $pane (choose cardano-upstream, amaru-upstream, amaru-center, amaru-downstream, or cardano-downstream)" ;;
   esac
 }
@@ -243,10 +251,13 @@ stop() {
     sleep 1
   fi
 
-  # Also kill any lingering processes
-  pkill -f "cargo run.*--peer-address" 2>/dev/null || true
-  pkill -f "target/.*amaru.*run" 2>/dev/null || true
-  pkill -f "cardano-node" 2>/dev/null || true
+  # Also kill any lingering processes (scoped to this demo only)
+  pkill -f -- "--chain-dir $RUNDIR/amaru-upstream/chain.preprod.db" 2>/dev/null || true
+  pkill -f -- "--chain-dir $RUNDIR/amaru-center/chain.preprod.db" 2>/dev/null || true
+  pkill -f -- "--chain-dir $RUNDIR/amaru-downstream/chain.preprod.db" 2>/dev/null || true
+  pkill -f -- "--socket-path $CARDANO_NODE_CONFIG_DIR/node.socket" 2>/dev/null || true
+  pkill -f -- "--socket-path $CARDANO_NODE_DOWNSTREAM_CONFIG_DIR/node.socket" 2>/dev/null || true
+
 
   tmux_kill_session
   echo "stopped tmux session: $SESSION"

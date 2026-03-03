@@ -1,6 +1,14 @@
 # Relay demo: Haskell -> Amaru -> Amaru
 
-This demo shows the use of an Amaru node between a Haskell node (upstream) and another Amaru node (downstream).
+This demo shows the use of an Amaru node between a Haskell node (upstream) and another Amaru node (downstream):
+
+```text
+cardano-node ──────→ amaru ──────→ amaru-downstream
+(port: 3001)         (peer: 3001,   (peer: 4001,
+                      listen: 4001)  listen: 4002)
+```
+
+3 nodes total: 1 cardano-node source, 2 Amaru relays.
 
 ## Prerequisites
 
@@ -13,16 +21,17 @@ This demo shows the use of an Amaru node between a Haskell node (upstream) and a
 
 The following environment variables configure the demo:
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `CARDANO_NODE` | **Yes** | - | Path to the cardano-node executable |
-| `CARDANO_NODE_CONFIG_DIR` | **Yes** | - | Directory containing config.json, topology.json, etc. |
-| `AMARU_DIR` | No | Current directory | Path to the amaru project directory |
-| `UPSTREAM_PORT` | No | 3001 | Port for cardano-node listener |
-| `LISTEN_PORT` | No | 4001 | Port for amaru listener (for downstream) |
-| `DOWNSTREAM_LISTEN_PORT` | No | 4002 | Port for amaru downstream listener |
+| Variable                  | Required | Default           | Description                                           |
+|---------------------------|----------|-------------------|-------------------------------------------------------|
+| `CARDANO_NODE`            | **Yes**  | -                 | Path to the cardano-node executable                   |
+| `CARDANO_NODE_CONFIG_DIR` | **Yes**  | -                 | Directory containing config.json, topology.json, etc. |
+| `AMARU_DIR`               | No       | Current directory | Path to the amaru project directory                   |
+| `UPSTREAM_PORT`           | No       | 3001              | Port for cardano-node listener                        |
+| `LISTEN_PORT`             | No       | 4001              | Port for amaru listener (for downstream)              |
+| `DOWNSTREAM_LISTEN_PORT`  | No       | 4002              | Port for amaru downstream listener                    |
 
 The `CARDANO_NODE_CONFIG_DIR` should contain:
+
 - `config.json` - node configuration
 - `topology.json` - network topology
 - `db/` - database directory (will be created if it doesn't exist)
