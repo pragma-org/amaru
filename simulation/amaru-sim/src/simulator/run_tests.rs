@@ -89,16 +89,7 @@ pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResul
         let mut rng = run_config.rng();
         let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions)).expect("failed to create nodes");
 
-        // Scale steps based on the number of nodes in the system.
-        // Each step runs one effect on one randomly-selected node, so with N nodes
-        // each node gets ~total_steps/N turns. We multiply by total_nodes to ensure
-        // every node (especially the node under test) gets enough turns.
-        let upstream = run_config.number_of_upstream_peers as usize;
-        let downstream = run_config.number_of_downstream_peers as usize;
-        let total_nodes = upstream + downstream + 1;
-        let steps = total_nodes * (5000 + upstream * 500);
-
-        nodes.run(&mut rng, steps);
+        nodes.run(&mut rng);
         check_chain_property(nodes, actions)
     };
 

@@ -96,14 +96,27 @@ impl Nodes {
     }
 
     /// Run nodes with fine-grained interleaving.
-    /// Each step runs exactly one effect on a randomly selected node.
-    pub fn run(&mut self, rng: &mut RandStdRng, max_steps: usize) {
+    ///
+    /// Phase 1: Enqueue actions and run effects with time advancement until all
+    /// actions are consumed.
+    /// Phase 2 (drain): Continue running effects (with time advancement) but
+    /// without enqueueing new actions. This allows in-flight work to complete:
+    /// block fetches, chain relay to downstream, retries, etc.
+    /// The drain stops when no node has processed any effect for a sustained
+    /// period, indicating all cross-node communication has settled.
+    pub fn run(&mut self, rng: &mut RandStdRng) {
+        let max_steps = 1_000_000; // safety limit
+
+        // Phase 1: Run with action enqueueing until all actions consumed
         for step in 0..max_steps {
             for node in self.nodes.iter_mut() {
-                // Enqueue one pending action if available
                 node.enqueue_pending_action();
-                // Receive external effects results or input messages
                 node.advance_inputs();
+            }
+
+            if self.nodes.iter().all(|n| !n.has_pending_actions()) {
+                tracing::info!("All actions consumed at step {step}, entering drain phase");
+                break;
             }
 
             let Some(node) = self.pick_random_active_node(rng) else {
@@ -112,7 +125,46 @@ impl Nodes {
             };
             node.run_effect();
         }
-        tracing::info!("Nodes ran for {max_steps} steps");
+
+        // Phase 2: Drain remaining effects
+        self.drain(rng);
+    }
+
+    /// Drain remaining effects after all actions have been consumed.
+    ///
+    /// Runs effects identically to Phase 1 (including time advancement for
+    /// sleeping nodes) but without enqueueing new actions. Stops when no
+    /// node has processed any effects for `patience` consecutive steps.
+    fn drain(&mut self, rng: &mut RandStdRng) {
+        let max_drain_steps = 1_000_000;
+        let mut steps_without_effect = 0;
+        let patience = 10_000;
+
+        for step in 0..max_drain_steps {
+            for node in self.nodes.iter_mut() {
+                node.advance_inputs();
+            }
+
+            let Some(node) = self.pick_random_active_node(rng) else {
+                tracing::info!("drain[{step}]: all nodes terminated");
+                return;
+            };
+
+            let had_runnable = node.has_runnable_effects();
+            node.run_effect();
+
+            if had_runnable || node.has_runnable_effects() {
+                steps_without_effect = 0;
+            } else {
+                steps_without_effect += 1;
+            }
+
+            if steps_without_effect >= patience {
+                tracing::info!("drain[{step}]: no effects for {patience} steps, drain complete");
+                return;
+            }
+        }
+        tracing::info!("Drain phase completed after {max_drain_steps} steps");
     }
 
     pub fn get_node_under_test(&mut self) -> anyhow::Result<&mut Node> {

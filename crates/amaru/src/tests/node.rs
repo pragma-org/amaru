@@ -133,9 +133,10 @@ impl Node {
             Err(Blocked::Deadlock(_)) => {
                 panic!("Deadlock detected");
             }
-            Err(Blocked::Breakpoint(name, ..)) => {
-                // A breakpoint might have been set but is not handled. Warn the user.
-                tracing::warn!("The breakpoint {name} is not handled");
+            Err(Blocked::Breakpoint(name, effect)) => {
+                tracing::warn!("Unhandled breakpoint {name}, clearing and continuing");
+                self.running.clear_breakpoint(&name);
+                self.running.handle_effect(effect);
             }
         }
     }
@@ -182,6 +183,16 @@ impl Node {
     /// Return the trace buffer used by the node in the simulation.
     pub fn trace_buffer(&self) -> Arc<Mutex<TraceBuffer>> {
         self.config.trace_buffer.clone()
+    }
+
+    /// Return true if the node still has pending actions to enqueue.
+    pub fn has_pending_actions(&self) -> bool {
+        !self.pending_actions.is_empty()
+    }
+
+    /// Return true if the node still has runnable effects.
+    pub fn has_runnable_effects(&self) -> bool {
+        self.running.has_runnable()
     }
 
     /// Return true for the node under test
