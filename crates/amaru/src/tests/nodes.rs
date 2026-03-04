@@ -138,7 +138,7 @@ impl Nodes {
     fn drain(&mut self, rng: &mut RandStdRng) {
         let max_drain_steps = 1_000_000;
         let mut steps_without_effect = 0;
-        let patience = 10_000;
+        let patience = 1_000;
 
         for step in 0..max_drain_steps {
             for node in self.nodes.iter_mut() {

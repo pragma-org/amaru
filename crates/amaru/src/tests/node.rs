@@ -133,10 +133,9 @@ impl Node {
             Err(Blocked::Deadlock(_)) => {
                 panic!("Deadlock detected");
             }
-            Err(Blocked::Breakpoint(name, effect)) => {
-                tracing::warn!("Unhandled breakpoint {name}, clearing and continuing");
-                self.running.clear_breakpoint(&name);
-                self.running.handle_effect(effect);
+            Err(Blocked::Breakpoint(name, ..)) => {
+                // A breakpoint might have been set but is not handled. Warn the user.
+                tracing::warn!("The breakpoint {name} is not handled");
             }
         }
     }
