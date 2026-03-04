@@ -774,15 +774,11 @@
         return null;
     }
 
-    function extractTraceType(inputStr) {
-        if (!inputStr) return 'fwd';
-        // `type: bck` anywhere in the structured text (case-insensitive)
-        if (/\btype\s*:\s*bck\b/i.test(inputStr)) return 'bck';
-        // If payload mentions a Rollback (in input/msg strings), treat as back
-        if (/\bRollback\b/.test(inputStr)) return 'bck';
-        // If payload mentions a RolledBackTo (in input/msg strings), treat as back
-        if (/\bRolledBackTo\b/.test(inputStr)) return 'bck';
-        return 'fwd';
+    function extractMessageName(inputStr) {
+        if (!inputStr) return 'unknown';
+        const m = inputStr.match(/^\s*\{\s*([A-Za-z]\w*)\s*:/);
+        if (m) return m[1];
+        return 'unknown';
     }
 
     function extractEffectLabel(effectTypeStr) {
@@ -809,12 +805,12 @@
         return `hsl(${hue}, 65%, 40%)`;
     }
 
-    function showHashForStage(stageName, hash, peer, traceType) {
+    function showHashForStage(stageName, hash, peer, msgName) {
         const el = stageElems[stageName];
         if (!el) return;
         const ns = 'http://www.w3.org/2000/svg';
-        const ttype = (traceType ?? 'fwd');
-        const key = `${String(hash)}-${peer ?? 'unknown'}-${ttype}`;
+        const name = (msgName ?? 'unknown');
+        const key = `${String(hash)}-${peer ?? 'unknown'}-${name}`;
         removeLabelElsewhere(stageName, key);
         const t = document.createElementNS(ns, 'text');
         t.setAttribute('x', el.x);
@@ -824,12 +820,12 @@
         if (hash) t.setAttribute('data-hash', String(hash));
         if (peer != null) t.setAttribute('data-peer', String(peer));
         t.setAttribute('data-order', String(++labelSeq));
-        t.setAttribute('data-trace-type', ttype);
+        t.setAttribute('data-msg-name', name);
 
         const short = String(hash).slice(0, 6);
         const who = (peer != null && String(peer).length) ? String(peer) : '?';
-        t.textContent = `${ttype}: ${short} (${who})`;
-        t.setAttribute('title', `${ttype}: ${String(hash)} (${who})`);
+        t.textContent = `${name}: ${short} (${who})`;
+        t.setAttribute('title', `${name}: ${String(hash)} (${who})`);
         svg.appendChild(t);
 
         // Ensure labels under this stage are stacked without gaps/overlaps
@@ -1050,7 +1046,7 @@
         updateStack();
     }
 
-    function setCurrentTrace(ev, hashVal = null, peer = null, traceType = null) {
+    function setCurrentTrace(ev, hashVal = null, peer = null, msgName = null) {
         if (!currentTraceEl) return;
         if (!ev) {
             currentTraceEl.innerHTML = '';
@@ -1061,11 +1057,11 @@
         const stageLabel = displayStageName(stage);
         let right = '';
         if (type === 'input') {
-            const ttype = (traceType ?? extractTraceType(ev.input) ?? 'fwd');
+            const name = (msgName ?? extractMessageName(ev.input) ?? 'unknown');
             const short = String(hashVal).slice(0, 6);
             const who = (peer != null && String(peer).length) ? ` (${peer})` : '';
             right = hashVal
-                ? `<code title="${ttype}: ${String(hashVal)}${who}">${ttype}: ${short}${who}</code>`
+                ? `<code title="${name}: ${String(hashVal)}${who}">${name}: ${short}${who}</code>`
                 : `<span class="label">—</span>`;
         } else {
             right = `<span class="label">—</span>`;
@@ -1185,7 +1181,7 @@
                 } else if (ev.kind === 'input') {
                     const h = extractHash(ev.input);
                     const peer = extractPeer(ev.input);
-                    const ttype = extractTraceType(ev.input);
+                    const ttype = extractMessageName(ev.input);
                     addRunnableFromInputEvent(ev);
                     setCurrentTrace(ev, h, peer, ttype);
                     setDebugTrace(ev);
@@ -1244,7 +1240,7 @@
             } else if (ev.kind === 'input') {
                 const h = extractHash(ev.input);
                 const peer = extractPeer(ev.input);
-                const ttype = extractTraceType(ev.input);
+                const ttype = extractMessageName(ev.input);
                 addRunnableFromInputEvent(ev);
                 showHashForStage(ev.stage, h, peer, ttype);
             } else if (ev.kind === 'suspend') {
@@ -1263,7 +1259,7 @@
             if (last.kind === 'input') {
                 const h = extractHash(last.input);
                 const peer = extractPeer(last.input);
-                const ttype = extractTraceType(last.input);
+                const ttype = extractMessageName(last.input);
                 setCurrentTrace(last, h, peer, ttype);
             } else {
                 setCurrentTrace(last);
