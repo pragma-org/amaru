@@ -29,7 +29,9 @@ publish = true
 shared-version = "workspace"
 
 # Allow publishing more than 5 new crates in one run (first-time publishes)
-rate-limit = 20
+[rate-limit]
+new-packages = 20
+existing-packages = 20
 
 # Let cargo-release verify the tree is clean before proceeding
 pre-release-commit-message = "chore: release {{version}}"
