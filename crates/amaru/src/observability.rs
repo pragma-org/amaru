@@ -276,7 +276,8 @@ pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> (Op
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
-    let resource = Resource::builder().with_attribute(KeyValue::new(SERVICE_NAME, DEFAULT_OTLP_SERVICE_NAME)).build();
+    let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string());
+    let resource = Resource::builder().with_attribute(KeyValue::new(SERVICE_NAME, service_name)).build();
 
     // Traces & span
     let opentelemetry_provider = SdkTracerProvider::builder()
