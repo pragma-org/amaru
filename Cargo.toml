@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A Cardano blockchain node implementation"
 license = "Apache-2.0"
@@ -93,26 +93,26 @@ tracing-subscriber = { version = "0.3.20", features = [
 typetag = "0.2.21"
 
 # Internal dependencies
-amaru = { path = "crates/amaru" }
-amaru-consensus = { path = "crates/amaru-consensus" }
-amaru-iter-borrow = { path = "crates/amaru-iter-borrow" }
-amaru-kernel = { path = "crates/amaru-kernel" }
-amaru-ledger = { path = "crates/amaru-ledger" }
-amaru-mempool = { path = "crates/amaru-mempool" }
-amaru-metrics = { path = "crates/amaru-metrics" }
-amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra" }
-amaru-network = { path = "crates/amaru-network" }
-amaru-observability = { path = "crates/amaru-observability" }
-amaru-observability-macros = { path = "crates/amaru-observability/macros" }
-amaru-ouroboros = { path = "crates/amaru-ouroboros" }
-amaru-ouroboros-traits = { path = "crates/amaru-ouroboros-traits" }
-amaru-plutus = { path = "crates/amaru-plutus" }
-amaru-progress-bar = { path = "crates/amaru-progress-bar" }
-amaru-protocols = { path = "crates/amaru-protocols" }
-amaru-sim = { path = "crates/amaru-sim" }
-amaru-stores = { path = "crates/amaru-stores" }
-amaru-tracing-json = { path = "crates/amaru-tracing-json" }
-pure-stage = { path = "crates/pure-stage" }
+amaru = { path = "crates/amaru", version = "0.1.1" }
+amaru-consensus = { path = "crates/amaru-consensus", version = "0.1.1" }
+amaru-iter-borrow = { path = "crates/amaru-iter-borrow", version = "0.1.1" }
+amaru-kernel = { path = "crates/amaru-kernel", version = "0.1.1" }
+amaru-ledger = { path = "crates/amaru-ledger", version = "0.1.1" }
+amaru-mempool = { path = "crates/amaru-mempool", version = "0.1.1" }
+amaru-metrics = { path = "crates/amaru-metrics", version = "0.1.1" }
+amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra", version = "0.1.1" }
+amaru-network = { path = "crates/amaru-network", version = "0.1.1" }
+amaru-observability = { path = "crates/amaru-observability", version = "0.1.1" }
+amaru-observability-macros = { path = "crates/amaru-observability/macros", version = "0.1.1" }
+amaru-ouroboros = { path = "crates/amaru-ouroboros", version = "0.1.1" }
+amaru-ouroboros-traits = { path = "crates/amaru-ouroboros-traits", version = "0.1.1" }
+amaru-plutus = { path = "crates/amaru-plutus", version = "0.1.1" }
+amaru-progress-bar = { path = "crates/amaru-progress-bar", version = "0.1.1" }
+amaru-protocols = { path = "crates/amaru-protocols", version = "0.1.1" }
+amaru-sim = { path = "crates/amaru-sim", version = "0.1.1" }
+amaru-stores = { path = "crates/amaru-stores", version = "0.1.1" }
+amaru-tracing-json = { path = "crates/amaru-tracing-json", version = "0.1.1" }
+pure-stage = { path = "crates/pure-stage", version = "0.1.1" }
 uplc-turbo = { git = "https://github.com/pragma-org/uplc" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.

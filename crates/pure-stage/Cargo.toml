@@ -1,6 +1,6 @@
 [package]
 name = "pure-stage"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 description = "A library for building and running simulations of distributed systems."
 license.workspace = true
