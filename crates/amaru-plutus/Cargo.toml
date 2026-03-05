@@ -15,7 +15,7 @@ categories.workspace = true
 
 [dependencies]
 # External dependencies
-uplc-turbo.workspace = true
+amaru-uplc-turbo.workspace = true
 hex.workspace = true
 itertools.workspace = true
 num.workspace = true

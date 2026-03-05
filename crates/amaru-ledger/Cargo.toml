@@ -38,7 +38,7 @@ amaru-metrics.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-plutus.workspace = true
 amaru-progress-bar.workspace = true
-uplc-turbo.workspace = true
+amaru-uplc-turbo.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
