@@ -28,6 +28,9 @@ publish = true
 # so they are always released together.
 shared-version = "workspace"
 
+# Allow publishing more than 5 new crates in one run (first-time publishes)
+rate-limit = 20
+
 # Let cargo-release verify the tree is clean before proceeding
 pre-release-commit-message = "chore: release {{version}}"
 tag-message = "Release {{version}}"
