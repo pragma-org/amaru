@@ -60,3 +60,6 @@ num = { workspace = true, default-features = false, features = [
   "alloc",
   "libm",
 ] }
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-uplc-turbo"]

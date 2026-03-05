@@ -33,3 +33,6 @@ proptest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-uplc-turbo"]
