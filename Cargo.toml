@@ -47,7 +47,7 @@ opentelemetry-otlp = { version = "0.31.0", features = [
   "http-proto",
   "reqwest-blocking-client",
 ] }
-opentelemetry-semantic-conventions = "0.31.0"
+opentelemetry-semantic-conventions = { version = "0.31.0", features = ["semconv_experimental"] }
 opentelemetry_sdk = "0.31.0"
 pallas-addresses = "0.34.0"
 pallas-codec = "0.34.0" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)

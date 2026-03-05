@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    env::VarError,
+    env::{VarError, var},
     error::Error,
     fmt,
     io::{self, IsTerminal},
@@ -25,7 +25,7 @@ use std::{
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
-use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
+use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
 use tracing::{Metadata, Subscriber, info, level_filters::LevelFilter, span, subscriber::Interest, warn};
 use tracing_subscriber::{
     EnvFilter, Registry,
@@ -267,17 +267,21 @@ impl Default for OpenTelemetryHandle {
     }
 }
 
-pub const DEFAULT_OTLP_SERVICE_NAME: &str = "amaru";
-
-pub const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
+const DEFAULT_OTLP_SERVICE_NAME: &str = "amaru";
+const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
 #[expect(clippy::panic)]
 pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> (OpenTelemetryHandle, DelayedWarning) {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
-    let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string());
-    let resource = Resource::builder().with_attribute(KeyValue::new(SERVICE_NAME, service_name)).build();
+    let service_name = var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string());
+    let service_instance_id = var("OTEL_SERVICE_INSTANCE_ID").ok();
+    let mut attributes = vec![KeyValue::new(SERVICE_NAME, service_name.clone())];
+    if let Some(id) = service_instance_id {
+        attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, id));
+    }
+    let resource = Resource::builder().with_attributes(attributes).build();
 
     // Traces & span
     let opentelemetry_provider = SdkTracerProvider::builder()
@@ -313,7 +317,7 @@ pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> (Op
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
     // Subscriber
-    let opentelemetry_tracer = opentelemetry_provider.tracer(DEFAULT_OTLP_SERVICE_NAME);
+    let opentelemetry_tracer = opentelemetry_provider.tracer(service_name);
     let (default_filter, warning) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
 
     let opentelemetry_layer =
