@@ -24,6 +24,7 @@ use amaru::tests::{
 use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
 use amaru_kernel::{BlockHeader, Peer};
 use pure_stage::trace_buffer::TraceBuffer;
+use rayon::prelude::*;
 
 use crate::simulator::{
     Args, RunConfig, TestResult,
@@ -49,8 +50,21 @@ pub fn run_tests(args: Args) -> anyhow::Result<()> {
     create_symlink_dir(test_run_dir.as_path(), tests_dir.join("latest").as_path());
     persist_args(test_run_dir.as_path(), &args, args.persist_on_success)?;
 
-    for test_number in 1..=run_config.number_of_tests {
-        run_test_nb(&run_config, test_run_dir.as_path(), test_number)?;
+    let results: Vec<anyhow::Result<()>> = (1..=run_config.number_of_tests)
+        .into_par_iter()
+        .map(|test_number| {
+            let test_config = run_config.clone().with_seed(run_config.seed.wrapping_add((test_number - 1) as u64));
+            run_test_nb(&test_config, test_run_dir.as_path(), test_number)
+        })
+        .collect();
+
+    // Create the per-test "latest" symlink pointing to the last test directory.
+    // This is done after parallel execution to avoid races between threads.
+    let last_test_dir = test_run_dir.join(format!("test-{}", run_config.number_of_tests));
+    create_symlink_dir(last_test_dir.as_path(), test_run_dir.join("latest").as_path());
+
+    for result in results {
+        result?;
     }
 
     Ok(())
@@ -60,7 +74,6 @@ pub fn run_tests(args: Args) -> anyhow::Result<()> {
 fn run_test_nb(run_config: &RunConfig, test_run_dir: &Path, test_number: u32) -> anyhow::Result<()> {
     let test_run_dir_n = test_run_dir.join(format!("test-{}", test_number));
     create_dir_all(&test_run_dir_n)?;
-    create_symlink_dir(test_run_dir_n.as_path(), test_run_dir_n.parent().unwrap().join("latest").as_path());
 
     tracing::info!(
         test_number, total=%run_config.number_of_tests,
@@ -89,16 +102,7 @@ pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResul
         let mut rng = run_config.rng();
         let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions)).expect("failed to create nodes");
 
-        // Scale steps based on the number of nodes in the system.
-        // Each step runs one effect on one randomly-selected node, so with N nodes
-        // each node gets ~total_steps/N turns. We multiply by total_nodes to ensure
-        // every node (especially the node under test) gets enough turns.
-        let upstream = run_config.number_of_upstream_peers as usize;
-        let downstream = run_config.number_of_downstream_peers as usize;
-        let total_nodes = upstream + downstream + 1;
-        let steps = total_nodes * (5000 + upstream * 500);
-
-        nodes.run(&mut rng, steps);
+        nodes.run(&mut rng);
         check_chain_property(nodes, actions)
     };
 

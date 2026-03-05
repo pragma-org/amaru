@@ -42,7 +42,7 @@ fn run_simulator_with_traces() {
         let mut rng = RandStdRng::from_seed(42);
         info_span!(target: "amaru_consensus", "handle_msg").in_scope(|| {
             let mut nodes = create_nodes(&mut rng, vec![initiator_config, responder_config]).unwrap();
-            nodes.run(&mut rng, 10000);
+            nodes.run(&mut rng);
         });
     };
 

@@ -22,6 +22,27 @@ use crate::{
     trace_collect_config::TraceCollectConfig,
 };
 
+/// Recursively sort keys in JSON objects so that equality comparison
+/// is independent of key insertion order (relevant when serde_json's
+/// `preserve_order` feature is enabled).
+fn sort_keys(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let sorted: serde_json::Map<String, Value> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), sort_keys(v)))
+                .collect::<std::collections::BTreeMap<_, _>>()
+                .into_iter()
+                .collect();
+            Value::Object(sorted)
+        }
+        Value::Array(arr) => Value::Array(arr.iter().map(sort_keys).collect()),
+        other @ Value::Null | other @ Value::Bool(_) | other @ Value::Number(_) | other @ Value::String(_) => {
+            other.clone()
+        }
+    }
+}
+
 /// Run a function that emits tracing data.
 /// Collect the traces and assert that the collected data matches `expected`.
 /// The collected data is stripped of ids before comparison and the result of the run function is returned.
@@ -80,10 +101,12 @@ where
     }
 
     for (index, (actual_tree, expected_tree)) in actual.iter().zip(expected.iter()).enumerate() {
-        if actual_tree != expected_tree {
+        let sorted_actual = sort_keys(actual_tree);
+        let sorted_expected = sort_keys(expected_tree);
+        if sorted_actual != sorted_expected {
             panic!(
                 "span tree at index {index} differs\n{}\n\nactual spans trees:\n{}",
-                Comparison::new(actual_tree, expected_tree),
+                Comparison::new(&sorted_actual, &sorted_expected),
                 format_span_trees(&actual)
             );
         }

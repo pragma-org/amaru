@@ -40,7 +40,7 @@ fn test_connect_nodes_in_memory() -> anyhow::Result<()> {
             NodeTestConfig::responder().with_chain_length(5).with_validated_blocks(headers),
         ],
     )?;
-    nodes.run(&mut rng, 10000);
+    nodes.run(&mut rng);
 
     // check that the initiator and responder resources contain eventually the same data.
     let resources = nodes.resources();

@@ -136,6 +136,11 @@ impl SimulationRunning {
         &self.trace_buffer
     }
 
+    /// Return true if some stages are runnable.
+    pub fn has_runnable(&self) -> bool {
+        !self.runnable.is_empty()
+    }
+
     /// Install a breakpoint that will be hit when an effect matching the given predicate is encountered.
     pub fn breakpoint(&mut self, name: impl AsRef<str>, predicate: impl Fn(&Effect) -> bool + Send + 'static) {
         self.breakpoints.push((Name::from(name.as_ref()), Box::new(predicate)));

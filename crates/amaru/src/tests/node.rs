@@ -184,6 +184,16 @@ impl Node {
         self.config.trace_buffer.clone()
     }
 
+    /// Return true if the node still has pending actions to enqueue.
+    pub fn has_pending_actions(&self) -> bool {
+        !self.pending_actions.is_empty()
+    }
+
+    /// Return true if the node still has runnable effects.
+    pub fn has_runnable_effects(&self) -> bool {
+        self.running.has_runnable()
+    }
+
     /// Return true for the node under test
     pub fn is_node_under_test(&self) -> bool {
         self.config.node_type == NodeType::NodeUnderTest
