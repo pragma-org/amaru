@@ -15,7 +15,7 @@ categories.workspace = true
 
 [dependencies]
 # External dependencies
-uplc-turbo.workspace = true
+amaru-uplc-turbo.workspace = true
 hex.workspace = true
 itertools.workspace = true
 num.workspace = true
@@ -30,6 +30,9 @@ serde.workspace = true
 test-case.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-uplc-turbo"]
 
 [lints]
 workspace = true
