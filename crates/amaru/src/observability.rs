@@ -275,10 +275,11 @@ pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> (Op
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
-    let service_name = var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string());
+    let service_name =
+        var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string()).trim().to_string();
     let service_instance_id = var("OTEL_SERVICE_INSTANCE_ID").ok();
     let mut attributes = vec![KeyValue::new(SERVICE_NAME, service_name.clone())];
-    if let Some(id) = service_instance_id {
+    if let Some(id) = service_instance_id.filter(|value| !value.trim().is_empty()) {
         attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, id));
     }
     let resource = Resource::builder().with_attributes(attributes).build();
