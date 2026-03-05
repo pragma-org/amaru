@@ -917,7 +917,17 @@ fn generate_module_validator_macro(
 ///
 /// Note: When the macro is expanded within the `amaru-observability` crate itself,
 /// we use `crate::registry::SchemaEntry` instead of `amaru_observability::registry::SchemaEntry`.
-fn generate_inventory_submission(schema: &Schema) -> proc_macro2::TokenStream {
+///
+/// Local schemas (`define_local_schemas!`) do not register with the global inventory —
+/// they are scoped to a single crate and their entries would never be queried at runtime.
+fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
+    // Local schemas are not exported and do not participate in the global runtime registry.
+    // Skipping the submission also avoids a dep on `amaru-observability` in crates that
+    // only use `define_local_schemas!` (e.g. amaru-observability-macros own tests).
+    if !config.export_macros {
+        return quote! {};
+    }
+
     let schema_path = schema.full_path();
     let target_path = schema.target_path();
     let schema_name = schema.name.clone();
@@ -945,8 +955,6 @@ fn generate_inventory_submission(schema: &Schema) -> proc_macro2::TokenStream {
     // Use `crate::` path when inside amaru-observability lib itself, external path otherwise.
     // We check both CARGO_PKG_NAME and CARGO_CRATE_NAME because examples within the
     // amaru-observability package have the package name but a different crate name.
-    //
-    // This is required for local schema testing
     let is_observability_lib = std::env::var("CARGO_PKG_NAME").ok().as_deref() == Some("amaru-observability")
         && std::env::var("CARGO_CRATE_NAME").ok().as_deref() == Some("amaru_observability");
 
@@ -1101,7 +1109,7 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
         validation_macros.push(generate_instrument_macro(schema, config));
         validation_macros.push(generate_record_macro(schema, config));
 
-        inventory_submissions.push(generate_inventory_submission(schema));
+        inventory_submissions.push(generate_inventory_submission(schema, config));
     }
 
     // Generate category module validator macros
