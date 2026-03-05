@@ -31,8 +31,8 @@ test-case.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 
-[lints]
-workspace = true
-
 [package.metadata.cargo-machete]
 ignored = ["amaru-uplc-turbo"]
+
+[lints]
+workspace = true
