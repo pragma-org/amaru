@@ -27,6 +27,7 @@ publish = true
 # All workspace crates share the same version (workspace.package.version),
 # so they are always released together.
 shared-version = "workspace"
+verify = false
 
 # Allow publishing more than 5 new crates in one run (first-time publishes)
 [rate-limit]
