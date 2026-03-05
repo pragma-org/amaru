@@ -7,10 +7,13 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
+keywords = ["cardano", "blockchain", "node", "ouroboros", "crypto"]
+categories = ["cryptography::cryptocurrencies"]
 rust-version = "1.93"                                    # ⚠️ Also change in rust-toolchain.toml
 
 [workspace]
-members = ["crates/*", "simulation/*"]
+members = ["crates/*", "crates/amaru-observability/macros/", "crates/vendor/*", "simulation/*"]
+exclude = ["crates/vendor"]
 default-members = ["crates/*"]
 resolver = "2"
 
@@ -113,8 +116,10 @@ pure-stage = { path = "crates/pure-stage" }
 uplc-turbo = { git = "https://github.com/pragma-org/uplc" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
-vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }
-kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
+vrf_dalek = { package = "amaru-vrf-dalek", path = "crates/vendor/amaru-vrf-dalek", version = "0.1.0" }
+kes-summed-ed25519 = { package = "amaru-kes-summed-ed25519", path = "crates/vendor/amaru-kes-summed-ed25519", version = "0.2.1" }
+# curve25519-dalek fork used by vrf_dalek (txpipe/curve25519-dalek@70a36f41, branch ietf03_vrf_compat_ell2)
+amaru-curve25519-dalek = { package = "amaru-curve25519-dalek", path = "crates/vendor/amaru-curve25519-dalek", version = "3.2.0" }
 
 # dev-dependencies
 assertables = "9.8.2"

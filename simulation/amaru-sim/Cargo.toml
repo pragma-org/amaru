@@ -2,13 +2,17 @@
 name = "amaru-sim"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Simulation harness for testing the Amaru Cardano node"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "README.md"
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

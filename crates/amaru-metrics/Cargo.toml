@@ -5,13 +5,16 @@ lints.workspace = true
 name = "amaru-metrics"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Metrics collection and telemetry primitives for the Amaru Cardano node"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "README.md"
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # External Dependencies

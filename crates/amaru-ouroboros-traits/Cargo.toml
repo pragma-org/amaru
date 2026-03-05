@@ -4,13 +4,16 @@ lints.workspace = true
 name = "amaru-ouroboros-traits"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Trait abstractions for the Ouroboros consensus protocol"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "../../README.md"
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = []

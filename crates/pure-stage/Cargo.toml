@@ -8,7 +8,10 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/pure-stage"
+readme = "README.md"
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = []

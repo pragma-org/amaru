@@ -4,13 +4,16 @@ lints.workspace = true
 name = "amaru-progress-bar"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Progress bar abstractions for long-running operations"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "../../README.md"
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 indicatif = { workspace = true, optional = true }

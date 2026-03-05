@@ -1,0 +1,37 @@
+[package]
+name = "amaru-kes-summed-ed25519"
+version = "0.2.1"
+edition = "2021"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/txpipe/kes"
+homepage = "https://github.com/txpipe/kes"
+categories = ["cryptography"]
+description = "Key Evolving Signature"
+keywords = ["Crypto", "KES", "Ed25519", "MMM", "Sum"]
+
+[lib]
+name = "kes_summed_ed25519"
+
+[dependencies]
+ed25519-dalek = { version = "2" }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_with = { version = "3.11.0", optional = true }
+blake2 = "0.10.6"
+zeroize = "1.8.1"
+thiserror = "1.0"
+
+[dev-dependencies]
+criterion = "0.5.1"
+serde_json = "1"
+serde_cbor = "0.11.2"
+hex = "0.4.3"
+
+[features]
+default = []
+serde_enabled = ["ed25519-dalek/serde", "serde", "serde_with"]
+sk_clone_enabled = []
+
+[[bench]]
+harness = false
+name = "mmm-sumed25519"

@@ -4,13 +4,16 @@ lints.workspace = true
 name = "amaru-minicbor-extra"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "Extra CBOR encoding utilities built on top of minicbor"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "README.md"
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = []

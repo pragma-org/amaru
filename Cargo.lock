@@ -146,6 +146,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-curve25519-dalek"
+version = "3.2.0"
+dependencies = [
+ "byteorder",
+ "digest 0.9.0",
+ "rand_core 0.5.1",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "amaru-iter-borrow"
 version = "0.1.0"
 dependencies = [
@@ -178,6 +189,16 @@ dependencies = [
  "sha3",
  "test-case",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "amaru-kes-summed-ed25519"
+version = "0.2.1"
+dependencies = [
+ "blake2 0.10.6",
+ "ed25519-dalek",
+ "thiserror 1.0.69",
+ "zeroize",
 ]
 
 [[package]]
@@ -284,12 +305,13 @@ name = "amaru-ouroboros"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-kes-summed-ed25519",
  "amaru-ouroboros-traits",
+ "amaru-vrf-dalek",
  "ctor",
  "getrandom 0.3.4",
  "hex",
  "insta",
- "kes-summed-ed25519 0.2.1 (git+https://github.com/txpipe/kes?rev=f69fb357d46f6a18925543d785850059569d7e78)",
  "num",
  "pallas-codec",
  "pallas-crypto",
@@ -303,7 +325,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tracing-subscriber",
- "vrf_dalek",
 ]
 
 [[package]]
@@ -424,6 +445,17 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "amaru-vrf-dalek"
+version = "0.1.0"
+dependencies = [
+ "amaru-curve25519-dalek",
+ "curve25519-dalek 3.2.0",
+ "rand_core 0.5.1",
+ "sha2 0.9.9",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1168,18 +1200,6 @@ name = "curve25519-dalek"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b9fdf9972b2bd6af2d913799d9ebc165ea4d2e65878e329d9c6b372c4491b61"
-dependencies = [
- "byteorder",
- "digest 0.9.0",
- "rand_core 0.5.1",
- "subtle",
- "zeroize",
-]
-
-[[package]]
-name = "curve25519-dalek"
-version = "3.2.0"
-source = "git+https://github.com/txpipe/curve25519-dalek?branch=ietf03_vrf_compat_ell2#70a36f41cfc3fbb7357ec3062201b911787decba"
 dependencies = [
  "byteorder",
  "digest 0.9.0",
@@ -2326,18 +2346,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kes-summed-ed25519"
-version = "0.2.1"
-source = "git+https://github.com/txpipe/kes?rev=f69fb357d46f6a18925543d785850059569d7e78#f69fb357d46f6a18925543d785850059569d7e78"
-dependencies = [
- "blake2 0.10.6",
- "ed25519-dalek",
- "rand_core 0.6.4",
- "thiserror 1.0.69",
- "zeroize",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2602,7 +2610,7 @@ dependencies = [
  "ed25519-dalek",
  "fixed",
  "hex",
- "kes-summed-ed25519 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "kes-summed-ed25519",
  "mithril-build-script",
  "mithril-stm",
  "nom 8.0.0",
@@ -4928,18 +4936,6 @@ name = "virtue"
 version = "0.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
-
-[[package]]
-name = "vrf_dalek"
-version = "0.1.0"
-source = "git+https://github.com/txpipe/vrf?rev=044b45a1a919ba9d9c2471fc5c4d441f13086676#044b45a1a919ba9d9c2471fc5c4d441f13086676"
-dependencies = [
- "curve25519-dalek 3.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "curve25519-dalek 3.2.0 (git+https://github.com/txpipe/curve25519-dalek?branch=ietf03_vrf_compat_ell2)",
- "rand_core 0.5.1",
- "sha2 0.9.9",
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "walkdir"

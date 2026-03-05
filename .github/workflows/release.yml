@@ -231,6 +231,23 @@ jobs:
         run: |
           docker buildx imagetools inspect ${{ env.DOCKER_IMAGE }}:${{ steps.meta.outputs.version }}
 
+  cargo-publish:
+    name: Publish crates to crates.io
+    runs-on: ubuntu-latest
+    if: ${{ github.ref_type == 'tag' }}
+    needs: rust-build
+    environment: crates-io
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo release publish --workspace --no-confirm
+
   merge-artifacts:
     name: Merge build artifacts
 

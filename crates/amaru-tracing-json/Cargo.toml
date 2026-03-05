@@ -4,13 +4,16 @@ lints.workspace = true
 name = "amaru-tracing-json"
 version.workspace = true
 edition.workspace = true
-description.workspace = true
+description = "JSON tracing subscriber for structured logging in the Amaru Cardano node"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme = "../../README.md"
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 serde_json = { "workspace" = true, features = ["preserve_order"] }
