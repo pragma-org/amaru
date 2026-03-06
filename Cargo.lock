@@ -56,7 +56,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "amaru"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-consensus",
  "amaru-iter-borrow",
@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-consensus"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-mempool",
@@ -158,14 +158,14 @@ dependencies = [
 
 [[package]]
 name = "amaru-iter-borrow"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "minicbor",
 ]
 
 [[package]]
 name = "amaru-kernel"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-minicbor-extra",
  "bech32 0.11.1",
@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-ledger"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-mempool"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-ouroboros-traits",
@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-metrics"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "opentelemetry",
  "serde",
@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-minicbor-extra"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "minicbor",
  "tracing",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-network"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-mempool",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-observability"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-observability-macros",
  "inventory",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-observability-macros"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "inventory",
  "proc-macro2",
@@ -301,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-ouroboros"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-kes-summed-ed25519",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-ouroboros-traits"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-metrics",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-plutus"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-uplc-turbo",
@@ -359,14 +359,14 @@ dependencies = [
 
 [[package]]
 name = "amaru-progress-bar"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "indicatif",
 ]
 
 [[package]]
 name = "amaru-protocols"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-mempool",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-sim"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru",
  "amaru-consensus",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-stores"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-tracing-json"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "assert-json-diff",
  "hex",
@@ -3346,7 +3346,7 @@ dependencies = [
 
 [[package]]
 name = "pure-stage"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "amaru-observability",
  "anyhow",
