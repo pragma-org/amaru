@@ -427,7 +427,6 @@ impl Muxer {
         }
     }
 
-    #[trace(amaru::protocols::mux::OUTGOING, proto_id = proto_id, bytes = bytes.len() as u64)]
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: StageRef<Sent>) {
         tracing::trace!(%proto_id, bytes = bytes.len(), "enqueueing send");
         #[allow(clippy::expect_used)]
@@ -438,7 +437,6 @@ impl Muxer {
             .enqueue_send(bytes, sent);
     }
 
-    #[trace(amaru::protocols::mux::NEXT_SEGMENT)]
     pub async fn next_segment<M>(&mut self, eff: &Effects<M>) -> Option<(ProtocolId<Erased>, Bytes)> {
         for idx in (self.next_out..self.outgoing.len()).chain(0..self.next_out) {
             let proto_id = self.outgoing[idx];
@@ -454,7 +452,6 @@ impl Muxer {
         None
     }
 
-    #[trace(amaru::protocols::mux::RECEIVED, bytes = bytes.len() as u64)]
     pub async fn received<M>(
         &mut self,
         timestamp: Timestamp,
@@ -469,7 +466,6 @@ impl Muxer {
         }
     }
 
-    #[trace(amaru::protocols::mux::WANT_NEXT)]
     pub async fn want_next<M>(&mut self, proto_id: ProtocolId<Erased>, eff: &Effects<M>) -> anyhow::Result<()> {
         #[allow(clippy::expect_used)]
         self.protocols
