@@ -15,7 +15,7 @@ rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 build = "build.rs"
-include = ["src/**/*", "config/**", "Cargo.toml"]
+include = ["src/**/*", "config/**", "Cargo.toml", "build.rs"]
 default-run = "amaru"
 
 [[bin]]
