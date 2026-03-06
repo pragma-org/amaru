@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru::{
-    observability::{Color, setup_observability},
+    observability::{Color, ObservabilityHints, setup_observability},
     panic::panic_handler,
 };
 use clap::{Parser, Subcommand};
@@ -31,6 +31,13 @@ enum Command {
     #[cfg(feature = "mithril")]
     Mithril(cmd::mithril::Args),
 }
+
+impl ObservabilityHints for Command {
+    fn listen_address(&self) -> Option<&str> {
+        None
+    }
+}
+
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru Ledger")]
 #[clap(bin_name = "amaru-ledger")]
@@ -61,8 +68,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Started with global arguments"
     );
 
-    let (_metrics, teardown) =
-        setup_observability(args.with_open_telemetry, args.with_json_traces, Color::is_enabled(args.color));
+    let (_metrics, teardown) = setup_observability(
+        args.with_open_telemetry,
+        args.with_json_traces,
+        Color::is_enabled(args.color),
+        &args.command,
+    );
 
     let result = match args.command {
         Command::Sync(args) => cmd::sync::run(args).await,

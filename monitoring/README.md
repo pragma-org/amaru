@@ -91,7 +91,8 @@ Coming soon.
 
 Amaru recognizes standard OpenTelemetry env variable for its configuration:
 
-- `OTEL_SERVICE_NAME`: Sets the `service.name` key used to identify metrics and traces. This is useful when a single OTLP service stack collects telemetry from several Amaru instances
+- `OTEL_SERVICE_NAME`: Sets the [service.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-name) key used to identify metrics and traces. Defaults to `amaru`.
+- `OTEL_SERVICE_INSTANCE_ID`: Sets the [service.instance.id](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-instance-id) key used to identify this specific amaru instance
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the endpoint used to send spans, defaults to `http://localhost:4317`
 - `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
 

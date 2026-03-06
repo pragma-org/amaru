@@ -130,6 +130,12 @@ pub struct Args {
     pid_file: Option<PathBuf>,
 }
 
+impl Args {
+    pub fn listen_address(&self) -> &str {
+        &self.listen_address
+    }
+}
+
 pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result<(), Box<dyn std::error::Error>> {
     with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
         let config = parse_args(args)?;
