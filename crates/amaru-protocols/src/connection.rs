@@ -152,6 +152,11 @@ pub async fn stage(
             eff.schedule_after(msg, params.config.reconnect_delay).await;
             state
         }
+        (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::NewTip(_)) => {
+            // The peer might be still connecting. Reschedule the NewTip message.
+            eff.schedule_after(msg, params.config.reconnect_delay).await;
+            state
+        }
         x => unimplemented!("{x:?}"),
     };
     Connection { params, state }
@@ -289,36 +294,42 @@ mod tests {
         fetch_blocks_in_disconnected_state_reschedules(handshake_state);
     }
 
-    // HELPERS
+    #[test]
+    fn test_new_tip_in_initial_state_reschedules() {
+        new_tip_in_disconnected_state_reschedules(State::Initial);
+    }
 
-    fn test_connection(state: State) -> Connection {
-        let era_history: &EraHistory = NetworkName::Preprod.into();
-        Connection {
-            params: Params {
-                peer: Peer::new("test-peer"),
-                conn_id: ConnectionId::initial(),
-                role: Role::Initiator,
-                config: ManagerConfig::default(),
-                magic: NetworkMagic::PREPROD,
-                pipeline: StageRef::blackhole(),
-                era_history: Arc::new(era_history.clone()),
-            },
-            state,
-        }
+    #[test]
+    fn test_new_tip_in_handshake_state_reschedules() {
+        let handshake_state = State::Handshake { muxer: StageRef::blackhole(), handshake: StageRef::blackhole() };
+        new_tip_in_disconnected_state_reschedules(handshake_state);
     }
 
     fn fetch_blocks_in_disconnected_state_reschedules(connection_state: State) {
+        assert_message_reschedules_in_disconnected_state(connection_state, |network| {
+            let (blocks_output, _rx) = network.output::<Blocks>("blocks_output", 10);
+            ConnectionMessage::FetchBlocks { from: Point::Origin, through: Point::Origin, cr: blocks_output }
+        });
+    }
+
+    fn new_tip_in_disconnected_state_reschedules(connection_state: State) {
+        assert_message_reschedules_in_disconnected_state(
+            connection_state,
+            |_| ConnectionMessage::NewTip(Tip::origin()),
+        );
+    }
+
+    fn assert_message_reschedules_in_disconnected_state(
+        connection_state: State,
+        make_msg: impl FnOnce(&mut SimulationBuilder) -> ConnectionMessage,
+    ) {
         let mut network = SimulationBuilder::default();
 
         let connection_stage = network.stage("connection", stage);
         let connection_stage = network.wire_up(connection_stage, test_connection(connection_state.clone()));
 
-        let (blocks_output, _rx) = network.output::<Blocks>("blocks_output", 10);
-
-        let fetch_msg =
-            ConnectionMessage::FetchBlocks { from: Point::Origin, through: Point::Origin, cr: blocks_output };
-
-        network.preload(&connection_stage, [fetch_msg]).unwrap();
+        let msg = make_msg(&mut network);
+        network.preload(&connection_stage, [msg]).unwrap();
 
         let mut running = network.run();
         let start_time = running.now();
@@ -349,5 +360,23 @@ mod tests {
         // Verify state remains the same
         let state = running.get_state(&connection_stage).unwrap();
         assert_eq!(state.state, connection_state);
+    }
+
+    // HELPERS
+
+    fn test_connection(state: State) -> Connection {
+        let era_history: &EraHistory = NetworkName::Preprod.into();
+        Connection {
+            params: Params {
+                peer: Peer::new("test-peer"),
+                conn_id: ConnectionId::initial(),
+                role: Role::Initiator,
+                config: ManagerConfig::default(),
+                magic: NetworkMagic::PREPROD,
+                pipeline: StageRef::blackhole(),
+                era_history: Arc::new(era_history.clone()),
+            },
+            state,
+        }
     }
 }
