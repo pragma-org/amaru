@@ -270,17 +270,33 @@ impl Default for OpenTelemetryHandle {
 const DEFAULT_OTLP_SERVICE_NAME: &str = "amaru";
 const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
+/// Context hints supplied by the caller to refine observability defaults.
+pub trait ObservabilityHints {
+    /// The address the node will listen on, if known at this point.
+    /// Used to build the default `service.instance.id` resource attribute.
+    fn listen_address(&self) -> Option<&str>;
+}
+
 #[expect(clippy::panic)]
-pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> (OpenTelemetryHandle, DelayedWarning) {
+pub fn setup_open_telemetry(
+    subscriber: &mut TracingSubscriber<Registry>,
+    hints: &impl ObservabilityHints,
+) -> (OpenTelemetryHandle, DelayedWarning) {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
     let service_name =
         var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string()).trim().to_string();
-    let service_instance_id = var("OTEL_SERVICE_INSTANCE_ID").ok();
+    let service_instance_id: Option<String> =
+        var("OTEL_SERVICE_INSTANCE_ID").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).or_else(|| {
+            let listen_addr = hints.listen_address()?;
+            let hostname = sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string());
+            let port = listen_addr.trim().rsplit(':').next()?;
+            Some(format!("{hostname}:{port}"))
+        });
     let mut attributes = vec![KeyValue::new(SERVICE_NAME, service_name.clone())];
-    if let Some(id) = service_instance_id.filter(|value| !value.trim().is_empty()) {
-        attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, id));
+    if let Some(instance_id) = service_instance_id {
+        attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, instance_id));
     }
     let resource = Resource::builder().with_attributes(attributes).build();
 
@@ -465,11 +481,12 @@ pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
     color: bool,
+    hints: &impl ObservabilityHints,
 ) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>) {
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { metrics, teardown }, warning_otlp) = if with_open_telemetry {
-        setup_open_telemetry(&mut subscriber)
+        setup_open_telemetry(&mut subscriber, hints)
     } else {
         (OpenTelemetryHandle::default(), None)
     };

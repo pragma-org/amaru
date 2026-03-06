@@ -15,7 +15,7 @@
 use std::sync::LazyLock;
 
 use amaru::{
-    observability::{Color, setup_observability},
+    observability::{Color, ObservabilityHints, setup_observability},
     panic::panic_handler,
 };
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
@@ -116,6 +116,16 @@ enum Command {
     Run(cmd::run::Args),
 }
 
+impl ObservabilityHints for Command {
+    fn listen_address(&self) -> Option<&str> {
+        #[allow(clippy::wildcard_enum_match_arm)]
+        match self {
+            Command::Run(args) => Some(args.listen_address()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru")]
 #[clap(bin_name = "amaru")]
@@ -151,8 +161,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (metrics, teardown) = if skip_logging {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>)
     } else {
-        let (m, t) =
-            setup_observability(args.with_open_telemetry, args.with_json_traces, Color::is_enabled(args.color));
+        let (m, t) = setup_observability(
+            args.with_open_telemetry,
+            args.with_json_traces,
+            Color::is_enabled(args.color),
+            &args.command,
+        );
         (Some(m), t)
     };
 
