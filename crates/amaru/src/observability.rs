@@ -285,25 +285,30 @@ pub fn setup_open_telemetry(
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
-    // Build the SDK-default resource first to discover any pre-configured attributes
-    // (e.g. via OTEL_RESOURCE_ATTRIBUTES), so we only add our fallback values when absent.
+    // Build the SDK-default resource to discover attributes already set via
+    // OTEL_RESOURCE_ATTRIBUTES. This is used only to guard our *fallback* values;
+    // the dedicated OTEL_SERVICE_NAME / OTEL_SERVICE_INSTANCE_ID env vars always
+    // take priority and are never suppressed by OTEL_RESOURCE_ATTRIBUTES.
     let default_resource = Resource::builder().build();
+    let resource_has = |key| default_resource.get(&opentelemetry::Key::from_static_str(key)).is_some();
+    let explicit_service_name = var("OTEL_SERVICE_NAME").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    let service_name = explicit_service_name.clone().unwrap_or_else(|| DEFAULT_OTLP_SERVICE_NAME.to_string());
 
-    let service_name =
-        var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string()).trim().to_string();
-    let service_instance_id: Option<String> =
-        var("OTEL_SERVICE_INSTANCE_ID").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).or_else(|| {
-            let listen_addr = hints.listen_address()?;
-            let hostname = sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string());
-            let port = listen_addr.trim().rsplit(':').next()?;
-            Some(format!("{hostname}:{port}"))
-        });
+    let explicit_service_instance_id =
+        var("OTEL_SERVICE_INSTANCE_ID").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    let service_instance_id: Option<String> = explicit_service_instance_id.clone().or_else(|| {
+        let listen_addr = hints.listen_address()?;
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string());
+        let port = listen_addr.trim().rsplit(':').next()?;
+        Some(format!("{hostname}:{port}"))
+    });
+
     let mut attributes = Vec::new();
-    if default_resource.get(&opentelemetry::Key::from_static_str(SERVICE_NAME)).is_none() {
+    if explicit_service_name.is_some() || !resource_has(SERVICE_NAME) {
         attributes.push(KeyValue::new(SERVICE_NAME, service_name.clone()));
     }
     if let Some(instance_id) = service_instance_id
-        && default_resource.get(&opentelemetry::Key::from_static_str(SERVICE_INSTANCE_ID)).is_none()
+        && (explicit_service_instance_id.is_some() || !resource_has(SERVICE_INSTANCE_ID))
     {
         attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, instance_id));
     }
