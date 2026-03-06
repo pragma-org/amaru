@@ -285,6 +285,10 @@ pub fn setup_open_telemetry(
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
+    // Build the SDK-default resource first to discover any pre-configured attributes
+    // (e.g. via OTEL_RESOURCE_ATTRIBUTES), so we only add our fallback values when absent.
+    let default_resource = Resource::builder().build();
+
     let service_name =
         var("OTEL_SERVICE_NAME").unwrap_or_else(|_| DEFAULT_OTLP_SERVICE_NAME.to_string()).trim().to_string();
     let service_instance_id: Option<String> =
@@ -294,8 +298,13 @@ pub fn setup_open_telemetry(
             let port = listen_addr.trim().rsplit(':').next()?;
             Some(format!("{hostname}:{port}"))
         });
-    let mut attributes = vec![KeyValue::new(SERVICE_NAME, service_name.clone())];
-    if let Some(instance_id) = service_instance_id {
+    let mut attributes = Vec::new();
+    if default_resource.get(&opentelemetry::Key::from_static_str(SERVICE_NAME)).is_none() {
+        attributes.push(KeyValue::new(SERVICE_NAME, service_name.clone()));
+    }
+    if let Some(instance_id) = service_instance_id
+        && default_resource.get(&opentelemetry::Key::from_static_str(SERVICE_INSTANCE_ID)).is_none()
+    {
         attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, instance_id));
     }
     let resource = Resource::builder().with_attributes(attributes).build();
