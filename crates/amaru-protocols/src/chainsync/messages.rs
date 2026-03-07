@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, EraName, Point, Tip, cbor, to_cbor};
+use amaru_kernel::{BlockHeader, EraName, Point, Tip, cbor, to_cbor, utils::debug_bytes};
 use pure_stage::DeserializerGuards;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -46,11 +46,22 @@ impl Message {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
 pub struct HeaderContent {
     pub variant: EraName,
     pub byron_prefix: Option<(u8, u64)>,
     pub cbor: Vec<u8>,
+}
+
+impl std::fmt::Debug for HeaderContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HeaderContent")
+            .field("variant", &self.variant)
+            .field("byron_prefix", &self.byron_prefix)
+            .field("cbor", &debug_bytes(&self.cbor, 300))
+            .field("cbor_len", &self.cbor.len())
+            .finish()
+    }
 }
 
 impl HeaderContent {

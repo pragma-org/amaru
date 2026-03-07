@@ -19,13 +19,16 @@ use amaru_kernel::{
 };
 use amaru_observability::trace;
 use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
-use rocksdb::{DB, IteratorMode, OptimisticTransactionDB, Options, PrefixRange, ReadOptions};
+use rocksdb::{
+    DB, DBCommon, DBIteratorWithThreadMode, DBPinnableSlice, IteratorMode, OptimisticTransactionDB, Options,
+    PrefixRange, ReadOptions,
+};
 
 use crate::rocksdb::{
     RocksDbConfig,
     consensus::util::{
-        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
-        HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_DB_VERSION, CHAIN_PREFIX, CHILD_PREFIX,
+        CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
     },
 };
 
@@ -34,16 +37,59 @@ pub mod util;
 
 pub use migration::*;
 
-pub struct RocksDBStore {
+pub trait DbOps: rocksdb::DBAccess + Sized {
+    fn get_pinned(&self, key: &[u8], opts: &ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError>;
+    fn multi_get(&self, keys: &[&[u8]], opts: &ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>>;
+    fn prefix_iterator(&self, prefix: &[u8]) -> DBIteratorWithThreadMode<'_, Self>;
+    fn iterator_opt(&self, mode: IteratorMode<'_>, opts: ReadOptions) -> DBIteratorWithThreadMode<'_, Self>;
+}
+impl DbOps for OptimisticTransactionDB {
+    fn get_pinned(&self, key: &[u8], opts: &ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
+        DBCommon::get_pinned_opt(self, key, opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
+    }
+
+    fn multi_get(&self, keys: &[&[u8]], opts: &ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
+        DBCommon::multi_get_opt(self, keys, opts)
+            .into_iter()
+            .map(|result| result.map_err(|e| StoreError::ReadError { error: e.to_string() }))
+            .collect()
+    }
+
+    fn prefix_iterator(&self, prefix: &[u8]) -> DBIteratorWithThreadMode<'_, Self> {
+        DBCommon::prefix_iterator(self, prefix)
+    }
+
+    fn iterator_opt(&self, mode: IteratorMode<'_>, opts: ReadOptions) -> DBIteratorWithThreadMode<'_, Self> {
+        DBCommon::iterator_opt(self, mode, opts)
+    }
+}
+impl DbOps for DB {
+    fn get_pinned(&self, key: &[u8], opts: &ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
+        DBCommon::get_pinned_opt(self, key, opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
+    }
+
+    fn multi_get(&self, keys: &[&[u8]], opts: &ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
+        DBCommon::multi_get_opt(self, keys, opts)
+            .into_iter()
+            .map(|result| result.map_err(|e| StoreError::ReadError { error: e.to_string() }))
+            .collect()
+    }
+
+    fn prefix_iterator(&self, prefix: &[u8]) -> DBIteratorWithThreadMode<'_, Self> {
+        DBCommon::prefix_iterator(self, prefix)
+    }
+
+    fn iterator_opt(&self, mode: IteratorMode<'_>, opts: ReadOptions) -> DBIteratorWithThreadMode<'_, Self> {
+        DBCommon::iterator_opt(self, mode, opts)
+    }
+}
+
+pub struct RocksDBStore<T: DbOps = OptimisticTransactionDB> {
     pub basedir: PathBuf,
-    pub db: OptimisticTransactionDB,
+    pub db: T,
 }
 
-pub struct ReadOnlyChainDB {
-    db: DB,
-}
-
-impl RocksDBStore {
+impl RocksDBStore<OptimisticTransactionDB> {
     /// Open an existing `RocksDBStore` with given configuration.
     ///
     /// This function will fail if:
@@ -75,7 +121,7 @@ impl RocksDBStore {
         }
 
         let (_, db) = open_or_create_db(&config)?;
-        set_version(&db)?;
+        set_version(&db, CHAIN_DB_VERSION)?;
 
         Ok(Self { db, basedir })
     }
@@ -90,14 +136,6 @@ impl RocksDBStore {
         migrate_db(&db)?;
 
         Ok(Self { db, basedir })
-    }
-
-    pub fn open_for_readonly(config: &RocksDbConfig) -> Result<ReadOnlyChainDB, StoreError> {
-        let basedir = config.dir.clone();
-        let opts: Options = config.into();
-        DB::open_for_read_only(&opts, basedir, false)
-            .map_err(|e| StoreError::OpenError { error: e.to_string() })
-            .map(|db| ReadOnlyChainDB { db })
     }
 
     pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
@@ -123,143 +161,134 @@ impl RocksDBStore {
     }
 }
 
+impl RocksDBStore<DB> {
+    pub fn open_for_readonly(config: &RocksDbConfig) -> Result<Self, StoreError> {
+        let basedir = config.dir.clone();
+        let opts: Options = config.into();
+        let db = DB::open_for_read_only(&opts, &basedir, false)
+            .map_err(|e| StoreError::OpenError { error: e.to_string() })?;
+        Ok(Self { db, basedir })
+    }
+}
+
 pub(crate) fn store_chain_point(db: &OptimisticTransactionDB, point: &Point) -> Result<(), StoreError> {
     let slot = u64::from(point.slot_or_default()).to_be_bytes();
     db.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
         .map_err(|e| StoreError::WriteError { error: e.to_string() })
 }
 
-macro_rules! impl_ReadOnlyChainStore {
-    (for $($s:ty),+) => {
-        $(impl<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for $s {
-            fn load_header(&self, hash: &HeaderHash) -> Option<H> {
-                let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-                self.db
-                    .get_pinned(prefix)
-                    .ok()
-                    .and_then(|bytes| from_cbor(bytes?.as_ref()))
-            }
+impl<H, T: DbOps> ReadOnlyChainStore<H> for RocksDBStore<T>
+where
+    H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>,
+{
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+        let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
+        self.db.get_pinned_opt(prefix, &ReadOptions::default()).ok().and_then(|bytes| from_cbor(bytes?.as_ref()))
+    }
 
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+        let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
+        let head_len = prefix.len() - 1;
+        let mut results = self.db.multi_get_opt([&prefix[..head_len], &prefix], &ReadOptions::default()).into_iter();
+        let header = results.next().and_then(|bytes| from_cbor(bytes.ok()??.as_ref()));
+        let validity = results.next().and_then(|bytes| {
+            let bytes = bytes.ok()??;
+            if bytes.len() == 1 { Some(bytes[0] == 1) } else { None }
+        });
+        header.map(|h| (h, validity))
+    }
 
-            fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
-                let mut result = Vec::new();
-                let mut opts = ReadOptions::default();
-                opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        let mut result = Vec::new();
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
 
-                for res in self.db.iterator_opt(IteratorMode::Start, opts) {
-                    match res {
-                        Ok((key, _value)) => {
-                            let mut arr = [0u8; HEADER];
-                            arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER)..]);
-                            result.push(Hash::from(arr));
-                        }
-                        Err(err) => panic!("error iterating over children: {}", err),
-                    }
-                }
-                result
-            }
+        for res in self.db.iterator_opt(IteratorMode::Start, opts) {
+            #[expect(clippy::expect_used)]
+            let (key, _value) = res.expect("error iterating over children");
+            let mut arr = [0u8; HEADER];
+            arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER)..]);
+            result.push(Hash::from(arr));
+        }
+        result
+    }
 
-            fn get_anchor_hash(&self) -> HeaderHash {
-                self.db
-                    .get_pinned(&ANCHOR_PREFIX)
-                    .ok()
-                    .flatten()
-                    .and_then(|bytes| {
-                        if bytes.len() == HEADER {
-                            Some(Hash::from(bytes.as_ref()))
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(ORIGIN_HASH)
-            }
+    fn get_anchor_hash(&self) -> HeaderHash {
+        self.db
+            .get_pinned(&ANCHOR_PREFIX, &ReadOptions::default())
+            .ok()
+            .flatten()
+            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
+            .unwrap_or(ORIGIN_HASH)
+    }
 
-            fn get_best_chain_hash(&self) -> HeaderHash {
-                self.db
-                    .get_pinned(&BEST_CHAIN_PREFIX)
-                    .ok()
-                    .flatten()
-                    .and_then(|bytes| {
-                        if bytes.len() == HEADER {
-                            Some(Hash::from(bytes.as_ref()))
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(ORIGIN_HASH)
-            }
+    fn get_best_chain_hash(&self) -> HeaderHash {
+        self.db
+            .get_pinned(&BEST_CHAIN_PREFIX, &ReadOptions::default())
+            .ok()
+            .flatten()
+            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
+            .unwrap_or(ORIGIN_HASH)
+    }
 
-            fn has_header(&self, hash: &HeaderHash) -> bool {
-                let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-                self.db.get_pinned(prefix)
-                    .map(|opt| opt.is_some())
-                    .unwrap_or(false)
-            }
+    fn has_header(&self, hash: &HeaderHash) -> bool {
+        let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
+        self.db.get_pinned(&prefix, &ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
+    }
 
-            fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
-                self.db
-                    .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
-                    .ok()
-                    .flatten()
-                    .as_deref()
-                    .and_then(from_cbor)
-            }
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+        self.db
+            .get_pinned(&[&NONCES_PREFIX[..], &header[..]].concat(), &ReadOptions::default())
+            .ok()
+            .flatten()
+            .as_deref()
+            .and_then(from_cbor)
+    }
 
-            fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
-                Ok(self.db
-                    .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
-                    .map_err(|e| StoreError::ReadError {
-                        error: e.to_string(),
-                    })?
-                    .map(|bytes| bytes.as_ref().into()))
-            }
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+        Ok(self
+            .db
+            .get_pinned(&[&BLOCK_PREFIX[..], &hash[..]].concat(), &ReadOptions::default())?
+            .map(|bytes| bytes.as_ref().into()))
+    }
 
-            fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-                let slot = u64::from(point.slot_or_default()).to_be_bytes();
-                self.db
-                    .get_pinned([&CHAIN_PREFIX[..], &slot[..]].concat())
-                    .ok()
-                    .flatten()
-                    .and_then(|bytes| {
-                        if bytes.len() == HEADER {
-                            let hash = Hash::from(bytes.as_ref());
-                            if *hash == *point.hash() {
-                                Some(hash)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-            }
-
-            fn next_best_chain(&self, point: &Point) -> Option<Point> {
-                let readopts = ReadOptions::default();
-                let prefix = [&CHAIN_PREFIX[..], &(u64::from(point.slot_or_default()) + 1).to_be_bytes()].concat();
-                let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
-
-                if let Some(Ok((k, v))) = iter.next() {
-                    let slot_bytes = &k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8];
-                    let slot = u64::from_be_bytes(slot_bytes.try_into().unwrap());
-                    if v.len() == HEADER {
-                        let hash = <HeaderHash>::from(v.as_ref());
-                        Some(Point::Specific(slot.into(), hash))
-                    } else {
-                        None
-                    }
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        let slot = u64::from(point.slot_or_default()).to_be_bytes();
+        self.db.get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), &ReadOptions::default()).ok().flatten().and_then(
+            |bytes| {
+                if bytes.len() == HEADER {
+                    let hash = Hash::from(bytes.as_ref());
+                    if *hash == *point.hash() { Some(hash) } else { None }
                 } else {
                     None
                 }
-            }
+            },
+        )
+    }
 
-        })*
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        let mut readopts = ReadOptions::default();
+        readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
+        let prefix = [&CHAIN_PREFIX[..], &(u64::from(point.slot_or_default()) + 1).to_be_bytes()].concat();
+        let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
+
+        if let Some(Ok((k, v))) = iter.next() {
+            #[expect(clippy::unwrap_used)]
+            let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
+            let slot = u64::from_be_bytes(slot_bytes);
+            if v.len() == HEADER {
+                let hash = <HeaderHash>::from(v.as_ref());
+                Some(Point::Specific(slot.into(), hash))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
 
-impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
-
-impl DiagnosticChainStore for ReadOnlyChainDB {
+impl DiagnosticChainStore for RocksDBStore<DB> {
     #[allow(clippy::panic)]
     fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
         Box::new(self.db.prefix_iterator(HEADER_PREFIX).filter_map(|item| match item {
@@ -355,6 +384,12 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         tx.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header))
             .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
         tx.commit().map_err(|e| StoreError::WriteError { error: e.to_string() })
+    }
+
+    fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError> {
+        self.db
+            .put([&HEADER_PREFIX[..], &hash[..], &[0]].concat(), [valid as u8])
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
@@ -842,7 +877,7 @@ pub mod test {
         let result = migrate_db_path(target).expect("Migration should succeed");
 
         let db = RocksDBStore::open(&config).expect("DB should successfully be opened as it's been migrated");
-        assert_eq!((1, 2), result);
+        assert_eq!((1, 3), result);
         let header: Option<HeaderHash> = <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
             &db,
             &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
@@ -949,7 +984,7 @@ pub mod test {
         RocksDBStore::create(config).expect("fail to initialise RocksDB")
     }
 
-    pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<ReadOnlyChainDB, StoreError> {
+    pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<RocksDBStore<DB>, StoreError> {
         let basedir = init_dir(path);
         RocksDBStore::open_for_readonly(&RocksDbConfig::new(basedir))
     }

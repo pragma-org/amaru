@@ -230,6 +230,10 @@ mod tests {
             self.store.load_header(hash)
         }
 
+        fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+            self.store.load_header_with_validity(hash)
+        }
+
         fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
             self.store.get_children(hash)
         }
@@ -274,6 +278,10 @@ mod tests {
 
         fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
             self.store.store_block(hash, block)
+        }
+
+        fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError> {
+            self.store.set_block_valid(hash, valid)
         }
 
         fn put_nonces(&self, hash: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {

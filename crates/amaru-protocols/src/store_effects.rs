@@ -34,6 +34,10 @@ impl<T> Store<T> {
         Store { effects }
     }
 
+    pub fn eff(&self) -> &Effects<T> {
+        &self.effects
+    }
+
     /// This function runs an external effect synchronously.
     pub fn external_sync<E: ExternalEffectSync + serde::Serialize + 'static>(&self, effect: E) -> E::Response {
         self.effects.external_sync(effect)
@@ -43,6 +47,10 @@ impl<T> Store<T> {
 impl<T> ReadOnlyChainStore<BlockHeader> for Store<T> {
     fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.external_sync(LoadHeaderEffect::new(*hash))
+    }
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+        self.external_sync(LoadHeaderWithValidityEffect::new(*hash))
     }
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
@@ -79,6 +87,10 @@ impl<T> ReadOnlyChainStore<BlockHeader> for Store<T> {
 }
 
 impl<T: SendData + Sync> ChainStore<BlockHeader> for Store<T> {
+    fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError> {
+        self.external_sync(SetBlockValidEffect::new(*hash, valid))
+    }
+
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.external_sync(SetAnchorHashEffect::new(*hash))
     }
@@ -171,7 +183,7 @@ impl ExternalEffectAPI for StoreBlockEffect {
 impl ExternalEffectSync for StoreBlockEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct SetAnchorHashEffect {
+pub struct SetAnchorHashEffect {
     hash: HeaderHash,
 }
 
@@ -199,7 +211,7 @@ impl ExternalEffectAPI for SetAnchorHashEffect {
 impl ExternalEffectSync for SetAnchorHashEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct SetBestChainHashEffect {
+pub struct SetBestChainHashEffect {
     hash: HeaderHash,
 }
 
@@ -227,7 +239,7 @@ impl ExternalEffectAPI for SetBestChainHashEffect {
 impl ExternalEffectSync for SetBestChainHashEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct PutNoncesEffect {
+pub struct PutNoncesEffect {
     hash: HeaderHash,
     nonces: Nonces,
 }
@@ -366,7 +378,66 @@ impl ExternalEffectAPI for LoadHeaderEffect {
 impl ExternalEffectSync for LoadHeaderEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct GetChildrenEffect {
+pub struct LoadHeaderWithValidityEffect {
+    hash: HeaderHash,
+}
+
+impl LoadHeaderWithValidityEffect {
+    pub fn new(hash: HeaderHash) -> Self {
+        Self { hash }
+    }
+}
+
+impl ExternalEffect for LoadHeaderWithValidityEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("LoadHeaderWithValidityEffect requires a chain store")
+                .clone();
+            store.load_header_with_validity(&self.hash)
+        })
+    }
+}
+
+impl ExternalEffectAPI for LoadHeaderWithValidityEffect {
+    type Response = Option<(BlockHeader, Option<bool>)>;
+}
+
+impl ExternalEffectSync for LoadHeaderWithValidityEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SetBlockValidEffect {
+    hash: HeaderHash,
+    valid: bool,
+}
+
+impl SetBlockValidEffect {
+    pub fn new(hash: HeaderHash, valid: bool) -> Self {
+        Self { hash, valid }
+    }
+}
+
+impl ExternalEffect for SetBlockValidEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("SetBlockValidEffect requires a chain store").clone();
+            store.set_block_valid(&self.hash, self.valid)
+        })
+    }
+}
+
+impl ExternalEffectAPI for SetBlockValidEffect {
+    type Response = Result<(), StoreError>;
+}
+
+impl ExternalEffectSync for SetBlockValidEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GetChildrenEffect {
     hash: HeaderHash,
 }
 
@@ -394,9 +465,10 @@ impl ExternalEffectAPI for GetChildrenEffect {
 impl ExternalEffectSync for GetChildrenEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct GetAnchorHashEffect;
+pub struct GetAnchorHashEffect;
 
 impl GetAnchorHashEffect {
+    #[expect(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {}
     }
@@ -420,9 +492,10 @@ impl ExternalEffectAPI for GetAnchorHashEffect {
 impl ExternalEffectSync for GetAnchorHashEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct GetBestChainHashEffect;
+pub struct GetBestChainHashEffect;
 
 impl GetBestChainHashEffect {
+    #[expect(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {}
     }
@@ -446,7 +519,7 @@ impl ExternalEffectAPI for GetBestChainHashEffect {
 impl ExternalEffectSync for GetBestChainHashEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LoadBlockEffect {
+pub struct LoadBlockEffect {
     hash: HeaderHash,
 }
 
@@ -473,7 +546,7 @@ impl ExternalEffectAPI for LoadBlockEffect {
 impl ExternalEffectSync for LoadBlockEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct GetNoncesEffect {
+pub struct GetNoncesEffect {
     hash: HeaderHash,
 }
 
@@ -500,7 +573,7 @@ impl ExternalEffectAPI for GetNoncesEffect {
 impl ExternalEffectSync for GetNoncesEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct RollForwardChainEffect {
+pub struct RollForwardChainEffect {
     point: Point,
 }
 
@@ -528,7 +601,7 @@ impl ExternalEffectAPI for RollForwardChainEffect {
 impl ExternalEffectSync for RollForwardChainEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct RollBackChainEffect {
+pub struct RollBackChainEffect {
     point: Point,
 }
 

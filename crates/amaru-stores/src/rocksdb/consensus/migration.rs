@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, IsHeader, from_cbor, size::HEADER};
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, cardano::hash, from_cbor};
 use amaru_ouroboros_traits::StoreError;
 use rocksdb::OptimisticTransactionDB;
 use tracing::info;
@@ -23,12 +23,21 @@ use crate::rocksdb::{
     RocksDbConfig,
     consensus::{
         store_chain_point,
-        util::{BEST_CHAIN_PREFIX, CHAIN_DB_VERSION, HEADER_PREFIX, open_db},
+        util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, CHAIN_DB_VERSION, HEADER_PREFIX, open_db},
     },
 };
 
 /// The version key: __VERSION__
-pub const VERSION_KEY: [u8; 11] = [0x5f, 0x5f, 0x56, 0x45, 0x52, 0x53, 0x49, 0x4f, 0x4e, 0x5f, 0x5f];
+pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
+
+/// List of migrations to apply, in order.
+///
+/// Each function at index `i` in this array corresponds to a
+/// migration from version `i` to version `i + 1`.  When modifying the
+/// DB schema, create migration function and add it to this array
+/// bumping its length.
+static MIGRATIONS: [fn(&OptimisticTransactionDB) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
+    [migrate_to_v1, migrate_to_v2, migrate_to_v3];
 
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
@@ -41,6 +50,9 @@ pub fn migrate_db_path(path: &Path) -> Result<(u16, u16), StoreError> {
     migrate_db(&db)
 }
 
+/// Migrate the given `db` Chain Database to the current `CHAIN_DB_VERSION`.
+/// Returns the pair of numbers consisting in the initial version of the database and
+/// the current version if migration succeeds, otherwise returns a `StoreError`.
 pub fn migrate_db(db: &OptimisticTransactionDB) -> Result<(u16, u16), StoreError> {
     let version = get_version(db)?;
 
@@ -54,14 +66,13 @@ pub fn migrate_db(db: &OptimisticTransactionDB) -> Result<(u16, u16), StoreError
 /// "Migrate" DB to version 1
 /// This simply records the `VERSION_KEY` into the db.
 pub(crate) fn migrate_to_v1(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
-    db.put(VERSION_KEY, [0x0, 0x1]).map_err(|e| StoreError::WriteError { error: e.to_string() })
+    set_version(db, 1)?;
+    Ok(())
 }
 
 /// "Migrate" DB to version 2
 /// Walks the best chain backwards and re-inserts all points.
 fn migrate_to_v2(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
-    db.put(VERSION_KEY, [0x0, 0x2]).map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-
     let mut hash = match get_best_chain_hash(db) {
         Some(hash) => hash,
         // the DB is empty, nothing to do
@@ -76,6 +87,39 @@ fn migrate_to_v2(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
         }
     }
 
+    set_version(db, 2)?;
+    Ok(())
+}
+
+fn migrate_to_v3(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
+    // the reason is that v3 stores the block validation result, which cannot be derived from the v2 DB without
+    // running the consensus algorithm and ledger validation. previously, blocks were stored before validation,
+    tracing::warn!(
+        "migrating chain DB to version 3 makes possibly incorrect assumption of valid anchor, better start fresh"
+    );
+
+    let (anchor_hash, anchor_point) = if let Some(anchor_hash) = get_anchor_hash(db)
+        && let Some(anchor_header) = load_header(db, &anchor_hash)
+    {
+        (anchor_hash, anchor_header.point())
+    } else {
+        (ORIGIN_HASH, Point::Origin)
+    };
+    let best_chain_point = if let Some(best_chain_hash) = get_best_chain_hash(db)
+        && let Some(best_chain_header) = load_header(db, &best_chain_hash)
+    {
+        best_chain_header.point()
+    } else {
+        Point::Origin
+    };
+
+    set_anchor_hash(db, &anchor_hash)?;
+    set_best_chain_hash(db, &anchor_hash)?;
+    set_block_valid(db, &anchor_hash, true)?;
+
+    tracing::info!(prev_best_chain = %best_chain_point, new_best_chain = %anchor_point, "wound back best chain to revalidate");
+
+    set_version(db, 3)?;
     Ok(())
 }
 
@@ -89,19 +133,27 @@ fn load_header(db: &OptimisticTransactionDB, hash: &Hash<32>) -> Option<BlockHea
 }
 
 fn get_best_chain_hash(db: &OptimisticTransactionDB) -> Option<HeaderHash> {
-    db.get_pinned(BEST_CHAIN_PREFIX)
-        .ok()
-        .flatten()
-        .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
+    let bytes = db.get_pinned(BEST_CHAIN_PREFIX).ok().flatten()?;
+    if bytes.len() == hash::size::HEADER { Some(Hash::from(bytes.as_ref())) } else { None }
 }
 
-/// List of migrations to apply, in order.
-///
-/// Each function at index `i` in this array corresponds to a
-/// migration from version `i` to version `i + 1`.  When modifying the
-/// DB schema, create migration function and add it to this array
-/// bumping its length.
-static MIGRATIONS: [fn(&OptimisticTransactionDB) -> Result<(), StoreError>; 2] = [migrate_to_v1, migrate_to_v2];
+fn get_anchor_hash(db: &OptimisticTransactionDB) -> Option<HeaderHash> {
+    let bytes = db.get_pinned(ANCHOR_PREFIX).ok().flatten()?;
+    if bytes.len() == hash::size::HEADER { Some(Hash::from(bytes.as_ref())) } else { None }
+}
+
+fn set_best_chain_hash(db: &OptimisticTransactionDB, hash: &HeaderHash) -> Result<(), StoreError> {
+    db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
+}
+
+fn set_anchor_hash(db: &OptimisticTransactionDB, hash: &HeaderHash) -> Result<(), StoreError> {
+    db.put(ANCHOR_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
+}
+
+fn set_block_valid(db: &OptimisticTransactionDB, hash: &HeaderHash, valid: bool) -> Result<(), StoreError> {
+    db.put([&HEADER_PREFIX[..], &hash[..], &[0]].concat(), [valid as u8])
+        .map_err(|e| StoreError::WriteError { error: e.to_string() })
+}
 
 /// Check the version stored in the `db` matches `CHAIN_DB_VERSION`.
 pub fn check_db_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
@@ -130,7 +182,7 @@ pub fn get_version(db: &OptimisticTransactionDB) -> Result<u16, StoreError> {
 
 /// Set the version of the Chain DB stored in the given `db` to the
 /// current `CHAIN_DB_VERSION`.
-pub fn set_version(db: &OptimisticTransactionDB) -> Result<(), StoreError> {
-    let bytes: Vec<u8> = vec![(CHAIN_DB_VERSION >> 8) as u8, (CHAIN_DB_VERSION & 0xff) as u8];
-    db.put(VERSION_KEY, &bytes).map_err(|e| StoreError::WriteError { error: e.to_string() })
+pub fn set_version(db: &OptimisticTransactionDB, version: u16) -> Result<(), StoreError> {
+    let bytes = version.to_be_bytes();
+    db.put(VERSION_KEY, bytes).map_err(|e| StoreError::WriteError { error: e.to_string() })
 }

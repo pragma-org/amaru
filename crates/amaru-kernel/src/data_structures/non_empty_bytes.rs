@@ -16,7 +16,7 @@ use std::{cell::RefCell, fmt, num::NonZeroUsize, ops::Deref};
 
 use bytes::Bytes;
 
-use crate::cbor;
+use crate::{cbor, utils::debug_bytes};
 
 // Newtype wrapper for custom Debug.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
@@ -92,21 +92,8 @@ impl From<NonEmptyBytes> for Bytes {
 
 impl fmt::Debug for NonEmptyBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let bytes = &self.0;
-        let total_len = bytes.len();
-        let preview_len = 32.min(total_len);
-        let preview = &bytes[0..preview_len];
-
-        let mut preview_hex = String::with_capacity(2 * preview_len + 3);
-        for &b in preview {
-            const HEX_CHARS: [u8; 16] = *b"0123456789abcdef";
-            preview_hex.push(HEX_CHARS[(b >> 4) as usize] as char);
-            preview_hex.push(HEX_CHARS[(b & 0x0f) as usize] as char);
-        }
-        if preview_len < total_len {
-            preview_hex.push_str("...");
-        }
-
+        let preview_hex = debug_bytes(&self.0, 32);
+        let total_len = self.0.len();
         write!(f, "Bytes({total_len}, {preview_hex})")
     }
 }

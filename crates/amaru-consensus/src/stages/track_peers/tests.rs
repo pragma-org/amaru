@@ -25,8 +25,8 @@ use tracing::Level;
 use crate::stages::track_peers::{
     TrackPeersMsg,
     test_setup::{
-        FailingHeaderValidation, assert_trace, build_store, has_header_effect, load_header_effect, make_block_header,
-        send, setup, setup_with_validation, store_header_effect, test_prep, validate_header_effect,
+        FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
+        te_has_header, te_load_header, te_send, te_store_header, te_validate_header, test_prep,
     },
 };
 
@@ -105,8 +105,8 @@ fn test_intersect_found_missing_header_sends_done() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
-            load_header_effect("tp-1", current.hash()),
-            send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done),
+            te_load_header("tp-1", current.hash()),
+            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
     );
@@ -141,7 +141,7 @@ fn test_intersect_found_tracks_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            load_header_effect("tp-1", current.hash()),
+            te_load_header("tp-1", current.hash()),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -169,7 +169,7 @@ fn test_intersect_not_found_untracked_sends_done() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done),
+            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
     );
@@ -200,7 +200,7 @@ fn test_intersect_not_found_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done),
+            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -231,8 +231,8 @@ fn test_roll_forward_unknown_peer_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
     );
@@ -266,9 +266,9 @@ fn test_roll_forward_known_peer_header_already_stored() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            validate_header_effect("tp-1", header.clone()),
-            has_header_effect("tp-1", header.hash()),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_validate_header("tp-1", header.clone()),
+            te_has_header("tp-1", header.hash()),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -304,11 +304,11 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            validate_header_effect("tp-1", header.clone()),
-            has_header_effect("tp-1", header.hash()),
-            store_header_effect("tp-1", header.clone()),
-            send("tp-1", "downstream", header.tip()),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_validate_header("tp-1", header.clone()),
+            te_has_header("tp-1", header.hash()),
+            te_store_header("tp-1", header.clone()),
+            te_send("tp-1", "downstream", (header.tip(), parent.point())),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -341,8 +341,8 @@ fn test_roll_forward_invalid_variant_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -375,8 +375,8 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -408,8 +408,8 @@ fn test_roll_forward_invalid_parent_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -440,8 +440,8 @@ fn test_roll_forward_invalid_height_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -454,7 +454,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
-    let header = make_block_header(2, 3, Some(parent.hash()));
+    let header = make_block_header(2, parent.slot().into(), Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
         conn_id: prep.conn_id,
@@ -472,8 +472,8 @@ fn test_roll_forward_invalid_point_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -516,9 +516,9 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            send("tp-1", &prep.handler, RequestNext),
-            validate_header_effect("tp-1", header.clone()),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_validate_header("tp-1", header.clone()),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -551,7 +551,8 @@ fn test_roll_backward_updates_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            load_header_effect("tp-1", current.hash()),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_load_header("tp-1", current.hash()),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -584,8 +585,9 @@ fn test_roll_backward_unknown_peer_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
-            load_header_effect("tp-1", current.hash()),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_load_header("tp-1", current.hash()),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
     );
@@ -616,8 +618,9 @@ fn test_roll_backward_unknown_point_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            load_header_effect("tp-1", current.hash()),
-            send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_load_header("tp-1", current.hash()),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );

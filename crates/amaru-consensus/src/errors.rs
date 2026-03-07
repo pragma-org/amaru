@@ -92,7 +92,7 @@ impl Display for InvalidHeaderParentData {
 }
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[error("Invalid header point {actual}, expected window ({parent}, {highest}]")]
+#[error("Invalid header point {actual}, expected at least {parent} (upstream peer’s best validated is at {highest})")]
 pub struct InvalidHeaderPoint {
     pub actual: Point,
     pub parent: Point,
