@@ -27,8 +27,8 @@ use rocksdb::{
 use crate::rocksdb::{
     RocksDbConfig,
     consensus::util::{
-        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
-        HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_DB_VERSION, CHAIN_PREFIX, CHILD_PREFIX,
+        CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
     },
 };
 
@@ -121,7 +121,7 @@ impl RocksDBStore<OptimisticTransactionDB> {
         }
 
         let (_, db) = open_or_create_db(&config)?;
-        set_version(&db)?;
+        set_version(&db, CHAIN_DB_VERSION)?;
 
         Ok(Self { db, basedir })
     }
@@ -877,7 +877,7 @@ pub mod test {
         let result = migrate_db_path(target).expect("Migration should succeed");
 
         let db = RocksDBStore::open(&config).expect("DB should successfully be opened as it's been migrated");
-        assert_eq!((1, 2), result);
+        assert_eq!((1, 3), result);
         let header: Option<HeaderHash> = <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
             &db,
             &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),

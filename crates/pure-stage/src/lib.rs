@@ -48,5 +48,6 @@ pub use serde::{
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
+pub use trace_buffer::TerminationReason;
 pub use types::{BLACKHOLE_NAME, BoxFuture, Name, SendData, TryInStage, Void, err, warn};
 pub use typetag;

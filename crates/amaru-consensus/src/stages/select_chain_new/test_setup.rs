@@ -21,9 +21,9 @@ use amaru_protocols::store_effects::{
     ResourceHeaderStore, SetBlockValidEffect,
 };
 use pure_stage::{
-    DeserializerGuards, Effect, Name, StageGraph, StageRef,
+    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
     simulation::{SimulationBuilder, SimulationRunning},
-    trace_buffer::{TerminationReason, TraceBuffer, TraceEntry},
+    trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::{Builder, Runtime};
 use tracing::Level;

@@ -98,7 +98,7 @@ impl TrackPeers {
         // this is the point up to which the upstream peer has validated its best chain, which
         // can be less advanced than the currently transmitted header
         let highest = tip.point();
-        if header.point() < per_peer.current.point() {
+        if header.slot() <= per_peer.current.slot() {
             return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                 actual: header.point(),
                 parent: per_peer.current.point(),
@@ -221,7 +221,6 @@ impl TrackPeers {
                     tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
                     self.upstream.remove(&peer);
                     eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
-                    return;
                 }
             }
         }

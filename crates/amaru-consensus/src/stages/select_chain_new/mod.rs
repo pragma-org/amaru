@@ -84,30 +84,26 @@ impl SelectChain {
             chain.push(tip.hash());
             self.tips.insert(tip.hash(), chain);
         } else {
-            // the message type allows that we get a Tip that was already sent earlier, the track_peers stage
-            // shouldn’t send this, so we don’t defend against it here
+            // since track_peers will only send newly stored tips, this is the case where
+            // a new fork is detected; while the new fork can only be one header long, it
+            // may still require multiple block validations to reach a valid chain
             let mut valid = true;
-            let mut extending = false;
             let mut ancestors = store
                 .ancestors_with_validity(parent.hash())
-                .take_while(|(h, v)| {
+                .take_while(|(_h, v)| {
                     if *v == Some(false) {
                         valid = false;
                         false
                     } else {
-                        if self.tips.remove(&h.hash()).is_some() {
-                            extending = true;
-                        };
                         v.is_none()
                     }
                 })
                 .map(|(h, _)| h.hash())
                 .collect::<Vec<_>>();
             if valid {
-                let action = if extending { "extending" } else { "new" };
-                tracing::debug!(%parent, %tip, "{action} chain");
+                tracing::debug!(%parent, %tip, "new chain");
                 ancestors.reverse();
-                ancestors.push(tip.hash());
+                ancestors.push(tip.hash()); // new block must be validated by definition
                 self.tips.insert(tip.hash(), ancestors);
             } else {
                 tracing::info!(%parent, %tip, "upstream tip depends on invalid block");

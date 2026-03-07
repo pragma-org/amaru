@@ -86,24 +86,24 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
     BlockHeader::from(make_header(block_number, slot, parent))
 }
 
-pub fn validate_header_effect(at_stage: &str, header: BlockHeader) -> TraceEntry {
+pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
 }
 
-pub fn load_header_effect(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
 }
 
-pub fn has_header_effect(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
 }
 
-pub fn store_header_effect(at_stage: &str, header: BlockHeader) -> TraceEntry {
+pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
 }
 
-pub fn send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl SendData) -> TraceEntry {
-    TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
+pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl SendData) -> TraceEntry {
+    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
 }
 
 fn register_guards() -> DeserializerGuards {
