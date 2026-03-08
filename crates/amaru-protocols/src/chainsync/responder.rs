@@ -87,7 +87,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         }
     }
 
-    #[instrument(name = "chainsync.responder.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "chainsync.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         proto: &ResponderState,
@@ -224,7 +224,7 @@ impl ProtocolState<Responder> for ResponderState {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(name = "chainsync.responder.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "chainsync.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use ResponderState::*;
 

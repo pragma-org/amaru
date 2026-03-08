@@ -443,12 +443,7 @@ impl Default for Inner {
 
 impl Inner {
     fn register_endpoint(&self, endpoint: ConnectionEndpoint) -> ConnectionId {
-        let connection_id = {
-            let mut next_id = self.next_connection_id.lock();
-            let connection_id = *next_id;
-            *next_id = connection_id.next();
-            connection_id
-        };
+        let connection_id = self.next_connection_id.lock().get_and_increment();
 
         let mut connections = self.connection_endpoints.lock();
         connections.insert(connection_id, endpoint);

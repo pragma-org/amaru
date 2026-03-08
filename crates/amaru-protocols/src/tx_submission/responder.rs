@@ -56,7 +56,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         match input {}
     }
 
-    #[instrument(name = "tx_submission.responder.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "tx_submission.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -93,7 +93,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(name = "tx_submission.responder.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "tx_submission.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Init, Message::Init) => (outcome().result(ResponderResult::Init), State::Idle),

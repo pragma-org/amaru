@@ -12,32 +12,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Block, Peer, Point, Tip, cbor};
+use amaru_kernel::{Peer, Point, Tip, cardano::network_block::NetworkBlock, cbor};
 use amaru_ouroboros::{ReadOnlyChainStore, StoreError};
-use amaru_protocols::store_effects::Store;
+use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, StageRef, TryInStage};
 
 use crate::{
-    effects::{Ledger, LedgerOps},
+    effects::{Ledger, LedgerOps, Metrics, MetricsOps},
     stages::select_chain_new::SelectChainMsg,
 };
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlock {
-    manager: StageRef<Tip>,
+    manager: StageRef<ManagerMessage>,
     selet_chain: StageRef<SelectChainMsg>,
     current: Point,
 }
 
+impl ValidateBlock {
+    pub fn new(manager: StageRef<ManagerMessage>, selet_chain: StageRef<SelectChainMsg>, current: Point) -> Self {
+        Self { manager, selet_chain, current }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockMsg {
-    point: Point,
+    tip: Tip,
     parent: Point,
 }
 
+impl ValidateBlockMsg {
+    pub fn new(tip: Tip, parent: Point) -> Self {
+        Self { tip, parent }
+    }
+}
+
 pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects<ValidateBlockMsg>) -> ValidateBlock {
+    if msg.parent == Point::Origin {
+        tracing::info!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "skipping validation of genesis block");
+        eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
+        state.current = msg.tip.point();
+        return state;
+    }
     let ctx = opentelemetry::Context::current();
     let ledger = Ledger::new(eff);
+    tracing::debug!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "validating block");
     if msg.parent != state.current {
+        tracing::info!(parent = %msg.parent, current = %state.current, "rolling back ledger to parent point");
         ledger
             .rollback(&Peer::new("unknown"), &msg.parent, ctx.clone())
             .await
@@ -49,37 +70,44 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
     }
     let store = Store::new(ledger.eff().clone());
     let block = store
-        .load_block(&msg.point.hash())
+        .load_block(&msg.tip.hash())
         .and_then(|block| block.ok_or(StoreError::ReadError { error: "block not found".to_string() }))
         .or_terminate(store.eff(), async |error| {
-            tracing::error!(error = %error, point = %msg.point, "failed to load block");
+            tracing::error!(error = %error, point = %msg.tip.point(), "failed to load block");
         })
         .await;
-    let block = cbor::decode::<Block>(&block)
+    let block = cbor::decode::<NetworkBlock>(&block)
         .or_terminate(store.eff(), async |error| {
-            tracing::error!(error = %error, point = %msg.point, "failed to decode block");
+            tracing::error!(error = %error, point = %msg.tip.point(), "failed to decode network block");
+        })
+        .await;
+    let block = block
+        .decode_block()
+        .or_terminate(store.eff(), async |error| {
+            tracing::error!(error = %error, point = %msg.tip.point(), "failed to decode block");
         })
         .await;
     let tip = block.tip();
     let result = ledger
-        .validate_block(&Peer::new("unknown"), &msg.point, block, ctx)
+        .validate_block(&Peer::new("unknown"), &msg.tip.point(), block, ctx)
         .await
         .or_terminate(ledger.eff(), async |error| {
-            tracing::error!(error = %error, point = %msg.point, "failed to validate block");
+            tracing::error!(error = %error, point = %msg.tip.point(), "failed to validate block");
         })
         .await;
     let valid = result.is_ok();
     match result {
-        Ok(_metrics) => {
-            tracing::info!(point = %msg.point, "valid block");
-            state.current = msg.point;
+        Ok(metrics) => {
+            tracing::info!(point = %msg.tip.point(), "valid block");
+            Metrics::new(ledger.eff()).record(metrics.into()).await;
+            state.current = msg.tip.point();
         }
         Err(error) => {
-            tracing::warn!(error = %error, point = %msg.point, "invalid block");
+            tracing::warn!(error = %error, point = %msg.tip.point(), "invalid block");
         }
     }
-    ledger.eff().send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.point, valid)).await;
-    ledger.eff().send(&state.manager, tip).await;
+    ledger.eff().send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, valid)).await;
+    ledger.eff().send(&state.manager, ManagerMessage::NewTip(tip)).await;
 
     state
 }

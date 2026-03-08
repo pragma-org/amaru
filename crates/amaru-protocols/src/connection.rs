@@ -123,7 +123,7 @@ impl ConnectionMessage {
     }
 }
 
-#[instrument(name = "connection", skip_all, fields(message_type = msg.message_type(), conn_id = %params.conn_id, peer = %params.peer, role = ?params.role))]
+#[instrument(level = "debug", name = "connection", skip_all, fields(message_type = msg.message_type(), conn_id = %params.conn_id, peer = %params.peer, role = ?params.role))]
 pub async fn stage(
     Connection { params, state }: Connection,
     msg: ConnectionMessage,

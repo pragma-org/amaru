@@ -27,6 +27,7 @@ use amaru_ouroboros::ResourceMempool;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
+use pure_stage::StageGraphRunning;
 use thiserror::Error;
 use tracing::{error, info, warn};
 
@@ -169,6 +170,18 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
                 return Err(err);
             }
         };
+
+        let term = running.termination();
+        let exit2 = exit.clone();
+        tokio::spawn(async move {
+            term.await;
+            if !exit2.is_cancelled() {
+                tracing::error!(
+                    "Consensus died, this should not happen! Please report this incl. preceding logs to the Amaru team."
+                );
+                exit2.cancel();
+            }
+        });
 
         exit.cancelled().await;
         running.abort();
