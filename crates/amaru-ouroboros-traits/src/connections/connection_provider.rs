@@ -51,8 +51,10 @@ pub struct ConnectionId(u64);
 
 impl ConnectionId {
     /// Get the next ConnectionId, wrapping on overflow (which should not happen given we are using u64)
-    pub fn next(&self) -> Self {
-        Self(self.0.wrapping_add(1))
+    pub fn get_and_increment(&mut self) -> Self {
+        let ret = *self;
+        self.0 = self.0.wrapping_add(1);
+        ret
     }
 
     pub fn initial() -> Self {

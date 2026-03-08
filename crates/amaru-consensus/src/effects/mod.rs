@@ -25,4 +25,4 @@ pub use ledger_effects::{
     Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation, RollbackBlockEffect, ValidateBlockEffect,
     ValidateHeaderEffect,
 };
-pub use metrics_effects::{MetricsOps, ResourceMeter};
+pub use metrics_effects::{Metrics, MetricsOps, ResourceMeter};

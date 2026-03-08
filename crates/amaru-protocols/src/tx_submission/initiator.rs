@@ -93,7 +93,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         Ok((None, self))
     }
 
-    #[instrument(name = "tx_submission.initiator.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "tx_submission.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -129,7 +129,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
-    #[instrument(name = "tx_submission.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "tx_submission.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {

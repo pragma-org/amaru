@@ -14,7 +14,9 @@
 
 use std::{collections::VecDeque, mem, sync::Arc};
 
-use amaru_kernel::{Block, EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock};
+use amaru_kernel::{
+    EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes,
+};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, TryInStage, Void};
 use tracing::instrument;
@@ -55,7 +57,7 @@ impl std::fmt::Debug for Blocks {
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks2 {
     NoBlocks(u64),
-    Block(u64, Block),
+    Block(u64, NetworkBlock),
     Done(u64),
 }
 
@@ -63,7 +65,9 @@ impl std::fmt::Debug for Blocks2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoBlocks(arg0) => f.debug_tuple("NoBlocks").field(arg0).finish(),
-            Self::Block(arg0, arg1) => f.debug_tuple("Block").field(arg0).field(&arg1.body_len()).finish(),
+            Self::Block(arg0, arg1) => {
+                f.debug_tuple("Block").field(arg0).field(&debug_bytes(arg1.as_slice(), 80)).finish()
+            }
             Self::Done(arg0) => f.debug_tuple("Done").field(arg0).finish(),
         }
     }
@@ -242,7 +246,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         }
     }
 
-    #[instrument(name = "blockfetch.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "blockfetch.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     #[expect(clippy::expect_used)]
     async fn network(
         mut self,
@@ -263,7 +267,8 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
             InitiatorResult::Block(body) => {
                 if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
                     if let Some((_, _, Resp::V2(id, cr))) = self.queue.front() {
-                        let block = network_block
+                        // must send NetworkBlock to the local stage for storage, otherwise validation breaks
+                        let _block = network_block
                             .decode_block()
                             .or_terminate(eff, async |error| {
                                 tracing::warn!(
@@ -274,7 +279,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                             })
                             .await;
                         // TODO  check hashes etc.
-                        eff.send(&cr, Blocks2::Block(*id, block)).await;
+                        eff.send(cr, Blocks2::Block(*id, network_block)).await;
                     } else if self.blocks.len() < MAX_FETCHED_BLOCKS {
                         self.blocks.push(network_block);
                     } else {
@@ -330,7 +335,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    #[instrument(name = "blockfetch.initiator.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "blockfetch.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use Message::*;
         match (self, input) {

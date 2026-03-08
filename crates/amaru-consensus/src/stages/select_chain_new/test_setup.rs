@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header};
+use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, HasHeaderEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
@@ -34,6 +34,15 @@ use crate::stages::test_utils::{BufferWriter, Logs};
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
     BlockHeader::from(make_header(block_number, slot, parent))
+}
+
+pub fn make_block_header_with_op_cert_seq(
+    block_number: u64,
+    slot: u64,
+    parent: Option<HeaderHash>,
+    op_cert_seq: u64,
+) -> BlockHeader {
+    BlockHeader::from(make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq))
 }
 
 /// Header tree for testing block invalidation and chain selection:
@@ -57,8 +66,8 @@ impl HeaderTree {
     pub fn new() -> Self {
         let h0 = make_block_header(1, 1, None);
         let h1 = make_block_header(2, 2, Some(h0.hash()));
-        let h2 = make_block_header(3, 3, Some(h1.hash()));
-        let h3 = make_block_header(4, 4, Some(h2.hash()));
+        let h2 = make_block_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
+        let h3 = make_block_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
         let h2a = make_block_header(3, 10, Some(h1.hash()));
         let h3a = make_block_header(4, 11, Some(h2a.hash()));
         Self { h0, h1, h2, h3, h2a, h3a }
@@ -100,6 +109,10 @@ impl TestPrep {
     pub fn set_best_chain(&self, hash: HeaderHash) {
         self.store.set_best_chain_hash(&hash).unwrap();
     }
+
+    pub fn header(&self, hash: HeaderHash) -> BlockHeader {
+        self.headers.all().iter().find(|h| h.hash() == hash).copied().unwrap().clone()
+    }
 }
 
 pub fn register_guards() -> DeserializerGuards {
@@ -120,8 +133,10 @@ pub fn register_guards() -> DeserializerGuards {
 /// Creates test prep with Tip::origin() as best_tip and empty tips (just origin).
 pub fn test_prep() -> TestPrep {
     let downstream = StageRef::named_for_tests("downstream");
+    let mut state = SelectChain::new(downstream.clone(), None);
+    state.may_fetch_blocks = true;
     TestPrep {
-        state: SelectChain::new(downstream.clone(), Tip::origin()),
+        state,
         rt: Builder::new_current_thread().build().unwrap(),
         downstream,
         headers: HeaderTree::new(),

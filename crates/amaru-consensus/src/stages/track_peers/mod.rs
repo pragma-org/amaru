@@ -50,6 +50,22 @@ struct PerPeer {
     highest: Tip,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum TrackPeersMsg {
+    FromUpstream(ChainSyncInitiatorMsg),
+}
+
+pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {
+    use TrackPeersMsg::*;
+
+    match msg {
+        FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
+            state.handle_from_upstream(peer, handler, msg, eff).await;
+        }
+    }
+    state
+}
+
 impl TrackPeers {
     pub fn new(era_history: EraHistory, manager: StageRef<ManagerMessage>, downstream: StageRef<(Tip, Point)>) -> Self {
         Self { era_history, upstream: BTreeMap::new(), manager, downstream }
@@ -98,6 +114,7 @@ impl TrackPeers {
         // this is the point up to which the upstream peer has validated its best chain, which
         // can be less advanced than the currently transmitted header
         let highest = tip.point();
+        // check that slot time progresses monotonically
         if header.slot() <= per_peer.current.slot() {
             return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                 actual: header.point(),
@@ -105,6 +122,9 @@ impl TrackPeers {
                 highest,
             })));
         }
+
+        // TODO: check that slot time is within the permissible clock skew
+
         eff.ledger()
             .validate_header(&header, Span::current().context())
             .await
@@ -166,7 +186,7 @@ impl TrackPeers {
             }
             IntersectFound(current, tip) => {
                 let Some(header) = Store::new(eff.clone()).load_header(&current.hash()) else {
-                    tracing::warn!(%peer, %current, %tip, reason = "peer sent unknown intersection point", "stopping chainsync");
+                    tracing::warn!(%peer, %current, tip = %tip.point(), reason = "peer sent unknown intersection point", "stopping chainsync");
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
@@ -239,22 +259,6 @@ pub fn decode_header(raw_header: HeaderContent) -> Result<BlockHeader, Consensus
     }
     from_cbor_no_leftovers(&raw_header.cbor)
         .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.cbor, reason: reason.to_string() })
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum TrackPeersMsg {
-    FromUpstream(ChainSyncInitiatorMsg),
-}
-
-pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {
-    use TrackPeersMsg::*;
-
-    match msg {
-        FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
-            state.handle_from_upstream(peer, handler, msg, eff).await;
-        }
-    }
-    state
 }
 
 #[cfg(test)]

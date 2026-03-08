@@ -15,10 +15,14 @@
 pub mod in_memory_consensus_store;
 pub mod overriding_consensus_store;
 
-use std::{fmt::Display, iter::successors, sync::Arc};
+use std::{
+    fmt::Display,
+    iter::{self, successors},
+    sync::Arc,
+};
 
 use amaru_kernel::{
-    Block, BlockHeader, HeaderHash, IsHeader, Point, RawBlock, Tip, cardano::network_block::NetworkBlock,
+    Block, BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Tip, cardano::network_block::NetworkBlock,
 };
 use thiserror::Error;
 
@@ -51,6 +55,9 @@ where
 
     /// Retrieve the tip of a block header given its hash.
     fn load_tip(&self, hash: &HeaderHash) -> Option<Tip> {
+        if hash == &ORIGIN_HASH {
+            return Some(Tip::origin());
+        }
         self.load_header(hash).map(|h| h.tip())
     }
 
@@ -125,6 +132,26 @@ where
         } else {
             Box::new(vec![*hash].into_iter())
         }
+    }
+
+    fn child_tips<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = Tip> + 'a>
+    where
+        H: 'a,
+    {
+        let mut to_visit = vec![*hash];
+        Box::new(iter::from_fn(move || {
+            loop {
+                let hash = to_visit.pop()?;
+                tracing::debug!(hash = %hash, "visiting child");
+                let (header, validity) = self.load_header_with_validity(&hash)?;
+                if validity == Some(false) {
+                    continue;
+                }
+                let children = self.get_children(&hash);
+                to_visit.extend(children);
+                return Some(header.tip());
+            }
+        }))
     }
 }
 

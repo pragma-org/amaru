@@ -148,7 +148,7 @@ impl Default for ManagerConfig {
 /// - RemovePeer: remove a peer from the manager, which will terminate a connection if currently connected
 ///
 /// A peer can be added right after being removed even though the socket will be closed asynchronously.
-#[instrument(name = "manager", skip_all, fields(message_type = msg.message_type()))]
+#[instrument(level = "debug", name = "manager", skip_all, fields(message_type = msg.message_type()))]
 pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
     match msg {
         ManagerMessage::AddPeer(peer) => {
