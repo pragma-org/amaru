@@ -32,6 +32,7 @@ pub mod tests;
 /// The sync pipeline is responsible for fetching blocks from the upstream node and
 /// applying them to the local chain.
 pub mod stages;
+mod blockchain;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 
