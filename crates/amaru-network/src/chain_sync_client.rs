@@ -68,8 +68,7 @@ impl ChainSyncClient {
         .instrument(trace_span!(
             amaru_observability::amaru::network::chainsync_client::FIND_INTERSECTION,
             peer = &self.peer.name,
-            intersection_slot =
-                u64::from(self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default())
+            intersection_slot = u64::from(self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default())
         ))
         .await
     }

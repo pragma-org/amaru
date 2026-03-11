@@ -122,7 +122,10 @@ pub fn drop<DB>(db: &Transaction<'_, DB>, drep: &StakeCredential) -> Result<BTre
     let _span = trace_span!(
         amaru_observability::amaru::stores::ledger::DREPS_DELEGATION_REMOVE,
         drep_hash = drep.as_hash(),
-        drep_type = StakeCredentialKind::from(drep)
+        drep_type = StakeCredentialKind::from(drep),
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "delete".to_string(),
+        db_collection_name = "drep_delegation".to_string()
     );
     let _guard = _span.enter();
 

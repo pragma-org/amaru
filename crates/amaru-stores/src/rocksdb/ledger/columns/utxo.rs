@@ -17,6 +17,7 @@ use amaru_ledger::store::{
     StoreError,
     columns::utxo::{Key, Value},
 };
+use amaru_observability::trace_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -29,6 +30,14 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     key: &Key,
 ) -> Result<Option<Value>, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::UTXO_GET,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "get".to_string(),
+        db_collection_name = "utxo".to_string()
+    );
+    let _guard = _span.enter();
+
     let key = as_key(&PREFIX, key);
     let bytes = db_get(&key);
     Ok(bytes.map_err(|err| StoreError::Internal(err.into()))?.map(|bytes| {
@@ -38,6 +47,14 @@ pub fn get<'a>(
 }
 
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::UTXO_ADD,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "utxo".to_string()
+    );
+    let _guard = _span.enter();
+
     for (input, output) in rows {
         db.put(as_key(&PREFIX, input), as_value(output)).map_err(|err| StoreError::Internal(err.into()))?;
     }
@@ -46,6 +63,14 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 }
 
 pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::UTXO_REMOVE,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "delete".to_string(),
+        db_collection_name = "utxo".to_string()
+    );
+    let _guard = _span.enter();
+
     for input in rows {
         db.delete(as_key(&PREFIX, input)).map_err(|err| StoreError::Internal(err.into()))?;
     }

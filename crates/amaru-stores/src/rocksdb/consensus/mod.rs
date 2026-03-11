@@ -374,7 +374,13 @@ impl DiagnosticChainStore for RocksDBStore<DB> {
 use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::stores::consensus::STORE_HEADER, hash = header.hash());
+        let _span = trace_span!(
+            amaru_observability::amaru::stores::consensus::STORE_HEADER,
+            hash = header.hash(),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "put".to_string(),
+            db_collection_name = "header".to_string()
+        );
         let _guard = _span.enter();
 
         let hash = header.hash();
@@ -401,7 +407,13 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
     }
 
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::stores::consensus::STORE_BLOCK, hash = *hash);
+        let _span = trace_span!(
+            amaru_observability::amaru::stores::consensus::STORE_BLOCK,
+            hash = *hash,
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "put".to_string(),
+            db_collection_name = "block".to_string()
+        );
         let _guard = _span.enter();
 
         self.db
@@ -421,7 +433,10 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         let _span = trace_span!(
             amaru_observability::amaru::stores::consensus::ROLL_FORWARD_CHAIN,
             hash = point.hash(),
-            slot = u64::from(point.slot_or_default())
+            slot = u64::from(point.slot_or_default()),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "put".to_string(),
+            db_collection_name = "chain".to_string()
         );
         let _guard = _span.enter();
 
@@ -432,7 +447,10 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         let _span = trace_span!(
             amaru_observability::amaru::stores::consensus::ROLLBACK_CHAIN,
             hash = point.hash(),
-            slot = u64::from(point.slot_or_default())
+            slot = u64::from(point.slot_or_default()),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "delete".to_string(),
+            db_collection_name = "chain".to_string()
         );
         let _guard = _span.enter();
 

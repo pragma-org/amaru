@@ -333,11 +333,15 @@ define_schemas! {
             /// Create ledger snapshot for epoch
             SNAPSHOT {
                 required epoch: u64
+                required db_system_name: String
+                required db_operation_name: String
             }
 
             /// Prune old snapshots
             PRUNE {
                 required functional_minimum: u64
+                required db_system_name: String
+                required db_operation_name: String
             }
 
             /// Epoch transition tracking
@@ -346,12 +350,197 @@ define_schemas! {
                 optional has_to: bool
                 optional point: String
                 optional snapshots: String
+                required db_system_name: String
+                required db_operation_name: String
             }
 
             /// Remove DRep delegations
             DREPS_DELEGATION_REMOVE {
                 required drep_hash: amaru_kernel::Hash<28>
                 required drep_type: amaru_kernel::StakeCredentialKind
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
+            }
+
+            columns {
+                /// Point-read a UTxO entry
+                UTXO_GET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Batch-insert UTxO entries
+                UTXO_ADD {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Batch-delete UTxO entries
+                UTXO_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Point-read a pool entry
+                POOLS_GET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Batch-upsert pool entries
+                POOLS_ADD {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Schedule pool retirement
+                POOLS_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Point-read an account entry
+                ACCOUNTS_GET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Batch-upsert account entries
+                ACCOUNTS_ADD {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Batch-delete account entries
+                ACCOUNTS_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Update rewards balance for a single account
+                ACCOUNTS_SET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Reset rewards counters for many accounts
+                ACCOUNTS_RESET_MANY {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Clear DRep delegation for accounts (protocol v9 bug compat)
+                ACCOUNTS_RESET_DELEGATION {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Point-read a DRep entry
+                DREPS_GET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Batch-upsert DRep registrations
+                DREPS_ADD {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Record DRep de-registration
+                DREPS_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Refresh DRep expiry after a vote
+                DREPS_SET_VALID_UNTIL {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Upsert a constitutional committee member
+                CC_MEMBERS_UPSERT {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Insert governance proposals
+                PROPOSALS_ADD {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Remove enacted or expired proposals
+                PROPOSALS_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Record governance votes
+                VOTES_ADD {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Point-read a slot/block-issuer entry
+                SLOTS_GET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Write a slot/block-issuer entry
+                SLOTS_PUT {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Read treasury/reserve/fees pots
+                POTS_GET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Write treasury/reserve/fees pots
+                POTS_PUT {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Full-table scan via IterBorrow (tick/epoch operations)
+                ITER_SCAN {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                    optional rows_scanned: u64
+                    optional rows_written: u64
+                    optional rows_deleted: u64
+                }
             }
         }
 
@@ -360,12 +549,29 @@ define_schemas! {
             SAVE_POINT {
                 required slot: u64
                 optional epoch: u64
+                required db_system_name: String
+                required db_operation_name: String
+                optional db_operation_batch_size: u64
             }
 
             /// Validate sufficient snapshots exist
             VALIDATE_SNAPSHOTS {
                 optional snapshot_count: u64
                 optional continuous_ranges: u64
+                required db_system_name: String
+                required db_operation_name: String
+            }
+
+            /// Commit a write transaction
+            COMMIT {
+                required db_system_name: String
+                required db_operation_name: String
+            }
+
+            /// Rollback a write transaction
+            ROLLBACK {
+                required db_system_name: String
+                required db_operation_name: String
             }
         }
 
@@ -373,43 +579,67 @@ define_schemas! {
             /// Store a block header
             STORE_HEADER {
                 required hash: amaru_kernel::HeaderHash
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
 
             /// Store a raw block
             STORE_BLOCK {
                 required hash: amaru_kernel::HeaderHash
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
 
             /// Roll forward the chain to a point
             ROLL_FORWARD_CHAIN {
                 required hash: amaru_kernel::HeaderHash
                 required slot: u64
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
 
             /// Rollback the chain to a point
             ROLLBACK_CHAIN {
                 required hash: amaru_kernel::HeaderHash
                 required slot: u64
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
 
             /// Store block to tip operations
             STORE_BLOCK_TO_TIP {
                 required hash: String
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
 
             /// Rollback to tip operations
             ROLLBACK_TO_TIP {
                 required hash: String
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
 
             /// Read headers operations
             READ_HEADERS {
                 required hash: String
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
 
             /// Read blocks operations
             READ_BLOCKS {
                 required hash: String
+                required db_system_name: String
+                required db_operation_name: String
+                required db_collection_name: String
             }
         }
     }
