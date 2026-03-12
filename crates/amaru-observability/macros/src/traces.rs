@@ -25,6 +25,9 @@ use crate::utils::{
     make_require_macro_name, parse_full_schema_path, strip_leading_underscores,
 };
 
+const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";
+const TRACE_GUARD_NAME_PREFIX: &str = "__amaru_trace_guard";
+
 /// Parsed schema path with optional inline field expressions.
 ///
 /// Extracted from the macro argument like:
@@ -96,15 +99,15 @@ impl SchemaMeta {
         }
     }
 
-    /// Generate a macro call with block body (for instrument macro).
+    /// Generate a macro call expression.
     ///
-    /// For exported macros: `::amaru_observability::macro_name! { body }`
-    /// For local macros: `macro_name! { body }`
-    fn macro_call_block(&self, macro_ident: &syn::Ident, body: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    /// For exported macros: `::amaru_observability::macro_name!(...)`
+    /// For local macros: `macro_name!(...)`
+    fn macro_call_expr(&self, macro_ident: &syn::Ident, args: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
         if self.is_local_schema() {
-            quote! { #macro_ident! { #body } }
+            quote! { #macro_ident!(#args) }
         } else {
-            quote! { ::amaru_observability::#macro_ident! { #body } }
+            quote! { ::amaru_observability::#macro_ident!(#args) }
         }
     }
 
@@ -122,23 +125,9 @@ impl SchemaMeta {
         // First, try to extract just the schema path for backward compatibility
         let args_str = args.to_string();
 
-        // Check if we have level specification or field expressions by attempting to parse
-        // We'll try the new syntax first if it looks promising
-        let has_field_exprs = args_str.contains('=');
-
-        // Try to parse with the new syntax that supports levels and field expressions
-        // This will fail gracefully if the input doesn't match the expected format
-        let try_new_syntax = has_field_exprs || {
-            // Quick check: does it start with an uppercase identifier followed by comma,
-            // or with the "private," keyword? This avoids trying the new parser for simple schema paths
-            let trimmed = args_str.trim();
-            trimmed.starts_with("private,")
-                || trimmed.starts_with("TRACE")
-                || trimmed.starts_with("DEBUG")
-                || trimmed.starts_with("INFO")
-                || trimmed.starts_with("WARN")
-                || trimmed.starts_with("ERROR")
-        };
+        // Try the richer parser whenever extra comma-separated arguments are present.
+        // This includes level/private prefixes, `field = expr`, and shorthand `field`.
+        let try_new_syntax = args_str.contains(',');
 
         if try_new_syntax {
             // New syntax: parse with syn for proper expression handling
@@ -186,7 +175,8 @@ impl SchemaMeta {
                     let schema_path: syn::Path = input.parse()?;
                     let mut field_exprs = Vec::new();
 
-                    // Parse optional comma-separated field expressions
+                    // Parse optional comma-separated field expressions.
+                    // A bare identifier is treated as shorthand for `field = field`.
                     while input.peek(Token![,]) {
                         input.parse::<Token![,]>()?; // consume comma
 
@@ -195,10 +185,22 @@ impl SchemaMeta {
                         }
 
                         let field_name: syn::Ident = input.parse()?;
-                        input.parse::<Token![=]>()?;
-                        let expr: syn::Expr = input.parse()?;
+                        let expr = if input.peek(Token![=]) {
+                            input.parse::<Token![=]>()?;
+                            input.parse::<syn::Expr>()?
+                        } else {
+                            syn::Expr::Path(syn::ExprPath {
+                                attrs: Vec::new(),
+                                qself: None,
+                                path: field_name.clone().into(),
+                            })
+                        };
 
                         field_exprs.push((field_name, expr));
+                    }
+
+                    if !input.is_empty() {
+                        return Err(input.error("unexpected tokens after trace arguments"));
                     }
 
                     Ok(MacroArgs { private, level, schema_path, field_exprs })
@@ -430,9 +432,9 @@ fn generate_record_calls(fields: &[FunctionField], meta: &SchemaMeta) -> Vec<pro
 
 /// Generate the final instrumented function output.
 ///
-/// The entire function (including span creation) is wrapped in the module
-/// validator to ensure invalid schema names produce a clear error message instead
-/// of "cannot find macro".
+/// The function itself is kept as a normal item so editor tooling can still
+/// navigate the original symbol. Schema validation is emitted inside a const
+/// block within the function body.
 fn generate_instrumented_function(
     func: &ItemFn,
     meta: &SchemaMeta,
@@ -448,35 +450,20 @@ fn generate_instrumented_function(
     let list_schemas_ident = make_ident("__list_available_schemas");
     let list_schemas_call = meta.macro_call(&list_schemas_ident, quote! {});
 
-    // Generate a unique const name based on function name
     let fn_name = &sig.ident;
+    let span_name = make_ident(&format!("{TRACE_SPAN_NAME_PREFIX}_{}", fn_name));
+    let guard_name = make_ident(&format!("{TRACE_GUARD_NAME_PREFIX}_{}", fn_name));
     let validation_const_name = make_ident(&format!("__TRACE_VALIDATION_{}", fn_name.to_string().to_uppercase()));
 
-    // Use the pre-generated instrument macro for all levels.
+    // Use the pre-generated span helper macro for all levels.
     // This ensures span fields are always declared (required for Span::record to work).
     let categories = meta.categories();
     let instrument_macro_name = make_instrument_macro_name(&categories, &meta.schema_name);
     let instrument_macro_ident = make_ident(&instrument_macro_name);
 
-    let func_body = quote! {
-        #(#attrs)*
-        #vis #sig {
-            // Compile-time validation of schema usage
-            #[allow(non_upper_case_globals)]
-            const #validation_const_name: () = {
-                #(#field_validations)*
-                const _: &str = #list_schemas_call;
-            };
-            #(#record_calls)*
-            #(#original_stmts)*
-        }
-    };
-
-    let instrumented_body = if meta.level == "trace" {
-        // Default level (TRACE) - use the simple form
-        meta.macro_call_block(&instrument_macro_ident, func_body)
+    let span_expr = if meta.level == "trace" {
+        meta.macro_call_expr(&instrument_macro_ident, quote! {})
     } else {
-        // Explicit level - pass it to the instrument macro
         let level_const = match meta.level.as_str() {
             "debug" => quote! { tracing::Level::DEBUG },
             "info" => quote! { tracing::Level::INFO },
@@ -484,11 +471,32 @@ fn generate_instrumented_function(
             "error" => quote! { tracing::Level::ERROR },
             _ => quote! { tracing::Level::TRACE },
         };
-        meta.macro_call_block(&instrument_macro_ident, quote! { level = #level_const, { #func_body } })
+        meta.macro_call_expr(&instrument_macro_ident, quote! { level = #level_const })
     };
 
-    // Wrap the entire function in the module validator if needed
-    if meta.module_path.is_empty() { instrumented_body } else { wrap_in_module_validator(meta, instrumented_body) }
+    let setup_block = quote! {
+        #[allow(non_upper_case_globals)]
+        const #validation_const_name: () = {
+            #(#field_validations)*
+            const _: &str = #list_schemas_call;
+        };
+
+        let #span_name = #span_expr;
+        let #guard_name = #span_name.enter();
+
+        #(#record_calls)*
+    };
+
+    let validated_setup = wrap_in_module_validator(meta, setup_block);
+
+    quote! {
+        #(#attrs)*
+        #vis #sig {
+            #validated_setup
+
+            #(#original_stmts)*
+        }
+    }
 }
 
 /// Wrap code in the module validator macro.
