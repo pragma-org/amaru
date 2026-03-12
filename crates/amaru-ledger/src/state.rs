@@ -631,6 +631,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         self.volatile.rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
     }
 
+    pub fn contains_point(&self, point: &Point) -> bool {
+        self.volatile.contains(point)
+    }
+
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
     /// If the `Point` is older than the oldest block in the volatileDB, density is 0
     pub fn chain_density(&self, point: &Point) -> f64 {

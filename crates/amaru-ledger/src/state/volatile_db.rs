@@ -71,6 +71,10 @@ impl VolatileDB {
         self.cache.utxo.produced.get(input)
     }
 
+    pub fn contains(&self, point: &Point) -> bool {
+        self.sequence.binary_search_by_key(point, |state| state.anchor.0).is_ok()
+    }
+
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
         self.sequence.pop_front().inspect(|state| {
             // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we

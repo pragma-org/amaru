@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Peer, Point, Tip, cardano::network_block::NetworkBlock, cbor};
-use amaru_ouroboros::{ReadOnlyChainStore, StoreError};
+use amaru_kernel::{IsHeader, Peer, Point, Tip, cardano::network_block::NetworkBlock, cbor};
+use amaru_ouroboros::{BlockValidationError, ReadOnlyChainStore, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, StageRef, TryInStage};
 
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
+    errors::{ConsensusError, ValidationFailed},
     stages::select_chain_new::SelectChainMsg,
 };
 
@@ -26,6 +27,7 @@ use crate::{
 pub struct ValidateBlock {
     manager: StageRef<ManagerMessage>,
     selet_chain: StageRef<SelectChainMsg>,
+    /// This is always at the tip of the ledger
     current: Point,
 }
 
@@ -54,60 +56,146 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         state.current = msg.tip.point();
         return state;
     }
+
     let ctx = opentelemetry::Context::current();
-    let ledger = Ledger::new(eff);
+    let ledger = Ledger::new(eff.clone());
+    let store = Store::new(eff);
     tracing::debug!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "validating block");
+
     if msg.parent != state.current {
+        // step 1: roll back to some known point
+        // (this could be further back than the parent when switching forks)
         tracing::info!(parent = %msg.parent, current = %state.current, "rolling back ledger to parent point");
-        ledger
-            .rollback(&Peer::new("unknown"), &msg.parent, ctx.clone())
-            .await
-            .or_terminate(ledger.eff(), async |err| {
+        match roll_back_to_ancestor(&ledger, &store, msg.parent).await {
+            Ok(point) => state.current = point,
+            Err(err) => {
                 tracing::error!(error = %err.error, parent = %msg.parent, "failed to rollback ledger to parent point");
-            })
-            .await;
-        state.current = msg.parent;
+                ledger.eff().send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+                return state;
+            }
+        }
     }
-    let store = Store::new(ledger.eff().clone());
+    if msg.parent != state.current {
+        // step 2: roll forward to the parent point if needed
+        // (none of the ancestors is already known to be invalid, as ensured above)
+        let mut points = store
+            .ancestors(
+                store
+                    .load_header(&msg.parent.hash())
+                    .or_terminate(store.eff(), async |_| {
+                        tracing::error!(point = %msg.parent, "failed to load header");
+                    })
+                    .await,
+            )
+            .map(|h| h.point())
+            .take_while(|p| p != &state.current)
+            .collect::<Vec<_>>();
+        tracing::info!(parent = %msg.parent, current = %state.current, points = %points.len(), "rolling forward ledger to reach parent");
+        points.reverse();
+        for point in points {
+            match validate(point, ctx.clone(), &ledger, &store).await {
+                Ok((_tip, metrics)) => {
+                    Metrics::new(ledger.eff()).record(metrics.into()).await;
+                    state.current = point;
+                }
+                Err(error) => {
+                    tracing::error!(error = %error, point = %point, "invalid block");
+                    ledger.eff().send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+                    return state;
+                }
+            }
+        }
+    }
+
+    match validate(msg.tip.point(), ctx, &ledger, &store).await {
+        Ok((tip, metrics)) => {
+            Metrics::new(ledger.eff()).record(metrics.into()).await;
+            ledger.eff().send(&state.selet_chain, SelectChainMsg::BlockValidationResult(tip, true)).await;
+            ledger.eff().send(&state.manager, ManagerMessage::NewTip(tip)).await;
+            state.current = tip.point();
+        }
+        Err(error) => {
+            tracing::error!(error = %error, point = %msg.tip.point(), "invalid block");
+            ledger.eff().send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+        }
+    }
+
+    state
+}
+
+async fn validate(
+    point: Point,
+    ctx: opentelemetry::Context,
+    ledger: &Ledger<ValidateBlockMsg>,
+    store: &Store<ValidateBlockMsg>,
+) -> Result<(Tip, amaru_metrics::ledger::LedgerMetrics), BlockValidationError> {
     let block = store
-        .load_block(&msg.tip.hash())
+        .load_block(&point.hash())
         .and_then(|block| block.ok_or(StoreError::ReadError { error: "block not found".to_string() }))
         .or_terminate(store.eff(), async |error| {
-            tracing::error!(error = %error, point = %msg.tip.point(), "failed to load block");
+            tracing::error!(error = %error, %point, "failed to load block");
         })
         .await;
     let block = cbor::decode::<NetworkBlock>(&block)
         .or_terminate(store.eff(), async |error| {
-            tracing::error!(error = %error, point = %msg.tip.point(), "failed to decode network block");
+            tracing::error!(error = %error, %point, "failed to decode network block");
         })
         .await;
     let block = block
         .decode_block()
         .or_terminate(store.eff(), async |error| {
-            tracing::error!(error = %error, point = %msg.tip.point(), "failed to decode block");
+            tracing::error!(error = %error, %point, "failed to decode block");
         })
         .await;
     let tip = block.tip();
     let result = ledger
-        .validate_block(&Peer::new("unknown"), &msg.tip.point(), block, ctx)
+        .validate_block(&Peer::new("unknown"), &point, block, ctx)
         .await
         .or_terminate(ledger.eff(), async |error| {
-            tracing::error!(error = %error, point = %msg.tip.point(), "failed to validate block");
+            tracing::error!(error = %error, %point, "failed to validate block");
         })
         .await;
-    let valid = result.is_ok();
-    match result {
-        Ok(metrics) => {
-            tracing::info!(point = %msg.tip.point(), "valid block");
-            Metrics::new(ledger.eff()).record(metrics.into()).await;
-            state.current = msg.tip.point();
+    result.map(|metrics| (tip, metrics))
+}
+
+async fn roll_back_to_ancestor(
+    ledger: &Ledger<ValidateBlockMsg>,
+    store: &Store<ValidateBlockMsg>,
+    parent: Point,
+) -> Result<Point, ValidationFailed> {
+    if ledger.contains_point(&parent) {
+        return Ok(parent);
+    }
+
+    let ledger_tip = ledger.tip();
+    let mut rb_point = None;
+    for (ancestor, valid) in store.ancestors_with_validity(parent.hash()) {
+        if valid == Some(false) {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point depends on invalid block").into(),
+                ),
+            ));
         }
-        Err(error) => {
-            tracing::warn!(error = %error, point = %msg.tip.point(), "invalid block");
+        if ancestor.point() == ledger_tip || ledger.contains_point(&ancestor.point()) {
+            rb_point = Some(ancestor.point());
+            break;
         }
     }
-    ledger.eff().send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, valid)).await;
-    ledger.eff().send(&state.manager, ManagerMessage::NewTip(tip)).await;
 
-    state
+    if let Some(rb_point) = rb_point {
+        ledger.rollback(&Peer::new("unknown"), &rb_point, opentelemetry::Context::current()).await?;
+        Ok(rb_point)
+    } else {
+        Err(ValidationFailed::new(
+            // TODO: figure out which peer to blame
+            &Peer::new("unknown"),
+            ConsensusError::RollbackBlockFailed(
+                parent,
+                anyhow::anyhow!("rollback point not found in volatile db").into(),
+            ),
+        ))
+    }
 }

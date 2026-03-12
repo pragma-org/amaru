@@ -48,6 +48,10 @@ pub trait LedgerOps: Send + Sync {
         point: &Point,
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>>;
+
+    fn contains_point(&self, point: &Point) -> bool;
+
+    fn tip(&self) -> Point;
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
@@ -89,6 +93,14 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>> {
         self.0.external(RollbackBlockEffect::new(peer, point, ctx))
+    }
+
+    fn contains_point(&self, point: &Point) -> bool {
+        self.0.external_sync(ContainsPointEffect::new(point))
+    }
+
+    fn tip(&self) -> Point {
+        self.0.external_sync(TipEffect::new())
     }
 }
 
@@ -202,3 +214,61 @@ impl ExternalEffectAPI for RollbackBlockEffect {
 }
 
 impl ExternalEffectSync for RollbackBlockEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ContainsPointEffect {
+    point: Point,
+}
+
+impl ContainsPointEffect {
+    pub fn new(point: &Point) -> Self {
+        Self { point: *point }
+    }
+}
+
+impl ExternalEffect for ContainsPointEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        #[expect(clippy::expect_used)]
+        Self::wrap_sync({
+            let ledger = resources
+                .get::<ResourceBlockValidation>()
+                .expect("ContainsPointEffect requires a ResourceBlockValidation resource")
+                .clone();
+            ledger.contains_point(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for ContainsPointEffect {
+    type Response = bool;
+}
+
+impl ExternalEffectSync for ContainsPointEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TipEffect {}
+
+impl TipEffect {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl ExternalEffect for TipEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let ledger = resources
+                .get::<ResourceBlockValidation>()
+                .expect("TipEffect requires a ResourceBlockValidation resource")
+                .clone();
+            ledger.tip()
+        })
+    }
+}
+
+impl ExternalEffectAPI for TipEffect {
+    type Response = Point;
+}
+
+impl ExternalEffectSync for TipEffect {}
