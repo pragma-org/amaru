@@ -84,4 +84,16 @@ where
         let mut state = self.state.lock().unwrap();
         state.rollback_to(to).map_err(|e| BlockValidationError::new(anyhow!(e)))
     }
+
+    #[expect(clippy::unwrap_used)]
+    fn contains_point(&self, point: &Point) -> bool {
+        let state = self.state.lock().unwrap();
+        state.contains_point(point)
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn tip(&self) -> Point {
+        let state = self.state.lock().unwrap();
+        state.tip().into_owned()
+    }
 }

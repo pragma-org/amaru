@@ -185,6 +185,14 @@ pub mod tests {
         ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>> {
             Box::pin(async { Ok(()) })
         }
+
+        fn contains_point(&self, _point: &Point) -> bool {
+            true
+        }
+
+        fn tip(&self) -> Point {
+            Point::Origin
+        }
     }
 
     impl HasStakeDistribution for MockLedgerOps {

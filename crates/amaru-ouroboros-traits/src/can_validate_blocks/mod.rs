@@ -30,6 +30,10 @@ pub trait CanValidateBlocks: Send + Sync {
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;
+
+    fn contains_point(&self, point: &Point) -> bool;
+
+    fn tip(&self) -> Point;
 }
 #[derive(Debug, Error)]
 pub struct BlockValidationError(anyhow::Error);
