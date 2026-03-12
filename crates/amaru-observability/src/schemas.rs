@@ -209,7 +209,7 @@ define_schemas! {
         context {
             /// Add transaction fees to pots
             ADD_FEES {
-                required fee: u64
+                required fee: Lovelace
             }
 
             /// Withdraw from stake credential

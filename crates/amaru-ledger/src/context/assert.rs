@@ -116,8 +116,8 @@ impl From<AssertValidationContext> for () {
 }
 
 impl PotsSlice for AssertValidationContext {
-    #[trace(amaru::ledger::context::ADD_FEES, fee = _fees)]
-    fn add_fees(&mut self, _fees: Lovelace) {}
+    #[trace(amaru::ledger::context::ADD_FEES, fee = fee)]
+    fn add_fees(&mut self, fee: Lovelace) {}
 }
 
 impl UtxoSlice for AssertValidationContext {

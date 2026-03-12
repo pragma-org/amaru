@@ -31,7 +31,7 @@ use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distri
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::{Context, anyhow};
 use thiserror::Error;
-use tracing::{Span, debug, error, info, trace, warn};
+use tracing::{Span, debug, error, info, trace};
 use volatile_db::AnchoredVolatileState;
 pub use volatile_db::VolatileState;
 
