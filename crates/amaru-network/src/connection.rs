@@ -226,47 +226,40 @@ impl ConnectionProvider for TokioConnections {
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {
         let resource = self.inner.clone();
-        let len = data.len();
-        Box::pin(
-            async move {
-                let connection = resource
-                    .connections
-                    .lock()
-                    .get(&conn)
-                    .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for send")))?
-                    .writer
-                    .clone();
-                tokio::time::timeout(Duration::from_secs(100), connection.lock().await.write_all(&data)).await??;
-                Ok(())
-            }
-            .instrument(trace_span!(network::connection::SEND, conn = %conn, len = len)),
-        )
+        Box::pin(async move {
+            let connection = resource
+                .connections
+                .lock()
+                .get(&conn)
+                .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for send")))?
+                .writer
+                .clone();
+            tokio::time::timeout(Duration::from_secs(100), connection.lock().await.write_all(&data)).await??;
+            Ok(())
+        })
     }
 
     fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>> {
         let resource = self.inner.clone();
-        Box::pin(
-            async move {
-                let connection = resource
-                    .connections
-                    .lock()
-                    .get(&conn)
-                    .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for recv")))?
-                    .reader
-                    .clone();
-                let mut guard = connection.lock().await;
-                let (reader, buf) = &mut *guard;
-                buf.reserve(bytes.get() - buf.remaining().min(bytes.get()));
-                while buf.remaining() < bytes.get() {
-                    if reader.read_buf(buf).await? == 0 {
-                        return Err(std::io::ErrorKind::UnexpectedEof.into());
-                    };
-                }
-                #[expect(clippy::expect_used)]
-                Ok(buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize"))
+        Box::pin(async move {
+            let connection = resource
+                .connections
+                .lock()
+                .get(&conn)
+                .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for recv")))?
+                .reader
+                .clone();
+            let mut guard = connection.lock().await;
+            let (reader, buf) = &mut *guard;
+            buf.reserve(bytes.get() - buf.remaining().min(bytes.get()));
+            while buf.remaining() < bytes.get() {
+                if reader.read_buf(buf).await? == 0 {
+                    return Err(std::io::ErrorKind::UnexpectedEof.into());
+                };
             }
-            .instrument(trace_span!(network::connection::RECV, conn = %conn, bytes = bytes)),
-        )
+            #[expect(clippy::expect_used)]
+            Ok(buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize"))
+        })
     }
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
