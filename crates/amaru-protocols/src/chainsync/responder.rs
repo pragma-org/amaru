@@ -130,34 +130,45 @@ fn next_header(
         ResponderState::CanAwait { send_rollback: true } => {
             return Ok(Some(ResponderAction::RollBackward(*pointer, tip)));
         }
-        ResponderState::MustReply | ResponderState::CanAwait { .. } => {}
         ResponderState::Idle { .. } | ResponderState::Intersect | ResponderState::Done => {
             return Ok(None);
         }
+        ResponderState::MustReply | ResponderState::CanAwait { .. } => {}
     };
+
     if *pointer == tip.point() {
         return Ok((matches!(state, ResponderState::CanAwait { .. })).then_some(ResponderAction::AwaitReply));
     }
 
-    if store.load_from_best_chain(pointer).is_none() {
-        // client is on a different fork, we need to roll backward
-        let header = store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
-        for header in store.ancestors(header) {
-            if store.load_from_best_chain(&header.point()).is_some() {
-                *pointer = header.point();
-                return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
+    // MustReply case
+    if store.load_from_best_chain(pointer).is_some() {
+        if let Some(point) = store.next_best_chain(pointer) {
+            let next_header = store
+                .load_header(&point.hash())
+                .ok_or_else(|| anyhow::anyhow!("next best-chain header not found: {}", point))?;
+            // Verify the next header is actually a child of the current pointer.
+            // The best chain may have changed concurrently between load_from_best_chain
+            // and next_best_chain. That's because next_best_chain return the next best header based on
+            // the point slot, and does not check for parentship.
+            //
+            // We fall through to the rollback logic if the parent doesn't match.
+            if next_header.parent() == Some(pointer.hash()) {
+                *pointer = point;
+                return Ok(Some(ResponderAction::RollForward(HeaderContent::new(&next_header, EraName::Conway), tip)));
             }
+        } else {
+            return Ok(None);
         }
-        anyhow::bail!("no overlap found between client pointer chain and stored best chain");
     }
-    // pointer is on the best chain, we need to roll forward
-    let Some(point) = store.next_best_chain(pointer) else {
-        return Ok(None);
-    };
-    let header =
-        store.load_header(&point.hash()).ok_or_else(|| anyhow::anyhow!("best-chain header not found: {}", point))?;
-    *pointer = point;
-    Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, EraName::Conway), tip)))
+    // client is on a different fork (or the chain changed concurrently), we need to roll backward
+    let header = store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
+    for header in store.ancestors(header) {
+        if store.load_from_best_chain(&header.point()).is_some() {
+            *pointer = header.point();
+            return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
+        }
+    }
+    anyhow::bail!("no overlap found between client pointer chain and stored best chain")
 }
 
 fn intersect(
@@ -271,10 +282,18 @@ impl ProtocolState<Responder> for ResponderState {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        collections::BTreeMap,
+        sync::{Arc, Mutex},
+    };
 
-    use amaru_kernel::{BlockHeader, Hash, Slot, make_header, size::HEADER};
-    use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use amaru_kernel::{
+        BlockHeader, Hash, HeaderHash, IsHeader, Point, Slot, any_headers_chain, make_header, size::HEADER,
+        utils::tests::run_strategy,
+    };
+    use amaru_ouroboros_traits::{
+        ChainStore, Nonces, ReadOnlyChainStore, StoreError, in_memory_consensus_store::InMemConsensusStore,
+    };
 
     use super::*;
     use crate::{chainsync::initiator::InitiatorState, protocol::ProtoSpec};
@@ -325,6 +344,46 @@ mod tests {
         let unknown = Point::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
         let result = intersect(vec![unknown], store.as_ref(), tip).unwrap();
         assert_eq!(result, ResponderAction::IntersectNotFound(tip));
+    }
+
+    #[test]
+    fn next_header_rolls_back_when_best_chain_changes_between_reads() {
+        // h0 -> h1 -> h2
+        //  \
+        //   -> h1_1 -> h2_1
+        //
+        // where h1 and h1_1 have the same slot
+        //       h2 and h2_1 have the same slot
+        let headers = run_strategy(any_headers_chain(3));
+
+        let header0 = headers[0].clone();
+        let header1 = headers[1].clone();
+        let header2 = headers[2].clone();
+        let header1_1 = BlockHeader::new(
+            make_header(headers[1].block_height().as_u64(), header1.slot().as_u64(), Some(header0.hash())),
+            Hash::new([0xdd; HEADER]),
+        );
+        let header2_1 = BlockHeader::new(
+            make_header(headers[2].block_height().as_u64(), header2.slot().as_u64(), Some(header1_1.hash())),
+            Hash::new([0xff; HEADER]),
+        );
+
+        let store = BestChainRaceStore::new(
+            // old chain
+            vec![header0.clone(), header1_1.clone(), header2_1.clone()],
+            // new best chain after switch
+            vec![header0.clone(), header1.clone(), header2.clone()],
+        );
+        let mut pointer = header1_1.point();
+        let tip = Tip::new(header2_1.point(), 0.into());
+
+        let action = next_header(ResponderState::MustReply, &mut pointer, &store, tip).unwrap();
+
+        // Since the best chain has changed while we were trying to get the next best point
+        // after pointer, we should have rolled back to header0, which is the last common ancestor
+        // between the old and new best chain.
+        assert_eq!(action, Some(ResponderAction::RollBackward(header0.point(), tip)));
+        assert_eq!(pointer, header0.point());
     }
 
     #[expect(clippy::wildcard_enum_match_arm)]
@@ -406,5 +465,74 @@ mod tests {
     fn make_tip(points: &[Point]) -> Tip {
         let last = points.last().unwrap();
         Tip::new(*last, 0.into())
+    }
+
+    struct BestChainRaceStore {
+        headers: BTreeMap<HeaderHash, BlockHeader>,
+        anchor_hash: HeaderHash,
+        best_chain_hash: HeaderHash,
+        new_best_chain: Vec<BlockHeader>,
+        switched: Mutex<bool>,
+    }
+
+    impl BestChainRaceStore {
+        fn new(old_best_chain: Vec<BlockHeader>, new_best_chain: Vec<BlockHeader>) -> Self {
+            // store all headers
+            let mut headers: BTreeMap<HeaderHash, BlockHeader> =
+                old_best_chain.iter().map(|h| (h.hash(), h.clone())).collect();
+            for h in new_best_chain.iter() {
+                headers.insert(h.hash(), h.clone());
+            }
+            Self {
+                headers,
+                anchor_hash: old_best_chain.first().unwrap().clone().hash(),
+                best_chain_hash: old_best_chain.last().unwrap().hash(),
+                new_best_chain,
+                switched: Mutex::new(false),
+            }
+        }
+    }
+
+    impl ReadOnlyChainStore<BlockHeader> for BestChainRaceStore {
+        fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+            self.headers.get(hash).cloned()
+        }
+
+        fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+            self.headers.values().filter_map(|h| (h.parent() == Some(*hash)).then_some(h.hash())).collect()
+        }
+
+        fn get_anchor_hash(&self) -> HeaderHash {
+            self.anchor_hash
+        }
+
+        fn get_best_chain_hash(&self) -> HeaderHash {
+            self.best_chain_hash
+        }
+
+        fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+            let mut switched = self.switched.lock().unwrap();
+            if !*switched {
+                *switched = true;
+                return Some(point.hash());
+            }
+            self.new_best_chain.iter().find(|h| h.point() == *point).map(|h| h.hash())
+        }
+
+        fn next_best_chain(&self, point: &Point) -> Option<Point> {
+            self.new_best_chain.iter().find(|h| h.slot() > point.slot_or_default()).map(|h| h.point())
+        }
+
+        fn load_block(&self, _hash: &HeaderHash) -> Result<Option<amaru_kernel::RawBlock>, StoreError> {
+            Ok(None)
+        }
+
+        fn get_nonces(&self, _header: &HeaderHash) -> Option<Nonces> {
+            None
+        }
+
+        fn has_header(&self, hash: &HeaderHash) -> bool {
+            self.headers.contains_key(hash)
+        }
     }
 }
