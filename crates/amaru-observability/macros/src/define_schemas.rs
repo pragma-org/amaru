@@ -657,15 +657,15 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
     }
 }
 
-/// Generate the instrument helper macro for a schema.
+/// Generate the span helper macro for a schema.
 ///
-/// This macro provides the `#[tracing::instrument]` attribute with:
-/// - `level = Level::TRACE`
-/// - `skip_all`
+/// This macro returns a `tracing::Span` expression configured with:
+/// - `level = Level::TRACE` by default
 /// - `target = "module::path"`
-/// - `fields(...)` with:
-///   - Required fields: `field` - captures value from function param (validated to exist)
-///   - Optional fields: `field = tracing::field::Empty` - set via `Span::current().record()`
+/// - field declarations initialized to `tracing::field::Empty`
+///
+/// The `#[trace]` proc macro enters this span and then records function arguments
+/// into it via `Span::current().record()`.
 fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let macro_name = make_instrument_macro_name(&schema.categories, &schema.name);
     let macro_ident = make_ident(&macro_name);
@@ -700,39 +700,26 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
         })
         .collect();
 
-    // Build the fields expression
-    let fields_expr = if required_fields.is_empty() && optional_fields.is_empty() {
-        quote! {}
-    } else if optional_fields.is_empty() {
-        quote! { fields(#(#required_fields),*) }
-    } else if required_fields.is_empty() {
-        quote! { fields(#(#optional_fields),*) }
+    let span_expr = if required_fields.is_empty() && optional_fields.is_empty() {
+        quote! {
+            tracing::span!(target: #target, $level, #name)
+        }
     } else {
-        quote! { fields(#(#required_fields,)* #(#optional_fields),*) }
+        let fields = required_fields.iter().chain(optional_fields.iter());
+        quote! {
+            tracing::span!(target: #target, $level, #name, #(#fields),*)
+        }
     };
 
     quote! {
         #macro_export
         #[doc(hidden)]
         macro_rules! #macro_ident {
-            // Internal implementation rule (must be first to avoid catch-all match)
-            (@impl $level:expr, $($func:tt)*) => {
-                #[tracing::instrument(
-                    level = $level,
-                    skip_all,
-                    name = #name,
-                    target = #target,
-                    #fields_expr
-                )]
-                $($func)*
+            (level = $level:expr) => {
+                #span_expr
             };
-            // With explicit level
-            (level = $level:expr, { $($func:tt)* }) => {
-                #crate_prefix #macro_ident!(@impl $level, $($func)*);
-            };
-            // Default level (TRACE)
-            ($($func:tt)*) => {
-                #crate_prefix #macro_ident!(@impl tracing::Level::TRACE, $($func)*);
+            () => {
+                #crate_prefix #macro_ident!(level = tracing::Level::TRACE)
             };
         }
     }
