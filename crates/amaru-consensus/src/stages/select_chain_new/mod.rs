@@ -149,15 +149,6 @@ impl SelectChain {
             .await;
 
         if valid {
-            store
-                .set_best_chain_hash(&tip.hash())
-                .or_terminate(&eff, async |error| {
-                    tracing::error!(%error, "failed to set best chain hash");
-                })
-                .await;
-
-            // TODO: add anchor management and pruning of tips that are older than new anchor
-
             let h = tip.hash();
             self.tips.values_mut().for_each(|v| {
                 if v.first() == Some(&h) {
@@ -227,7 +218,7 @@ impl SelectChain {
         // During startup with non-empty chain store, best_tip will be different from origin and
         // the incoming `point` will be origin, leading to sending the best tip to the downstream stage.
         let best_tip = self.best_tip.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
-        tracing::info!(%point, %best_tip, "handle_fetch_next_from");
+        tracing::debug!(%point, %best_tip, "handle_fetch_next_from");
         if let Some(best_tip) = &self.best_tip
             && best_tip.point() != point
         {

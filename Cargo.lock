@@ -125,6 +125,7 @@ dependencies = [
  "amaru-protocols",
  "amaru-stores",
  "anyhow",
+ "async-trait",
  "hex",
  "itertools 0.14.0",
  "opentelemetry",

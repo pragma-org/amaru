@@ -15,12 +15,13 @@
 use std::sync::Arc;
 
 use amaru_consensus::stages::{
+    adopt_chain::{self, AdoptChain},
     fetch_blocks::{self, FetchBlocks, FetchBlocksMsg},
     select_chain_new::{self, SelectChain, SelectChainMsg},
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block2::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{BlockHeader, EraHistory, Point};
+use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, Point, Tip};
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
@@ -43,7 +44,8 @@ use crate::stages::config::Config;
 pub fn build_stage_graph(
     config: &Config,
     era_history: &EraHistory,
-    our_best_point: Point,
+    global_parameters: &GlobalParameters,
+    ledger_tip: Tip,
     our_candidate: Option<BlockHeader>,
     stage_graph: &mut impl StageGraph,
 ) -> StageRef<ManagerMessage> {
@@ -52,9 +54,21 @@ pub fn build_stage_graph(
     let select_chain = stage_graph.stage("select_chain", select_chain_new::stage);
     let fetch_blocks = stage_graph.stage("fetch_blocks", fetch_blocks::stage);
     let validate_block = stage_graph.stage("validate_block", validate_block2::stage);
+    let adopt_chain = stage_graph.stage("adopt_chain", adopt_chain::stage);
 
-    let validate_block = stage_graph
-        .wire_up(validate_block, ValidateBlock::new(manager.sender(), select_chain.sender(), our_best_point));
+    let k = {
+        #[expect(clippy::unwrap_used)]
+        global_parameters
+            .consensus_security_param
+            .try_into()
+            .expect("consensus security param will not be larger than u64::MAX")
+    };
+    let adopt_chain = stage_graph.wire_up(adopt_chain, AdoptChain::new(manager.sender(), k, ledger_tip));
+
+    let validate_block = stage_graph.wire_up(
+        validate_block,
+        ValidateBlock::new(adopt_chain.without_state(), select_chain.sender(), ledger_tip.point()),
+    );
     let validate_block_input = stage_graph
         .contramap(validate_block, "validate_block_input", |(tip, parent)| ValidateBlockMsg::new(tip, parent));
 

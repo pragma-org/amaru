@@ -90,6 +90,8 @@ pub fn build_node(
     // This also makes sure that the chain store tip and anchors are exactly aligned to the
     // ledger tip.
     let chain_store = initialize_chain_store(config, ledger_tip)?;
+    let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
+
     let best_candidates = chain_store
         .child_tips(&chain_store.get_best_chain_hash())
         .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
@@ -121,7 +123,8 @@ pub fn build_node(
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
 
     // Build the stage graph and return a reference to the manager stage
-    let manager_stage = build_stage_graph(config, era_history, ledger_tip, best_candidate, stage_builder);
+    let manager_stage =
+        build_stage_graph(config, era_history, global_parameters, ledger_tip, best_candidate, stage_builder);
 
     // Open a port to listen for downstream peers
     stage_builder

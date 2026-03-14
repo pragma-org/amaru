@@ -53,6 +53,27 @@ impl FetchBlocks {
         }
     }
 
+    /// Constructor for tests: use a mock cleanup_replies stage instead of wiring the real one.
+    #[cfg(test)]
+    pub fn for_tests(
+        downstream: StageRef<(Tip, Point)>,
+        upstream: StageRef<SelectChainMsg>,
+        manager: StageRef<ManagerMessage>,
+        cleanup_replies: StageRef<Blocks2>,
+    ) -> Self {
+        Self {
+            downstream,
+            req_id: 0,
+            from: Point::Origin,
+            through: Point::Origin,
+            current: Point::Origin,
+            upstream,
+            manager,
+            cleanup_replies,
+            timeout: None,
+        }
+    }
+
     pub async fn new_tip(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
         let store = Store::new(eff);
@@ -212,3 +233,8 @@ pub async fn cleanup_replies(
         Blocks2::Done(id) => ((id + 1).max(curr_id), fetch),
     }
 }
+
+#[cfg(test)]
+mod test_setup;
+#[cfg(test)]
+mod tests;
