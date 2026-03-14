@@ -444,9 +444,8 @@ mod tests {
 
         let result = db.rollback_to(&rollback_point, |_| "Point not found");
 
-        // This should succeed and keep elements at slots 10 and 20
-        assert!(result.is_ok());
-        assert_eq!(db.len(), 2, "Should keep elements at slots 10 and 20");
+        assert_eq!(result.unwrap_err(), "Point not found");
+        assert_eq!(db.len(), 3, "All elements should be retained");
     }
 
     // HELPERS

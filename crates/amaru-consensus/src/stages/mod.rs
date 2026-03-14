@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod adopt_chain;
 pub mod fetch_block;
 pub mod fetch_blocks;
 pub mod forward_chain;
