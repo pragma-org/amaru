@@ -183,7 +183,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
         }
     }
 
-    #[instrument(name = "blockfetch.responder.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "blockfetch.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         self,
         _proto: &State,
@@ -219,7 +219,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(name = "blockfetch.responder.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "blockfetch.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use Message::*;
         match (self, input) {

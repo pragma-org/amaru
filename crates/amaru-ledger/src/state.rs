@@ -614,8 +614,27 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             return Ok(());
         }
 
+        if self.tip().as_ref() > to {
+            return Err(BackwardError::RollbackPointBeforeTip { rollback_point: *to, tip: self.tip().into_owned() });
+        }
+
+        if self.volatile.is_empty() && self.tip().as_ref() < to {
+            return Err(BackwardError::RollbackPointInFuture(*to));
+        }
+
+        if let Some(last) = self.volatile.view_back()
+            && last.anchor.0 < *to
+        {
+            return Err(BackwardError::RollbackPointInFuture(*to));
+        }
+
         self.volatile.rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
     }
+
+    pub fn contains_point(&self, point: &Point) -> bool {
+        self.volatile.contains(point)
+    }
+
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
     /// If the `Point` is older than the oldest block in the volatileDB, density is 0
     pub fn chain_density(&self, point: &Point) -> f64 {
@@ -1002,6 +1021,12 @@ pub enum BackwardError {
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
     #[error("error rolling back to unknown {0:?}")]
     UnknownRollbackPoint(Point),
+
+    #[error("error rolling back to point {rollback_point:?}: before tip {tip:?}")]
+    RollbackPointBeforeTip { rollback_point: Point, tip: Point },
+
+    #[error("cannot roll back to a point in the future: {0:?}")]
+    RollbackPointInFuture(Point),
 }
 
 #[derive(Debug, Error)]

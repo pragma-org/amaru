@@ -71,6 +71,10 @@ impl VolatileDB {
         self.cache.utxo.produced.get(input)
     }
 
+    pub fn contains(&self, point: &Point) -> bool {
+        self.sequence.binary_search_by_key(point, |state| state.anchor.0).is_ok()
+    }
+
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
         self.sequence.pop_front().inspect(|state| {
             // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
@@ -122,21 +126,25 @@ impl VolatileDB {
 
         // Now we know the target point is within the sequence
         // Rebuild the cache up to that point
-        self.cache = VolatileCache::default();
+        let mut cache = VolatileCache::default();
 
         // Keep all elements with slot <= target_slot
         let mut ix = 0;
         for diff in self.sequence.iter() {
-            if diff.anchor.0.slot_or_default() <= target_slot {
+            if diff.anchor.0 <= *point {
                 // TODO: See NOTE on VolatileDB regarding the .clone()
-                self.cache.merge(diff.state.utxo.clone());
+                cache.merge(diff.state.utxo.clone());
                 ix += 1;
+                if diff.anchor.0 == *point {
+                    break;
+                }
             } else {
-                break;
+                return Err(on_unknown_point(point));
             }
         }
 
-        self.sequence.resize_with(ix, || unreachable!("ix cannot exceed sequence length due to the loop break"));
+        self.sequence.truncate(ix);
+        self.cache = cache;
         Ok(())
     }
 }
@@ -436,9 +444,8 @@ mod tests {
 
         let result = db.rollback_to(&rollback_point, |_| "Point not found");
 
-        // This should succeed and keep elements at slots 10 and 20
-        assert!(result.is_ok());
-        assert_eq!(db.len(), 2, "Should keep elements at slots 10 and 20");
+        assert_eq!(result.unwrap_err(), "Point not found");
+        assert_eq!(db.len(), 3, "All elements should be retained");
     }
 
     // HELPERS

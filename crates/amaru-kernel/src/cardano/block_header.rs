@@ -12,16 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    cmp::Ordering,
-    fmt::{self, Debug, Display, Formatter},
-};
+use std::{cmp::Ordering, fmt};
 
-use crate::{
-    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, Slot, Tip,
-    cbor::{self},
-    size::HEADER,
-};
+use crate::{BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, Slot, Tip, cbor, size::HEADER};
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests;
@@ -36,8 +29,8 @@ pub struct BlockHeader {
     hash: HeaderHash,
 }
 
-impl Display for BlockHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for BlockHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&format!(
             "{}. {}{}",
             self.slot(),
@@ -78,8 +71,8 @@ impl<'de> serde::Deserialize<'de> for BlockHeader {
     }
 }
 
-impl Debug for BlockHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Debug for BlockHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BlockHeader")
             .field("hash", &hex::encode(self.hash()))
             .field("slot", &self.slot().as_u64())
@@ -124,6 +117,14 @@ impl BlockHeader {
 
     pub fn parent_hash(&self) -> Option<HeaderHash> {
         self.header.header_body.prev_hash
+    }
+
+    pub fn vrf_leader(&self) -> Vec<u8> {
+        self.header.header_body.leader_vrf_output()
+    }
+
+    pub fn op_cert_seq(&self) -> u64 {
+        self.header.header_body.operational_cert.operational_cert_sequence_number
     }
 
     fn recompute_hash(&mut self) {

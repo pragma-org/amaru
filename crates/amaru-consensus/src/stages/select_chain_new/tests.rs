@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use amaru_kernel::{HeaderHash, ORIGIN_HASH, Point, Slot};
+use amaru_kernel::{BlockHeight, HeaderHash, ORIGIN_HASH, Point, Slot};
 use amaru_ouroboros_traits::{StoreError, overriding_consensus_store::OverridingChainStore};
 use pure_stage::trace_buffer::TerminationReason;
 use tracing::Level;
@@ -89,8 +89,9 @@ fn test_tip_extends_from_origin() {
     let msg = SelectChainMsg::TipFromUpstream(tip, parent);
 
     let expected = SelectChain {
-        best_tip: tip,
+        best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![tip.hash()])]),
+        may_fetch_blocks: false,
         ..prep.state.clone()
     };
 
@@ -114,18 +115,19 @@ fn test_tip_extends_from_origin() {
 #[test]
 fn test_tip_extends_from_h1() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h1.tip();
+    prep.state.best_tip = Some(prep.headers.h1.clone());
     prep.store_headers(&prep.headers.main());
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
     let msg = SelectChainMsg::TipFromUpstream(tip, parent);
 
     let expected = SelectChain {
-        best_tip: tip,
+        best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(
             tip.hash(),
             vec![prep.headers.h0.hash(), prep.headers.h1.hash(), prep.headers.h2.hash()],
         )]),
+        may_fetch_blocks: false,
         ..prep.state.clone()
     };
 
@@ -160,8 +162,9 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
     let msg = SelectChainMsg::TipFromUpstream(tip, parent);
 
     let expected = SelectChain {
-        best_tip: tip,
+        best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![prep.headers.h2.hash(), tip.hash()])]),
+        may_fetch_blocks: false,
         ..prep.state.clone()
     };
 
@@ -188,7 +191,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
 #[test]
 fn test_tip_h3_extends_with_best_chain_h3a() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3a.tip();
+    prep.state.best_tip = Some(prep.headers.h3a.clone());
     prep.state.tips =
         BTreeMap::from_iter([(prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()])]);
     prep.store_headers(&prep.headers.all());
@@ -198,7 +201,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
     let msg = SelectChainMsg::TipFromUpstream(tip, parent);
 
     let expected = SelectChain {
-        best_tip: tip,
+        best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([
             (
                 tip.hash(),
@@ -206,6 +209,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             ),
             (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
         ]),
+        may_fetch_blocks: false,
         ..prep.state.clone()
     };
 
@@ -234,7 +238,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
 #[test]
 fn test_tip_h3a_extends_with_best_chain_h3() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3.tip();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.tips =
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.set_validity(prep.headers.h1.hash(), true);
@@ -273,23 +277,24 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
 }
 
 #[test]
-fn test_tip_h3_extends_with_best_chain_h2a() {
+fn test_tip_h3a_extends_with_best_chain_h2() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h2a.tip();
+    prep.state.best_tip = Some(prep.headers.h2.clone());
     prep.state.tips =
-        BTreeMap::from_iter([(prep.headers.h2a.hash(), vec![prep.headers.h1.hash(), prep.headers.h2a.hash()])]);
+        BTreeMap::from_iter([(prep.headers.h2.hash(), vec![prep.headers.h1.hash(), prep.headers.h2.hash()])]);
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h1.hash());
-    let tip = prep.headers.h3.tip();
-    let parent = prep.headers.h2.point();
+    let tip = prep.headers.h3a.tip();
+    let parent = prep.headers.h2a.point();
     let msg = SelectChainMsg::TipFromUpstream(tip, parent);
 
     let expected = SelectChain {
-        best_tip: tip,
+        best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([
-            (tip.hash(), vec![prep.headers.h1.hash(), prep.headers.h2.hash(), prep.headers.h3.hash()]),
-            (prep.headers.h2a.hash(), vec![prep.headers.h1.hash(), prep.headers.h2a.hash()]),
+            (tip.hash(), vec![prep.headers.h1.hash(), prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
+            (prep.headers.h2.hash(), vec![prep.headers.h1.hash(), prep.headers.h2.hash()]),
         ]),
+        may_fetch_blocks: false,
         ..prep.state.clone()
     };
 
@@ -302,7 +307,7 @@ fn test_tip_h3_extends_with_best_chain_h2a() {
             te_load_header("sc-1", tip.hash(), true),
             te_get_anchor_hash("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), true),
+            te_load_header("sc-1", prep.headers.h2a.hash(), true),
             te_load_header("sc-1", prep.headers.h1.hash(), true),
             te_send("sc-1", "downstream", (tip, parent)),
             te_state("sc-1", &expected),
@@ -325,7 +330,8 @@ fn test_upstream_tip_depends_on_invalid_block() {
     let msg = SelectChainMsg::TipFromUpstream(tip, parent);
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
-    let expected = SelectChain::new(prep.downstream.clone(), Tip::origin());
+    let mut expected = SelectChain::new(prep.downstream.clone(), None);
+    expected.may_fetch_blocks = true;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
@@ -349,12 +355,12 @@ fn test_upstream_tip_depends_on_invalid_block() {
 #[test]
 fn test_block_validation_result_valid() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3.tip();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.tips =
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.store_headers(&prep.headers.main());
-    let point = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(point, true);
+    let tip = prep.headers.h2.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, true);
 
     let expected = SelectChain {
         tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h3.hash()])]),
@@ -366,8 +372,8 @@ fn test_block_validation_result_valid() {
         &[
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
-            te_has_header("sc-1", point.hash()),
-            te_set_block_valid("sc-1", point.hash(), true),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), true),
             te_state("sc-1", &expected),
         ],
     );
@@ -377,26 +383,26 @@ fn test_block_validation_result_valid() {
 #[test]
 fn test_block_validation_result_invalid_best_tip_invalidated() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3.tip();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.tips =
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.store_headers(&prep.headers.main());
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
-    let point = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(point, false);
+    let tip = prep.headers.h2.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
     // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
-    let expected = SelectChain::new(prep.downstream.clone(), prep.headers.h1.tip());
+    let expected = SelectChain::new(prep.downstream.clone(), Some(prep.headers.h1.clone()));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
         &[
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
-            te_has_header("sc-1", point.hash()),
-            te_set_block_valid("sc-1", point.hash(), false),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), false),
             te_get_best_chain_hash("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
             te_load_header("sc-1", prep.headers.h0.hash(), false),
@@ -412,7 +418,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
 #[test]
 fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3.tip();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.tips = BTreeMap::from_iter([
         (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
         (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
@@ -421,13 +427,14 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
-    let point = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(point, false);
+    let tip = prep.headers.h2.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
     // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
-        best_tip: prep.headers.h3a.tip(),
+        best_tip: Some(prep.headers.h3a.clone()),
         tips: BTreeMap::from_iter([(prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()])]),
+        may_fetch_blocks: false,
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -436,8 +443,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
         &[
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
-            te_has_header("sc-1", point.hash()),
-            te_set_block_valid("sc-1", point.hash(), false),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), false),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
             te_load_header("sc-1", prep.headers.h2a.hash(), false),
             te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point())),
@@ -452,18 +459,18 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
 #[test]
 fn test_block_validation_result_invalid_removes_tips() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3.tip();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.tips = BTreeMap::from_iter([
         (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
         (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
     ]);
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
-    let point = prep.headers.h2a.point();
-    let msg = SelectChainMsg::BlockValidationResult(point, false);
+    let tip = prep.headers.h2a.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
     let expected = SelectChain {
-        best_tip: prep.headers.h3.tip(),
+        best_tip: Some(prep.headers.h3.clone()),
         tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]),
         ..prep.state.clone()
     };
@@ -473,8 +480,8 @@ fn test_block_validation_result_invalid_removes_tips() {
         &[
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
-            te_has_header("sc-1", point.hash()),
-            te_set_block_valid("sc-1", point.hash(), false),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), false),
             te_state("sc-1", &expected),
         ],
     );
@@ -488,11 +495,11 @@ fn test_block_validation_result_invalid_removes_tips() {
 #[test]
 fn test_block_validation_result_invalid_for_unknown_hash() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3.tip();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.store_headers(&prep.headers.main());
     let unknown_hash = HeaderHash::from([99u8; 32]);
-    let point = Point::Specific(Slot::from(999), unknown_hash);
-    let msg = SelectChainMsg::BlockValidationResult(point, false);
+    let tip = Tip::new(Point::Specific(Slot::from(999), unknown_hash), BlockHeight::from(0));
+    let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -513,7 +520,7 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
 #[test]
 fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_result() {
     let mut prep = test_prep();
-    prep.state.best_tip = prep.headers.h3.tip();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.tips =
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.store_headers(&prep.headers.main());
@@ -524,8 +531,8 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
             })
             .build(),
     );
-    let point = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(point, true);
+    let tip = prep.headers.h2.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, true);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -533,8 +540,8 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
         &[
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
-            te_has_header("sc-1", point.hash()),
-            te_set_block_valid("sc-1", point.hash(), true),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), true),
             te_terminate("sc-1"),
             te_terminated("sc-1", TerminationReason::Voluntary),
         ],
@@ -542,4 +549,31 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
     logs.assert_and_remove(Level::ERROR, &["failed to store block validation result", "injected fault"])
         .assert_and_remove(Level::INFO, &["terminated", "stage=sc-1"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_startup_with_non_empty_store() {
+    let mut prep = test_prep();
+    prep.store_headers(&prep.headers.main());
+    prep.state.best_tip = Some(prep.headers.h3.clone());
+    prep.state.may_fetch_blocks = false;
+    let msg = SelectChainMsg::FetchNextFrom(Point::Origin);
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &msg),
+            te_load_header("sc-1", prep.headers.h3.hash(), false),
+            te_load_header("sc-1", prep.headers.h2.hash(), false),
+            te_send("sc-1", "downstream", (prep.headers.h3.tip(), prep.headers.h2.point())),
+            te_state("sc-1", &prep.state),
+        ],
+    );
+    logs.assert_and_remove(Level::INFO, &["resuming block fetching"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }

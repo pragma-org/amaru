@@ -14,9 +14,11 @@
 
 use std::{collections::VecDeque, mem, sync::Arc};
 
-use amaru_kernel::{EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock};
+use amaru_kernel::{
+    EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes,
+};
 use amaru_ouroboros::ConnectionId;
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use pure_stage::{DeserializerGuards, Effects, StageRef, TryInStage, Void};
 use tracing::instrument;
 
 use crate::{
@@ -52,10 +54,36 @@ impl std::fmt::Debug for Blocks {
     }
 }
 
+#[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+pub enum Blocks2 {
+    NoBlocks(u64),
+    Block(u64, NetworkBlock),
+    Done(u64),
+}
+
+impl std::fmt::Debug for Blocks2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoBlocks(arg0) => f.debug_tuple("NoBlocks").field(arg0).finish(),
+            Self::Block(arg0, arg1) => {
+                f.debug_tuple("Block").field(arg0).field(&debug_bytes(arg1.as_slice(), 80)).finish()
+            }
+            Self::Done(arg0) => f.debug_tuple("Done").field(arg0).finish(),
+        }
+    }
+}
+
 /// Message that can be sent by an internal stage to request blocks for range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
     RequestRange { from: Point, through: Point, cr: StageRef<Blocks> },
+    RequestRange2 { from: Point, through: Point, id: u64, cr: StageRef<Blocks2> },
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Resp {
+    V1(StageRef<Blocks>),
+    V2(u64, StageRef<Blocks2>),
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -67,7 +95,7 @@ pub struct BlockFetchInitiator {
     ///
     /// Note that the first two elements of the queue have already been sent
     /// to the network (pipelining).
-    queue: VecDeque<(Point, Point, StageRef<Blocks>)>,
+    queue: VecDeque<(Point, Point, Resp)>,
     blocks: Vec<NetworkBlock>,
     era_history: Arc<EraHistory>,
 }
@@ -207,13 +235,18 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         match input {
             BlockFetchMessage::RequestRange { from, through, cr } => {
                 let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
-                self.queue.push_back((from, through, cr));
+                self.queue.push_back((from, through, Resp::V1(cr)));
+                Ok((action, self))
+            }
+            BlockFetchMessage::RequestRange2 { from, through, id, cr } => {
+                let action = (self.queue.len() < 2).then_some(InitiatorAction::RequestRange { from, through });
+                self.queue.push_back((from, through, Resp::V2(id, cr)));
                 Ok((action, self))
             }
         }
     }
 
-    #[instrument(name = "blockfetch.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "blockfetch.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     #[expect(clippy::expect_used)]
     async fn network(
         mut self,
@@ -225,12 +258,29 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
             InitiatorResult::Initialize => None,
             InitiatorResult::NoBlocks => {
                 let (_, _, cr) = self.queue.pop_front().expect("queue must not be empty");
-                eff.send(&cr, Blocks { blocks: Vec::new() }).await;
+                match cr {
+                    Resp::V1(cr) => eff.send(&cr, Blocks { blocks: Vec::new() }).await,
+                    Resp::V2(id, cr) => eff.send(&cr, Blocks2::NoBlocks(id)).await,
+                }
                 self.queue.get(1)
             }
             InitiatorResult::Block(body) => {
                 if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
-                    if self.blocks.len() < MAX_FETCHED_BLOCKS {
+                    if let Some((_, _, Resp::V2(id, cr))) = self.queue.front() {
+                        // must send NetworkBlock to the local stage for storage, otherwise validation breaks
+                        let _block = network_block
+                            .decode_block()
+                            .or_terminate(eff, async |error| {
+                                tracing::warn!(
+                                    bytes = body.len(),
+                                    %error,
+                                    "received invalid block CBOR; terminating the connection"
+                                );
+                            })
+                            .await;
+                        // TODO  check hashes etc.
+                        eff.send(cr, Blocks2::Block(*id, network_block)).await;
+                    } else if self.blocks.len() < MAX_FETCHED_BLOCKS {
                         self.blocks.push(network_block);
                     } else {
                         tracing::warn!(
@@ -239,23 +289,29 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                         return eff.terminate().await;
                     }
                 } else {
-                    tracing::warn!("received invalid block CBOR {}; terminating the connection", hex::encode(&body));
+                    tracing::warn!(bytes = body.len(), "received invalid block CBOR; terminating the connection");
                     return eff.terminate().await;
                 }
                 None
             }
             InitiatorResult::Done => {
                 let (from, through, cr) = self.queue.pop_front().expect("queue must not be empty");
-                let blocks = mem::take(&mut self.blocks);
-                if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
-                    eff.send(&cr, Blocks { blocks }).await;
-                } else {
-                    tracing::warn!(
-                        ?from,
-                        ?through,
-                        "received blocks do not form a valid range; terminating the connection"
-                    );
-                    return eff.terminate().await;
+                match cr {
+                    Resp::V1(cr) => {
+                        let blocks = mem::take(&mut self.blocks);
+                        if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
+                            eff.send(&cr, Blocks { blocks }).await;
+                        } else {
+                            tracing::warn!(
+                                ?from,
+                                ?through,
+                                "received blocks do not form a valid range; terminating the connection"
+                            );
+                            return eff.terminate().await;
+                        }
+                    }
+                    // TODO: implement validation for V2
+                    Resp::V2(id, cr) => eff.send(&cr, Blocks2::Done(id)).await,
                 }
                 self.queue.get(1)
             }
@@ -279,7 +335,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    #[instrument(name = "blockfetch.initiator.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "blockfetch.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use Message::*;
         match (self, input) {

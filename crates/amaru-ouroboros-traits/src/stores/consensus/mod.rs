@@ -15,11 +15,12 @@
 pub mod in_memory_consensus_store;
 pub mod overriding_consensus_store;
 
-use std::{fmt::Display, iter::successors, sync::Arc};
-
-use amaru_kernel::{
-    Block, BlockHeader, HeaderHash, IsHeader, Point, RawBlock, Tip, cardano::network_block::NetworkBlock,
+use std::{
+    fmt::Display,
+    iter::{self, successors},
 };
+
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Tip};
 use thiserror::Error;
 
 use crate::Nonces;
@@ -51,6 +52,9 @@ where
 
     /// Retrieve the tip of a block header given its hash.
     fn load_tip(&self, hash: &HeaderHash) -> Option<Tip> {
+        if hash == &ORIGIN_HASH {
+            return Some(Tip::origin());
+        }
         self.load_header(hash).map(|h| h.tip())
     }
 
@@ -125,6 +129,26 @@ where
         } else {
             Box::new(vec![*hash].into_iter())
         }
+    }
+
+    fn child_tips<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = Tip> + 'a>
+    where
+        H: 'a,
+    {
+        let mut to_visit = vec![*hash];
+        Box::new(iter::from_fn(move || {
+            loop {
+                let hash = to_visit.pop()?;
+                tracing::debug!(hash = %hash, "visiting child");
+                let (header, validity) = self.load_header_with_validity(&hash)?;
+                if validity == Some(false) {
+                    continue;
+                }
+                let children = self.get_children(&hash);
+                to_visit.extend(children);
+                return Some(header.tip());
+            }
+        }))
     }
 }
 
@@ -235,7 +259,7 @@ impl Display for StoreError {
 /// Retrieve all blocks from the chain store starting from the anchor to the best chain tip.
 #[cfg(feature = "test-utils")]
 #[expect(clippy::expect_used)]
-pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, Block)> {
+pub fn get_blocks(store: std::sync::Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, amaru_kernel::Block)> {
     store
         .retrieve_best_chain()
         .iter()
@@ -246,7 +270,7 @@ pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, B
                 .expect("missing block for a header on the best chain");
             (
                 *h,
-                NetworkBlock::try_from(b)
+                amaru_kernel::cardano::network_block::NetworkBlock::try_from(b)
                     .expect("failed to decode raw block")
                     .decode_block()
                     .expect("failed to decode block"),
@@ -258,7 +282,7 @@ pub fn get_blocks(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<(HeaderHash, B
 /// Retrieve all blocks headers from the chain store starting from anchor to the best chain tip.
 #[cfg(feature = "test-utils")]
 #[expect(clippy::expect_used)]
-pub fn get_best_chain_block_headers(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
+pub fn get_best_chain_block_headers(store: std::sync::Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
     store
         .retrieve_best_chain()
         .iter()

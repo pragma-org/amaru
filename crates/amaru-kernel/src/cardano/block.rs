@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Transaction, TransactionBody, WitnessSet, cbor,
+    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, Tip, Transaction, TransactionBody, WitnessSet, cbor,
     size::{BLOCK_BODY, HEADER},
 };
 
@@ -62,6 +62,13 @@ impl Block {
 
     pub fn header_hash(&self) -> HeaderHash {
         self.header_hash
+    }
+
+    pub fn tip(&self) -> Tip {
+        Tip::new(
+            Point::Specific(self.header.header_body.slot.into(), self.header_hash),
+            self.header.header_body.block_number.into(),
+        )
     }
 }
 

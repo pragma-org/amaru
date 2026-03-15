@@ -31,6 +31,7 @@ use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, 
 ///  - The decoded `Block` structure, by decoding the inner CBOR bytes.
 ///  - The decoded `BlockHeader`, by decoding only the header part of the inner CBOR bytes.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[allow(clippy::len_without_is_empty)]
 pub struct NetworkBlock {
     era_tag: EraName,
     encoded_block: Vec<u8>,
@@ -41,6 +42,14 @@ impl NetworkBlock {
         let era_tag = era_history.slot_to_era_tag(Slot::from(block.header.header_body.slot))?;
 
         Ok(NetworkBlock { era_tag, encoded_block: to_cbor(block) })
+    }
+
+    pub fn len(&self) -> usize {
+        self.encoded_block.len()
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.encoded_block
     }
 
     pub fn era_tag(&self) -> EraName {

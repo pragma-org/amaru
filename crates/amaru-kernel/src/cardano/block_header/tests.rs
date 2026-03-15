@@ -19,6 +19,17 @@ use crate::{Hash, size::BLOCK_BODY};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
+    make_header_with_op_cert_seq(block_number, slot, prev_hash, 0)
+}
+
+/// Like [`make_header`] but with a configurable operational certificate sequence number,
+/// used when testing chain selection where the higher op_cert_seq chain is preferred.
+pub fn make_header_with_op_cert_seq(
+    block_number: u64,
+    slot: u64,
+    prev_hash: Option<HeaderHash>,
+    op_cert_seq: u64,
+) -> Header {
     use pallas_primitives::{VrfCert, babbage::PseudoHeader, conway::OperationalCert};
 
     use crate::Bytes;
@@ -37,7 +48,7 @@ pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) 
             block_body_hash: block_hash,
             operational_cert: OperationalCert {
                 operational_cert_hot_vkey: Bytes::from(vec![]),
-                operational_cert_sequence_number: 0,
+                operational_cert_sequence_number: op_cert_seq,
                 operational_cert_kes_period: 0,
                 operational_cert_sigma: Bytes::from(vec![]),
             },

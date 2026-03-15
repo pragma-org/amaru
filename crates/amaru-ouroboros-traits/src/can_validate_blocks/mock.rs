@@ -37,6 +37,14 @@ impl CanValidateBlocks for MockCanValidateBlocks {
     fn rollback_block(&self, _to: &Point) -> Result<(), BlockValidationError> {
         Ok(())
     }
+
+    fn contains_point(&self, _point: &Point) -> bool {
+        true
+    }
+
+    fn tip(&self) -> Point {
+        Point::Origin
+    }
 }
 
 /// A fake header validator that always returns ok

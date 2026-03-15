@@ -187,6 +187,9 @@ impl Replay {
                 TraceEntry::Terminated { stage, reason: _ } => {
                     self.latest_state.remove(&stage);
                 }
+                TraceEntry::InvalidBytes(bytes, value) => {
+                    anyhow::bail!("idx {idx}: invalid bytes {bytes:?}, value {value:?}");
+                }
             }
             idx += 1;
         }
