@@ -22,5 +22,7 @@ use amaru_sim::simulator::{initialize_logs, make_args, run_tests};
 #[test]
 pub fn run_simulator() {
     initialize_logs();
-    run_tests(make_args()).unwrap();
+    if let Err(e) = run_tests(make_args()) {
+        panic!("Test failed!\n{}", e);
+    }
 }
