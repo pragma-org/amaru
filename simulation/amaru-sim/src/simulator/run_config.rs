@@ -45,7 +45,7 @@ impl Default for RunConfig {
             number_of_downstream_peers: 1,
             generated_chain_depth: 4,
             enable_shrinking: true,
-            persist_on_success: true,
+            persist_on_success: false,
             test_data_dir: Path::new("test-data").to_path_buf(),
         }
     }
