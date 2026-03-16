@@ -392,8 +392,7 @@ fn resolve_record_expr(field: &FunctionField, meta: &SchemaMeta) -> proc_macro2:
 /// Generate all record calls for a function's fields and inline field expressions.
 ///
 /// - Function params: lenient (silently ignored if not in schema)
-/// - Custom expressions: STRICT (compile error if field doesn't exist)
-///   - Custom expressions: strict (must match schema field)
+/// - Custom expressions: STRICT (compile error if field doesn't exist and type-check against schema)
 fn generate_record_calls(fields: &[FunctionField], meta: &SchemaMeta) -> Vec<proc_macro2::TokenStream> {
     let categories = meta.categories();
     let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
@@ -417,12 +416,14 @@ fn generate_record_calls(fields: &[FunctionField], meta: &SchemaMeta) -> Vec<pro
         .collect();
 
     // Generate record calls for field expressions that don't have matching parameters
-    // Custom expressions use STRICT mode - the field name MUST exist in the schema.
-    // This catches typos like `#[trace(schema, hsh = x)]` when it should be `hash = x`.
+    // Custom expressions use STRICT mode - the field name MUST exist in the schema
+    // and the expression type must match the schema declaration.
+    // This catches typos like `#[trace(schema, hsh = x)]` when it should be `hash = x`,
+    // and mismatches like `fee = "nah"` for a numeric field.
     for (field_name, expr) in &meta.field_expressions {
         if !param_field_names.contains(field_name) {
             let field_name_str = field_name.as_str();
-            // STRICT mode for custom expressions - errors on unknown fields
+            // STRICT mode for custom expressions - errors on unknown fields and wrong types
             record_calls.push(meta.macro_call_stmt(&record_macro_ident, quote! { #field_name_str, #expr, strict }));
         }
     }
@@ -545,8 +546,8 @@ fn generate_validations(func: &ItemFn, meta: &SchemaMeta) -> Vec<proc_macro2::To
         }
     }
 
-    // Note: Custom expressions are validated through the _RECORD macro,
-    // which now errors on unknown fields. No separate validation needed.
+    // Custom expressions are validated when the generated _RECORD macro expands,
+    // which checks both field existence and expression type in strict mode.
 
     // Add required fields check
     let mut field_names: Vec<_> = fields.iter().map(|f| f.name.clone()).collect();

@@ -24,6 +24,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::Type;
 
 use crate::utils::{
     format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_ident,
@@ -766,11 +767,17 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         .iter()
         .map(|field| {
             let field_name = &field.name;
+            let field_type = syn::parse_str::<Type>(&field.ty)
+                .expect("schema field types should remain valid Rust types when generating record macros");
             quote! {
                 (#field_name, $expr:expr, strict) => {{
+                    let __amaru_trace_value = $expr;
+                    let __amaru_assert_type = |_: &#field_type| {};
+                    __amaru_assert_type(&__amaru_trace_value);
+
                     tracing::Span::current().record(
                         #field_name,
-                        tracing::field::display(&$expr)
+                        tracing::field::display(&__amaru_trace_value)
                     );
                 }};
             }
