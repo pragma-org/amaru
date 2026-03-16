@@ -58,7 +58,7 @@ pub fn make_block_header_with_op_cert_seq(
 }
 
 /// Header tree for testing validate_block2 control flow.
-/// Structure matches select_chain_new + adopt_chain for consistency:
+/// Structure matches select_chain + adopt_chain for consistency:
 /// - h0: genesis (block 1, slot 1, no parent)
 ///   - h1: block 2, slot 2, parent h0
 ///     - h2: block 3, slot 3, parent h1

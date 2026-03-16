@@ -42,7 +42,7 @@ impl SelectChain {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SelectChainMsg {
     TipFromUpstream(Tip, Point),
     BlockValidationResult(Tip, bool),
@@ -95,20 +95,7 @@ impl SelectChain {
             // since track_peers will only send newly stored tips, this is the case where
             // a new fork is detected; while the new fork can only be one header long, it
             // may still require multiple block validations to reach a valid chain
-            let mut valid = true;
-            let mut ancestors = store
-                .ancestors_with_validity(parent.hash())
-                .take_while(|(_h, v)| {
-                    if *v == Some(false) {
-                        valid = false;
-                        false
-                    } else {
-                        v.is_none()
-                    }
-                })
-                .map(|(h, _)| h.hash())
-                .collect::<Vec<_>>();
-            if valid {
+            if let Some(mut ancestors) = pending_non_invalidated_fragment(&store, parent.hash()) {
                 tracing::debug!(%parent, tip = %tip.point(), "new chain");
                 ancestors.reverse();
                 ancestors.push(tip.hash()); // new block must be validated by definition
@@ -160,51 +147,44 @@ impl SelectChain {
             // remove all tips depending on the invalid block
             // (if a peer sends further headers on this chain, we will ignore them)
             let prev_tips = self.tips.len();
-            self.tips.retain(|_k, v| v.first() != Some(&tip.hash()));
+            self.tips.retain(|tip_hash, v| !v.contains(&tip.hash()) && !depends_on_hash(&store, *tip_hash, tip.hash()));
             let removed = prev_tips - self.tips.len();
 
             if let Some(best_tip) = &self.best_tip
                 && !self.tips.contains_key(&best_tip.hash())
             {
+                // Need to pick new best tip
                 tracing::info!(%removed, "best tip candidate invalidated");
-                // need to pick new best tip
-                let (parent, new_best_tip) = self
-                    .tips
-                    .keys()
-                    .filter_map(|h| store.load_header(h).map(|h| (h.parent_hash(), Some(h))))
-                    .max_by(|a, b| cmp_tip(a.1.as_ref(), b.1.as_ref()))
-                    .unwrap_or_else(|| {
-                        store
-                            .load_header(&store.get_best_chain_hash())
-                            .map(|h| (h.parent_hash(), Some(h)))
-                            .unwrap_or_default()
-                    });
-                self.best_tip = new_best_tip;
-                if let Some(new_best_tip) = &self.best_tip {
-                    tracing::debug!(%new_best_tip, "new best tip candidate");
-                    let parent = if let Some(parent) = parent {
-                        store
-                            .load_tip(&parent)
-                            .or_terminate(store.eff(), async |_| {
-                                tracing::warn!(
-                                    "failed to load parent {:?} of best tip candidate {:?}",
-                                    parent,
-                                    new_best_tip
-                                );
-                            })
-                            .await
-                            .point()
-                    } else {
-                        Point::Origin
-                    };
-                    if self.may_fetch_blocks {
-                        self.may_fetch_blocks = false;
-                        eff.send(&self.downstream, (new_best_tip.tip(), parent)).await;
+
+                match best_tip_candidate_from_store(&store) {
+                    Some((new_best_tip, to_validate)) => {
+                        tracing::debug!(%new_best_tip, "new best tip candidate");
+                        let parent = if let Some(parent) = new_best_tip.parent() {
+                            store
+                                .load_tip(&parent)
+                                .or_terminate(store.eff(), async |_| {
+                                    tracing::warn!(
+                                        "failed to load parent {:?} of best tip candidate {:?}",
+                                        parent,
+                                        new_best_tip
+                                    );
+                                })
+                                .await
+                                .point()
+                        } else {
+                            Point::Origin
+                        };
+                        if self.may_fetch_blocks {
+                            self.may_fetch_blocks = false;
+                            eff.send(&self.downstream, (new_best_tip.tip(), parent)).await;
+                        }
+                        self.tips.insert(new_best_tip.hash(), to_validate);
+                        self.best_tip = Some(new_best_tip);
                     }
-                    // if falling back to best_chain_hash, add as fully validated to the tips map
-                    self.tips.entry(new_best_tip.hash()).or_insert(vec![]);
-                } else {
-                    tracing::warn!("falling back to origin");
+                    None => {
+                        self.best_tip = None;
+                        tracing::warn!("falling back to origin");
+                    }
                 }
             } else if removed > 0 {
                 tracing::warn!(%removed, "chain fork(s) removed due to invalid block");
@@ -248,6 +228,126 @@ impl SelectChain {
     }
 }
 
+/// Return the best non-invalidated tip from the chain store by taking descendants of the anchor and:
+///
+/// - Filter out tips that have invalid blocks.
+/// - Take the best one using the cmp function.
+/// - Also return the list of still non-validated block hashes for that tip.
+///
+pub fn best_tip_candidate_from_store(
+    store: &(impl ChainStore<BlockHeader> + ?Sized),
+) -> Option<(BlockHeader, Vec<HeaderHash>)> {
+    store
+        .child_tips(&store.get_anchor_hash())
+        .filter_map(|tip| best_non_invalidated_candidate_from_leaf(store, tip.hash()))
+        .max_by(|left, right| cmp_tip(Some(&left.0), Some(&right.0)))
+}
+
+/// Return the best candidate reachable on this leaf path together with the
+/// still-pending fragment below the nearest validated ancestor.
+///
+/// The candidate is usually the leaf itself:
+///
+/// leaf (None)
+///  |
+/// parent (None)
+///  |
+/// validated (Some(true))
+///
+/// returns `(leaf, [parent, leaf])`
+///
+/// If the leaf suffix crosses an invalid block, the candidate collapses to the
+/// best ancestor above that invalid segment:
+///
+/// leaf (None)
+///  |
+/// invalid (Some(false))
+///  |
+/// ancestor (None)
+///  |
+/// validated (Some(true))
+///
+/// returns `(ancestor, [ancestor])`
+fn best_non_invalidated_candidate_from_leaf(
+    chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
+    leaf_hash: HeaderHash,
+) -> Option<(BlockHeader, Vec<HeaderHash>)> {
+    let mut current = Some(leaf_hash);
+    let mut pending_from_leaf = Vec::new();
+    let mut candidate_header = None;
+    let mut seen_valid_ancestor = false;
+
+    while let Some(hash) = current {
+        let (header, validity) = chain_store.load_header_with_validity(&hash)?;
+
+        match validity {
+            Some(false) => {
+                pending_from_leaf.clear();
+                candidate_header = None;
+                seen_valid_ancestor = false;
+            }
+            Some(true) => {
+                seen_valid_ancestor = true;
+                candidate_header.get_or_insert(header.clone());
+            }
+            None => {
+                if !seen_valid_ancestor {
+                    pending_from_leaf.push(header.hash());
+                }
+                candidate_header.get_or_insert(header.clone());
+            }
+        }
+
+        current = header.parent_hash();
+    }
+
+    candidate_header.map(|header| {
+        let mut pending = pending_from_leaf;
+        pending.reverse();
+        (header, pending)
+    })
+}
+
+/// Return the not-yet-validated fragment on the path from `hash` upward to the
+/// nearest validated ancestor.
+///
+/// Return `None` if an invalid block is encountered before reaching one.
+fn pending_non_invalidated_fragment(
+    chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
+    hash: HeaderHash,
+) -> Option<Vec<HeaderHash>> {
+    let mut valid = true;
+    let ancestors = chain_store
+        .ancestors_with_validity(hash)
+        .take_while(|(_header, validity)| {
+            if *validity == Some(false) {
+                valid = false;
+                false
+            } else {
+                validity.is_none()
+            }
+        })
+        .map(|(header, _)| header.hash())
+        .collect::<Vec<_>>();
+
+    valid.then_some(ancestors)
+}
+
+/// Return whether `hash` lies on a chain suffix whose ancestry includes `ancestor`.
+fn depends_on_hash(store: &(impl ChainStore<BlockHeader> + ?Sized), hash: HeaderHash, ancestor: HeaderHash) -> bool {
+    let mut current = Some(hash);
+
+    while let Some(hash) = current {
+        if hash == ancestor {
+            return true;
+        }
+
+        current = store.load_header(&hash).and_then(|header| header.parent_hash());
+    }
+
+    false
+}
+
 /// Compare tip headers according to the rules for selecting the better chain.
 ///
 /// <https://ouroboros-consensus.cardano.intersectmbo.org/pdfs/report.pdf#chapter.11>
@@ -285,6 +385,10 @@ pub fn cmp_tip(a: Option<&BlockHeader>, b: Option<&BlockHeader>) -> Ordering {
 }
 
 #[cfg(test)]
+mod property_tests;
+
+#[cfg(test)]
 mod test_setup;
+
 #[cfg(test)]
 mod tests;

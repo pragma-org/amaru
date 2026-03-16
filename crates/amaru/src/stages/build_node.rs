@@ -18,12 +18,11 @@ use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation,
     },
-    stages::select_chain::cmp_tip,
+    stages::select_chain::{best_tip_candidate_from_store, cmp_tip},
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
-    BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point,
-    Transaction,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, Peer, Point, Transaction, ORIGIN_HASH,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
@@ -34,19 +33,19 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use pure_stage::{
-    BoxFuture, Sender, StageGraph, StageGraphRunning,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
+    BoxFuture, Sender, StageGraph, StageGraphRunning,
 };
 use tokio::runtime::Handle;
 
 use crate::stages::{
-    build_stage_graph::{NodeStages, build_stage_graph},
+    build_stage_graph::{build_stage_graph, NodeStages},
     config::{Config, StoreType},
     ledger::Ledger,
 };
@@ -127,41 +126,9 @@ pub fn build_node(
     let chain_store = initialize_chain_store(config, ledger_tip)?;
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
-    let best_candidates = chain_store
-        .child_tips(&chain_store.get_best_chain_hash())
-        .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
-            if tip.block_height() > best_height {
-                hashes.clear();
-                hashes.push(tip.hash());
-                (tip.block_height(), hashes)
-            } else if tip.block_height() == best_height {
-                hashes.push(tip.hash());
-                (best_height, hashes)
-            } else {
-                (best_height, hashes)
-            }
-        })
-        .1;
-    let best_candidate = best_candidates
-        .into_iter()
-        .map(|h| chain_store.load_header(&h))
-        .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
-        .flatten();
-    let anchor = chain_store.get_anchor_hash();
-    let mut best_missing = vec![];
-    if let Some(best_candidate) = best_candidate.as_ref() {
-        for (header, validity) in chain_store.ancestors_with_validity(best_candidate.hash()) {
-            // the anchor cannot be validated, so don"t return it
-            if validity.is_none() && header.hash() != anchor {
-                best_missing.push(header.hash());
-            } else {
-                break;
-            }
-        }
-        best_missing.reverse();
-    }
+    let best_candidate = best_tip_candidate_from_store(&*chain_store);
 
-    let tip = best_candidate.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
+    let tip = best_candidate.as_ref().map(|(h, _)| h.point()).unwrap_or(Point::Origin);
     tracing::info!(%tip, "build_chain");
 
     // Make resources

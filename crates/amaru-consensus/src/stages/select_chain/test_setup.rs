@@ -17,8 +17,8 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, GetBestChainHashEffect, HasHeaderEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
-    ResourceHeaderStore, SetBlockValidEffect,
+    GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
+    LoadHeaderWithValidityEffect, ResourceHeaderStore, SetBlockValidEffect,
 };
 use pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
@@ -127,6 +127,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         pure_stage::register_effect_deserializer::<SetBlockValidEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
     ]
 }
 
@@ -191,6 +192,29 @@ pub fn te_set_block_valid(at_stage: &str, hash: HeaderHash, valid: bool) -> Trac
 
 pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new())))
+}
+
+pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
+    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
+}
+
+pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
+    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
+}
+
+pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
+    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
+}
+
+#[track_caller]
+pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
+    let mut tb = running.trace_buffer().lock();
+    let trace = tb
+        .iter_entries()
+        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
+        .collect::<Vec<_>>();
+    tb.clear();
+    pretty_assertions::assert_eq!(trace, expected);
 }
 
 pub fn te_get_best_chain_hash(at_stage: &str) -> TraceEntry {

@@ -131,6 +131,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "criterion",
+ "futures-util",
  "hex",
  "itertools 0.14.0",
  "opentelemetry",

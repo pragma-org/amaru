@@ -525,9 +525,10 @@ impl GeneratedActionsStatistics {
 ///
 /// We first generate a tree of headers of depth `depth` with some branches.
 /// Then we execute a random walk on that tree for given peers.
-pub fn any_select_chains(depth: usize, peers: &[Peer]) -> impl Strategy<Value = GeneratedActions> {
+pub fn any_select_chains(depth: usize, peers: Vec<Peer>) -> impl Strategy<Value = GeneratedActions> {
     any_tree_of_headers(depth).prop_flat_map(move |generated_tree| {
-        (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, peers))
+        let peers = peers.clone();
+        (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, &peers))
     })
 }
 

@@ -22,6 +22,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
+        te_terminate, te_terminated, test_prep,
         setup, te_get_anchor_hash, te_get_best_chain_hash, te_has_header, te_load_header, te_set_block_valid, test_prep,
     },
     test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
@@ -380,7 +381,45 @@ fn test_block_validation_result_valid() {
 }
 
 #[test]
-fn test_block_validation_result_invalid_best_tip_invalidated() {
+fn test_invalid_best_tip_falls_back_to_persisted_best_chain() {
+    let mut prep = test_prep();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
+    prep.state.tips = BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h3.hash()])]);
+    prep.store_headers(&prep.headers.main());
+    prep.set_validity(prep.headers.h0.hash(), true);
+    prep.set_validity(prep.headers.h1.hash(), false);
+    prep.set_validity(prep.headers.h2.hash(), false);
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_best_chain(prep.headers.h0.hash());
+    let tip = prep.headers.h3.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, false);
+
+    let expected = SelectChain::new(prep.downstream.clone(), Some((prep.headers.h0.clone(), vec![])));
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let trace = {
+        let mut tb = running.trace_buffer().lock();
+        let trace = tb
+            .iter_entries()
+            .filter_map(|(_, entry)| {
+                (!matches!(entry, pure_stage::trace_buffer::TraceEntry::Resume { .. })).then_some(entry)
+            })
+            .collect::<Vec<_>>();
+        tb.clear();
+        trace
+    };
+    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
+    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
+    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
+    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
+    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h0.tip(), Point::Origin))));
+    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
+    logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
+        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_invalid_best_tip_skips_invalid_ancestor_and_falls_back_higher() {
     let mut prep = test_prep();
     prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.tips =
@@ -388,27 +427,68 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
     prep.store_headers(&prep.headers.main());
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
+    prep.set_anchor(prep.headers.h0.hash());
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.tip();
     let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
-    // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain::new(prep.downstream.clone(), Some((prep.headers.h1.clone(), vec![])));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
-        &running,
-        &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_has_header("sc-1", tip.hash()),
-            te_set_block_valid("sc-1", tip.hash(), false),
-            te_get_best_chain_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h1.hash(), false),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point())),
-            te_state("sc-1", &expected),
-        ],
-    );
+    let trace = {
+        let mut tb = running.trace_buffer().lock();
+        let trace = tb
+            .iter_entries()
+            .filter_map(|(_, entry)| {
+                (!matches!(entry, pure_stage::trace_buffer::TraceEntry::Resume { .. })).then_some(entry)
+            })
+            .collect::<Vec<_>>();
+        tb.clear();
+        trace
+    };
+    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
+    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
+    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
+    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
+    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point()))));
+    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
+    logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
+        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_invalid_best_tip_falls_back_to_nearest_valid_ancestor() {
+    let mut prep = test_prep();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
+    prep.state.tips = BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h3.hash()])]);
+    prep.store_headers(&prep.headers.main());
+    prep.set_validity(prep.headers.h0.hash(), true);
+    prep.set_validity(prep.headers.h1.hash(), true);
+    prep.set_validity(prep.headers.h2.hash(), true);
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_best_chain(prep.headers.h0.hash());
+    let tip = prep.headers.h3.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, false);
+
+    let expected = SelectChain::new(prep.downstream.clone(), Some((prep.headers.h2.clone(), vec![])));
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let trace = {
+        let mut tb = running.trace_buffer().lock();
+        let trace = tb
+            .iter_entries()
+            .filter_map(|(_, entry)| {
+                (!matches!(entry, pure_stage::trace_buffer::TraceEntry::Resume { .. })).then_some(entry)
+            })
+            .collect::<Vec<_>>();
+        tb.clear();
+        trace
+    };
+    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
+    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
+    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
+    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
+    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point()))));
+    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
         .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -425,11 +505,11 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
     prep.store_headers(&prep.headers.all());
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
+    prep.set_anchor(prep.headers.h0.hash());
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.tip();
     let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
-    // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
         best_tip: Some(prep.headers.h3a.clone()),
         tips: BTreeMap::from_iter([(prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()])]),
@@ -437,19 +517,23 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
-        &running,
-        &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_has_header("sc-1", tip.hash()),
-            te_set_block_valid("sc-1", tip.hash(), false),
-            te_load_header("sc-1", prep.headers.h3a.hash(), false),
-            te_load_header("sc-1", prep.headers.h2a.hash(), false),
-            te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point())),
-            te_state("sc-1", &expected),
-        ],
-    );
+    let trace = {
+        let mut tb = running.trace_buffer().lock();
+        let trace = tb
+            .iter_entries()
+            .filter_map(|(_, entry)| {
+                (!matches!(entry, pure_stage::trace_buffer::TraceEntry::Resume { .. })).then_some(entry)
+            })
+            .collect::<Vec<_>>();
+        tb.clear();
+        trace
+    };
+    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
+    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
+    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
+    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
+    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point()))));
+    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
         .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -474,16 +558,22 @@ fn test_block_validation_result_invalid_removes_tips() {
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
-        &running,
-        &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_has_header("sc-1", tip.hash()),
-            te_set_block_valid("sc-1", tip.hash(), false),
-            te_state("sc-1", &expected),
-        ],
-    );
+    let trace = {
+        let mut tb = running.trace_buffer().lock();
+        let trace = tb
+            .iter_entries()
+            .filter_map(|(_, entry)| {
+                (!matches!(entry, pure_stage::trace_buffer::TraceEntry::Resume { .. })).then_some(entry)
+            })
+            .collect::<Vec<_>>();
+        tb.clear();
+        trace
+    };
+    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
+    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
+    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
+    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
+    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
     logs.assert_and_remove(Level::WARN, &["chain fork(s) removed due to invalid block"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
@@ -575,4 +665,59 @@ fn test_startup_with_non_empty_store() {
         Level::WARN,
         Level::ERROR,
     ]);
+}
+
+#[test]
+fn test_best_non_invalidated_candidate_from_leaf_returns_leaf_and_pending_fragment() {
+    // h3 (None)
+    //  |
+    // h2 (None)
+    //  |
+    // h1 (Some(true))
+    //  |
+    // h0
+    let prep = test_prep();
+    prep.store_headers(&prep.headers.main());
+    prep.set_validity(prep.headers.h1.hash(), true);
+
+    let candidate = best_non_invalidated_candidate_from_leaf(prep.store.as_ref(), prep.headers.h3.hash());
+
+    assert_eq!(candidate, Some((prep.headers.h3.clone(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])));
+}
+
+#[test]
+fn test_best_non_invalidated_candidate_from_leaf_returns_validated_leaf_with_empty_fragment() {
+    // h3 (Some(true))
+    //  |
+    // h2
+    //  |
+    // h1
+    //  |
+    // h0
+    let prep = test_prep();
+    prep.store_headers(&prep.headers.main());
+    prep.set_validity(prep.headers.h3.hash(), true);
+
+    let candidate = best_non_invalidated_candidate_from_leaf(prep.store.as_ref(), prep.headers.h3.hash());
+
+    assert_eq!(candidate, Some((prep.headers.h3.clone(), vec![])));
+}
+
+#[test]
+fn test_best_non_invalidated_candidate_from_leaf_collapses_above_invalid_suffix() {
+    // h3 (None)
+    //  |
+    // h2 (Some(false))
+    //  |
+    // h1 (None)
+    //  |
+    // h0 (Some(true))
+    let prep = test_prep();
+    prep.store_headers(&prep.headers.main());
+    prep.set_validity(prep.headers.h0.hash(), true);
+    prep.set_validity(prep.headers.h2.hash(), false);
+
+    let candidate = best_non_invalidated_candidate_from_leaf(prep.store.as_ref(), prep.headers.h3.hash());
+
+    assert_eq!(candidate, Some((prep.headers.h1.clone(), vec![prep.headers.h1.hash()])));
 }

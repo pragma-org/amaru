@@ -47,7 +47,7 @@ amaru-protocols.workspace = true
 pure-stage.workspace = true
 
 [dev-dependencies]
-hex.workspace = true
+futures-util.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 rand.workspace = true
