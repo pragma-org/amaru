@@ -63,6 +63,9 @@ sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
 
+generate-traces-doc: ## &build Generate documentation for Amaru's tracing spans
+	@./scripts/generate-traces-doc
+
 dev: start # 'backward-compatibility'; might remove after a while.
 start: ## &build Compile and run for $BUILD_PROFILE with default options
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) run $(ARGS)

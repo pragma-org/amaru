@@ -20,7 +20,9 @@ use std::{
 
 use amaru_observability::registry::SchemaEntry;
 use clap::Parser;
+use quote::ToTokens;
 use serde_json::{Value, json};
+use syn::Item;
 
 /// Dump all registered trace schemas as JSON Schema
 #[derive(Debug, Parser)]
@@ -97,20 +99,27 @@ fn load_workspace_type_aliases() -> BTreeMap<String, String> {
 }
 
 fn collect_type_aliases(path: &Path, aliases: &mut BTreeMap<String, String>) {
-    fs::read_dir(path).into_iter().flatten().flatten().map(|entry| entry.path()).for_each(
-        |entry_path| match entry_path.is_dir() {
-            true => collect_type_aliases(&entry_path, aliases),
-            false if is_rust_source_file(&entry_path) => fs::read_to_string(&entry_path)
-                .ok()
-                .iter()
-                .for_each(|source| collect_type_aliases_from_source(source, aliases)),
-            false => {}
-        },
-    );
+    let Ok(entries) = fs::read_dir(path) else {
+        return;
+    };
+
+    entries.flatten().map(|entry| entry.path()).for_each(|entry_path| match entry_path.is_dir() {
+        true => collect_type_aliases(&entry_path, aliases),
+        false if is_rust_source_file(&entry_path) => {
+            if let Ok(source) = fs::read_to_string(&entry_path) {
+                collect_type_aliases_from_source(&source, aliases);
+            }
+        }
+        false => {}
+    });
 }
 
 fn collect_type_aliases_from_source(source: &str, aliases: &mut BTreeMap<String, String>) {
-    source.lines().filter_map(parse_type_alias_line).for_each(|(alias, target)| {
+    let Ok(syntax) = syn::parse_file(source) else {
+        return;
+    };
+
+    syntax.items.iter().filter_map(parse_top_level_type_alias).for_each(|(alias, target)| {
         aliases.insert(alias, target);
     });
 }
@@ -119,15 +128,19 @@ fn is_rust_source_file(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()) == Some("rs")
 }
 
-fn parse_type_alias_line(line: &str) -> Option<(String, String)> {
-    let rest =
-        ["pub type ", "pub(crate) type ", "type "].into_iter().find_map(|prefix| line.trim().strip_prefix(prefix))?;
+fn parse_top_level_type_alias(item: &Item) -> Option<(String, String)> {
+    let Item::Type(type_alias) = item else {
+        return None;
+    };
 
-    let (name, rhs) = rest.split_once('=')?;
-    let alias = name.trim();
-    let target = rhs.trim().trim_end_matches(';').trim();
+    if !type_alias.generics.params.is_empty() {
+        return None;
+    }
 
-    (!alias.is_empty() && !alias.contains('<') && !target.is_empty()).then(|| (alias.to_string(), target.to_string()))
+    let alias = type_alias.ident.to_string();
+    let target = type_alias.ty.to_token_stream().to_string();
+
+    (!alias.is_empty() && !target.is_empty()).then_some((alias, target))
 }
 
 fn resolve_type_alias<'a>(rust_type: &'a str, aliases: &'a BTreeMap<String, String>) -> &'a str {
@@ -213,12 +226,43 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_type_alias_line() {
+    fn test_collect_type_aliases_from_source_ignores_associated_types() {
+        let mut aliases = BTreeMap::new();
+
+        collect_type_aliases_from_source(
+            r#"
+            pub type Lovelace = u64;
+
+            impl Deref for Coin {
+                type Target = InnerCoin;
+            }
+
+            impl Iterator for Coins {
+                type Item = Coin;
+            }
+
+            impl Validation for Context {
+                type FinalState = State;
+            }
+            "#,
+            &mut aliases,
+        );
+
+        assert_eq!(aliases, BTreeMap::from([("Lovelace".to_string(), "u64".to_string())]));
+    }
+
+    #[test]
+    fn test_parse_top_level_type_alias() {
+        let item: Item = syn::parse_str("pub type Lovelace = u64;").unwrap();
         assert_eq!(
-            parse_type_alias_line("pub type Lovelace = u64;"),
+            parse_top_level_type_alias(&item),
             Some(("Lovelace".to_string(), "u64".to_string()))
         );
-        assert_eq!(parse_type_alias_line("pub type Wrapped<T> = Vec<T>;"), None);
-        assert_eq!(parse_type_alias_line("struct NotAnAlias;"), None);
+
+        let generic_item: Item = syn::parse_str("pub type Wrapped<T> = Vec<T>;").unwrap();
+        assert_eq!(parse_top_level_type_alias(&generic_item), None);
+
+        let non_alias_item: Item = syn::parse_str("struct NotAnAlias;").unwrap();
+        assert_eq!(parse_top_level_type_alias(&non_alias_item), None);
     }
 }
