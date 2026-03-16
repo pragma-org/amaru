@@ -23,6 +23,7 @@ use amaru::tests::{
 };
 use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
 use amaru_kernel::{BlockHeader, Peer};
+use anyhow::anyhow;
 use pure_stage::trace_buffer::TraceBuffer;
 use rayon::prelude::*;
 
@@ -64,7 +65,10 @@ pub fn run_tests(args: Args) -> anyhow::Result<()> {
     create_symlink_dir(last_test_dir.as_path(), test_run_dir.join("latest").as_path());
 
     for result in results {
-        result?;
+        // Add the config to the error message
+        if result.is_err() {
+            result.map_err(|e| anyhow!("\n\n{run_config}\n\n{e}"))?;
+        }
     }
 
     Ok(())

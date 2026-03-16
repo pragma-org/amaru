@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use amaru_kernel::Peer;
 use pure_stage::simulation::RandStdRng;
@@ -45,6 +48,20 @@ impl Default for RunConfig {
             persist_on_success: true,
             test_data_dir: Path::new("test-data").to_path_buf(),
         }
+    }
+}
+
+impl fmt::Display for RunConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Simulation configuration:")?;
+        writeln!(f, "  number_of_tests:           {}", self.number_of_tests)?;
+        writeln!(f, "  seed:                      {}", self.seed)?;
+        writeln!(f, "  number_of_upstream_peers:   {}", self.number_of_upstream_peers)?;
+        writeln!(f, "  number_of_downstream_peers: {}", self.number_of_downstream_peers)?;
+        writeln!(f, "  generated_chain_depth:      {}", self.generated_chain_depth)?;
+        writeln!(f, "  enable_shrinking:           {}", self.enable_shrinking)?;
+        writeln!(f, "  persist_on_success:         {}", self.persist_on_success)?;
+        write!(f, "  test_data_dir:              {}", self.test_data_dir.display())
     }
 }
 
