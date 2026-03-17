@@ -107,6 +107,8 @@ amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
 amaru-kernel.workspace = true
+quote.workspace = true
+syn.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true

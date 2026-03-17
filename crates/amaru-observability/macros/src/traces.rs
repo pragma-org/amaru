@@ -157,7 +157,7 @@ fn parse_private_keyword(input: syn::parse::ParseStream) -> syn::Result<bool> {
 /// # Example
 ///
 /// ```text
-/// trace_record!(ledger::state::APPLY_BLOCK, block_size = 1024, tx_count = 5);
+/// trace_record!(ledger::state::APPLY_BLOCK, error = "invalid witness");
 /// ```
 ///
 /// Expand the `trace_record!` macro.
@@ -183,15 +183,17 @@ fn parse_private_keyword(input: syn::parse::ParseStream) -> syn::Result<bool> {
 /// # Examples
 ///
 /// ```text
-/// fn apply_block(block: &Block) {
-///     let _span = trace_span!(ledger::state::APPLY_BLOCK);
+/// fn apply_block(point_slot: u64, error: Option<&str>) {
+///     let _span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
 ///     let _guard = _span.enter();
 ///
-///     // Record additional fields (no log event)
-///     trace_record!(ledger::state::APPLY_BLOCK, size = block.size(), tx_count = block.transactions.len());
-///     
-///     // Record and emit a debug log event
-///     trace_record!(DEBUG, ledger::state::APPLY_BLOCK, size = block.size());
+///     if let Some(error) = error {
+///         // Record additional context (no log event)
+///         trace_record!(ledger::state::APPLY_BLOCK, error = error);
+///
+///         // Record and emit a debug log event
+///         trace_record!(DEBUG, ledger::state::APPLY_BLOCK, error = error);
+///     }
 /// }
 /// ```
 pub fn expand_trace_record(input: TokenStream) -> TokenStream {

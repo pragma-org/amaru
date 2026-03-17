@@ -209,7 +209,7 @@ define_schemas! {
         context {
             /// Add transaction fees to pots
             ADD_FEES {
-                required fee: Lovelace
+                required fee: amaru_kernel::Lovelace
             }
 
             /// Withdraw from stake credential
@@ -462,7 +462,9 @@ define_schemas! {
     stage {
         tokio {
             /// Poll stage operation
-            POLL {}
+            POLL {
+                required stage: Name
+            }
         }
 
         logging {

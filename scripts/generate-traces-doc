@@ -14,18 +14,16 @@ SCHEMAS_JSON=$(mktemp)
 SCHEMAS_FILE="${DOCS_DIR}/traces-schema.json"
 trap "rm -f ${SCHEMAS_JSON}" EXIT
 
-# Find the amaru binary
+# Ensure the amaru binary is up to date
 AMARU_BIN="${REPO_ROOT}/target/release/amaru"
+echo "Building amaru binary if needed..." >&2
+cd "$REPO_ROOT"
+cargo build --bin amaru --release --quiet
+cd - > /dev/null
+
 if [ ! -f "$AMARU_BIN" ]; then
-  echo "Building amaru binary..." >&2
-  cd "$REPO_ROOT"
-  cargo build --bin amaru --release --quiet
-  cd - > /dev/null
-  
-  if [ ! -f "$AMARU_BIN" ]; then
-    echo "Error: Failed to build amaru binary" >&2
-    exit 1
-  fi
+  echo "Error: Failed to build amaru binary" >&2
+  exit 1
 fi
 
 "$AMARU_BIN" dump-traces-schema 2> "${SCHEMAS_JSON}" || {

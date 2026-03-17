@@ -433,7 +433,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | private | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `poll` | `TRACE` | Poll stage operation |  |  |  |
+| `poll` | `TRACE` | Poll stage operation | stage |  |  |
+
+<details><summary>span: `poll`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `stage` | `string` | ✓ |
+
+</details>
 
 ## target: `amaru::stores::consensus`
 

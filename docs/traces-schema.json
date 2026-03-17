@@ -116,7 +116,8 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
         }
       },
       "required": [
@@ -134,7 +135,8 @@
       "type": "object",
       "properties": {
         "issuer_key": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Bytes"
         }
       },
       "required": [
@@ -224,13 +226,16 @@
       "type": "object",
       "properties": {
         "voter_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::VoterKind"
         },
         "credential_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "credential_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -250,10 +255,12 @@
       "type": "object",
       "properties": {
         "credential_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "credential_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -272,16 +279,20 @@
       "type": "object",
       "properties": {
         "cc_member_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "cc_member_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         },
         "delegate_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "delegate_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -302,10 +313,12 @@
       "type": "object",
       "properties": {
         "cc_member_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "cc_member_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -324,10 +337,12 @@
       "type": "object",
       "properties": {
         "drep_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "drep_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         },
         "deposit": {
           "type": "integer"
@@ -350,10 +365,12 @@
       "type": "object",
       "properties": {
         "drep_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "drep_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         },
         "refund": {
           "type": "integer"
@@ -376,10 +393,12 @@
       "type": "object",
       "properties": {
         "drep_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "drep_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -438,10 +457,12 @@
       "type": "object",
       "properties": {
         "credential_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "credential_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         },
         "pool_id": {
           "type": "string"
@@ -464,10 +485,12 @@
       "type": "object",
       "properties": {
         "credential_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "credential_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -486,10 +509,12 @@
       "type": "object",
       "properties": {
         "credential_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "credential_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -508,16 +533,20 @@
       "type": "object",
       "properties": {
         "credential_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "credential_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         },
         "drep_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         },
         "drep_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         }
       },
       "required": [
@@ -682,7 +711,8 @@
       "type": "object",
       "properties": {
         "block_body_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
         },
         "block_number": {
           "type": "integer"
@@ -1179,8 +1209,15 @@
     },
     "amaru::stage::tokio::POLL": {
       "type": "object",
-      "properties": {},
-      "required": [],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "description": "Custom type: Name"
+        }
+      },
+      "required": [
+        "stage"
+      ],
       "optional": [],
       "additionalProperties": false,
       "name": "poll",
@@ -1229,7 +1266,8 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
         },
         "slot": {
           "type": "integer"
@@ -1269,7 +1307,8 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
         },
         "slot": {
           "type": "integer"
@@ -1291,7 +1330,8 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
         }
       },
       "required": [
@@ -1327,7 +1367,8 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
         }
       },
       "required": [
@@ -1345,10 +1386,12 @@
       "type": "object",
       "properties": {
         "drep_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<28>"
         },
         "drep_type": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::StakeCredentialKind"
         }
       },
       "required": [

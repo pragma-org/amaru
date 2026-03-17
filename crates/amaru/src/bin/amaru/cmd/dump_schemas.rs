@@ -14,15 +14,22 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs, iter,
-    path::Path,
+    iter,
 };
 
 use amaru_observability::registry::SchemaEntry;
 use clap::Parser;
+#[cfg(test)]
 use quote::ToTokens;
 use serde_json::{Value, json};
+#[cfg(test)]
 use syn::Item;
+
+include!(concat!(env!("OUT_DIR"), "/dump_schemas_type_aliases.rs"));
+
+fn normalize_type_string(ty: &str) -> String {
+    ty.chars().filter(|c| !c.is_whitespace()).collect()
+}
 
 /// Dump all registered trace schemas as JSON Schema
 #[derive(Debug, Parser)]
@@ -92,28 +99,10 @@ fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
 }
 
 fn load_workspace_type_aliases() -> BTreeMap<String, String> {
-    let mut aliases = BTreeMap::new();
-    let crates_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join("crates");
-    collect_type_aliases(&crates_dir, &mut aliases);
-    aliases
+    TYPE_ALIASES.iter().map(|(alias, target)| ((*alias).to_string(), (*target).to_string())).collect()
 }
 
-fn collect_type_aliases(path: &Path, aliases: &mut BTreeMap<String, String>) {
-    let Ok(entries) = fs::read_dir(path) else {
-        return;
-    };
-
-    entries.flatten().map(|entry| entry.path()).for_each(|entry_path| match entry_path.is_dir() {
-        true => collect_type_aliases(&entry_path, aliases),
-        false if is_rust_source_file(&entry_path) => {
-            if let Ok(source) = fs::read_to_string(&entry_path) {
-                collect_type_aliases_from_source(&source, aliases);
-            }
-        }
-        false => {}
-    });
-}
-
+#[cfg(test)]
 fn collect_type_aliases_from_source(source: &str, aliases: &mut BTreeMap<String, String>) {
     let Ok(syntax) = syn::parse_file(source) else {
         return;
@@ -124,10 +113,7 @@ fn collect_type_aliases_from_source(source: &str, aliases: &mut BTreeMap<String,
     });
 }
 
-fn is_rust_source_file(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()) == Some("rs")
-}
-
+#[cfg(test)]
 fn parse_top_level_type_alias(item: &Item) -> Option<(String, String)> {
     let Item::Type(type_alias) = item else {
         return None;
@@ -138,7 +124,7 @@ fn parse_top_level_type_alias(item: &Item) -> Option<(String, String)> {
     }
 
     let alias = type_alias.ident.to_string();
-    let target = type_alias.ty.to_token_stream().to_string();
+    let target = normalize_type_string(&type_alias.ty.to_token_stream().to_string());
 
     (!alias.is_empty() && !target.is_empty()).then_some((alias, target))
 }
@@ -152,7 +138,8 @@ fn resolve_type_alias<'a>(rust_type: &'a str, aliases: &'a BTreeMap<String, Stri
 
 /// Convert a Rust type string to a JSON Schema type
 fn field_to_json_type(rust_type: &str, aliases: &BTreeMap<String, String>) -> Value {
-    let resolved = resolve_type_alias(rust_type, aliases);
+    let normalized = normalize_type_string(rust_type);
+    let resolved = resolve_type_alias(&normalized, aliases);
 
     match resolved {
         "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "usize" | "isize" => {
@@ -162,9 +149,8 @@ fn field_to_json_type(rust_type: &str, aliases: &BTreeMap<String, String>) -> Va
         "bool" => json!({ "type": "boolean" }),
         "String" | "&str" => json!({ "type": "string" }),
         _ => {
-            // For custom types, use a generic object schema
             json!({
-                "type": "object",
+                "type": "string",
                 "description": format!("Custom type: {}", rust_type)
             })
         }
@@ -177,11 +163,10 @@ mod tests {
 
     #[test]
     fn test_field_to_json_type() {
-        let aliases = BTreeMap::new();
-
-        assert_eq!(field_to_json_type("u64", &aliases), json!({ "type": "integer" }));
-        assert_eq!(field_to_json_type("String", &aliases), json!({ "type": "string" }));
-        assert_eq!(field_to_json_type("bool", &aliases), json!({ "type": "boolean" }));
+        assert_eq!(field_to_json_type("u64", &BTreeMap::new()), json!({ "type": "integer" }));
+        assert_eq!(field_to_json_type("String", &BTreeMap::new()), json!({ "type": "string" }));
+        assert_eq!(field_to_json_type("& str", &BTreeMap::new()), json!({ "type": "string" }));
+        assert_eq!(field_to_json_type("bool", &BTreeMap::new()), json!({ "type": "boolean" }));
     }
 
     #[test]
@@ -189,10 +174,12 @@ mod tests {
         let aliases = BTreeMap::from([
             ("Lovelace".to_string(), "u64".to_string()),
             ("Amount".to_string(), "Lovelace".to_string()),
+            ("amaru_kernel::Lovelace".to_string(), "u64".to_string()),
         ]);
 
         assert_eq!(field_to_json_type("Lovelace", &aliases), json!({ "type": "integer" }));
         assert_eq!(field_to_json_type("Amount", &aliases), json!({ "type": "integer" }));
+        assert_eq!(field_to_json_type("amaru_kernel::Lovelace", &aliases), json!({ "type": "integer" }));
     }
 
     #[test]
@@ -256,10 +243,27 @@ mod tests {
         let item: Item = syn::parse_str("pub type Lovelace = u64;").unwrap();
         assert_eq!(parse_top_level_type_alias(&item), Some(("Lovelace".to_string(), "u64".to_string())));
 
+        let str_item: Item = syn::parse_str("type Label = &str;").unwrap();
+        assert_eq!(parse_top_level_type_alias(&str_item), Some(("Label".to_string(), "&str".to_string())));
+
+        let bytes_item: Item = syn::parse_str("type Bytes = Vec<u8>;").unwrap();
+        assert_eq!(parse_top_level_type_alias(&bytes_item), Some(("Bytes".to_string(), "Vec<u8>".to_string())));
+
         let generic_item: Item = syn::parse_str("pub type Wrapped<T> = Vec<T>;").unwrap();
         assert_eq!(parse_top_level_type_alias(&generic_item), None);
 
         let non_alias_item: Item = syn::parse_str("struct NotAnAlias;").unwrap();
         assert_eq!(parse_top_level_type_alias(&non_alias_item), None);
+    }
+
+    #[test]
+    fn test_field_to_json_type_custom_falls_back_to_string() {
+        assert_eq!(
+            field_to_json_type("amaru_kernel::Whatever", &BTreeMap::new()),
+            json!({
+                "type": "string",
+                "description": "Custom type: amaru_kernel::Whatever"
+            })
+        );
     }
 }

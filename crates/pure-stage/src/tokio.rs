@@ -415,7 +415,7 @@ fn interpreter(
         tb().push_resume(name, &StageResponse::Unit);
         loop {
             let poll = {
-                let _span = trace_span!(amaru_observability::amaru::stage::tokio::POLL).entered();
+                let _span = trace_span!(amaru_observability::amaru::stage::tokio::POLL, stage = %name).entered();
                 stage.as_mut().poll(&mut Context::from_waker(Waker::noop()))
             };
             if let Poll::Ready(state) = poll {
