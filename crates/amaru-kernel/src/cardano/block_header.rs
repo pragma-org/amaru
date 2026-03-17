@@ -32,9 +32,10 @@ pub struct BlockHeader {
 impl fmt::Display for BlockHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&format!(
-            "{}. {}{}",
+            "{}. {} [height: {}]{}",
             self.slot(),
             self.hash(),
+            self.block_height(),
             self.parent_hash().map(|p| format!(" ({p})")).unwrap_or_default()
         ))?;
         Ok(())
