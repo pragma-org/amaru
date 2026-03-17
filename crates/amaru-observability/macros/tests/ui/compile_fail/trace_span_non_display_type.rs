@@ -12,32 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Test that custom expression fields are validated strictly
-//!
-//! Unlike function parameters which are allowed to be "extra" (not in schema),
-//! custom expression fields (field = expr) must exist in the schema.
-//! This catches typos like `roots_constitutions` when the schema has `roots_constitution`.
+//! Test that trace_span field values must implement Display.
 
 use amaru_observability_macros::{define_local_schemas, trace_span};
+
+struct NoDisplay;
 
 define_local_schemas! {
     test {
         example {
-            /// Test schema for custom expression validation
-            STRICT_TEST {
-                required actual_field: String
-                optional optional_field: u64
+            /// Test schema for values that are typed correctly but not Display
+            NON_DISPLAY {
+                required value: NoDisplay
             }
         }
     }
 }
 
-/// Helper function
-fn get_value() -> String {
-    "test".to_string()
-}
-
 fn main() {
-    let actual_field = String::from("ok");
-    let _span = trace_span!(test::example::STRICT_TEST, actual_field = &actual_field, typo_field = get_value());
+    let _span = trace_span!(test::example::NON_DISPLAY, value = NoDisplay);
 }

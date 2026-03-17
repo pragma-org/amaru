@@ -14,7 +14,7 @@
 
 //! Tests for the `private` keyword in trace macros and schema definitions.
 
-use amaru_observability_macros::{define_local_schemas, trace, trace_record, trace_span};
+use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
 
 define_local_schemas! {
     security {
@@ -32,22 +32,23 @@ define_local_schemas! {
     }
 }
 
-#[trace(private, security::secrets::PRIVATE_SECRET)]
-fn trace_with_private(_key_id: String) {
-    // Function with private trace
+fn trace_with_private(key_id: String) {
+    let _span = trace_span!(private, security::secrets::PRIVATE_SECRET, key_id = &key_id);
+    let _guard = _span.enter();
 }
 
-#[trace(security::secrets::PUBLIC_SECRET)]
-fn trace_without_private(_key_name: String) {
-    // Function with public trace
+fn trace_without_private(key_name: String) {
+    let _span = trace_span!(security::secrets::PUBLIC_SECRET, key_name = &key_name);
+    let _guard = _span.enter();
 }
 
 fn trace_record_with_private(_key_id: String) {
     trace_record!(private, security::secrets::PRIVATE_SECRET, key_id = _key_id);
 }
 
-fn trace_span_with_private() {
-    let _span = trace_span!(private, security::secrets::PRIVATE_SECRET);
+fn trace_span_with_private(key_id: String) {
+    let _span = trace_span!(private, security::secrets::PRIVATE_SECRET, key_id = &key_id);
+    let _guard = _span.enter();
 }
 
 #[test]
@@ -56,5 +57,5 @@ fn test_private_keyword_in_schemas() {
     trace_with_private("secret_123".into());
     trace_without_private("public_key".into());
     trace_record_with_private("secret_456".into());
-    trace_span_with_private();
+    trace_span_with_private("secret_789".into());
 }

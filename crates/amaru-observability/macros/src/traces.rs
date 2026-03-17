@@ -14,19 +14,15 @@
 
 //! Trace macro implementations for compile-time validated tracing.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{FnArg, ItemFn, Pat, PatType};
 
 use crate::utils::{
-    make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, parse_full_schema_path, strip_leading_underscores,
+    make_assign_macro_name, make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
+    make_require_macro_name, make_schema_field_count_const_name, parse_full_schema_path,
 };
 
 const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";
-const TRACE_GUARD_NAME_PREFIX: &str = "__amaru_trace_guard";
 
 /// Parsed schema path with optional inline field expressions.
 ///
@@ -48,11 +44,6 @@ struct SchemaMeta {
     /// The macro module path (e.g., `amaru` or `my_crate::schemas::amaru`)
     /// Used to determine if this is a local schema (non-amaru prefix) or exported schema
     macro_module: String,
-    /// The tracing level (trace, debug, info, warn, error). Defaults to "trace"
-    level: String,
-    /// Optional field name -> expression mappings from inline definitions
-    /// Maps field names to custom expressions for recording
-    field_expressions: BTreeMap<String, proc_macro2::TokenStream>,
 }
 
 const SEPARATOR: &str = "::";
@@ -69,22 +60,7 @@ impl SchemaMeta {
     /// are NOT exported with `#[macro_export]`. They must be called without a path
     /// prefix since they're local to the module where they're defined.
     fn is_local_schema(&self) -> bool {
-        self.macro_module != "amaru"
-    }
-
-    /// Generate a macro call with or without a crate path prefix.
-    ///
-    /// For exported macros (from amaru_observability), generates: `::amaru_observability::macro_name!(...)`
-    /// For local macros (from define_local_schemas!), generates: `macro_name!(...)`
-    ///
-    /// Note: Does NOT include trailing semicolon - use in expression context.
-    /// For statement context, use this in a block that provides the semicolon.
-    fn macro_call(&self, macro_ident: &syn::Ident, args: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
-        if self.is_local_schema() {
-            quote! { #macro_ident!(#args) }
-        } else {
-            quote! { ::amaru_observability::#macro_ident!(#args) }
-        }
+        self.macro_module != "amaru" && !self.macro_module.ends_with("::amaru")
     }
 
     /// Generate a macro call as a statement (with trailing semicolon).
@@ -99,10 +75,6 @@ impl SchemaMeta {
         }
     }
 
-    /// Generate a macro call expression.
-    ///
-    /// For exported macros: `::amaru_observability::macro_name!(...)`
-    /// For local macros: `macro_name!(...)`
     fn macro_call_expr(&self, macro_ident: &syn::Ident, args: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
         if self.is_local_schema() {
             quote! { #macro_ident!(#args) }
@@ -110,244 +82,6 @@ impl SchemaMeta {
             quote! { ::amaru_observability::#macro_ident!(#args) }
         }
     }
-
-    /// Parse schema metadata from macro arguments.
-    ///
-    /// Supports formats:
-    /// - `amaru::consensus::validate_header::EVOLVE_NONCE`
-    /// - `amaru::consensus::validate_header::EVOLVE_NONCE, hash = compute_hash()`
-    /// - `DEBUG, amaru::consensus::validate_header::EVOLVE_NONCE`
-    /// - `DEBUG, amaru::consensus::validate_header::EVOLVE_NONCE, hash = compute_hash()`
-    /// - `my_crate::amaru::test::sub::MY_SCHEMA, field = expr()`
-    ///
-    /// Returns `Err(TokenStream)` with compile error if parsing fails.
-    fn from_args(args: TokenStream) -> Result<Self, TokenStream> {
-        // First, try to extract just the schema path for backward compatibility
-        let args_str = args.to_string();
-
-        // Try the richer parser whenever extra comma-separated arguments are present.
-        // This includes level/private prefixes, `field = expr`, and shorthand `field`.
-        let try_new_syntax = args_str.contains(',');
-
-        if try_new_syntax {
-            // New syntax: parse with syn for proper expression handling
-            use syn::{
-                Token,
-                parse::{Parse, ParseStream},
-            };
-
-            struct MacroArgs {
-                private: bool,
-                level: Option<syn::Ident>,
-                schema_path: syn::Path,
-                field_exprs: Vec<(syn::Ident, syn::Expr)>,
-            }
-
-            impl Parse for MacroArgs {
-                fn parse(input: ParseStream) -> syn::Result<Self> {
-                    // Check for optional private keyword
-                    let private = parse_private_keyword(input)?;
-
-                    // Check if first token is a level identifier followed by a comma
-                    let level = if input.peek(syn::Ident) {
-                        let checkpoint = input.fork();
-                        match checkpoint.parse::<syn::Ident>() {
-                            Ok(ident) => {
-                                let ident_str = ident.to_string();
-                                // Check if this is actually a level identifier AND it's followed by a comma
-                                if matches!(ident_str.as_str(), "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR")
-                                    && checkpoint.peek(Token![,])
-                                {
-                                    // It's a level specification
-                                    let level_ident: syn::Ident = input.parse()?;
-                                    input.parse::<Token![,]>()?;
-                                    Some(level_ident)
-                                } else {
-                                    None
-                                }
-                            }
-                            Err(_) => None,
-                        }
-                    } else {
-                        None
-                    };
-
-                    let schema_path: syn::Path = input.parse()?;
-                    let mut field_exprs = Vec::new();
-
-                    // Parse optional comma-separated field expressions.
-                    // A bare identifier is treated as shorthand for `field = field`.
-                    while input.peek(Token![,]) {
-                        input.parse::<Token![,]>()?; // consume comma
-
-                        if input.is_empty() {
-                            break;
-                        }
-
-                        let field_name: syn::Ident = input.parse()?;
-                        let expr = if input.peek(Token![=]) {
-                            input.parse::<Token![=]>()?;
-                            input.parse::<syn::Expr>()?
-                        } else {
-                            syn::Expr::Path(syn::ExprPath {
-                                attrs: Vec::new(),
-                                qself: None,
-                                path: field_name.clone().into(),
-                            })
-                        };
-
-                        field_exprs.push((field_name, expr));
-                    }
-
-                    if !input.is_empty() {
-                        return Err(input.error("unexpected tokens after trace arguments"));
-                    }
-
-                    Ok(MacroArgs { private, level, schema_path, field_exprs })
-                }
-            }
-
-            match syn::parse::<MacroArgs>(args.clone()) {
-                Ok(parsed) => {
-                    // Validate and convert level (accept uppercase and convert to lowercase)
-                    let level = if let Some(level_ident) = parsed.level {
-                        let level_str = level_ident.to_string().to_lowercase();
-                        match level_str.as_str() {
-                            "trace" | "debug" | "info" | "warn" | "error" => level_str,
-                            _ => {
-                                return Err(syn::Error::new_spanned(
-                                    &level_ident,
-                                    "Invalid tracing level. Must be one of: TRACE, DEBUG, INFO, WARN, ERROR",
-                                )
-                                .to_compile_error()
-                                .into());
-                            }
-                        }
-                    } else {
-                        "trace".to_string()
-                    };
-
-                    // Convert path to string and parse schema components
-                    let schema_path = &parsed.schema_path;
-                    let full_path_tokens = quote! { #schema_path };
-                    let path_str = full_path_tokens.to_string().replace(' ', "");
-                    let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
-
-                    // Convert field expressions to map
-                    let mut field_expressions = BTreeMap::new();
-                    for (field_name, expr) in parsed.field_exprs {
-                        field_expressions.insert(field_name.to_string(), quote! { #expr });
-                    }
-
-                    Ok(SchemaMeta {
-                        private: parsed.private,
-                        schema_name: schema_name.to_owned(),
-                        module_path,
-                        macro_module: macro_module.to_owned(),
-                        level,
-                        field_expressions,
-                    })
-                }
-                Err(_) => {
-                    // Fall back to legacy syntax if new syntax parsing fails
-                    let schema_path = match syn::parse::<syn::Path>(args) {
-                        Ok(p) => p,
-                        Err(err) => return Err(err.to_compile_error().into()),
-                    };
-                    let full_path_tokens = quote! { #schema_path };
-                    let path_str = full_path_tokens.to_string().replace(' ', "");
-                    let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
-
-                    Ok(SchemaMeta {
-                        private: false,
-                        schema_name: schema_name.to_owned(),
-                        module_path,
-                        macro_module: macro_module.to_owned(),
-                        level: "trace".to_string(),
-                        field_expressions: BTreeMap::new(),
-                    })
-                }
-            }
-        } else {
-            // Legacy syntax: just a schema path
-            let schema_path = match syn::parse::<syn::Path>(args) {
-                Ok(p) => p,
-                Err(err) => return Err(err.to_compile_error().into()),
-            };
-            let full_path_tokens = quote! { #schema_path };
-            let path_str = full_path_tokens.to_string().replace(' ', "");
-            let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
-
-            Ok(SchemaMeta {
-                private: false,
-                schema_name: schema_name.to_owned(),
-                module_path,
-                macro_module: macro_module.to_owned(),
-                level: "trace".to_string(),
-                field_expressions: BTreeMap::new(),
-            })
-        }
-    }
-}
-
-// =============================================================================
-// Required Field Checking
-// =============================================================================
-
-/// Extracted function parameter information.
-struct FunctionField {
-    /// Original parameter name (may have leading underscores)
-    raw_name: String,
-    /// Field name after stripping leading underscores (for schema matching)
-    name: String,
-    /// Type as a string
-    ty: String,
-}
-
-/// Extract field information from function parameters.
-///
-/// Returns `None` if a collision is detected (two parameters normalize to the same name).
-fn extract_function_fields(func: &ItemFn) -> Option<Vec<FunctionField>> {
-    let typed_args = func.sig.inputs.iter().filter_map(|arg| match arg {
-        FnArg::Typed(pat_type) => Some(pat_type),
-        _ => None,
-    });
-
-    let fields: Vec<_> = typed_args
-        .filter_map(|PatType { pat, ty, .. }| match pat.as_ref() {
-            Pat::Ident(pat_ident) => {
-                let raw_name = pat_ident.ident.to_string();
-                let name = strip_leading_underscores(&raw_name);
-                let ty = quote!(#ty).to_string();
-
-                Some(FunctionField { raw_name, name, ty })
-            }
-            _ => None,
-        })
-        .collect();
-
-    // Check for duplicates using functional approach
-    let names: Vec<_> = fields.iter().map(|f| &f.name).collect();
-    let unique_names: BTreeSet<_> = names.iter().collect();
-
-    if names.len() != unique_names.len() {
-        None // Collision detected
-    } else {
-        Some(fields)
-    }
-}
-
-/// Generate field type validator invocation for a single field.
-///
-/// Uses the unified _RECORD macro with `validate` mode to check field name/type pairs.
-fn generate_field_validator(meta: &SchemaMeta, field: &FunctionField) -> proc_macro2::TokenStream {
-    let categories = meta.categories();
-    let record_macro = make_record_macro_name(&categories, &meta.schema_name);
-    let record_ident = make_ident(&record_macro);
-    let field_name = &field.name;
-    let field_type = &field.ty;
-
-    meta.macro_call_stmt(&record_ident, quote! { #field_name, #field_type, validate })
 }
 
 /// Generate required fields checker invocation.
@@ -358,146 +92,6 @@ fn generate_required_fields_check(meta: &SchemaMeta, field_names: &[String]) -> 
     let field_idents: Vec<_> = field_names.iter().map(|n| make_ident(n)).collect();
 
     meta.macro_call_stmt(&require_ident, quote! { #(#field_idents),* })
-}
-
-/// Generate an error when multiple parameters map to the same field name.
-///
-/// This happens when parameters like `field` and `_field` both exist,
-/// since leading underscores are stripped for field matching.
-fn generate_collision_error(schema_name: &str) -> proc_macro2::TokenStream {
-    let schema = schema_name;
-    quote! {
-        compile_error!(concat!(
-            "Multiple parameters map to the same field in schema `",
-            #schema,
-            "`. Parameters like `field` and `_field` cannot coexist ",
-            "because they both map to the same tracing field. ",
-            "Please rename one of the conflicting parameters."
-        ));
-    }
-}
-
-/// Resolve the record expression for a field.
-///
-/// Priority order:
-/// 1. Inline expression in trace macro args: `#[trace(schema, field = expr)]`
-/// 2. Parameter name itself
-fn resolve_record_expr(field: &FunctionField, meta: &SchemaMeta) -> proc_macro2::TokenStream {
-    meta.field_expressions.get(&field.name).cloned().unwrap_or_else(|| {
-        let param_ident = make_ident(&field.raw_name);
-        quote! { #param_ident }
-    })
-}
-
-/// Generate all record calls for a function's fields and inline field expressions.
-///
-/// - Function params: lenient (silently ignored if not in schema)
-/// - Custom expressions: STRICT (compile error if field doesn't exist and type-check against schema)
-fn generate_record_calls(fields: &[FunctionField], meta: &SchemaMeta) -> Vec<proc_macro2::TokenStream> {
-    let categories = meta.categories();
-    let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
-
-    // Collect field names that have function parameters
-    let param_field_names: BTreeSet<_> = fields.iter().map(|f| f.name.clone()).collect();
-
-    // Generate record calls for function parameters
-    // Function params use lenient mode - they're auto-matched to schema fields.
-    // If a param doesn't match any schema field, it's silently ignored
-    // (it's a dependency used to compute custom expressions).
-    let mut record_calls: Vec<proc_macro2::TokenStream> = fields
-        .iter()
-        .map(|field| {
-            let field_name = &field.name;
-            let record_expr = resolve_record_expr(field, meta);
-
-            // Lenient for function params - ignores params not in schema
-            meta.macro_call_stmt(&record_macro_ident, quote! { #field_name, #record_expr })
-        })
-        .collect();
-
-    // Generate record calls for field expressions that don't have matching parameters
-    // Custom expressions use STRICT mode - the field name MUST exist in the schema
-    // and the expression type must match the schema declaration.
-    // This catches typos like `#[trace(schema, hsh = x)]` when it should be `hash = x`,
-    // and mismatches like `fee = "nah"` for a numeric field.
-    for (field_name, expr) in &meta.field_expressions {
-        if !param_field_names.contains(field_name) {
-            let field_name_str = field_name.as_str();
-            // STRICT mode for custom expressions - errors on unknown fields and wrong types
-            record_calls.push(meta.macro_call_stmt(&record_macro_ident, quote! { #field_name_str, #expr, strict }));
-        }
-    }
-
-    record_calls
-}
-
-/// Generate the final instrumented function output.
-///
-/// The function itself is kept as a normal item so editor tooling can still
-/// navigate the original symbol. Schema validation is emitted inside a const
-/// block within the function body.
-fn generate_instrumented_function(
-    func: &ItemFn,
-    meta: &SchemaMeta,
-    field_validations: Vec<proc_macro2::TokenStream>,
-    record_calls: Vec<proc_macro2::TokenStream>,
-) -> proc_macro2::TokenStream {
-    let attrs = &func.attrs;
-    let vis = &func.vis;
-    let sig = &func.sig;
-    let original_stmts = &func.block.stmts;
-
-    // Generate the __list_available_schemas call with proper path
-    let list_schemas_ident = make_ident("__list_available_schemas");
-    let list_schemas_call = meta.macro_call(&list_schemas_ident, quote! {});
-
-    let fn_name = &sig.ident;
-    let span_name = make_ident(&format!("{TRACE_SPAN_NAME_PREFIX}_{}", fn_name));
-    let guard_name = make_ident(&format!("{TRACE_GUARD_NAME_PREFIX}_{}", fn_name));
-    let validation_const_name = make_ident(&format!("__TRACE_VALIDATION_{}", fn_name.to_string().to_uppercase()));
-
-    // Use the pre-generated span helper macro for all levels.
-    // This ensures span fields are always declared (required for Span::record to work).
-    let categories = meta.categories();
-    let instrument_macro_name = make_instrument_macro_name(&categories, &meta.schema_name);
-    let instrument_macro_ident = make_ident(&instrument_macro_name);
-
-    let span_expr = if meta.level == "trace" {
-        meta.macro_call_expr(&instrument_macro_ident, quote! {})
-    } else {
-        let level_const = match meta.level.as_str() {
-            "debug" => quote! { tracing::Level::DEBUG },
-            "info" => quote! { tracing::Level::INFO },
-            "warn" => quote! { tracing::Level::WARN },
-            "error" => quote! { tracing::Level::ERROR },
-            _ => quote! { tracing::Level::TRACE },
-        };
-        meta.macro_call_expr(&instrument_macro_ident, quote! { level = #level_const })
-    };
-
-    let setup_block = quote! {
-        #[allow(non_upper_case_globals)]
-        const #validation_const_name: () = {
-            #(#field_validations)*
-            const _: &str = #list_schemas_call;
-        };
-
-        let #span_name = #span_expr;
-        let #guard_name = #span_name.enter();
-
-        #(#record_calls)*
-    };
-
-    let validated_setup = wrap_in_module_validator(meta, setup_block);
-
-    quote! {
-        #(#attrs)*
-        #vis #sig {
-            #validated_setup
-
-            #(#original_stmts)*
-        }
-    }
 }
 
 /// Wrap code in the module validator macro.
@@ -519,43 +113,11 @@ fn wrap_in_module_validator(meta: &SchemaMeta, body: proc_macro2::TokenStream) -
     let validator_ident = make_ident(&validator_name);
     let schema_ident = make_ident(&meta.schema_name);
 
-    // Use brace syntax for the outer macro call since it expands to an item (function)
-    // Macros that expand to items must use braces or be followed by semicolon
     if meta.is_local_schema() {
-        quote! { #validator_ident! { #schema_ident, { #body } } }
+        quote! {{ #validator_ident!(#schema_ident => #body) }}
     } else {
-        quote! { ::amaru_observability::#validator_ident! { #schema_ident, { #body } } }
+        quote! {{ ::amaru_observability::#validator_ident!(#schema_ident => #body) }}
     }
-}
-
-/// Generate all validation tokens for a function.
-fn generate_validations(func: &ItemFn, meta: &SchemaMeta) -> Vec<proc_macro2::TokenStream> {
-    // Extract fields, checking for collisions
-    let fields = match extract_function_fields(func) {
-        Some(fields) => fields,
-        None => return vec![generate_collision_error(&meta.schema_name)],
-    };
-
-    let mut validations = Vec::new();
-
-    // Add field type validators for function parameters
-    // Skip validation for fields that have custom expressions (the expression overrides the type)
-    for field in &fields {
-        if !meta.field_expressions.contains_key(&field.name) {
-            validations.push(generate_field_validator(meta, field));
-        }
-    }
-
-    // Custom expressions are validated when the generated _RECORD macro expands,
-    // which checks both field existence and expression type in strict mode.
-
-    // Add required fields check
-    let mut field_names: Vec<_> = fields.iter().map(|f| f.name.clone()).collect();
-    // Add custom expression field names to required field check
-    field_names.extend(meta.field_expressions.keys().cloned());
-    validations.push(generate_required_fields_check(meta, &field_names));
-
-    validations
 }
 
 /// Parse an optional `private` keyword from the input stream.
@@ -582,31 +144,10 @@ fn parse_private_keyword(input: syn::parse::ParseStream) -> syn::Result<bool> {
     Ok(false)
 }
 
-/// Instruments a function with tracing.
-///
-/// The trace argument must be a const path defined via `define_schemas!`.
-/// This macro validates at compile-time that:
-/// - The schema constant exists
-/// - All **required** fields are present as function parameters
-/// - All parameters have the correct types matching the schema
-/// - Optional fields may optionally be present with correct types
-///
-/// # Example
-///
-/// ```text
-/// #[trace(consensus::chain_sync::VALIDATE_HEADER)]
-/// fn validate_header(point_slot: u64, point_hash: String) -> Result<(), String> {
-///     Ok(())
-/// }
-/// ```
-pub fn expand_trace(args: TokenStream, input: TokenStream) -> TokenStream {
-    expand_trace_macro(args, input)
-}
-
 /// Records fields to the current span with a schema anchor.
 ///
-/// This macro allows recording fields to the current span outside of functions
-/// decorated with `#[trace]`. Use this when you want to add additional context
+/// This macro allows recording fields to the current span outside of code that
+/// created a `trace_span!`. Use this when you want to add additional context
 /// to an existing span without creating a new one.
 ///
 /// This macro does NOT create a new span - it records fields to the current span.
@@ -619,31 +160,6 @@ pub fn expand_trace(args: TokenStream, input: TokenStream) -> TokenStream {
 /// trace_record!(ledger::state::APPLY_BLOCK, block_size = 1024, tx_count = 5);
 /// ```
 ///
-/// Common implementation for trace macros.
-fn expand_trace_macro(args: TokenStream, input: TokenStream) -> TokenStream {
-    if crate::is_trace_noop() {
-        return input;
-    }
-
-    let Ok(func) = syn::parse::<ItemFn>(input.clone()) else {
-        return input;
-    };
-
-    let meta = match SchemaMeta::from_args(args) {
-        Ok(m) => m,
-        Err(err) => return err,
-    };
-    let field_validations = generate_validations(&func, &meta);
-
-    // Extract function fields and generate record calls
-    let fields = extract_function_fields(&func).unwrap_or_default();
-    let record_calls = generate_record_calls(&fields, &meta);
-
-    // Generate the final instrumented function (wrapped in module validator)
-    let output = generate_instrumented_function(&func, &meta, field_validations, record_calls);
-    output.into()
-}
-
 /// Expand the `trace_record!` macro.
 ///
 /// This macro records fields to the current span with a schema anchor, and optionally
@@ -661,14 +177,16 @@ fn expand_trace_macro(args: TokenStream, input: TokenStream) -> TokenStream {
 /// 2. Emit a log event at the specified level with those fields
 ///
 /// The schema constant anchors the recording and documents which schema these fields
-/// belong to. Use this inside or outside of functions decorated with `#[trace]` to
+/// belong to. Use this inside or outside of code that enters a `trace_span!` span to
 /// record fields to the current span.
 ///
 /// # Examples
 ///
 /// ```text
-/// #[trace(ledger::state::APPLY_BLOCK)]
 /// fn apply_block(block: &Block) {
+///     let _span = trace_span!(ledger::state::APPLY_BLOCK);
+///     let _guard = _span.enter();
+///
 ///     // Record additional fields (no log event)
 ///     trace_record!(ledger::state::APPLY_BLOCK, size = block.size(), tx_count = block.transactions.len());
 ///     
@@ -849,7 +367,12 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         private: bool,
         level: Option<syn::Ident>,
         schema_path: syn::Path,
-        field_tokens: Vec<proc_macro2::TokenStream>,
+        fields: Vec<TraceSpanField>,
+    }
+
+    struct TraceSpanField {
+        name: String,
+        validation_expr: proc_macro2::TokenStream,
     }
 
     impl Parse for TraceSpanArgs {
@@ -882,7 +405,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             };
 
             let schema_path: syn::Path = input.parse()?;
-            let mut field_tokens = Vec::new();
+            let mut fields = Vec::new();
 
             // Parse comma-separated field assignments
             // We need to handle tracing format specifiers like %name or ?value
@@ -895,28 +418,26 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
                 let field_name: syn::Ident = input.parse()?;
                 input.parse::<Token![=]>()?;
+                let field_name_str = field_name.to_string();
 
                 // Check for tracing format specifiers (%, ?, or expressions)
-                let value_token = if input.peek(Token![%]) {
+                let validation_expr = if input.peek(Token![%]) {
                     // Format specifier %field
                     input.parse::<Token![%]>()?;
                     let field_ref: syn::Ident = input.parse()?;
-                    quote! { %#field_ref }
+                    quote! { #field_ref }
                 } else if input.peek(Token![?]) {
                     // Format specifier ?field
                     input.parse::<Token![?]>()?;
                     let field_ref: syn::Ident = input.parse()?;
-                    quote! { ?#field_ref }
+                    quote! { #field_ref }
                 } else {
                     // Regular expression
                     let value_expr: syn::Expr = input.parse()?;
-                    quote! { &#value_expr }
+                    quote! { #value_expr }
                 };
 
-                let field_token = quote! {
-                    #field_name = #value_token
-                };
-                field_tokens.push(field_token);
+                fields.push(TraceSpanField { name: field_name_str, validation_expr });
             }
 
             // Ensure all input has been consumed - no trailing tokens
@@ -925,7 +446,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                 return Err(input.error("unexpected tokens after field assignments"));
             }
 
-            Ok(TraceSpanArgs { private, level, schema_path, field_tokens })
+            Ok(TraceSpanArgs { private, level, schema_path, fields })
         }
     }
 
@@ -953,24 +474,116 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     };
 
     let schema_const_tokens = &args.schema_path;
-    let level_macro = syn::Ident::new(&format!("{}_span", level_str), proc_macro2::Span::call_site());
+    let full_path_tokens = quote! { #schema_const_tokens };
+    let path_str: String = full_path_tokens.to_string().chars().filter(|c| !c.is_whitespace()).collect();
+    let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
+    let meta = SchemaMeta {
+        private: args.private,
+        schema_name: schema_name.to_owned(),
+        module_path,
+        macro_module: macro_module.to_owned(),
+    };
 
-    // Generate the span creation call
-    // Uses the schema constant value directly (not stringified) for:
-    // 1. Compile-time validation that the constant exists
-    // 2. Proper &'static str value as span name
-    let expanded = if args.field_tokens.is_empty() {
-        // No fields - just schema constant as span name
-        quote! {
-            tracing::#level_macro!(#schema_const_tokens)
-        }
+    let categories = meta.categories();
+    let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
+    let assign_macro_ident = make_ident(&make_assign_macro_name(&categories, &meta.schema_name));
+    let field_count_const_ident = make_ident(&make_schema_field_count_const_name(&categories, &meta.schema_name));
+    let mut field_count_path = args.schema_path.clone();
+    if let Some(last_segment) = field_count_path.segments.last_mut() {
+        last_segment.ident = field_count_const_ident;
+    }
+    let field_count_path = if meta.is_local_schema() {
+        quote! { #field_count_path }
     } else {
-        // With fields - pass them directly to tracing::{level}_span!
-        let field_tokens = &args.field_tokens;
-        quote! {
-            tracing::#level_macro!(#schema_const_tokens, #(#field_tokens),*)
+        let needs_prefix = field_count_path.segments.first().map(|segment| segment.ident == "amaru").unwrap_or(false);
+
+        if needs_prefix {
+            let mut prefixed_path =
+                syn::Path { leading_colon: Some(Default::default()), segments: syn::punctuated::Punctuated::new() };
+            prefixed_path.segments.push(syn::PathSegment::from(make_ident("amaru_observability")));
+            for segment in field_count_path.segments.iter() {
+                prefixed_path.segments.push(segment.clone());
+            }
+            quote! { #prefixed_path }
+        } else {
+            quote! { ::#field_count_path }
         }
     };
+
+    let span_name = make_ident(TRACE_SPAN_NAME_PREFIX);
+    let value_bindings: Vec<_> = args
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let field_name = field.name.as_str();
+            let expr = &field.validation_expr;
+            let value_ident = make_ident(&format!("__amaru_trace_value_{index}"));
+            let display_ident = make_ident(&format!("__amaru_trace_display_{index}"));
+            let validate_value_call =
+                meta.macro_call_stmt(&record_macro_ident, quote! { #field_name, &#value_ident, validate_value });
+            quote! {
+                let #value_ident = #expr;
+                #validate_value_call
+                let #display_ident = tracing::field::display(&#value_ident);
+            }
+        })
+        .collect();
+
+    let assign_calls: Vec<_> = args
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let field_name = field.name.as_str();
+            let display_ident = make_ident(&format!("__amaru_trace_display_{index}"));
+            meta.macro_call_stmt(
+                &assign_macro_ident,
+                quote! { __amaru_span_values, #field_name, &#display_ident as &dyn tracing::field::Value },
+            )
+        })
+        .collect();
+
+    let required_field_names: Vec<_> = args.fields.iter().map(|field| field.name.clone()).collect();
+    let required_fields_check = generate_required_fields_check(&meta, &required_field_names);
+
+    let instrument_macro_ident = make_ident(&make_instrument_macro_name(&categories, &meta.schema_name));
+    let span_expr = if level_str == "trace" {
+        meta.macro_call_expr(&instrument_macro_ident, quote! { values = &__amaru_span_values[..] })
+    } else {
+        let level_const = match level_str.as_str() {
+            "debug" => quote! { tracing::Level::DEBUG },
+            "info" => quote! { tracing::Level::INFO },
+            "warn" => quote! { tracing::Level::WARN },
+            "error" => quote! { tracing::Level::ERROR },
+            _ => quote! { tracing::Level::TRACE },
+        };
+        meta.macro_call_expr(
+            &instrument_macro_ident,
+            quote! { level = #level_const, values = &__amaru_span_values[..] },
+        )
+    };
+
+    let expanded = wrap_in_module_validator(
+        &meta,
+        quote! {{
+            #required_fields_check
+            #(#value_bindings)*
+
+            let mut __amaru_span_values: Vec<::tracing::__macro_support::Option<&dyn ::tracing::field::Value>> = vec![
+                ::tracing::__macro_support::Option::Some(
+                    &tracing::field::Empty as &dyn ::tracing::field::Value
+                );
+                #field_count_path
+            ];
+
+            #(#assign_calls)*
+
+            let #span_name = #span_expr;
+
+            #span_name
+        }},
+    );
 
     expanded.into()
 }

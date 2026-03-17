@@ -42,12 +42,12 @@ define_schemas! {
 
             /// Evolve the nonce based on header
             EVOLVE_NONCE {
-                required hash: String
+                required hash: amaru_kernel::HeaderHash
             }
 
             /// Validate header cryptographic properties
             VALIDATE {
-                required issuer_key: String
+                required issuer_key: amaru_kernel::Bytes
             }
         }
 
@@ -137,7 +137,7 @@ define_schemas! {
 
             /// Create validation context for a block
             CREATE_VALIDATION_CONTEXT {
-                required block_body_hash: String
+                required block_body_hash: amaru_kernel::HeaderHash
                 required block_number: u64
                 required block_body_size: u64
                 optional total_inputs: u64
@@ -214,15 +214,15 @@ define_schemas! {
 
             /// Withdraw from stake credential
             WITHDRAW_FROM {
-                required credential_type: String
-                required credential_hash: String
+                required credential_type: amaru_kernel::StakeCredentialKind
+                required credential_hash: amaru_kernel::Hash<28>
             }
 
             /// Record a governance vote
             VOTE {
-                required voter_type: String
-                required credential_type: String
-                required credential_hash: String
+                required voter_type: amaru_kernel::VoterKind
+                required credential_type: amaru_kernel::StakeCredentialKind
+                required credential_hash: amaru_kernel::Hash<28>
             }
 
             /// Require a verification key witness
@@ -244,49 +244,49 @@ define_schemas! {
                 validation {
                     /// Register a stake credential
                     CERTIFICATE_STAKE_REGISTRATION {
-                        required credential_type: String
-                        required credential_hash: String
+                        required credential_type: amaru_kernel::StakeCredentialKind
+                        required credential_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Delegate stake to a pool
                     CERTIFICATE_STAKE_DELEGATION {
-                        required credential_type: String
-                        required credential_hash: String
+                        required credential_type: amaru_kernel::StakeCredentialKind
+                        required credential_hash: amaru_kernel::Hash<28>
                         required pool_id: String
                     }
 
                     /// Unregister a stake credential
                     CERTIFICATE_STAKE_DEREGISTRATION {
-                        required credential_type: String
-                        required credential_hash: String
+                        required credential_type: amaru_kernel::StakeCredentialKind
+                        required credential_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Register a DRep
                     CERTIFICATE_DREP_REGISTRATION {
-                        required drep_type: String
-                        required drep_hash: String
+                        required drep_type: amaru_kernel::StakeCredentialKind
+                        required drep_hash: amaru_kernel::Hash<28>
                         required deposit: u64
                     }
 
                     /// Update DRep anchor
                     CERTIFICATE_DREP_UPDATE {
-                        required drep_type: String
-                        required drep_hash: String
+                        required drep_type: amaru_kernel::StakeCredentialKind
+                        required drep_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Unregister a DRep
                     CERTIFICATE_DREP_RETIREMENT {
-                        required drep_type: String
-                        required drep_hash: String
+                        required drep_type: amaru_kernel::StakeCredentialKind
+                        required drep_hash: amaru_kernel::Hash<28>
                         required refund: u64
                     }
 
                     /// Delegate vote to DRep
                     CERTIFICATE_VOTE_DELEGATION {
-                        required credential_type: String
-                        required credential_hash: String
-                        required drep_type: String
-                        required drep_hash: String
+                        required credential_type: amaru_kernel::StakeCredentialKind
+                        required credential_hash: amaru_kernel::Hash<28>
+                        required drep_type: amaru_kernel::StakeCredentialKind
+                        required drep_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Register a pool
@@ -302,16 +302,16 @@ define_schemas! {
 
                     /// Delegate cold key to committee
                     CERTIFICATE_COMMITTEE_DELEGATE {
-                        required cc_member_type: String
-                        required cc_member_hash: String
-                        required delegate_type: String
-                        required delegate_hash: String
+                        required cc_member_type: amaru_kernel::StakeCredentialKind
+                        required cc_member_hash: amaru_kernel::Hash<28>
+                        required delegate_type: amaru_kernel::StakeCredentialKind
+                        required delegate_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Resign from committee
                     CERTIFICATE_COMMITTEE_RESIGN {
-                        required cc_member_type: String
-                        required cc_member_hash: String
+                        required cc_member_type: amaru_kernel::StakeCredentialKind
+                        required cc_member_hash: amaru_kernel::Hash<28>
                     }
                 }
             }
@@ -350,8 +350,8 @@ define_schemas! {
 
             /// Remove DRep delegations
             DREPS_DELEGATION_REMOVE {
-                required drep_hash: String
-                required drep_type: String
+                required drep_hash: amaru_kernel::Hash<28>
+                required drep_type: amaru_kernel::StakeCredentialKind
             }
         }
 
@@ -372,23 +372,23 @@ define_schemas! {
         consensus {
             /// Store a block header
             STORE_HEADER {
-                required hash: String
+                required hash: amaru_kernel::HeaderHash
             }
 
             /// Store a raw block
             STORE_BLOCK {
-                required hash: String
+                required hash: amaru_kernel::HeaderHash
             }
 
             /// Roll forward the chain to a point
             ROLL_FORWARD_CHAIN {
-                required hash: String
+                required hash: amaru_kernel::HeaderHash
                 required slot: u64
             }
 
             /// Rollback the chain to a point
             ROLLBACK_CHAIN {
-                required hash: String
+                required hash: amaru_kernel::HeaderHash
                 required slot: u64
             }
 

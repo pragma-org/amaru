@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Tests for the #[trace] macro with custom tracing levels
+//! Tests for trace_span! with custom tracing levels
 //!
-//! These tests verify that the #[trace] macro correctly supports
+//! These tests verify that trace_span! correctly supports
 //! different tracing levels (trace, debug, info, warn, error)
 
 use std::sync::{Arc, Mutex};
 
-use amaru_observability_macros::{define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace_span};
 use tracing::field::Visit;
 use tracing_subscriber::{Registry, layer::SubscriberExt};
 
@@ -109,35 +109,35 @@ impl<'a> Visit for SpanMetadataVisitor<'a> {
 // Test functions with different levels
 // ============================================================================
 
-#[trace(network::sync::SYNC_BLOCKS)]
 fn sync_blocks_trace(block_height: u64) {
-    let _ = block_height;
+    let _span = trace_span!(network::sync::SYNC_BLOCKS, block_height = block_height);
+    let _guard = _span.enter();
 }
 
-#[trace(DEBUG, network::sync::SYNC_BLOCKS)]
 fn sync_blocks_debug(block_height: u64) {
-    let _ = block_height;
+    let _span = trace_span!(DEBUG, network::sync::SYNC_BLOCKS, block_height = block_height);
+    let _guard = _span.enter();
 }
 
-#[trace(INFO, network::sync::CONNECTION_OPENED)]
 fn connection_opened_info(peer_id: String) {
-    let _ = peer_id;
+    let _span = trace_span!(INFO, network::sync::CONNECTION_OPENED, peer_id = &peer_id);
+    let _guard = _span.enter();
 }
 
-#[trace(WARN, validation::rules::VALIDATE_RULE)]
 fn validate_rule_warn(rule_name: String, result: String) {
-    let _ = (rule_name, result);
+    let _span = trace_span!(WARN, validation::rules::VALIDATE_RULE, rule_name = &rule_name, result = &result);
+    let _guard = _span.enter();
 }
 
-#[trace(ERROR, validation::rules::VALIDATE_RULE)]
 fn validate_rule_error(rule_name: String, result: String) {
-    let _ = (rule_name, result);
+    let _span = trace_span!(ERROR, validation::rules::VALIDATE_RULE, rule_name = &rule_name, result = &result);
+    let _guard = _span.enter();
 }
 
 // With custom field expressions and level
-#[trace(DEBUG, network::sync::CONNECTION_OPENED, ip_address = "127.0.0.1")]
 fn connection_opened_with_ip(peer_id: String) {
-    let _ = peer_id;
+    let _span = trace_span!(DEBUG, network::sync::CONNECTION_OPENED, peer_id = &peer_id, ip_address = "127.0.0.1");
+    let _guard = _span.enter();
 }
 
 // ============================================================================

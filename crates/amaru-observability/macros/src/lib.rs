@@ -21,7 +21,7 @@
 //! The macros in this crate work together to provide compile-time validation of tracing:
 //!
 //! - [`define_schemas!`] - Declares schemas with their fields and types
-//! - [`#[trace]`](macro@trace) - Instruments functions, requiring all required schema fields
+//! - [`trace_span!`](macro@trace_span) - Creates typed spans with strict schema validation
 //! - [`trace_record!`](macro@trace_record) - Records fields to the current span
 //!
 //! # Disabling Tracing at Compile Time
@@ -82,28 +82,6 @@ pub fn define_local_schemas(input: TokenStream) -> TokenStream {
     define_schemas::expand_local(input)
 }
 
-/// Instruments a function with tracing.
-///
-/// The trace argument must be a const path defined via `define_schemas!`.
-/// This macro validates at compile-time that:
-/// - The schema constant exists
-/// - All **required** fields are present as function parameters
-/// - All parameters have the correct types matching the schema
-/// - Optional fields may optionally be present with correct types
-///
-/// # Example
-///
-/// ```text
-/// #[trace(consensus::chain_sync::VALIDATE_HEADER)]
-/// fn validate_header(point_slot: u64, point_hash: String) -> Result<(), String> {
-///     Ok(())
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn trace(args: TokenStream, input: TokenStream) -> TokenStream {
-    traces::expand_trace(args, input)
-}
-
 /// Records fields to the current span with a schema anchor.
 ///
 /// This macro records fields to the current span, with the schema constant documenting
@@ -119,8 +97,10 @@ pub fn trace(args: TokenStream, input: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```text
-/// #[trace(ledger::state::APPLY_BLOCK)]
 /// fn apply_block(block: &Block) {
+///     let _span = trace_span!(ledger::state::APPLY_BLOCK);
+///     let _guard = _span.enter();
+///
 ///     // Record to span only
 ///     trace_record!(ledger::state::APPLY_BLOCK, size = block.size());
 ///

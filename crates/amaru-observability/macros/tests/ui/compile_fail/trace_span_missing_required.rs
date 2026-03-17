@@ -12,28 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Test: Underscore collision should fail
-//! Expected error: Parameter names '_second' and '__second' collide after underscore stripping
-
-use amaru_observability_macros::{define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace_span};
 
 define_local_schemas! {
     test {
         sub {
-            /// Test schema for underscore collision test
+            /// Test schema for missing required trace_span field
             SCHEMA {
-                required first: String
-                required second: u64
-                required third: u64
+                required first: u64
+                required second: String
             }
         }
     }
 }
 
-// Both _second and __second become "second" after stripping underscores
-#[trace(test::sub::SCHEMA)]
-fn validate_header(_first: String, _second: u64, __second: u64, _third: u64) {
-    println!("Underscore collision!");
+fn main() {
+    let _span = trace_span!(test::sub::SCHEMA, first = 42_u64);
 }
-
-fn main() {}

@@ -25,7 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_observability_macros::{define_local_schemas, trace, trace_record};
+use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
 use tracing::field::Visit;
 use tracing_subscriber::{Registry, layer::SubscriberExt};
 
@@ -112,6 +112,17 @@ impl<S> tracing_subscriber::Layer<S> for ValueCapturingLayer
 where
     S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
 {
+    fn on_new_span(
+        &self,
+        attrs: &tracing::span::Attributes<'_>,
+        _id: &tracing::span::Id,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut collector = FieldValueCollector::default();
+        attrs.values().record(&mut collector);
+        self.captured.lock().unwrap().extend(collector.values);
+    }
+
     fn on_record(
         &self,
         _id: &tracing::span::Id,
@@ -124,21 +135,34 @@ where
     }
 }
 
-#[trace(consensus::validate_header::EVOLVE_NONCE)]
 fn evolve_nonce(hash: String) {
-    let _ = hash;
+    let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+    let _guard = _span.enter();
 }
 
-#[trace(ledger::state::APPLY_BLOCK)]
 fn apply_block(point_slot: u64) {
-    let _ = point_slot;
+    let _span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+    let _guard = _span.enter();
 }
 
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-fn process_block(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {}
+fn process_block(block_body_hash: String, block_number: u64, block_body_size: u64) {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = &block_body_hash,
+        block_number = block_number,
+        block_body_size = block_body_size
+    );
+    let _guard = _span.enter();
+}
 
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-fn outer_with_record(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {
+fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size: u64) {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = &block_body_hash,
+        block_number = block_number,
+        block_body_size = block_body_size
+    );
+    let _guard = _span.enter();
     inner_record(5);
 }
 

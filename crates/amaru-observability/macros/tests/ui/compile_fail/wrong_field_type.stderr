@@ -1,4 +1,20 @@
-error: Wrong type for field 'second': expected 'u64', found 'i32'
+error[E0308]: mismatched types
+  --> tests/ui/compile_fail/wrong_field_type.rs:36:17
+   |
+21 | / define_local_schemas! {
+22 | |     test {
+23 | |         sub {
+24 | |             /// Test schema for wrong field type test
+...  |
+32 | | }
+   | |_- arguments to this function are incorrect
+...
+36 |       let _span = trace_span!(test::sub::SCHEMA, first = &first, second = 2_i32, third = 3_u64);
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `&u64`, found `&i32`
+   |
+   = note: expected reference `&u64`
+              found reference `&i32`
+note: closure parameter defined here
   --> tests/ui/compile_fail/wrong_field_type.rs:21:1
    |
 21 | / define_local_schemas! {
@@ -9,7 +25,6 @@ error: Wrong type for field 'second': expected 'u64', found 'i32'
 32 | | }
    | |_^
 ...
-35 |   #[trace(test::sub::SCHEMA)]
-   |   --------------------------- in this attribute macro expansion
-   |
-   = note: this error originates in the macro `__TEST__SUB__SCHEMA_RECORD` which comes from the expansion of the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)
+36 |       let _span = trace_span!(test::sub::SCHEMA, first = &first, second = 2_i32, third = 3_u64);
+   |                   ----------------------------------------------------------------------------- in this macro invocation
+   = note: this error originates in the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

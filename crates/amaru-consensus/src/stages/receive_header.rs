@@ -15,7 +15,7 @@
 use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
 use amaru_observability::{
     amaru::consensus::chain_sync::{RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED},
-    trace,
+    trace_span,
 };
 use pure_stage::StageRef;
 use tracing::Instrument;
@@ -113,8 +113,10 @@ pub fn stage(mut state: State, msg: ChainSyncEvent, eff: impl ConsensusOps) -> i
         .instrument(span)
 }
 
-#[trace(amaru::consensus::chain_sync::DECODE_HEADER)]
 pub fn decode_header(raw_header: &[u8]) -> Result<BlockHeader, ConsensusError> {
+    let _span = trace_span!(amaru_observability::amaru::consensus::chain_sync::DECODE_HEADER);
+    let _guard = _span.enter();
+
     from_cbor_no_leftovers(raw_header)
         .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.into(), reason: reason.to_string() })
 }

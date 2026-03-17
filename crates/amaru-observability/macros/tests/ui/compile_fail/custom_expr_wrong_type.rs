@@ -14,7 +14,7 @@
 
 //! Test that inline custom expressions are type-checked against the schema.
 
-use amaru_observability_macros::{define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace_span};
 
 define_local_schemas! {
     test {
@@ -27,7 +27,6 @@ define_local_schemas! {
     }
 }
 
-#[trace(test::example::STRICT_EXPR_TYPE, fee = "nah")]
-fn wrong_custom_expr_type() {}
-
-fn main() {}
+fn main() {
+    let _span = trace_span!(test::example::STRICT_EXPR_TYPE, fee = "nah");
+}

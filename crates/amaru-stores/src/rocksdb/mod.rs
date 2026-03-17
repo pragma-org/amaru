@@ -38,7 +38,7 @@ use amaru_ledger::{
 };
 use amaru_observability::{
     amaru::stores::rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS},
-    trace, trace_record,
+    trace_record, trace_span,
 };
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
@@ -254,8 +254,10 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[trace(INFO, amaru::stores::ledger::SNAPSHOT, epoch = u64::from(epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
+        let _span = trace_span!(INFO, amaru::stores::ledger::SNAPSHOT, epoch = u64::from(epoch));
+        let _guard = _span.enter();
+
         let path = self.dir.join(epoch.to_string());
 
         if path.exists() {
@@ -307,8 +309,10 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
-    #[trace(amaru::stores::ledger::PRUNE, functional_minimum = u64::from(functional_minimum))]
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
+        let _span = trace_span!(amaru::stores::ledger::PRUNE, functional_minimum = u64::from(functional_minimum));
+        let _guard = _span.enter();
+
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
         with_snapshots(&self.config.dir, |path, epoch| {
             if epoch < desired_minimum {
@@ -536,12 +540,15 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         res
     }
 
-    #[trace(amaru::stores::ledger::TRY_EPOCH_TRANSITION, has_from = from.is_some(), has_to = to.is_some())]
     fn try_epoch_transition(
         &self,
         from: Option<EpochTransitionProgress>,
         to: Option<EpochTransitionProgress>,
     ) -> Result<bool, StoreError> {
+        let _span =
+            trace_span!(amaru::stores::ledger::TRY_EPOCH_TRANSITION, has_from = from.is_some(), has_to = to.is_some());
+        let _guard = _span.enter();
+
         let previous_progress = self
             .db
             .get_pinned(KEY_PROGRESS)

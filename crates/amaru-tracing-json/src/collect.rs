@@ -86,11 +86,13 @@ pub fn as_trees(collected: Vec<Value>) -> Vec<Value> {
     trees
 }
 
-/// Remove ids and target from collected data
+/// Remove unstable tracing identifiers and target from collected data
 pub fn strip_ids_and_target(mut value: Value) -> Value {
     if let Value::Object(ref mut map) = value {
         map.remove("id");
         map.remove("parent_id");
+        map.remove("trace_id");
+        map.remove("parent_trace_id");
         map.remove("target");
     }
     value
@@ -107,10 +109,12 @@ fn is_span(item: &Value) -> bool {
     }
 }
 
-/// Keep span fields from collected data, removing only internal fields like id, parent_id, type, level
+/// Keep span fields from collected data, removing only internal fields like ids, type and level
 fn strip_span(mut value: Value) -> Value {
     if let Value::Object(ref mut map) = value {
-        map.retain(|key, _value| !["id", "parent_id", "type", "level"].contains(&(key.as_str())));
+        map.retain(|key, _value| {
+            !["id", "parent_id", "trace_id", "parent_trace_id", "type", "level"].contains(&(key.as_str()))
+        });
     }
     value
 }

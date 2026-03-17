@@ -12,10 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod registry;
-// Include the schemas module which uses define_schemas! to generate
-// the amaru module with all schema constants and validation macros
-mod schemas;
-// Re-export the macros for convenient use
-pub use amaru_observability_macros::{define_schemas, trace_record, trace_span};
-pub use schemas::*;
+use amaru_observability_macros::{define_local_schemas, trace_span};
+
+define_local_schemas! {
+    test {
+        sub {
+            /// Test schema for unknown trace_span field
+            SCHEMA {
+                required first: u64
+            }
+        }
+    }
+}
+
+fn main() {
+    let _span = trace_span!(test::sub::SCHEMA, first = 42_u64, typo = 1_u64);
+}

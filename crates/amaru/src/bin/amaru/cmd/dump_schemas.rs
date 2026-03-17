@@ -254,10 +254,7 @@ mod tests {
     #[test]
     fn test_parse_top_level_type_alias() {
         let item: Item = syn::parse_str("pub type Lovelace = u64;").unwrap();
-        assert_eq!(
-            parse_top_level_type_alias(&item),
-            Some(("Lovelace".to_string(), "u64".to_string()))
-        );
+        assert_eq!(parse_top_level_type_alias(&item), Some(("Lovelace".to_string(), "u64".to_string())));
 
         let generic_item: Item = syn::parse_str("pub type Wrapped<T> = Vec<T>;").unwrap();
         assert_eq!(parse_top_level_type_alias(&generic_item), None);

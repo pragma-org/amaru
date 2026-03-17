@@ -15,60 +15,63 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::Peer;
-use amaru_observability::trace;
+use amaru_observability::trace_span;
 use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg};
 use pure_stage::{Effects, StageRef};
-use tracing::Span;
+use tracing::{Instrument, Span};
 
 use crate::events::ChainSyncEvent;
 
-#[trace(amaru::consensus::chain_sync::PULL)]
 pub async fn stage(
     (mut tracker, downstream): (SyncTracker, StageRef<ChainSyncEvent>),
     msg: ChainSyncInitiatorMsg,
     eff: Effects<ChainSyncInitiatorMsg>,
 ) -> (SyncTracker, StageRef<ChainSyncEvent>) {
-    use chainsync::InitiatorResult::*;
-    match msg.msg {
-        Initialize => {
-            tracing::info!(peer = %msg.peer,"initializing chainsync");
-            tracker.add_peer(msg.peer);
+    async {
+        use chainsync::InitiatorResult::*;
+        match msg.msg {
+            Initialize => {
+                tracing::info!(peer = %msg.peer,"initializing chainsync");
+                tracker.add_peer(msg.peer);
+            }
+            IntersectFound(point, tip) => {
+                tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "intersect found");
+            }
+            IntersectNotFound(tip) => {
+                tracing::info!(peer = %msg.peer, tip_point = %tip.point(), "intersect not found");
+                eff.send(&msg.handler, chainsync::InitiatorMessage::Done).await;
+                tracker.caught_up(&msg.peer);
+            }
+            RollForward(header_content, tip) => {
+                tracing::trace!(peer = %msg.peer, variant = header_content.variant.as_str(),
+                    byron_prefix = ?header_content.byron_prefix, tip_point = %tip.point(), "roll forward");
+                eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext).await;
+                eff.send(
+                    &downstream,
+                    ChainSyncEvent::RollForward {
+                        peer: msg.peer,
+                        tip,
+                        raw_header: header_content.cbor,
+                        span: Span::current(),
+                    },
+                )
+                .await;
+            }
+            RollBackward(point, tip) => {
+                tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "roll backward");
+                eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext).await;
+                eff.send(
+                    &downstream,
+                    ChainSyncEvent::Rollback { peer: msg.peer, rollback_point: point, tip, span: Span::current() },
+                )
+                .await;
+            }
         }
-        IntersectFound(point, tip) => {
-            tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "intersect found");
-        }
-        IntersectNotFound(tip) => {
-            tracing::info!(peer = %msg.peer, tip_point = %tip.point(), "intersect not found");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::Done).await;
-            tracker.caught_up(&msg.peer);
-        }
-        RollForward(header_content, tip) => {
-            tracing::trace!(peer = %msg.peer, variant = header_content.variant.as_str(),
-                byron_prefix = ?header_content.byron_prefix, tip_point = %tip.point(), "roll forward");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext).await;
-            eff.send(
-                &downstream,
-                ChainSyncEvent::RollForward {
-                    peer: msg.peer,
-                    tip,
-                    raw_header: header_content.cbor,
-                    span: Span::current(),
-                },
-            )
-            .await;
-        }
-        RollBackward(point, tip) => {
-            tracing::info!(peer = %msg.peer, %point, tip_point = %tip.point(), "roll backward");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext).await;
-            eff.send(
-                &downstream,
-                ChainSyncEvent::Rollback { peer: msg.peer, rollback_point: point, tip, span: Span::current() },
-            )
-            .await;
-        }
-    }
 
-    (tracker, downstream)
+        (tracker, downstream)
+    }
+    .instrument(trace_span!(amaru_observability::amaru::consensus::chain_sync::PULL))
+    .await
 }
 
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize, PartialEq)]

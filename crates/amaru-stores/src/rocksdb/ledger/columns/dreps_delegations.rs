@@ -19,7 +19,7 @@ use amaru_kernel::{
     AsHash, CertificatePointer, DRep, StakeCredential, StakeCredentialKind, utils::string::display_collection,
 };
 use amaru_ledger::store::{StoreError, columns::unsafe_decode};
-use amaru_observability::trace;
+use amaru_observability::trace_span;
 use tracing::{debug, warn};
 
 use crate::rocksdb::{PREFIX_LEN, as_value, dreps};
@@ -118,11 +118,14 @@ pub fn remove<DB>(db: &Transaction<'_, DB>, drep: &DRep, delegator: &StakeCreden
 
 /// Forget about ALL bindings for a given drep, returning all known (past and present) delegations
 /// for that drep.
-#[trace(amaru::stores::ledger::DREPS_DELEGATION_REMOVE,
-    drep_hash = drep.as_hash(),
-    drep_type = StakeCredentialKind::from(drep)
-)]
 pub fn drop<DB>(db: &Transaction<'_, DB>, drep: &StakeCredential) -> Result<BTreeSet<StakeCredential>, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::DREPS_DELEGATION_REMOVE,
+        drep_hash = drep.as_hash(),
+        drep_type = StakeCredentialKind::from(drep)
+    );
+    let _guard = _span.enter();
+
     let mut delegators = BTreeSet::new();
 
     let keys = iter_drep(db, drep)
