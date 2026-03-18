@@ -16,10 +16,7 @@ use std::{fmt::Debug, pin::Pin};
 
 use amaru_kernel::Transaction;
 use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{
-    CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
-    TxSubmissionMempool,
-};
+use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +25,6 @@ use serde::{Deserialize, Serialize};
 /// It supports operations
 ///
 /// - for the tx submission protocol
-/// - for transaction validation
 ///
 #[derive(Clone)]
 pub struct MemoryPool<T> {
@@ -49,18 +45,11 @@ impl<T> MemoryPool<T> {
     }
 }
 
-impl<T: SendData + Sync> CanValidateTransactions<Transaction> for MemoryPool<T> {
-    /// This effect uses the ledger to validate a transaction before adding it to the mempool.
-    fn validate_transaction(&self, tx: Transaction) -> Result<(), TransactionValidationError> {
-        self.effects.external_sync(ValidateTransaction(tx))
-    }
-}
-
 impl<T: SendData + Sync> TxSubmissionMempool<Transaction> for MemoryPool<T> {
     /// This effect inserts a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
         self.external_sync(Insert::new(tx, tx_origin))
     }
 
@@ -116,29 +105,10 @@ impl ExternalEffect for Insert {
 }
 
 impl ExternalEffectAPI for Insert {
-    type Response = Result<(TxId, MempoolSeqNo), TxRejectReason>;
+    type Response = Result<TxInsertResult, MempoolError>;
 }
 
 impl ExternalEffectSync for Insert {}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct ValidateTransaction(Transaction);
-
-impl ExternalEffect for ValidateTransaction {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.validate_transaction(self.0)
-        })
-    }
-}
-
-impl ExternalEffectAPI for ValidateTransaction {
-    type Response = Result<(), TransactionValidationError>;
-}
-
-impl ExternalEffectSync for ValidateTransaction {}
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct GetTx {
@@ -272,10 +242,7 @@ mod tests {
     use std::pin::Pin;
 
     use amaru_kernel::{Transaction, TransactionBody, WitnessSet};
-    use amaru_ouroboros_traits::{
-        CanValidateTransactions, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
-        TxSubmissionMempool,
-    };
+    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
@@ -293,8 +260,8 @@ mod tests {
     }
 
     impl TxSubmissionMempool<Transaction> for ConstantMempool {
-        fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
-            Ok((TxId::from(&tx), MempoolSeqNo(1)))
+        fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
+            Ok(TxInsertResult::accepted(TxId::from(&tx), MempoolSeqNo(1)))
         }
 
         fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
@@ -315,12 +282,6 @@ mod tests {
 
         fn last_seq_no(&self) -> MempoolSeqNo {
             MempoolSeqNo(1)
-        }
-    }
-
-    impl CanValidateTransactions<Transaction> for ConstantMempool {
-        fn validate_transaction(&self, _tx: Transaction) -> Result<(), TransactionValidationError> {
-            Ok(())
         }
     }
 }

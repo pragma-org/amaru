@@ -15,10 +15,9 @@
 use std::{pin::Pin, sync::Arc};
 
 use amaru_kernel::Transaction;
-use amaru_mempool::{DefaultCanValidateTransactions, MempoolConfig, strategies::InMemoryMempool};
+use amaru_mempool::{MempoolConfig, TxValidator, strategies::InMemoryMempool};
 use amaru_ouroboros_traits::{
-    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
-    TxSubmissionMempool,
+    Mempool, MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool,
 };
 
 /// A mempool wrapper that limits the effective capacity of the inner mempool.
@@ -39,22 +38,16 @@ impl SizedMempool {
     }
 
     pub fn with_capacity(capacity: u64) -> Self {
-        SizedMempool::with_tx_validator(capacity, Arc::new(DefaultCanValidateTransactions))
+        SizedMempool::new(capacity, Arc::new(InMemoryMempool::from_config(MempoolConfig::default())))
     }
 
-    pub fn with_tx_validator(capacity: u64, tx_validator: Arc<dyn CanValidateTransactions<Transaction>>) -> Self {
+    pub fn with_tx_validator(capacity: u64, tx_validator: Arc<dyn TxValidator<Transaction>>) -> Self {
         SizedMempool::new(capacity, Arc::new(InMemoryMempool::new(MempoolConfig::default(), tx_validator)))
     }
 }
 
-impl CanValidateTransactions<Transaction> for SizedMempool {
-    fn validate_transaction(&self, tx: Transaction) -> Result<(), TransactionValidationError> {
-        self.inner_mempool.validate_transaction(tx)
-    }
-}
-
 impl TxSubmissionMempool<Transaction> for SizedMempool {
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
         self.inner_mempool.insert(tx, tx_origin)
     }
 

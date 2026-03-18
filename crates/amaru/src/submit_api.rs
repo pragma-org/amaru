@@ -15,7 +15,7 @@
 use std::net::SocketAddr;
 
 use amaru_kernel::Transaction;
-use amaru_ouroboros::{ResourceMempool, TxOrigin, TxRejectReason};
+use amaru_ouroboros::{ResourceMempool, TxInsertResult, TxOrigin, TxRejectReason};
 use anyhow::Context;
 use axum::{
     Json, Router,
@@ -79,20 +79,17 @@ async fn submit_tx(State(mempool): State<SubmitApiState>, headers: HeaderMap, bo
         }
     };
 
-    if let Err(e) = mempool.validate_transaction(tx.clone()) {
-        return text_response(StatusCode::BAD_REQUEST, e.to_string());
-    }
-
     match mempool.insert(tx, TxOrigin::Local) {
-        Ok((tx_id, _seq_no)) => json_response(StatusCode::ACCEPTED, tx_id.to_string()),
-        Err(reason) => text_response(
+        Ok(TxInsertResult::Accepted { tx_id, .. }) => json_response(StatusCode::ACCEPTED, tx_id.to_string()),
+        Ok(TxInsertResult::Rejected(reason)) => text_response(
             match reason {
                 TxRejectReason::MempoolFull => StatusCode::SERVICE_UNAVAILABLE,
                 TxRejectReason::Duplicate => StatusCode::CONFLICT,
-                TxRejectReason::Invalid => StatusCode::BAD_REQUEST,
+                TxRejectReason::Invalid(_) => StatusCode::BAD_REQUEST,
             },
             reason.to_string(),
         ),
+        Err(error) => text_response(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
 }
 
@@ -110,7 +107,7 @@ mod tests {
 
     use amaru_kernel::{RawBlock, Transaction};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
-    use amaru_ouroboros_traits::{CanValidateTransactions, TransactionValidationError, TxId};
+    use amaru_ouroboros_traits::{TransactionValidationError, TxId};
     use reqwest::{Response, header::CONTENT_TYPE};
     use tokio_util::sync::CancellationToken;
 
@@ -201,7 +198,7 @@ mod tests {
     #[tokio::test]
     async fn test_validation_failure() -> anyhow::Result<()> {
         let mempool: Arc<dyn amaru_ouroboros_traits::TxSubmissionMempool<Transaction>> =
-            Arc::new(InMemoryMempool::new(Default::default(), Arc::new(RejectTransactions)));
+            Arc::new(InMemoryMempool::new(Default::default(), Arc::new(reject_transactions)));
         let (addr, _shutdown) = start_test_server_with_mempool(mempool).await?;
 
         let tx = create_transaction(0);
@@ -261,12 +258,8 @@ mod tests {
         Ok((local_addr, shutdown))
     }
 
-    struct RejectTransactions;
-
-    impl CanValidateTransactions<Transaction> for RejectTransactions {
-        fn validate_transaction(&self, _tx: Transaction) -> Result<(), TransactionValidationError> {
-            Err(anyhow::anyhow!("transaction rejected for testing").into())
-        }
+    fn reject_transactions(_tx: &Transaction) -> Result<(), TransactionValidationError> {
+        Err(anyhow::anyhow!("transaction rejected for testing").into())
     }
 
     async fn submit_tx(addr: SocketAddr, body: impl Into<reqwest::Body>) -> anyhow::Result<Response> {

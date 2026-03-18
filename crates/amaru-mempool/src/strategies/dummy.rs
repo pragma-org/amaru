@@ -15,10 +15,7 @@
 use std::{collections::BTreeSet, mem, pin::Pin};
 
 use amaru_kernel::cbor;
-use amaru_ouroboros_traits::{
-    CanValidateTransactions, Mempool, MempoolSeqNo, TransactionValidationError, TxId, TxOrigin, TxRejectReason,
-    TxSubmissionMempool,
-};
+use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
 use parking_lot::RwLock;
 
 #[derive(Debug, Default)]
@@ -37,19 +34,13 @@ pub struct DummyMempoolInner<T> {
     transactions: Vec<T>,
 }
 
-impl<Tx: cbor::Encode<()> + Send + Sync + 'static> CanValidateTransactions<Tx> for DummyMempool<Tx> {
-    fn validate_transaction(&self, _tx: Tx) -> Result<(), TransactionValidationError> {
-        Ok(())
-    }
-}
-
 impl<Tx: cbor::Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for DummyMempool<Tx> {
-    fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+    fn insert(&self, tx: Tx, _tx_origin: TxOrigin) -> Result<TxInsertResult, amaru_ouroboros_traits::MempoolError> {
         let tx_id = TxId::from(&tx);
         let mut inner = self.inner.write();
         inner.transactions.push(tx);
         let seq_no = MempoolSeqNo(inner.transactions.len() as u64 - 1);
-        Ok((tx_id, seq_no))
+        Ok(TxInsertResult::accepted(tx_id, seq_no))
     }
 
     fn get_tx(&self, _tx_id: &TxId) -> Option<Tx> {
