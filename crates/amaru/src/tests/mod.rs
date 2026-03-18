@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod test_data;
+pub(crate) mod test_data;
 
 #[cfg(test)]
 mod test_cases;

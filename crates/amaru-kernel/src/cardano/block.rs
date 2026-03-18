@@ -50,6 +50,9 @@ pub struct Block {
 }
 
 impl Block {
+    /// Number of top-level CBOR fields in a serialized block.
+    pub const CBOR_FIELD_COUNT: u64 = 5;
+
     /// Get the size in bytes of the serialised block.
     pub fn body_len(&self) -> u64 {
         self.original_body_size
@@ -103,7 +106,7 @@ impl IntoIterator for Block {
 impl<'b, C> cbor::Decode<'b, C> for Block {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(5)?;
+            assert_len(Block::CBOR_FIELD_COUNT)?;
 
             let (header, header_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 

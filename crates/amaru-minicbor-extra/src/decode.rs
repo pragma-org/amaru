@@ -14,7 +14,7 @@
 
 use std::fmt::Display;
 
-use minicbor::decode;
+use minicbor::{data::Type, decode};
 
 use crate::cbor;
 
@@ -88,6 +88,36 @@ pub fn heterogeneous_array<'d, A>(
     }
 }
 
+/// Collect the raw CBOR bytes of each item in an array, without fully decoding them.
+pub fn collect_array_item_bytes(decoder: &mut cbor::Decoder<'_>) -> Result<Vec<Vec<u8>>, cbor::decode::Error> {
+    let len = decoder.array()?;
+    let mut items = Vec::new();
+
+    match len {
+        Some(len) => {
+            for _ in 0..len {
+                let (_, bytes) = tee(decoder, |d| {
+                    d.skip()?;
+                    Ok(())
+                })?;
+                items.push(bytes.to_vec());
+            }
+        }
+        None => {
+            while decoder.datatype()? != Type::Break {
+                let (_, bytes) = tee(decoder, |d| {
+                    d.skip()?;
+                    Ok(())
+                })?;
+                items.push(bytes.to_vec());
+            }
+            decoder.skip()?;
+        }
+    }
+
+    Ok(items)
+}
+
 /// This function checks the size of an array containing a tagged value.
 /// The `label` parameter is used to identify which variant is being checked.
 ///
@@ -151,6 +181,41 @@ pub fn heterogeneous_map<K, S>(
     }
 
     Ok(state)
+}
+
+/// Collect the raw CBOR bytes of each value in a map, together with decoded keys.
+pub fn collect_map_value_bytes<K: Ord>(
+    decoder: &mut cbor::Decoder<'_>,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>) -> Result<K, cbor::decode::Error>,
+) -> Result<std::collections::BTreeMap<K, Vec<u8>>, cbor::decode::Error> {
+    let len = decoder.map()?;
+    let mut items = std::collections::BTreeMap::new();
+
+    match len {
+        Some(len) => {
+            for _ in 0..len {
+                let key = decode_key(decoder)?;
+                let (_, bytes) = tee(decoder, |d| {
+                    d.skip()?;
+                    Ok(())
+                })?;
+                items.insert(key, bytes.to_vec());
+            }
+        }
+        None => {
+            while decoder.datatype()? != Type::Break {
+                let key = decode_key(decoder)?;
+                let (_, bytes) = tee(decoder, |d| {
+                    d.skip()?;
+                    Ok(())
+                })?;
+                items.insert(key, bytes.to_vec());
+            }
+            decoder.skip()?;
+        }
+    }
+
+    Ok(items)
 }
 
 /// Yield a `PartialDecoder` that fails with a comprehensible error message when an expected field

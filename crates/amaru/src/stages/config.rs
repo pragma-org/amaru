@@ -30,6 +30,7 @@ pub struct Config {
     pub max_downstream_peers: usize,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
     pub migrate_chain_db: bool,
+    pub submit_api_address: Option<String>,
 
     // Number of allocation arenas to keep around for performing parallel evaluation of scripts in
     // the ledger.
@@ -46,6 +47,11 @@ impl Config {
     pub fn listen_address(&self) -> anyhow::Result<SocketAddr> {
         self.listen_address.parse().context("invalid listen address")
     }
+
+    /// Parse the optional submit API address into a `SocketAddr`.
+    pub fn submit_api_address(&self) -> anyhow::Result<Option<SocketAddr>> {
+        self.submit_api_address.as_deref().map(|addr| addr.parse().context("invalid submit API address")).transpose()
+    }
 }
 
 impl Default for Config {
@@ -60,6 +66,7 @@ impl Default for Config {
             max_downstream_peers: 10,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
             migrate_chain_db: false,
+            submit_api_address: None,
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
         }
