@@ -15,9 +15,10 @@
 use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     blockfetch::{
@@ -120,46 +121,60 @@ impl ConnectionMessage {
     }
 }
 
-#[instrument(name = "connection", skip_all, fields(message_type = msg.message_type(), conn_id = %params.conn_id, peer = %params.peer, role = ?params.role))]
 pub async fn stage(
     Connection { params, state }: Connection,
     msg: ConnectionMessage,
     eff: Effects<ConnectionMessage>,
 ) -> Connection {
-    let state = match (state, msg) {
-        (_, ConnectionMessage::Disconnect) => return eff.terminate().await,
-        (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
-        (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
-            do_handshake(&params, muxer, params.pipeline.clone(), handshake, handshake_result, eff).await
-        }
-        (State::Initiator(s), ConnectionMessage::FetchBlocks { from, through, cr }) => {
-            eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, cr }).await;
-            State::Initiator(s)
-        }
-        (State::Responder(s), ConnectionMessage::NewTip(tip)) => {
-            eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip)).await;
-            State::Responder(s)
-        }
-        (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
-            // don't propagate new tip messages when using the initiator side of a connection.
-            State::Initiator(s)
-        }
-        (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {
-            // The peer might be still connecting. In that case we reschedule the message
-            // If the peer eventually can't be fully initialized, the caller timeout will trigger.
-            // We schedule after the reconnect delay (2s by default) which is shorter than the call
-            // timeout (5s) (whereas a full connection timeout is 10s).
-            eff.schedule_after(msg, params.config.reconnect_delay).await;
-            state
-        }
-        (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::NewTip(_)) => {
-            // The peer might be still connecting. Reschedule the NewTip message.
-            eff.schedule_after(msg, params.config.reconnect_delay).await;
-            state
-        }
-        x => unimplemented!("{x:?}"),
-    };
-    Connection { params, state }
+    let message_type = msg.message_type().to_string();
+    let conn_id = params.conn_id.to_string();
+    let peer = params.peer.to_string();
+    let role = format!("{:?}", params.role);
+
+    async move {
+        let state = match (state, msg) {
+            (_, ConnectionMessage::Disconnect) => return eff.terminate().await,
+            (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
+            (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
+                do_handshake(&params, muxer, params.pipeline.clone(), handshake, handshake_result, eff).await
+            }
+            (State::Initiator(s), ConnectionMessage::FetchBlocks { from, through, cr }) => {
+                eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, cr }).await;
+                State::Initiator(s)
+            }
+            (State::Responder(s), ConnectionMessage::NewTip(tip)) => {
+                eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip)).await;
+                State::Responder(s)
+            }
+            (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
+                // don't propagate new tip messages when using the initiator side of a connection.
+                State::Initiator(s)
+            }
+            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {
+                // The peer might be still connecting. In that case we reschedule the message
+                // If the peer eventually can't be fully initialized, the caller timeout will trigger.
+                // We schedule after the reconnect delay (2s by default) which is shorter than the call
+                // timeout (5s) (whereas a full connection timeout is 10s).
+                eff.schedule_after(msg, params.config.reconnect_delay).await;
+                state
+            }
+            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::NewTip(_)) => {
+                // The peer might be still connecting. Reschedule the NewTip message.
+                eff.schedule_after(msg, params.config.reconnect_delay).await;
+                state
+            }
+            x => unimplemented!("{x:?}"),
+        };
+        Connection { params, state }
+    }
+    .instrument(trace_span!(
+        amaru_observability::amaru::protocols::connection::CONNECTION_STAGE,
+        message_type = message_type,
+        conn_id = conn_id,
+        peer = peer,
+        role = role
+    ))
+    .await
 }
 
 async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {

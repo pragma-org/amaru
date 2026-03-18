@@ -52,10 +52,11 @@ use std::fmt::{Debug, Display};
 
 use ProtocolError::*;
 use amaru_kernel::{Transaction, utils::string::display_collection};
+use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
 use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     mempool_effects::MemoryPool,
@@ -93,25 +94,33 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         Ok((None, self))
     }
 
-    #[instrument(name = "tx_submission.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+        let message_type = input.message_type().to_string();
 
-        let action = match input {
-            InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
-                self.request_tx_ids_blocking(mempool, ack, req).await?
-            }
-            InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
-                self.request_tx_ids_non_blocking(mempool, ack, req)?
-            }
-            InitiatorResult::RequestTxs(tx_ids) => self.request_txs(mempool, tx_ids)?,
-        };
-        Ok((action, self))
+        async move {
+            let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+
+            let action = match input {
+                InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
+                    self.request_tx_ids_blocking(mempool, ack, req).await?
+                }
+                InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
+                    self.request_tx_ids_non_blocking(mempool, ack, req)?
+                }
+                InitiatorResult::RequestTxs(tx_ids) => self.request_txs(mempool, tx_ids)?,
+            };
+            Ok((action, self))
+        }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE,
+            message_type = message_type
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -129,8 +138,12 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
     }
 
-    #[instrument(name = "tx_submission.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
                 tracing::debug!(%ack, %req, "received RequestTxIdsBlocking");

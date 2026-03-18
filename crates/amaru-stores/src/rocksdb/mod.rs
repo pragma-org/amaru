@@ -36,9 +36,7 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
-use amaru_observability::{
-    trace_record, trace_span,
-};
+use amaru_observability::{trace_record, trace_span};
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };

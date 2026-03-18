@@ -453,12 +453,12 @@ fn parse_token(
         }
         _ if is_identifier_start(token) => {
             // Check for optional public keyword before schema/category
-            let (public, actual_name_idx) =
-                if token == "public" && tokens.get(index + 1).map(|s| s.as_str()).is_some() {
-                    (true, index + 1)
-                } else {
-                    (false, index)
-                };
+            let (public, actual_name_idx) = if token == "public" && tokens.get(index + 1).map(|s| s.as_str()).is_some()
+            {
+                (true, index + 1)
+            } else {
+                (false, index)
+            };
 
             // Check if this starts a new scope (followed by `{`)
             let name_token = tokens.get(actual_name_idx).map(|s| s.as_str()).unwrap_or("");

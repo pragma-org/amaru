@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_observability::trace_span;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     handshake::{State, messages::Message},
@@ -64,34 +65,42 @@ impl StageState<State, Initiator> for HandshakeInitiator {
         match input {}
     }
 
-    #[instrument(name = "handshake.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         self,
         _proto: &State,
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        Ok(match input {
-            InitiatorResult::Propose => {
-                tracing::debug!(?self.our_versions, "proposing versions");
-                (Some(InitiatorAction::Propose(self.our_versions.clone())), self)
-            }
-            InitiatorResult::Conclusion(handshake_result) => {
-                tracing::debug!(?handshake_result, "conclusion");
-                eff.send(&self.connection, handshake_result).await;
-                (None, self)
-            }
-            InitiatorResult::SimOpen(version_table) => {
-                tracing::debug!(?version_table, "simultaneous open");
-                let result = crate::handshake::compute_negotiation_result(
-                    crate::protocol::Role::Initiator,
-                    self.our_versions.clone(),
-                    version_table,
-                );
-                eff.send(&self.connection, result).await;
-                (None, self)
-            }
-        })
+        let message_type = input.message_type().to_string();
+
+        async move {
+            Ok(match input {
+                InitiatorResult::Propose => {
+                    tracing::debug!(?self.our_versions, "proposing versions");
+                    (Some(InitiatorAction::Propose(self.our_versions.clone())), self)
+                }
+                InitiatorResult::Conclusion(handshake_result) => {
+                    tracing::debug!(?handshake_result, "conclusion");
+                    eff.send(&self.connection, handshake_result).await;
+                    (None, self)
+                }
+                InitiatorResult::SimOpen(version_table) => {
+                    tracing::debug!(?version_table, "simultaneous open");
+                    let result = crate::handshake::compute_negotiation_result(
+                        crate::protocol::Role::Initiator,
+                        self.our_versions.clone(),
+                        version_table,
+                    );
+                    eff.send(&self.connection, result).await;
+                    (None, self)
+                }
+            })
+        }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::handshake::initiator::HANDSHAKE_INITIATOR_STAGE,
+            message_type = message_type
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -109,8 +118,12 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Propose), Self::Propose))
     }
 
-    #[instrument(name = "handshake.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::handshake::initiator::HANDSHAKE_INITIATOR_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         anyhow::ensure!(self == &Self::Confirm, "handshake initiator cannot receive in initial state");
         Ok(match input {
             Message::Propose(version_table) => {

@@ -645,6 +645,153 @@ define_schemas! {
     }
 
     protocols {
+        connection {
+            /// Handle connection stage messages
+            CONNECTION_STAGE {
+                required message_type: String
+                required conn_id: String
+                required peer: String
+                required role: String
+            }
+        }
+
+        manager {
+            /// Handle manager stage messages
+            MANAGER_STAGE {
+                required message_type: String
+            }
+        }
+
+        chainsync {
+            initiator {
+                /// Handle chain sync initiator stage messages
+                CHAINSYNC_INITIATOR_STAGE {
+                    required message_type: String
+                }
+
+                /// Handle chain sync initiator protocol messages
+                CHAINSYNC_INITIATOR_PROTOCOL {
+                    required message_type: String
+                }
+            }
+
+            responder {
+                /// Handle chain sync responder stage messages
+                CHAINSYNC_RESPONDER_STAGE {
+                    required message_type: String
+                }
+
+                /// Handle chain sync responder protocol messages
+                CHAINSYNC_RESPONDER_PROTOCOL {
+                    required message_type: String
+                }
+            }
+        }
+
+        blockfetch {
+            initiator {
+                /// Handle block fetch initiator stage messages
+                BLOCKFETCH_INITIATOR_STAGE {
+                    required message_type: String
+                }
+
+                /// Handle block fetch initiator protocol messages
+                BLOCKFETCH_INITIATOR_PROTOCOL {
+                    required message_type: String
+                }
+            }
+
+            responder {
+                /// Handle block fetch responder stage messages
+                BLOCKFETCH_RESPONDER_STAGE {
+                    required message_type: String
+                }
+
+                /// Handle block fetch responder protocol messages
+                BLOCKFETCH_RESPONDER_PROTOCOL {
+                    required message_type: String
+                }
+            }
+        }
+
+        handshake {
+            initiator {
+                /// Handle handshake initiator stage messages
+                HANDSHAKE_INITIATOR_STAGE {
+                    required message_type: String
+                }
+
+                /// Handle handshake initiator protocol messages
+                HANDSHAKE_INITIATOR_PROTOCOL {
+                    required message_type: String
+                }
+            }
+
+            responder {
+                /// Handle handshake responder stage messages
+                HANDSHAKE_RESPONDER_STAGE {
+                    required version_table: String
+                }
+
+                /// Handle handshake responder protocol messages
+                HANDSHAKE_RESPONDER_PROTOCOL {
+                    required message_type: String
+                }
+            }
+        }
+
+        keepalive {
+            initiator {
+                /// Handle keepalive initiator stage messages
+                KEEPALIVE_INITIATOR_STAGE {
+                    required cookie: u16
+                }
+
+                /// Handle keepalive initiator protocol messages
+                KEEPALIVE_INITIATOR_PROTOCOL {
+                    required message_type: String
+                }
+            }
+
+            responder {
+                /// Handle keepalive responder stage messages
+                KEEPALIVE_RESPONDER_STAGE {
+                    required cookie: u16
+                }
+
+                /// Handle keepalive responder protocol messages
+                KEEPALIVE_RESPONDER_PROTOCOL {
+                    required message_type: String
+                }
+            }
+        }
+
+        tx_submission {
+            initiator {
+                /// Handle tx-submission initiator stage messages
+                TX_SUBMISSION_INITIATOR_STAGE {
+                    required message_type: String
+                }
+
+                /// Handle tx-submission initiator protocol messages
+                TX_SUBMISSION_INITIATOR_PROTOCOL {
+                    required message_type: String
+                }
+            }
+
+            responder {
+                /// Handle tx-submission responder stage messages
+                TX_SUBMISSION_RESPONDER_STAGE {
+                    required message_type: String
+                }
+
+                /// Handle tx-submission responder protocol messages
+                TX_SUBMISSION_RESPONDER_PROTOCOL {
+                    required message_type: String
+                }
+            }
+        }
+
         mux {
             /// Register protocol with muxer
             REGISTER {}

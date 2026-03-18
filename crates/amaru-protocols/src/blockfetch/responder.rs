@@ -15,9 +15,10 @@
 use std::fmt::Debug;
 
 use amaru_kernel::{BlockHeader, IsHeader, NonEmptyVec, Point, RawBlock};
+use amaru_observability::trace_span;
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     blockfetch::{State, messages::Message},
@@ -183,25 +184,33 @@ impl StageState<State, Responder> for BlockFetchResponder {
         }
     }
 
-    #[instrument(name = "blockfetch.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         self,
         _proto: &State,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        match input {
-            ResponderResult::RequestRange { from, through } => {
-                let store = Store::new(eff.clone());
-                if let Some(points_range) = PointsRange::request_range(&store, from, through)? {
-                    eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::More(points_range))).await;
-                    Ok((Some(ResponderAction::StartBatch), self))
-                } else {
-                    Ok((Some(ResponderAction::NoBlocks), self))
+        let message_type = input.message_type().to_string();
+
+        async move {
+            match input {
+                ResponderResult::RequestRange { from, through } => {
+                    let store = Store::new(eff.clone());
+                    if let Some(points_range) = PointsRange::request_range(&store, from, through)? {
+                        eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::More(points_range))).await;
+                        Ok((Some(ResponderAction::StartBatch), self))
+                    } else {
+                        Ok((Some(ResponderAction::NoBlocks), self))
+                    }
                 }
+                ResponderResult::Done => Ok((None, self)),
             }
-            ResponderResult::Done => Ok((None, self)),
         }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE,
+            message_type = message_type
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -219,8 +228,12 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(name = "blockfetch.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         use Message::*;
         match (self, input) {
             (Self::Idle, RequestRange { from, through }) => {

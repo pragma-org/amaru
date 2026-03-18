@@ -19,8 +19,7 @@ use quote::quote;
 
 use crate::utils::{
     make_assign_macro_name, make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_schema_field_count_const_name, make_schema_public_const_name,
-    parse_full_schema_path,
+    make_require_macro_name, make_schema_field_count_const_name, make_schema_public_const_name, parse_full_schema_path,
 };
 
 const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";

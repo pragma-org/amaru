@@ -14,8 +14,9 @@
 
 use std::time::Duration;
 
+use amaru_observability::trace_span;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     keepalive::{
@@ -82,7 +83,6 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         }
     }
 
-    #[instrument(name = "keepalive.initiator.stage", skip_all, fields(cookie = input.cookie.as_u16()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -90,16 +90,25 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         // After receiving a response, increment cookie and schedule next send
-        self.cookie = input.cookie.next();
-        let delay = if u16::from(input.cookie) == 0 {
-            // this is only for the very first keep-alive message, which the Haskell node expects within the first
-            // five seconds
-            Duration::from_secs(1)
-        } else {
-            Duration::from_secs(30)
-        };
-        eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
-        Ok((None, self))
+        let cookie = input.cookie.as_u16();
+
+        async move {
+            self.cookie = input.cookie.next();
+            let delay = if u16::from(input.cookie) == 0 {
+                // this is only for the very first keep-alive message, which the Haskell node expects within the first
+                // five seconds
+                Duration::from_secs(1)
+            } else {
+                Duration::from_secs(30)
+            };
+            eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
+            Ok((None, self))
+        }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE,
+            cookie = cookie
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -118,8 +127,12 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult { cookie: Cookie::new() }), *self))
     }
 
-    #[instrument(name = "keepalive.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::keepalive::initiator::KEEPALIVE_INITIATOR_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         use State::*;
 
         Ok(match (self, input) {
