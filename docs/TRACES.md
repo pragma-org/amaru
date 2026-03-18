@@ -7,29 +7,29 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::consensus::chain_sync`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `decode_header` | `TRACE` | Decode header from raw bytes |  |  |  |
-| `pull` | `TRACE` | Chain sync pull operation |  |  |  |
-| `receive_header` | `TRACE` | Pull chain updates from peer |  |  |  |
-| `receive_header_decode_failed` | `TRACE` | Header decode failed from received data |  |  |  |
-| `select_chain` | `TRACE` | Select best chain from available headers |  |  |  |
-| `validate_block` | `TRACE` | Validate block properties |  |  |  |
-| `validate_header` | `TRACE` | Validate header properties |  |  |  |
+| `decode_header` | `TRACE` | public | Decode header from raw bytes |  |  |
+| `pull` | `TRACE` | public | Chain sync pull operation |  |  |
+| `receive_header` | `TRACE` | public | Pull chain updates from peer |  |  |
+| `receive_header_decode_failed` | `TRACE` | public | Header decode failed from received data |  |  |
+| `select_chain` | `TRACE` | public | Select best chain from available headers |  |  |
+| `validate_block` | `TRACE` | public | Validate block properties |  |  |
+| `validate_header` | `TRACE` | public | Validate header properties |  |  |
 
 ## target: `amaru::consensus::diffusion`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `fetch_block` | `TRACE` | Fetch a block from the network |  |  |  |
-| `forward_chain` | `TRACE` | Forward chain operations |  |  |  |
+| `fetch_block` | `TRACE` | public | Fetch a block from the network |  |  |
+| `forward_chain` | `TRACE` | public | Forward chain operations |  |  |
 
 ## target: `amaru::consensus::validate_header`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `evolve_nonce` | `TRACE` | Evolve the nonce based on header | hash |  |  |
-| `validate` | `TRACE` | Validate header cryptographic properties | issuer_key |  |  |
+| `evolve_nonce` | `TRACE` | public | Evolve the nonce based on header | hash |  |
+| `validate` | `TRACE` | public | Validate header cryptographic properties | issuer_key |  |
 
 <details><summary>span: `evolve_nonce`</summary>
 
@@ -49,14 +49,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::ledger::context`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `add_fees` | `TRACE` | Add transaction fees to pots | fee |  |  |
-| `require_bootstrap_witness` | `TRACE` | Require a bootstrap witness | bootstrap_witness_hash |  |  |
-| `require_script_witness` | `TRACE` | Require a script witness | hash |  |  |
-| `require_vkey_witness` | `TRACE` | Require a verification key witness | hash |  |  |
-| `vote` | `TRACE` | Record a governance vote | voter_type, credential_type, credential_hash |  |  |
-| `withdraw_from` | `TRACE` | Withdraw from stake credential | credential_type, credential_hash |  |  |
+| `add_fees` | `TRACE` | public | Add transaction fees to pots | fee |  |
+| `require_bootstrap_witness` | `TRACE` | public | Require a bootstrap witness | bootstrap_witness_hash |  |
+| `require_script_witness` | `TRACE` | public | Require a script witness | hash |  |
+| `require_vkey_witness` | `TRACE` | public | Require a verification key witness | hash |  |
+| `vote` | `TRACE` | public | Record a governance vote | voter_type, credential_type, credential_hash |  |
+| `withdraw_from` | `TRACE` | public | Withdraw from stake credential | credential_type, credential_hash |  |
 
 <details><summary>span: `add_fees`</summary>
 
@@ -111,19 +111,19 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::ledger::context::default::validation`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `certificate_committee_delegate` | `TRACE` | Delegate cold key to committee | cc_member_type, cc_member_hash, delegate_type, delegate_hash |  |  |
-| `certificate_committee_resign` | `TRACE` | Resign from committee | cc_member_type, cc_member_hash |  |  |
-| `certificate_drep_registration` | `TRACE` | Register a DRep | drep_type, drep_hash, deposit |  |  |
-| `certificate_drep_retirement` | `TRACE` | Unregister a DRep | drep_type, drep_hash, refund |  |  |
-| `certificate_drep_update` | `TRACE` | Update DRep anchor | drep_type, drep_hash |  |  |
-| `certificate_pool_registration` | `TRACE` | Register a pool | pool_id |  |  |
-| `certificate_pool_retirement` | `TRACE` | Retire a pool | pool_id, epoch |  |  |
-| `certificate_stake_delegation` | `TRACE` | Delegate stake to a pool | credential_type, credential_hash, pool_id |  |  |
-| `certificate_stake_deregistration` | `TRACE` | Unregister a stake credential | credential_type, credential_hash |  |  |
-| `certificate_stake_registration` | `TRACE` | Register a stake credential | credential_type, credential_hash |  |  |
-| `certificate_vote_delegation` | `TRACE` | Delegate vote to DRep | credential_type, credential_hash, drep_type, drep_hash |  |  |
+| `certificate_committee_delegate` | `TRACE` | public | Delegate cold key to committee | cc_member_type, cc_member_hash, delegate_type, delegate_hash |  |
+| `certificate_committee_resign` | `TRACE` | public | Resign from committee | cc_member_type, cc_member_hash |  |
+| `certificate_drep_registration` | `TRACE` | public | Register a DRep | drep_type, drep_hash, deposit |  |
+| `certificate_drep_retirement` | `TRACE` | public | Unregister a DRep | drep_type, drep_hash, refund |  |
+| `certificate_drep_update` | `TRACE` | public | Update DRep anchor | drep_type, drep_hash |  |
+| `certificate_pool_registration` | `TRACE` | public | Register a pool | pool_id |  |
+| `certificate_pool_retirement` | `TRACE` | public | Retire a pool | pool_id, epoch |  |
+| `certificate_stake_delegation` | `TRACE` | public | Delegate stake to a pool | credential_type, credential_hash, pool_id |  |
+| `certificate_stake_deregistration` | `TRACE` | public | Unregister a stake credential | credential_type, credential_hash |  |
+| `certificate_stake_registration` | `TRACE` | public | Register a stake credential | credential_type, credential_hash |  |
+| `certificate_vote_delegation` | `TRACE` | public | Delegate vote to DRep | credential_type, credential_hash, drep_type, drep_hash |  |
 
 <details><summary>span: `certificate_committee_delegate`</summary>
 
@@ -232,9 +232,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::ledger::governance`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `ratify_proposals` | `TRACE` | Ratify proposals at epoch boundary | roots_protocol_parameters, roots_hard_fork, roots_constitutional_committee, roots_constitution |  |  |
+| `ratify_proposals` | `TRACE` | public | Ratify proposals at epoch boundary | roots_protocol_parameters, roots_hard_fork, roots_constitutional_committee, roots_constitution |  |
 
 <details><summary>span: `ratify_proposals`</summary>
 
@@ -249,9 +249,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::ledger::rules`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `parse_block` | `TRACE` | Parse raw block bytes | block_size |  |  |
+| `parse_block` | `TRACE` | public | Parse raw block bytes | block_size |  |
 
 <details><summary>span: `parse_block`</summary>
 
@@ -263,30 +263,30 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::ledger::state`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `apply_block` | `TRACE` | Apply a block to stable state | point_slot |  |  |
-| `begin_epoch` | `TRACE` | Begin epoch operations |  |  |  |
-| `cleanup_expired_proposals` | `TRACE` | Cleanup expired proposals |  |  |  |
-| `cleanup_old_epochs` | `TRACE` | Cleanup old epochs |  |  |  |
-| `compute_rewards` | `TRACE` | Compute rewards for epoch |  |  |  |
-| `compute_stake_distribution` | `TRACE` | Compute stake distribution for epoch | epoch |  |  |
-| `compute_stake_distribution_named` | `TRACE` | Compute stake distribution for epoch |  |  |  |
-| `create_validation_context` | `TRACE` | Create validation context for a block | block_body_hash, block_number, block_body_size | total_inputs |  |
-| `end_epoch` | `TRACE` | End epoch operations |  |  |  |
-| `epoch_transition` | `TRACE` | Epoch transition processing | from, into |  |  |
-| `forward` | `TRACE` | Forward ledger state with new volatile state |  |  |  |
-| `manage_transaction_outputs` | `TRACE` | Manage transaction outputs |  |  |  |
-| `prepare_block` | `TRACE` | Prepare block for validation |  |  |  |
-| `ratification_context_new` | `TRACE` | Create ratification context |  |  |  |
-| `reset_blocks_count` | `TRACE` | Reset blocks count to zero |  |  |  |
-| `reset_fees` | `TRACE` | Reset fees to zero |  |  |  |
-| `resolve_inputs` | `TRACE` | Resolve transaction inputs from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |  |
-| `roll_backward` | `TRACE` | Roll backward to a specific point |  |  |  |
-| `roll_forward` | `TRACE` | Roll forward ledger state with a new block |  |  |  |
-| `tick_pool` | `TRACE` | Tick pool operations |  |  |  |
-| `tick_proposals` | `TRACE` | Tick proposals for ratification | proposals_count |  |  |
-| `validate_block` | `TRACE` | Validate block against rules |  |  |  |
+| `apply_block` | `TRACE` | public | Apply a block to stable state | point_slot |  |
+| `begin_epoch` | `TRACE` | public | Begin epoch operations |  |  |
+| `cleanup_expired_proposals` | `TRACE` | public | Cleanup expired proposals |  |  |
+| `cleanup_old_epochs` | `TRACE` | public | Cleanup old epochs |  |  |
+| `compute_rewards` | `TRACE` | public | Compute rewards for epoch |  |  |
+| `compute_stake_distribution` | `TRACE` | public | Compute stake distribution for epoch | epoch |  |
+| `compute_stake_distribution_named` | `TRACE` | public | Compute stake distribution for epoch |  |  |
+| `create_validation_context` | `TRACE` | public | Create validation context for a block | block_body_hash, block_number, block_body_size | total_inputs |
+| `end_epoch` | `TRACE` | public | End epoch operations |  |  |
+| `epoch_transition` | `TRACE` | public | Epoch transition processing | from, into |  |
+| `forward` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
+| `manage_transaction_outputs` | `TRACE` | public | Manage transaction outputs |  |  |
+| `prepare_block` | `TRACE` | public | Prepare block for validation |  |  |
+| `ratification_context_new` | `TRACE` | public | Create ratification context |  |  |
+| `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
+| `reset_fees` | `TRACE` | public | Reset fees to zero |  |  |
+| `resolve_inputs` | `TRACE` | public | Resolve transaction inputs from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
+| `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
+| `roll_forward` | `TRACE` | public | Roll forward ledger state with a new block |  |  |
+| `tick_pool` | `TRACE` | public | Tick pool operations |  |  |
+| `tick_proposals` | `TRACE` | public | Tick proposals for ratification | proposals_count |  |
+| `validate_block` | `TRACE` | public | Validate block against rules |  |  |
 
 <details><summary>span: `apply_block`</summary>
 
@@ -344,9 +344,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::network::chainsync_client`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `find_intersection` | `TRACE` | Find chain intersection point with peer | peer, intersection_slot |  |  |
+| `find_intersection` | `TRACE` | public | Find chain intersection point with peer | peer, intersection_slot |  |
 
 <details><summary>span: `find_intersection`</summary>
 
@@ -359,108 +359,48 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 ## target: `amaru::network::connection`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `accept` | `TRACE` | Accept a connection |  |  |  |
-| `accept_loop` | `TRACE` | Accept loop for incoming connections |  |  |  |
-| `close` | `TRACE` | Close connection |  |  |  |
-| `connect` | `TRACE` | Connect to addresses |  |  |  |
-| `connect_addrs` | `TRACE` | Connect to multiple addresses |  |  |  |
-| `listen` | `TRACE` | Listen on address |  |  |  |
-| `recv` | `TRACE` | Receive data from connection |  |  |  |
-| `send` | `TRACE` | Send data over connection |  |  |  |
-
-## target: `amaru::protocols::mux`
-
-| name | level | private | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `buffer` | `TRACE` | Buffer protocol messages |  |  |  |
-| `demux` | `TRACE` | Demultiplex incoming bytes | proto_id, bytes |  |  |
-| `mux` | `TRACE` | Multiplex outgoing bytes | bytes |  |  |
-| `next_segment` | `TRACE` | Get next segment to send |  |  |  |
-| `outgoing` | `TRACE` | Handle outgoing protocol messages | proto_id, bytes |  |  |
-| `received` | `TRACE` | Handle received protocol data | bytes |  |  |
-| `register` | `TRACE` | Register protocol with muxer |  |  |  |
-| `want_next` | `TRACE` | Want next message for protocol |  |  |  |
-
-<details><summary>span: `demux`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `proto_id` | `integer` | ✓ |
-| `bytes` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `mux`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `bytes` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `outgoing`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `proto_id` | `string` |  |
-| `bytes` | `integer` |  |
-
-</details>
-
-<details><summary>span: `received`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `bytes` | `integer` |  |
-
-</details>
+| `accept` | `TRACE` | public | Accept a connection |  |  |
+| `accept_loop` | `TRACE` | public | Accept loop for incoming connections |  |  |
+| `close` | `TRACE` | public | Close connection |  |  |
+| `connect` | `TRACE` | public | Connect to addresses |  |  |
+| `connect_addrs` | `TRACE` | public | Connect to multiple addresses |  |  |
+| `listen` | `TRACE` | public | Listen on address |  |  |
 
 ## target: `amaru::simulator::node`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `handle_msg` | `TRACE` | Handle message in simulator node |  |  |  |
+| `handle_msg` | `TRACE` | public | Handle message in simulator node |  |  |
 
 ## target: `amaru::stage::logging`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `test_span` | `TRACE` | Test span for logging |  |  |  |
-
-## target: `amaru::stage::tokio`
-
-| name | level | private | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `poll` | `TRACE` | Poll stage operation | stage |  |  |
-
-<details><summary>span: `poll`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `stage` | `string` | ✓ |
-
-</details>
+| `test_span` | `TRACE` | public | Test span for logging |  |  |
 
 ## target: `amaru::stores::consensus`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `read_blocks` | `TRACE` | Read blocks operations | hash |  |  |
-| `read_headers` | `TRACE` | Read headers operations | hash |  |  |
-| `roll_forward_chain` | `TRACE` | Roll forward the chain to a point | hash, slot |  |  |
-| `rollback_chain` | `TRACE` | Rollback the chain to a point | hash, slot |  |  |
-| `rollback_to_tip` | `TRACE` | Rollback to tip operations | hash |  |  |
-| `store_block` | `TRACE` | Store a raw block | hash |  |  |
-| `store_block_to_tip` | `TRACE` | Store block to tip operations | hash |  |  |
-| `store_header` | `TRACE` | Store a block header | hash |  |  |
+| `read_blocks` | `TRACE` | public | Read blocks operations | hash, db_system_name, db_operation_name, db_collection_name |  |
+| `read_headers` | `TRACE` | public | Read headers operations | hash, db_system_name, db_operation_name, db_collection_name |  |
+| `roll_forward_chain` | `TRACE` | public | Roll forward the chain to a point | hash, slot, db_system_name, db_operation_name, db_collection_name |  |
+| `rollback_chain` | `TRACE` | public | Rollback the chain to a point | hash, slot, db_system_name, db_operation_name, db_collection_name |  |
+| `rollback_to_tip` | `TRACE` | public | Rollback to tip operations | hash, db_system_name, db_operation_name, db_collection_name |  |
+| `store_block` | `TRACE` | public | Store a raw block | hash, db_system_name, db_operation_name, db_collection_name |  |
+| `store_block_to_tip` | `TRACE` | public | Store block to tip operations | hash, db_system_name, db_operation_name, db_collection_name |  |
+| `store_header` | `TRACE` | public | Store a block header | hash, db_system_name, db_operation_name, db_collection_name |  |
 
 <details><summary>span: `read_blocks`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -469,6 +409,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -478,6 +421,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
 | `slot` | `integer` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -487,6 +433,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
 | `slot` | `integer` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -495,6 +444,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -503,6 +455,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -511,6 +466,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -519,17 +477,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
 ## target: `amaru::stores::ledger`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `dreps_delegation_remove` | `TRACE` | Remove DRep delegations | drep_hash, drep_type |  |  |
-| `prune` | `TRACE` | Prune old snapshots | functional_minimum |  |  |
-| `snapshot` | `TRACE` | Create ledger snapshot for epoch | epoch |  |  |
-| `try_epoch_transition` | `TRACE` | Epoch transition tracking | has_from, has_to, point, snapshots |  |  |
+| `dreps_delegation_remove` | `TRACE` | public | Remove DRep delegations | drep_hash, drep_type, db_system_name, db_operation_name, db_collection_name |  |
+| `prune` | `TRACE` | public | Prune old snapshots | functional_minimum, db_system_name, db_operation_name |  |
+| `snapshot` | `TRACE` | public | Create ledger snapshot for epoch | epoch, db_system_name, db_operation_name |  |
+| `try_epoch_transition` | `TRACE` | public | Epoch transition tracking | db_system_name, db_operation_name | has_from, has_to, point, snapshots |
 
 <details><summary>span: `dreps_delegation_remove`</summary>
 
@@ -537,6 +498,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `drep_hash` | `string` | ✓ |
 | `drep_type` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 
@@ -545,6 +509,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `functional_minimum` | `integer` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
 
 </details>
 
@@ -553,6 +519,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `integer` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
 
 </details>
 
@@ -560,6 +528,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
 | `has_from` | `boolean` |  |
 | `has_to` | `boolean` |  |
 | `point` | `string` |  |
@@ -567,19 +537,325 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::stores::ledger::columns`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `accounts_add` | `TRACE` | public | Batch-upsert account entries | db_system_name, db_operation_name, db_collection_name |  |
+| `accounts_get` | `TRACE` | public | Point-read an account entry | db_system_name, db_operation_name, db_collection_name |  |
+| `accounts_remove` | `TRACE` | public | Batch-delete account entries | db_system_name, db_operation_name, db_collection_name |  |
+| `accounts_reset_delegation` | `TRACE` | public | Clear DRep delegation for accounts (protocol v9 bug compat) | db_system_name, db_operation_name, db_collection_name |  |
+| `accounts_reset_many` | `TRACE` | public | Reset rewards counters for many accounts | db_system_name, db_operation_name, db_collection_name |  |
+| `accounts_set` | `TRACE` | public | Update rewards balance for a single account | db_system_name, db_operation_name, db_collection_name |  |
+| `cc_members_upsert` | `TRACE` | public | Upsert a constitutional committee member | db_system_name, db_operation_name, db_collection_name |  |
+| `dreps_add` | `TRACE` | public | Batch-upsert DRep registrations | db_system_name, db_operation_name, db_collection_name |  |
+| `dreps_get` | `TRACE` | public | Point-read a DRep entry | db_system_name, db_operation_name, db_collection_name |  |
+| `dreps_remove` | `TRACE` | public | Record DRep de-registration | db_system_name, db_operation_name, db_collection_name |  |
+| `dreps_set_valid_until` | `TRACE` | public | Refresh DRep expiry after a vote | db_system_name, db_operation_name, db_collection_name |  |
+| `iter_scan` | `TRACE` | public | Full-table scan via IterBorrow (tick/epoch operations) | db_system_name, db_operation_name, db_collection_name | rows_scanned, rows_written, rows_deleted |
+| `pools_add` | `TRACE` | public | Batch-upsert pool entries | db_system_name, db_operation_name, db_collection_name |  |
+| `pools_get` | `TRACE` | public | Point-read a pool entry | db_system_name, db_operation_name, db_collection_name |  |
+| `pools_remove` | `TRACE` | public | Schedule pool retirement | db_system_name, db_operation_name, db_collection_name |  |
+| `pots_get` | `TRACE` | public | Read treasury/reserve/fees pots | db_system_name, db_operation_name, db_collection_name |  |
+| `pots_put` | `TRACE` | public | Write treasury/reserve/fees pots | db_system_name, db_operation_name, db_collection_name |  |
+| `proposals_add` | `TRACE` | public | Insert governance proposals | db_system_name, db_operation_name, db_collection_name |  |
+| `proposals_remove` | `TRACE` | public | Remove enacted or expired proposals | db_system_name, db_operation_name, db_collection_name |  |
+| `slots_get` | `TRACE` | public | Point-read a slot/block-issuer entry | db_system_name, db_operation_name, db_collection_name |  |
+| `slots_put` | `TRACE` | public | Write a slot/block-issuer entry | db_system_name, db_operation_name, db_collection_name |  |
+| `utxo_add` | `TRACE` | public | Batch-insert UTxO entries | db_system_name, db_operation_name, db_collection_name |  |
+| `utxo_get` | `TRACE` | public | Point-read a UTxO entry | db_system_name, db_operation_name, db_collection_name |  |
+| `utxo_remove` | `TRACE` | public | Batch-delete UTxO entries | db_system_name, db_operation_name, db_collection_name |  |
+| `votes_add` | `TRACE` | public | Record governance votes | db_system_name, db_operation_name, db_collection_name |  |
+
+<details><summary>span: `accounts_add`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `accounts_get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `accounts_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `accounts_reset_delegation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `accounts_reset_many`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `accounts_set`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `cc_members_upsert`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `dreps_add`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `dreps_get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `dreps_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `dreps_set_valid_until`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `iter_scan`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+| `rows_scanned` | `integer` |  |
+| `rows_written` | `integer` |  |
+| `rows_deleted` | `integer` |  |
+
+</details>
+
+<details><summary>span: `pools_add`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `pools_get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `pools_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `pots_get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `pots_put`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `proposals_add`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `proposals_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `slots_get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `slots_put`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `utxo_add`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `utxo_get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `utxo_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `votes_add`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::stores::rocksdb`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `save_point` | `TRACE` | Save point to RocksDB store | slot | epoch |  |
-| `validate_snapshots` | `TRACE` | Validate sufficient snapshots exist | snapshot_count, continuous_ranges |  |  |
+| `commit` | `TRACE` | public | Commit a write transaction | db_system_name, db_operation_name |  |
+| `rollback` | `TRACE` | public | Rollback a write transaction | db_system_name, db_operation_name |  |
+| `save_point` | `TRACE` | public | Save point to RocksDB store | slot, db_system_name, db_operation_name | epoch, db_operation_batch_size |
+| `validate_snapshots` | `TRACE` | public | Validate sufficient snapshots exist | db_system_name, db_operation_name | snapshot_count, continuous_ranges |
+
+<details><summary>span: `commit`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `rollback`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `save_point`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `slot` | `integer` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
 | `epoch` | `integer` |  |
+| `db_operation_batch_size` | `integer` |  |
 
 </details>
 
@@ -587,6 +863,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
 | `snapshot_count` | `integer` |  |
 | `continuous_ranges` | `integer` |  |
 

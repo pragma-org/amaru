@@ -193,6 +193,30 @@ This completely removes tracing overhead at compile time, useful for:
 
 **Important:** `cargo clean` is required because cargo caches macro expansions. Simply setting the environment variable on an existing build won't trigger re-expansion of the macros.
 
+## Trace Visibility
+
+Schemas are private by default. Mark a schema `public` in `define_schemas!` if it should be documented and emitted unconditionally.
+
+```rust
+define_schemas! {
+    amaru {
+        security {
+            /// Emitted only when AMARU_TRACE_EMIT_PRIVATE is set
+            SECRET_ACCESS {
+                required key_id: String
+            }
+
+            /// Always documented and emitted
+            public AUDIT_EVENT {
+                required actor: String
+            }
+        }
+    }
+}
+```
+
+Private schemas are not included in the runtime schema dump. They are emitted only when `AMARU_TRACE_EMIT_PRIVATE` is set to a truthy value.
+
 ## Architecture: Staged Macro Expansion
 
 This crate uses a **hybrid approach** where procedural macros generate calls to declarative macros. This solves a fundamental problem: proc macros run early (before schemas are available), but we need to validate against schema data.

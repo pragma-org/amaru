@@ -32,21 +32,21 @@ define_schemas! {
         consensus {
             diffusion {
                 /// Fetch a block from the network
-                FETCH_BLOCK {}
+                public FETCH_BLOCK {}
 
                 /// Forward chain operations
-                FORWARD_CHAIN {}
+                public FORWARD_CHAIN {}
         }
 
         validate_header {
 
             /// Evolve the nonce based on header
-            EVOLVE_NONCE {
+            public EVOLVE_NONCE {
                 required hash: amaru_kernel::HeaderHash
             }
 
             /// Validate header cryptographic properties
-            VALIDATE {
+            public VALIDATE {
                 required issuer_key: amaru_kernel::Bytes
             }
         }
@@ -57,22 +57,22 @@ define_schemas! {
             PULL {}
 
             /// Decode header from raw bytes
-            DECODE_HEADER {}
+            public DECODE_HEADER {}
 
             /// Pull chain updates from peer
-            RECEIVE_HEADER {}
+            public RECEIVE_HEADER {}
 
             /// Header decode failed from received data
-            RECEIVE_HEADER_DECODE_FAILED {}
+            public RECEIVE_HEADER_DECODE_FAILED {}
 
             /// Select best chain from available headers
-            SELECT_CHAIN {}
+            public SELECT_CHAIN {}
 
             /// Validate block properties
-            VALIDATE_BLOCK {}
+            public VALIDATE_BLOCK {}
 
             /// Validate header properties
-            VALIDATE_HEADER {}
+            public VALIDATE_HEADER {}
         }
     }
 
@@ -105,7 +105,7 @@ define_schemas! {
 
         chainsync_client {
             /// Find chain intersection point with peer
-            FIND_INTERSECTION {
+            public FIND_INTERSECTION {
                 required peer: String
                 required intersection_slot: u64
             }
@@ -115,28 +115,28 @@ define_schemas! {
     ledger {
         state {
             /// Roll forward ledger state with a new block
-            ROLL_FORWARD {}
+            public ROLL_FORWARD {}
 
             /// Apply a block to stable state
-            APPLY_BLOCK {
+            public APPLY_BLOCK {
                 required point_slot: u64
             }
 
             /// Epoch transition processing
-            EPOCH_TRANSITION {
+            public EPOCH_TRANSITION {
                 required from: u64
                 required into: u64
             }
 
             /// Resolve transaction inputs from various sources
-            RESOLVE_INPUTS {
+            public RESOLVE_INPUTS {
                 optional resolved_from_context: u64
                 optional resolved_from_volatile: u64
                 optional resolved_from_db: u64
             }
 
             /// Create validation context for a block
-            CREATE_VALIDATION_CONTEXT {
+            public CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: amaru_kernel::HeaderHash
                 required block_number: u64
                 required block_body_size: u64
@@ -144,145 +144,145 @@ define_schemas! {
             }
 
             /// Compute stake distribution for epoch
-            COMPUTE_STAKE_DISTRIBUTION {
+            public COMPUTE_STAKE_DISTRIBUTION {
                 required epoch: u64
             }
 
             /// Tick proposals for ratification
-            TICK_PROPOSALS {
+            public TICK_PROPOSALS {
                 required proposals_count: u64
             }
 
             /// Prepare block for validation
-            PREPARE_BLOCK {}
+            public PREPARE_BLOCK {}
 
             /// Validate block against rules
-            VALIDATE_BLOCK {}
+            public VALIDATE_BLOCK {}
 
             /// Tick pool operations
-            TICK_POOL {}
+            public TICK_POOL {}
 
             /// Compute rewards for epoch
-            COMPUTE_REWARDS {}
+            public COMPUTE_REWARDS {}
 
             /// Forward ledger state with new volatile state
-            FORWARD {}
+            public FORWARD {}
 
             /// End epoch operations
-            END_EPOCH {}
+            public END_EPOCH {}
 
             /// Begin epoch operations
-            BEGIN_EPOCH {}
+            public BEGIN_EPOCH {}
 
             /// Compute stake distribution for epoch
-            COMPUTE_STAKE_DISTRIBUTION_NAMED {}
+            public COMPUTE_STAKE_DISTRIBUTION_NAMED {}
 
             /// Reset fees to zero
-            RESET_FEES {}
+            public RESET_FEES {}
 
             /// Reset blocks count to zero
-            RESET_BLOCKS_COUNT {}
+            public RESET_BLOCKS_COUNT {}
 
             /// Roll backward to a specific point
-            ROLL_BACKWARD {}
+            public ROLL_BACKWARD {}
 
             /// Create ratification context
-            RATIFICATION_CONTEXT_NEW {}
+            public RATIFICATION_CONTEXT_NEW {}
 
             /// Manage transaction outputs
-            MANAGE_TRANSACTION_OUTPUTS {}
+            public MANAGE_TRANSACTION_OUTPUTS {}
 
             /// Cleanup old epochs
-            CLEANUP_OLD_EPOCHS {}
+            public CLEANUP_OLD_EPOCHS {}
 
             /// Cleanup expired proposals
-            CLEANUP_EXPIRED_PROPOSALS {}
+            public CLEANUP_EXPIRED_PROPOSALS {}
         }
 
         rules {
             /// Parse raw block bytes
-            PARSE_BLOCK {
+            public PARSE_BLOCK {
                 required block_size: u64
             }
         }
 
         context {
             /// Add transaction fees to pots
-            ADD_FEES {
+            public ADD_FEES {
                 required fee: amaru_kernel::Lovelace
             }
 
             /// Withdraw from stake credential
-            WITHDRAW_FROM {
+            public WITHDRAW_FROM {
                 required credential_type: amaru_kernel::StakeCredentialKind
                 required credential_hash: amaru_kernel::Hash<28>
             }
 
             /// Record a governance vote
-            VOTE {
+            public VOTE {
                 required voter_type: amaru_kernel::VoterKind
                 required credential_type: amaru_kernel::StakeCredentialKind
                 required credential_hash: amaru_kernel::Hash<28>
             }
 
             /// Require a verification key witness
-            REQUIRE_VKEY_WITNESS {
+            public REQUIRE_VKEY_WITNESS {
                 required hash: String
             }
 
             /// Require a script witness
-            REQUIRE_SCRIPT_WITNESS {
+            public REQUIRE_SCRIPT_WITNESS {
                 required hash: String
             }
 
             /// Require a bootstrap witness
-            REQUIRE_BOOTSTRAP_WITNESS {
+            public REQUIRE_BOOTSTRAP_WITNESS {
                 required bootstrap_witness_hash: String
             }
 
             default {
                 validation {
                     /// Register a stake credential
-                    CERTIFICATE_STAKE_REGISTRATION {
+                    public CERTIFICATE_STAKE_REGISTRATION {
                         required credential_type: amaru_kernel::StakeCredentialKind
                         required credential_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Delegate stake to a pool
-                    CERTIFICATE_STAKE_DELEGATION {
+                    public CERTIFICATE_STAKE_DELEGATION {
                         required credential_type: amaru_kernel::StakeCredentialKind
                         required credential_hash: amaru_kernel::Hash<28>
                         required pool_id: String
                     }
 
                     /// Unregister a stake credential
-                    CERTIFICATE_STAKE_DEREGISTRATION {
+                    public CERTIFICATE_STAKE_DEREGISTRATION {
                         required credential_type: amaru_kernel::StakeCredentialKind
                         required credential_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Register a DRep
-                    CERTIFICATE_DREP_REGISTRATION {
+                    public CERTIFICATE_DREP_REGISTRATION {
                         required drep_type: amaru_kernel::StakeCredentialKind
                         required drep_hash: amaru_kernel::Hash<28>
                         required deposit: u64
                     }
 
                     /// Update DRep anchor
-                    CERTIFICATE_DREP_UPDATE {
+                    public CERTIFICATE_DREP_UPDATE {
                         required drep_type: amaru_kernel::StakeCredentialKind
                         required drep_hash: amaru_kernel::Hash<28>
                     }
 
                     /// Unregister a DRep
-                    CERTIFICATE_DREP_RETIREMENT {
+                    public CERTIFICATE_DREP_RETIREMENT {
                         required drep_type: amaru_kernel::StakeCredentialKind
                         required drep_hash: amaru_kernel::Hash<28>
                         required refund: u64
                     }
 
                     /// Delegate vote to DRep
-                    CERTIFICATE_VOTE_DELEGATION {
+                    public CERTIFICATE_VOTE_DELEGATION {
                         required credential_type: amaru_kernel::StakeCredentialKind
                         required credential_hash: amaru_kernel::Hash<28>
                         required drep_type: amaru_kernel::StakeCredentialKind
@@ -290,18 +290,18 @@ define_schemas! {
                     }
 
                     /// Register a pool
-                    CERTIFICATE_POOL_REGISTRATION {
+                    public CERTIFICATE_POOL_REGISTRATION {
                         required pool_id: String
                     }
 
                     /// Retire a pool
-                    CERTIFICATE_POOL_RETIREMENT {
+                    public CERTIFICATE_POOL_RETIREMENT {
                         required pool_id: String
                         required epoch: u64
                     }
 
                     /// Delegate cold key to committee
-                    CERTIFICATE_COMMITTEE_DELEGATE {
+                    public CERTIFICATE_COMMITTEE_DELEGATE {
                         required cc_member_type: amaru_kernel::StakeCredentialKind
                         required cc_member_hash: amaru_kernel::Hash<28>
                         required delegate_type: amaru_kernel::StakeCredentialKind
@@ -309,7 +309,7 @@ define_schemas! {
                     }
 
                     /// Resign from committee
-                    CERTIFICATE_COMMITTEE_RESIGN {
+                    public CERTIFICATE_COMMITTEE_RESIGN {
                         required cc_member_type: amaru_kernel::StakeCredentialKind
                         required cc_member_hash: amaru_kernel::Hash<28>
                     }
@@ -319,7 +319,7 @@ define_schemas! {
 
         governance {
             /// Ratify proposals at epoch boundary
-            RATIFY_PROPOSALS {
+            public RATIFY_PROPOSALS {
                 optional roots_protocol_parameters: String
                 optional roots_hard_fork: String
                 optional roots_constitutional_committee: String
@@ -331,21 +331,21 @@ define_schemas! {
     stores {
         ledger {
             /// Create ledger snapshot for epoch
-            SNAPSHOT {
+            public SNAPSHOT {
                 required epoch: u64
                 required db_system_name: String
                 required db_operation_name: String
             }
 
             /// Prune old snapshots
-            PRUNE {
+            public PRUNE {
                 required functional_minimum: u64
                 required db_system_name: String
                 required db_operation_name: String
             }
 
             /// Epoch transition tracking
-            TRY_EPOCH_TRANSITION {
+            public TRY_EPOCH_TRANSITION {
                 optional has_from: bool
                 optional has_to: bool
                 optional point: String
@@ -355,7 +355,7 @@ define_schemas! {
             }
 
             /// Remove DRep delegations
-            DREPS_DELEGATION_REMOVE {
+            public DREPS_DELEGATION_REMOVE {
                 required drep_hash: amaru_kernel::Hash<28>
                 required drep_type: amaru_kernel::StakeCredentialKind
                 required db_system_name: String
@@ -365,175 +365,175 @@ define_schemas! {
 
             columns {
                 /// Point-read a UTxO entry
-                UTXO_GET {
+                public UTXO_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Batch-insert UTxO entries
-                UTXO_ADD {
+                public UTXO_ADD {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Batch-delete UTxO entries
-                UTXO_REMOVE {
+                public UTXO_REMOVE {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Point-read a pool entry
-                POOLS_GET {
+                public POOLS_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Batch-upsert pool entries
-                POOLS_ADD {
+                public POOLS_ADD {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Schedule pool retirement
-                POOLS_REMOVE {
+                public POOLS_REMOVE {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Point-read an account entry
-                ACCOUNTS_GET {
+                public ACCOUNTS_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Batch-upsert account entries
-                ACCOUNTS_ADD {
+                public ACCOUNTS_ADD {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Batch-delete account entries
-                ACCOUNTS_REMOVE {
+                public ACCOUNTS_REMOVE {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Update rewards balance for a single account
-                ACCOUNTS_SET {
+                public ACCOUNTS_SET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Reset rewards counters for many accounts
-                ACCOUNTS_RESET_MANY {
+                public ACCOUNTS_RESET_MANY {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Clear DRep delegation for accounts (protocol v9 bug compat)
-                ACCOUNTS_RESET_DELEGATION {
+                public ACCOUNTS_RESET_DELEGATION {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Point-read a DRep entry
-                DREPS_GET {
+                public DREPS_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Batch-upsert DRep registrations
-                DREPS_ADD {
+                public DREPS_ADD {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Record DRep de-registration
-                DREPS_REMOVE {
+                public DREPS_REMOVE {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Refresh DRep expiry after a vote
-                DREPS_SET_VALID_UNTIL {
+                public DREPS_SET_VALID_UNTIL {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Upsert a constitutional committee member
-                CC_MEMBERS_UPSERT {
+                public CC_MEMBERS_UPSERT {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Insert governance proposals
-                PROPOSALS_ADD {
+                public PROPOSALS_ADD {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Remove enacted or expired proposals
-                PROPOSALS_REMOVE {
+                public PROPOSALS_REMOVE {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Record governance votes
-                VOTES_ADD {
+                public VOTES_ADD {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Point-read a slot/block-issuer entry
-                SLOTS_GET {
+                public SLOTS_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Write a slot/block-issuer entry
-                SLOTS_PUT {
+                public SLOTS_PUT {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Read treasury/reserve/fees pots
-                POTS_GET {
+                public POTS_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Write treasury/reserve/fees pots
-                POTS_PUT {
+                public POTS_PUT {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
                 }
 
                 /// Full-table scan via IterBorrow (tick/epoch operations)
-                ITER_SCAN {
+                public ITER_SCAN {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String
@@ -546,7 +546,7 @@ define_schemas! {
 
         rocksdb {
             /// Save point to RocksDB store
-            SAVE_POINT {
+            public SAVE_POINT {
                 required slot: u64
                 optional epoch: u64
                 required db_system_name: String
@@ -555,7 +555,7 @@ define_schemas! {
             }
 
             /// Validate sufficient snapshots exist
-            VALIDATE_SNAPSHOTS {
+            public VALIDATE_SNAPSHOTS {
                 optional snapshot_count: u64
                 optional continuous_ranges: u64
                 required db_system_name: String
@@ -563,13 +563,13 @@ define_schemas! {
             }
 
             /// Commit a write transaction
-            COMMIT {
+            public COMMIT {
                 required db_system_name: String
                 required db_operation_name: String
             }
 
             /// Rollback a write transaction
-            ROLLBACK {
+            public ROLLBACK {
                 required db_system_name: String
                 required db_operation_name: String
             }
@@ -577,7 +577,7 @@ define_schemas! {
 
         consensus {
             /// Store a block header
-            STORE_HEADER {
+            public STORE_HEADER {
                 required hash: amaru_kernel::HeaderHash
                 required db_system_name: String
                 required db_operation_name: String
@@ -585,7 +585,7 @@ define_schemas! {
             }
 
             /// Store a raw block
-            STORE_BLOCK {
+            public STORE_BLOCK {
                 required hash: amaru_kernel::HeaderHash
                 required db_system_name: String
                 required db_operation_name: String
@@ -593,7 +593,7 @@ define_schemas! {
             }
 
             /// Roll forward the chain to a point
-            ROLL_FORWARD_CHAIN {
+            public ROLL_FORWARD_CHAIN {
                 required hash: amaru_kernel::HeaderHash
                 required slot: u64
                 required db_system_name: String
@@ -602,7 +602,7 @@ define_schemas! {
             }
 
             /// Rollback the chain to a point
-            ROLLBACK_CHAIN {
+            public ROLLBACK_CHAIN {
                 required hash: amaru_kernel::HeaderHash
                 required slot: u64
                 required db_system_name: String
@@ -611,7 +611,7 @@ define_schemas! {
             }
 
             /// Store block to tip operations
-            STORE_BLOCK_TO_TIP {
+            public STORE_BLOCK_TO_TIP {
                 required hash: String
                 required db_system_name: String
                 required db_operation_name: String
@@ -619,7 +619,7 @@ define_schemas! {
             }
 
             /// Rollback to tip operations
-            ROLLBACK_TO_TIP {
+            public ROLLBACK_TO_TIP {
                 required hash: String
                 required db_system_name: String
                 required db_operation_name: String
@@ -627,7 +627,7 @@ define_schemas! {
             }
 
             /// Read headers operations
-            READ_HEADERS {
+            public READ_HEADERS {
                 required hash: String
                 required db_system_name: String
                 required db_operation_name: String
@@ -635,7 +635,7 @@ define_schemas! {
             }
 
             /// Read blocks operations
-            READ_BLOCKS {
+            public READ_BLOCKS {
                 required hash: String
                 required db_system_name: String
                 required db_operation_name: String
@@ -685,7 +685,7 @@ define_schemas! {
     simulator {
         node {
             /// Handle message in simulator node
-            HANDLE_MSG {}
+            public HANDLE_MSG {}
         }
     }
 
@@ -699,7 +699,7 @@ define_schemas! {
 
         logging {
             /// Test span for logging
-            TEST_SPAN {}
+            public TEST_SPAN {}
         }
     }
     }

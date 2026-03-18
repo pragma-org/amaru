@@ -83,7 +83,7 @@ fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
                     "level": entry.level,
                     "target": entry.target,
                     "description": entry.description,
-                    "private": entry.private,
+                    "public": entry.public,
                 }),
             )
         })

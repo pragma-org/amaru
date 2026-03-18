@@ -37,10 +37,6 @@ use amaru_ledger::{
     summary::Pots,
 };
 use amaru_observability::{
-    amaru::stores::{
-        ledger::columns::ITER_SCAN,
-        rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS},
-    },
     trace_record, trace_span,
 };
 use rocksdb::{
@@ -708,7 +704,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             _ => {
                 let tip = point.slot_or_default();
                 trace_record!(
-                    SAVE_POINT,
+                    amaru_observability::amaru::stores::rocksdb::SAVE_POINT,
                     slot = tip,
                     db_system_name = "rocksdb".to_string(),
                     db_operation_name = "write".to_string()
@@ -858,7 +854,7 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshot_count = snapshots.len() as u64;
     let continuous_ranges = snapshots_ranges.len() as u64;
     trace_record!(
-        VALIDATE_SNAPSHOTS,
+        amaru_observability::amaru::stores::rocksdb::VALIDATE_SNAPSHOTS,
         snapshot_count = snapshot_count,
         continuous_ranges = continuous_ranges,
         db_system_name = "rocksdb".to_string(),
@@ -986,7 +982,12 @@ fn with_prefix_iterator<
         }
         .map_err(|err| StoreError::Internal(err.into()))?;
     }
-    trace_record!(ITER_SCAN, rows_scanned = rows_scanned, rows_written = rows_written, rows_deleted = rows_deleted);
+    trace_record!(
+        amaru_observability::amaru::stores::ledger::columns::ITER_SCAN,
+        rows_scanned = rows_scanned,
+        rows_written = rows_written,
+        rows_deleted = rows_deleted
+    );
     Ok(())
 }
 

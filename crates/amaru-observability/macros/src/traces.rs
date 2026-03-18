@@ -19,7 +19,8 @@ use quote::quote;
 
 use crate::utils::{
     make_assign_macro_name, make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_schema_field_count_const_name, parse_full_schema_path,
+    make_require_macro_name, make_schema_field_count_const_name, make_schema_public_const_name,
+    parse_full_schema_path,
 };
 
 const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";
@@ -31,12 +32,7 @@ const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";
 /// - `amaru::consensus::chain_sync::VALIDATE_HEADER, hash = compute_hash()`
 /// - `debug: amaru::consensus::chain_sync::VALIDATE_HEADER`
 /// - `debug: amaru::consensus::chain_sync::VALIDATE_HEADER, hash = compute_hash()`
-/// - `private, amaru::consensus::chain_sync::VALIDATE_HEADER`
 struct SchemaMeta {
-    /// Whether this schema is marked as private
-    /// Used in generated documentation and JSON schema
-    #[allow(dead_code)]
-    private: bool,
     /// The schema name (e.g., `VALIDATE_HEADER`)
     schema_name: String,
     /// The module path for tracing target (e.g., `consensus::chain_sync`)
@@ -120,30 +116,6 @@ fn wrap_in_module_validator(meta: &SchemaMeta, body: proc_macro2::TokenStream) -
     }
 }
 
-/// Parse an optional `private` keyword from the input stream.
-///
-/// The private keyword, when present, must be followed by a comma.
-/// If the keyword is found and valid, it is consumed from the input stream.
-/// Returns `true` if the private keyword was parsed, `false` otherwise.
-fn parse_private_keyword(input: syn::parse::ParseStream) -> syn::Result<bool> {
-    use syn::Token;
-
-    // Use a fork to look ahead without consuming from the real input
-    if input.peek(syn::Ident) {
-        let checkpoint = input.fork();
-        if let Ok(ident) = checkpoint.parse::<syn::Ident>()
-            && ident == "private"
-            && checkpoint.peek(Token![,])
-        {
-            // Now actually consume from the real input
-            input.parse::<syn::Ident>()?;
-            input.parse::<Token![,]>()?;
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 /// Records fields to the current span with a schema anchor.
 ///
 /// This macro allows recording fields to the current span outside of code that
@@ -208,8 +180,6 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     };
 
     struct TraceRecordArgs {
-        #[allow(dead_code)]
-        private: bool,
         level: Option<syn::Ident>,
         schema_path: syn::Path,
         field_assignments: Vec<(syn::Ident, syn::Expr)>,
@@ -217,9 +187,6 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 
     impl Parse for TraceRecordArgs {
         fn parse(input: ParseStream) -> syn::Result<Self> {
-            // Check for optional private keyword
-            let private = parse_private_keyword(input)?;
-
             // Check if first token is a level identifier followed by a comma
             let level = if input.peek(syn::Ident) {
                 let checkpoint = input.fork();
@@ -262,7 +229,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
                 field_assignments.push((field_name, value_expr));
             }
 
-            Ok(TraceRecordArgs { private, level, schema_path, field_assignments })
+            Ok(TraceRecordArgs { level, schema_path, field_assignments })
         }
     }
 
@@ -298,6 +265,34 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     }
 
     let schema_const_tokens = &args.schema_path;
+    let full_path_tokens = quote! { #schema_const_tokens };
+    let path_str: String = full_path_tokens.to_string().chars().filter(|c| !c.is_whitespace()).collect();
+    let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
+    let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
+
+    let categories = meta.categories();
+    let public_const_ident = make_ident(&make_schema_public_const_name(&categories, &meta.schema_name));
+    let mut public_const_path = args.schema_path.clone();
+    if let Some(last_segment) = public_const_path.segments.last_mut() {
+        last_segment.ident = public_const_ident;
+    }
+    let public_const_path = if meta.is_local_schema() {
+        quote! { #public_const_path }
+    } else {
+        let needs_prefix = public_const_path.segments.first().map(|segment| segment.ident == "amaru").unwrap_or(false);
+
+        if needs_prefix {
+            let mut prefixed_path =
+                syn::Path { leading_colon: Some(Default::default()), segments: syn::punctuated::Punctuated::new() };
+            prefixed_path.segments.push(syn::PathSegment::from(make_ident("amaru_observability")));
+            for segment in public_const_path.segments.iter() {
+                prefixed_path.segments.push(segment.clone());
+            }
+            quote! { #prefixed_path }
+        } else {
+            quote! { ::#public_const_path }
+        }
+    };
 
     // Generate the expanded code - generate the full block based on whether a level is specified
     let expanded = if let Some(level_ident) = &args.level {
@@ -319,21 +314,45 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         // Generate the code once with the level macro identifier
         quote! {
             {
-                let _schema = &#schema_const_tokens;
-                #(#field_records)*
-                tracing::#level_macro!(#(#event_fields),*);
+                let __amaru_emit_private = {
+                    static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
+                    *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
+                        ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
+                            let value = value.trim();
+                            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+                        })
+                    })
+                };
+
+                if #public_const_path || __amaru_emit_private {
+                    let _schema = &#schema_const_tokens;
+                    #(#field_records)*
+                    tracing::#level_macro!(#(#event_fields),*);
+                }
             }
         }
     } else {
         // Without level: just record to span
         quote! {
             {
-                // Use the schema constant to anchor the recording context
-                // This documents which schema these fields belong to
-                let _schema = &#schema_const_tokens;
+                let __amaru_emit_private = {
+                    static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
+                    *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
+                        ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
+                            let value = value.trim();
+                            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+                        })
+                    })
+                };
 
-                // Runtime recording of all fields
-                #(#field_records)*
+                if #public_const_path || __amaru_emit_private {
+                    // Use the schema constant to anchor the recording context
+                    // This documents which schema these fields belong to
+                    let _schema = &#schema_const_tokens;
+
+                    // Runtime recording of all fields
+                    #(#field_records)*
+                }
             }
         }
     };
@@ -365,8 +384,6 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     };
 
     struct TraceSpanArgs {
-        #[allow(dead_code)]
-        private: bool,
         level: Option<syn::Ident>,
         schema_path: syn::Path,
         fields: Vec<TraceSpanField>,
@@ -379,9 +396,6 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
     impl Parse for TraceSpanArgs {
         fn parse(input: ParseStream) -> syn::Result<Self> {
-            // Check for optional private keyword
-            let private = parse_private_keyword(input)?;
-
             // Check if first token is a level identifier followed by a comma
             let level = if input.peek(syn::Ident) {
                 let checkpoint = input.fork();
@@ -448,7 +462,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                 return Err(input.error("unexpected tokens after field assignments"));
             }
 
-            Ok(TraceSpanArgs { private, level, schema_path, fields })
+            Ok(TraceSpanArgs { level, schema_path, fields })
         }
     }
 
@@ -479,12 +493,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     let full_path_tokens = quote! { #schema_const_tokens };
     let path_str: String = full_path_tokens.to_string().chars().filter(|c| !c.is_whitespace()).collect();
     let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
-    let meta = SchemaMeta {
-        private: args.private,
-        schema_name: schema_name.to_owned(),
-        module_path,
-        macro_module: macro_module.to_owned(),
-    };
+    let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
 
     let categories = meta.categories();
     let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
@@ -509,6 +518,28 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             quote! { #prefixed_path }
         } else {
             quote! { ::#field_count_path }
+        }
+    };
+    let public_const_ident = make_ident(&make_schema_public_const_name(&categories, &meta.schema_name));
+    let mut public_const_path = args.schema_path.clone();
+    if let Some(last_segment) = public_const_path.segments.last_mut() {
+        last_segment.ident = public_const_ident;
+    }
+    let public_const_path = if meta.is_local_schema() {
+        quote! { #public_const_path }
+    } else {
+        let needs_prefix = public_const_path.segments.first().map(|segment| segment.ident == "amaru").unwrap_or(false);
+
+        if needs_prefix {
+            let mut prefixed_path =
+                syn::Path { leading_colon: Some(Default::default()), segments: syn::punctuated::Punctuated::new() };
+            prefixed_path.segments.push(syn::PathSegment::from(make_ident("amaru_observability")));
+            for segment in public_const_path.segments.iter() {
+                prefixed_path.segments.push(segment.clone());
+            }
+            quote! { #prefixed_path }
+        } else {
+            quote! { ::#public_const_path }
         }
     };
 
@@ -572,18 +603,32 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             #required_fields_check
             #(#value_bindings)*
 
-            let mut __amaru_span_values: Vec<::tracing::__macro_support::Option<&dyn ::tracing::field::Value>> = vec![
-                ::tracing::__macro_support::Option::Some(
-                    &tracing::field::Empty as &dyn ::tracing::field::Value
-                );
-                #field_count_path
-            ];
+            let __amaru_emit_private = {
+                static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
+                *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
+                    ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
+                        let value = value.trim();
+                        !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+                    })
+                })
+            };
 
-            #(#assign_calls)*
+            if !#public_const_path && !__amaru_emit_private {
+                ::tracing::Span::none()
+            } else {
+                let mut __amaru_span_values: Vec<::tracing::__macro_support::Option<&dyn ::tracing::field::Value>> = vec![
+                    ::tracing::__macro_support::Option::Some(
+                        &tracing::field::Empty as &dyn ::tracing::field::Value
+                    );
+                    #field_count_path
+                ];
 
-            let #span_name = #span_expr;
+                #(#assign_calls)*
 
-            #span_name
+                let #span_name = #span_expr;
+
+                #span_name
+            }
         }},
     );
 

@@ -30,6 +30,7 @@ use crate::utils::{
     format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_assign_macro_name,
     make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
     make_require_macro_name, make_schema_field_const_name, make_schema_field_count_const_name,
+    make_schema_public_const_name,
 };
 
 // =============================================================================
@@ -86,10 +87,10 @@ pub struct SchemaField {
 /// A complete schema definition.
 #[derive(Debug, Clone)]
 pub struct Schema {
-    /// Whether this schema is marked as private
-    /// Used in generated documentation and JSON schema
+    /// Whether this schema is explicitly public.
+    /// Schemas are private by default unless marked `public` in define_schemas!.
     #[allow(dead_code)]
-    private: bool,
+    public: bool,
     /// Category path components (e.g., ["ledger", "state"] for ledger::state)
     /// Can be arbitrary depth: ["a"], ["a", "b"], ["a", "b", "c"], etc.
     categories: Vec<String>,
@@ -107,7 +108,7 @@ impl Schema {
     /// Create a new schema with the given path components.
     fn new(name: &str, categories: Vec<String>) -> Self {
         Schema {
-            private: false,
+            public: false,
             categories,
             name: name.to_string(),
             description: None,
@@ -292,7 +293,7 @@ impl ParserState {
     }
 
     /// Try to start a new scope (category or schema).
-    fn try_start_scope(&mut self, name: &str, private: bool, errors: &mut Vec<String>) {
+    fn try_start_scope(&mut self, name: &str, public: bool, errors: &mut Vec<String>) {
         if is_uppercase_identifier(name) {
             // Uppercase identifier = schema definition
             // Validate that schema name is a valid Rust identifier
@@ -307,13 +308,20 @@ impl ParserState {
             }
 
             let mut schema = Schema::new(name, self.category_stack.clone());
-            schema.private = private;
+            schema.public = public;
             if let Some(description) = self.pending_description.take() {
                 schema.set_description(description);
             }
             self.current_schema = Some(schema);
             self.schema_depth = self.depth;
         } else {
+            if public {
+                errors.push(format!(
+                    "Invalid use of `public` before category '{}'. Only schema definitions may be marked public.",
+                    name
+                ));
+                return;
+            }
             // Lowercase identifier = category level
             // Validate that category name is a valid Rust identifier
             if !is_valid_identifier(name) {
@@ -444,9 +452,9 @@ fn parse_token(
             index + 1
         }
         _ if is_identifier_start(token) => {
-            // Check for optional private keyword before schema/category
-            let (private, actual_name_idx) =
-                if token == "private" && tokens.get(index + 1).map(|s| s.as_str()).is_some() {
+            // Check for optional public keyword before schema/category
+            let (public, actual_name_idx) =
+                if token == "public" && tokens.get(index + 1).map(|s| s.as_str()).is_some() {
                     (true, index + 1)
                 } else {
                     (false, index)
@@ -455,9 +463,9 @@ fn parse_token(
             // Check if this starts a new scope (followed by `{`)
             let name_token = tokens.get(actual_name_idx).map(|s| s.as_str()).unwrap_or("");
             if tokens.get(actual_name_idx + 1).map(|s| s.as_str()) == Some("{") {
-                state.try_start_scope(name_token, private, errors);
-                // Return adjusted index if we consumed the private keyword
-                if private {
+                state.try_start_scope(name_token, public, errors);
+                // Return adjusted index if we consumed the public keyword
+                if public {
                     return actual_name_idx + 1;
                 }
             }
@@ -565,9 +573,9 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
                 // Check if we're about to start a schema and attach any preceding doc comment
                 // This needs to happen BEFORE parse_token creates the schema
 
-                // Check for schema pattern: [private] UPPERCASE_IDENTIFIER {
-                let is_private_keyword = token == "private";
-                let schema_idx = if is_private_keyword { idx + 1 } else { idx };
+                // Check for schema pattern: [public] UPPERCASE_IDENTIFIER {
+                let is_public_keyword = token == "public";
+                let schema_idx = if is_public_keyword { idx + 1 } else { idx };
 
                 let schema_token = tokens.get(schema_idx).map(|s| s.as_str());
                 let next_brace = tokens.get(schema_idx + 1).map(|s| s.as_str());
@@ -1051,7 +1059,11 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
     // Description should exist if validation passed, but use a fallback for error recovery
     let description = schema.description.as_deref().unwrap_or("Missing description");
 
-    let private = schema.private;
+    if !schema.public {
+        return quote! {};
+    }
+
+    let public = schema.public;
 
     quote! {
         #[allow(non_upper_case_globals)]
@@ -1063,7 +1075,7 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
                 target: #target_path,
                 level: "TRACE",
                 description: #description,
-                private: #private,
+                public: #public,
                 required_fields: &[#(#required_fields_array),*],
                 optional_fields: &[#(#optional_fields_array),*],
             });
@@ -1243,9 +1255,14 @@ fn build_modules_noop(tree: &BTreeMap<String, TreeNode>) -> Vec<proc_macro2::Tok
             TreeNode::Schema(schema) => {
                 let schema_ident = make_ident(&schema.name);
                 let schema_name_lowercase = schema.name.to_lowercase();
+                let public_const_name = make_schema_public_const_name(&schema.categories, &schema.name);
+                let public_const_ident = make_ident(&public_const_name);
+                let is_public = schema.public;
 
                 modules.push(quote! {
                     pub const #schema_ident: &str = #schema_name_lowercase;
+                    #[doc(hidden)]
+                    pub const #public_const_ident: bool = #is_public;
                 });
             }
         }
@@ -1278,7 +1295,10 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) 
                 let validation_const_ident = make_ident(&validation_const_name);
                 let field_count_const_name = make_schema_field_count_const_name(&schema.categories, &schema.name);
                 let field_count_const_ident = make_ident(&field_count_const_name);
+                let public_const_name = make_schema_public_const_name(&schema.categories, &schema.name);
+                let public_const_ident = make_ident(&public_const_name);
                 let field_count = schema.required_fields.len() + schema.optional_fields.len();
+                let is_public = schema.public;
 
                 modules.push(quote! {
                     pub const #schema_ident: &str = #schema_name_lowercase;
@@ -1289,6 +1309,9 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) 
 
                     #[doc(hidden)]
                     pub const #field_count_const_ident: usize = #field_count;
+
+                    #[doc(hidden)]
+                    pub const #public_const_ident: bool = #is_public;
                 });
             }
         }

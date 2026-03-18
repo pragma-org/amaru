@@ -27,7 +27,7 @@ pub struct SchemaEntry {
     pub target: &'static str,
     pub level: &'static str,
     pub description: &'static str,
-    pub private: bool,
+    pub public: bool,
     pub required_fields: &'static [(&'static str, &'static str)],
     pub optional_fields: &'static [(&'static str, &'static str)],
 }
