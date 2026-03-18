@@ -53,15 +53,15 @@ for target in $TARGETS; do
 
 ## target: \`${target}\`
 
-| name | level | private | description | required fields | optional fields |
+| name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 ENTRY
 
   # Get all spans for this target and output table rows (sorted by name)
-  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | [.value.name, .value.level, (if .value.private then \"private\" else \"\" end), (.value.description // \"\"), (.value.required | join(\", \") // \"\"), (.value.optional | join(\", \") // \"\")] | @tsv" "${SCHEMAS_JSON}" | while IFS=$'\t' read -r name level private description required optional; do
+  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | [.value.name, .value.level, (if .value.public then \"public\" else \"\" end), (.value.description // \"\"), (.value.required | join(\", \") // \"\"), (.value.optional | join(\", \") // \"\")] | @tsv" "${SCHEMAS_JSON}" | while IFS=$'\t' read -r name level public description required optional; do
     # Escape backticks in description if any
     description="${description//\`/\\\`}"
-    echo "| \`${name}\` | \`${level}\` | ${private} | ${description} | ${required} | ${optional} |" >> "${OUTPUT_FILE}"
+    echo "| \`${name}\` | \`${level}\` | ${public} | ${description} | ${required} | ${optional} |" >> "${OUTPUT_FILE}"
   done
 
   # Add details for each span (in sorted order by name)

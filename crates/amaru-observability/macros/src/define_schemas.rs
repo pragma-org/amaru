@@ -1353,7 +1353,7 @@ fn collect_category_validators(
 
 /// Internal expansion with configurable export behavior.
 fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
-    if crate::is_trace_noop() {
+    if crate::is_trace_no_emit() {
         let input2: proc_macro2::TokenStream = input.into();
         let input_str = input2.to_string();
         let (schemas, errors) = extract_schemas(&input_str);

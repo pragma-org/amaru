@@ -115,6 +115,47 @@ fn wrap_in_module_validator(meta: &SchemaMeta, body: proc_macro2::TokenStream) -
     }
 }
 
+fn build_public_const_path(meta: &SchemaMeta, schema_path: &syn::Path) -> proc_macro2::TokenStream {
+    let categories = meta.categories();
+    let public_const_ident = make_ident(&make_schema_public_const_name(&categories, &meta.schema_name));
+    let mut public_const_path = schema_path.clone();
+    if let Some(last_segment) = public_const_path.segments.last_mut() {
+        last_segment.ident = public_const_ident;
+    }
+
+    if meta.is_local_schema() {
+        quote! { #public_const_path }
+    } else {
+        let needs_prefix = public_const_path.segments.first().map(|segment| segment.ident == "amaru").unwrap_or(false);
+
+        if needs_prefix {
+            let mut prefixed_path =
+                syn::Path { leading_colon: Some(Default::default()), segments: syn::punctuated::Punctuated::new() };
+            prefixed_path.segments.push(syn::PathSegment::from(make_ident("amaru_observability")));
+            for segment in public_const_path.segments.iter() {
+                prefixed_path.segments.push(segment.clone());
+            }
+            quote! { #prefixed_path }
+        } else {
+            quote! { ::#public_const_path }
+        }
+    }
+}
+
+fn private_emit_guard_tokens() -> proc_macro2::TokenStream {
+    quote! {
+        let __amaru_emit_private = {
+            static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
+            *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
+                ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
+                    let value = value.trim();
+                    !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+                })
+            })
+        };
+    }
+}
+
 /// Records fields to the current span with a schema anchor.
 ///
 /// This macro allows recording fields to the current span outside of code that
@@ -168,7 +209,7 @@ fn wrap_in_module_validator(meta: &SchemaMeta, body: proc_macro2::TokenStream) -
 /// }
 /// ```
 pub fn expand_trace_record(input: TokenStream) -> TokenStream {
-    if crate::is_trace_noop() {
+    if crate::is_trace_no_emit() {
         return quote! { { } }.into();
     }
 
@@ -269,29 +310,8 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
     let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
 
-    let categories = meta.categories();
-    let public_const_ident = make_ident(&make_schema_public_const_name(&categories, &meta.schema_name));
-    let mut public_const_path = args.schema_path.clone();
-    if let Some(last_segment) = public_const_path.segments.last_mut() {
-        last_segment.ident = public_const_ident;
-    }
-    let public_const_path = if meta.is_local_schema() {
-        quote! { #public_const_path }
-    } else {
-        let needs_prefix = public_const_path.segments.first().map(|segment| segment.ident == "amaru").unwrap_or(false);
-
-        if needs_prefix {
-            let mut prefixed_path =
-                syn::Path { leading_colon: Some(Default::default()), segments: syn::punctuated::Punctuated::new() };
-            prefixed_path.segments.push(syn::PathSegment::from(make_ident("amaru_observability")));
-            for segment in public_const_path.segments.iter() {
-                prefixed_path.segments.push(segment.clone());
-            }
-            quote! { #prefixed_path }
-        } else {
-            quote! { ::#public_const_path }
-        }
-    };
+    let public_const_path = build_public_const_path(&meta, &args.schema_path);
+    let private_emit_guard = private_emit_guard_tokens();
 
     // Generate the expanded code - generate the full block based on whether a level is specified
     let expanded = if let Some(level_ident) = &args.level {
@@ -313,15 +333,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         // Generate the code once with the level macro identifier
         quote! {
             {
-                let __amaru_emit_private = {
-                    static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
-                    *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
-                        ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
-                            let value = value.trim();
-                            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
-                        })
-                    })
-                };
+                #private_emit_guard
 
                 if #public_const_path || __amaru_emit_private {
                     let _schema = &#schema_const_tokens;
@@ -334,15 +346,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         // Without level: just record to span
         quote! {
             {
-                let __amaru_emit_private = {
-                    static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
-                    *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
-                        ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
-                            let value = value.trim();
-                            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
-                        })
-                    })
-                };
+                #private_emit_guard
 
                 if #public_const_path || __amaru_emit_private {
                     // Use the schema constant to anchor the recording context
@@ -372,7 +376,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 /// trace_span!(INFO, consensus::VALIDATE)
 /// ```
 pub fn expand_trace_span(input: TokenStream) -> TokenStream {
-    if crate::is_trace_noop() {
+    if crate::is_trace_no_emit() {
         return quote! { tracing::Span::none() }.into();
     }
 
@@ -519,28 +523,8 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             quote! { ::#field_count_path }
         }
     };
-    let public_const_ident = make_ident(&make_schema_public_const_name(&categories, &meta.schema_name));
-    let mut public_const_path = args.schema_path.clone();
-    if let Some(last_segment) = public_const_path.segments.last_mut() {
-        last_segment.ident = public_const_ident;
-    }
-    let public_const_path = if meta.is_local_schema() {
-        quote! { #public_const_path }
-    } else {
-        let needs_prefix = public_const_path.segments.first().map(|segment| segment.ident == "amaru").unwrap_or(false);
-
-        if needs_prefix {
-            let mut prefixed_path =
-                syn::Path { leading_colon: Some(Default::default()), segments: syn::punctuated::Punctuated::new() };
-            prefixed_path.segments.push(syn::PathSegment::from(make_ident("amaru_observability")));
-            for segment in public_const_path.segments.iter() {
-                prefixed_path.segments.push(segment.clone());
-            }
-            quote! { #prefixed_path }
-        } else {
-            quote! { ::#public_const_path }
-        }
-    };
+    let public_const_path = build_public_const_path(&meta, &args.schema_path);
+    let private_emit_guard = private_emit_guard_tokens();
 
     let span_name = make_ident(TRACE_SPAN_NAME_PREFIX);
     let value_bindings: Vec<_> = args
@@ -602,15 +586,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             #required_fields_check
             #(#value_bindings)*
 
-            let __amaru_emit_private = {
-                static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
-                *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
-                    ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
-                        let value = value.trim();
-                        !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
-                    })
-                })
-            };
+            #private_emit_guard
 
             if !#public_const_path && !__amaru_emit_private {
                 ::tracing::Span::none()

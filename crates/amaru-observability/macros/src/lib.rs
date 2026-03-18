@@ -26,17 +26,24 @@
 //!
 //! # Disabling Tracing at Compile Time
 //!
-//! Set the `AMARU_TRACE_NOOP` environment variable during compilation to disable all tracing:
+//! Set the `AMARU_TRACE_NO_EMIT` environment variable during compilation to disable all tracing:
 //!
 //! ```bash
 //! cargo clean
-//! AMARU_TRACE_NOOP=1 cargo build --release
+//! AMARU_TRACE_NO_EMIT=1 cargo build --release
 //! ```
 //!
 //! **Note:** `cargo clean` is required because cargo caches macro expansions. The environment
 //! variable must be set during a clean build to take effect.
 //!
 //! When enabled, all macros become no-ops, completely removing tracing overhead.
+//!
+//! # Emitting Private Schemas
+//!
+//! Schemas are private by default. Set `AMARU_TRACE_EMIT_PRIVATE` to a truthy value at runtime
+//! to emit spans and records created from private schemas.
+//!
+//! Truthy values are any non-empty values except `0` and `false`.
 
 use std::env::var;
 
@@ -46,10 +53,10 @@ mod define_schemas;
 mod traces;
 mod utils;
 
-/// Check if tracing is disabled via AMARU_TRACE_NOOP environment variable.
+/// Check if tracing is disabled via AMARU_TRACE_NO_EMIT environment variable.
 /// When set (to any value), all tracing macros become no-ops.
-fn is_trace_noop() -> bool {
-    var("AMARU_TRACE_NOOP").is_ok_and(|v| !v.is_empty())
+fn is_trace_no_emit() -> bool {
+    var("AMARU_TRACE_NO_EMIT").is_ok_and(|v| !v.is_empty())
 }
 
 // =============================================================================

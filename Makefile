@@ -47,10 +47,6 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 build: ## &build Compile for $BUILD_PROFILE
 	cargo build --profile $(BUILD_PROFILE) $(ARGS)
 
-build-notrace: ## &build Compile for $BUILD_PROFILE with tracing disabled (requires clean build)
-	cargo clean
-	AMARU_TRACE_NOOP=1 cargo build --profile $(BUILD_PROFILE) $(ARGS)
-
 build-examples: ## &build Build all examples
 	@for dir in $(wildcard examples/*/.); do \
 		if [ -f $$dir/Makefile ]; then \

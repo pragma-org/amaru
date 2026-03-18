@@ -172,12 +172,12 @@ Types can be expressions that are computed at the call site (e.g., `header.slot(
 
 ## Disabling Tracing at Compile Time
 
-Set the `AMARU_TRACE_NOOP` environment variable during compilation to disable all tracing code generation:
+Set the `AMARU_TRACE_NO_EMIT` environment variable during compilation to disable all tracing code generation:
 
 ```bash
 # Clean build required to ensure macro re-expansion
 cargo clean
-AMARU_TRACE_NOOP=1 cargo build --release
+AMARU_TRACE_NO_EMIT=1 cargo build --release
 ```
 
 When enabled:
@@ -216,6 +216,12 @@ define_schemas! {
 ```
 
 Private schemas are not included in the runtime schema dump. They are emitted only when `AMARU_TRACE_EMIT_PRIVATE` is set to a truthy value.
+
+```bash
+AMARU_TRACE_EMIT_PRIVATE=1 AMARU_TRACE=amaru=trace ./target/release/amaru run
+```
+
+Accepted truthy values are any non-empty values except `0` and `false`.
 
 ## Architecture: Staged Macro Expansion
 
