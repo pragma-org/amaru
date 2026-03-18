@@ -28,6 +28,7 @@ use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
 use pure_stage::{EPOCH, Effects, Instant, StageRef, TryInStage, Void};
+use tracing::Instrument;
 
 use crate::{
     network_effects::{Network, NetworkOps},
@@ -385,14 +386,12 @@ impl Muxer {
         handler: StageRef<HandlerMessage>,
         eff: &Effects<M>,
     ) -> anyhow::Result<()> {
-        tracing::Instrument::instrument(
-            async {
-                eff.send(&handler, HandlerMessage::Registered(proto_id)).await;
-                self.do_register(proto_id, frame, max_buffer, handler);
-                Ok(())
-            },
-            trace_span!(amaru_observability::amaru::protocols::mux::REGISTER),
-        )
+        async {
+            eff.send(&handler, HandlerMessage::Registered(proto_id)).await;
+            self.do_register(proto_id, frame, max_buffer, handler);
+            Ok(())
+        }
+        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::REGISTER))
         .await
     }
 
@@ -452,23 +451,21 @@ impl Muxer {
     }
 
     pub async fn next_segment<M>(&mut self, eff: &Effects<M>) -> Option<(ProtocolId<Erased>, Bytes)> {
-        tracing::Instrument::instrument(
-            async {
-                for idx in (self.next_out..self.outgoing.len()).chain(0..self.next_out) {
-                    let proto_id = self.outgoing[idx];
-                    #[allow(clippy::expect_used)]
-                    let proto = self.protocols.get_mut(&proto_id).expect("invariant violation");
-                    let Some(bytes) = proto.next_segment(eff).await else {
-                        continue;
-                    };
-                    self.next_out = (idx + 1) % self.outgoing.len();
-                    tracing::trace!(size = bytes.len(), %proto_id, next = self.next_out, "sending segment");
-                    return Some((proto_id, bytes));
-                }
-                None
-            },
-            trace_span!(amaru_observability::amaru::protocols::mux::NEXT_SEGMENT),
-        )
+        async {
+            for idx in (self.next_out..self.outgoing.len()).chain(0..self.next_out) {
+                let proto_id = self.outgoing[idx];
+                #[allow(clippy::expect_used)]
+                let proto = self.protocols.get_mut(&proto_id).expect("invariant violation");
+                let Some(bytes) = proto.next_segment(eff).await else {
+                    continue;
+                };
+                self.next_out = (idx + 1) % self.outgoing.len();
+                tracing::trace!(size = bytes.len(), %proto_id, next = self.next_out, "sending segment");
+                return Some((proto_id, bytes));
+            }
+            None
+        }
+        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::NEXT_SEGMENT))
         .await
     }
 
@@ -480,33 +477,29 @@ impl Muxer {
         eff: &Effects<M>,
     ) -> anyhow::Result<()> {
         let byte_len = bytes.len() as u64;
-        tracing::Instrument::instrument(
-            async {
-                if let Some(proto) = self.protocols.get_mut(&proto_id) {
-                    proto.received(timestamp, bytes, eff).await
-                } else {
-                    anyhow::bail!("received data for unknown protocol {}", proto_id)
-                }
-            },
-            trace_span!(amaru_observability::amaru::protocols::mux::RECEIVED, bytes = byte_len),
-        )
+        async {
+            if let Some(proto) = self.protocols.get_mut(&proto_id) {
+                proto.received(timestamp, bytes, eff).await
+            } else {
+                anyhow::bail!("received data for unknown protocol {}", proto_id)
+            }
+        }
+        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::RECEIVED, bytes = byte_len))
         .await
     }
 
     pub async fn want_next<M>(&mut self, proto_id: ProtocolId<Erased>, eff: &Effects<M>) -> anyhow::Result<()> {
-        tracing::Instrument::instrument(
-            async {
-                #[allow(clippy::expect_used)]
-                self.protocols
-                    .get_mut(&proto_id)
-                    .ok_or_else(|| anyhow::anyhow!("protocol {} not registered", proto_id))
-                    .expect("internal error")
-                    .want_next(eff)
-                    .await?;
-                Ok(())
-            },
-            trace_span!(amaru_observability::amaru::protocols::mux::WANT_NEXT),
-        )
+        async {
+            #[allow(clippy::expect_used)]
+            self.protocols
+                .get_mut(&proto_id)
+                .ok_or_else(|| anyhow::anyhow!("protocol {} not registered", proto_id))
+                .expect("internal error")
+                .want_next(eff)
+                .await?;
+            Ok(())
+        }
+        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::WANT_NEXT))
         .await
     }
 }

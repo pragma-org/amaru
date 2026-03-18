@@ -16,6 +16,7 @@ use amaru_kernel::{Peer, Point};
 use amaru_observability::trace_span;
 use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
+use tracing::Instrument;
 
 use crate::point::{from_network_point, to_network_point};
 
@@ -53,25 +54,23 @@ impl ChainSyncClient {
     }
 
     pub async fn find_intersection(&mut self) -> Result<Point, ChainSyncClientError> {
-        tracing::Instrument::instrument(
-            async {
-                let client = &mut self.chain_sync;
-                let (point, _) = client
-                    .find_intersect(self.intersection.iter().cloned().map(to_network_point).collect())
-                    .await
-                    .map_err(ChainSyncClientError::NetworkError)?;
+        async {
+            let client = &mut self.chain_sync;
+            let (point, _) = client
+                .find_intersect(self.intersection.iter().cloned().map(to_network_point).collect())
+                .await
+                .map_err(ChainSyncClientError::NetworkError)?;
 
-                let intersection =
-                    point.ok_or(ChainSyncClientError::NoIntersectionFound { points: self.intersection.clone() })?;
-                Ok(from_network_point(&intersection))
-            },
-            trace_span!(
-                amaru_observability::amaru::network::chainsync_client::FIND_INTERSECTION,
-                peer = &self.peer.name,
-                intersection_slot =
-                    u64::from(self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default())
-            ),
-        )
+            let intersection =
+                point.ok_or(ChainSyncClientError::NoIntersectionFound { points: self.intersection.clone() })?;
+            Ok(from_network_point(&intersection))
+        }
+        .instrument(trace_span!(
+            amaru_observability::amaru::network::chainsync_client::FIND_INTERSECTION,
+            peer = &self.peer.name,
+            intersection_slot =
+                u64::from(self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default())
+        ))
         .await
     }
 
