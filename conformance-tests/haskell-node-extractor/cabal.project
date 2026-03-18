@@ -53,6 +53,9 @@ package text
 package formatting
   flags: +no-double-conversion
 
+package cardano-crypto-praos
+  flags: -external-libsodium-vrf
+
 source-repository-package
   type: git
   location: https://github.com/CardanoSolutions/cardano-ledger.git
