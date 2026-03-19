@@ -781,6 +781,8 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
         ];
         let __amaru_values = __amaru_values.unwrap_or(&__amaru_default_values);
 
+        __CALLSITE.register();
+
         #[allow(unused_assignments)]
         let mut interest = ::tracing::subscriber::Interest::never();
         if $level <= ::tracing::level_filters::STATIC_MAX_LEVEL

@@ -38,7 +38,7 @@ define_local_schemas! {
     ledger {
         state {
             /// Apply block for testing
-            APPLY_BLOCK {
+            public APPLY_BLOCK {
                 required point_slot: u64
             }
 

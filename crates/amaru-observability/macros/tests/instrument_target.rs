@@ -49,7 +49,7 @@ define_local_schemas! {
     formatting {
         test {
             /// Formatter behavior for testing
-            DISTINCT_FORMATTING {
+            public DISTINCT_FORMATTING {
                 required display_value: DistinctFormatting
                 required debug_value: DistinctFormatting
             }
@@ -59,7 +59,7 @@ define_local_schemas! {
     consensus {
         validate_header {
             /// Evolve nonce for testing
-            EVOLVE_NONCE {
+            public EVOLVE_NONCE {
                 required hash: String
             }
         }
@@ -68,12 +68,12 @@ define_local_schemas! {
     ledger {
         state {
             /// Apply block for testing
-            APPLY_BLOCK {
+            public APPLY_BLOCK {
                 required point_slot: u64
             }
 
             /// Create validation context for testing
-            CREATE_VALIDATION_CONTEXT {
+            public CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: String
                 required block_number: u64
                 required block_body_size: u64
