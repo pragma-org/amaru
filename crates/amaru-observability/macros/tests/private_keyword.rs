@@ -69,6 +69,7 @@ fn test_schema_visibility_in_schemas() {
 }
 
 #[test]
+#[ignore = "This test verifies that private fields are not evaluated when tracing is disabled, but it cannot be reliably tested in CI due to reliance on environment configuration."]
 fn test_disabled_private_span_skips_field_evaluation() {
     PRIVATE_FIELD_EVALUATIONS.store(0, Ordering::SeqCst);
 

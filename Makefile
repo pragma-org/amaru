@@ -72,7 +72,8 @@ demo: ## &build Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 all-ci-checks: ## &test Run all CI checks
 	@cargo fmt-amaru
 	@cargo clippy-amaru
-	@cargo test --workspace --all-targets
+	@AMARU_TRACE_EMIT_PRIVATE=1 cargo test --workspace --all-targets
+	@AMARU_TRACE_EMIT_PRIVATE=1 cargo test --doc
 	@$(MAKE) build-examples
 	@$(MAKE) coverage-lconv
 
