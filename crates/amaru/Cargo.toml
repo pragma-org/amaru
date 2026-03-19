@@ -53,8 +53,6 @@ rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-quote.workspace = true
-syn.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 thiserror.workspace = true
@@ -98,6 +96,8 @@ insta = { workspace = true, features = ["json"] }
 tempfile.workspace = true
 test-case.workspace = true
 rocksdb.workspace = true
+quote.workspace = true
+syn.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true

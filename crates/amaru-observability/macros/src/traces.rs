@@ -392,9 +392,15 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         fields: Vec<TraceSpanField>,
     }
 
+    enum TraceSpanFormatter {
+        Display,
+        Debug,
+    }
+
     struct TraceSpanField {
         name: String,
         validation_expr: proc_macro2::TokenStream,
+        formatter: TraceSpanFormatter,
     }
 
     impl Parse for TraceSpanArgs {
@@ -440,23 +446,23 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                 let field_name_str = field_name.to_string();
 
                 // Check for tracing format specifiers (%, ?, or expressions)
-                let validation_expr = if input.peek(Token![%]) {
+                let (validation_expr, formatter) = if input.peek(Token![%]) {
                     // Format specifier %field
                     input.parse::<Token![%]>()?;
                     let field_ref: syn::Ident = input.parse()?;
-                    quote! { #field_ref }
+                    (quote! { #field_ref }, TraceSpanFormatter::Display)
                 } else if input.peek(Token![?]) {
                     // Format specifier ?field
                     input.parse::<Token![?]>()?;
                     let field_ref: syn::Ident = input.parse()?;
-                    quote! { #field_ref }
+                    (quote! { #field_ref }, TraceSpanFormatter::Debug)
                 } else {
                     // Regular expression
                     let value_expr: syn::Expr = input.parse()?;
-                    quote! { #value_expr }
+                    (quote! { #value_expr }, TraceSpanFormatter::Display)
                 };
 
-                fields.push(TraceSpanField { name: field_name_str, validation_expr });
+                fields.push(TraceSpanField { name: field_name_str, validation_expr, formatter });
             }
 
             // Ensure all input has been consumed - no trailing tokens
@@ -535,13 +541,21 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             let field_name = field.name.as_str();
             let expr = &field.validation_expr;
             let value_ident = make_ident(&format!("__amaru_trace_value_{index}"));
-            let display_ident = make_ident(&format!("__amaru_trace_display_{index}"));
+            let formatted_ident = make_ident(&format!("__amaru_trace_formatted_{index}"));
             let validate_value_call =
                 meta.macro_call_stmt(&record_macro_ident, quote! { #field_name, &#value_ident, validate_value });
+            let formatter_binding = match field.formatter {
+                TraceSpanFormatter::Display => {
+                    quote! { let #formatted_ident = tracing::field::display(&#value_ident); }
+                }
+                TraceSpanFormatter::Debug => {
+                    quote! { let #formatted_ident = tracing::field::debug(&#value_ident); }
+                }
+            };
             quote! {
                 let #value_ident = #expr;
                 #validate_value_call
-                let #display_ident = tracing::field::display(&#value_ident);
+                #formatter_binding
             }
         })
         .collect();
@@ -552,10 +566,10 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         .enumerate()
         .map(|(index, field)| {
             let field_name = field.name.as_str();
-            let display_ident = make_ident(&format!("__amaru_trace_display_{index}"));
+            let formatted_ident = make_ident(&format!("__amaru_trace_formatted_{index}"));
             meta.macro_call_stmt(
                 &assign_macro_ident,
-                quote! { __amaru_span_values, #field_name, &#display_ident as &dyn tracing::field::Value },
+                quote! { __amaru_span_values, #field_name, &#formatted_ident as &dyn tracing::field::Value },
             )
         })
         .collect();
@@ -584,13 +598,13 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         &meta,
         quote! {{
             #required_fields_check
-            #(#value_bindings)*
-
             #private_emit_guard
 
             if !#public_const_path && !__amaru_emit_private {
                 ::tracing::Span::none()
             } else {
+                #(#value_bindings)*
+
                 let mut __amaru_span_values: Vec<::tracing::__macro_support::Option<&dyn ::tracing::field::Value>> = vec![
                     ::tracing::__macro_support::Option::Some(
                         &tracing::field::Empty as &dyn ::tracing::field::Value

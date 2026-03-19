@@ -114,15 +114,39 @@ function isMilestoneFamily(family, selectors) {
   return selectors.some(selector => selectorMatchesFamily(selector, family));
 }
 
+function failInvalidConfig(configPath, message) {
+  console.error(`Invalid --config file ${configPath}: ${message}`);
+  process.exit(2);
+}
+
 function loadConfig(configPath) {
   if (!configPath) {
     return { milestoneSelectors: null };
   }
 
-  const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
-  const selectors = Array.isArray(parsed?.milestones)
-    ? parsed.milestones.map(normalizeSelector)
-    : null;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+  } catch (error) {
+    failInvalidConfig(configPath, error instanceof Error ? error.message : String(error));
+  }
+
+  if (parsed == null || Array.isArray(parsed) || typeof parsed !== 'object') {
+    failInvalidConfig(configPath, 'top-level JSON value must be an object');
+  }
+
+  if (Object.hasOwn(parsed, 'milestones') && !Array.isArray(parsed.milestones)) {
+    failInvalidConfig(configPath, '"milestones" must be an array when provided');
+  }
+
+  let selectors;
+  try {
+    selectors = Array.isArray(parsed.milestones)
+      ? parsed.milestones.map(normalizeSelector)
+      : null;
+  } catch (error) {
+    failInvalidConfig(configPath, error instanceof Error ? error.message : String(error));
+  }
 
   return { milestoneSelectors: selectors };
 }
@@ -137,6 +161,10 @@ function inferAnchorKeys(state, config) {
 
 function anchorSequence(state, config) {
   return inferAnchorKeys(state, config);
+}
+
+function firstCompressedPosition(state, key) {
+  return state.families.get(key)?.compressedPositions[0];
 }
 
 function compareFamilies(baseline, candidate, config) {
@@ -157,11 +185,16 @@ function compareFamilies(baseline, candidate, config) {
   // Sequence compatibility is evaluated on an anchor subsequence. By default,
   // anchors are singleton families inferred from the baseline. Config can
   // override this with explicit selectors for stronger, scenario-specific flow
-  // contracts.
+  // contracts. Candidate ordering is checked against the first compressed
+  // occurrence of each baseline anchor family so repeated candidate families do
+  // not weaken or distort the contract.
   const baselineAnchors = anchorSequence(baseline, config);
-  const candidateAnchors = anchorSequence(candidate, config);
+  const candidateAnchorIndex = new Map(
+    baselineAnchors
+      .map(key => [key, firstCompressedPosition(candidate, key)])
+      .filter(([, index]) => Number.isInteger(index)),
+  );
 
-  const candidateAnchorIndex = new Map(candidateAnchors.map((key, index) => [key, index]));
   for (let index = 0; index < baselineAnchors.length - 1; index += 1) {
     const beforeKey = baselineAnchors[index];
     const afterKey = baselineAnchors[index + 1];

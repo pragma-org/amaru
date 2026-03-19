@@ -16,18 +16,6 @@
       "description": "Decode header from raw bytes",
       "public": true
     },
-    "amaru::consensus::chain_sync::PULL": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "pull",
-      "level": "TRACE",
-      "target": "amaru::consensus::chain_sync",
-      "description": "Chain sync pull operation",
-      "public": true
-    },
     "amaru::consensus::chain_sync::RECEIVE_HEADER": {
       "type": "object",
       "properties": {},
@@ -957,78 +945,6 @@
       "level": "TRACE",
       "target": "amaru::network::chainsync_client",
       "description": "Find chain intersection point with peer",
-      "public": true
-    },
-    "amaru::network::connection::ACCEPT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "accept",
-      "level": "TRACE",
-      "target": "amaru::network::connection",
-      "description": "Accept a connection",
-      "public": true
-    },
-    "amaru::network::connection::ACCEPT_LOOP": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "accept_loop",
-      "level": "TRACE",
-      "target": "amaru::network::connection",
-      "description": "Accept loop for incoming connections",
-      "public": true
-    },
-    "amaru::network::connection::CLOSE": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "close",
-      "level": "TRACE",
-      "target": "amaru::network::connection",
-      "description": "Close connection",
-      "public": true
-    },
-    "amaru::network::connection::CONNECT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "connect",
-      "level": "TRACE",
-      "target": "amaru::network::connection",
-      "description": "Connect to addresses",
-      "public": true
-    },
-    "amaru::network::connection::CONNECT_ADDRS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "connect_addrs",
-      "level": "TRACE",
-      "target": "amaru::network::connection",
-      "description": "Connect to multiple addresses",
-      "public": true
-    },
-    "amaru::network::connection::LISTEN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "listen",
-      "level": "TRACE",
-      "target": "amaru::network::connection",
-      "description": "Listen on address",
       "public": true
     },
     "amaru::simulator::node::HANDLE_MSG": {

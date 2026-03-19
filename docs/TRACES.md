@@ -10,7 +10,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `decode_header` | `TRACE` | public | Decode header from raw bytes |  |  |
-| `pull` | `TRACE` | public | Chain sync pull operation |  |  |
 | `receive_header` | `TRACE` | public | Pull chain updates from peer |  |  |
 | `receive_header_decode_failed` | `TRACE` | public | Header decode failed from received data |  |  |
 | `select_chain` | `TRACE` | public | Select best chain from available headers |  |  |
@@ -356,17 +355,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `intersection_slot` | `integer` | ✓ |
 
 </details>
-
-## target: `amaru::network::connection`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `accept` | `TRACE` | public | Accept a connection |  |  |
-| `accept_loop` | `TRACE` | public | Accept loop for incoming connections |  |  |
-| `close` | `TRACE` | public | Close connection |  |  |
-| `connect` | `TRACE` | public | Connect to addresses |  |  |
-| `connect_addrs` | `TRACE` | public | Connect to multiple addresses |  |  |
-| `listen` | `TRACE` | public | Listen on address |  |  |
 
 ## target: `amaru::simulator::node`
 

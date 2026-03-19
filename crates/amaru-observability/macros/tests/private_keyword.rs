@@ -14,7 +14,11 @@
 
 //! Tests for schema visibility in trace macros and schema definitions.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
+
+static PRIVATE_FIELD_EVALUATIONS: AtomicUsize = AtomicUsize::new(0);
 
 define_local_schemas! {
     security {
@@ -51,10 +55,24 @@ fn trace_span_private_schema(key_id: String) {
     let _guard = _span.enter();
 }
 
+fn count_private_field_evaluation() -> String {
+    PRIVATE_FIELD_EVALUATIONS.fetch_add(1, Ordering::SeqCst);
+    "side_effect".to_string()
+}
+
 #[test]
 fn test_schema_visibility_in_schemas() {
     trace_private_schema("secret_123".into());
     trace_public_schema("public_key".into());
     trace_record_private_schema("secret_456".into());
     trace_span_private_schema("secret_789".into());
+}
+
+#[test]
+fn test_disabled_private_span_skips_field_evaluation() {
+    PRIVATE_FIELD_EVALUATIONS.store(0, Ordering::SeqCst);
+
+    let _span = trace_span!(security::secrets::PRIVATE_SECRET, key_id = count_private_field_evaluation());
+
+    assert_eq!(PRIVATE_FIELD_EVALUATIONS.load(Ordering::SeqCst), 0);
 }
