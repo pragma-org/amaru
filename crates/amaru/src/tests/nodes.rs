@@ -132,37 +132,25 @@ impl Nodes {
 
     /// Drain remaining effects after all actions have been consumed.
     ///
-    /// Runs effects identically to Phase 1 (including time advancement for
-    /// sleeping nodes) but without enqueueing new actions. Stops when no
-    /// node has processed any effects for `patience` consecutive steps.
+    /// Runs effects identically to Phase 1 but without
+    ///  - Time advancement for sleeping nodes (since we want to avoid keep-alive make the system run forever).
+    ///  - Enqueueing new actions (since everything has been enqueued before).
+    ///
+    /// Stops when no node has any effects to run.
+    ///
     fn drain(&mut self, rng: &mut RandStdRng) {
+        // Bound the drain loop in case it does not terminate
         let max_drain_steps = 1_000_000;
-        let mut steps_without_effect = 0;
-        let patience = 1_000;
-
         for step in 0..max_drain_steps {
             for node in self.nodes.iter_mut() {
                 node.advance_inputs();
             }
 
-            let Some(node) = self.pick_random_active_node(rng) else {
-                tracing::info!("drain[{step}]: all nodes terminated");
+            let Some(node) = self.pick_random_runnable_node(rng) else {
+                tracing::info!("drain[{step}]: all nodes terminated or have no effects to run");
                 return;
             };
-
-            let had_runnable = node.has_runnable_effects();
             node.run_effect();
-
-            if had_runnable || node.has_runnable_effects() {
-                steps_without_effect = 0;
-            } else {
-                steps_without_effect += 1;
-            }
-
-            if steps_without_effect >= patience {
-                tracing::info!("drain[{step}]: no effects for {patience} steps, drain complete");
-                return;
-            }
         }
         tracing::info!("Drain phase completed after {max_drain_steps} steps");
     }
@@ -179,16 +167,27 @@ impl Nodes {
         &self.nodes
     }
 
-    /// Pick a random non-terminated node from the list.
+    /// Pick a random non-terminated node
     fn pick_random_active_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
-        let active_indices: Vec<usize> =
-            self.nodes.iter().enumerate().filter(|(_, n)| !n.is_terminated()).map(|(i, _)| i).collect();
+        self.pick_random_node(rng, |n| !n.is_terminated())
+    }
 
-        if active_indices.is_empty() {
+    /// Pick a random non-terminated node with runnable effects
+    fn pick_random_runnable_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
+        self.pick_random_node(rng, |n| !n.is_terminated() && n.has_runnable_effects())
+    }
+
+    fn pick_random_node<F>(&mut self, rng: &mut RandStdRng, mut predicate: F) -> Option<&mut Node>
+    where
+        F: FnMut(&Node) -> bool,
+    {
+        let indices: Vec<usize> = self.nodes.iter().enumerate().filter(|(_, n)| predicate(n)).map(|(i, _)| i).collect();
+
+        if indices.is_empty() {
             return None;
         }
 
-        let idx = active_indices[rng.random_range(0..active_indices.len())];
+        let idx = indices[rng.random_range(0..indices.len())];
         Some(&mut self.nodes[idx])
     }
 }

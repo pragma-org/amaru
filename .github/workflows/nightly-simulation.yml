@@ -72,6 +72,7 @@ jobs:
           echo "AMARU_NUMBER_OF_TESTS=5000" >> $GITHUB_ENV
           echo "AMARU_GENERATED_CHAIN_DEPTH=200" >> $GITHUB_ENV
           echo "AMARU_NUMBER_OF_UPSTREAM_PEERS=4" >> $GITHUB_ENV
+          echo "AMARU_PERSIST_ON_SUCCESS=false" >> $GITHUB_ENV
 
       - name: Set AMARU params for pushes to main
         if: ${{ github.event_name == 'push' }}
@@ -79,6 +80,7 @@ jobs:
           echo "AMARU_NUMBER_OF_TESTS=200" >> $GITHUB_ENV
           echo "AMARU_GENERATED_CHAIN_DEPTH=100" >> $GITHUB_ENV
           echo "AMARU_NUMBER_OF_UPSTREAM_PEERS=2" >> $GITHUB_ENV
+          echo "AMARU_PERSIST_ON_SUCCESS=false" >> $GITHUB_ENV
 
       - name: Set AMARU params for manual runs
         if: ${{ github.event_name == 'workflow_dispatch' }}
