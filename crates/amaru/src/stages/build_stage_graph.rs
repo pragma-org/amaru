@@ -21,7 +21,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block2::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, Point, Tip};
+use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, Point, Tip};
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
@@ -46,7 +46,7 @@ pub fn build_stage_graph(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     ledger_tip: Tip,
-    our_candidate: Option<BlockHeader>,
+    our_candidate: Option<(BlockHeader, Vec<HeaderHash>)>,
     stage_graph: &mut impl StageGraph,
 ) -> StageRef<ManagerMessage> {
     let manager = stage_graph.stage("manager", manager::stage);

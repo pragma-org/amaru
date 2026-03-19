@@ -394,7 +394,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
     let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
     // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
-    let expected = SelectChain::new(prep.downstream.clone(), Some(prep.headers.h1.clone()));
+    let expected = SelectChain::new(prep.downstream.clone(), Some((prep.headers.h1.clone(), vec![])));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,

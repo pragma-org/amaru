@@ -119,8 +119,10 @@ struct MockBlockValidatorInner {
     tip: Point,
     /// If set, rollback_block will return this error.
     rollback_fails: bool,
-    /// If set, roll_forward_block will return Err for these points.
+    /// If set, roll_forward_block will return Ok(Err(...)) for these points.
     validate_fails: BTreeSet<Point>,
+    /// If set, roll_forward_block will return Err(...) for these points.
+    ledger_fails: BTreeSet<Point>,
 }
 
 #[allow(dead_code)] // empty, with_tip, with_rollback_fails reserved for future tests
@@ -132,6 +134,7 @@ impl MockBlockValidator {
                 tip,
                 rollback_fails: false,
                 validate_fails: BTreeSet::default(),
+                ledger_fails: BTreeSet::default(),
             }),
         }
     }
@@ -151,6 +154,11 @@ impl MockBlockValidator {
         self
     }
 
+    pub fn with_ledger_fails(&self, point: Point) -> &Self {
+        self.inner.lock().ledger_fails.insert(point);
+        self
+    }
+
     pub fn with_tip(&self, tip: Point) -> &Self {
         self.inner.lock().tip = tip;
         self
@@ -165,8 +173,11 @@ impl CanValidateBlocks for MockBlockValidator {
         _block: amaru_kernel::Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut inner = self.inner.lock();
+        if inner.ledger_fails.contains(point) {
+            return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed")));
+        }
         if inner.validate_fails.contains(point) {
-            return Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed")));
+            return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed"))));
         }
         inner.contains.insert(*point);
         inner.tip = *point;

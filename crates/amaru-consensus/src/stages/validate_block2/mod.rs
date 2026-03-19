@@ -52,10 +52,8 @@ impl ValidateBlockMsg {
 
 pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects<ValidateBlockMsg>) -> ValidateBlock {
     if msg.parent == Point::Origin {
-        tracing::info!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "skipping validation of genesis block");
-        eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
-        state.current = msg.tip.point();
-        return state;
+        tracing::error!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "cannot start from genesis block");
+        return eff.terminate().await;
     }
 
     let ledger = Ledger::new(eff.clone());

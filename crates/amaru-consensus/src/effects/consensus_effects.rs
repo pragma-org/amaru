@@ -186,7 +186,7 @@ pub mod tests {
         }
 
         fn contains_point(&self, _point: &Point) -> bool {
-            true
+            false
         }
 
         fn tip(&self) -> Point {

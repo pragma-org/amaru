@@ -38,21 +38,18 @@ fn test_genesis_block_skips_validation() {
     let msg = ValidateBlockMsg::new(tip, Point::Origin);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    let expected_state = ValidateBlock::new(prep.manager.clone(), prep.select_chain.clone(), tip.point());
     assert_trace(
         &running,
         &[
             te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)),
-            te_state("vb-1", &expected_state).into(),
+            te_terminate("vb-1"),
+            te_terminated("vb-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["skipping validation of genesis block"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::ERROR, &["cannot start from genesis block"])
+        .assert_and_remove(Level::INFO, &["terminated"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -251,12 +248,12 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
 }
 
 #[test]
-fn test_validation_fails_terminates_after_sending_false() {
+fn test_ledger_fails_terminates_after_sending_false() {
     // Mock validator returns Err for tip -> or_terminate runs, stage terminates after sending
     // BlockValidationResult(tip, false)
     let mut prep = test_prep();
     prep.set_current(prep.headers.h1.point());
-    prep.block_validator.with_tip(prep.headers.h1.point()).with_validate_fails(prep.headers.h2.point());
+    prep.block_validator.with_tip(prep.headers.h1.point()).with_ledger_fails(prep.headers.h2.point());
     prep.store_headers(&prep.headers.main());
     prep.store_blocks(&prep.headers.main());
     prep.set_anchor(prep.headers.h0.hash());
@@ -279,5 +276,36 @@ fn test_validation_fails_terminates_after_sending_false() {
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::ERROR, &["failed to validate block"])
         .assert_and_remove(Level::INFO, &["terminated stage"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_validation_fails_terminates_after_sending_false() {
+    // Mock validator returns Err for tip -> or_terminate runs, stage terminates after sending
+    // BlockValidationResult(tip, false)
+    let mut prep = test_prep();
+    prep.set_current(prep.headers.h1.point());
+    prep.block_validator.with_tip(prep.headers.h1.point()).with_validate_fails(prep.headers.h2.point());
+    prep.store_headers(&prep.headers.main());
+    prep.store_blocks(&prep.headers.main());
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let tip = prep.headers.h2.tip();
+    let parent = prep.headers.h1.point();
+    let msg = ValidateBlockMsg::new(tip, parent);
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("vb-1", &prep.state).into(),
+            te_input("vb-1", &msg).into(),
+            te_validate_block("vb-1", &Peer::new("unknown"), tip.point()),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)),
+            te_state("vb-1", &prep.state).into(),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["validating block"])
+        .assert_and_remove(Level::WARN, &["invalid block"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }

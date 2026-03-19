@@ -135,7 +135,7 @@ where
     where
         H: 'a,
     {
-        let mut to_visit = vec![*hash];
+        let mut to_visit = if hash == &ORIGIN_HASH { self.get_children(hash) } else { vec![*hash] };
         Box::new(iter::from_fn(move || {
             loop {
                 let hash = to_visit.pop()?;

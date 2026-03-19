@@ -85,11 +85,20 @@ impl FetchBlocks {
                 tracing::error!("failed to load initial header");
             })
             .await;
+        let mut failed_hash = None;
         for header in store.ancestors(initial) {
-            if store.load_block(&header.hash()).ok().and_then(|x| x).is_some() {
+            let Ok(block) = store.load_block(&header.hash()) else {
+                failed_hash = Some(header.hash());
+                break;
+            };
+            if block.is_some() {
                 break;
             }
             missing.push(header.point());
+        }
+        if let Some(failed_hash) = failed_hash {
+            tracing::error!(hash = %failed_hash, "failed to load block");
+            return store.eff().terminate().await;
         }
         missing.reverse();
         // TODO make configurable

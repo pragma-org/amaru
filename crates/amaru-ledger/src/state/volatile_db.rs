@@ -130,17 +130,23 @@ impl VolatileDB {
 
         // Keep all elements with slot <= target_slot
         let mut ix = 0;
+        let mut found = false;
         for diff in self.sequence.iter() {
             if diff.anchor.0 <= *point {
                 // TODO: See NOTE on VolatileDB regarding the .clone()
                 cache.merge(diff.state.utxo.clone());
                 ix += 1;
                 if diff.anchor.0 == *point {
+                    found = true;
                     break;
                 }
             } else {
                 return Err(on_unknown_point(point));
             }
+        }
+
+        if !found {
+            return Err(on_unknown_point(point));
         }
 
         self.sequence.truncate(ix);

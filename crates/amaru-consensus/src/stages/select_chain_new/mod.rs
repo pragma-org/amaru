@@ -32,11 +32,12 @@ pub struct SelectChain {
 }
 
 impl SelectChain {
-    pub fn new(downstream: StageRef<(Tip, Point)>, best_tip: Option<BlockHeader>) -> Self {
+    pub fn new(downstream: StageRef<(Tip, Point)>, best_tip: Option<(BlockHeader, Vec<HeaderHash>)>) -> Self {
         let mut tips = BTreeMap::new();
-        if let Some(best_tip) = &best_tip {
-            tips.insert(best_tip.hash(), vec![]);
-        }
+        let best_tip = best_tip.map(|(best_tip, to_validate)| {
+            tips.insert(best_tip.hash(), to_validate);
+            best_tip
+        });
         Self { downstream, best_tip, tips, may_fetch_blocks: false }
     }
 }

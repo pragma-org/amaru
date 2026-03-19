@@ -88,7 +88,7 @@ where
     #[expect(clippy::unwrap_used)]
     fn contains_point(&self, point: &Point) -> bool {
         let state = self.state.lock().unwrap();
-        state.contains_point(point)
+        state.contains_volatile_point(point)
     }
 
     #[expect(clippy::unwrap_used)]

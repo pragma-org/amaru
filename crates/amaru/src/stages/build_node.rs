@@ -112,6 +112,18 @@ pub fn build_node(
         .map(|h| chain_store.load_header(&h))
         .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
         .flatten();
+    let mut best_missing = vec![];
+    if let Some(best_candidate) = best_candidate.as_ref() {
+        for (header, validity) in chain_store.ancestors_with_validity(best_candidate.hash()) {
+            if validity.is_none() {
+                best_missing.push(header.hash());
+            } else {
+                break;
+            }
+        }
+        best_missing.reverse();
+    }
+
     let tip = best_candidate.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
     tracing::info!(%tip, "build_chain");
 
@@ -123,6 +135,7 @@ pub fn build_node(
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
 
     // Build the stage graph and return a reference to the manager stage
+    let best_candidate = best_candidate.map(|h| (h, best_missing));
     let manager_stage =
         build_stage_graph(config, era_history, global_parameters, ledger_tip, best_candidate, stage_builder);
 

@@ -631,7 +631,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         self.volatile.rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
     }
 
-    pub fn contains_point(&self, point: &Point) -> bool {
+    pub fn contains_volatile_point(&self, point: &Point) -> bool {
         self.volatile.contains(point)
     }
 
