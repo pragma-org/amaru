@@ -23,7 +23,7 @@ use amaru_protocols::{manager::ManagerMessage, mux::HandlerMessage, protocol::PR
 use futures_util::FutureExt;
 use parking_lot::Mutex;
 use pure_stage::{
-    Effect, Resources, StageGraphRunning, StageRef,
+    Effect, Instant, Resources, StageGraphRunning, StageRef,
     simulation::{Blocked, SimulationRunning},
     trace_buffer::TraceBuffer,
 };
@@ -185,13 +185,24 @@ impl Node {
     }
 
     /// Return true if the node still has pending actions to enqueue.
-    pub fn has_pending_actions(&self) -> bool {
-        !self.pending_actions.is_empty()
+    /// or enqueued actions in the actions_stage mailbox.
+    pub fn has_waiting_actions(&self) -> bool {
+        !self.pending_actions.is_empty() || self.running.mailbox_len(&self.actions_stage) > 0
     }
 
     /// Return true if the node still has runnable effects.
     pub fn has_runnable_effects(&self) -> bool {
         self.running.has_runnable()
+    }
+
+    /// Return the next wakeup time for this node, if any.
+    pub fn next_wakeup(&self) -> Option<Instant> {
+        self.running.next_wakeup()
+    }
+
+    /// Advance this node to the given wakeup time and wake any tasks scheduled for it.
+    pub fn advance_to_wakeup(&mut self, at: Instant) -> bool {
+        self.running.skip_to_next_wakeup(Some(at))
     }
 
     /// Return true for the node under test

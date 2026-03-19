@@ -18,7 +18,9 @@ use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHeaderValidation},
     headers_tree::data_generation::Action,
 };
-use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
+use amaru_kernel::{
+    BlockHeight, EraHistory, GlobalParameters, IsHeader, Tip, Transaction, cardano::network_block::make_encoded_block,
+};
 use amaru_ouroboros::{
     ChainStore, ConnectionsResource, ResourceMempool,
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
@@ -86,7 +88,8 @@ pub fn create_node(
     // The actions stage allows us to send NewTip messages to the manager so that chainsync
     // events can be sent to the node under test.
     let actions_stage = stage_graph.stage("actions", actions_stage);
-    let actions_stage = stage_graph.wire_up(actions_stage, (manager_stage.clone(), node_config.seed));
+    let actions_stage = stage_graph
+        .wire_up(actions_stage, (manager_stage.clone(), node_config.seed, node_config.era_history().clone()));
 
     set_resources(node_config, stage_graph)?;
     Ok((manager_stage, actions_stage.without_state()))
@@ -112,7 +115,7 @@ pub fn start_initiator(
     Ok(())
 }
 
-type ActionsState = (StageRef<ManagerMessage>, u64);
+type ActionsState = (StageRef<ManagerMessage>, u64, EraHistory);
 
 /// Create an "actions" stage to send NewTip messages to the Manager, and eventually to the node
 /// under test.
@@ -122,7 +125,7 @@ type ActionsState = (StageRef<ManagerMessage>, u64);
 /// from the ChainStore.
 ///
 async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -> ActionsState {
-    let (manager_stage, seed) = &state;
+    let (manager_stage, seed, era_history) = &state;
     tracing::info!("Received action: {msg:?}");
     let store = Store::new(eff.clone());
     let tip = match &msg {
@@ -132,6 +135,12 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
                 .store_header(header)
                 .or_terminate(&eff, |e| async move {
                     tracing::error!("Cannot store the header {}: {e:?}. The seed is {seed}", &header);
+                })
+                .await;
+            store
+                .store_block(&header.hash(), &make_encoded_block(header, era_history))
+                .or_terminate(&eff, |e| async move {
+                    tracing::error!("Cannot store the block for header {}: {e:?}. The seed is {seed}", &header);
                 })
                 .await;
             store

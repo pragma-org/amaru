@@ -78,6 +78,19 @@ pub enum TraceEntry {
     },
 }
 
+impl TraceEntry {
+    pub fn name(&self) -> Option<Name> {
+        match self {
+            TraceEntry::Resume { stage, .. }
+            | TraceEntry::Input { stage, .. }
+            | TraceEntry::State { stage, .. }
+            | TraceEntry::Terminated { stage, .. } => Some(stage.clone()),
+            TraceEntry::Suspend(effect) => Some(effect.name()),
+            TraceEntry::Clock(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TerminationReason {
     Voluntary,
