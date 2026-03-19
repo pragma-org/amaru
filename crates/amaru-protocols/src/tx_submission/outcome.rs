@@ -14,7 +14,7 @@
 
 use std::fmt::{Display, Formatter};
 
-use amaru_ouroboros_traits::TxId;
+use amaru_ouroboros_traits::{MempoolError, TxId};
 use serde::{Deserialize, Serialize};
 
 use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};
@@ -43,6 +43,7 @@ pub enum ProtocolError {
     TooManyTxIdsReceived(usize, usize, usize),
     ReceivedTxsExceedsBatchSize(usize, usize),
     SomeReceivedTxsNotInFlight(Vec<TxId>),
+    MempoolInsertFailed(TxId, MempoolError),
 }
 
 impl Display for ProtocolError {
@@ -88,6 +89,9 @@ impl Display for ProtocolError {
             }
             ProtocolError::DuplicateTxIds(tx_ids) => {
                 write!(f, "duplicate transaction ids were found in the request: {tx_ids:?}")
+            }
+            ProtocolError::MempoolInsertFailed(tx_id, error) => {
+                write!(f, "failed to insert transaction {tx_id} into the mempool: {error}")
             }
         }
     }
