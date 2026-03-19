@@ -54,20 +54,20 @@ fn run_simulator_with_traces() {
         execute,
         vec![json!(
           {
-            "name": "handle_msg",
             "target": "amaru_consensus",
+            "name": "handle_msg",
             "children": [
-                { "target": "amaru_consensus::stages::validate_header", "name": "validate_header" },
-                { "target": "amaru_consensus::stages::receive_header", "name": "receive_header" },
                 { "target": "amaru_consensus::stages::fetch_block", "name": "fetch_block" },
-                { "target": "amaru_consensus::stages::validate_block", "name": "validate_block" },
+                { "target": "amaru_consensus::stages::validate_header", "name": "validate_header" },
                 { "target": "amaru_consensus::stages::select_chain", "name": "select_chain" },
                 { "target": "amaru_consensus::stages::receive_header", "name": "receive_header" },
+                { "target": "amaru_consensus::stages::validate_block", "name": "validate_block" },
+                { "target": "amaru_consensus::stages::receive_header", "name": "receive_header" },
                 { "target": "amaru_consensus::stages::validate_header", "name": "validate_header" },
                 { "target": "amaru_consensus::stages::fetch_block", "name": "fetch_block" },
+                { "target": "amaru_consensus::stages::select_chain", "name": "select_chain" },
                 { "target": "amaru_consensus::stages::validate_block", "name": "validate_block" },
-                { "target": "amaru_consensus::stages::forward_chain", "name": "forward_chain" },
-                { "target": "amaru_consensus::stages::select_chain", "name": "select_chain" }
+                { "target": "amaru_consensus::stages::forward_chain", "name": "forward_chain" }
             ]
           }
         )],

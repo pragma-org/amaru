@@ -51,6 +51,10 @@ impl NetworkBlock {
         RawBlock::from(to_cbor(self).as_slice())
     }
 
+    pub fn encoded_block(&self) -> &[u8] {
+        &self.encoded_block
+    }
+
     /// Decode the inner block from its raw CBOR representation.
     pub fn decode_block(&self) -> Result<Block, minicbor::decode::Error> {
         minicbor::decode(&self.encoded_block)

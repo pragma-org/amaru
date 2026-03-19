@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    error::Error,
     fmt,
     fmt::{Display, Formatter},
     pin::Pin,
@@ -21,8 +22,6 @@ use std::{
 
 use amaru_kernel::{Hash, Hasher, Peer, TransactionId, cbor, size::TRANSACTION_BODY};
 use serde::{Deserialize, Serialize};
-
-use crate::CanValidateTransactions;
 
 /// An simple mempool interface to:
 ///
@@ -48,13 +47,17 @@ pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + S
 
 pub type ResourceMempool<Tx> = Arc<dyn TxSubmissionMempool<Tx>>;
 
-pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync + CanValidateTransactions<Tx> {
+pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Insert a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<(TxId, MempoolSeqNo), TxRejectReason>;
+    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError>;
 
-    /// Add a new, local, transaction to the mempool.
+    /// Add a new local transaction to the mempool so it can be considered for forging blocks on
+    /// the current node.
+    ///
+    /// This is the local-forging API. Use `insert` when the transaction origin matters, for
+    /// example when handling tx-submission traffic from remote peers.
     ///
     /// TODO: Have the mempool perform its own set of validations and possibly fail to add new
     /// elements. This is non-trivial, since it requires the mempool to have ways of re-validating
@@ -63,10 +66,9 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync + CanValid
     /// We shall circle back to this once we've done some progress on the ledger validations and
     /// the so-called ledger slices.
     ///
-    /// Return the assigned `MempoolSeqNo` if accepted.
-    fn add(&self, tx: Tx) -> Result<(), TxRejectReason> {
-        let _ = self.insert(tx, TxOrigin::Local)?;
-        Ok(())
+    /// Return the insertion outcome for a locally-created transaction.
+    fn add(&self, tx: Tx) -> Result<TxInsertResult, MempoolError> {
+        self.insert(tx, TxOrigin::Local)
     }
 
     /// Retrieve a transaction by its id.
@@ -97,6 +99,83 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync + CanValid
     fn last_seq_no(&self) -> MempoolSeqNo;
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum TxInsertResult {
+    Accepted { tx_id: TxId, seq_no: MempoolSeqNo },
+    Rejected(TxRejectReason),
+}
+
+impl TxInsertResult {
+    pub fn accepted(tx_id: TxId, seq_no: MempoolSeqNo) -> Self {
+        Self::Accepted { tx_id, seq_no }
+    }
+
+    pub fn rejected(reason: TxRejectReason) -> Self {
+        Self::Rejected(reason)
+    }
+}
+
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[error("MempoolError: {message}")]
+pub struct MempoolError {
+    message: String,
+}
+
+impl MempoolError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self { message: message.into() }
+    }
+}
+
+impl From<anyhow::Error> for MempoolError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::new(error.to_string())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("TransactionValidationError: {0}")]
+pub struct TransactionValidationError(#[from] anyhow::Error);
+
+impl TransactionValidationError {
+    pub fn to_anyhow(self) -> anyhow::Error {
+        self.0
+    }
+
+    pub fn downcast<T: Error + fmt::Debug + Send + Sync + 'static>(self) -> Result<T, anyhow::Error> {
+        self.0.downcast::<T>()
+    }
+
+    pub fn downcast_ref<T: Error + fmt::Debug + Send + Sync + 'static>(&self) -> Option<&T> {
+        self.0.downcast_ref::<T>()
+    }
+}
+
+impl Serialize for TransactionValidationError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for TransactionValidationError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(TransactionValidationError(anyhow::anyhow!(s)))
+    }
+}
+
+impl PartialEq for TransactionValidationError {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_string() == other.0.to_string()
+    }
+}
+
 /// Sequence number assigned to a transaction when inserted into the mempool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub struct MempoolSeqNo(pub u64);
@@ -111,14 +190,14 @@ impl MempoolSeqNo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, thiserror::Error, Serialize, Deserialize)]
 pub enum TxRejectReason {
     #[error("Mempool is full")]
     MempoolFull,
     #[error("Transaction is a duplicate")]
     Duplicate,
-    #[error("Transaction is invalid")]
-    Invalid,
+    #[error(transparent)]
+    Invalid(#[from] TransactionValidationError),
 }
 
 /// Origin of a transaction being inserted into the mempool:

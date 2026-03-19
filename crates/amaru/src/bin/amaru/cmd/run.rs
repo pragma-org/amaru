@@ -22,7 +22,8 @@ use amaru::{
         config::{Config, MaxExtraLedgerSnapshots, StoreType},
     },
 };
-use amaru_kernel::NetworkName;
+use amaru_kernel::{NetworkName, Transaction};
+use amaru_ouroboros::ResourceMempool;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -105,6 +106,16 @@ pub struct Args {
     )]
     network: NetworkName,
 
+    /// Address for the HTTP transaction submit API.
+    ///
+    /// When set, starts an HTTP server exposing POST /api/submit/tx (Cardano Submit API).
+    #[arg(
+        long,
+        value_name = amaru::value_names::ENDPOINT,
+        env = amaru::env_vars::SUBMIT_API_ADDRESS,
+    )]
+    submit_api_address: Option<String>,
+
     /// Upstream peer addresses to synchronize from.
     ///
     /// This option can be specified multiple times to connect to multiple peers.
@@ -139,16 +150,32 @@ impl Args {
 pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result<(), Box<dyn std::error::Error>> {
     with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
         let config = parse_args(args)?;
+        let submit_api_address = config.submit_api_address()?;
         pre_flight_checks()?;
 
         let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
+        let running = build_and_run_node(config, meter_provider)?;
 
         let exit = amaru::exit::hook_exit_token();
+        let submit_api_handle = match start_submit_api(submit_api_address, &running, &exit).await {
+            Ok(handle) => handle,
+            Err(err) => {
+                running.abort();
 
-        let running = build_and_run_node(config, meter_provider)?;
+                if let Some(handle) = metrics.as_ref() {
+                    handle.abort();
+                }
+
+                return Err(err);
+            }
+        };
 
         exit.cancelled().await;
         running.abort();
+
+        if let Some(handle) = submit_api_handle {
+            let _ = handle.await; // Let graceful shutdown complete
+        }
 
         if let Some(handle) = metrics {
             handle.abort();
@@ -157,6 +184,21 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
         Ok(())
     })
     .await
+}
+
+/// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
+async fn start_submit_api(
+    address: Option<std::net::SocketAddr>,
+    running: &pure_stage::tokio::TokioRunning,
+    exit: &tokio_util::sync::CancellationToken,
+) -> Result<Option<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error>> {
+    let Some(addr) = address else {
+        return Ok(None);
+    };
+    let mempool: ResourceMempool<Transaction> = running.resources().get::<ResourceMempool<Transaction>>()?.clone();
+    let shutdown = exit.child_token();
+    let (handle, _) = amaru::submit_api::start(addr, mempool, shutdown).await?;
+    Ok(Some(handle))
 }
 
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
@@ -177,6 +219,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         network = %args.network,
         peer_address = %args.peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
         pid_file = %args.pid_file.unwrap_or_default().to_string_lossy(),
+        submit_api_address = %args.submit_api_address.as_deref().unwrap_or("disabled"),
         "running"
     );
 
@@ -190,6 +233,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         max_downstream_peers: args.max_downstream_peers,
         max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
+        submit_api_address: args.submit_api_address,
         ..Config::default()
     })
 }

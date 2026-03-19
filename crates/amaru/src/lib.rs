@@ -32,6 +32,7 @@ pub mod tests;
 /// The sync pipeline is responsible for fetching blocks from the upstream node and
 /// applying them to the local chain.
 pub mod stages;
+pub mod submit_api;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 
@@ -166,6 +167,9 @@ pub mod env_vars {
 
     /// --snapshots-dir
     pub const SNAPSHOTS_DIR: &str = "AMARU_SNAPSHOTS_DIR";
+
+    /// --submit-api-address
+    pub const SUBMIT_API_ADDRESS: &str = "AMARU_SUBMIT_API_ADDRESS";
 
     /// --target-dir
     pub const TARGET_DIR: &str = "AMARU_TARGET_DIR";

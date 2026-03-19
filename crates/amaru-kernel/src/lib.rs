@@ -177,9 +177,10 @@ pub use cardano::{
 
 pub mod cbor {
     pub use amaru_minicbor_extra::{
-        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, decode_break, expect_tag, from_cbor,
-        from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy,
-        missing_field, tee, to_cbor, unexpected_field,
+        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, collect_array_item_bytes,
+        collect_map_value_bytes, decode_break, expect_tag, from_cbor, from_cbor_no_leftovers,
+        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee, to_cbor,
+        unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,

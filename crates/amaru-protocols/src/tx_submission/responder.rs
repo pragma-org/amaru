@@ -21,7 +21,7 @@ use ProtocolError::*;
 use amaru_kernel::Transaction;
 use amaru_observability::trace_span;
 use amaru_ouroboros::TxSubmissionMempool;
-use amaru_ouroboros_traits::{TxId, TxOrigin};
+use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -256,7 +256,9 @@ impl TxSubmissionResponder {
             return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
         }
 
-        self.received_txs(mempool, txs, origin)?;
+        if let Some(action) = self.received_txs(mempool, txs, origin)? {
+            return Ok(Some(action));
+        }
         let (ack, req, blocking) = self.request_tx_ids(mempool);
         Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
     }
@@ -332,21 +334,27 @@ impl TxSubmissionResponder {
         mempool: &dyn TxSubmissionMempool<Transaction>,
         txs: Vec<Transaction>,
         origin: TxOrigin,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<ResponderAction>> {
         for tx in txs {
             let requested_id = TxId::from(&tx);
             self.inflight_fetch_set.remove(&requested_id);
-            match mempool.validate_transaction(tx.clone()) {
-                Ok(_) => {
+            match mempool.insert(tx, origin.clone()) {
+                Ok(TxInsertResult::Accepted { .. }) => {
                     tracing::debug!("insert transaction {} into the mempool", requested_id);
-                    mempool.insert(tx, origin.clone())?;
                 }
-                Err(e) => {
-                    tracing::warn!("received invalid transaction {}: {}", requested_id, e);
+                Ok(TxInsertResult::Rejected(TxRejectReason::Invalid(error))) => {
+                    tracing::warn!("received invalid transaction {}: {}", requested_id, error);
                 }
+                Ok(TxInsertResult::Rejected(TxRejectReason::MempoolFull)) => {
+                    tracing::warn!("mempool full, dropping transaction {}", requested_id);
+                }
+                Ok(TxInsertResult::Rejected(TxRejectReason::Duplicate)) => {
+                    tracing::debug!("duplicate transaction {}, skipping", requested_id);
+                }
+                Err(error) => return protocol_error(MempoolInsertFailed(requested_id, error)),
             }
         }
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -385,10 +393,11 @@ impl Display for ResponderAction {
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
+    use std::{pin::Pin, sync::Arc};
 
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
+    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult};
 
     use super::*;
     use crate::tx_submission::{assert_actions_eq, tests::create_transactions};
@@ -499,6 +508,24 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn fatal_mempool_errors_terminate_the_protocol() -> anyhow::Result<()> {
+        let txs = create_transactions(2);
+        let mempool = Arc::new(FailingInsertMempool::new("database unavailable"));
+
+        let actions = run_stage(mempool, vec![init(), reply_tx_ids(&txs, &[0, 1]), reply_txs(&txs, &[0, 1])]).await?;
+
+        assert_actions_eq(
+            &actions,
+            &[
+                request_tx_ids(0, 10, Blocking::Yes),
+                request_txs(&txs, &[0, 1]),
+                error_action(MempoolInsertFailed(TxId::from(&txs[0]), MempoolError::new("database unavailable"))),
+            ],
+        );
+        Ok(())
+    }
+
     #[test]
     fn test_responder_protocol() {
         crate::tx_submission::spec::<Responder>().check(State::Init, |msg| match msg {
@@ -585,5 +612,41 @@ mod tests {
 
     fn error_action(error: ProtocolError) -> ResponderAction {
         ResponderAction::Error(error)
+    }
+
+    struct FailingInsertMempool {
+        message: &'static str,
+    }
+
+    impl FailingInsertMempool {
+        fn new(message: &'static str) -> Self {
+            Self { message }
+        }
+    }
+
+    impl TxSubmissionMempool<Transaction> for FailingInsertMempool {
+        fn insert(&self, _tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
+            Err(MempoolError::new(self.message))
+        }
+
+        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
+            None
+        }
+
+        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+            vec![]
+        }
+
+        fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            Box::pin(async { false })
+        }
+
+        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
+            vec![]
+        }
+
+        fn last_seq_no(&self) -> MempoolSeqNo {
+            MempoolSeqNo(0)
+        }
     }
 }
