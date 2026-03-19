@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace,
     MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer, ProtocolParameters,
-    StakeCredential, TransactionInput,
+    StakeCredential, Tip, TransactionInput,
 };
 
 use super::{
@@ -72,7 +72,7 @@ impl VolatileDB {
     }
 
     pub fn contains(&self, point: &Point) -> bool {
-        self.sequence.binary_search_by_key(point, |state| state.anchor.0).is_ok()
+        self.sequence.binary_search_by_key(point, |state| state.anchor.0.point()).is_ok()
     }
 
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
@@ -101,11 +101,11 @@ impl VolatileDB {
         // Check if the target point is beyond the sequence
         // In this case we simply return Ok since it this would not change the volatile state.
         if let Some(last) = self.sequence.back()
-            && last.anchor.0.slot_or_default() < target_slot
+            && last.anchor.0.slot() < target_slot
         {
             tracing::warn!(
                 %target_slot,
-                last_slot = ?last.anchor.0.slot_or_default(),
+                last_slot = ?last.anchor.0.slot(),
                 "Attempting to rollback to a point beyond the last known volatile state"
             );
             return Ok(());
@@ -114,11 +114,11 @@ impl VolatileDB {
         // Check if the target point is before the sequence
         // In this case we return an error since it means rolling back the stable DB
         if let Some(first) = self.sequence.front()
-            && target_slot < first.anchor.0.slot_or_default()
+            && target_slot < first.anchor.0.slot()
         {
             tracing::error!(
                 %target_slot,
-                first_slot = ?first.anchor.0.slot_or_default(),
+                first_slot = ?first.anchor.0.slot(),
                 "Attempting to rollback to a point before the first point of the volatile state"
             );
             return Err(on_unknown_point(point));
@@ -132,11 +132,11 @@ impl VolatileDB {
         let mut ix = 0;
         let mut found = false;
         for diff in self.sequence.iter() {
-            if diff.anchor.0 <= *point {
+            if diff.anchor.0.point() <= *point {
                 // TODO: See NOTE on VolatileDB regarding the .clone()
                 cache.merge(diff.state.utxo.clone());
                 ix += 1;
-                if diff.anchor.0 == *point {
+                if diff.anchor.0.point() == *point {
                     found = true;
                     break;
                 }
@@ -190,13 +190,13 @@ pub struct VolatileState {
 }
 
 pub struct AnchoredVolatileState {
-    pub anchor: (Point, PoolId),
+    pub anchor: (Tip, PoolId),
     pub state: VolatileState,
 }
 
 impl VolatileState {
-    pub fn anchor(self, point: &Point, issuer: PoolId) -> AnchoredVolatileState {
-        AnchoredVolatileState { anchor: (*point, issuer), state: self }
+    pub fn anchor(self, tip: Tip, issuer: PoolId) -> AnchoredVolatileState {
+        AnchoredVolatileState { anchor: (tip, issuer), state: self }
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
@@ -246,7 +246,7 @@ impl AnchoredVolatileState {
         let gov_action_lifetime = protocol_parameters.gov_action_lifetime;
 
         StoreUpdate {
-            point: self.anchor.0,
+            point: self.anchor.0.point(),
             issuer: self.anchor.1,
             fees: self.state.fees,
             withdrawals: self.state.withdrawals.into_iter(),
@@ -374,7 +374,7 @@ fn add_proposals(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Hash, Point, Slot};
+    use amaru_kernel::{BlockHeight, Hash, Point, Slot};
 
     use super::*;
 
@@ -459,8 +459,9 @@ mod tests {
     fn create_test_state(slot: u64, pool_id: u8) -> AnchoredVolatileState {
         let point = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]));
         let pool = Hash::new([pool_id; 28]);
+        let tip = Tip::new(point, BlockHeight::from(slot));
 
-        AnchoredVolatileState { anchor: (point, pool), state: VolatileState::default() }
+        AnchoredVolatileState { anchor: (tip, pool), state: VolatileState::default() }
     }
 
     fn create_volatile_db() -> VolatileDB {

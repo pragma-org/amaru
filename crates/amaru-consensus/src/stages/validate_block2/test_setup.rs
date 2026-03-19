@@ -201,6 +201,10 @@ impl CanValidateBlocks for MockBlockValidator {
     fn tip(&self) -> Point {
         self.inner.lock().tip
     }
+
+    fn volatile_tip(&self) -> Option<Tip> {
+        None
+    }
 }
 
 /// Bundles state, runtime, store, ledger, and refs for validate_block2 tests.

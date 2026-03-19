@@ -85,8 +85,10 @@ pub fn build_stage_graph(
     let select_chain_input = stage_graph
         .contramap(select_chain, "select_chain_input", |(tip, parent)| SelectChainMsg::TipFromUpstream(tip, parent));
 
-    let track_peers =
-        stage_graph.wire_up(track_peers, TrackPeers::new(era_history.clone(), manager.sender(), select_chain_input));
+    let track_peers = stage_graph.wire_up(
+        track_peers,
+        TrackPeers::new(era_history.clone(), manager.sender(), select_chain_input, k, config.defer_req_next_poll_ms),
+    );
     let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
 
     stage_graph

@@ -142,7 +142,7 @@ async fn roll_back_to_ancestor(
                 ),
             ));
         }
-        if ancestor.point() < ledger_tip {
+        if ancestor.point() < ledger_tip.point() {
             return Err(ValidationFailed::new(
                 &Peer::new("unknown"),
                 ConsensusError::RollbackBlockFailed(
@@ -151,7 +151,7 @@ async fn roll_back_to_ancestor(
                 ),
             ));
         }
-        if ancestor.point() == ledger_tip || ledger.contains_point(&ancestor.point()) {
+        if ancestor.point() == ledger_tip.point() || ledger.contains_point(&ancestor.point()) {
             rb_point = Some(ancestor.point());
             break;
         }

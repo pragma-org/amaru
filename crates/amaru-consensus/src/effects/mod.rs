@@ -23,6 +23,6 @@ pub use consensus_effects::tests::*;
 pub use consensus_effects::{ConsensusEffects, ConsensusOps};
 pub use ledger_effects::{
     ContainsPointEffect, Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation, RollbackBlockEffect,
-    TipEffect, ValidateBlockEffect, ValidateHeaderEffect,
+    TipEffect, ValidateBlockEffect, ValidateHeaderEffect, VolatileTipEffect,
 };
 pub use metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};

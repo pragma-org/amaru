@@ -104,7 +104,7 @@ impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
 pub mod tests {
     use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
-    use amaru_kernel::{Peer, Point, PoolId, Slot};
+    use amaru_kernel::{Peer, Point, PoolId, Slot, Tip};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
     use amaru_ouroboros::has_stake_distribution::GetPoolError;
@@ -189,8 +189,12 @@ pub mod tests {
             false
         }
 
-        fn tip(&self) -> Point {
-            Point::Origin
+        fn tip(&self) -> Tip {
+            Tip::origin()
+        }
+
+        fn volatile_tip(&self) -> Option<Tip> {
+            None
         }
     }
 

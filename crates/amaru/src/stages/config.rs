@@ -40,6 +40,9 @@ pub struct Config {
     // virtual machine. Higher sizes means less re-allocations but more resident memory footprint
     // since the arena is leaking memory on purpose.
     pub ledger_vm_alloc_arena_size: usize,
+
+    /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
+    pub defer_req_next_poll_ms: u64,
 }
 
 impl Config {
@@ -69,6 +72,7 @@ impl Default for Config {
             submit_api_address: None,
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
+            defer_req_next_poll_ms: 2000,
         }
     }
 }

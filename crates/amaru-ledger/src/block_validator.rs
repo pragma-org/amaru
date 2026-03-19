@@ -14,7 +14,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point};
+use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
 use amaru_plutus::arena_pool::ArenaPool;
@@ -95,5 +95,11 @@ where
     fn tip(&self) -> Point {
         let state = self.state.lock().unwrap();
         state.tip().into_owned()
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn volatile_tip(&self) -> Option<Tip> {
+        let state = self.state.lock().unwrap();
+        state.volatile_tip()
     }
 }

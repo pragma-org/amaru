@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point};
+use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks,
@@ -51,7 +51,9 @@ pub trait LedgerOps: Send + Sync {
 
     fn contains_point(&self, point: &Point) -> bool;
 
-    fn tip(&self) -> Point;
+    fn tip(&self) -> Tip;
+
+    fn volatile_tip(&self) -> Option<Tip>;
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
@@ -98,8 +100,12 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         self.0.external_sync(ContainsPointEffect::new(point))
     }
 
-    fn tip(&self) -> Point {
+    fn tip(&self) -> Tip {
         self.0.external_sync(TipEffect)
+    }
+
+    fn volatile_tip(&self) -> Option<Tip> {
+        self.0.external_sync(VolatileTipEffect)
     }
 }
 
@@ -264,13 +270,40 @@ impl ExternalEffect for TipEffect {
                 .get::<ResourceBlockValidation>()
                 .expect("TipEffect requires a ResourceBlockValidation resource")
                 .clone();
-            ledger.tip()
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("TipEffect requires a ResourceHeaderStore resource")
+                .clone();
+            let point = ledger.tip();
+            store.load_tip(&point.hash()).expect("cannot load header for ledger tip")
         })
     }
 }
 
 impl ExternalEffectAPI for TipEffect {
-    type Response = Point;
+    type Response = Tip;
 }
 
 impl ExternalEffectSync for TipEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct VolatileTipEffect;
+
+impl ExternalEffect for VolatileTipEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let ledger = resources
+                .get::<ResourceBlockValidation>()
+                .expect("VolatileTipPointEffect requires a ResourceBlockValidation resource")
+                .clone();
+            ledger.volatile_tip()
+        })
+    }
+}
+
+impl ExternalEffectAPI for VolatileTipEffect {
+    type Response = Option<Tip>;
+}
+
+impl ExternalEffectSync for VolatileTipEffect {}

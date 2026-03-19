@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput,
-    NetworkName, Point, TransactionInput, Value, PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+    NetworkName, Point, Tip, TransactionInput, Value, PREPROD_INITIAL_PROTOCOL_PARAMETERS,
     PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
 };
 use amaru_ledger::{
@@ -118,7 +118,7 @@ pub fn forward_ledger(raw_block: &str) {
 
     let volatile_state: VolatileState = context.into();
 
-    state
-        .forward(volatile_state.anchor(&point, issuer))
-        .unwrap()
+    let tip = Tip::new(point, block.header.header_body.block_number.into());
+
+    state.forward(volatile_state.anchor(tip, issuer)).unwrap()
 }
