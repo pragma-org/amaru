@@ -141,6 +141,11 @@ impl SimulationRunning {
         !self.runnable.is_empty()
     }
 
+    /// Return true if there are any effects to be run.
+    pub fn has_effects(&self) -> bool {
+        !self.external_effects.is_empty()
+    }
+
     /// Install a breakpoint that will be hit when an effect matching the given predicate is encountered.
     pub fn breakpoint(&mut self, name: impl AsRef<str>, predicate: impl Fn(&Effect) -> bool + Send + 'static) {
         self.breakpoints.push((Name::from(name.as_ref()), Box::new(predicate)));

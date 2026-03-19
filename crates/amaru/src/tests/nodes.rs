@@ -140,7 +140,7 @@ impl Nodes {
     ///
     fn drain(&mut self, rng: &mut RandStdRng) {
         // Bound the drain loop in case it does not terminate
-        let max_drain_steps = 1_000_000;
+        let max_drain_steps = 100_000;
         for step in 0..max_drain_steps {
             for node in self.nodes.iter_mut() {
                 node.advance_inputs();
@@ -174,7 +174,7 @@ impl Nodes {
 
     /// Pick a random non-terminated node with runnable effects
     fn pick_random_runnable_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
-        self.pick_random_node(rng, |n| !n.is_terminated() && n.has_runnable_effects())
+        self.pick_random_node(rng, |n| !n.is_terminated() && (n.has_runnable_effects() || n.has_effects()))
     }
 
     fn pick_random_node<F>(&mut self, rng: &mut RandStdRng, mut predicate: F) -> Option<&mut Node>

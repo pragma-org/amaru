@@ -239,7 +239,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 Ok((action, self))
             }
             BlockFetchMessage::RequestRange2 { from, through, id, cr } => {
-                let action = (self.queue.len() < 2).then_some(InitiatorAction::RequestRange { from, through });
+                let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
                 self.queue.push_back((from, through, Resp::V2(id, cr)));
                 Ok((action, self))
             }
