@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use anyhow::anyhow;
-use pure_stage::{Effect, Name, Resources, simulation::RandStdRng, trace_buffer::TraceEntry};
+use pure_stage::{Resources, simulation::RandStdRng, trace_buffer::TraceEntry};
 
 use crate::tests::node::Node;
 
