@@ -262,6 +262,23 @@ jobs:
           # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
           echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
 
+      - name: Compare trace contract
+        shell: bash
+        run: |
+          BASELINE="data/${AMARU_NETWORK}/demo-trace-baseline.jsonl"
+
+          if [ ! -f "$BASELINE" ]; then
+            echo "No trace baseline found for ${AMARU_NETWORK}, skipping trace contract check."
+            exit 0
+          fi
+
+          AMARU_TRACE=amaru=trace \
+          ./scripts/demo "$BUILD_PROFILE" "$DEMO_TARGET_EPOCH" > trace-compare.log 2>&1
+
+          node scripts/compare-traces \
+            "$BASELINE" \
+            trace-compare.log
+
       - name: Run node
         timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
         shell: bash

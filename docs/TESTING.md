@@ -17,8 +17,17 @@ They are executed via `cargo test`.
 
 ### Traces testing
 
-TODO
-Here we want to make sure OpenTelemetry traces are considered as part of the API.
+OpenTelemetry and JSON traces should be treated as part of the external API.
+
+Use the trace compatibility checker to compare a known-good baseline run against a newer run:
+
+```
+node scripts/compare-traces baseline.log candidate.log
+```
+
+CI compares the demo run against a checked-in normalized baseline at
+`data/<network>/demo-trace-baseline.jsonl` when that file exists.
+If no baseline file is present for the current network, the trace contract check is skipped.
 
 ## Real chan tests
 

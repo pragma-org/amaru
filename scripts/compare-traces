@@ -1,0 +1,296 @@
+#!/usr/bin/env node
+
+import { createReadStream, readFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+
+function formatFamily(family) {
+  const bits = [`target=${family.target}`];
+  if (family.spanName) bits.push(`span=${family.spanName}`);
+  return bits.join(' | ');
+}
+
+function makeFamilyKey(family) {
+  return [family.target, family.spanName ?? ''].join('\u001f');
+}
+
+function getOrCreateFamily(state, family) {
+  const key = makeFamilyKey(family);
+  let entry = state.families.get(key);
+  if (!entry) {
+    entry = {
+      ...family,
+      count: 0,
+      compressedPositions: [],
+    };
+    state.families.set(key, entry);
+  }
+  return entry;
+}
+
+function createState(filePath) {
+  return {
+    filePath,
+    totalJsonLines: 0,
+    families: new Map(),
+    compressedOrder: [],
+    lastCompressedKey: null,
+  };
+}
+
+async function loadTraceState(filePath) {
+  const state = createState(filePath);
+  const stream = createReadStream(filePath);
+  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+
+  for await (const rawLine of reader) {
+    const line = rawLine.trim();
+    if (!line.startsWith('{')) continue;
+
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (!obj || typeof obj !== 'object' || typeof obj.target !== 'string') {
+      continue;
+    }
+
+    if ('level' in obj && obj.level !== 'TRACE') {
+      continue;
+    }
+
+    if (typeof obj.span?.name !== 'string') {
+      continue;
+    }
+
+    state.totalJsonLines += 1;
+
+    const family = {
+      target: obj.target,
+      spanName: typeof obj.span?.name === 'string' ? obj.span.name : '',
+    };
+
+    const entry = getOrCreateFamily(state, family);
+    const familyKey = makeFamilyKey(family);
+    entry.count += 1;
+
+    if (state.lastCompressedKey !== familyKey) {
+      entry.compressedPositions.push(state.compressedOrder.length);
+      state.compressedOrder.push(familyKey);
+      state.lastCompressedKey = familyKey;
+    }
+  }
+
+  return state;
+}
+
+function normalizeSelector(selector) {
+  if (!selector || typeof selector !== 'object' || Array.isArray(selector)) {
+    throw new Error('milestone selectors must be objects');
+  }
+
+  const normalized = {
+    target: typeof selector.target === 'string' ? selector.target : '',
+    spanName: typeof selector.spanName === 'string' ? selector.spanName : '',
+  };
+
+  if (!normalized.target && !normalized.spanName) {
+    throw new Error('milestone selectors must constrain at least one of target or spanName');
+  }
+
+  return normalized;
+}
+
+function selectorMatchesFamily(selector, family) {
+  if (selector.target && selector.target !== family.target) return false;
+  if (selector.spanName && selector.spanName !== family.spanName) return false;
+  return true;
+}
+
+function isMilestoneFamily(family, selectors) {
+  if (!family) return false;
+  return selectors.some(selector => selectorMatchesFamily(selector, family));
+}
+
+function loadConfig(configPath) {
+  if (!configPath) {
+    return { milestoneSelectors: null };
+  }
+
+  const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+  const selectors = Array.isArray(parsed?.milestones)
+    ? parsed.milestones.map(normalizeSelector)
+    : null;
+
+  return { milestoneSelectors: selectors };
+}
+
+function inferAnchorKeys(state, config) {
+  if (config.milestoneSelectors == null) {
+    return state.compressedOrder.filter(key => state.families.get(key)?.compressedPositions.length === 1);
+  }
+
+  return state.compressedOrder.filter(key => isMilestoneFamily(state.families.get(key), config.milestoneSelectors));
+}
+
+function anchorSequence(state, config) {
+  return inferAnchorKeys(state, config);
+}
+
+function compareFamilies(baseline, candidate, config) {
+  const failures = [];
+  const additions = [];
+
+  for (const [key, family] of baseline.families.entries()) {
+    const other = candidate.families.get(key);
+    if (!other) {
+      failures.push({
+        kind: 'missing-family',
+        family,
+      });
+      continue;
+    }
+  }
+
+  // Sequence compatibility is evaluated on an anchor subsequence. By default,
+  // anchors are singleton families inferred from the baseline. Config can
+  // override this with explicit selectors for stronger, scenario-specific flow
+  // contracts.
+  const baselineAnchors = anchorSequence(baseline, config);
+  const candidateAnchors = anchorSequence(candidate, config);
+
+  const candidateAnchorIndex = new Map(candidateAnchors.map((key, index) => [key, index]));
+  for (let index = 0; index < baselineAnchors.length - 1; index += 1) {
+    const beforeKey = baselineAnchors[index];
+    const afterKey = baselineAnchors[index + 1];
+    if (!candidateAnchorIndex.has(beforeKey) || !candidateAnchorIndex.has(afterKey)) {
+      continue;
+    }
+
+    if (candidateAnchorIndex.get(beforeKey) > candidateAnchorIndex.get(afterKey)) {
+      failures.push({
+        kind: 'sequence-order-changed',
+        before: baseline.families.get(beforeKey),
+        after: baseline.families.get(afterKey),
+      });
+    }
+  }
+
+  for (const [key, family] of candidate.families.entries()) {
+    if (!baseline.families.has(key)) {
+      additions.push(family);
+    }
+  }
+
+  return { failures, additions };
+}
+
+function serializeFailure(failure) {
+  if (failure.kind === 'missing-family') {
+    return {
+      kind: failure.kind,
+      family: formatFamily(failure.family),
+    };
+  }
+
+  if (failure.kind === 'sequence-order-changed') {
+    return {
+      kind: failure.kind,
+      before: formatFamily(failure.before),
+      after: formatFamily(failure.after),
+    };
+  }
+
+  return failure;
+}
+
+function buildFailureReport(baseline, candidate, result) {
+  return {
+    status: 'fail',
+    baseline: {
+      file: baseline.filePath,
+      jsonEvents: baseline.totalJsonLines,
+      traceFamilies: baseline.families.size,
+    },
+    candidate: {
+      file: candidate.filePath,
+      jsonEvents: candidate.totalJsonLines,
+      traceFamilies: candidate.families.size,
+    },
+    failures: result.failures.map(serializeFailure),
+    additions: result.additions.map(formatFamily),
+  };
+}
+
+function printUsage() {
+  console.error(`Usage:
+  node scripts/compare-traces [--config compare-traces.json] baseline.log candidate.log
+
+The command compares JSON trace families emitted by two Amaru runs.
+It fails when the candidate run removes a previously observed trace family or
+changes the relative order of baseline anchor traces.
+Extra trace families in the candidate run are allowed.
+
+Config file format:
+  {
+    "milestones": [
+      { "target": "amaru::consensus::chain_sync", "spanName": "decode_header" },
+      { "target": "amaru::ledger::state", "spanName": "compute_stake_distribution" }
+    ]
+  }
+
+When "milestones" is omitted, ordering is inferred from singleton families in the baseline.
+If selectors are provided, the order of their first compressed occurrences becomes the contract.
+If "milestones" is an empty array, order checks are disabled.
+`);
+}
+
+function parseArgs(argv) {
+  const parsed = { configPath: null, files: [] };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--config') {
+      parsed.configPath = argv[index + 1] ?? null;
+      index += 1;
+      continue;
+    }
+    parsed.files.push(arg);
+  }
+
+  return parsed;
+}
+
+const rawArgs = process.argv.slice(2);
+
+if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+  printUsage();
+  process.exit(0);
+}
+
+const args = parseArgs(rawArgs);
+
+if (rawArgs.includes('--config') && args.configPath == null) {
+  printUsage();
+  process.exit(2);
+}
+
+if (args.files.length !== 2) {
+  printUsage();
+  process.exit(2);
+}
+
+const [baselineFile, candidateFile] = args.files;
+const config = loadConfig(args.configPath);
+const baseline = await loadTraceState(baselineFile);
+const candidate = await loadTraceState(candidateFile);
+const result = compareFamilies(baseline, candidate, config);
+
+if (result.failures.length > 0) {
+  console.log(JSON.stringify(buildFailureReport(baseline, candidate, result), null, 2));
+  process.exit(1);
+}
+
+process.exit(0);
