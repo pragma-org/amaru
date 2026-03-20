@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeader, IsHeader, Point, Tip, cardano::network_block::NetworkBlock};
+use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip, cardano::network_block::NetworkBlock};
 use amaru_ouroboros::{ChainStore, ReadOnlyChainStore};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, ScheduleId, StageRef, TryInStage};
@@ -23,18 +23,19 @@ use crate::stages::select_chain_new::SelectChainMsg;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchBlocks {
-    downstream: StageRef<(Tip, Point)>,
+    downstream: StageRef<(Tip, Point, BlockHeight)>,
     req_id: u64,
     missing: Vec<Point>,
     upstream: StageRef<SelectChainMsg>,
     manager: StageRef<ManagerMessage>,
     cleanup_replies: StageRef<Blocks2>,
     timeout: Option<ScheduleId>,
+    block_height: BlockHeight,
 }
 
 impl FetchBlocks {
     pub fn new(
-        downstream: StageRef<(Tip, Point)>,
+        downstream: StageRef<(Tip, Point, BlockHeight)>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
     ) -> Self {
@@ -46,21 +47,34 @@ impl FetchBlocks {
             manager,
             cleanup_replies: StageRef::blackhole(),
             timeout: None,
+            block_height: BlockHeight::from(0),
         }
     }
 
     /// Constructor for tests: use a mock cleanup_replies stage instead of wiring the real one.
     #[cfg(test)]
     pub fn for_tests(
-        downstream: StageRef<(Tip, Point)>,
+        downstream: StageRef<(Tip, Point, BlockHeight)>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         cleanup_replies: StageRef<Blocks2>,
     ) -> Self {
-        Self { downstream, req_id: 0, missing: Vec::new(), upstream, manager, cleanup_replies, timeout: None }
+        Self {
+            downstream,
+            req_id: 0,
+            missing: Vec::new(),
+            upstream,
+            manager,
+            cleanup_replies,
+            timeout: None,
+            block_height: BlockHeight::from(0),
+        }
     }
 
+    #[expect(clippy::expect_used)]
     pub async fn new_tip(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
+        self.block_height = tip.block_height().max(self.block_height);
+
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
         let store = Store::new(eff);
         // find blocks to retrieve
@@ -103,7 +117,7 @@ impl FetchBlocks {
         // request blocks
         let from = *self.missing.get(1).expect("checked above that this exists");
         let through = *self.missing.last().expect("checked above that not empty");
-        tracing::info!(%from, %through, length = self.missing.len() - 1, "requesting blocks");
+        tracing::debug!(%from, %through, length = self.missing.len() - 1, "requesting blocks");
         self.req_id += 1;
         store
             .eff()
@@ -135,8 +149,8 @@ impl FetchBlocks {
             return;
         }
         // check that parent is as expected
-        if header.parent_hash() != self.missing.get(0).map(|p| p.hash()) {
-            tracing::warn!(expected = ?self.missing.get(0).map(|p| p.hash()), actual = ?header.parent_hash(), "block parent hash mismatch");
+        if header.parent_hash() != self.missing.first().map(|p| p.hash()) {
+            tracing::warn!(expected = ?self.missing.first().map(|p| p.hash()), actual = ?header.parent_hash(), "block parent hash mismatch");
             return;
         }
         // check that block's point is as expected
@@ -153,7 +167,7 @@ impl FetchBlocks {
             })
             .await;
         let tip = Tip::new(point, block.header.header_body.block_number.into());
-        store.eff().send(&self.downstream, (tip, parent)).await;
+        store.eff().send(&self.downstream, (tip, parent, self.block_height)).await;
 
         // check if we are done
         if self.missing.len() < 2 {

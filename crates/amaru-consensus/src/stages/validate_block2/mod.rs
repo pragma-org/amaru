@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros::{BlockValidationError, ReadOnlyChainStore};
 use amaru_protocols::store_effects::Store;
@@ -21,20 +21,21 @@ use pure_stage::{Effects, StageRef, TryInStage};
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
     errors::{ConsensusError, ValidationFailed},
-    stages::select_chain_new::SelectChainMsg,
+    stages::{adopt_chain::AdoptChainMsg, select_chain_new::SelectChainMsg},
 };
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlock {
-    manager: StageRef<Tip>,
+    manager: StageRef<AdoptChainMsg>,
     selet_chain: StageRef<SelectChainMsg>,
     /// This is always at the tip of the ledger
     current: Point,
+    max_block_height: BlockHeight,
 }
 
 impl ValidateBlock {
-    pub fn new(manager: StageRef<Tip>, selet_chain: StageRef<SelectChainMsg>, current: Point) -> Self {
-        Self { manager, selet_chain, current }
+    pub fn new(manager: StageRef<AdoptChainMsg>, selet_chain: StageRef<SelectChainMsg>, current: Point) -> Self {
+        Self { manager, selet_chain, current, max_block_height: BlockHeight::from(0) }
     }
 }
 
@@ -42,11 +43,12 @@ impl ValidateBlock {
 pub struct ValidateBlockMsg {
     tip: Tip,
     parent: Point,
+    max_block_height: BlockHeight,
 }
 
 impl ValidateBlockMsg {
-    pub fn new(tip: Tip, parent: Point) -> Self {
-        Self { tip, parent }
+    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight) -> Self {
+        Self { tip, parent, max_block_height }
     }
 }
 
@@ -55,6 +57,8 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         tracing::error!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "cannot start from genesis block");
         return eff.terminate().await;
     }
+
+    state.max_block_height = msg.max_block_height.max(state.max_block_height);
 
     let ledger = Ledger::new(eff.clone());
     let store = Store::new(eff.clone());
@@ -71,6 +75,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 // (none of the ancestors is already known to be invalid, as ensured above)
                 tracing::info!(parent = %msg.parent, current = %state.current, points = %forward_points.len(), "rolling forward ledger to reach parent");
                 for point in forward_points {
+                    tracing::debug!(point = %point, "validating block (roll forward)");
                     match validate(point, &ledger).await {
                         Ok(metrics) => {
                             Metrics::new(&eff).record(metrics.into()).await;
@@ -96,7 +101,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         Ok(metrics) => {
             Metrics::new(&eff).record(metrics.into()).await;
             eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
-            eff.send(&state.manager, msg.tip).await;
+            eff.send(&state.manager, AdoptChainMsg::new(msg.tip, msg.max_block_height)).await;
             state.current = msg.tip.point();
         }
         Err(error) => {

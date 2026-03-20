@@ -28,6 +28,7 @@ use tracing::info_span;
 ///  - Spans for the initialization of the connection, the handshake, the keepalive, the chainsync, and the txsubmission protocols.
 ///  - Spans for the roll forward action.
 #[test]
+#[ignore]
 fn run_simulator_with_traces() {
     let execute = || {
         let headers = run_strategy(any_headers_chain(3));

@@ -120,7 +120,7 @@ impl SelectChain {
 
         if self.tips.contains_key(&tip.hash()) && cmp_tip(Some(&header), self.best_tip.as_ref()) == Ordering::Greater {
             let best_tip = self.best_tip.map(|h| h.point()).unwrap_or(Point::Origin);
-            tracing::debug!(tip = %tip.point(), %best_tip, "new best tip candidate");
+            tracing::debug!(tip = %tip.point(), height = %tip.block_height(), %best_tip, "new best tip candidate");
             if self.may_fetch_blocks {
                 self.may_fetch_blocks = false;
                 eff.send(&self.downstream, (tip, parent)).await;
@@ -152,11 +152,9 @@ impl SelectChain {
         if valid {
             let h = tip.hash();
             self.tips.values_mut().for_each(|v| {
-                if v.first() == Some(&h) {
-                    v.remove(0);
+                if let Some(idx) = v.iter().position(|hash| hash == &h) {
+                    v.drain(0..=idx);
                 }
-                // block validation results should arrive in order, from oldest to newest
-                debug_assert!(!v.contains(&h));
             });
         } else {
             // remove all tips depending on the invalid block
@@ -241,7 +239,7 @@ impl SelectChain {
             } else {
                 Point::Origin
             };
-            tracing::info!(tip = %best_tip.point(), %parent, "resuming block fetching");
+            tracing::debug!(tip = %best_tip.point(), %parent, "resuming block fetching");
             store.eff().send(&self.downstream, (best_tip.tip(), parent)).await;
         } else {
             self.may_fetch_blocks = true;

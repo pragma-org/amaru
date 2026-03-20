@@ -106,6 +106,10 @@ impl TestPrep {
     pub fn state_with_request(&self, missing: Vec<Point>, req_id: u64, timeout: ScheduleId) -> FetchBlocks {
         FetchBlocks { req_id, missing, timeout: Some(timeout), ..self.state.clone() }
     }
+
+    pub fn state_with_block_height(&self, block_height: u64) -> FetchBlocks {
+        FetchBlocks { block_height: BlockHeight::from(block_height), ..self.state.clone() }
+    }
 }
 
 pub fn register_guards() -> DeserializerGuards {
@@ -115,7 +119,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
-        pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
+        pure_stage::register_data_deserializer::<(Tip, Point, BlockHeight)>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
