@@ -112,10 +112,12 @@ pub fn build_node(
         .map(|h| chain_store.load_header(&h))
         .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
         .flatten();
+    let anchor = chain_store.get_anchor_hash();
     let mut best_missing = vec![];
     if let Some(best_candidate) = best_candidate.as_ref() {
         for (header, validity) in chain_store.ancestors_with_validity(best_candidate.hash()) {
-            if validity.is_none() {
+            // the anchor cannot be validated, so don"t return it
+            if validity.is_none() && header.hash() != anchor {
                 best_missing.push(header.hash());
             } else {
                 break;

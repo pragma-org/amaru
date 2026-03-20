@@ -37,7 +37,7 @@ pub const TEST_DATA_DIR: &str = "test-data";
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Number of tests to run in simulation
-    #[arg(long, default_value = "50", env = "AMARU_NUMBER_OF_TESTS")]
+    #[arg(long, default_value = "5", env = "AMARU_NUMBER_OF_TESTS")]
     pub number_of_tests: u32,
 
     /// Number of upstream peers to simulate

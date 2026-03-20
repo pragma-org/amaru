@@ -86,7 +86,9 @@ impl FetchBlocks {
             })
             .await;
         let mut failed_hash = None;
-        for header in store.ancestors(initial) {
+        let anchor = store.get_anchor_hash();
+        // don't fetch the anchor block because that will confuse block validation
+        for header in store.ancestors(initial).filter(|h| h.hash() != anchor) {
             let Ok(block) = store.load_block(&header.hash()) else {
                 failed_hash = Some(header.hash());
                 break;
@@ -104,9 +106,7 @@ impl FetchBlocks {
         // TODO make configurable
         missing.truncate(10);
         if missing.is_empty() {
-            tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch, sending rollback");
-            // send rollback
-            store.eff().send(&self.downstream, (tip, parent)).await;
+            tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
             store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
             return;
         }
@@ -164,7 +164,8 @@ impl FetchBlocks {
                     .await
                     .point()
             } else {
-                Point::Origin
+                tracing::error!(anchor = %anchor, %point, "no parent of block, which is needed by the ledger");
+                return store.eff().terminate().await;
             };
             Some(parent)
         } else if header.parent_hash() == Some(self.current.hash()) {

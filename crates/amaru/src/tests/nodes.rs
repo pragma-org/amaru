@@ -105,7 +105,7 @@ impl Nodes {
     /// The drain stops when no node has processed any effect for a sustained
     /// period, indicating all cross-node communication has settled.
     pub fn run(&mut self, rng: &mut RandStdRng) {
-        let max_steps = 1_000_000; // safety limit
+        let max_steps = 10_000; // safety limit
 
         // Phase 1: Run with action enqueueing until all actions consumed
         for step in 0..max_steps {
@@ -140,7 +140,7 @@ impl Nodes {
     ///
     fn drain(&mut self, rng: &mut RandStdRng) {
         // Bound the drain loop in case it does not terminate
-        let max_drain_steps = 100_000;
+        let max_drain_steps = 10_000;
         for step in 0..max_drain_steps {
             for node in self.nodes.iter_mut() {
                 node.advance_inputs();

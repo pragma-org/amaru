@@ -71,16 +71,15 @@ fn test_new_tip_no_blocks_to_fetch() {
             te_input("fb-1", &msg),
             te_load_header("fb-1", tip.hash()),
             te_get_anchor_hash("fb-1"),
+            te_get_anchor_hash("fb-1"),
             te_load_header("fb-1", prep.headers.h0.hash()),
             te_load_header("fb-1", prep.headers.h1.hash()),
             te_load_block("fb-1", prep.headers.h2.hash()),
-            // Break here: h2 present, no blocks to fetch
-            te_send("fb-1", "downstream", (tip, parent)),
             te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(tip.point())),
             te_state("fb-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["no blocks to fetch, sending rollback"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["no blocks to fetch"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -102,7 +101,7 @@ fn test_new_tip_blocks_to_fetch() {
     let timeout_at = Instant::at_offset(Duration::from_secs(5));
     let schedule_id = ScheduleIds::default().next_at(timeout_at);
     let state_with_timeout =
-        prep.state_with_request(prep.headers.h0.point(), prep.headers.h2.point(), Point::Origin, 1, schedule_id);
+        prep.state_with_request(prep.headers.h1.point(), prep.headers.h2.point(), Point::Origin, 1, schedule_id);
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
         state.timeout = None;
@@ -115,17 +114,17 @@ fn test_new_tip_blocks_to_fetch() {
             te_input("fb-1", &msg),
             te_load_header("fb-1", tip.hash()),
             te_get_anchor_hash("fb-1"),
+            te_get_anchor_hash("fb-1"),
             te_load_header("fb-1", prep.headers.h0.hash()),
             te_load_header("fb-1", prep.headers.h1.hash()),
             te_load_block("fb-1", prep.headers.h2.hash()),
             te_load_header("fb-1", prep.headers.h0.hash()),
             te_load_block("fb-1", prep.headers.h1.hash()),
-            te_load_block("fb-1", prep.headers.h0.hash()),
             te_send(
                 "fb-1",
                 "manager",
                 ManagerMessage::FetchBlocks2 {
-                    from: prep.headers.h0.point(),
+                    from: prep.headers.h1.point(),
                     through: prep.headers.h2.point(),
                     id: 1,
                     cr: prep.cleanup_replies.clone(),
@@ -135,7 +134,7 @@ fn test_new_tip_blocks_to_fetch() {
             te_state("fb-1", &state_with_timeout),
             te_clock(timeout_at),
             te_input("fb-1", &FetchBlocksMsg::Timeout(1)),
-            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h0.point())),
+            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h1.point())),
             te_state("fb-1", &state_after_timeout),
         ],
     );
