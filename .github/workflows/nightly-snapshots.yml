@@ -14,8 +14,8 @@ on:
       timeout:
         description: "Override timeout for snapshot tests"
         required: false
-      demo_trace_level:
-        description: "Override AMARU_TRACE (leave empty for default)"
+      run_until_trace_level:
+        description: "Override AMARU_TRACE for run-until (leave empty for default)"
         required: false
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
       default_timeout: 60
       network: ${{ github.event.inputs.network == 'both' && '' || github.event.inputs.network || '' }}
       timeout: ${{ github.event.inputs.timeout || '' }}
-      demo_trace_level: ${{ github.event.inputs.demo_trace_level || '' }}
+      run_until_trace_level: ${{ github.event.inputs.run_until_trace_level || '' }}
       use_buildjet_runner: true
       run_tests: true
     secrets:

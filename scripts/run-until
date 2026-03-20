@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -u
+
+function status() {
+  printf '%b\n' "$*" >&2
+}
+
+exitWithUsage () {
+  status "\033[1;31mError: missing argument(s)!\033[00m\n"
+  status "\033[1;32mUsage:\033[00m\n    $0 BUILD_PROFILE TARGET_EPOCH\n"
+  status "\033[1mExamples:\033[00m \n    $0 release 173"
+  exit 1
+}
+
+if [ $# != 2 ]; then
+    exitWithUsage
+fi
+
+BUILD_PROFILE=$1
+if [ -z "$BUILD_PROFILE" ]; then
+  exitWithUsage
+fi
+
+TARGET_EPOCH=$2
+if [ -z "$TARGET_EPOCH" ]; then
+  exitWithUsage
+fi
+
+status "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
+cargo build --profile $BUILD_PROFILE --bin amaru
+
+export AMARU_TRACE="${AMARU_TRACE:-amaru=info}"
+
+function run() {
+  /bin/sh -c "echo exitPID=\$\$; exec cargo run --profile $BUILD_PROFILE -- --with-json-traces run"
+}
+
+function watchTargetEpoch() {
+  jq --unbuffered -Rr '
+    if startswith("exitPID=") then
+      "pid\t" + ltrimstr("exitPID=")
+    else
+      (try fromjson catch empty)
+      | select(.level == "INFO")
+      | select(.fields.message == "exit")
+      | select(.target == "amaru::ledger::state")
+      | select(.span.name == "epoch_transition")
+      | select((.span.into // .into) != null)
+      | "epoch\t" + ((.span.into // .into) | tostring)
+    end
+  '
+}
+
+function filterTraceLines() {
+  grep --line-buffered -E '"message":"(enter|exit)"' \
+    | grep --line-buffered -E '"level":"TRACE"'
+}
+
+function targetEpochEvents() {
+  watchTargetEpoch
+}
+
+function handleTargetEpoch() {
+  local ended=false
+  local pid=""
+
+  while IFS=$'\t' read -r kind value; do
+    case "$kind" in
+      pid)
+        pid="$value"
+        status "PID=$pid (me=$$)"
+        ;;
+      epoch)
+        status "Epoch $value"
+        if [ "$value" -eq "$TARGET_EPOCH" ]; then
+          status "Target epoch reached, stopping the process."
+          kill -INT "$pid"
+          ended=true
+          break
+        fi
+        ;;
+    esac
+  done
+
+  printf '%s\n' "$ended"
+}
+
+ENDED_FILE="$(mktemp -t amaru-run-until-ended.XXXXXX)"
+trap 'rm -f "$ENDED_FILE"' EXIT
+
+run \
+  | tee >(targetEpochEvents | handleTargetEpoch > "$ENDED_FILE") \
+  | filterTraceLines
+
+ENDED="$(tr -d '\n' < "$ENDED_FILE")"
+
+if [ -z "$ENDED" ]; then
+  ENDED=false
+fi
+
+# return value needs to reflect whether target epoch was reached
+status "ENDED=$ENDED"
+test "$ENDED" = true

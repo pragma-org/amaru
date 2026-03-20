@@ -25,11 +25,14 @@ Use the trace compatibility checker to compare a known-good baseline run against
 make compare-trace-contract
 ```
 
-To refresh the checked-in demo baseline for the current network, run:
+To refresh the checked-in run-until baseline for the current network, run:
 
 ```
 make update-trace-baseline
 ```
+
+When `AMARU_TRACE=amaru=trace` is set, `make run-until` emits normalized trace JSONL on stdout,
+so the captured run-until output can be compared directly against the checked-in baseline.
 
 The lower-level comparison command remains available when needed:
 
@@ -37,8 +40,8 @@ The lower-level comparison command remains available when needed:
 node scripts/compare-traces baseline.log candidate.log
 ```
 
-CI compares the demo run against a checked-in normalized baseline at
-`data/<network>/demo-trace-baseline.jsonl` when that file exists.
+CI compares the run-until output against a checked-in normalized baseline at
+`data/<network>/run-until-trace-baseline.jsonl` when that file exists.
 If no baseline file is present for the current network, the trace contract check is skipped.
 
 ## Real chan tests

@@ -32,21 +32,21 @@ define_schemas! {
         consensus {
             diffusion {
                 /// Fetch a block from the network
-                public FETCH_BLOCK {}
+                FETCH_BLOCK {}
 
                 /// Forward chain operations
-                public FORWARD_CHAIN {}
+                FORWARD_CHAIN {}
         }
 
         validate_header {
 
             /// Evolve the nonce based on header
-            public EVOLVE_NONCE {
+            EVOLVE_NONCE {
                 required hash: amaru_kernel::HeaderHash
             }
 
             /// Validate header cryptographic properties
-            public VALIDATE {
+            VALIDATE {
                 required issuer_key: amaru_kernel::Bytes
             }
         }
@@ -57,7 +57,7 @@ define_schemas! {
             PULL {}
 
             /// Decode header from raw bytes
-             DECODE_HEADER {}
+            DECODE_HEADER {}
 
             /// Pull chain updates from peer
             RECEIVE_HEADER {}
@@ -105,7 +105,7 @@ define_schemas! {
 
         chainsync_client {
             /// Find chain intersection point with peer
-            public FIND_INTERSECTION {
+            FIND_INTERSECTION {
                 required peer: String
                 required intersection_slot: u64
             }

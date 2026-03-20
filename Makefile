@@ -1,18 +1,17 @@
 export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
-DEMO_TARGET_EPOCH ?= 182
+RUN_UNTIL_TARGET_EPOCH ?= 182
 HASKELL_NODE_CONFIG_REPOSITORY := https://raw.githubusercontent.com/input-output-hk/cardano-playground
 HASKELL_NODE_CONFIG_DIRECTORY := static/book.play.dev.cardano.org/environments
 CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
-TRACE_BASELINE ?= data/$(AMARU_NETWORK)/demo-trace-baseline.jsonl
+TRACE_BASELINE ?= data/$(AMARU_NETWORK)/run-until-trace-baseline.jsonl
 TRACE_COMPARE_LOG ?= trace-compare.log
-TRACE_COMPARE_NORMALIZED ?= trace-compare.normalized.jsonl
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc compare-trace-contract update-trace-baseline
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-baseline
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -69,8 +68,8 @@ dev: start # 'backward-compatibility'; might remove after a while.
 start: ## &build Compile and run for $BUILD_PROFILE with default options
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) run $(ARGS)
 
-demo: ## &build Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
-		./scripts/demo $(BUILD_PROFILE) $(DEMO_TARGET_EPOCH)
+run-until: ## &build Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
+		./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
 
 compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_BASELINE)
 	@if [ ! -f "$(TRACE_BASELINE)" ]; then \
@@ -78,16 +77,14 @@ compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_BA
 		exit 0; \
 	fi
 	@if [ ! -f "$(TRACE_COMPARE_LOG)" ]; then \
-		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced demo first." >&2; \
+		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced run-until first." >&2; \
 		exit 1; \
 	fi
-	@node scripts/normalize-traces "$(TRACE_COMPARE_LOG)" > "$(TRACE_COMPARE_NORMALIZED)"
-	@node scripts/compare-traces "$(TRACE_BASELINE)" "$(TRACE_COMPARE_NORMALIZED)"
+	@node scripts/compare-traces "$(TRACE_BASELINE)" "$(TRACE_COMPARE_LOG)"
 
-update-trace-baseline: ## &test Refresh $(TRACE_BASELINE) from a traced demo run
+update-trace-baseline: ## &test Refresh $(TRACE_BASELINE) from a traced run-until run
 	@mkdir -p "$(dir $(TRACE_BASELINE))"
-	@AMARU_TRACE=amaru=trace $(MAKE) demo > "$(TRACE_COMPARE_LOG)" 2>&1
-	@node scripts/normalize-traces "$(TRACE_COMPARE_LOG)" > "$(TRACE_BASELINE)"
+	@AMARU_TRACE=amaru=trace $(MAKE) run-until > "$(TRACE_BASELINE)"
 	@echo "Updated $(TRACE_BASELINE)"
 
 all-ci-checks: ## &test Run all CI checks
