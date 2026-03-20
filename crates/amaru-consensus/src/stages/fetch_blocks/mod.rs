@@ -25,9 +25,7 @@ use crate::stages::select_chain_new::SelectChainMsg;
 pub struct FetchBlocks {
     downstream: StageRef<(Tip, Point)>,
     req_id: u64,
-    from: Point,
-    through: Point,
-    current: Point,
+    missing: Vec<Point>,
     upstream: StageRef<SelectChainMsg>,
     manager: StageRef<ManagerMessage>,
     cleanup_replies: StageRef<Blocks2>,
@@ -43,9 +41,7 @@ impl FetchBlocks {
         Self {
             downstream,
             req_id: 0,
-            from: Point::Origin,
-            through: Point::Origin,
-            current: Point::Origin,
+            missing: Vec::new(),
             upstream,
             manager,
             cleanup_replies: StageRef::blackhole(),
@@ -61,24 +57,14 @@ impl FetchBlocks {
         manager: StageRef<ManagerMessage>,
         cleanup_replies: StageRef<Blocks2>,
     ) -> Self {
-        Self {
-            downstream,
-            req_id: 0,
-            from: Point::Origin,
-            through: Point::Origin,
-            current: Point::Origin,
-            upstream,
-            manager,
-            cleanup_replies,
-            timeout: None,
-        }
+        Self { downstream, req_id: 0, missing: Vec::new(), upstream, manager, cleanup_replies, timeout: None }
     }
 
     pub async fn new_tip(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
         let store = Store::new(eff);
         // find blocks to retrieve
-        let mut missing = Vec::new();
+        debug_assert!(self.missing.is_empty(), "missing blocks should be empty when starting a new tip");
         let initial = store
             .load_header(&tip.hash())
             .or_terminate(store.eff(), async |_| {
@@ -86,49 +72,44 @@ impl FetchBlocks {
             })
             .await;
         let mut failed_hash = None;
-        let anchor = store.get_anchor_hash();
         // don't fetch the anchor block because that will confuse block validation
-        for header in store.ancestors(initial).filter(|h| h.hash() != anchor) {
+        let anchor = store.get_anchor_hash();
+        for header in store.ancestors(initial) {
             let Ok(block) = store.load_block(&header.hash()) else {
                 failed_hash = Some(header.hash());
                 break;
             };
-            if block.is_some() {
+            if block.is_some() || header.hash() == anchor {
+                // push the parent of the first block to fetch
+                self.missing.push(header.point());
                 break;
             }
-            missing.push(header.point());
+            self.missing.push(header.point());
         }
         if let Some(failed_hash) = failed_hash {
             tracing::error!(hash = %failed_hash, "failed to load block");
             return store.eff().terminate().await;
         }
-        missing.reverse();
+        self.missing.reverse();
         // TODO make configurable
-        missing.truncate(10);
-        if missing.is_empty() {
+        self.missing.truncate(10);
+        // only the first parent is not enough
+        if self.missing.len() < 2 {
+            self.missing.clear();
             tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
             store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
             return;
         }
         // request blocks
-        #[expect(clippy::expect_used)]
-        {
-            self.from = *missing.first().expect("checked above that not empty");
-            self.through = *missing.last().expect("checked above that not empty");
-        }
-        tracing::info!(from = %self.from, through = %self.through, length = %missing.len(), "requesting blocks");
-        self.current = Point::Origin;
+        let from = *self.missing.get(1).expect("checked above that this exists");
+        let through = *self.missing.last().expect("checked above that not empty");
+        tracing::info!(%from, %through, length = self.missing.len() - 1, "requesting blocks");
         self.req_id += 1;
         store
             .eff()
             .send(
                 &self.manager,
-                ManagerMessage::FetchBlocks2 {
-                    from: self.from,
-                    through: self.through,
-                    id: self.req_id,
-                    cr: self.cleanup_replies.clone(),
-                },
+                ManagerMessage::FetchBlocks2 { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
             )
             .await;
         let timeout = store.eff().schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
@@ -137,69 +118,62 @@ impl FetchBlocks {
 
     pub async fn block(&mut self, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
         let store = Store::new(eff);
-        let block = network_block
-            .decode_block()
-            .or_terminate(store.eff(), async |error| {
+        let block = match network_block.decode_block() {
+            Ok(block) => block,
+            Err(error) => {
                 tracing::error!(%error, "failed to decode block");
-            })
-            .await;
+                return;
+            }
+        };
         let header = BlockHeader::from(&block.header);
         let point = header.point();
         tracing::debug!(%point, "received block");
-        let accept = if point == self.from && self.current == Point::Origin {
-            self.current = point;
-            let anchor = {
-                #[expect(clippy::expect_used)]
-                store.load_tip(&store.get_anchor_hash()).expect("anchor hash not found").point()
-            };
-            let parent = if point > anchor
-                && let Some(h) = header.parent_hash()
-            {
-                tracing::debug!(anchor = %anchor, parent = %h, "loading parent");
-                store
-                    .load_tip(&h)
-                    .or_terminate(store.eff(), async |_| {
-                        tracing::error!(anchor = %anchor, parent = %h, %point, "failed to load parent of block");
-                    })
-                    .await
-                    .point()
-            } else {
-                tracing::error!(anchor = %anchor, %point, "no parent of block, which is needed by the ledger");
-                return store.eff().terminate().await;
-            };
-            Some(parent)
-        } else if header.parent_hash() == Some(self.current.hash()) {
-            let parent = self.current;
-            self.current = point;
-            Some(parent)
-        } else {
-            None
-        };
-        if let Some(parent) = accept {
-            store
-                .store_block(&point.hash(), &network_block.raw_block())
-                .or_terminate(store.eff(), async |error| {
-                    tracing::error!(%error, "failed to store block");
-                })
-                .await;
-            let tip = Tip::new(point, block.header.header_body.block_number.into());
-            store.eff().send(&self.downstream, (tip, parent)).await;
-            if point == self.through {
-                if let Some(timeout) = self.timeout.take() {
-                    store.eff().cancel_schedule(timeout).await;
-                }
-                store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
+
+        // check that body belongs to header
+        if header.header().header_body.block_body_hash != block.body_hash() {
+            tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
+            return;
+        }
+        // check that parent is as expected
+        if header.parent_hash() != self.missing.get(0).map(|p| p.hash()) {
+            tracing::warn!(expected = ?self.missing.get(0).map(|p| p.hash()), actual = ?header.parent_hash(), "block parent hash mismatch");
+            return;
+        }
+        // check that block's point is as expected
+        if Some(&point) != self.missing.get(1) {
+            tracing::warn!(expected = ?self.missing.get(1), actual = ?point, "block point mismatch");
+            return;
+        }
+
+        let parent = self.missing.remove(0);
+        store
+            .store_block(&point.hash(), &network_block.raw_block())
+            .or_terminate(store.eff(), async |error| {
+                tracing::error!(%error, "failed to store block");
+            })
+            .await;
+        let tip = Tip::new(point, block.header.header_body.block_number.into());
+        store.eff().send(&self.downstream, (tip, parent)).await;
+
+        // check if we are done
+        if self.missing.len() < 2 {
+            self.missing.clear();
+            if let Some(timeout) = self.timeout.take() {
+                store.eff().cancel_schedule(timeout).await;
             }
+            store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
         }
     }
 
     pub async fn timeout(&mut self, req_id: u64, eff: Effects<FetchBlocksMsg>) {
-        if req_id != self.req_id {
+        if req_id != self.req_id || self.missing.is_empty() {
             return;
         }
         tracing::error!(%req_id, "timeout fetching blocks");
         self.timeout = None;
-        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(self.from)).await;
+        let from = self.missing.remove(0);
+        self.missing.clear();
+        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from)).await;
     }
 }
 

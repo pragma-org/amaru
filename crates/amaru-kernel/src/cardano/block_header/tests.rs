@@ -15,7 +15,7 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::{Hash, size::BLOCK_BODY};
+use crate::{Hash, cardano::network_block::make_block_with_header, size::BLOCK_BODY};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
@@ -87,6 +87,8 @@ fn make_headers_with_root_point(point: Option<Point>) -> impl Fn(Vec<BlockHeader
                     header.header_body.block_number = header.header_body.slot;
                     header.header_body.prev_hash = Some(parent.hash());
                     let block_header = BlockHeader::from(header);
+                    // fix block_body_hash
+                    let block_header = BlockHeader::from(make_block_with_header(&block_header).header);
                     parent = block_header.point();
                     block_header
                 }

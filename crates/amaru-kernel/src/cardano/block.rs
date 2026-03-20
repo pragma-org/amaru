@@ -53,6 +53,11 @@ impl Block {
     /// Number of top-level CBOR fields in a serialized block.
     pub const CBOR_FIELD_COUNT: u64 = 5;
 
+    /// Get the hash of the block's body
+    pub fn body_hash(&self) -> Hash<BLOCK_BODY> {
+        self.hash
+    }
+
     /// Get the size in bytes of the serialised block.
     pub fn body_len(&self) -> u64 {
         self.original_body_size

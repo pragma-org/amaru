@@ -20,7 +20,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     fetch_blocks::test_setup::{
-        assert_trace, setup, te_cancel_schedule, te_clock, te_get_anchor_hash, te_load_block, te_load_header,
+        TestPrep, assert_trace, setup, te_cancel_schedule, te_clock, te_get_anchor_hash, te_load_block, te_load_header,
         te_schedule, te_send, te_store_block, te_terminate, te_terminated, test_prep,
     },
     test_utils::{te_input, te_state},
@@ -100,10 +100,14 @@ fn test_new_tip_blocks_to_fetch() {
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let timeout_at = Instant::at_offset(Duration::from_secs(5));
     let schedule_id = ScheduleIds::default().next_at(timeout_at);
-    let state_with_timeout =
-        prep.state_with_request(prep.headers.h1.point(), prep.headers.h2.point(), Point::Origin, 1, schedule_id);
+    let state_with_timeout = prep.state_with_request(
+        vec![prep.headers.h0.point(), prep.headers.h1.point(), prep.headers.h2.point()],
+        1,
+        schedule_id,
+    );
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
+        state.missing.clear();
         state.timeout = None;
         state
     };
@@ -120,6 +124,7 @@ fn test_new_tip_blocks_to_fetch() {
             te_load_block("fb-1", prep.headers.h2.hash()),
             te_load_header("fb-1", prep.headers.h0.hash()),
             te_load_block("fb-1", prep.headers.h1.hash()),
+            te_load_block("fb-1", prep.headers.h0.hash()),
             te_send(
                 "fb-1",
                 "manager",
@@ -134,7 +139,7 @@ fn test_new_tip_blocks_to_fetch() {
             te_state("fb-1", &state_with_timeout),
             te_clock(timeout_at),
             te_input("fb-1", &FetchBlocksMsg::Timeout(1)),
-            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h1.point())),
+            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h0.point())),
             te_state("fb-1", &state_after_timeout),
         ],
     );
@@ -147,9 +152,7 @@ fn test_new_tip_blocks_to_fetch() {
 fn test_block_received() {
     let mut prep = test_prep();
     prep.state = prep.state_with_request(
-        prep.headers.h1.point(),
-        prep.headers.h2.point(),
-        Point::Origin,
+        vec![prep.headers.h0.point(), prep.headers.h1.point(), prep.headers.h2.point()],
         1,
         prep.schedule_at(Duration::from_secs(5)),
     );
@@ -157,11 +160,11 @@ fn test_block_received() {
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
 
-    let msg = FetchBlocksMsg::Block(prep.network_block(&prep.headers.h1));
+    let msg = FetchBlocksMsg::Block(TestPrep::network_block(&prep.headers.h1));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
-        state.current = prep.headers.h1.point();
+        state.missing.remove(0);
         state
     };
     assert_trace(
@@ -169,10 +172,7 @@ fn test_block_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_get_anchor_hash("fb-1"),
-            te_load_header("fb-1", prep.headers.h0.hash()),
-            te_load_header("fb-1", prep.headers.h0.hash()), // loaded because parent of h1
-            te_store_block("fb-1", prep.headers.h1.hash(), prep.raw_block(&prep.headers.h1)),
+            te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
             te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point())),
             te_state("fb-1", &expected),
         ],
@@ -188,22 +188,16 @@ fn test_block_received() {
 fn test_block2_received() {
     let mut prep = test_prep();
     let schedule_id = prep.schedule_at(Duration::from_secs(5));
-    prep.state = prep.state_with_request(
-        prep.headers.h1.point(),
-        prep.headers.h2.point(),
-        prep.headers.h1.point(),
-        1,
-        schedule_id,
-    );
+    prep.state = prep.state_with_request(vec![prep.headers.h1.point(), prep.headers.h2.point()], 1, schedule_id);
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
 
-    let msg = FetchBlocksMsg::Block(prep.network_block(&prep.headers.h2));
+    let msg = FetchBlocksMsg::Block(TestPrep::network_block(&prep.headers.h2));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
-        state.current = prep.headers.h2.point();
+        state.missing.clear();
         state.timeout = None;
         state
     };
@@ -212,7 +206,7 @@ fn test_block2_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_store_block("fb-1", prep.headers.h2.hash(), prep.raw_block(&prep.headers.h2)),
+            te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
             te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point())),
             te_cancel_schedule("fb-1", schedule_id),
             te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h2.point())),

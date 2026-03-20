@@ -14,7 +14,10 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip};
+use amaru_kernel::{
+    BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
+    cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
+};
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, LoadBlockEffect, LoadHeaderEffect, ResourceHeaderStore, StoreBlockEffect,
@@ -35,7 +38,9 @@ use crate::stages::{
 };
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(amaru_kernel::make_header(block_number, slot, parent))
+    let header = amaru_kernel::make_header(block_number, slot, parent);
+    let block = make_block_with_header(&header.into());
+    block.header.into()
 }
 
 /// Simple header chain for fetch_blocks tests: h0 (genesis) -> h1 -> h2.
@@ -78,16 +83,16 @@ impl TestPrep {
     }
 
     pub fn store_block(&self, header: &BlockHeader) {
-        let raw = self.raw_block(header);
+        let raw = Self::raw_block(header);
         self.store.store_block(&header.hash(), &raw).unwrap();
     }
 
-    pub fn raw_block(&self, header: &BlockHeader) -> RawBlock {
-        amaru_kernel::cardano::network_block::make_encoded_block(header, &TESTNET_ERA_HISTORY)
+    pub fn raw_block(header: &BlockHeader) -> RawBlock {
+        make_encoded_block(header, &TESTNET_ERA_HISTORY)
     }
 
-    pub fn network_block(&self, header: &BlockHeader) -> NetworkBlock {
-        amaru_kernel::cardano::network_block::make_network_block(header, &TESTNET_ERA_HISTORY)
+    pub fn network_block(header: &BlockHeader) -> NetworkBlock {
+        make_network_block(header, &TESTNET_ERA_HISTORY)
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {
@@ -98,15 +103,8 @@ impl TestPrep {
         ScheduleIds::default().next_at(Instant::at_offset(duration))
     }
 
-    pub fn state_with_request(
-        &self,
-        from: Point,
-        through: Point,
-        current: Point,
-        req_id: u64,
-        timeout: ScheduleId,
-    ) -> FetchBlocks {
-        FetchBlocks { req_id, from, through, current, timeout: Some(timeout), ..self.state.clone() }
+    pub fn state_with_request(&self, missing: Vec<Point>, req_id: u64, timeout: ScheduleId) -> FetchBlocks {
+        FetchBlocks { req_id, missing, timeout: Some(timeout), ..self.state.clone() }
     }
 }
 
