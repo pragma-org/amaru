@@ -32,25 +32,58 @@ function run() {
   /bin/sh -c "echo exitPID=\$\$; exec cargo run --profile $BUILD_PROFILE -- --with-json-traces run"
 }
 
-ENDED=false
-while read -r line; do
-  if [ "${line:0:8}" = "exitPID=" ]; then
-    PID="${line:8}"
-    echo "PID=$PID (me=$$)"
-  fi
-  EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
-  SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)
-  if [ "$EVENT" = "exit" ] && [ "$SPAN" = "epoch_transition" ]; then
-    EPOCH=$(jq -r '.span.into' <<< "$line" 2>/dev/null)
-    echo "Epoch $EPOCH"
-    if [ "$EPOCH" -eq "$TARGET_EPOCH" ]; then
-      echo "Target epoch reached, stopping the process."
-      kill -INT "$PID"
-      ENDED=true
-      break
-    fi
-  fi
-done < <(run | tee /dev/stderr | grep --line-buffered "exit")
+function prefilterWatchLines() {
+  grep --line-buffered -E '^exitPID=|"level":"INFO"'
+}
+
+function watchTargetEpoch() {
+  jq -Rr '
+    if startswith("exitPID=") then
+      "pid\t" + ltrimstr("exitPID=")
+    else
+      (try fromjson catch empty)
+      | select(.level == "INFO")
+      | select(.fields.message == "exit")
+      | select(.target == "amaru::ledger::state")
+      | select(.span.name == "epoch_transition")
+      | "epoch\t" + ((.span.into // .into) | tostring)
+    end
+  '
+}
+
+function targetEpochEvents() {
+  run \
+    | tee /dev/stderr \
+    | prefilterWatchLines \
+    | watchTargetEpoch
+}
+
+function handleTargetEpoch() {
+  local ended=false
+  local pid=""
+
+  while IFS=$'\t' read -r kind value; do
+    case "$kind" in
+      pid)
+        pid="$value"
+        echo "PID=$pid (me=$$)"
+        ;;
+      epoch)
+        echo "Epoch $value"
+        if [ "$value" -eq "$TARGET_EPOCH" ]; then
+          echo "Target epoch reached, stopping the process."
+          kill -INT "$pid"
+          ended=true
+          break
+        fi
+        ;;
+    esac
+  done < <(targetEpochEvents)
+
+  printf '%s\n' "$ended"
+}
+
+ENDED=$(handleTargetEpoch)
 
 # return value needs to reflect whether target epoch was reached
 echo "ENDED=$ENDED"

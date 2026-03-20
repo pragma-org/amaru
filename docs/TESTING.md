@@ -22,6 +22,18 @@ OpenTelemetry and JSON traces should be treated as part of the external API.
 Use the trace compatibility checker to compare a known-good baseline run against a newer run:
 
 ```
+make compare-trace-contract
+```
+
+To refresh the checked-in demo baseline for the current network, run:
+
+```
+make update-trace-baseline
+```
+
+The lower-level comparison command remains available when needed:
+
+```
 node scripts/compare-traces baseline.log candidate.log
 ```
 

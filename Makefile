@@ -8,8 +8,11 @@ CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
+TRACE_BASELINE ?= data/$(AMARU_NETWORK)/demo-trace-baseline.jsonl
+TRACE_COMPARE_LOG ?= trace-compare.log
+TRACE_COMPARE_NORMALIZED ?= trace-compare.normalized.jsonl
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc compare-trace-contract update-trace-baseline
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -69,11 +72,29 @@ start: ## &build Compile and run for $BUILD_PROFILE with default options
 demo: ## &build Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 		./scripts/demo $(BUILD_PROFILE) $(DEMO_TARGET_EPOCH)
 
+compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_BASELINE)
+	@if [ ! -f "$(TRACE_BASELINE)" ]; then \
+		echo "No trace baseline found for $(AMARU_NETWORK), skipping trace contract check."; \
+		exit 0; \
+	fi
+	@if [ ! -f "$(TRACE_COMPARE_LOG)" ]; then \
+		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced demo first." >&2; \
+		exit 1; \
+	fi
+	@node scripts/normalize-traces "$(TRACE_COMPARE_LOG)" > "$(TRACE_COMPARE_NORMALIZED)"
+	@node scripts/compare-traces "$(TRACE_BASELINE)" "$(TRACE_COMPARE_NORMALIZED)"
+
+update-trace-baseline: ## &test Refresh $(TRACE_BASELINE) from a traced demo run
+	@mkdir -p "$(dir $(TRACE_BASELINE))"
+	@AMARU_TRACE=amaru=trace $(MAKE) demo > "$(TRACE_COMPARE_LOG)" 2>&1
+	@node scripts/normalize-traces "$(TRACE_COMPARE_LOG)" > "$(TRACE_BASELINE)"
+	@echo "Updated $(TRACE_BASELINE)"
+
 all-ci-checks: ## &test Run all CI checks
 	@cargo fmt-amaru
 	@cargo clippy-amaru
-	@AMARU_TRACE_EMIT_PRIVATE=1 cargo test --workspace --all-targets
-	@AMARU_TRACE_EMIT_PRIVATE=1 cargo test --doc
+	@cargo test --workspace --all-targets
+	@cargo test --doc
 	@$(MAKE) build-examples
 	@$(MAKE) coverage-lconv
 

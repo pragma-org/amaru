@@ -280,14 +280,7 @@ jobs:
       - name: Compare trace contract
         shell: bash
         run: |
-          if [ ! -f "$TRACE_BASELINE" ]; then
-            echo "No trace baseline found for ${AMARU_NETWORK}, skipping trace contract check."
-            exit 0
-          fi
-
-          node scripts/compare-traces \
-            "$TRACE_BASELINE" \
-            "$TRACE_COMPARE_LOG"
+          make compare-trace-contract
 
       - name: Run tests
         if: inputs.run_tests
