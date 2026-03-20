@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{BlockHeader, IsHeader, from_cbor_no_leftovers};
-use amaru_observability::{
-    amaru::consensus::chain_sync::{RECEIVE_HEADER, RECEIVE_HEADER_DECODE_FAILED},
-    trace_span,
-};
+use amaru_observability::{amaru::consensus::chain_sync::RECEIVE_HEADER_DECODE_FAILED, trace_span};
 use pure_stage::StageRef;
 use tracing::Instrument;
 
@@ -46,7 +43,7 @@ impl State {
 }
 
 pub fn stage(mut state: State, msg: ChainSyncEvent, eff: impl ConsensusOps) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), RECEIVE_HEADER);
+    let span = trace_span!(parent: msg.span(), amaru_observability::amaru::consensus::chain_sync::RECEIVE_HEADER);
     async move {
         match msg {
             ChainSyncEvent::RollForward {

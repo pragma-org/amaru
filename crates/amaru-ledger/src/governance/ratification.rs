@@ -313,10 +313,10 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        tracing::trace_span!(
-            "ratifying",
-            "proposal.id" = id.to_compact_string(),
-            "proposal.kind" = proposal.display_kind(),
+        trace_span!(
+            amaru_observability::amaru::ledger::governance::RATIFYING,
+            proposal_id = id.to_compact_string(),
+            proposal_kind = proposal.display_kind().to_string(),
         )
     }
 

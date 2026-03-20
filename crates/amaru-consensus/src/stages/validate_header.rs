@@ -15,7 +15,7 @@
 use std::{fmt, sync::Arc};
 
 use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
-use amaru_observability::{amaru::consensus::chain_sync::VALIDATE_HEADER, trace_span};
+use amaru_observability::trace_span;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{
     ChainStore, HasStakeDistribution, Praos,
@@ -35,7 +35,7 @@ use crate::{
 };
 
 pub fn stage(state: State, msg: DecodedChainSyncEvent, eff: impl ConsensusOps) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), VALIDATE_HEADER);
+    let span = trace_span!(parent: msg.span(), amaru_observability::amaru::consensus::chain_sync::VALIDATE_HEADER);
     async move {
         let (downstream, errors) = state;
 

@@ -388,6 +388,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
     struct TraceSpanArgs {
         level: Option<syn::Ident>,
+        parent: Option<syn::Expr>,
         schema_path: syn::Path,
         fields: Vec<TraceSpanField>,
     }
@@ -424,6 +425,22 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                         }
                     }
                     Err(_) => None,
+                }
+            } else {
+                None
+            };
+
+            let parent = if input.peek(syn::Ident) {
+                let checkpoint = input.fork();
+                match checkpoint.parse::<syn::Ident>() {
+                    Ok(ident) if ident == "parent" && checkpoint.peek(Token![:]) => {
+                        let _: syn::Ident = input.parse()?;
+                        input.parse::<Token![:]>()?;
+                        let parent_expr: syn::Expr = input.parse()?;
+                        input.parse::<Token![,]>()?;
+                        Some(parent_expr)
+                    }
+                    _ => None,
                 }
             } else {
                 None
@@ -471,7 +488,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                 return Err(input.error("unexpected tokens after field assignments"));
             }
 
-            Ok(TraceSpanArgs { level, schema_path, fields })
+            Ok(TraceSpanArgs { level, parent, schema_path, fields })
         }
     }
 
@@ -579,7 +596,14 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
     let instrument_macro_ident = make_ident(&make_instrument_macro_name(&categories, &meta.schema_name));
     let span_expr = if level_str == "trace" {
-        meta.macro_call_expr(&instrument_macro_ident, quote! { values = &__amaru_span_values[..] })
+        if let Some(parent_expr) = &args.parent {
+            meta.macro_call_expr(
+                &instrument_macro_ident,
+                quote! { parent = #parent_expr, values = &__amaru_span_values[..] },
+            )
+        } else {
+            meta.macro_call_expr(&instrument_macro_ident, quote! { values = &__amaru_span_values[..] })
+        }
     } else {
         let level_const = match level_str.as_str() {
             "debug" => quote! { tracing::Level::DEBUG },
@@ -588,10 +612,17 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             "error" => quote! { tracing::Level::ERROR },
             _ => quote! { tracing::Level::TRACE },
         };
-        meta.macro_call_expr(
-            &instrument_macro_ident,
-            quote! { level = #level_const, values = &__amaru_span_values[..] },
-        )
+        if let Some(parent_expr) = &args.parent {
+            meta.macro_call_expr(
+                &instrument_macro_ident,
+                quote! { parent = #parent_expr, level = #level_const, values = &__amaru_span_values[..] },
+            )
+        } else {
+            meta.macro_call_expr(
+                &instrument_macro_ident,
+                quote! { level = #level_const, values = &__amaru_span_values[..] },
+            )
+        }
     };
 
     let expanded = wrap_in_module_validator(

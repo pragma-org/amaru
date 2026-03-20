@@ -19,7 +19,7 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Peer, Point, utils::string::ListToString};
-use amaru_observability::amaru::consensus::chain_sync::SELECT_CHAIN;
+use amaru_observability::trace_span;
 use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{BoxFuture, StageRef};
 use tracing::{Instrument, Span, debug, info, trace};
@@ -222,7 +222,7 @@ pub fn stage(
     msg: DecodedChainSyncEvent,
     eff: impl ConsensusOps,
 ) -> impl Future<Output = State> {
-    let span = tracing::trace_span!(parent: msg.span(), SELECT_CHAIN);
+    let span = trace_span!(parent: msg.span(), amaru_observability::amaru::consensus::chain_sync::SELECT_CHAIN);
     async move {
         let store = eff.store();
         let peer = msg.peer();

@@ -57,22 +57,22 @@ define_schemas! {
             PULL {}
 
             /// Decode header from raw bytes
-            public DECODE_HEADER {}
+             DECODE_HEADER {}
 
             /// Pull chain updates from peer
-            public RECEIVE_HEADER {}
+            RECEIVE_HEADER {}
 
             /// Header decode failed from received data
-            public RECEIVE_HEADER_DECODE_FAILED {}
+            RECEIVE_HEADER_DECODE_FAILED {}
 
             /// Select best chain from available headers
-            public SELECT_CHAIN {}
+            SELECT_CHAIN {}
 
             /// Validate block properties
-            public VALIDATE_BLOCK {}
+            VALIDATE_BLOCK {}
 
             /// Validate header properties
-            public VALIDATE_HEADER {}
+            VALIDATE_HEADER {}
         }
     }
 
@@ -324,6 +324,12 @@ define_schemas! {
                 optional roots_hard_fork: String
                 optional roots_constitutional_committee: String
                 optional roots_constitution: String
+            }
+
+            /// Ratify a proposal while traversing the governance forest
+            RATIFYING {
+                required proposal_id: String
+                required proposal_kind: String
             }
         }
     }
@@ -846,7 +852,10 @@ define_schemas! {
 
         logging {
             /// Test span for logging
-            public TEST_SPAN {}
+            public TEST_SPAN {
+                required field1: u64
+                required field2: String
+            }
         }
     }
     }

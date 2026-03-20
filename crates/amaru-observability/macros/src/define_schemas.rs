@@ -794,7 +794,11 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
             && ::tracing::__macro_support::__is_enabled(__CALLSITE.metadata(), interest)
         {
             let meta = __CALLSITE.metadata();
-            ::tracing::Span::new(meta, &meta.fields().value_set_all(__amaru_values))
+            let __amaru_values = &meta.fields().value_set_all(__amaru_values);
+            match __amaru_parent {
+                ::std::option::Option::Some(parent) => ::tracing::Span::child_of(parent.id(), meta, __amaru_values),
+                ::std::option::Option::None => ::tracing::Span::new(meta, __amaru_values),
+            }
         } else {
             ::tracing::__macro_support::__disabled_span(__CALLSITE.metadata())
         }
@@ -804,8 +808,29 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
         #macro_export
         #[doc(hidden)]
         macro_rules! #macro_ident {
+            (parent = $parent:expr, level = $level:expr, values = $values_expr:expr) => {
+                {
+                    let __amaru_parent = ::std::option::Option::Some($parent);
+                    let __amaru_values = ::std::option::Option::Some($values_expr);
+                    #span_expr
+                }
+            };
+            (parent = $parent:expr, values = $values_expr:expr) => {
+                #crate_prefix #macro_ident!(parent = $parent, level = tracing::Level::TRACE, values = $values_expr)
+            };
+            (parent = $parent:expr, level = $level:expr) => {
+                {
+                    let __amaru_parent = ::std::option::Option::Some($parent);
+                    let __amaru_values: ::std::option::Option<&[::tracing::__macro_support::Option<&dyn ::tracing::field::Value>]> = ::std::option::Option::None;
+                    #span_expr
+                }
+            };
+            (parent = $parent:expr) => {
+                #crate_prefix #macro_ident!(parent = $parent, level = tracing::Level::TRACE)
+            };
             (level = $level:expr, values = $values_expr:expr) => {
                 {
+                    let __amaru_parent: ::std::option::Option<::tracing::Span> = ::std::option::Option::None;
                     let __amaru_values = ::std::option::Option::Some($values_expr);
                     #span_expr
                 }
@@ -815,6 +840,7 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
             };
             (level = $level:expr) => {
                 {
+                    let __amaru_parent: ::std::option::Option<::tracing::Span> = ::std::option::Option::None;
                     let __amaru_values: ::std::option::Option<&[::tracing::__macro_support::Option<&dyn ::tracing::field::Value>]> = ::std::option::Option::None;
                     #span_expr
                 }
