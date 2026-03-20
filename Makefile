@@ -72,19 +72,19 @@ run-until: ## &build Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EP
 		./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
 
 compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_BASELINE)
-	@if [ ! -f "$(TRACE_BASELINE)" ]; then \
+	@set -e; \
+	if [ ! -f "$(TRACE_BASELINE)" ]; then \
 		echo "No trace baseline found for $(AMARU_NETWORK), skipping trace contract check."; \
-		exit 0; \
-	fi
-	@if [ ! -f "$(TRACE_COMPARE_LOG)" ]; then \
+	elif [ ! -f "$(TRACE_COMPARE_LOG)" ]; then \
 		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced run-until first." >&2; \
 		exit 1; \
+	else \
+		node scripts/compare-traces "$(TRACE_BASELINE)" "$(TRACE_COMPARE_LOG)"; \
 	fi
-	@node scripts/compare-traces "$(TRACE_BASELINE)" "$(TRACE_COMPARE_LOG)"
 
 update-trace-baseline: ## &test Refresh $(TRACE_BASELINE) from a traced run-until run
 	@mkdir -p "$(dir $(TRACE_BASELINE))"
-	@AMARU_TRACE=amaru=trace $(MAKE) run-until > "$(TRACE_BASELINE)"
+	@AMARU_TRACE=amaru::stores=info,amaru=trace $(MAKE) run-until > "$(TRACE_BASELINE)"
 	@echo "Updated $(TRACE_BASELINE)"
 
 all-ci-checks: ## &test Run all CI checks
