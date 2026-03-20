@@ -39,7 +39,7 @@ fn test_incoming_tip_not_in_store() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_terminate("ac-1"),
             te_terminated("ac-1", TerminationReason::Voluntary),
@@ -62,7 +62,7 @@ fn test_current_best_not_loadable() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", ORIGIN_HASH),
             te_terminate("ac-1"),
@@ -88,7 +88,7 @@ fn test_incoming_not_better_than_current_best() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h3.hash()),
             te_state("ac-1", &prep.state),
@@ -118,7 +118,7 @@ fn test_extension_adopts_and_sends() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
             te_roll_forward_chain("ac-1", msg.point()),
@@ -161,7 +161,7 @@ fn test_fork_switch_adopts_and_sends() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
             te_get_anchor_hash("ac-1"),
@@ -213,7 +213,7 @@ fn test_fork_switch_opcert_hacked() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2a.hash()),
             te_get_anchor_hash("ac-1"),
@@ -257,7 +257,7 @@ fn test_fork_not_better_no_switch() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
             te_state("ac-1", &prep.state),

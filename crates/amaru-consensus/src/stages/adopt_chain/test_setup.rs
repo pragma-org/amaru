@@ -126,6 +126,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<AdoptChain>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
+        pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<Option<BlockHeader>>().boxed(),
         pure_stage::register_data_deserializer::<Option<Point>>().boxed(),
         pure_stage::register_data_deserializer::<Result<(), StoreError>>().boxed(),
@@ -171,7 +172,7 @@ pub fn setup(prep: &TestPrep, msg: Tip) -> (SimulationRunning, DeserializerGuard
 
     let ac = network.stage("ac", stage);
     let ac = network.wire_up(ac, prep.state.clone());
-    network.preload(&ac, [msg]).unwrap();
+    network.preload(&ac, [AdoptChainMsg::new(msg, BlockHeight::new(0))]).unwrap();
 
     let mut running = network.run();
     running.run_until_blocked_incl_effects(prep.rt.handle());

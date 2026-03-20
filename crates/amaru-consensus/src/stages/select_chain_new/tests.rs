@@ -571,7 +571,7 @@ fn test_startup_with_non_empty_store() {
             te_state("sc-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["resuming block fetching"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["resuming block fetching"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,

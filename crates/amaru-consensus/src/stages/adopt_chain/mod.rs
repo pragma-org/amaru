@@ -14,7 +14,7 @@
 
 use std::cmp::Ordering;
 
-use amaru_kernel::{BlockHeader, IsHeader, Tip};
+use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Tip};
 use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, StageRef, TryInStage};
@@ -39,15 +39,31 @@ pub struct AdoptChain {
     downstream: StageRef<ManagerMessage>,
     consensus_security_param: u64,
     current_best_tip: Tip,
+    max_block_height: BlockHeight,
 }
 
 impl AdoptChain {
     pub fn new(downstream: StageRef<ManagerMessage>, consensus_security_param: u64, current_best_tip: Tip) -> Self {
-        Self { downstream, consensus_security_param, current_best_tip }
+        Self { downstream, consensus_security_param, current_best_tip, max_block_height: BlockHeight::from(0) }
     }
 }
 
-pub async fn stage(mut state: AdoptChain, msg: Tip, eff: Effects<Tip>) -> AdoptChain {
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AdoptChainMsg {
+    tip: Tip,
+    max_block_height: BlockHeight,
+}
+
+impl AdoptChainMsg {
+    pub fn new(tip: Tip, max_block_height: BlockHeight) -> Self {
+        Self { tip, max_block_height }
+    }
+}
+
+pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<AdoptChainMsg>) -> AdoptChain {
+    state.max_block_height = msg.max_block_height.max(state.max_block_height);
+    let AdoptChainMsg { tip: msg, .. } = msg;
+
     if msg.block_height() < state.current_best_tip.block_height() {
         tracing::debug!(tip = %msg, current_best_tip = %state.current_best_tip, "incoming tip shorter than current best, skipping");
         return state;
@@ -86,7 +102,12 @@ pub async fn stage(mut state: AdoptChain, msg: Tip, eff: Effects<Tip>) -> AdoptC
         })
         .await;
 
-    tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), "adopted tip");
+    // do not print every single block while catching up
+    if msg.block_height() > state.max_block_height - 10 || msg.block_height().as_u64() & 255 == 0 {
+        tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, "adopted tip");
+    } else {
+        tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, "adopted tip");
+    }
     store.eff().send(&state.downstream, ManagerMessage::NewTip(msg)).await;
     state.current_best_tip = msg;
     state
@@ -94,7 +115,11 @@ pub async fn stage(mut state: AdoptChain, msg: Tip, eff: Effects<Tip>) -> AdoptC
 
 /// Adopt the tip: update best_chain_hash and maintain best chain links via
 /// roll_forward_chain and rollback_chain.
-fn adopt_tip(store: &Store<Tip>, incoming_header: &BlockHeader, current_best: &BlockHeader) -> Result<(), StoreError> {
+fn adopt_tip(
+    store: &Store<AdoptChainMsg>,
+    incoming_header: &BlockHeader,
+    current_best: &BlockHeader,
+) -> Result<(), StoreError> {
     if incoming_header.parent() == Some(current_best.hash()) {
         store.roll_forward_chain(&incoming_header.point())?;
     } else {
@@ -107,7 +132,7 @@ fn adopt_tip(store: &Store<Tip>, incoming_header: &BlockHeader, current_best: &B
 
 /// Find the youngest point on the current best chain that is an ancestor of
 /// the given header (the intersection point when switching forks).
-fn mark_new_chain(store: &Store<Tip>, incoming_header: &BlockHeader) -> Result<(), StoreError> {
+fn mark_new_chain(store: &Store<AdoptChainMsg>, incoming_header: &BlockHeader) -> Result<(), StoreError> {
     let mut forward_points = Vec::new();
     for ancestor in store.ancestors(incoming_header.clone()) {
         let point = ancestor.point();
@@ -127,7 +152,11 @@ fn mark_new_chain(store: &Store<Tip>, incoming_header: &BlockHeader) -> Result<(
 /// Drag the store anchor forward so it is at most `consensus_security_param`
 /// blocks behind the adopted tip. Walks forward from the anchor along the
 /// best chain using next_best_chain. Only moves the anchor forward, never backward.
-fn drag_anchor_forward(store: &Store<Tip>, tip: &Tip, consensus_security_param: u64) -> Result<(), StoreError> {
+fn drag_anchor_forward(
+    store: &Store<AdoptChainMsg>,
+    tip: &Tip,
+    consensus_security_param: u64,
+) -> Result<(), StoreError> {
     let target_anchor_height = tip.block_height() - consensus_security_param;
 
     if target_anchor_height.as_u64() == 0 {

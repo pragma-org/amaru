@@ -211,7 +211,7 @@ impl CanValidateBlocks for MockBlockValidator {
 pub struct TestPrep {
     pub state: ValidateBlock,
     pub rt: Runtime,
-    pub manager: StageRef<Tip>,
+    pub manager: StageRef<AdoptChainMsg>,
     pub select_chain: StageRef<SelectChainMsg>,
     pub headers: HeaderTree,
     pub store: Arc<InMemConsensusStore<BlockHeader>>,
@@ -260,6 +260,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<ValidateBlock>().boxed(),
         pure_stage::register_data_deserializer::<ValidateBlockMsg>().boxed(),
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
+        pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),

@@ -69,8 +69,10 @@ pub fn build_stage_graph(
         validate_block,
         ValidateBlock::new(adopt_chain.without_state(), select_chain.sender(), ledger_tip.point()),
     );
-    let validate_block_input = stage_graph
-        .contramap(validate_block, "validate_block_input", |(tip, parent)| ValidateBlockMsg::new(tip, parent));
+    let validate_block_input =
+        stage_graph.contramap(validate_block, "validate_block_input", |(tip, parent, max_block_height)| {
+            ValidateBlockMsg::new(tip, parent, max_block_height)
+        });
 
     let fetch_blocks = stage_graph
         .wire_up(fetch_blocks, FetchBlocks::new(validate_block_input, select_chain.sender(), manager.sender()));
