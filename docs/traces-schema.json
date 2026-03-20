@@ -4,140 +4,6 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
-    "amaru::consensus::chain_sync::DECODE_HEADER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "decode_header",
-      "level": "TRACE",
-      "target": "amaru::consensus::chain_sync",
-      "description": "Decode header from raw bytes",
-      "public": true
-    },
-    "amaru::consensus::chain_sync::RECEIVE_HEADER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "receive_header",
-      "level": "TRACE",
-      "target": "amaru::consensus::chain_sync",
-      "description": "Pull chain updates from peer",
-      "public": true
-    },
-    "amaru::consensus::chain_sync::RECEIVE_HEADER_DECODE_FAILED": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "receive_header_decode_failed",
-      "level": "TRACE",
-      "target": "amaru::consensus::chain_sync",
-      "description": "Header decode failed from received data",
-      "public": true
-    },
-    "amaru::consensus::chain_sync::SELECT_CHAIN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "select_chain",
-      "level": "TRACE",
-      "target": "amaru::consensus::chain_sync",
-      "description": "Select best chain from available headers",
-      "public": true
-    },
-    "amaru::consensus::chain_sync::VALIDATE_BLOCK": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate_block",
-      "level": "TRACE",
-      "target": "amaru::consensus::chain_sync",
-      "description": "Validate block properties",
-      "public": true
-    },
-    "amaru::consensus::chain_sync::VALIDATE_HEADER": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate_header",
-      "level": "TRACE",
-      "target": "amaru::consensus::chain_sync",
-      "description": "Validate header properties",
-      "public": true
-    },
-    "amaru::consensus::diffusion::FETCH_BLOCK": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "fetch_block",
-      "level": "TRACE",
-      "target": "amaru::consensus::diffusion",
-      "description": "Fetch a block from the network",
-      "public": true
-    },
-    "amaru::consensus::diffusion::FORWARD_CHAIN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forward_chain",
-      "level": "TRACE",
-      "target": "amaru::consensus::diffusion",
-      "description": "Forward chain operations",
-      "public": true
-    },
-    "amaru::consensus::validate_header::EVOLVE_NONCE": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
-        }
-      },
-      "required": [
-        "hash"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "evolve_nonce",
-      "level": "TRACE",
-      "target": "amaru::consensus::validate_header",
-      "description": "Evolve the nonce based on header",
-      "public": true
-    },
-    "amaru::consensus::validate_header::VALIDATE": {
-      "type": "object",
-      "properties": {
-        "issuer_key": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Bytes"
-        }
-      },
-      "required": [
-        "issuer_key"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validate",
-      "level": "TRACE",
-      "target": "amaru::consensus::validate_header",
-      "description": "Validate header cryptographic properties",
-      "public": true
-    },
     "amaru::ledger::context::ADD_FEES": {
       "type": "object",
       "properties": {
@@ -861,8 +727,14 @@
     },
     "amaru::ledger::state::ROLL_BACKWARD": {
       "type": "object",
-      "properties": {},
-      "required": [],
+      "properties": {
+        "rollback_point": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rollback_point"
+      ],
       "optional": [],
       "additionalProperties": false,
       "name": "roll_backward",
@@ -925,26 +797,34 @@
       "description": "Validate block against rules",
       "public": true
     },
-    "amaru::network::chainsync_client::FIND_INTERSECTION": {
+    "amaru::ledger::state::VOLATILE_TO_STABLE": {
       "type": "object",
       "properties": {
-        "peer": {
+        "persisted_point": {
           "type": "string"
         },
-        "intersection_slot": {
+        "volatile_len_before": {
+          "type": "integer"
+        },
+        "volatile_len_after": {
+          "type": "integer"
+        },
+        "k": {
           "type": "integer"
         }
       },
       "required": [
-        "peer",
-        "intersection_slot"
+        "persisted_point",
+        "volatile_len_before",
+        "volatile_len_after",
+        "k"
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "find_intersection",
+      "name": "volatile_to_stable",
       "level": "TRACE",
-      "target": "amaru::network::chainsync_client",
-      "description": "Find chain intersection point with peer",
+      "target": "amaru::ledger::state",
+      "description": "Persist the oldest volatile block to stable storage once the security parameter is reached",
       "public": true
     },
     "amaru::simulator::node::HANDLE_MSG": {
@@ -957,18 +837,6 @@
       "level": "TRACE",
       "target": "amaru::simulator::node",
       "description": "Handle message in simulator node",
-      "public": true
-    },
-    "amaru::stage::logging::TEST_SPAN": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "test_span",
-      "level": "TRACE",
-      "target": "amaru::stage::logging",
-      "description": "Test span for logging",
       "public": true
     },
     "amaru::stores::consensus::READ_BLOCKS": {

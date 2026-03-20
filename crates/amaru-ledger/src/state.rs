@@ -446,6 +446,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
         let _span = trace_span!(amaru_observability::amaru::ledger::state::FORWARD);
         let _guard = _span.enter();
+        let volatile_len_before = self.volatile.len() as u64;
+        let security_param = self.global_parameters.consensus_security_param as u64;
 
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
@@ -454,6 +456,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 .volatile
                 .pop_front()
                 .unwrap_or_else(|| unreachable!("pre-condition: self.volatile.len() >= consensus_security_param"));
+
+            let _span = trace_span!(
+                amaru_observability::amaru::ledger::state::VOLATILE_TO_STABLE,
+                persisted_point = now_stable.anchor.0.to_string(),
+                volatile_len_before = volatile_len_before,
+                volatile_len_after = volatile_len_before.saturating_sub(1),
+                k = security_param
+            );
+            let _guard = _span.enter();
 
             self.apply_block(now_stable)?;
         } else {
@@ -630,7 +641,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD);
+        let _span =
+            trace_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string());
         let _guard = _span.enter();
 
         // NOTE: This happens typically on start-up; The consensus layer will typically ask us to

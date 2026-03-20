@@ -5,47 +5,6 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
-## target: `amaru::consensus::chain_sync`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `decode_header` | `TRACE` | public | Decode header from raw bytes |  |  |
-| `receive_header` | `TRACE` | public | Pull chain updates from peer |  |  |
-| `receive_header_decode_failed` | `TRACE` | public | Header decode failed from received data |  |  |
-| `select_chain` | `TRACE` | public | Select best chain from available headers |  |  |
-| `validate_block` | `TRACE` | public | Validate block properties |  |  |
-| `validate_header` | `TRACE` | public | Validate header properties |  |  |
-
-## target: `amaru::consensus::diffusion`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `fetch_block` | `TRACE` | public | Fetch a block from the network |  |  |
-| `forward_chain` | `TRACE` | public | Forward chain operations |  |  |
-
-## target: `amaru::consensus::validate_header`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `evolve_nonce` | `TRACE` | public | Evolve the nonce based on header | hash |  |
-| `validate` | `TRACE` | public | Validate header cryptographic properties | issuer_key |  |
-
-<details><summary>span: `evolve_nonce`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `validate`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `issuer_key` | `string` | ✓ |
-
-</details>
-
 ## target: `amaru::ledger::context`
 
 | name | level | public | description | required fields | optional fields |
@@ -281,11 +240,12 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
 | `reset_fees` | `TRACE` | public | Reset fees to zero |  |  |
 | `resolve_inputs` | `TRACE` | public | Resolve transaction inputs from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
-| `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
+| `roll_backward` | `TRACE` | public | Roll backward to a specific point | rollback_point |  |
 | `roll_forward` | `TRACE` | public | Roll forward ledger state with a new block |  |  |
 | `tick_pool` | `TRACE` | public | Tick pool operations |  |  |
 | `tick_proposals` | `TRACE` | public | Tick proposals for ratification | proposals_count |  |
 | `validate_block` | `TRACE` | public | Validate block against rules |  |  |
+| `volatile_to_stable` | `TRACE` | public | Persist the oldest volatile block to stable storage once the security parameter is reached | persisted_point, volatile_len_before, volatile_len_after, k |  |
 
 <details><summary>span: `apply_block`</summary>
 
@@ -333,6 +293,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `roll_backward`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `rollback_point` | `string` | ✓ |
+
+</details>
+
 <details><summary>span: `tick_proposals`</summary>
 
 | field | type | required |
@@ -341,18 +309,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::network::chainsync_client`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `find_intersection` | `TRACE` | public | Find chain intersection point with peer | peer, intersection_slot |  |
-
-<details><summary>span: `find_intersection`</summary>
+<details><summary>span: `volatile_to_stable`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `peer` | `string` | ✓ |
-| `intersection_slot` | `integer` | ✓ |
+| `persisted_point` | `string` | ✓ |
+| `volatile_len_before` | `integer` | ✓ |
+| `volatile_len_after` | `integer` | ✓ |
+| `k` | `integer` | ✓ |
 
 </details>
 
@@ -361,12 +325,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `handle_msg` | `TRACE` | public | Handle message in simulator node |  |  |
-
-## target: `amaru::stage::logging`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `test_span` | `TRACE` | public | Test span for logging |  |  |
 
 ## target: `amaru::stores::consensus`
 

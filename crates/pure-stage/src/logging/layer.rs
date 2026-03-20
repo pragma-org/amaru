@@ -42,7 +42,6 @@
 
 use std::sync::Arc;
 
-use amaru_observability::trace_span;
 use cbor4ii::{
     core::{
         enc::{Encode, Write},
@@ -280,12 +279,7 @@ mod tests {
             tracing_subscriber::registry().with(CborLayer::new(collector.clone())),
         ));
 
-        trace_span!(
-            amaru_observability::amaru::stage::logging::TEST_SPAN,
-            field1 = 42_u64,
-            field2 = "value".to_string()
-        )
-        .in_scope(|| {
+        tracing::trace_span!("test_span", field1 = 42_u64, field2 = "value".to_string()).in_scope(|| {
             info!(message = "test event", field3 = 123);
         });
 

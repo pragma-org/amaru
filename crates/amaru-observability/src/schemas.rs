@@ -168,6 +168,14 @@ define_schemas! {
             /// Forward ledger state with new volatile state
             public FORWARD {}
 
+            /// Persist the oldest volatile block to stable storage once the security parameter is reached
+            public VOLATILE_TO_STABLE {
+                required persisted_point: String
+                required volatile_len_before: u64
+                required volatile_len_after: u64
+                required k: u64
+            }
+
             /// End epoch operations
             public END_EPOCH {}
 
@@ -184,7 +192,9 @@ define_schemas! {
             public RESET_BLOCKS_COUNT {}
 
             /// Roll backward to a specific point
-            public ROLL_BACKWARD {}
+            public ROLL_BACKWARD {
+                required rollback_point: String
+            }
 
             /// Create ratification context
             public RATIFICATION_CONTEXT_NEW {}
@@ -847,14 +857,6 @@ define_schemas! {
             /// Poll stage operation
             POLL {
                 required stage: Name
-            }
-        }
-
-        logging {
-            /// Test span for logging
-            public TEST_SPAN {
-                required field1: u64
-                required field2: String
             }
         }
     }
