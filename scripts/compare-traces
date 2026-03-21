@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-import { createReadStream, readFileSync } from 'node:fs';
+import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
+
+const CONTRACT_FORMAT_VERSION = 'amaru-trace-contract@1';
 
 function formatFamily(family) {
   const bits = [`target=${family.target}`];
@@ -15,14 +17,14 @@ function makeFamilyKey(family) {
 
 function getOrCreateFamily(state, family) {
   const key = makeFamilyKey(family);
-  let entry = state.families.get(key);
+  let entry = state.traceDescriptors.get(key);
   if (!entry) {
     entry = {
       ...family,
       count: 0,
       compressedPositions: [],
     };
-    state.families.set(key, entry);
+    state.traceDescriptors.set(key, entry);
   }
   return entry;
 }
@@ -31,10 +33,39 @@ function createState(filePath) {
   return {
     filePath,
     totalJsonLines: 0,
-    families: new Map(),
+    traceDescriptors: new Map(),
     compressedOrder: [],
     lastCompressedKey: null,
+    contractAnchors: null,
+    source: null,
   };
+}
+
+function normalizeFamilyDescriptor(value, context) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${context} must be an object`);
+  }
+
+  if (typeof value.target !== 'string' || value.target.length === 0) {
+    throw new Error(`${context}.target must be a non-empty string`);
+  }
+
+  if ('spanName' in value && typeof value.spanName !== 'string') {
+    throw new Error(`${context}.spanName must be a string when provided`);
+  }
+
+  return {
+    target: value.target,
+    spanName: typeof value.spanName === 'string' ? value.spanName : '',
+  };
+}
+
+function serializeFamily(family) {
+  const serialized = { target: family.target };
+  if (family.spanName) {
+    serialized.spanName = family.spanName;
+  }
+  return serialized;
 }
 
 async function loadTraceState(filePath) {
@@ -84,6 +115,97 @@ async function loadTraceState(filePath) {
   }
 
   return state;
+}
+
+function failInvalidContract(contractPath, message) {
+  console.error(`Invalid trace contract ${contractPath}: ${message}`);
+  process.exit(2);
+}
+
+function loadTraceContract(filePath) {
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    failInvalidContract(filePath, error instanceof Error ? error.message : String(error));
+  }
+
+  if (parsed == null || Array.isArray(parsed) || typeof parsed !== 'object') {
+    failInvalidContract(filePath, 'top-level JSON value must be an object');
+  }
+
+  if (parsed.format !== CONTRACT_FORMAT_VERSION) {
+    failInvalidContract(
+      filePath,
+      `"format" must be "${CONTRACT_FORMAT_VERSION}"`,
+    );
+  }
+
+  if (!Array.isArray(parsed.traceDescriptors)) {
+    failInvalidContract(filePath, '"traceDescriptors" must be an array');
+  }
+
+  if (!Array.isArray(parsed.anchors)) {
+    failInvalidContract(filePath, '"anchors" must be an array');
+  }
+
+  const state = createState(filePath);
+  state.source = parsed.source ?? null;
+
+  for (const [index, rawFamily] of parsed.traceDescriptors.entries()) {
+    const family = normalizeFamilyDescriptor(rawFamily, `traceDescriptors[${index}]`);
+    const key = makeFamilyKey(family);
+    if (state.traceDescriptors.has(key)) {
+      failInvalidContract(filePath, `traceDescriptors[${index}] duplicates an existing trace descriptor`);
+    }
+
+    state.traceDescriptors.set(key, {
+      ...family,
+      count: 0,
+      compressedPositions: [],
+    });
+  }
+
+  for (const [index, rawAnchor] of parsed.anchors.entries()) {
+    const family = normalizeFamilyDescriptor(rawAnchor, `anchors[${index}]`);
+    const key = makeFamilyKey(family);
+    const entry = state.traceDescriptors.get(key);
+    if (!entry) {
+      failInvalidContract(filePath, `anchors[${index}] must reference a trace descriptor from "traceDescriptors"`);
+    }
+    entry.compressedPositions.push(index);
+    state.compressedOrder.push(key);
+  }
+
+  state.contractAnchors = [...state.compressedOrder];
+  return state;
+}
+
+function buildTraceContract(state, config, sourcePath) {
+  const traceDescriptors = [...state.traceDescriptors.values()]
+    .map(serializeFamily)
+    .sort((left, right) => {
+      if (left.target === right.target) {
+        return (left.spanName ?? '').localeCompare(right.spanName ?? '');
+      }
+      return left.target.localeCompare(right.target);
+    });
+
+  const anchors = anchorSequence(state, config)
+    .map(key => state.traceDescriptors.get(key))
+    .filter(Boolean)
+    .map(serializeFamily);
+
+  return {
+    format: CONTRACT_FORMAT_VERSION,
+    source: {
+      file: sourcePath,
+      jsonEvents: state.totalJsonLines,
+      traceDescriptorCount: state.traceDescriptors.size,
+    },
+    traceDescriptors,
+    anchors,
+  };
 }
 
 function normalizeSelector(selector) {
@@ -153,29 +275,32 @@ function loadConfig(configPath) {
 
 function inferAnchorKeys(state, config) {
   if (config.milestoneSelectors == null) {
-    return state.compressedOrder.filter(key => state.families.get(key)?.compressedPositions.length === 1);
+    return state.compressedOrder.filter(key => state.traceDescriptors.get(key)?.compressedPositions.length === 1);
   }
 
-  return state.compressedOrder.filter(key => isMilestoneFamily(state.families.get(key), config.milestoneSelectors));
+  return state.compressedOrder.filter(key => isMilestoneFamily(state.traceDescriptors.get(key), config.milestoneSelectors));
 }
 
 function anchorSequence(state, config) {
+  if (Array.isArray(state.contractAnchors)) {
+    return state.contractAnchors;
+  }
   return inferAnchorKeys(state, config);
 }
 
 function firstCompressedPosition(state, key) {
-  return state.families.get(key)?.compressedPositions[0];
+  return state.traceDescriptors.get(key)?.compressedPositions[0];
 }
 
 function compareFamilies(baseline, candidate, config) {
   const failures = [];
   const additions = [];
 
-  for (const [key, family] of baseline.families.entries()) {
-    const other = candidate.families.get(key);
+  for (const [key, family] of baseline.traceDescriptors.entries()) {
+    const other = candidate.traceDescriptors.get(key);
     if (!other) {
       failures.push({
-        kind: 'missing-family',
+        kind: 'missing-trace-descriptor',
         family,
       });
       continue;
@@ -205,14 +330,14 @@ function compareFamilies(baseline, candidate, config) {
     if (candidateAnchorIndex.get(beforeKey) > candidateAnchorIndex.get(afterKey)) {
       failures.push({
         kind: 'sequence-order-changed',
-        before: baseline.families.get(beforeKey),
-        after: baseline.families.get(afterKey),
+        before: baseline.traceDescriptors.get(beforeKey),
+        after: baseline.traceDescriptors.get(afterKey),
       });
     }
   }
 
-  for (const [key, family] of candidate.families.entries()) {
-    if (!baseline.families.has(key)) {
+  for (const [key, family] of candidate.traceDescriptors.entries()) {
+    if (!baseline.traceDescriptors.has(key)) {
       additions.push(family);
     }
   }
@@ -221,10 +346,10 @@ function compareFamilies(baseline, candidate, config) {
 }
 
 function serializeFailure(failure) {
-  if (failure.kind === 'missing-family') {
+  if (failure.kind === 'missing-trace-descriptor') {
     return {
       kind: failure.kind,
-      family: formatFamily(failure.family),
+      traceDescriptor: formatFamily(failure.family),
     };
   }
 
@@ -240,17 +365,29 @@ function serializeFailure(failure) {
 }
 
 function buildFailureReport(baseline, candidate, result) {
+  const baselineSummary = baseline.source && typeof baseline.source === 'object'
+    ? {
+        file: typeof baseline.source.file === 'string' ? baseline.source.file : baseline.filePath,
+        jsonEvents: Number.isInteger(baseline.source.jsonEvents)
+          ? baseline.source.jsonEvents
+          : baseline.totalJsonLines,
+        traceDescriptorCount: Number.isInteger(baseline.source.traceDescriptorCount)
+          ? baseline.source.traceDescriptorCount
+          : baseline.traceDescriptors.size,
+      }
+    : {
+        file: baseline.filePath,
+        jsonEvents: baseline.totalJsonLines,
+        traceDescriptorCount: baseline.traceDescriptors.size,
+      };
+
   return {
     status: 'fail',
-    baseline: {
-      file: baseline.filePath,
-      jsonEvents: baseline.totalJsonLines,
-      traceFamilies: baseline.families.size,
-    },
+    baseline: baselineSummary,
     candidate: {
       file: candidate.filePath,
       jsonEvents: candidate.totalJsonLines,
-      traceFamilies: candidate.families.size,
+      traceDescriptorCount: candidate.traceDescriptors.size,
     },
     failures: result.failures.map(serializeFailure),
     additions: result.additions.map(formatFamily),
@@ -259,12 +396,13 @@ function buildFailureReport(baseline, candidate, result) {
 
 function printUsage() {
   console.error(`Usage:
-  node scripts/compare-traces [--config compare-traces.json] baseline.log candidate.log
+  node scripts/compare-traces --export-contract contract.json [--config compare-traces.json] baseline.log
+  node scripts/compare-traces [--config compare-traces.json] contract.json candidate.log
 
-The command compares JSON trace families emitted by two Amaru runs.
-It fails when the candidate run removes a previously observed trace family or
+The command compares trace descriptors from a checked-in contract against a candidate Amaru run.
+It fails when the candidate run removes a previously observed trace descriptor or
 changes the relative order of baseline anchor traces.
-Extra trace families in the candidate run are allowed.
+Extra trace descriptors in the candidate run are allowed.
 
 Config file format:
   {
@@ -274,19 +412,27 @@ Config file format:
     ]
   }
 
-When "milestones" is omitted, ordering is inferred from singleton families in the baseline.
+When "milestones" is omitted, ordering is inferred from singleton trace descriptors in the baseline run.
 If selectors are provided, the order of their first compressed occurrences becomes the contract.
 If "milestones" is an empty array, order checks are disabled.
+
+The --export-contract mode creates a compact contract snapshot from a traced run.
+This is intended for CI-friendly checked-in baselines.
 `);
 }
 
 function parseArgs(argv) {
-  const parsed = { configPath: null, files: [] };
+  const parsed = { configPath: null, exportContractPath: null, files: [] };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--config') {
       parsed.configPath = argv[index + 1] ?? null;
+      index += 1;
+      continue;
+    }
+    if (arg === '--export-contract') {
+      parsed.exportContractPath = argv[index + 1] ?? null;
       index += 1;
       continue;
     }
@@ -310,14 +456,32 @@ if (rawArgs.includes('--config') && args.configPath == null) {
   process.exit(2);
 }
 
-if (args.files.length !== 2) {
+if (rawArgs.includes('--export-contract') && args.exportContractPath == null) {
   printUsage();
   process.exit(2);
 }
 
-const [baselineFile, candidateFile] = args.files;
+if (args.exportContractPath != null && args.files.length !== 1) {
+  printUsage();
+  process.exit(2);
+}
+
+if (args.exportContractPath == null && args.files.length !== 2) {
+  printUsage();
+  process.exit(2);
+}
 const config = loadConfig(args.configPath);
-const baseline = await loadTraceState(baselineFile);
+
+if (args.exportContractPath != null) {
+  const [baselineFile] = args.files;
+  const baseline = await loadTraceState(baselineFile);
+  const contract = buildTraceContract(baseline, config, baselineFile);
+  writeFileSync(args.exportContractPath, `${JSON.stringify(contract, null, 2)}\n`);
+  process.exit(0);
+}
+
+const [baselineFile, candidateFile] = args.files;
+const baseline = loadTraceContract(baselineFile);
 const candidate = await loadTraceState(candidateFile);
 const result = compareFamilies(baseline, candidate, config);
 

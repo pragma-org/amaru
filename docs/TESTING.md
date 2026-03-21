@@ -28,21 +28,21 @@ make compare-trace-contract
 To refresh the checked-in run-until baseline for the current network, run:
 
 ```
-make update-trace-baseline
+make update-trace-contract
 ```
 
 When `AMARU_TRACE=amaru=trace` is set, `make run-until` emits normalized trace JSONL on stdout,
-so the captured run-until output can be compared directly against the checked-in baseline.
+and `make update-trace-contract` compacts that run into a small contract JSON snapshot.
 
 The lower-level comparison command remains available when needed:
 
 ```
-node scripts/compare-traces baseline.log candidate.log
+node scripts/compare-traces contract.json candidate.log
 ```
 
-CI compares the run-until output against a checked-in normalized baseline at
-`data/<network>/run-until-trace-baseline.jsonl` when that file exists.
-If no baseline file is present for the current network, the trace contract check is skipped.
+CI compares the run-until output against a checked-in compact contract at
+`data/<network>/run-until-trace-contract.json` when that file exists.
+If no contract file is present for the current network, the trace contract check is skipped.
 
 ## Real chan tests
 

@@ -1,0 +1,68 @@
+{
+  "format": "amaru-trace-contract@1",
+  "source": {
+    "file": "/var/folders/j6/061n6sn91j5fzbmwxvzpcrb40000gn/T/tmp.gKJwSLeZ6V",
+    "jsonEvents": 26038,
+    "traceDescriptorCount": 11
+  },
+  "traceDescriptors": [
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "apply_block"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "create_validation_context"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "forward"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "prepare_block"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "reset_blocks_count"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "reset_fees"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "resolve_inputs"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "roll_backward"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "roll_forward"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "validate_block"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "volatile_to_stable"
+    }
+  ],
+  "anchors": [
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "roll_backward"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "reset_blocks_count"
+    },
+    {
+      "target": "amaru::ledger::state",
+      "spanName": "reset_fees"
+    }
+  ]
+}

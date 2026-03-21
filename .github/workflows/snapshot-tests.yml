@@ -104,7 +104,7 @@ jobs:
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
       CARDANO_CLI_VERSION: 10.11.0.0
       DEFAULT_TIMEOUT: ${{ inputs.default_timeout }}
-      TRACE_BASELINE: data/${{ matrix.network.name }}/run-until-trace-baseline.jsonl
+      TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
     continue-on-error: true
 
@@ -271,12 +271,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -f "$TRACE_BASELINE" ]; then
-            AMARU_TRACE=amaru=trace \
-            make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until | tee "$TRACE_COMPARE_LOG"
-          else
-            make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until
-          fi
+          AMARU_TRACE=amaru=trace \
+          make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until | tee "$TRACE_COMPARE_LOG"
 
       - name: Compare trace contract
         shell: bash

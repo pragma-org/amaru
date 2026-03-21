@@ -8,10 +8,10 @@ CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
-TRACE_BASELINE ?= data/$(AMARU_NETWORK)/run-until-trace-baseline.jsonl
+TRACE_CONTRACT ?= data/$(AMARU_NETWORK)/run-until-trace-contract.json
 TRACE_COMPARE_LOG ?= trace-compare.log
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-baseline
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-contract
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -71,21 +71,24 @@ start: ## &build Compile and run for $BUILD_PROFILE with default options
 run-until: ## &build Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
 		./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
 
-compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_BASELINE)
+compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CONTRACT)
 	@set -e; \
-	if [ ! -f "$(TRACE_BASELINE)" ]; then \
-		echo "No trace baseline found for $(AMARU_NETWORK), skipping trace contract check."; \
+	if [ ! -f "$(TRACE_CONTRACT)" ]; then \
+		echo "No trace contract found for $(AMARU_NETWORK), skipping trace contract check."; \
 	elif [ ! -f "$(TRACE_COMPARE_LOG)" ]; then \
 		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced run-until first." >&2; \
 		exit 1; \
 	else \
-		node scripts/compare-traces "$(TRACE_BASELINE)" "$(TRACE_COMPARE_LOG)"; \
+		node scripts/compare-traces "$(TRACE_CONTRACT)" "$(TRACE_COMPARE_LOG)"; \
 	fi
 
-update-trace-baseline: ## &test Refresh $(TRACE_BASELINE) from a traced run-until run
-	@mkdir -p "$(dir $(TRACE_BASELINE))"
-	@AMARU_TRACE=amaru::stores=info,amaru=trace $(MAKE) run-until > "$(TRACE_BASELINE)"
-	@echo "Updated $(TRACE_BASELINE)"
+update-trace-contract: ## &test Refresh $(TRACE_CONTRACT) from a traced run-until run
+	@mkdir -p "$(dir $(TRACE_CONTRACT))"
+	@tmp_log="$$(mktemp)"; \
+	AMARU_TRACE=amaru::stores=info,amaru=trace $(MAKE) run-until > "$$tmp_log"; \
+	node scripts/compare-traces --export-contract "$(TRACE_CONTRACT)" "$$tmp_log"; \
+	rm -f "$$tmp_log"
+	@echo "Updated $(TRACE_CONTRACT)"
 
 all-ci-checks: ## &test Run all CI checks
 	@cargo fmt-amaru
