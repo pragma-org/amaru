@@ -1,11 +1,55 @@
 {
   "format": "amaru-trace-contract@1",
   "source": {
-    "file": "/var/folders/j6/061n6sn91j5fzbmwxvzpcrb40000gn/T/tmp.gKJwSLeZ6V",
-    "jsonEvents": 26038,
-    "traceDescriptorCount": 11
+    "file": "/var/folders/j6/061n6sn91j5fzbmwxvzpcrb40000gn/T/tmp.RkxhPPjM71",
+    "jsonEvents": 462434,
+    "traceDescriptorCount": 67
   },
   "traceDescriptors": [
+    {
+      "target": "amaru::consensus::chain_sync",
+      "spanName": "decode_header"
+    },
+    {
+      "target": "amaru::consensus::chain_sync",
+      "spanName": "pull"
+    },
+    {
+      "target": "amaru::consensus::chain_sync",
+      "spanName": "receive_header"
+    },
+    {
+      "target": "amaru::consensus::chain_sync",
+      "spanName": "select_chain"
+    },
+    {
+      "target": "amaru::consensus::chain_sync",
+      "spanName": "validate_block"
+    },
+    {
+      "target": "amaru::consensus::chain_sync",
+      "spanName": "validate_header"
+    },
+    {
+      "target": "amaru::consensus::diffusion",
+      "spanName": "fetch_block"
+    },
+    {
+      "target": "amaru::consensus::diffusion",
+      "spanName": "forward_chain"
+    },
+    {
+      "target": "amaru::consensus::validate_header",
+      "spanName": "evolve_nonce"
+    },
+    {
+      "target": "amaru::consensus::validate_header",
+      "spanName": "validate"
+    },
+    {
+      "target": "amaru::ledger::governance",
+      "spanName": "ratifying"
+    },
     {
       "target": "amaru::ledger::state",
       "spanName": "apply_block"
@@ -49,20 +93,2231 @@
     {
       "target": "amaru::ledger::state",
       "spanName": "volatile_to_stable"
+    },
+    {
+      "target": "amaru::network::connection",
+      "spanName": "accept"
+    },
+    {
+      "target": "amaru::network::connection",
+      "spanName": "accept_loop"
+    },
+    {
+      "target": "amaru::network::connection",
+      "spanName": "connect_addrs"
+    },
+    {
+      "target": "amaru::network::connection",
+      "spanName": "listen"
+    },
+    {
+      "target": "amaru::network::connection",
+      "spanName": "recv"
+    },
+    {
+      "target": "amaru::network::connection",
+      "spanName": "send"
+    },
+    {
+      "target": "amaru::protocols::blockfetch::initiator",
+      "spanName": "blockfetch_initiator_stage"
+    },
+    {
+      "target": "amaru::protocols::chainsync::initiator",
+      "spanName": "chainsync_initiator_protocol"
+    },
+    {
+      "target": "amaru::protocols::chainsync::initiator",
+      "spanName": "chainsync_initiator_stage"
+    },
+    {
+      "target": "amaru::protocols::connection",
+      "spanName": "connection_stage"
+    },
+    {
+      "target": "amaru::protocols::handshake::initiator",
+      "spanName": "handshake_initiator_protocol"
+    },
+    {
+      "target": "amaru::protocols::handshake::initiator",
+      "spanName": "handshake_initiator_stage"
+    },
+    {
+      "target": "amaru::protocols::keepalive::initiator",
+      "spanName": "keepalive_initiator_protocol"
+    },
+    {
+      "target": "amaru::protocols::keepalive::initiator",
+      "spanName": "keepalive_initiator_stage"
+    },
+    {
+      "target": "amaru::protocols::manager",
+      "spanName": "manager_stage"
+    },
+    {
+      "target": "amaru::protocols::mux",
+      "spanName": "buffer"
+    },
+    {
+      "target": "amaru::protocols::mux",
+      "spanName": "next_segment"
+    },
+    {
+      "target": "amaru::protocols::mux",
+      "spanName": "outgoing"
+    },
+    {
+      "target": "amaru::protocols::mux",
+      "spanName": "received"
+    },
+    {
+      "target": "amaru::protocols::mux",
+      "spanName": "register"
+    },
+    {
+      "target": "amaru::protocols::mux",
+      "spanName": "want_next"
+    },
+    {
+      "target": "amaru::stage::tokio",
+      "spanName": "poll"
+    },
+    {
+      "target": "amaru::stores::consensus",
+      "spanName": "roll_forward_chain"
+    },
+    {
+      "target": "amaru::stores::consensus",
+      "spanName": "store_header"
+    },
+    {
+      "target": "amaru::stores::ledger",
+      "spanName": "prune"
+    },
+    {
+      "target": "amaru::stores::ledger",
+      "spanName": "try_epoch_transition"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "accounts_add"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "accounts_remove"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "accounts_reset_many"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "accounts_set"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "cc_members_upsert"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "dreps_add"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "dreps_remove"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "iter_scan"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "pools_add"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "pools_remove"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "pots_get"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "pots_put"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "proposals_add"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "slots_put"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "utxo_add"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "utxo_get"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "utxo_remove"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "votes_add"
+    },
+    {
+      "target": "amaru::stores::rocksdb",
+      "spanName": "commit"
     }
   ],
   "anchors": [
     {
-      "target": "amaru::ledger::state",
-      "spanName": "roll_backward"
+      "target": "amaru::network::connection",
+      "spanName": "listen"
     },
     {
-      "target": "amaru::ledger::state",
-      "spanName": "reset_blocks_count"
+      "target": "amaru::protocols::mux",
+      "spanName": "buffer"
     },
     {
-      "target": "amaru::ledger::state",
-      "spanName": "reset_fees"
+      "target": "amaru::protocols::handshake::initiator",
+      "spanName": "handshake_initiator_protocol"
+    },
+    {
+      "target": "amaru::stores::ledger",
+      "spanName": "prune"
+    },
+    {
+      "target": "amaru::stores::ledger::columns",
+      "spanName": "accounts_set"
+    },
+    {
+      "target": "amaru::ledger::governance",
+      "spanName": "ratifying"
     }
-  ]
+  ],
+  "performance": {
+    "thresholds": {
+      "defaults": {
+        "minSamples": 25,
+        "meanRatioMax": 1.2,
+        "p95RatioMax": 1.3,
+        "maxRatioMax": 1.5,
+        "outlierRateDeltaMax": 0.1,
+        "absoluteDeltaMsMin": 0.5
+      },
+      "byCategory": {
+        "db": {
+          "meanRatioMax": 1.15,
+          "p95RatioMax": 1.25,
+          "absoluteDeltaMsMin": 0.2
+        },
+        "consensus": {
+          "meanRatioMax": 1.2,
+          "p95RatioMax": 1.3
+        },
+        "ledger": {
+          "meanRatioMax": 1.2,
+          "p95RatioMax": 1.3
+        },
+        "peer_wait": {
+          "meanRatioMax": 1.3,
+          "p95RatioMax": 1.4,
+          "absoluteDeltaMsMin": 1
+        },
+        "network": {
+          "meanRatioMax": 1.25,
+          "p95RatioMax": 1.35
+        },
+        "other": {}
+      }
+    },
+    "descriptorStats": [
+      {
+        "target": "amaru::consensus::chain_sync",
+        "spanName": "decode_header",
+        "category": "consensus",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 2463,
+        "total": {
+          "sampleCount": 2463,
+          "meanMs": 85.492588,
+          "p50Ms": 0.013056,
+          "p95Ms": 477.456845,
+          "maxMs": 6257.726976,
+          "outlierCount": 393,
+          "outlierRate": 0.159562
+        },
+        "busy": {
+          "sampleCount": 2463,
+          "meanMs": 85.492588,
+          "p50Ms": 0.013056,
+          "p95Ms": 477.456845,
+          "maxMs": 6257.726976,
+          "outlierCount": 393,
+          "outlierRate": 0.159562
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::chain_sync",
+        "spanName": "pull",
+        "category": "consensus",
+        "eventCount": 17344,
+        "enterCount": 8672,
+        "exitCount": 8672,
+        "closeCount": 0,
+        "timedSampleCount": 3258,
+        "total": {
+          "sampleCount": 3258,
+          "meanMs": 1022.02819,
+          "p50Ms": 0.015488,
+          "p95Ms": 6337.368128,
+          "maxMs": 17648.643072,
+          "outlierCount": 627,
+          "outlierRate": 0.192449
+        },
+        "busy": {
+          "sampleCount": 3258,
+          "meanMs": 1022.02819,
+          "p50Ms": 0.015488,
+          "p95Ms": 6337.368128,
+          "maxMs": 17648.643072,
+          "outlierCount": 627,
+          "outlierRate": 0.192449
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::chain_sync",
+        "spanName": "receive_header",
+        "category": "consensus",
+        "eventCount": 13002,
+        "enterCount": 6501,
+        "exitCount": 6501,
+        "closeCount": 0,
+        "timedSampleCount": 1474,
+        "total": {
+          "sampleCount": 1474,
+          "meanMs": 3006.667891,
+          "p50Ms": 2016.98752,
+          "p95Ms": 9802.925594,
+          "maxMs": 19602.437888,
+          "outlierCount": 58,
+          "outlierRate": 0.039349
+        },
+        "busy": {
+          "sampleCount": 1474,
+          "meanMs": 3006.667891,
+          "p50Ms": 2016.98752,
+          "p95Ms": 9802.925594,
+          "maxMs": 19602.437888,
+          "outlierCount": 58,
+          "outlierRate": 0.039349
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::chain_sync",
+        "spanName": "select_chain",
+        "category": "consensus",
+        "eventCount": 12964,
+        "enterCount": 6482,
+        "exitCount": 6482,
+        "closeCount": 0,
+        "timedSampleCount": 1366,
+        "total": {
+          "sampleCount": 1366,
+          "meanMs": 2640.876404,
+          "p50Ms": 1662.35904,
+          "p95Ms": 8361.478912,
+          "maxMs": 19084.066816,
+          "outlierCount": 49,
+          "outlierRate": 0.035871
+        },
+        "busy": {
+          "sampleCount": 1366,
+          "meanMs": 2640.876404,
+          "p50Ms": 1662.35904,
+          "p95Ms": 8361.478912,
+          "maxMs": 19084.066816,
+          "outlierCount": 49,
+          "outlierRate": 0.035871
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::chain_sync",
+        "spanName": "validate_block",
+        "category": "consensus",
+        "eventCount": 21668,
+        "enterCount": 10834,
+        "exitCount": 10834,
+        "closeCount": 0,
+        "timedSampleCount": 2131,
+        "total": {
+          "sampleCount": 2131,
+          "meanMs": 3056.879456,
+          "p50Ms": 2143.881984,
+          "p95Ms": 8722.677632,
+          "maxMs": 19008.139008,
+          "outlierCount": 79,
+          "outlierRate": 0.037072
+        },
+        "busy": {
+          "sampleCount": 2131,
+          "meanMs": 3056.879456,
+          "p50Ms": 2143.881984,
+          "p95Ms": 8722.677632,
+          "maxMs": 19008.139008,
+          "outlierCount": 79,
+          "outlierRate": 0.037072
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::chain_sync",
+        "spanName": "validate_header",
+        "category": "consensus",
+        "eventCount": 17334,
+        "enterCount": 8667,
+        "exitCount": 8667,
+        "closeCount": 0,
+        "timedSampleCount": 1785,
+        "total": {
+          "sampleCount": 1785,
+          "meanMs": 2759.520238,
+          "p50Ms": 1917.927936,
+          "p95Ms": 8404.08448,
+          "maxMs": 18898.27712,
+          "outlierCount": 58,
+          "outlierRate": 0.032493
+        },
+        "busy": {
+          "sampleCount": 1785,
+          "meanMs": 2759.520238,
+          "p50Ms": 1917.927936,
+          "p95Ms": 8404.08448,
+          "maxMs": 18898.27712,
+          "outlierCount": 58,
+          "outlierRate": 0.032493
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::diffusion",
+        "spanName": "fetch_block",
+        "category": "consensus",
+        "eventCount": 13002,
+        "enterCount": 6501,
+        "exitCount": 6501,
+        "closeCount": 0,
+        "timedSampleCount": 1374,
+        "total": {
+          "sampleCount": 1374,
+          "meanMs": 2820.122257,
+          "p50Ms": 1757.566464,
+          "p95Ms": 8972.336384,
+          "maxMs": 18350.230784,
+          "outlierCount": 51,
+          "outlierRate": 0.037118
+        },
+        "busy": {
+          "sampleCount": 1374,
+          "meanMs": 2820.122257,
+          "p50Ms": 1757.566464,
+          "p95Ms": 8972.336384,
+          "maxMs": 18350.230784,
+          "outlierCount": 51,
+          "outlierRate": 0.037118
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::diffusion",
+        "spanName": "forward_chain",
+        "category": "consensus",
+        "eventCount": 12960,
+        "enterCount": 6480,
+        "exitCount": 6480,
+        "closeCount": 0,
+        "timedSampleCount": 1463,
+        "total": {
+          "sampleCount": 1463,
+          "meanMs": 2856.77354,
+          "p50Ms": 1652.164096,
+          "p95Ms": 9398.596838,
+          "maxMs": 16975.823872,
+          "outlierCount": 59,
+          "outlierRate": 0.040328
+        },
+        "busy": {
+          "sampleCount": 1463,
+          "meanMs": 2856.77354,
+          "p50Ms": 1652.164096,
+          "p95Ms": 9398.596838,
+          "maxMs": 16975.823872,
+          "outlierCount": 59,
+          "outlierRate": 0.040328
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::validate_header",
+        "spanName": "evolve_nonce",
+        "category": "consensus",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 342,
+        "total": {
+          "sampleCount": 342,
+          "meanMs": 631.606621,
+          "p50Ms": 406.255104,
+          "p95Ms": 2042.795533,
+          "maxMs": 3536.1728,
+          "outlierCount": 20,
+          "outlierRate": 0.05848
+        },
+        "busy": {
+          "sampleCount": 342,
+          "meanMs": 631.606621,
+          "p50Ms": 406.255104,
+          "p95Ms": 2042.795533,
+          "maxMs": 3536.1728,
+          "outlierCount": 20,
+          "outlierRate": 0.05848
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::consensus::validate_header",
+        "spanName": "validate",
+        "category": "consensus",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 345,
+        "total": {
+          "sampleCount": 345,
+          "meanMs": 593.73916,
+          "p50Ms": 371.973888,
+          "p95Ms": 1899.331123,
+          "maxMs": 4732.340992,
+          "outlierCount": 20,
+          "outlierRate": 0.057971
+        },
+        "busy": {
+          "sampleCount": 345,
+          "meanMs": 593.73916,
+          "p50Ms": 371.973888,
+          "p95Ms": 1899.331123,
+          "maxMs": 4732.340992,
+          "outlierCount": 20,
+          "outlierRate": 0.057971
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::governance",
+        "spanName": "ratifying",
+        "category": "ledger",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 1,
+        "total": {
+          "sampleCount": 1,
+          "meanMs": 0.006912,
+          "p50Ms": 0.006912,
+          "p95Ms": 0.006912,
+          "maxMs": 0.006912,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 1,
+          "meanMs": 0.006912,
+          "p50Ms": 0.006912,
+          "p95Ms": 0.006912,
+          "maxMs": 0.006912,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "apply_block",
+        "category": "ledger",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 14.167168,
+          "p50Ms": 0.206464,
+          "p95Ms": 63.025216,
+          "maxMs": 83.942912,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 14.167168,
+          "p50Ms": 0.206464,
+          "p95Ms": 63.025216,
+          "maxMs": 83.942912,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "create_validation_context",
+        "category": "ledger",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 2475,
+        "total": {
+          "sampleCount": 2475,
+          "meanMs": 67.238317,
+          "p50Ms": 0.098048,
+          "p95Ms": 434.735386,
+          "maxMs": 5122.264064,
+          "outlierCount": 379,
+          "outlierRate": 0.153131
+        },
+        "busy": {
+          "sampleCount": 2475,
+          "meanMs": 67.238317,
+          "p50Ms": 0.098048,
+          "p95Ms": 434.735386,
+          "maxMs": 5122.264064,
+          "outlierCount": 379,
+          "outlierRate": 0.153131
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "forward",
+        "category": "ledger",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 2511,
+        "total": {
+          "sampleCount": 2511,
+          "meanMs": 86.689576,
+          "p50Ms": 0.140032,
+          "p95Ms": 507.99104,
+          "maxMs": 5792.505088,
+          "outlierCount": 375,
+          "outlierRate": 0.149343
+        },
+        "busy": {
+          "sampleCount": 2511,
+          "meanMs": 86.689576,
+          "p50Ms": 0.140032,
+          "p95Ms": 507.99104,
+          "maxMs": 5792.505088,
+          "outlierCount": 375,
+          "outlierRate": 0.149343
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "prepare_block",
+        "category": "ledger",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 2494,
+        "total": {
+          "sampleCount": 2494,
+          "meanMs": 81.486416,
+          "p50Ms": 0.004864,
+          "p95Ms": 535.683507,
+          "maxMs": 3251.052032,
+          "outlierCount": 453,
+          "outlierRate": 0.181636
+        },
+        "busy": {
+          "sampleCount": 2494,
+          "meanMs": 81.486416,
+          "p50Ms": 0.004864,
+          "p95Ms": 535.683507,
+          "maxMs": 3251.052032,
+          "outlierCount": 453,
+          "outlierRate": 0.181636
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "reset_blocks_count",
+        "category": "ledger",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 1,
+        "total": {
+          "sampleCount": 1,
+          "meanMs": 14.20288,
+          "p50Ms": 14.20288,
+          "p95Ms": 14.20288,
+          "maxMs": 14.20288,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 1,
+          "meanMs": 14.20288,
+          "p50Ms": 14.20288,
+          "p95Ms": 14.20288,
+          "maxMs": 14.20288,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "reset_fees",
+        "category": "ledger",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 1,
+        "total": {
+          "sampleCount": 1,
+          "meanMs": 0.059904,
+          "p50Ms": 0.059904,
+          "p95Ms": 0.059904,
+          "maxMs": 0.059904,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 1,
+          "meanMs": 0.059904,
+          "p50Ms": 0.059904,
+          "p95Ms": 0.059904,
+          "maxMs": 0.059904,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "resolve_inputs",
+        "category": "ledger",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 2481,
+        "total": {
+          "sampleCount": 2481,
+          "meanMs": 74.708629,
+          "p50Ms": 0.056832,
+          "p95Ms": 491.458048,
+          "maxMs": 4543.236096,
+          "outlierCount": 379,
+          "outlierRate": 0.152761
+        },
+        "busy": {
+          "sampleCount": 2481,
+          "meanMs": 74.708629,
+          "p50Ms": 0.056832,
+          "p95Ms": 491.458048,
+          "maxMs": 4543.236096,
+          "outlierCount": 379,
+          "outlierRate": 0.152761
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "roll_backward",
+        "category": "ledger",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 0,
+        "total": null,
+        "busy": null,
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "roll_forward",
+        "category": "ledger",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 336,
+        "total": {
+          "sampleCount": 336,
+          "meanMs": 697.605564,
+          "p50Ms": 401.845504,
+          "p95Ms": 2388.4432,
+          "maxMs": 8536.448,
+          "outlierCount": 34,
+          "outlierRate": 0.10119
+        },
+        "busy": {
+          "sampleCount": 336,
+          "meanMs": 697.605564,
+          "p50Ms": 401.845504,
+          "p95Ms": 2388.4432,
+          "maxMs": 8536.448,
+          "outlierCount": 34,
+          "outlierRate": 0.10119
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "validate_block",
+        "category": "ledger",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 2496,
+        "total": {
+          "sampleCount": 2496,
+          "meanMs": 85.297047,
+          "p50Ms": 1.14752,
+          "p95Ms": 516.98496,
+          "maxMs": 4661.319936,
+          "outlierCount": 328,
+          "outlierRate": 0.13141
+        },
+        "busy": {
+          "sampleCount": 2496,
+          "meanMs": 85.297047,
+          "p50Ms": 1.14752,
+          "p95Ms": 516.98496,
+          "maxMs": 4661.319936,
+          "outlierCount": 328,
+          "outlierRate": 0.13141
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::ledger::state",
+        "spanName": "volatile_to_stable",
+        "category": "ledger",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 14.18304,
+          "p50Ms": 0.216064,
+          "p95Ms": 63.057024,
+          "maxMs": 83.977984,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 14.18304,
+          "p50Ms": 0.216064,
+          "p95Ms": 63.057024,
+          "maxMs": 83.977984,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::network::connection",
+        "spanName": "accept",
+        "category": "network",
+        "eventCount": 4,
+        "enterCount": 2,
+        "exitCount": 2,
+        "closeCount": 0,
+        "timedSampleCount": 0,
+        "total": null,
+        "busy": null,
+        "idle": null
+      },
+      {
+        "target": "amaru::network::connection",
+        "spanName": "accept_loop",
+        "category": "network",
+        "eventCount": 4,
+        "enterCount": 2,
+        "exitCount": 2,
+        "closeCount": 0,
+        "timedSampleCount": 0,
+        "total": null,
+        "busy": null,
+        "idle": null
+      },
+      {
+        "target": "amaru::network::connection",
+        "spanName": "connect_addrs",
+        "category": "network",
+        "eventCount": 10,
+        "enterCount": 5,
+        "exitCount": 5,
+        "closeCount": 0,
+        "timedSampleCount": 0,
+        "total": null,
+        "busy": null,
+        "idle": null
+      },
+      {
+        "target": "amaru::network::connection",
+        "spanName": "listen",
+        "category": "network",
+        "eventCount": 4,
+        "enterCount": 2,
+        "exitCount": 2,
+        "closeCount": 0,
+        "timedSampleCount": 0,
+        "total": null,
+        "busy": null,
+        "idle": null
+      },
+      {
+        "target": "amaru::network::connection",
+        "spanName": "recv",
+        "category": "network",
+        "eventCount": 21076,
+        "enterCount": 10538,
+        "exitCount": 10538,
+        "closeCount": 0,
+        "timedSampleCount": 755,
+        "total": {
+          "sampleCount": 755,
+          "meanMs": 726.081995,
+          "p50Ms": 431.443968,
+          "p95Ms": 2732.932838,
+          "maxMs": 7282.247936,
+          "outlierCount": 52,
+          "outlierRate": 0.068874
+        },
+        "busy": {
+          "sampleCount": 755,
+          "meanMs": 726.081995,
+          "p50Ms": 431.443968,
+          "p95Ms": 2732.932838,
+          "maxMs": 7282.247936,
+          "outlierCount": 52,
+          "outlierRate": 0.068874
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::network::connection",
+        "spanName": "send",
+        "category": "network",
+        "eventCount": 8692,
+        "enterCount": 4346,
+        "exitCount": 4346,
+        "closeCount": 0,
+        "timedSampleCount": 366,
+        "total": {
+          "sampleCount": 366,
+          "meanMs": 711.881711,
+          "p50Ms": 448.198912,
+          "p95Ms": 2346.59744,
+          "maxMs": 6076.289024,
+          "outlierCount": 21,
+          "outlierRate": 0.057377
+        },
+        "busy": {
+          "sampleCount": 366,
+          "meanMs": 711.881711,
+          "p50Ms": 448.198912,
+          "p95Ms": 2346.59744,
+          "maxMs": 6076.289024,
+          "outlierCount": 21,
+          "outlierRate": 0.057377
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::blockfetch::initiator",
+        "spanName": "blockfetch_initiator_stage",
+        "category": "network",
+        "eventCount": 4,
+        "enterCount": 2,
+        "exitCount": 2,
+        "closeCount": 0,
+        "timedSampleCount": 2,
+        "total": {
+          "sampleCount": 2,
+          "meanMs": 0.010624,
+          "p50Ms": 0.010624,
+          "p95Ms": 0.014656,
+          "maxMs": 0.015104,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 2,
+          "meanMs": 0.010624,
+          "p50Ms": 0.010624,
+          "p95Ms": 0.014656,
+          "maxMs": 0.015104,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::chainsync::initiator",
+        "spanName": "chainsync_initiator_protocol",
+        "category": "network",
+        "eventCount": 4336,
+        "enterCount": 2168,
+        "exitCount": 2168,
+        "closeCount": 0,
+        "timedSampleCount": 2494,
+        "total": {
+          "sampleCount": 2494,
+          "meanMs": 82.503876,
+          "p50Ms": 0.009984,
+          "p95Ms": 486.194509,
+          "maxMs": 5866.176,
+          "outlierCount": 410,
+          "outlierRate": 0.164395
+        },
+        "busy": {
+          "sampleCount": 2494,
+          "meanMs": 82.503876,
+          "p50Ms": 0.009984,
+          "p95Ms": 486.194509,
+          "maxMs": 5866.176,
+          "outlierCount": 410,
+          "outlierRate": 0.164395
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::chainsync::initiator",
+        "spanName": "chainsync_initiator_stage",
+        "category": "network",
+        "eventCount": 13016,
+        "enterCount": 6508,
+        "exitCount": 6508,
+        "closeCount": 0,
+        "timedSampleCount": 3246,
+        "total": {
+          "sampleCount": 3246,
+          "meanMs": 775.569131,
+          "p50Ms": 0.009984,
+          "p95Ms": 5207.425792,
+          "maxMs": 17929.935872,
+          "outlierCount": 636,
+          "outlierRate": 0.195933
+        },
+        "busy": {
+          "sampleCount": 3246,
+          "meanMs": 775.569131,
+          "p50Ms": 0.009984,
+          "p95Ms": 5207.425792,
+          "maxMs": 17929.935872,
+          "outlierCount": 636,
+          "outlierRate": 0.195933
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::connection",
+        "spanName": "connection_stage",
+        "category": "network",
+        "eventCount": 8698,
+        "enterCount": 4349,
+        "exitCount": 4349,
+        "closeCount": 0,
+        "timedSampleCount": 4700,
+        "total": {
+          "sampleCount": 4700,
+          "meanMs": 63.313666,
+          "p50Ms": 0.006144,
+          "p95Ms": 293.993037,
+          "maxMs": 8850.987008,
+          "outlierCount": 649,
+          "outlierRate": 0.138085
+        },
+        "busy": {
+          "sampleCount": 4700,
+          "meanMs": 63.313666,
+          "p50Ms": 0.006144,
+          "p95Ms": 293.993037,
+          "maxMs": 8850.987008,
+          "outlierCount": 649,
+          "outlierRate": 0.138085
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::handshake::initiator",
+        "spanName": "handshake_initiator_protocol",
+        "category": "network",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 1,
+        "total": {
+          "sampleCount": 1,
+          "meanMs": 0.00512,
+          "p50Ms": 0.00512,
+          "p95Ms": 0.00512,
+          "maxMs": 0.00512,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 1,
+          "meanMs": 0.00512,
+          "p50Ms": 0.00512,
+          "p95Ms": 0.00512,
+          "maxMs": 0.00512,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::handshake::initiator",
+        "spanName": "handshake_initiator_stage",
+        "category": "network",
+        "eventCount": 10,
+        "enterCount": 5,
+        "exitCount": 5,
+        "closeCount": 0,
+        "timedSampleCount": 3,
+        "total": {
+          "sampleCount": 3,
+          "meanMs": 0.023637,
+          "p50Ms": 0.011008,
+          "p95Ms": 0.05248,
+          "maxMs": 0.057088,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 3,
+          "meanMs": 0.023637,
+          "p50Ms": 0.011008,
+          "p95Ms": 0.05248,
+          "maxMs": 0.057088,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::keepalive::initiator",
+        "spanName": "keepalive_initiator_protocol",
+        "category": "network",
+        "eventCount": 4,
+        "enterCount": 2,
+        "exitCount": 2,
+        "closeCount": 0,
+        "timedSampleCount": 2,
+        "total": {
+          "sampleCount": 2,
+          "meanMs": 0.01216,
+          "p50Ms": 0.01216,
+          "p95Ms": 0.017574,
+          "maxMs": 0.018176,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 2,
+          "meanMs": 0.01216,
+          "p50Ms": 0.01216,
+          "p95Ms": 0.017574,
+          "maxMs": 0.018176,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::keepalive::initiator",
+        "spanName": "keepalive_initiator_stage",
+        "category": "network",
+        "eventCount": 18,
+        "enterCount": 9,
+        "exitCount": 9,
+        "closeCount": 0,
+        "timedSampleCount": 3,
+        "total": {
+          "sampleCount": 3,
+          "meanMs": 0.014421,
+          "p50Ms": 0.012032,
+          "p95Ms": 0.025626,
+          "maxMs": 0.027136,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 3,
+          "meanMs": 0.014421,
+          "p50Ms": 0.012032,
+          "p95Ms": 0.025626,
+          "maxMs": 0.027136,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::manager",
+        "spanName": "manager_stage",
+        "category": "network",
+        "eventCount": 12990,
+        "enterCount": 6495,
+        "exitCount": 6495,
+        "closeCount": 0,
+        "timedSampleCount": 3142,
+        "total": {
+          "sampleCount": 3142,
+          "meanMs": 743.767656,
+          "p50Ms": 0.009984,
+          "p95Ms": 4606.381286,
+          "maxMs": 14351.831808,
+          "outlierCount": 646,
+          "outlierRate": 0.205602
+        },
+        "busy": {
+          "sampleCount": 3142,
+          "meanMs": 743.767656,
+          "p50Ms": 0.009984,
+          "p95Ms": 4606.381286,
+          "maxMs": 14351.831808,
+          "outlierCount": 646,
+          "outlierRate": 0.205602
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::mux",
+        "spanName": "buffer",
+        "category": "network",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 1,
+        "total": {
+          "sampleCount": 1,
+          "meanMs": 0.005888,
+          "p50Ms": 0.005888,
+          "p95Ms": 0.005888,
+          "maxMs": 0.005888,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 1,
+          "meanMs": 0.005888,
+          "p50Ms": 0.005888,
+          "p95Ms": 0.005888,
+          "maxMs": 0.005888,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::mux",
+        "spanName": "next_segment",
+        "category": "network",
+        "eventCount": 21594,
+        "enterCount": 10797,
+        "exitCount": 10797,
+        "closeCount": 0,
+        "timedSampleCount": 7874,
+        "total": {
+          "sampleCount": 7874,
+          "meanMs": 359.796586,
+          "p50Ms": 0.00512,
+          "p95Ms": 2328.304755,
+          "maxMs": 18426.58304,
+          "outlierCount": 1605,
+          "outlierRate": 0.203835
+        },
+        "busy": {
+          "sampleCount": 7874,
+          "meanMs": 359.796586,
+          "p50Ms": 0.00512,
+          "p95Ms": 2328.304755,
+          "maxMs": 18426.58304,
+          "outlierCount": 1605,
+          "outlierRate": 0.203835
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::mux",
+        "spanName": "outgoing",
+        "category": "network",
+        "eventCount": 4346,
+        "enterCount": 2173,
+        "exitCount": 2173,
+        "closeCount": 0,
+        "timedSampleCount": 2504,
+        "total": {
+          "sampleCount": 2504,
+          "meanMs": 81.115337,
+          "p50Ms": 0.015104,
+          "p95Ms": 482.300634,
+          "maxMs": 6299.737088,
+          "outlierCount": 393,
+          "outlierRate": 0.156949
+        },
+        "busy": {
+          "sampleCount": 2504,
+          "meanMs": 81.115337,
+          "p50Ms": 0.015104,
+          "p95Ms": 482.300634,
+          "maxMs": 6299.737088,
+          "outlierCount": 393,
+          "outlierRate": 0.156949
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::mux",
+        "spanName": "received",
+        "category": "network",
+        "eventCount": 12400,
+        "enterCount": 6200,
+        "exitCount": 6200,
+        "closeCount": 0,
+        "timedSampleCount": 3347,
+        "total": {
+          "sampleCount": 3347,
+          "meanMs": 619.111652,
+          "p50Ms": 0.020992,
+          "p95Ms": 4106.876288,
+          "maxMs": 18557.743872,
+          "outlierCount": 772,
+          "outlierRate": 0.230654
+        },
+        "busy": {
+          "sampleCount": 3347,
+          "meanMs": 619.111652,
+          "p50Ms": 0.020992,
+          "p95Ms": 4106.876288,
+          "maxMs": 18557.743872,
+          "outlierCount": 772,
+          "outlierRate": 0.230654
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::mux",
+        "spanName": "register",
+        "category": "network",
+        "eventCount": 30,
+        "enterCount": 15,
+        "exitCount": 15,
+        "closeCount": 0,
+        "timedSampleCount": 5,
+        "total": {
+          "sampleCount": 5,
+          "meanMs": 0.010547,
+          "p50Ms": 0.004864,
+          "p95Ms": 0.021606,
+          "maxMs": 0.022784,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 5,
+          "meanMs": 0.010547,
+          "p50Ms": 0.004864,
+          "p95Ms": 0.021606,
+          "maxMs": 0.022784,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::protocols::mux",
+        "spanName": "want_next",
+        "category": "network",
+        "eventCount": 9282,
+        "enterCount": 4641,
+        "exitCount": 4641,
+        "closeCount": 0,
+        "timedSampleCount": 4442,
+        "total": {
+          "sampleCount": 4442,
+          "meanMs": 79.148437,
+          "p50Ms": 0.01408,
+          "p95Ms": 379.144781,
+          "maxMs": 12168.509952,
+          "outlierCount": 543,
+          "outlierRate": 0.122242
+        },
+        "busy": {
+          "sampleCount": 4442,
+          "meanMs": 79.148437,
+          "p50Ms": 0.01408,
+          "p95Ms": 379.144781,
+          "maxMs": 12168.509952,
+          "outlierCount": 543,
+          "outlierRate": 0.122242
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stage::tokio",
+        "spanName": "poll",
+        "category": "other",
+        "eventCount": 182160,
+        "enterCount": 91080,
+        "exitCount": 91080,
+        "closeCount": 0,
+        "timedSampleCount": 45730,
+        "total": {
+          "sampleCount": 45730,
+          "meanMs": 102.186113,
+          "p50Ms": 0.016128,
+          "p95Ms": 645.562445,
+          "maxMs": 9173.24288,
+          "outlierCount": 9079,
+          "outlierRate": 0.198535
+        },
+        "busy": {
+          "sampleCount": 45730,
+          "meanMs": 102.186113,
+          "p50Ms": 0.016128,
+          "p95Ms": 645.562445,
+          "maxMs": 9173.24288,
+          "outlierCount": 9079,
+          "outlierRate": 0.198535
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::consensus",
+        "spanName": "roll_forward_chain",
+        "category": "db",
+        "eventCount": 4320,
+        "enterCount": 2160,
+        "exitCount": 2160,
+        "closeCount": 0,
+        "timedSampleCount": 2490,
+        "total": {
+          "sampleCount": 2490,
+          "meanMs": 77.902671,
+          "p50Ms": 0.020992,
+          "p95Ms": 521.403584,
+          "maxMs": 5412.029952,
+          "outlierCount": 393,
+          "outlierRate": 0.157831
+        },
+        "busy": {
+          "sampleCount": 2490,
+          "meanMs": 77.902671,
+          "p50Ms": 0.020992,
+          "p95Ms": 521.403584,
+          "maxMs": 5412.029952,
+          "outlierCount": 393,
+          "outlierRate": 0.157831
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::consensus",
+        "spanName": "store_header",
+        "category": "db",
+        "eventCount": 4332,
+        "enterCount": 2166,
+        "exitCount": 2166,
+        "closeCount": 0,
+        "timedSampleCount": 2464,
+        "total": {
+          "sampleCount": 2464,
+          "meanMs": 78.310307,
+          "p50Ms": 0.066048,
+          "p95Ms": 438.562368,
+          "maxMs": 3884.126976,
+          "outlierCount": 357,
+          "outlierRate": 0.144886
+        },
+        "busy": {
+          "sampleCount": 2464,
+          "meanMs": 78.310307,
+          "p50Ms": 0.066048,
+          "p95Ms": 438.562368,
+          "maxMs": 3884.126976,
+          "outlierCount": 357,
+          "outlierRate": 0.144886
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger",
+        "spanName": "prune",
+        "category": "db",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 1,
+        "total": {
+          "sampleCount": 1,
+          "meanMs": 0.056064,
+          "p50Ms": 0.056064,
+          "p95Ms": 0.056064,
+          "maxMs": 0.056064,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 1,
+          "meanMs": 0.056064,
+          "p50Ms": 0.056064,
+          "p95Ms": 0.056064,
+          "maxMs": 0.056064,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger",
+        "spanName": "try_epoch_transition",
+        "category": "db",
+        "eventCount": 8,
+        "enterCount": 4,
+        "exitCount": 4,
+        "closeCount": 0,
+        "timedSampleCount": 4,
+        "total": {
+          "sampleCount": 4,
+          "meanMs": 0.0112,
+          "p50Ms": 0.007936,
+          "p95Ms": 0.020928,
+          "maxMs": 0.02304,
+          "outlierCount": 1,
+          "outlierRate": 0.25
+        },
+        "busy": {
+          "sampleCount": 4,
+          "meanMs": 0.0112,
+          "p50Ms": 0.007936,
+          "p95Ms": 0.020928,
+          "maxMs": 0.02304,
+          "outlierCount": 1,
+          "outlierRate": 0.25
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "accounts_add",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.003115,
+          "p50Ms": 0.002944,
+          "p95Ms": 0.00384,
+          "maxMs": 0.004096,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.003115,
+          "p50Ms": 0.002944,
+          "p95Ms": 0.00384,
+          "maxMs": 0.004096,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "accounts_remove",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.003883,
+          "p50Ms": 0.003584,
+          "p95Ms": 0.00512,
+          "maxMs": 0.00512,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.003883,
+          "p50Ms": 0.003584,
+          "p95Ms": 0.00512,
+          "maxMs": 0.00512,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "accounts_reset_many",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.00384,
+          "p50Ms": 0.00384,
+          "p95Ms": 0.004864,
+          "maxMs": 0.00512,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.00384,
+          "p50Ms": 0.00384,
+          "p95Ms": 0.004864,
+          "maxMs": 0.00512,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "accounts_set",
+        "category": "db",
+        "eventCount": 2,
+        "enterCount": 1,
+        "exitCount": 1,
+        "closeCount": 0,
+        "timedSampleCount": 1,
+        "total": {
+          "sampleCount": 1,
+          "meanMs": 0.188928,
+          "p50Ms": 0.188928,
+          "p95Ms": 0.188928,
+          "maxMs": 0.188928,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 1,
+          "meanMs": 0.188928,
+          "p50Ms": 0.188928,
+          "p95Ms": 0.188928,
+          "maxMs": 0.188928,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "cc_members_upsert",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.003072,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.00384,
+          "maxMs": 0.004096,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.003072,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.00384,
+          "maxMs": 0.004096,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "dreps_add",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.00384,
+          "p50Ms": 0.003584,
+          "p95Ms": 0.005632,
+          "maxMs": 0.006144,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.00384,
+          "p50Ms": 0.003584,
+          "p95Ms": 0.005632,
+          "maxMs": 0.006144,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "dreps_remove",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.002859,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.003072,
+          "maxMs": 0.003072,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.002859,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.003072,
+          "maxMs": 0.003072,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "iter_scan",
+        "category": "db",
+        "eventCount": 6,
+        "enterCount": 3,
+        "exitCount": 3,
+        "closeCount": 0,
+        "timedSampleCount": 3,
+        "total": {
+          "sampleCount": 3,
+          "meanMs": 8.940715,
+          "p50Ms": 6.8672,
+          "p95Ms": 13.454106,
+          "maxMs": 14.185984,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 3,
+          "meanMs": 8.940715,
+          "p50Ms": 6.8672,
+          "p95Ms": 13.454106,
+          "maxMs": 14.185984,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "pools_add",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.005376,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.01312,
+          "maxMs": 0.016128,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.005376,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.01312,
+          "maxMs": 0.016128,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "pools_remove",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.002731,
+          "p50Ms": 0.002816,
+          "p95Ms": 0.003008,
+          "maxMs": 0.003072,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.002731,
+          "p50Ms": 0.002816,
+          "p95Ms": 0.003008,
+          "maxMs": 0.003072,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "pots_get",
+        "category": "db",
+        "eventCount": 16,
+        "enterCount": 8,
+        "exitCount": 8,
+        "closeCount": 0,
+        "timedSampleCount": 8,
+        "total": {
+          "sampleCount": 8,
+          "meanMs": 0.039712,
+          "p50Ms": 0.004864,
+          "p95Ms": 0.18391,
+          "maxMs": 0.273152,
+          "outlierCount": 2,
+          "outlierRate": 0.25
+        },
+        "busy": {
+          "sampleCount": 8,
+          "meanMs": 0.039712,
+          "p50Ms": 0.004864,
+          "p95Ms": 0.18391,
+          "maxMs": 0.273152,
+          "outlierCount": 2,
+          "outlierRate": 0.25
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "pots_put",
+        "category": "db",
+        "eventCount": 14,
+        "enterCount": 7,
+        "exitCount": 7,
+        "closeCount": 0,
+        "timedSampleCount": 7,
+        "total": {
+          "sampleCount": 7,
+          "meanMs": 0.004571,
+          "p50Ms": 0.004096,
+          "p95Ms": 0.006477,
+          "maxMs": 0.007168,
+          "outlierCount": 1,
+          "outlierRate": 0.142857
+        },
+        "busy": {
+          "sampleCount": 7,
+          "meanMs": 0.004571,
+          "p50Ms": 0.004096,
+          "p95Ms": 0.006477,
+          "maxMs": 0.007168,
+          "outlierCount": 1,
+          "outlierRate": 0.142857
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "proposals_add",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.014635,
+          "p50Ms": 0.003968,
+          "p95Ms": 0.052864,
+          "maxMs": 0.068864,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.014635,
+          "p50Ms": 0.003968,
+          "p95Ms": 0.052864,
+          "maxMs": 0.068864,
+          "outlierCount": 1,
+          "outlierRate": 0.166667
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "slots_put",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.006229,
+          "p50Ms": 0.006016,
+          "p95Ms": 0.00928,
+          "maxMs": 0.009984,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.006229,
+          "p50Ms": 0.006016,
+          "p95Ms": 0.00928,
+          "maxMs": 0.009984,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "utxo_add",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.012459,
+          "p50Ms": 0.011904,
+          "p95Ms": 0.015808,
+          "maxMs": 0.016128,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.012459,
+          "p50Ms": 0.011904,
+          "p95Ms": 0.015808,
+          "maxMs": 0.016128,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "utxo_get",
+        "category": "db",
+        "eventCount": 7584,
+        "enterCount": 3792,
+        "exitCount": 3792,
+        "closeCount": 0,
+        "timedSampleCount": 4365,
+        "total": {
+          "sampleCount": 4365,
+          "meanMs": 71.294472,
+          "p50Ms": 0.019968,
+          "p95Ms": 397.742899,
+          "maxMs": 7116.619008,
+          "outlierCount": 594,
+          "outlierRate": 0.136082
+        },
+        "busy": {
+          "sampleCount": 4365,
+          "meanMs": 71.294472,
+          "p50Ms": 0.019968,
+          "p95Ms": 397.742899,
+          "maxMs": 7116.619008,
+          "outlierCount": 594,
+          "outlierRate": 0.136082
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "utxo_remove",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.008448,
+          "p50Ms": 0.008064,
+          "p95Ms": 0.013632,
+          "maxMs": 0.014848,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.008448,
+          "p50Ms": 0.008064,
+          "p95Ms": 0.013632,
+          "maxMs": 0.014848,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::ledger::columns",
+        "spanName": "votes_add",
+        "category": "db",
+        "eventCount": 12,
+        "enterCount": 6,
+        "exitCount": 6,
+        "closeCount": 0,
+        "timedSampleCount": 6,
+        "total": {
+          "sampleCount": 6,
+          "meanMs": 0.003157,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.00384,
+          "maxMs": 0.00384,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "busy": {
+          "sampleCount": 6,
+          "meanMs": 0.003157,
+          "p50Ms": 0.003072,
+          "p95Ms": 0.00384,
+          "maxMs": 0.00384,
+          "outlierCount": 0,
+          "outlierRate": 0
+        },
+        "idle": null
+      },
+      {
+        "target": "amaru::stores::rocksdb",
+        "spanName": "commit",
+        "category": "db",
+        "eventCount": 18,
+        "enterCount": 9,
+        "exitCount": 9,
+        "closeCount": 0,
+        "timedSampleCount": 9,
+        "total": {
+          "sampleCount": 9,
+          "meanMs": 2.092516,
+          "p50Ms": 0.034048,
+          "p95Ms": 11.136,
+          "maxMs": 18.500096,
+          "outlierCount": 2,
+          "outlierRate": 0.222222
+        },
+        "busy": {
+          "sampleCount": 9,
+          "meanMs": 2.092516,
+          "p50Ms": 0.034048,
+          "p95Ms": 11.136,
+          "maxMs": 18.500096,
+          "outlierCount": 2,
+          "outlierRate": 0.222222
+        },
+        "idle": null
+      }
+    ],
+    "categoryStats": [
+      {
+        "category": "consensus",
+        "eventCount": 121270,
+        "total": {
+          "sampleCount": 16001,
+          "meanMs": 1968.29652,
+          "p50Ms": 690.14912,
+          "p95Ms": 7939.417088,
+          "maxMs": 19602.437888,
+          "outlierCount": 1027,
+          "outlierRate": 0.064183
+        },
+        "busy": {
+          "sampleCount": 16001,
+          "meanMs": 1968.29652,
+          "p50Ms": 690.14912,
+          "p95Ms": 7939.417088,
+          "maxMs": 19602.437888,
+          "outlierCount": 1027,
+          "outlierRate": 0.064183
+        },
+        "idle": null
+      },
+      {
+        "category": "db",
+        "eventCount": 16458,
+        "total": {
+          "sampleCount": 9430,
+          "meanMs": 74.03832,
+          "p50Ms": 0.030976,
+          "p95Ms": 459.074022,
+          "maxMs": 7116.619008,
+          "outlierCount": 1320,
+          "outlierRate": 0.139979
+        },
+        "busy": {
+          "sampleCount": 9430,
+          "meanMs": 74.03832,
+          "p50Ms": 0.030976,
+          "p95Ms": 459.074022,
+          "maxMs": 7116.619008,
+          "outlierCount": 1320,
+          "outlierRate": 0.139979
+        },
+        "idle": null
+      },
+      {
+        "category": "ledger",
+        "eventCount": 26024,
+        "total": {
+          "sampleCount": 12808,
+          "meanMs": 95.264902,
+          "p50Ms": 0.088064,
+          "p95Ms": 610.682112,
+          "maxMs": 8536.448,
+          "outlierCount": 2579,
+          "outlierRate": 0.201359
+        },
+        "busy": {
+          "sampleCount": 12808,
+          "meanMs": 95.264902,
+          "p50Ms": 0.088064,
+          "p95Ms": 610.682112,
+          "maxMs": 8536.448,
+          "outlierCount": 2579,
+          "outlierRate": 0.201359
+        },
+        "idle": null
+      },
+      {
+        "category": "network",
+        "eventCount": 116522,
+        "total": {
+          "sampleCount": 32887,
+          "meanMs": 353.525414,
+          "p50Ms": 0.009984,
+          "p95Ms": 2142.096461,
+          "maxMs": 18557.743872,
+          "outlierCount": 7046,
+          "outlierRate": 0.214249
+        },
+        "busy": {
+          "sampleCount": 32887,
+          "meanMs": 353.525414,
+          "p50Ms": 0.009984,
+          "p95Ms": 2142.096461,
+          "maxMs": 18557.743872,
+          "outlierCount": 7046,
+          "outlierRate": 0.214249
+        },
+        "idle": null
+      },
+      {
+        "category": "other",
+        "eventCount": 182160,
+        "total": {
+          "sampleCount": 45730,
+          "meanMs": 102.186113,
+          "p50Ms": 0.016128,
+          "p95Ms": 645.562445,
+          "maxMs": 9173.24288,
+          "outlierCount": 9079,
+          "outlierRate": 0.198535
+        },
+        "busy": {
+          "sampleCount": 45730,
+          "meanMs": 102.186113,
+          "p50Ms": 0.016128,
+          "p95Ms": 645.562445,
+          "maxMs": 9173.24288,
+          "outlierCount": 9079,
+          "outlierRate": 0.198535
+        },
+        "idle": null
+      }
+    ]
+  }
 }

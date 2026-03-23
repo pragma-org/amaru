@@ -10,6 +10,15 @@ COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
 TRACE_CONTRACT ?= data/$(AMARU_NETWORK)/run-until-trace-contract.json
 TRACE_COMPARE_LOG ?= trace-compare.log
+TRACE_COMPARE_SUMMARY_FILE ?= $${GITHUB_STEP_SUMMARY:-/dev/null}
+TRACE_UPDATE_AMARU_TRACE ?= amaru=trace
+TRACE_UPDATE_AMARU_TRACE_EMIT_PRIVATE ?= 1
+
+ifeq (,$(findstring n,$(MAKEFLAGS)))
+TRACE_SUMMARY_OUTPUT_ENABLED := 1
+else
+TRACE_SUMMARY_OUTPUT_ENABLED := 0
+endif
 
 .PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-contract
 
@@ -71,7 +80,7 @@ start: ## &build Compile and run for $BUILD_PROFILE with default options
 run-until: ## &build Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
 		./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
 
-compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CONTRACT)
+compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CONTRACT) including performance thresholds
 	@set -e; \
 	if [ ! -f "$(TRACE_CONTRACT)" ]; then \
 		echo "No trace contract found for $(AMARU_NETWORK), skipping trace contract check."; \
@@ -79,14 +88,23 @@ compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CO
 		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced run-until first." >&2; \
 		exit 1; \
 	else \
-		node scripts/compare-traces "$(TRACE_CONTRACT)" "$(TRACE_COMPARE_LOG)"; \
+		if ! node scripts/compare-traces --summary-file "$(TRACE_COMPARE_SUMMARY_FILE)" "$(TRACE_CONTRACT)" "$(TRACE_COMPARE_LOG)"; then \
+			echo "Warning: trace contract performance thresholds exceeded; see summary for details"; \
+		fi; \
 	fi
 
 update-trace-contract: ## &test Refresh $(TRACE_CONTRACT) from a traced run-until run
 	@mkdir -p "$(dir $(TRACE_CONTRACT))"
 	@tmp_log="$$(mktemp)"; \
-	AMARU_TRACE=amaru::stores=info,amaru=trace $(MAKE) run-until > "$$tmp_log"; \
+	AMARU_TRACE="$(TRACE_UPDATE_AMARU_TRACE)" AMARU_TRACE_EMIT_PRIVATE="$(TRACE_UPDATE_AMARU_TRACE_EMIT_PRIVATE)" $(MAKE) run-until > "$$tmp_log"; \
 	node scripts/compare-traces --export-contract "$(TRACE_CONTRACT)" "$$tmp_log"; \
+	if [ "$(TRACE_SUMMARY_OUTPUT_ENABLED)" = "1" ]; then \
+		echo ""; \
+		echo "Trace contract summary:"; \
+		node scripts/compare-traces --summary-file /dev/stdout "$(TRACE_CONTRACT)" "$$tmp_log"; \
+	else \
+		echo "Dry-run mode: skipping trace contract summary generation."; \
+	fi; \
 	rm -f "$$tmp_log"
 	@echo "Updated $(TRACE_CONTRACT)"
 

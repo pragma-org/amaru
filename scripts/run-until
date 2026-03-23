@@ -53,7 +53,7 @@ function watchTargetEpoch() {
 }
 
 function filterTraceLines() {
-  grep --line-buffered -E '"message":"(enter|exit)"' \
+  grep --line-buffered -E '"message":"(enter|exit|close)"' \
     | grep --line-buffered -E '"level":"TRACE"'
 }
 

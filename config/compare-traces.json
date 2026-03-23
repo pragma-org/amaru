@@ -1,0 +1,37 @@
+{
+  "thresholds": {
+    "defaults": {
+      "minSamples": 25,
+      "meanRatioMax": 1.2,
+      "p95RatioMax": 1.3,
+      "maxRatioMax": 1.5,
+      "outlierRateDeltaMax": 0.1,
+      "absoluteDeltaMsMin": 0.5
+    },
+    "byCategory": {
+      "db": {
+        "meanRatioMax": 1.15,
+        "p95RatioMax": 1.25,
+        "absoluteDeltaMsMin": 0.2
+      },
+      "consensus": {
+        "meanRatioMax": 1.2,
+        "p95RatioMax": 1.3
+      },
+      "ledger": {
+        "meanRatioMax": 1.2,
+        "p95RatioMax": 1.3
+      },
+      "peer_wait": {
+        "meanRatioMax": 1.3,
+        "p95RatioMax": 1.4,
+        "absoluteDeltaMsMin": 1
+      },
+      "network": {
+        "meanRatioMax": 1.25,
+        "p95RatioMax": 1.35
+      },
+      "other": {}
+    }
+  }
+}

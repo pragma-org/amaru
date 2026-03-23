@@ -3,30 +3,46 @@
 import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
+import {
+  buildFailureReport,
+  buildSummary,
+  buildTerminalSummary,
+  writeSummary,
+} from './trace-compare-summary.js';
+
 const CONTRACT_FORMAT_VERSION = 'amaru-trace-contract@1';
+const DEFAULT_CONFIG_PATH = new URL('../config/compare-traces.json', import.meta.url);
 
-function formatFamily(family) {
-  const bits = [`target=${family.target}`];
-  if (family.spanName) bits.push(`span=${family.spanName}`);
-  return bits.join(' | ');
+function roundTo(value, decimals = 6) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
 }
 
-function makeFamilyKey(family) {
-  return [family.target, family.spanName ?? ''].join('\u001f');
+function toMs(valueNs) {
+  return roundTo(valueNs / 1_000_000, 6);
 }
 
-function getOrCreateFamily(state, family) {
-  const key = makeFamilyKey(family);
-  let entry = state.traceDescriptors.get(key);
-  if (!entry) {
-    entry = {
-      ...family,
-      count: 0,
-      compressedPositions: [],
-    };
-    state.traceDescriptors.set(key, entry);
-  }
-  return entry;
+function safeNumber(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function makeTraceDescriptorKey(descriptor) {
+  return [descriptor.target, descriptor.spanName ?? ''].join('\u001f');
+}
+
+function createTraceDescriptorEntry(descriptor) {
+  return {
+    ...descriptor,
+    eventCount: 0,
+    enterCount: 0,
+    exitCount: 0,
+    closeCount: 0,
+    timedSampleCount: 0,
+    compressedPositions: [],
+    totalSamplesNs: [],
+    busySamplesNs: [],
+    idleSamplesNs: [],
+  };
 }
 
 function createState(filePath) {
@@ -38,10 +54,14 @@ function createState(filePath) {
     lastCompressedKey: null,
     contractAnchors: null,
     source: null,
+    performance: null,
+    openSpanTimings: new Map(),
+    openSpanNameTimings: new Map(),
+    openSpanParentTimings: new Map(),
   };
 }
 
-function normalizeFamilyDescriptor(value, context) {
+function normalizeTraceDescriptor(value, context) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${context} must be an object`);
   }
@@ -56,16 +76,526 @@ function normalizeFamilyDescriptor(value, context) {
 
   return {
     target: value.target,
-    spanName: typeof value.spanName === 'string' ? value.spanName : '',
+    ...(value.spanName ? { spanName: value.spanName } : {}),
   };
 }
 
-function serializeFamily(family) {
-  const serialized = { target: family.target };
-  if (family.spanName) {
-    serialized.spanName = family.spanName;
+function serializeTraceDescriptor(descriptor) {
+  return descriptor.spanName
+    ? { target: descriptor.target, spanName: descriptor.spanName }
+    : { target: descriptor.target };
+}
+
+function getLastSpanName(obj) {
+  const spanName = obj?.span?.name;
+  if (typeof spanName === 'string' && spanName.length > 0) {
+    return spanName;
   }
-  return serialized;
+
+  const spans = obj?.spans;
+  if (Array.isArray(spans)) {
+    for (let index = spans.length - 1; index >= 0; index -= 1) {
+      const name = spans[index]?.name;
+      if (typeof name === 'string' && name.length > 0) {
+        return name;
+      }
+    }
+  }
+
+  const fieldsSpan = obj?.fields?.span;
+  if (fieldsSpan && typeof fieldsSpan === 'object' && typeof fieldsSpan.name === 'string' && fieldsSpan.name.length > 0) {
+    return fieldsSpan.name;
+  }
+
+  return null;
+}
+
+function getOrCreateTraceDescriptor(state, descriptor) {
+  const key = makeTraceDescriptorKey(descriptor);
+  let entry = state.traceDescriptors.get(key);
+  if (!entry) {
+    entry = createTraceDescriptorEntry(descriptor);
+    state.traceDescriptors.set(key, entry);
+  }
+  return entry;
+}
+
+function resolveSummaryStream(summaryPath) {
+  if (summaryPath === '/dev/stdout') {
+    return process.stdout;
+  }
+
+  if (summaryPath === '/dev/stderr') {
+    return process.stderr;
+  }
+
+  return null;
+}
+
+
+function parseDurationNs(rawValue) {
+  if (rawValue == null) return null;
+
+  if (typeof rawValue === 'number') {
+    if (!Number.isFinite(rawValue) || rawValue <= 0) return null;
+    return Math.round(rawValue);
+  }
+
+  if (typeof rawValue !== 'string') {
+    return null;
+  }
+
+  const value = rawValue.trim();
+  if (!value) return null;
+
+  const unitMatch = value.match(/^([+-]?\d+(?:\.\d+)?)\s*(ns|us|µs|μs|ms|s|m|h)$/i);
+  if (!unitMatch) {
+    const asNumber = Number(value);
+    if (!Number.isFinite(asNumber) || asNumber <= 0) return null;
+    return Math.round(asNumber);
+  }
+
+  const amount = Number(unitMatch[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  const unit = unitMatch[2].toLowerCase();
+  const multiplier = unit === 'ns'
+    ? 1
+    : unit === 'us' || unit === 'µs' || unit === 'μs'
+      ? 1_000
+      : unit === 'ms'
+        ? 1_000_000
+        : unit === 's'
+          ? 1_000_000_000
+          : unit === 'm'
+            ? 60_000_000_000
+            : 3_600_000_000_000;
+
+  return Math.round(amount * multiplier);
+}
+
+function parseTimestampNs(rawValue) {
+  if (rawValue == null) return null;
+
+  if (typeof rawValue === 'number') {
+    if (!Number.isFinite(rawValue) || rawValue <= 0) return null;
+
+    if (rawValue >= 1_000_000_000_000_000_000) {
+      return Math.round(rawValue);
+    }
+
+    if (rawValue >= 1_000_000_000_000_000) {
+      return Math.round(rawValue * 1_000);
+    }
+
+    if (rawValue >= 1_000_000_000_000) {
+      return Math.round(rawValue * 1_000_000);
+    }
+
+    return null;
+  }
+
+  if (typeof rawValue !== 'string') {
+    return null;
+  }
+
+  const value = rawValue.trim();
+  if (!value) return null;
+
+  if (/^\d+$/.test(value)) {
+    return parseTimestampNs(Number(value));
+  }
+
+  const isoMatch = value.match(/^(?<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(?<fraction>\d{1,9}))?(?<zone>Z|[+-]\d{2}:\d{2})$/);
+  if (!isoMatch?.groups) {
+    const parsedMs = Date.parse(value);
+    return Number.isNaN(parsedMs) ? null : Math.round(parsedMs * 1_000_000);
+  }
+
+  const { date, fraction = '', zone } = isoMatch.groups;
+  const parsedMs = Date.parse(`${date}${zone}`);
+  if (Number.isNaN(parsedMs)) {
+    return null;
+  }
+
+  const fractionNs = Number(`${fraction.padEnd(9, '0').slice(0, 9)}`);
+  return Math.round(parsedMs * 1_000_000) + fractionNs;
+}
+
+function getFieldValue(obj, keyPath) {
+  let current = obj;
+  for (const key of keyPath) {
+    if (current == null || typeof current !== 'object') {
+      return null;
+    }
+    current = current[key];
+  }
+  return current ?? null;
+}
+
+function extractDurations(obj) {
+  const busyCandidates = [
+    ['fields', 'time.busy'],
+    ['time.busy'],
+    ['fields', 'busy_ns'],
+    ['busy_ns'],
+    ['fields', 'busy'],
+    ['busy'],
+  ];
+
+  const idleCandidates = [
+    ['fields', 'time.idle'],
+    ['time.idle'],
+    ['fields', 'idle_ns'],
+    ['idle_ns'],
+    ['fields', 'idle'],
+    ['idle'],
+  ];
+
+  const totalCandidates = [
+    ['fields', 'duration_ns'],
+    ['duration_ns'],
+    ['fields', 'elapsed_ns'],
+    ['elapsed_ns'],
+    ['fields', 'duration'],
+    ['duration'],
+    ['fields', 'elapsed'],
+    ['elapsed'],
+  ];
+
+  let busyNs = null;
+  for (const candidate of busyCandidates) {
+    busyNs = parseDurationNs(getFieldValue(obj, candidate));
+    if (busyNs != null) break;
+  }
+
+  let idleNs = null;
+  for (const candidate of idleCandidates) {
+    idleNs = parseDurationNs(getFieldValue(obj, candidate));
+    if (idleNs != null) break;
+  }
+
+  let totalNs = null;
+  for (const candidate of totalCandidates) {
+    totalNs = parseDurationNs(getFieldValue(obj, candidate));
+    if (totalNs != null) break;
+  }
+
+  if (totalNs == null && busyNs != null && idleNs != null) {
+    totalNs = busyNs + idleNs;
+  }
+
+  if (totalNs == null && busyNs != null) {
+    totalNs = busyNs;
+  }
+
+  return { totalNs, busyNs, idleNs };
+}
+
+function extractLifecycleTiming(obj) {
+  const rawMessage = getFieldValue(obj, ['message']) ?? getFieldValue(obj, ['fields', 'message']);
+  if (rawMessage !== 'enter' && rawMessage !== 'exit') {
+    return null;
+  }
+
+  const rawId = getFieldValue(obj, ['id']) ?? getFieldValue(obj, ['span', 'id']);
+  const rawParentId = getFieldValue(obj, ['parent_id']);
+
+  const timestampNs = parseTimestampNs(
+    getFieldValue(obj, ['timestamp'])
+      ?? getFieldValue(obj, ['time'])
+      ?? getFieldValue(obj, ['ts'])
+      ?? getFieldValue(obj, ['fields', 'timestamp'])
+      ?? getFieldValue(obj, ['fields', 'time']),
+  );
+
+  if (!Number.isFinite(timestampNs)) {
+    return null;
+  }
+
+  return {
+    kind: rawMessage,
+    id: rawId == null ? null : String(rawId),
+    parentId: rawParentId == null ? null : String(rawParentId),
+    timestampNs,
+  };
+}
+
+function recordLifecycleDuration(state, descriptor, descriptorKey, durations, lifecycle) {
+  if (!lifecycle) {
+    return null;
+  }
+
+  // On exit events, tracing-subscriber reports the current span as the parent span.
+  // Match enter/exit by both span id and parent-id + span name fallback.
+  const spanName = descriptor.spanName || descriptorKey;
+  const fallbackKeyForEnter = (lifecycle.parentId ?? '_root') + ':' + spanName;
+
+  if (lifecycle.kind === 'enter') {
+    const started = { descriptorKey, timestampNs: lifecycle.timestampNs };
+
+    if (lifecycle.id != null) {
+      let byId = state.openSpanTimings.get(lifecycle.id);
+      if (!byId) {
+        byId = [];
+        state.openSpanTimings.set(lifecycle.id, byId);
+      }
+      byId.push(started);
+    }
+
+    let byParentAndName = state.openSpanParentTimings.get(fallbackKeyForEnter);
+    if (!byParentAndName) {
+      byParentAndName = [];
+      state.openSpanParentTimings.set(fallbackKeyForEnter, byParentAndName);
+    }
+    byParentAndName.push(started);
+
+    if (lifecycle.id == null) {
+      let byName = state.openSpanNameTimings.get(spanName);
+      if (!byName) {
+        byName = [];
+        state.openSpanNameTimings.set(spanName, byName);
+      }
+      byName.push(started);
+    }
+
+    return null;
+  }
+
+  if (lifecycle.kind !== 'exit') {
+    return null;
+  }
+
+  let started = null;
+
+  if (lifecycle.id != null) {
+    const fallbackKeyForExit = lifecycle.id + ':' + spanName;
+    const byParentAndName = state.openSpanParentTimings.get(fallbackKeyForExit);
+    if (byParentAndName && byParentAndName.length > 0) {
+      started = byParentAndName.pop();
+      if (byParentAndName.length === 0) {
+        state.openSpanParentTimings.delete(fallbackKeyForExit);
+      }
+    }
+
+    if (!started) {
+      const byId = state.openSpanTimings.get(lifecycle.id);
+      if (byId && byId.length > 0) {
+        started = byId.pop();
+        if (byId.length === 0) {
+          state.openSpanTimings.delete(lifecycle.id);
+        }
+      }
+    }
+  }
+
+  if (!started && lifecycle.id == null) {
+    const byName = state.openSpanNameTimings.get(spanName);
+    if (byName && byName.length > 0) {
+      started = byName.pop();
+      if (byName.length === 0) {
+        state.openSpanNameTimings.delete(spanName);
+      }
+    }
+  }
+
+  if (!started) {
+    return null;
+  }
+
+  const elapsedNs = lifecycle.timestampNs - started.timestampNs;
+  if (!Number.isFinite(elapsedNs) || elapsedNs < 0) {
+    return null;
+  }
+
+  if (durations.totalNs == null) {
+    durations.totalNs = elapsedNs;
+  }
+
+  if (durations.busyNs == null) {
+    durations.busyNs = elapsedNs;
+  }
+
+  return started.descriptorKey;
+}
+
+function quantile(sortedValues, q) {
+  if (sortedValues.length === 0) return null;
+  if (sortedValues.length === 1) return sortedValues[0];
+
+  const position = (sortedValues.length - 1) * q;
+  const base = Math.floor(position);
+  const rest = position - base;
+  const next = sortedValues[base + 1] ?? sortedValues[base];
+  return sortedValues[base] + rest * (next - sortedValues[base]);
+}
+
+function summarizeSamples(samplesNs) {
+  if (!Array.isArray(samplesNs) || samplesNs.length === 0) {
+    return null;
+  }
+
+  const sorted = [...samplesNs].sort((left, right) => left - right);
+  const sampleCount = sorted.length;
+  const sum = sorted.reduce((acc, value) => acc + value, 0);
+  const mean = sum / sampleCount;
+  const p50 = quantile(sorted, 0.5);
+  const p95 = quantile(sorted, 0.95);
+  const q1 = quantile(sorted, 0.25);
+  const q3 = quantile(sorted, 0.75);
+  const iqr = safeNumber(q3 - q1);
+  const outlierThreshold = q3 + (1.5 * iqr);
+  const outlierCount = sorted.filter(value => value > outlierThreshold).length;
+
+  return {
+    sampleCount,
+    meanMs: toMs(mean),
+    p50Ms: toMs(p50),
+    p95Ms: toMs(p95),
+    maxMs: toMs(sorted[sorted.length - 1]),
+    outlierCount,
+    outlierRate: roundTo(outlierCount / sampleCount, 6),
+  };
+}
+
+function normalizeThresholds(template) {
+  const source = template && typeof template === 'object' && !Array.isArray(template)
+    ? template
+    : {};
+
+  const rawDefaults = source.defaults && typeof source.defaults === 'object' && !Array.isArray(source.defaults)
+    ? source.defaults
+    : {};
+
+  const defaultTemplate = loadDefaultThresholdsTemplate();
+
+  const defaults = {
+    ...defaultTemplate.defaults,
+    ...rawDefaults,
+  };
+
+  const normalizedByCategory = { ...defaultTemplate.byCategory };
+  const rawByCategory = source.byCategory && typeof source.byCategory === 'object' ? source.byCategory : {};
+
+  for (const [category, value] of Object.entries(rawByCategory)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      continue;
+    }
+
+    normalizedByCategory[category] = {
+      ...(normalizedByCategory[category] ?? {}),
+      ...value,
+    };
+  }
+
+  return {
+    defaults,
+    byCategory: normalizedByCategory,
+  };
+}
+
+function resolveThresholds(performance, category) {
+  const defaults = performance.thresholds?.defaults ?? loadDefaultThresholdsTemplate().defaults;
+  const override = performance.thresholds?.byCategory?.[category] ?? {};
+
+  return {
+    ...defaults,
+    ...override,
+  };
+}
+
+function classifyTraceDescriptor(descriptor) {
+  const target = String(descriptor.target ?? '').toLowerCase();
+  const spanName = String(descriptor.spanName ?? '').toLowerCase();
+  const combined = `${target} ${spanName}`;
+
+  if (target.includes('amaru::stores') || target.includes('rocksdb')) {
+    return 'db';
+  }
+
+  if (target.includes('ledger') || combined.includes('validation') || combined.includes('apply_block')) {
+    return 'ledger';
+  }
+
+  if (target.includes('consensus') || combined.includes('chain_sync') || combined.includes('roll_forward')) {
+    return 'consensus';
+  }
+
+  if (combined.includes('peer') && (combined.includes('wait') || combined.includes('latency'))) {
+    return 'peer_wait';
+  }
+
+  if (target.includes('network') || target.includes('protocol') || combined.includes('peer')) {
+    return 'network';
+  }
+
+  return 'other';
+}
+
+function buildPerformanceProfile(state, thresholdTemplate = null) {
+  const categorySamples = new Map();
+  const descriptorStats = [];
+
+  for (const entry of state.traceDescriptors.values()) {
+    const category = classifyTraceDescriptor(entry);
+    const total = summarizeSamples(entry.totalSamplesNs);
+    const busy = summarizeSamples(entry.busySamplesNs);
+    const idle = summarizeSamples(entry.idleSamplesNs);
+
+    descriptorStats.push({
+      target: entry.target,
+      spanName: entry.spanName,
+      category,
+      eventCount: entry.eventCount,
+      enterCount: entry.enterCount,
+      exitCount: entry.exitCount,
+      closeCount: entry.closeCount,
+      timedSampleCount: entry.timedSampleCount,
+      total,
+      busy,
+      idle,
+    });
+
+    let aggregate = categorySamples.get(category);
+    if (!aggregate) {
+      aggregate = {
+        category,
+        eventCount: 0,
+        totalSamplesNs: [],
+        busySamplesNs: [],
+        idleSamplesNs: [],
+      };
+      categorySamples.set(category, aggregate);
+    }
+
+    aggregate.eventCount += entry.eventCount;
+    aggregate.totalSamplesNs.push(...entry.totalSamplesNs);
+    aggregate.busySamplesNs.push(...entry.busySamplesNs);
+    aggregate.idleSamplesNs.push(...entry.idleSamplesNs);
+  }
+
+  const categoryStats = [...categorySamples.values()]
+    .map(aggregate => ({
+      category: aggregate.category,
+      eventCount: aggregate.eventCount,
+      total: summarizeSamples(aggregate.totalSamplesNs),
+      busy: summarizeSamples(aggregate.busySamplesNs),
+      idle: summarizeSamples(aggregate.idleSamplesNs),
+    }))
+    .sort((left, right) => left.category.localeCompare(right.category));
+
+  descriptorStats.sort((left, right) => {
+    if (left.target === right.target) {
+      return (left.spanName ?? '').localeCompare(right.spanName ?? '');
+    }
+    return left.target.localeCompare(right.target);
+  });
+
+  return {
+    thresholds: normalizeThresholds(thresholdTemplate),
+    descriptorStats,
+    categoryStats,
+  };
 }
 
 async function loadTraceState(filePath) {
@@ -92,25 +622,52 @@ async function loadTraceState(filePath) {
       continue;
     }
 
-    if (typeof obj.span?.name !== 'string') {
+    const spanName = getLastSpanName(obj);
+    if (typeof spanName !== 'string' || spanName.length === 0) {
       continue;
     }
 
     state.totalJsonLines += 1;
 
-    const family = {
+    const descriptor = {
       target: obj.target,
-      spanName: typeof obj.span?.name === 'string' ? obj.span.name : '',
+      spanName,
     };
 
-    const entry = getOrCreateFamily(state, family);
-    const familyKey = makeFamilyKey(family);
-    entry.count += 1;
+    const entry = getOrCreateTraceDescriptor(state, descriptor);
+    const descriptorKey = makeTraceDescriptorKey(descriptor);
+    entry.eventCount += 1;
 
-    if (state.lastCompressedKey !== familyKey) {
+    const lifecycleMessage = String(getFieldValue(obj, ['message']) ?? getFieldValue(obj, ['fields', 'message']) ?? '').toLowerCase();
+    if (lifecycleMessage === 'enter') {
+      entry.enterCount += 1;
+    } else if (lifecycleMessage === 'exit') {
+      entry.exitCount += 1;
+    } else if (lifecycleMessage === 'close') {
+      entry.closeCount += 1;
+    }
+
+    if (state.lastCompressedKey !== descriptorKey) {
       entry.compressedPositions.push(state.compressedOrder.length);
-      state.compressedOrder.push(familyKey);
-      state.lastCompressedKey = familyKey;
+      state.compressedOrder.push(descriptorKey);
+      state.lastCompressedKey = descriptorKey;
+    }
+
+    const durations = extractDurations(obj);
+    const lifecycleDescriptorKey = recordLifecycleDuration(state, descriptor, descriptorKey, durations, extractLifecycleTiming(obj));
+    const timingEntry = lifecycleDescriptorKey
+      ? state.traceDescriptors.get(lifecycleDescriptorKey) ?? entry
+      : entry;
+
+    if (durations.totalNs != null) {
+      timingEntry.totalSamplesNs.push(durations.totalNs);
+      timingEntry.timedSampleCount += 1;
+    }
+    if (durations.busyNs != null) {
+      timingEntry.busySamplesNs.push(durations.busyNs);
+    }
+    if (durations.idleNs != null) {
+      timingEntry.idleSamplesNs.push(durations.idleNs);
     }
   }
 
@@ -120,6 +677,26 @@ async function loadTraceState(filePath) {
 function failInvalidContract(contractPath, message) {
   console.error(`Invalid trace contract ${contractPath}: ${message}`);
   process.exit(2);
+}
+
+function normalizePerformanceBlock(performance, contractPath) {
+  if (!performance || typeof performance !== 'object' || Array.isArray(performance)) {
+    failInvalidContract(contractPath, '"performance" must be an object');
+  }
+
+  if (!Array.isArray(performance.descriptorStats)) {
+    failInvalidContract(contractPath, '"performance.descriptorStats" must be an array');
+  }
+
+  if (!Array.isArray(performance.categoryStats)) {
+    failInvalidContract(contractPath, '"performance.categoryStats" must be an array');
+  }
+
+  return {
+    thresholds: normalizeThresholds(performance.thresholds ?? null),
+    descriptorStats: performance.descriptorStats,
+    categoryStats: performance.categoryStats,
+  };
 }
 
 function loadTraceContract(filePath) {
@@ -151,24 +728,21 @@ function loadTraceContract(filePath) {
 
   const state = createState(filePath);
   state.source = parsed.source ?? null;
+  state.performance = normalizePerformanceBlock(parsed.performance, filePath);
 
-  for (const [index, rawFamily] of parsed.traceDescriptors.entries()) {
-    const family = normalizeFamilyDescriptor(rawFamily, `traceDescriptors[${index}]`);
-    const key = makeFamilyKey(family);
+  for (const [index, rawTraceDescriptor] of parsed.traceDescriptors.entries()) {
+    const descriptor = normalizeTraceDescriptor(rawTraceDescriptor, `traceDescriptors[${index}]`);
+    const key = makeTraceDescriptorKey(descriptor);
     if (state.traceDescriptors.has(key)) {
       failInvalidContract(filePath, `traceDescriptors[${index}] duplicates an existing trace descriptor`);
     }
 
-    state.traceDescriptors.set(key, {
-      ...family,
-      count: 0,
-      compressedPositions: [],
-    });
+    state.traceDescriptors.set(key, createTraceDescriptorEntry(descriptor));
   }
 
   for (const [index, rawAnchor] of parsed.anchors.entries()) {
-    const family = normalizeFamilyDescriptor(rawAnchor, `anchors[${index}]`);
-    const key = makeFamilyKey(family);
+    const anchor = normalizeTraceDescriptor(rawAnchor, `anchors[${index}]`);
+    const key = makeTraceDescriptorKey(anchor);
     const entry = state.traceDescriptors.get(key);
     if (!entry) {
       failInvalidContract(filePath, `anchors[${index}] must reference a trace descriptor from "traceDescriptors"`);
@@ -179,33 +753,6 @@ function loadTraceContract(filePath) {
 
   state.contractAnchors = [...state.compressedOrder];
   return state;
-}
-
-function buildTraceContract(state, config, sourcePath) {
-  const traceDescriptors = [...state.traceDescriptors.values()]
-    .map(serializeFamily)
-    .sort((left, right) => {
-      if (left.target === right.target) {
-        return (left.spanName ?? '').localeCompare(right.spanName ?? '');
-      }
-      return left.target.localeCompare(right.target);
-    });
-
-  const anchors = anchorSequence(state, config)
-    .map(key => state.traceDescriptors.get(key))
-    .filter(Boolean)
-    .map(serializeFamily);
-
-  return {
-    format: CONTRACT_FORMAT_VERSION,
-    source: {
-      file: sourcePath,
-      jsonEvents: state.totalJsonLines,
-      traceDescriptorCount: state.traceDescriptors.size,
-    },
-    traceDescriptors,
-    anchors,
-  };
 }
 
 function normalizeSelector(selector) {
@@ -225,15 +772,15 @@ function normalizeSelector(selector) {
   return normalized;
 }
 
-function selectorMatchesFamily(selector, family) {
-  if (selector.target && selector.target !== family.target) return false;
-  if (selector.spanName && selector.spanName !== family.spanName) return false;
+function selectorMatchesTraceDescriptor(selector, descriptor) {
+  if (selector.target && selector.target !== descriptor.target) return false;
+  if (selector.spanName && selector.spanName !== descriptor.spanName) return false;
   return true;
 }
 
-function isMilestoneFamily(family, selectors) {
-  if (!family) return false;
-  return selectors.some(selector => selectorMatchesFamily(selector, family));
+function isMilestoneTraceDescriptor(descriptor, selectors) {
+  if (!descriptor) return false;
+  return selectors.some(selector => selectorMatchesTraceDescriptor(selector, descriptor));
 }
 
 function failInvalidConfig(configPath, message) {
@@ -241,24 +788,52 @@ function failInvalidConfig(configPath, message) {
   process.exit(2);
 }
 
-function loadConfig(configPath) {
-  if (!configPath) {
-    return { milestoneSelectors: null };
+let cachedDefaultThresholdsTemplate = null;
+
+function loadDefaultThresholdsTemplate() {
+  if (cachedDefaultThresholdsTemplate != null) {
+    return cachedDefaultThresholdsTemplate;
   }
 
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    parsed = JSON.parse(readFileSync(DEFAULT_CONFIG_PATH, 'utf8'));
   } catch (error) {
-    failInvalidConfig(configPath, error instanceof Error ? error.message : String(error));
+    failInvalidConfig(String(DEFAULT_CONFIG_PATH), error instanceof Error ? error.message : String(error));
   }
 
   if (parsed == null || Array.isArray(parsed) || typeof parsed !== 'object') {
-    failInvalidConfig(configPath, 'top-level JSON value must be an object');
+    failInvalidConfig(String(DEFAULT_CONFIG_PATH), 'top-level JSON value must be an object');
+  }
+
+  cachedDefaultThresholdsTemplate = {
+    defaults: parsed.thresholds && typeof parsed.thresholds === 'object' && !Array.isArray(parsed.thresholds)
+      ? parsed.thresholds.defaults ?? {}
+      : {},
+    byCategory: parsed.thresholds && typeof parsed.thresholds === 'object' && !Array.isArray(parsed.thresholds)
+      ? parsed.thresholds.byCategory ?? {}
+      : {},
+  };
+
+  return cachedDefaultThresholdsTemplate;
+}
+
+function loadConfig(configPath) {
+  const effectiveConfigPath = configPath ?? DEFAULT_CONFIG_PATH;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(effectiveConfigPath, 'utf8'));
+  } catch (error) {
+    failInvalidConfig(String(effectiveConfigPath), error instanceof Error ? error.message : String(error));
+  }
+
+  if (parsed == null || Array.isArray(parsed) || typeof parsed !== 'object') {
+    failInvalidConfig(String(effectiveConfigPath), 'top-level JSON value must be an object');
   }
 
   if (Object.hasOwn(parsed, 'milestones') && !Array.isArray(parsed.milestones)) {
-    failInvalidConfig(configPath, '"milestones" must be an array when provided');
+    failInvalidConfig(String(effectiveConfigPath), '"milestones" must be an array when provided');
   }
 
   let selectors;
@@ -267,10 +842,13 @@ function loadConfig(configPath) {
       ? parsed.milestones.map(normalizeSelector)
       : null;
   } catch (error) {
-    failInvalidConfig(configPath, error instanceof Error ? error.message : String(error));
+    failInvalidConfig(String(effectiveConfigPath), error instanceof Error ? error.message : String(error));
   }
 
-  return { milestoneSelectors: selectors };
+  return {
+    milestoneSelectors: selectors,
+    thresholdsTemplate: parsed.thresholds ?? null,
+  };
 }
 
 function inferAnchorKeys(state, config) {
@@ -278,7 +856,7 @@ function inferAnchorKeys(state, config) {
     return state.compressedOrder.filter(key => state.traceDescriptors.get(key)?.compressedPositions.length === 1);
   }
 
-  return state.compressedOrder.filter(key => isMilestoneFamily(state.traceDescriptors.get(key), config.milestoneSelectors));
+  return state.compressedOrder.filter(key => isMilestoneTraceDescriptor(state.traceDescriptors.get(key), config.milestoneSelectors));
 }
 
 function anchorSequence(state, config) {
@@ -292,27 +870,51 @@ function firstCompressedPosition(state, key) {
   return state.traceDescriptors.get(key)?.compressedPositions[0];
 }
 
-function compareFamilies(baseline, candidate, config) {
+function buildTraceContract(state, config, sourcePath) {
+  const traceDescriptors = [...state.traceDescriptors.values()]
+    .map(serializeTraceDescriptor)
+    .sort((left, right) => {
+      if (left.target === right.target) {
+        return (left.spanName ?? '').localeCompare(right.spanName ?? '');
+      }
+      return left.target.localeCompare(right.target);
+    });
+
+  const anchors = anchorSequence(state, config)
+    .map(key => state.traceDescriptors.get(key))
+    .filter(Boolean)
+    .map(serializeTraceDescriptor);
+
+  const performance = buildPerformanceProfile(state, config.thresholdsTemplate);
+
+  return {
+    format: CONTRACT_FORMAT_VERSION,
+    source: {
+      file: sourcePath,
+      jsonEvents: state.totalJsonLines,
+      traceDescriptorCount: state.traceDescriptors.size,
+    },
+    traceDescriptors,
+    anchors,
+    performance,
+  };
+}
+
+function compareStructuralContract(baseline, candidate, config) {
   const failures = [];
   const additions = [];
 
-  for (const [key, family] of baseline.traceDescriptors.entries()) {
+  for (const [key, descriptor] of baseline.traceDescriptors.entries()) {
     const other = candidate.traceDescriptors.get(key);
     if (!other) {
       failures.push({
         kind: 'missing-trace-descriptor',
-        family,
+        traceDescriptor: descriptor,
       });
       continue;
     }
   }
 
-  // Sequence compatibility is evaluated on an anchor subsequence. By default,
-  // anchors are singleton families inferred from the baseline. Config can
-  // override this with explicit selectors for stronger, scenario-specific flow
-  // contracts. Candidate ordering is checked against the first compressed
-  // occurrence of each baseline anchor family so repeated candidate families do
-  // not weaken or distort the contract.
   const baselineAnchors = anchorSequence(baseline, config);
   const candidateAnchorIndex = new Map(
     baselineAnchors
@@ -336,93 +938,298 @@ function compareFamilies(baseline, candidate, config) {
     }
   }
 
-  for (const [key, family] of candidate.traceDescriptors.entries()) {
+  for (const [key, descriptor] of candidate.traceDescriptors.entries()) {
     if (!baseline.traceDescriptors.has(key)) {
-      additions.push(family);
+      additions.push(descriptor);
     }
   }
 
   return { failures, additions };
 }
 
-function serializeFailure(failure) {
-  if (failure.kind === 'missing-trace-descriptor') {
-    return {
-      kind: failure.kind,
-      traceDescriptor: formatFamily(failure.family),
-    };
+function compareMetricRegression(scopeInfo, metricName, baselineValue, candidateValue, thresholds) {
+  if (!Number.isFinite(baselineValue) || baselineValue <= 0 || !Number.isFinite(candidateValue)) {
+    return null;
   }
 
-  if (failure.kind === 'sequence-order-changed') {
-    return {
-      kind: failure.kind,
-      before: formatFamily(failure.before),
-      after: formatFamily(failure.after),
-    };
+  const ratio = candidateValue / baselineValue;
+  const delta = candidateValue - baselineValue;
+  const thresholdRatio = metricName === 'meanMs'
+    ? thresholds.meanRatioMax
+    : metricName === 'p95Ms'
+      ? thresholds.p95RatioMax
+      : thresholds.maxRatioMax;
+
+  if (!Number.isFinite(thresholdRatio)) {
+    return null;
   }
 
-  return failure;
-}
-
-function buildFailureReport(baseline, candidate, result) {
-  const baselineSummary = baseline.source && typeof baseline.source === 'object'
-    ? {
-        file: typeof baseline.source.file === 'string' ? baseline.source.file : baseline.filePath,
-        jsonEvents: Number.isInteger(baseline.source.jsonEvents)
-          ? baseline.source.jsonEvents
-          : baseline.totalJsonLines,
-        traceDescriptorCount: Number.isInteger(baseline.source.traceDescriptorCount)
-          ? baseline.source.traceDescriptorCount
-          : baseline.traceDescriptors.size,
-      }
-    : {
-        file: baseline.filePath,
-        jsonEvents: baseline.totalJsonLines,
-        traceDescriptorCount: baseline.traceDescriptors.size,
-      };
+  if (ratio <= thresholdRatio || delta < thresholds.absoluteDeltaMsMin) {
+    return null;
+  }
 
   return {
-    status: 'fail',
-    baseline: baselineSummary,
-    candidate: {
-      file: candidate.filePath,
-      jsonEvents: candidate.totalJsonLines,
-      traceDescriptorCount: candidate.traceDescriptors.size,
-    },
-    failures: result.failures.map(serializeFailure),
-    additions: result.additions.map(formatFamily),
+    kind: 'metric-regression',
+    metric: metricName,
+    baseline: roundTo(baselineValue, 6),
+    candidate: roundTo(candidateValue, 6),
+    ratio: roundTo(ratio, 6),
+    ratioThreshold: roundTo(thresholdRatio, 6),
+    ...scopeInfo,
+  };
+}
+
+function compareOutlierRegression(scopeInfo, baselineRate, candidateRate, thresholds) {
+  if (!Number.isFinite(baselineRate) || !Number.isFinite(candidateRate)) {
+    return null;
+  }
+
+  const delta = candidateRate - baselineRate;
+  if (delta <= thresholds.outlierRateDeltaMax) {
+    return null;
+  }
+
+  return {
+    kind: 'outlier-regression',
+    baselineOutlierRate: roundTo(baselineRate, 6),
+    candidateOutlierRate: roundTo(candidateRate, 6),
+    delta: roundTo(delta, 6),
+    deltaThreshold: roundTo(thresholds.outlierRateDeltaMax, 6),
+    ...scopeInfo,
+  };
+}
+
+function comparePerformance(baselinePerformance, candidatePerformance) {
+  const failures = [];
+  const categoryComparisons = [];
+  const descriptorComparisons = [];
+
+  const baselineCategoryMap = new Map(
+    baselinePerformance.categoryStats.map(stat => [stat.category, stat]),
+  );
+  const candidateCategoryMap = new Map(
+    candidatePerformance.categoryStats.map(stat => [stat.category, stat]),
+  );
+
+  for (const [category, baselineStat] of baselineCategoryMap.entries()) {
+    const candidateStat = candidateCategoryMap.get(category);
+    if (!baselineStat?.total || !candidateStat?.total) {
+      continue;
+    }
+
+    const thresholds = resolveThresholds(baselinePerformance, category);
+
+    const baselineMean = baselineStat.total.meanMs;
+    const candidateMean = candidateStat.total.meanMs;
+    const baselineP95 = baselineStat.total.p95Ms;
+    const candidateP95 = candidateStat.total.p95Ms;
+
+    categoryComparisons.push({
+      category,
+      baselineSamples: baselineStat.total.sampleCount,
+      candidateSamples: candidateStat.total.sampleCount,
+      baselineMeanMs: baselineMean,
+      candidateMeanMs: candidateMean,
+      meanRatio: baselineMean > 0 ? roundTo(candidateMean / baselineMean, 6) : null,
+      baselineP95Ms: baselineP95,
+      candidateP95Ms: candidateP95,
+      p95Ratio: baselineP95 > 0 ? roundTo(candidateP95 / baselineP95, 6) : null,
+      baselineOutlierRate: baselineStat.total.outlierRate,
+      candidateOutlierRate: candidateStat.total.outlierRate,
+    });
+
+    if (
+      baselineStat.total.sampleCount < thresholds.minSamples
+      || candidateStat.total.sampleCount < thresholds.minSamples
+    ) {
+      continue;
+    }
+
+    const meanFailure = compareMetricRegression(
+      { scope: 'category', category },
+      'meanMs',
+      baselineMean,
+      candidateMean,
+      thresholds,
+    );
+    if (meanFailure) failures.push(meanFailure);
+
+    const p95Failure = compareMetricRegression(
+      { scope: 'category', category },
+      'p95Ms',
+      baselineP95,
+      candidateP95,
+      thresholds,
+    );
+    if (p95Failure) failures.push(p95Failure);
+
+    const outlierFailure = compareOutlierRegression(
+      { scope: 'category', category },
+      baselineStat.total.outlierRate,
+      candidateStat.total.outlierRate,
+      thresholds,
+    );
+    if (outlierFailure) failures.push(outlierFailure);
+  }
+
+  const baselineDescriptorMap = new Map(
+    baselinePerformance.descriptorStats.map(stat => [makeTraceDescriptorKey(stat), stat]),
+  );
+  const candidateDescriptorMap = new Map(
+    candidatePerformance.descriptorStats.map(stat => [makeTraceDescriptorKey(stat), stat]),
+  );
+
+  for (const [descriptorKey, baselineStat] of baselineDescriptorMap.entries()) {
+    const candidateStat = candidateDescriptorMap.get(descriptorKey);
+    if (!baselineStat?.total || !candidateStat?.total) {
+      continue;
+    }
+
+    const category = baselineStat.category ?? 'other';
+    const thresholds = resolveThresholds(baselinePerformance, category);
+
+    const baselineMean = baselineStat.total.meanMs;
+    const candidateMean = candidateStat.total.meanMs;
+    const baselineP95 = baselineStat.total.p95Ms;
+    const candidateP95 = candidateStat.total.p95Ms;
+
+    descriptorComparisons.push({
+      target: baselineStat.target,
+      spanName: baselineStat.spanName,
+      category,
+      baselineSamples: baselineStat.total.sampleCount,
+      candidateSamples: candidateStat.total.sampleCount,
+      baselineMeanMs: baselineMean,
+      candidateMeanMs: candidateMean,
+      meanRatio: baselineMean > 0 ? roundTo(candidateMean / baselineMean, 6) : null,
+      baselineP95Ms: baselineP95,
+      candidateP95Ms: candidateP95,
+      p95Ratio: baselineP95 > 0 ? roundTo(candidateP95 / baselineP95, 6) : null,
+      baselineOutlierRate: baselineStat.total.outlierRate,
+      candidateOutlierRate: candidateStat.total.outlierRate,
+    });
+
+    if (
+      baselineStat.total.sampleCount < thresholds.minSamples
+      || candidateStat.total.sampleCount < thresholds.minSamples
+    ) {
+      continue;
+    }
+
+    const scopeInfo = {
+      scope: 'traceDescriptor',
+      category,
+      target: baselineStat.target,
+      spanName: baselineStat.spanName,
+    };
+
+    const meanFailure = compareMetricRegression(
+      scopeInfo,
+      'meanMs',
+      baselineMean,
+      candidateMean,
+      thresholds,
+    );
+    if (meanFailure) failures.push(meanFailure);
+
+    const p95Failure = compareMetricRegression(
+      scopeInfo,
+      'p95Ms',
+      baselineP95,
+      candidateP95,
+      thresholds,
+    );
+    if (p95Failure) failures.push(p95Failure);
+
+    const outlierFailure = compareOutlierRegression(
+      scopeInfo,
+      baselineStat.total.outlierRate,
+      candidateStat.total.outlierRate,
+      thresholds,
+    );
+    if (outlierFailure) failures.push(outlierFailure);
+  }
+
+  descriptorComparisons.sort((left, right) => {
+    const leftP95 = left.candidateP95Ms ?? -1;
+    const rightP95 = right.candidateP95Ms ?? -1;
+    return rightP95 - leftP95;
+  });
+
+  categoryComparisons.sort((left, right) => left.category.localeCompare(right.category));
+
+  return {
+    failures,
+    categoryComparisons,
+    descriptorComparisons,
   };
 }
 
 function printUsage() {
   console.error(`Usage:
-  node scripts/compare-traces --export-contract contract.json [--config compare-traces.json] baseline.log
-  node scripts/compare-traces [--config compare-traces.json] contract.json candidate.log
+  node scripts/compare-traces --export-contract contract.json [--config config/compare-traces.json] baseline.log
+  node scripts/compare-traces [--summary-file summary.md] [--config config/compare-traces.json] contract.json candidate.log
 
-The command compares trace descriptors from a checked-in contract against a candidate Amaru run.
-It fails when the candidate run removes a previously observed trace descriptor or
-changes the relative order of baseline anchor traces.
-Extra trace descriptors in the candidate run are allowed.
+The command compares trace descriptors and timing metrics from a checked-in contract
+against a candidate Amaru run.
+It fails when the candidate run removes a previously observed trace descriptor,
+changes the relative order of anchor traces, or crosses performance thresholds.
+
+Contract performance block:
+  {
+    "performance": {
+      "thresholds": {
+        "defaults": {
+          "minSamples": 25,
+          "meanRatioMax": 1.2,
+          "p95RatioMax": 1.3,
+          "outlierRateDeltaMax": 0.1,
+          "absoluteDeltaMsMin": 0.5
+        },
+        "byCategory": {
+          "db": { "meanRatioMax": 1.15, "p95RatioMax": 1.25 }
+        }
+      }
+    }
+  }
 
 Config file format:
   {
+    "thresholds": {
+      "defaults": {
+        "minSamples": 25,
+        "meanRatioMax": 1.2,
+        "p95RatioMax": 1.3,
+        "maxRatioMax": 1.5,
+        "outlierRateDeltaMax": 0.1,
+        "absoluteDeltaMsMin": 0.5
+      },
+      "byCategory": {
+        "db": { "meanRatioMax": 1.15, "p95RatioMax": 1.25 }
+      }
+    },
     "milestones": [
       { "target": "amaru::consensus::chain_sync", "spanName": "decode_header" },
       { "target": "amaru::ledger::state", "spanName": "compute_stake_distribution" }
     ]
   }
 
-When "milestones" is omitted, ordering is inferred from singleton trace descriptors in the baseline run.
-If selectors are provided, the order of their first compressed occurrences becomes the contract.
-If "milestones" is an empty array, order checks are disabled.
+When --config is omitted, the command loads the default repo policy from
+config/compare-traces.json.
 
+When "milestones" is omitted, ordering is inferred from singleton trace descriptors
+in the baseline run. If "milestones" is an empty array, order checks are disabled.
 The --export-contract mode creates a compact contract snapshot from a traced run.
-This is intended for CI-friendly checked-in baselines.
 `);
 }
 
 function parseArgs(argv) {
-  const parsed = { configPath: null, exportContractPath: null, files: [] };
+  const parsed = {
+    configPath: null,
+    exportContractPath: null,
+    summaryFilePath: null,
+    files: [],
+  };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -431,11 +1238,19 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+
     if (arg === '--export-contract') {
       parsed.exportContractPath = argv[index + 1] ?? null;
       index += 1;
       continue;
     }
+
+    if (arg === '--summary-file') {
+      parsed.summaryFilePath = argv[index + 1] ?? null;
+      index += 1;
+      continue;
+    }
+
     parsed.files.push(arg);
   }
 
@@ -461,6 +1276,11 @@ if (rawArgs.includes('--export-contract') && args.exportContractPath == null) {
   process.exit(2);
 }
 
+if (rawArgs.includes('--summary-file') && args.summaryFilePath == null) {
+  printUsage();
+  process.exit(2);
+}
+
 if (args.exportContractPath != null && args.files.length !== 1) {
   printUsage();
   process.exit(2);
@@ -470,6 +1290,7 @@ if (args.exportContractPath == null && args.files.length !== 2) {
   printUsage();
   process.exit(2);
 }
+
 const config = loadConfig(args.configPath);
 
 if (args.exportContractPath != null) {
@@ -480,13 +1301,44 @@ if (args.exportContractPath != null) {
   process.exit(0);
 }
 
-const [baselineFile, candidateFile] = args.files;
-const baseline = loadTraceContract(baselineFile);
+const [contractFile, candidateFile] = args.files;
+const baseline = loadTraceContract(contractFile);
 const candidate = await loadTraceState(candidateFile);
-const result = compareFamilies(baseline, candidate, config);
+const candidatePerformance = buildPerformanceProfile(candidate, baseline.performance?.thresholds);
+const structuralResult = compareStructuralContract(baseline, candidate, config);
+const performanceResult = comparePerformance(baseline.performance, candidatePerformance);
+const allFailures = [...structuralResult.failures, ...performanceResult.failures];
 
-if (result.failures.length > 0) {
-  console.log(JSON.stringify(buildFailureReport(baseline, candidate, result), null, 2));
+const summary = buildSummary(
+  baseline,
+  candidate,
+  structuralResult,
+  performanceResult,
+  allFailures,
+);
+const terminalSummary = buildTerminalSummary(
+  baseline,
+  candidate,
+  candidatePerformance,
+  structuralResult,
+  performanceResult,
+  allFailures,
+  resolveSummaryStream(args.summaryFilePath),
+);
+writeSummary(args.summaryFilePath, summary, terminalSummary);
+
+if (allFailures.length > 0) {
+  console.log(JSON.stringify(
+    buildFailureReport(
+      baseline,
+      candidate,
+      structuralResult,
+      performanceResult,
+      allFailures,
+    ),
+    null,
+    2,
+  ));
   process.exit(1);
 }
 
