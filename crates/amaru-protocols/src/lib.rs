@@ -21,6 +21,7 @@ pub mod connection;
 pub mod deserializers;
 pub mod handshake;
 pub mod keepalive;
+pub mod leios_notify;
 pub mod manager;
 pub mod mempool_effects;
 pub mod mux;

@@ -21,7 +21,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block2::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, Point, Tip};
+use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, NetworkMagic, Point, Tip};
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
@@ -97,7 +97,7 @@ pub fn build_stage_graph(
         .wire_up(
             manager,
             Manager::new(
-                config.network_magic,
+                NetworkMagic::new(164),
                 ManagerConfig::default(),
                 Arc::new(era_history.clone()),
                 track_peers_input,

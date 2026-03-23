@@ -180,6 +180,8 @@ pub const PROTO_N2N_TX_SUB: ProtocolId<Initiator> = ProtocolId::<Initiator>(4, P
 pub const PROTO_N2N_KEEP_ALIVE: ProtocolId<Initiator> = ProtocolId::<Initiator>(8, PhantomData);
 pub const PROTO_N2N_PEER_SHARE: ProtocolId<Initiator> = ProtocolId::<Initiator>(10, PhantomData);
 
+pub const PROTO_N2N_LEIOS_NOTIFY: ProtocolId<Initiator> = ProtocolId::<Initiator>(18, PhantomData);
+
 // The below are only for information regarding the allocated numbers, Amaru will not implement N2C protocols.
 
 // pub const PROTO_N2C_CHAIN_SYNC: ProtocolId<Initiator> = ProtocolId::<Initiator>(5, PhantomData);

@@ -27,9 +27,10 @@ use crate::{
     chainsync::{self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder},
     handshake,
     keepalive::register_keepalive,
+    leios_notify::{self, LeiosNotify, LeiosNotifyProto},
     manager::ManagerConfig,
     mux::{self, HandlerMessage, MuxMessage},
-    protocol::{Inputs, PROTO_HANDSHAKE, Role},
+    protocol::{Inputs, PROTO_HANDSHAKE, PROTO_N2N_LEIOS_NOTIFY, Role},
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
         version_table::VersionTable,
@@ -87,6 +88,7 @@ struct StateInitiator {
     handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
+    leios_notify: StageRef<Inputs<()>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -241,6 +243,20 @@ async fn do_handshake(
     let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
     let tx_submission = register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone())).await;
 
+    let leios_notify = eff.stage("leios_notify", leios_notify::initiator()).await;
+    let leios_notify = eff.wire_up(leios_notify, (LeiosNotifyProto, LeiosNotify::new(muxer.clone()))).await;
+    let leios_notify_handler = eff.contramap(&leios_notify, "leios_notify_handler", Inputs::<()>::Network).await;
+    eff.send(
+        &muxer,
+        crate::mux::MuxMessage::Register {
+            protocol: PROTO_N2N_LEIOS_NOTIFY.for_role(Role::Initiator).erase(),
+            frame: mux::Frame::OneCborItem,
+            handler: leios_notify_handler,
+            max_buffer: 65535,
+        },
+    )
+    .await;
+
     if *role == Role::Initiator {
         let chainsync_initiator = register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
         let blockfetch_initiator =
@@ -254,6 +270,7 @@ async fn do_handshake(
             handshake,
             keepalive,
             tx_submission,
+            leios_notify,
         })
     } else {
         let store = Store::new(eff.clone());
