@@ -87,7 +87,7 @@ impl TraceEntry {
             | TraceEntry::State { stage, .. }
             | TraceEntry::Terminated { stage, .. } => Some(stage.clone()),
             TraceEntry::Suspend(effect) => Some(effect.name()),
-            TraceEntry::Clock(_) => None,
+            TraceEntry::InvalidBytes { .. } | TraceEntry::Clock(_) => None,
         }
     }
 }
