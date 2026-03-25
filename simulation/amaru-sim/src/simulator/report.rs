@@ -101,8 +101,10 @@ pub fn persist_args(dir: &Path, args: &Args, persist: bool) -> anyhow::Result<()
 
 /// Create a symlink to a directory
 pub fn create_symlink_dir(target: &Path, link: &Path) {
-    // Clean up existing link or directory first
-    if link.exists() {
+    // Clean up existing link or directory first.
+    // Use symlink_metadata instead of exists() because exists() follows symlinks
+    // and returns false for dangling symlinks, leaving them uncleaned.
+    if link.symlink_metadata().is_ok() {
         std::fs::remove_file(link).or_else(|_| std::fs::remove_dir_all(link)).ok();
     }
 
@@ -110,12 +112,21 @@ pub fn create_symlink_dir(target: &Path, link: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::symlink;
-        symlink(&abs_target, link).unwrap();
+        // Ignore AlreadyExists errors from concurrent test runs
+        match symlink(&abs_target, link) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => panic!("failed to create symlink {link:?} -> {abs_target:?}: {e}"),
+        }
     }
     #[cfg(windows)]
     {
         use std::os::windows::fs::symlink_dir;
-        symlink_dir(&abs_target, link).unwrap();
+        match symlink_dir(&abs_target, link) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => panic!("failed to create symlink {link:?} -> {abs_target:?}: {e}"),
+        }
     }
 }
 
