@@ -12,22 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::tests::nodes::Nodes;
+use amaru::tests::{node::Node, nodes::Nodes};
 use amaru_consensus::headers_tree::data_generation::GeneratedActions;
-use amaru_kernel::utils::string::{ListToString, ListsToString};
-use amaru_ouroboros::get_best_chain_block_headers;
+use amaru_kernel::{
+    Transaction,
+    utils::string::{ListToString, ListsToString},
+};
+use amaru_ouroboros::{ResourceMempool, TxId, get_best_chain_block_headers};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use anyhow::anyhow;
 
 use crate::simulator::test_result::TestResult;
 
-/// Property: at the end of the simulation, the chain built from the history of messages received
-/// downstream must match one of the best chains built directly from messages coming from upstream peers.
+/// Properties checked at the end of the simulation:
+///
+/// - each downstream node must have selected one of the best chains induced by the upstream peer actions;
+/// - each injected transaction must have reached the node under test and all upstream peers.
 ///
 /// TODO: at some point we should implement a deterministic tie breaker when multiple best chains exist
 /// based on the VRF key of the received headers.
-pub fn check_chain_property(nodes: Nodes, actions: &GeneratedActions) -> TestResult {
-    for node in &nodes {
+pub fn check_properties(nodes: Nodes, actions: &GeneratedActions, expected_tx_ids: &[TxId]) -> TestResult {
+    if let Err(error) = check_chain_property(&nodes, actions) {
+        return TestResult::ko(nodes, actions.clone(), error);
+    }
+
+    if let Err(error) = check_tx_submission_property(&nodes, expected_tx_ids) {
+        return TestResult::ko(nodes, actions.clone(), error);
+    }
+
+    TestResult::ok(nodes, actions.clone())
+}
+
+/// Check that each downstream node ends on one of the best chains induced by the
+/// upstream peer actions.
+pub fn check_chain_property(nodes: &Nodes, actions: &GeneratedActions) -> anyhow::Result<()> {
+    for node in nodes {
         if node.is_downstream() {
             tracing::info!(node_id = %node.node_id(), "checking chain property for downstream node");
 
@@ -69,9 +88,35 @@ pub fn check_chain_property(nodes: Nodes, actions: &GeneratedActions) -> TestRes
                     generated_tree.tree(),
                     actions_as_string
                 );
-                return TestResult::ko(nodes, actions.clone(), error);
+                return Err(error);
             }
         }
     }
-    TestResult::ok(nodes, actions.clone())
+    Ok(())
+}
+
+/// Check that each injected transaction has reached the node under test and all
+/// upstream peers by the end of the simulation.
+pub fn check_tx_submission_property(nodes: &Nodes, expected_tx_ids: &[TxId]) -> anyhow::Result<()> {
+    for node in nodes {
+        if node.is_node_under_test() || node.is_upstream() {
+            assert_has_all_txs(node, expected_tx_ids)?;
+        }
+    }
+    Ok(())
+}
+
+fn assert_has_all_txs(node: &Node, expected_tx_ids: &[TxId]) -> anyhow::Result<()> {
+    let mempool = node
+        .resources()
+        .get::<ResourceMempool<Transaction>>()
+        .expect("A ResourceMempool<Transaction> must be available")
+        .clone();
+
+    let txs = mempool.get_txs_for_ids(expected_tx_ids);
+    if txs.len() != expected_tx_ids.len() {
+        return Err(anyhow!("node {} did not receive all expected transactions", node.node_id()));
+    }
+
+    Ok(())
 }

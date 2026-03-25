@@ -28,7 +28,10 @@ use pure_stage::{
     trace_buffer::TraceBuffer,
 };
 
-use crate::tests::configuration::{NodeTestConfig, NodeType};
+use crate::tests::{
+    configuration::{NodeTestConfig, NodeType, SimulationEvent},
+    setup::TxInjectMessage,
+};
 
 /// A node with its identifier for logging purposes.
 ///
@@ -48,7 +51,8 @@ pub struct Node {
     running: SimulationRunning,
     manager_stage: StageRef<ManagerMessage>,
     actions_stage: StageRef<Action>,
-    pending_actions: VecDeque<Action>,
+    tx_inject_stage: StageRef<TxInjectMessage>,
+    pending_events: VecDeque<SimulationEvent>,
     initialized: bool,
 }
 
@@ -59,16 +63,18 @@ impl Node {
         running: SimulationRunning,
         manager_stage: StageRef<ManagerMessage>,
         actions_stage: StageRef<Action>,
+        tx_inject_stage: StageRef<TxInjectMessage>,
     ) -> Self {
-        // If the config defines some actions to execute, we store them as pending for now.
-        let actions = config.actions.clone();
+        // If the config defines some events to execute, we store them as pending for now.
+        let events = config.events.clone();
 
         let mut node = Self {
             config,
             running,
             manager_stage,
             actions_stage,
-            pending_actions: VecDeque::from(actions),
+            tx_inject_stage,
+            pending_events: VecDeque::from(events),
             initialized: false,
         };
         node.install_breakpoint_for_initialization();
@@ -158,9 +164,18 @@ impl Node {
     }
 
     /// Pop one pending action and enqueue it for execution
-    pub fn enqueue_pending_action(&mut self) {
-        if let Some(action) = self.pending_actions.pop_front() {
-            self.running.enqueue_msg(&self.actions_stage, [action]);
+    pub fn enqueue_pending_event(&mut self) {
+        let Some(event) = self.pending_events.pop_front() else {
+            return;
+        };
+
+        match event {
+            SimulationEvent::PeerAction(action) => {
+                self.running.enqueue_msg(&self.actions_stage, [action]);
+            }
+            SimulationEvent::InjectTx(tx) => {
+                self.running.enqueue_msg(&self.tx_inject_stage, [TxInjectMessage::InjectTx(tx)]);
+            }
         }
     }
 
@@ -184,10 +199,10 @@ impl Node {
         self.config.trace_buffer.clone()
     }
 
-    /// Return true if the node still has pending actions to enqueue.
+    /// Return true if the node still has pending events to enqueue.
     /// or enqueued actions in the actions_stage mailbox.
-    pub fn has_waiting_actions(&self) -> bool {
-        !self.pending_actions.is_empty() || self.running.mailbox_len(&self.actions_stage) > 0
+    pub fn has_waiting_events(&self) -> bool {
+        !self.pending_events.is_empty() || self.running.mailbox_len(&self.actions_stage) > 0
     }
 
     /// Return true if the node still has runnable effects.

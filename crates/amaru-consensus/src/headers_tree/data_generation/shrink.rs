@@ -38,25 +38,27 @@ pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
     while input.len() >= 2 {
         let mut current = 0;
         let subset_length = input.len() / n;
-        let mut some_complement_is_failing = false;
+        let mut some_reduced_input_is_failing = false;
         while current < input.len() {
-            let complement = input.complement(current + subset_length, current);
+            let removed_start = current;
+            let removed_end = current + subset_length;
+            let reduced_input = input.remove_range(removed_start, removed_end);
             // NOTE: that if we get a different error than the expected one, we treat it as a
             // passing test.
-            let result = test(&complement);
+            let result = test(&reduced_input);
             if error_predicate(&result) {
                 number_of_shrinks += 1;
                 last_error = result;
-                input = complement;
+                input = reduced_input;
                 n = (n - 1).max(2);
-                some_complement_is_failing = true;
+                some_reduced_input_is_failing = true;
                 break;
             }
 
             current += subset_length;
         }
 
-        if !some_complement_is_failing {
+        if !some_reduced_input_is_failing {
             if n == input.len() {
                 break;
             }
@@ -68,7 +70,14 @@ pub fn shrink<A: Shrinkable + Debug + Clone, B: Debug>(
 
 /// Trait for data types which can be shrunk to a smaller number of elements via the `shrink` function.
 pub trait Shrinkable {
-    fn complement(&self, from: usize, to: usize) -> Self
+    /// Return a value with a portion of elements removed.
+    ///
+    /// The removed portion is the half-open range `[removed_start, removed_end)`, so
+    /// `removed_start` is the index of the first removed element and `removed_end` is the index
+    /// just past the last removed element.
+    ///
+    /// For example, removing `(1, 3)` from `[10, 20, 30, 40]` produces `[10, 40]`.
+    fn remove_range(&self, removed_start: usize, removed_end: usize) -> Self
     where
         Self: Sized;
 
@@ -80,16 +89,16 @@ pub trait Shrinkable {
 }
 
 impl<A: Debug + Clone> Shrinkable for Vec<A> {
-    fn complement(&self, from: usize, to: usize) -> Self
+    fn remove_range(&self, removed_start: usize, removed_end: usize) -> Self
     where
         Self: Sized,
     {
-        let mut complement: Vec<A> = Vec::new();
-        complement.extend_from_slice(&self[..to]);
-        if from < self.len() {
-            complement.extend_from_slice(&self[from..]);
+        let mut remaining_elements: Vec<A> = Vec::new();
+        remaining_elements.extend_from_slice(&self[..removed_start]);
+        if removed_end < self.len() {
+            remaining_elements.extend_from_slice(&self[removed_end..]);
         };
-        complement
+        remaining_elements
     }
 
     fn len(&self) -> usize {
@@ -97,9 +106,59 @@ impl<A: Debug + Clone> Shrinkable for Vec<A> {
     }
 }
 
+impl<A: Shrinkable, B: Shrinkable> Shrinkable for (A, B) {
+    fn remove_range(&self, removed_start: usize, removed_end: usize) -> Self
+    where
+        Self: Sized,
+    {
+        let left_len = self.0.len();
+        let left_removed_start = removed_start.min(left_len);
+        let left_removed_end = removed_end.min(left_len);
+        let right_removed_start = removed_start.saturating_sub(left_len);
+        let right_removed_end = removed_end.saturating_sub(left_len);
+
+        (
+            self.0.remove_range(left_removed_start, left_removed_end),
+            self.1.remove_range(right_removed_start, right_removed_end),
+        )
+    }
+
+    fn len(&self) -> usize {
+        self.0.len() + self.1.len()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_tuple_remove_range_splits_removed_range_across_both_halves() {
+        let input = (vec![1, 2, 3], vec![4, 5]);
+
+        assert_eq!(input.remove_range(2, 4), (vec![1, 2], vec![5]));
+    }
+
+    #[test]
+    fn test_tuple_remove_range_handles_range_entirely_in_second_half() {
+        let input = (vec![1, 2, 3], vec![4, 5]);
+
+        assert_eq!(input.remove_range(4, 5), (vec![1, 2, 3], vec![4]));
+    }
+
+    #[test]
+    fn test_shrink_tuple_minimizes_across_both_halves() {
+        let failing_input = (vec![1, 2, 3], vec![4, 5]);
+
+        let test = |input: &(Vec<u8>, Vec<u8>)| {
+            if input.0.contains(&3) && input.1.contains(&4) { Err("Found tuple pair".to_string()) } else { Ok(()) }
+        };
+
+        assert_eq!(
+            shrink(&test, &failing_input, |err| { *err == Err("Found tuple pair".to_string()) }),
+            (Err("Found tuple pair".to_string()), (vec![3], vec![4]), 2)
+        );
+    }
 
     #[test]
     fn test_shrink_failing() {
