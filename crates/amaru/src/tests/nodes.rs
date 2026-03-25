@@ -110,12 +110,12 @@ impl Nodes {
         // Phase 1: Run with action enqueueing until all actions consumed
         for step in 0..max_steps {
             for node in self.nodes.iter_mut() {
-                node.enqueue_pending_action();
+                node.enqueue_pending_event();
                 node.advance_inputs();
             }
 
-            if self.nodes.iter().all(|n| !n.has_waiting_actions()) {
-                tracing::info!("All actions consumed at step {step}, entering drain phase");
+            if self.nodes.iter().all(|n| !n.has_waiting_events()) {
+                tracing::info!("All events consumed at step {step}, entering drain phase");
                 break;
             }
 

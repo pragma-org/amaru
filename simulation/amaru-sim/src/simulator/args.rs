@@ -52,6 +52,10 @@ pub struct Args {
     #[arg(long, default_value = "10", env = "AMARU_GENERATED_CHAIN_DEPTH")]
     pub generated_chain_depth: usize,
 
+    /// Number of transactions to generate for downstream peers
+    #[arg(long, default_value = "10", env = "AMARU_NUMBER_OF_TRANSACTIONS")]
+    pub number_of_transactions: usize,
+
     #[arg(long, default_value = "true", env = "AMARU_ENABLE_SHRINKING")]
     pub enable_shrinking: bool,
 
@@ -75,6 +79,7 @@ impl Args {
             number_of_upstream_peers: run_config.number_of_upstream_peers,
             number_of_downstream_peers: run_config.number_of_downstream_peers,
             generated_chain_depth: node_config.chain_length,
+            number_of_transactions: node_config.number_of_transactions,
             enable_shrinking: run_config.enable_shrinking,
             seed: Some(run_config.seed),
             persist_on_success: run_config.persist_on_success,
@@ -100,6 +105,7 @@ pub fn make_args() -> Args {
             run_config.number_of_downstream_peers,
         ),
         generated_chain_depth: get_env_var("AMARU_GENERATED_CHAIN_DEPTH", node_config.chain_length),
+        number_of_transactions: get_env_var("AMARU_NUMBER_OF_TRANSACTIONS", node_config.number_of_transactions),
         enable_shrinking: is_true_or("AMARU_ENABLE_SHRINKING", run_config.enable_shrinking),
         seed: get_optional_env_var("AMARU_TEST_SEED"),
         persist_on_success: is_true_or("AMARU_PERSIST_ON_SUCCESS", run_config.persist_on_success),

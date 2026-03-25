@@ -22,10 +22,10 @@ use amaru_kernel::{
     BlockHeight, EraHistory, GlobalParameters, IsHeader, Tip, Transaction, cardano::network_block::make_encoded_block,
 };
 use amaru_ouroboros::{
-    ChainStore, ConnectionsResource, ResourceMempool,
+    ChainStore, ConnectionsResource, ResourceMempool, TxId, TxOrigin, TxSubmissionMempool,
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
 };
-use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
+use amaru_protocols::{manager::ManagerMessage, mempool_effects::MemoryPool, store_effects::Store};
 use anyhow::anyhow;
 use pure_stage::{
     Effects, StageGraph, StageRef, TryInStage,
@@ -41,14 +41,19 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TxInjectMessage {
+    InjectTx(Transaction),
+}
+
 /// Create simulated nodes based on a list of configurations.
 /// The random generator is used to generate the test data that is injected into upstream nodes.
 ///
-pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyhow::Result<Nodes> {
+pub fn create_nodes(rng: &mut RandStdRng, configs: &[NodeTestConfig]) -> anyhow::Result<Nodes> {
     let connections: ConnectionsResource = Arc::new(InMemoryConnectionProvider::default());
     let mut nodes = vec![];
 
-    for config in configs {
+    for config in configs.iter() {
         let _span = config.enter_span();
 
         let mut stage_graph = SimulationBuilder::default()
@@ -56,9 +61,9 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
             .with_mailbox_size(10000)
             .with_trace_buffer(config.trace_buffer.clone());
 
-        let config = config.with_connections(connections.clone());
-        let (manager_stage, actions_stage) = create_node(&config, &mut stage_graph)?;
-        nodes.push(Node::new(config, stage_graph.run(), manager_stage, actions_stage));
+        let config = config.clone().with_connections(connections.clone());
+        let (manager_stage, actions_stage, tx_inject_stage) = create_node(&config, &mut stage_graph)?;
+        nodes.push(Node::new(config, stage_graph.run(), manager_stage, actions_stage, tx_inject_stage));
     }
 
     // Initialize the nodes by running until the chainsync protocol is registered
@@ -73,7 +78,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 pub fn create_node(
     node_config: &NodeTestConfig,
     stage_graph: &mut impl StageGraph,
-) -> anyhow::Result<(StageRef<ManagerMessage>, StageRef<Action>)> {
+) -> anyhow::Result<(StageRef<ManagerMessage>, StageRef<Action>, StageRef<TxInjectMessage>)> {
     let config = node_config.make_node_configuration()?;
     let global_parameters: &GlobalParameters = config.network.into();
     let mut global_parameters = global_parameters.clone();
@@ -91,8 +96,11 @@ pub fn create_node(
     let actions_stage = stage_graph
         .wire_up(actions_stage, (manager_stage.clone(), node_config.seed, node_config.era_history().clone()));
 
+    let tx_inject_stage = stage_graph.stage("tx_inject", tx_inject_stage);
+    let tx_inject_stage = stage_graph.wire_up(tx_inject_stage, ());
+
     set_resources(node_config, stage_graph)?;
-    Ok((manager_stage, actions_stage.without_state()))
+    Ok((manager_stage, actions_stage.without_state(), tx_inject_stage.without_state()))
 }
 
 /// This starts a responder node with a preset configuration for tests.
@@ -170,6 +178,18 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
         .await;
     eff.send(manager_stage, ManagerMessage::NewTip(tip)).await;
     state
+}
+
+async fn tx_inject_stage(_state: (), msg: TxInjectMessage, eff: Effects<TxInjectMessage>) {
+    match msg {
+        TxInjectMessage::InjectTx(tx) => {
+            let tx_id = TxId::from(&tx);
+            match MemoryPool::new(eff).insert(tx, TxOrigin::Local) {
+                Ok(_) => tracing::info!(%tx_id, "injected local tx"),
+                Err(err) => tracing::warn!(%tx_id, %err, "failed to inject local tx"),
+            }
+        }
+    }
 }
 
 /// Add resources depending on the simulation configuration.
