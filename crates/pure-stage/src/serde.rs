@@ -295,7 +295,15 @@ impl SendDataValue {
             Value::Bool(v) => write!(f, "{v}"),
             Value::Integer(v) => write!(f, "{v}"),
             Value::Float(v) => write!(f, "{v}"),
-            Value::Bytes(_) => write!(f, "<bytes>"),
+            Value::Bytes(vs) => {
+                // Try to expose a CBOR message tag if present
+                // This is helpful when building debugging tools on top of the exported trace data.
+                if let Some(tag) = Self::cbor_message_tag(vs) {
+                    write!(f, "<msg:{tag}>")
+                } else {
+                    write!(f, "<bytes>")
+                }
+            }
             Value::Array(vs) => {
                 match SendDataValue::array_as_bytes(vs) {
                     Some(bytes) => {
@@ -335,6 +343,28 @@ impl SendDataValue {
             }
             Value::Tag(_, v) => SendDataValue::format_cbor_value(v.as_ref(), f),
             _ => Ok(()),
+        }
+    }
+
+    /// Try to extract the first integer tag from CBOR-encoded bytes.
+    /// This is typically useful for Cardano miniprotocol messages since they are CBOR arrays `[tag, ...]` where the
+    /// first byte is an array header (major type 4) and the second is a small integer tag.
+    fn cbor_message_tag(bytes: &[u8]) -> Option<u64> {
+        if bytes.len() < 2 {
+            return None;
+        }
+        // First byte must be a CBOR array (major type 4 = 0x80-0x9f)
+        if bytes[0] & 0xe0 != 0x80 {
+            return None;
+        }
+        // Second byte is the tag (CBOR unsigned integer, major type 0)
+        let tag_byte = bytes[1];
+        if tag_byte <= 0x17 {
+            Some(tag_byte as u64)
+        } else if tag_byte == 0x18 && bytes.len() >= 3 {
+            Some(bytes[2] as u64)
+        } else {
+            None
         }
     }
 
