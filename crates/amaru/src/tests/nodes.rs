@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use anyhow::anyhow;
-use pure_stage::{Resources, simulation::RandStdRng};
+use pure_stage::{Resources, simulation::RandStdRng, trace_buffer::TraceEntry};
 
 use crate::tests::node::Node;
 
@@ -114,7 +114,7 @@ impl Nodes {
                 node.advance_inputs();
             }
 
-            if self.nodes.iter().all(|n| !n.has_pending_actions()) {
+            if self.nodes.iter().all(|n| !n.has_waiting_actions()) {
                 tracing::info!("All actions consumed at step {step}, entering drain phase");
                 break;
             }
@@ -132,27 +132,117 @@ impl Nodes {
 
     /// Drain remaining effects after all actions have been consumed.
     ///
-    /// Runs effects identically to Phase 1 but without
-    ///  - Time advancement for sleeping nodes (since we want to avoid keep-alive make the system run forever).
-    ///  - Enqueueing new actions (since everything has been enqueued before).
+    /// Runs effects identically to Phase 1 but without enqueueing new actions.
     ///
-    /// Stops when no node has any effects to run.
+    /// Stops when the system reaches a fixed point: all nodes are quiescent, we advance
+    /// to the earliest global wakeup, and the system becomes quiescent again without any
+    /// runnable work in between. This lets delayed retries run while still terminating
+    /// once only background wait/sleep activity remains.
     ///
     fn drain(&mut self, rng: &mut RandStdRng) {
         // Bound the drain loop in case it does not terminate
-        let max_drain_steps = 10_000;
+        let max_drain_steps = 1_000_000;
+        // This keeps track of the nodes trace buffers lengths in order
+        // to examine only new trace entries since the last wake-up and check if only
+        // transport activity was performed.
+        let mut trace_marks: Option<Vec<usize>> = None;
+        let mut ran_transport_since_mark = false;
         for step in 0..max_drain_steps {
             for node in self.nodes.iter_mut() {
                 node.advance_inputs();
             }
 
-            let Some(node) = self.pick_random_runnable_node(rng) else {
-                tracing::info!("drain[{step}]: all nodes terminated or have no effects to run");
+            if let Some(node) = self.pick_random_non_transport_runnable_node(rng) {
+                trace_marks = None;
+                ran_transport_since_mark = false;
+                node.run_effect();
+                continue;
+            }
+
+            if self.nodes.iter().any(|node| !node.is_terminated() && node.has_transport_runnable_effects()) {
+                if ran_transport_since_mark
+                    && trace_marks.as_ref().is_some_and(|marks| self.only_transport_activity_since(marks))
+                {
+                    let Some(next_wakeup) = self.next_global_wakeup() else {
+                        tracing::info!("drain[{step}]: only transport runnables remain");
+                        return;
+                    };
+
+                    trace_marks = Some(self.trace_lengths());
+                    ran_transport_since_mark = false;
+
+                    let mut woke_any = false;
+                    for node in self.nodes.iter_mut().filter(|node| !node.is_terminated()) {
+                        woke_any |= node.advance_to_wakeup(next_wakeup);
+                    }
+
+                    if !woke_any {
+                        tracing::info!("drain[{step}]: no work after advancing to next wakeup");
+                        return;
+                    }
+                    continue;
+                }
+
+                if trace_marks.is_none() {
+                    trace_marks = Some(self.trace_lengths());
+                }
+
+                let Some(node) = self.pick_random_transport_runnable_node(rng) else {
+                    unreachable!("checked above that a transport runnable node exists");
+                };
+                node.run_effect();
+                ran_transport_since_mark = true;
+                continue;
+            }
+
+            if let Some(marks) = trace_marks.take() {
+                ran_transport_since_mark = false;
+                if self.only_transport_activity_since(&marks) {
+                    tracing::info!("drain[{step}]: only transport activity after wakeup cycle");
+                    return;
+                } else {
+                    tracing::info!("drain[{step}]: non-transport activity detected, continuing");
+                    continue;
+                }
+            }
+
+            let Some(next_wakeup) = self.next_global_wakeup() else {
+                tracing::info!("drain[{step}]: quiescent");
                 return;
             };
-            node.run_effect();
+
+            trace_marks = Some(self.trace_lengths());
+            ran_transport_since_mark = false;
+
+            let mut woke_any = false;
+            for node in self.nodes.iter_mut().filter(|node| !node.is_terminated()) {
+                woke_any |= node.advance_to_wakeup(next_wakeup);
+            }
+
+            if !woke_any {
+                tracing::info!("drain[{step}]: no work after advancing to next wakeup");
+                return;
+            }
         }
         tracing::info!("Drain phase completed after {max_drain_steps} steps");
+    }
+
+    fn trace_lengths(&self) -> Vec<usize> {
+        self.nodes.iter().map(|node| node.trace_buffer().lock().len()).collect()
+    }
+
+    fn next_global_wakeup(&self) -> Option<pure_stage::Instant> {
+        self.nodes.iter().filter(|node| !node.is_terminated()).filter_map(Node::next_wakeup).min()
+    }
+
+    fn only_transport_activity_since(&self, marks: &[usize]) -> bool {
+        self.nodes.iter().zip(marks).all(|(node, mark)| {
+            node.trace_buffer()
+                .lock()
+                .iter_entries()
+                .skip(*mark)
+                .all(|(_, entry)| trace_entry_is_transport_activity(&entry))
+        })
     }
 
     pub fn get_node_under_test(&mut self) -> anyhow::Result<&mut Node> {
@@ -172,9 +262,14 @@ impl Nodes {
         self.pick_random_node(rng, |n| !n.is_terminated())
     }
 
-    /// Pick a random non-terminated node with runnable effects
-    fn pick_random_runnable_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
-        self.pick_random_node(rng, |n| !n.is_terminated() && n.has_runnable_effects())
+    /// Pick a random non-terminated node with runnable non-transport effects.
+    fn pick_random_non_transport_runnable_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
+        self.pick_random_node(rng, |n| !n.is_terminated() && n.has_non_transport_runnable_effects())
+    }
+
+    /// Pick a random non-terminated node with runnable transport effects.
+    fn pick_random_transport_runnable_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
+        self.pick_random_node(rng, |n| !n.is_terminated() && n.has_transport_runnable_effects())
     }
 
     fn pick_random_node<F>(&mut self, rng: &mut RandStdRng, mut predicate: F) -> Option<&mut Node>
@@ -190,4 +285,18 @@ impl Nodes {
         let idx = indices[rng.random_range(0..indices.len())];
         Some(&mut self.nodes[idx])
     }
+}
+
+/// Return true if a trace entry represents some transport activity
+/// (e.g. sending/receiving messages, scheduling keeepalive timer) rather than internal computation.
+fn trace_entry_is_transport_activity(entry: &TraceEntry) -> bool {
+    let Some(name) = entry.name() else {
+        return true;
+    };
+    stage_name_is_transport_activity(name.as_str())
+}
+
+fn stage_name_is_transport_activity(name: &str) -> bool {
+    let prefix = name.split('-').next().unwrap_or(name);
+    matches!(prefix, "keepalive" | "mux" | "reader" | "writer")
 }

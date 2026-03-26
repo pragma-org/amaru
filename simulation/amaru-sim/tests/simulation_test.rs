@@ -20,7 +20,6 @@ use amaru_sim::simulator::{initialize_logs, make_args, run_tests};
 
 /// Run the simulator with arguments from environment variables.
 #[test]
-#[ignore]
 pub fn run_simulator() {
     initialize_logs();
     if let Err(e) = run_tests(make_args()) {

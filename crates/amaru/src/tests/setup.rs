@@ -18,7 +18,9 @@ use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHeaderValidation},
     headers_tree::data_generation::Action,
 };
-use amaru_kernel::{BlockHeight, EraHistory, GlobalParameters, IsHeader, Tip, Transaction, cardano::network_block::make_encoded_block};
+use amaru_kernel::{
+    BlockHeight, EraHistory, GlobalParameters, IsHeader, Tip, Transaction, cardano::network_block::make_encoded_block,
+};
 use amaru_ouroboros::{
     ChainStore, ConnectionsResource, ResourceMempool,
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},

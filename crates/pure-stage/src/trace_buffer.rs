@@ -79,6 +79,19 @@ pub enum TraceEntry {
     InvalidBytes(Vec<u8>, Option<cbor4ii::core::Value>),
 }
 
+impl TraceEntry {
+    pub fn name(&self) -> Option<Name> {
+        match self {
+            TraceEntry::Resume { stage, .. }
+            | TraceEntry::Input { stage, .. }
+            | TraceEntry::State { stage, .. }
+            | TraceEntry::Terminated { stage, .. } => Some(stage.clone()),
+            TraceEntry::Suspend(effect) => Some(effect.name()),
+            TraceEntry::Clock(_) | TraceEntry::InvalidBytes(_, _) => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TerminationReason {
     Voluntary,

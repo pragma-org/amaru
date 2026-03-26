@@ -141,6 +141,11 @@ impl SimulationRunning {
         !self.runnable.is_empty()
     }
 
+    /// Return the names of the currently runnable stages.
+    pub fn runnable_stage_names(&self) -> Vec<Name> {
+        self.runnable.iter().map(|(name, _)| name.clone()).collect()
+    }
+
     /// Return true if there are any effects to be run.
     pub fn has_effects(&self) -> bool {
         !self.external_effects.is_empty()

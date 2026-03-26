@@ -23,7 +23,7 @@ use amaru_protocols::{manager::ManagerMessage, mux::HandlerMessage, protocol::PR
 use futures_util::FutureExt;
 use parking_lot::Mutex;
 use pure_stage::{
-    Effect, Resources, StageGraphRunning, StageRef,
+    Effect, Instant, Resources, StageGraphRunning, StageRef,
     simulation::{Blocked, SimulationRunning},
     trace_buffer::TraceBuffer,
 };
@@ -84,13 +84,7 @@ impl Node {
         let actions = config.actions.clone();
         let actions_stage = actions_stage.map(|stage| ActionsStage::new(stage, actions));
 
-        let mut node = Self {
-            config,
-            running,
-            manager_stage,
-            actions_stage,
-            initialized: false,
-        };
+        let mut node = Self { config, running, manager_stage, actions_stage, initialized: false };
         node.install_breakpoint_for_initialization();
 
         node
@@ -205,8 +199,8 @@ impl Node {
     }
 
     /// Return true if the node still has pending actions to enqueue.
-    pub fn has_pending_actions(&self) -> bool {
-        self.actions_stage.as_ref().is_some_and(|a| a.has_pending())
+    pub fn has_waiting_actions(&self) -> bool {
+        self.actions_stage.as_ref().is_some_and(|a| a.has_pending() || self.running.mailbox_len(&a.stage) > 0)
     }
 
     /// Return true if the node still has runnable effects.
@@ -214,9 +208,29 @@ impl Node {
         self.running.has_runnable()
     }
 
+    /// Return true if a runnable stage is not just transport bookkeeping.
+    pub fn has_non_transport_runnable_effects(&self) -> bool {
+        self.running.runnable_stage_names().iter().any(|name| !stage_name_is_transport_activity(name.as_str()))
+    }
+
+    /// Return true if at least one runnable stage is transport-related.
+    pub fn has_transport_runnable_effects(&self) -> bool {
+        self.running.runnable_stage_names().iter().any(|name| stage_name_is_transport_activity(name.as_str()))
+    }
+
     /// Return true if the node still has effects to be run.
     pub fn has_effects(&self) -> bool {
         self.running.has_effects()
+    }
+
+    /// Return the next wakeup time for this node, if any.
+    pub fn next_wakeup(&self) -> Option<Instant> {
+        self.running.next_wakeup()
+    }
+
+    /// Advance this node to the given wakeup time and wake any tasks scheduled for it.
+    pub fn advance_to_wakeup(&mut self, at: Instant) -> bool {
+        self.running.skip_to_next_wakeup(Some(at))
     }
 
     /// Return true for the node under test
@@ -238,6 +252,11 @@ impl Node {
     fn enter_span(&self) -> tracing::span::EnteredSpan {
         tracing::info_span!("node", id = %self.node_id()).entered()
     }
+}
+
+fn stage_name_is_transport_activity(name: &str) -> bool {
+    let prefix = name.split('-').next().unwrap_or(name);
+    matches!(prefix, "keepalive" | "mux" | "reader" | "writer")
 }
 
 impl Debug for Node {

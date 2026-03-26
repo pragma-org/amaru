@@ -342,6 +342,11 @@ impl GeneratedActions {
         self.tree.tree().value.clone()
     }
 
+    /// Return all the generated headers
+    pub fn get_headers(&self) -> Vec<BlockHeader> {
+        self.tree.tree().nodes()
+    }
+
     pub fn generated_tree(&self) -> &GeneratedTree {
         &self.tree
     }
@@ -352,6 +357,11 @@ impl GeneratedActions {
 
     pub fn actions_per_peer(&self) -> BTreeMap<Peer, Vec<Action>> {
         self.actions_per_peer.clone()
+    }
+
+    /// Return all the actions to be executed by a given peer
+    pub fn get_peer_actions(&self, peer: &Peer) -> Vec<Action> {
+        self.actions_per_peer.get(peer).into_iter().flatten().cloned().collect::<Vec<_>>()
     }
 
     /// Transpose the actions per peer to interleave them
