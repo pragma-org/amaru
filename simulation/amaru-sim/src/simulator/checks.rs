@@ -116,11 +116,8 @@ fn assert_has_all_txs(node: &Node, expected_tx_ids: &[TxId]) -> anyhow::Result<(
     let txs = mempool.get_txs_for_ids(expected_tx_ids);
     if txs.len() != expected_tx_ids.len() {
         let actual_tx_ids = txs.iter().map(TxId::from).collect::<std::collections::BTreeSet<_>>();
-        let missing = expected_tx_ids
-            .iter()
-            .filter(|tx_id| !actual_tx_ids.contains(tx_id))
-            .cloned()
-            .collect::<Vec<_>>();
+        let missing =
+            expected_tx_ids.iter().filter(|tx_id| !actual_tx_ids.contains(tx_id)).cloned().collect::<Vec<_>>();
         return Err(anyhow!("node {} did not receive all expected transactions; missing: {missing:?}", node.node_id()));
     }
 
