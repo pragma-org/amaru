@@ -21,8 +21,8 @@ use amaru::tests::{
     },
     setup::create_nodes,
 };
-use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
-use amaru_kernel::{BlockHeader, Peer};
+use amaru_consensus::headers_tree::data_generation::{GeneratedActions, shrink};
+use amaru_kernel::Peer;
 use anyhow::anyhow;
 use pure_stage::trace_buffer::TraceBuffer;
 use rayon::prelude::*;
@@ -131,7 +131,7 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
     // Only create nodes for peers that have actions. During shrinking, some peers may lose
     // all their actions, so we skip creating nodes for them.
     let active_peers: Vec<_> =
-        upstream_peers.iter().filter(|peer| !get_peer_actions(actions, peer).is_empty()).cloned().collect();
+        upstream_peers.iter().filter(|peer| !actions.get_peer_actions(peer).is_empty()).cloned().collect();
 
     let upstream_nodes = active_peers
         .iter()
@@ -140,8 +140,9 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
                 .with_no_upstream_peers()
                 .with_listen_address(&peer.name)
                 .with_chain_length(run_config.generated_chain_depth)
-                .with_actions(get_peer_actions(actions, peer))
-                .with_validated_blocks(get_headers(actions, peer))
+                // Upstream nodes already have all the blocks
+                .with_validated_blocks(actions.get_headers())
+                .with_actions(actions.get_peer_actions(peer))
                 .with_node_type(UpstreamNode)
         })
         .collect::<Vec<_>>();
@@ -170,20 +171,4 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
         .collect::<Vec<_>>();
 
     upstream_nodes.into_iter().chain(once(node_under_test)).chain(downstream_nodes).collect()
-}
-
-/// Extract all the actions to be executed by a given peer
-fn get_peer_actions(actions: &GeneratedActions, peer: &Peer) -> Vec<Action> {
-    actions.actions_per_peer().get(peer).into_iter().flatten().cloned().collect::<Vec<_>>()
-}
-
-/// Extract all the block headers forwarded by a given peer
-fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<BlockHeader> {
-    get_peer_actions(actions, peer)
-        .into_iter()
-        .filter_map(|action| match action {
-            Action::RollForward { header, .. } => Some(header),
-            Action::Rollback { .. } => None,
-        })
-        .collect::<Vec<_>>()
 }

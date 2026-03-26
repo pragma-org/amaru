@@ -883,6 +883,22 @@ impl Effect {
             }),
         }
     }
+
+    pub fn name(&self) -> Name {
+        match self {
+            Effect::Receive { at_stage }
+            | Effect::Clock { at_stage }
+            | Effect::Wait { at_stage, .. }
+            | Effect::Schedule { at_stage, .. }
+            | Effect::CancelSchedule { at_stage, .. }
+            | Effect::External { at_stage, .. }
+            | Effect::Terminate { at_stage }
+            | Effect::AddStage { at_stage, .. }
+            | Effect::WireStage { at_stage, .. }
+            | Effect::Contramap { at_stage, .. } => at_stage.clone(),
+            Effect::Send { from, .. } | Effect::Call { from, .. } => from.clone(),
+        }
+    }
 }
 
 impl Display for Effect {
