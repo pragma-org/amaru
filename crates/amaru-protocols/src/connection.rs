@@ -28,7 +28,10 @@ use crate::{
     keepalive::register_keepalive,
     manager::ManagerConfig,
     mux::{self, HandlerMessage, MuxMessage},
-    protocol::{Inputs, PROTO_HANDSHAKE, Role},
+    protocol::{
+        Inputs, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE, PROTO_N2N_TX_SUB,
+        Role,
+    },
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
         version_table::VersionTable,
@@ -163,8 +166,16 @@ pub async fn stage(
 }
 
 async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {
+    let buffered_protocols = [
+        (PROTO_HANDSHAKE.for_role(*role), 5760),
+        (PROTO_N2N_KEEP_ALIVE.for_role(*role), 65535),
+        (PROTO_N2N_TX_SUB.for_role(*role), 2_500_000),
+        (PROTO_N2N_CHAIN_SYNC.for_role(*role), 5760),
+        (PROTO_N2N_BLOCK_FETCH.for_role(*role), 2_500_000),
+    ];
+
     let muxer = eff.stage("mux", mux::stage).await;
-    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role)).await;
+    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &buffered_protocols, *role)).await;
 
     let handshake_result = eff.contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake).await;
 
