@@ -311,13 +311,21 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 eff.send(&cr, Blocks2::NoBlocks(id)).await;
                 return manager;
             }
-            tracing::debug!(?from, ?through, "fetching blocks");
-            for state in manager.peers.values() {
+            let selected = manager.peers.iter().find_map(|(peer, state)| {
                 let ConnectionState::Connected(_conn_id, Role::Initiator, connection) = state else {
-                    continue;
+                    return None;
                 };
-                eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
-            }
+                Some((peer, connection))
+            });
+
+            let Some((peer, connection)) = selected else {
+                tracing::warn!("no initiator peers to fetch blocks");
+                eff.send(&cr, Blocks2::NoBlocks(id)).await;
+                return manager;
+            };
+
+            tracing::debug!(?from, ?through, %peer, "fetching blocks");
+            eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr, id }).await;
         }
     }
     manager
