@@ -681,8 +681,8 @@
     let hashCounts = new Map(); // increments for each input event displayed
     let suspendedStages = new Set();
     let labelSeq = 0; // monotonically increasing order for hash labels
-    let pendingSends = new Map(); // stage name -> [msg names] from sends not yet matched by an input
     let contramapAliases = new Map(); // alias canonical name -> original canonical name
+    let logicalStageNames = new Map(); // logical stage label -> representative canonical stage name
     let createdStageAliases = new Map(); // `${creator}::${requested}` -> created canonical name
     let connectionStageDirections = new Map(); // canonical connection stage -> 'U' | 'D'
     let currentRunnable = [];
@@ -1131,11 +1131,31 @@
         prevActive = null;
         if (!Array.isArray(all)) return;
         contramapAliases = new Map();
+        logicalStageNames = new Map();
         createdStageAliases = new Map();
         connectionStageDirections = new Map();
         const pendingCreatedStages = new Map();
         const pendingContramaps = new Map();
+        const rememberLogicalStage = (name) => {
+            const canonical = canonicalStageName(name);
+            if (!canonical) return;
+            const logical = canonical.replace(/-\d+$/, '');
+            if (!logicalStageNames.has(logical)) logicalStageNames.set(logical, canonical);
+        };
         for (const t of all) {
+            rememberLogicalStage(t.stage || '');
+            if (t.effect) {
+                rememberLogicalStage(t.effect.at_stage || '');
+                rememberLogicalStage(t.effect.from || '');
+                rememberLogicalStage(t.effect.to || '');
+                rememberLogicalStage(t.effect.original || '');
+                rememberLogicalStage(t.effect.new_name || '');
+                rememberLogicalStage(t.effect.name || t.effect.stage_name || '');
+            }
+            if (t.response) {
+                rememberLogicalStage(t.response.AddStageResponse || '');
+                rememberLogicalStage(t.response.ContramapResponse || '');
+            }
             if (t.type === 'suspend' && t.effect && t.effect.type === 'add_stage') {
                 const creator = canonicalStageName(t.effect.at_stage || '');
                 const requested = canonicalStageName(t.effect.name || t.effect.stage_name || '');
@@ -1268,6 +1288,12 @@
             seen.add(current);
             current = canonicalStageName(contramapAliases.get(current));
         }
+        const adapterMatch = current.match(/^(.*)_(input|handler|bytes|result)(-\d+)?$/);
+        if (adapterMatch) {
+            const base = adapterMatch[1];
+            const resolved = logicalStageNames.get(base);
+            if (resolved) return resolved;
+        }
         return current;
     }
 
@@ -1296,6 +1322,7 @@
     function buildStageGraph(all) {
         const nodes = new Set();
         const creates = new Map();  // parent -> Set<child>
+        const addStageEdges = new Set(); // `${parent}->${child}` for add_stage only
         const sends = new Map();    // from -> Set<to>
 
         for (const t of all) {
@@ -1313,6 +1340,7 @@
                     nodes.add(child);
                     if (!creates.has(at)) creates.set(at, new Set());
                     creates.get(at).add(child);
+                    if (eff.type === 'add_stage') addStageEdges.add(`${at}->${child}`);
                 }
             } else if (eff.type === 'send') {
                 let to = resolveVisibleStageName(eff.to || '');
@@ -1330,7 +1358,7 @@
             nodes.add(stage);
         }
 
-        return { nodes, creates, sends };
+        return { nodes, creates, addStageEdges, sends };
     }
 
     // Sugiyama-style layered layout for a set of nodes with directed edges.
@@ -1456,14 +1484,24 @@
             depthSpacingFactor = 1,
             depthLayerSpacing = null,
             sortChildren = null,
+            maxDepth: maxDepthLimit = 64,
         } = opts;
 
         const positions = new Map();
         let nextLeafY = 0;
-        let maxDepth = 0;
 
-        function visit(node, depth) {
-            maxDepth = Math.max(maxDepth, depth);
+        function visit(node, depth, path = new Set()) {
+            maxObservedDepth = Math.max(maxObservedDepth, depth);
+            if (depth >= maxDepthLimit || path.has(node)) {
+                const spacing = nodeSpacing * Math.max(1, depthSpacingFactor - depth);
+                const y = nextLeafY * spacing;
+                nextLeafY += 1;
+                const x = depthLayerSpacing
+                    ? depthLayerSpacing.slice(0, depth).reduce((sum, value) => sum + value, 0)
+                    : depth * layerSpacing;
+                positions.set(node, { x, y });
+                return y;
+            }
             const children = [...(childMap.get(node) || [])];
             if (sortChildren) children.sort((a, b) => sortChildren(node, a, b));
             const spacing = nodeSpacing * Math.max(1, depthSpacingFactor - depth);
@@ -1472,7 +1510,9 @@
                 y = nextLeafY * spacing;
                 nextLeafY += 1;
             } else {
-                const childYs = children.map(child => visit(child, depth + 1));
+                const nextPath = new Set(path);
+                nextPath.add(node);
+                const childYs = children.map(child => visit(child, depth + 1, nextPath));
                 y = (Math.min(...childYs) + Math.max(...childYs)) / 2;
             }
             const x = depthLayerSpacing
@@ -1482,11 +1522,12 @@
             return y;
         }
 
+        let maxObservedDepth = 0;
         visit(root, 0);
 
         return {
             positions,
-            layerCount: maxDepth + 1,
+            layerCount: maxObservedDepth + 1,
             maxLayerSize: Math.max(1, nextLeafY),
         };
     }
@@ -1497,15 +1538,21 @@
             nodeSpacing = 56,
             layerSpacing = 140,
             sortChildren = null,
+            maxDepth = 64,
         } = opts;
 
-        function build(node, depth = 0) {
+        function build(node, depth = 0, path = new Set()) {
+            if (depth >= maxDepth || path.has(node)) {
+                return { name: node, depth, children: [] };
+            }
             let children = [...(childMap.get(node) || [])];
             if (sortChildren) children.sort((a, b) => sortChildren(node, a, b));
+            const nextPath = new Set(path);
+            nextPath.add(node);
             return {
                 name: node,
                 depth,
-                children: children.map(child => build(child, depth + 1)),
+                children: children.map(child => build(child, depth + 1, nextPath)),
             };
         }
 
@@ -1561,8 +1608,8 @@
             if (label.startsWith('writer')) return 3;
             if (label.startsWith('reader')) return 4;
             if (label === 'keepalive') return 5;
-            if (label === 'chainsync') return 6;
-            if (label === 'blockfetch') return 7;
+            if (label === 'blockfetch') return 6;
+            if (label === 'chainsync') return 7;
             return 8;
         }
 
@@ -1642,9 +1689,16 @@
                 });
             }
             if (connBlockfetch && positions.has(connBlockfetch)) {
-                const prevY = positions.get(connChainsync)?.y || positions.get(connKeepalive)?.y || positions.get(connBlockfetch).y;
+                const prevY = positions.get(connKeepalive)?.y || positions.get(connBlockfetch).y;
                 positions.set(connBlockfetch, {
                     x: positions.get(connBlockfetch).x,
+                    y: prevY + primaryRowGap * 0.4,
+                });
+            }
+            if (connChainsync && positions.has(connChainsync)) {
+                const prevY = positions.get(connBlockfetch)?.y || positions.get(connKeepalive)?.y || positions.get(connChainsync).y;
+                positions.set(connChainsync, {
+                    x: positions.get(connChainsync).x,
                     y: prevY + primaryRowGap * 0.4,
                 });
             }
@@ -1701,7 +1755,7 @@
         const laneGap = 72;
         const margin = { left: 220, top: 110 };
 
-        const { nodes, creates, sends } = stageGraph;
+        const { nodes, creates, addStageEdges, sends } = stageGraph;
 
         function collectReachable(root, edgeList, allowedNodes) {
             if (!root || !allowedNodes.has(root)) return new Set();
@@ -1906,6 +1960,38 @@
             }
         }
 
+        // Compact small branching manager subgraphs into local trees so adapter-collapsed
+        // stages like fetch_blocks -> {cleanup_replies, validate_block -> adopt_chain}
+        // remain readable instead of being stretched into the horizontal pipeline.
+        const managerAdj = new Map();
+        for (const stage of managerStageSet) managerAdj.set(stage, []);
+        for (const [from, to] of managerEdges) {
+            if (!managerAdj.has(from)) managerAdj.set(from, []);
+            managerAdj.get(from).push(to);
+        }
+        const compactTreeMembers = new Set();
+        for (const root of managerStageSet) {
+            const children = managerAdj.get(root) || [];
+            if (children.length < 2) continue;
+            const desc = collectReachable(root, managerEdges, managerStageNodes);
+            if (desc.size < 3 || desc.size > 6) continue;
+            const localTree = treeLayout(root, managerAdj, {
+                nodeSpacing: 82,
+                layerSpacing: 260,
+            });
+            const rootPos = positions.get(root);
+            const localRootPos = localTree.positions.get(root);
+            if (!rootPos || !localRootPos) continue;
+            for (const [name, pos] of localTree.positions) {
+                if (!desc.has(name) || !positions.has(name)) continue;
+                positions.set(name, {
+                    x: rootPos.x + (pos.x - localRootPos.x),
+                    y: rootPos.y + (pos.y - localRootPos.y),
+                });
+                compactTreeMembers.add(name);
+            }
+        }
+
         // Rebalance the middle row so pull sits closer to accept, while the
         // downstream pipeline stages get a bit more horizontal breathing room.
         const middleRowStages = Object.fromEntries(
@@ -1939,6 +2025,7 @@
         pipelineNames.forEach((label, index) => {
             const stageName = middleRowStages[label];
             if (!stageName || !positions.has(stageName)) return;
+            if (compactTreeMembers.has(stageName)) return;
             const pos = positions.get(stageName);
             positions.set(stageName, {
                 x: receiveStartX != null
@@ -1951,6 +2038,184 @@
                 if (prevStageName) pipelineStageEdges.push([prevStageName, stageName]);
             }
         });
+
+        // Consensus backbone requested for the manager lane:
+        // track_peers -> select_chain -> fetch_blocks -> validate_block -> adopt_chain
+        const backboneNames = [
+            'track_peers',
+            'select_chain',
+            'fetch_blocks',
+            'validate_block',
+            'adopt_chain',
+        ];
+        const backboneStages = backboneNames
+            .map(label => middleRowStages[label])
+            .filter(stageName => stageName && positions.has(stageName));
+        const backboneStageEdges = [];
+        if (backboneStages.length > 0) {
+            const anchorStage = backboneStages[0];
+            const anchorPos = positions.get(anchorStage);
+            const backboneY = anchorPos ? anchorPos.y : managerLaneCenterY;
+            const backboneGap = 230;
+            const backboneStartX = anchorPos
+                ? anchorPos.x
+                : margin.left + 80;
+
+            backboneNames.forEach((label, index) => {
+                const stageName = middleRowStages[label];
+                if (!stageName || !positions.has(stageName)) return;
+                positions.set(stageName, {
+                    x: backboneStartX + index * backboneGap,
+                    y: backboneY,
+                });
+                if (index > 0) {
+                    const prevStageName = middleRowStages[backboneNames[index - 1]];
+                    if (prevStageName && positions.has(prevStageName)) {
+                        backboneStageEdges.push([prevStageName, stageName]);
+                    }
+                }
+            });
+        }
+
+        // Final manager-lane de-overlap pass. Compact tree placement plus the
+        // later manual pipeline adjustments can still leave nearby nodes on top
+        // of each other, so separate close pairs before rendering.
+        const managerPlacedStages = managerStageSet.filter(name => positions.has(name));
+        const minDx = 110;
+        const minDy = 72;
+        for (let pass = 0; pass < 8; pass++) {
+            let moved = false;
+            for (let i = 0; i < managerPlacedStages.length; i++) {
+                for (let j = i + 1; j < managerPlacedStages.length; j++) {
+                    const aName = managerPlacedStages[i];
+                    const bName = managerPlacedStages[j];
+                    const a = positions.get(aName);
+                    const b = positions.get(bName);
+                    if (!a || !b) continue;
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const tooCloseX = Math.abs(dx) < minDx;
+                    const tooCloseY = Math.abs(dy) < minDy;
+                    if (!tooCloseX || !tooCloseY) continue;
+
+                    const pushX = (minDx - Math.abs(dx)) / 2;
+                    const pushY = (minDy - Math.abs(dy)) / 2;
+                    const sx = dx >= 0 ? 1 : -1;
+                    const sy = dy >= 0 ? 1 : -1;
+
+                    if (Math.abs(dx) <= Math.abs(dy)) {
+                        a.x -= sx * pushX;
+                        b.x += sx * pushX;
+                    } else {
+                        a.y -= sy * pushY;
+                        b.y += sy * pushY;
+                    }
+                    positions.set(aName, a);
+                    positions.set(bName, b);
+                    moved = true;
+                }
+            }
+            if (!moved) break;
+        }
+
+        // If any stages still occupy essentially the same neighborhood, fan them
+        // out around their shared center so they are always visually distinct.
+        const collisionGroups = [];
+        const grouped = new Set();
+        for (let i = 0; i < managerPlacedStages.length; i++) {
+            const aName = managerPlacedStages[i];
+            if (grouped.has(aName) || !positions.has(aName)) continue;
+            const a = positions.get(aName);
+            const group = [aName];
+            for (let j = i + 1; j < managerPlacedStages.length; j++) {
+                const bName = managerPlacedStages[j];
+                if (grouped.has(bName) || !positions.has(bName)) continue;
+                const b = positions.get(bName);
+                if (Math.abs(a.x - b.x) < 90 && Math.abs(a.y - b.y) < 90) {
+                    group.push(bName);
+                }
+            }
+            if (group.length > 1) {
+                group.forEach(name => grouped.add(name));
+                collisionGroups.push(group);
+            }
+        }
+        for (const group of collisionGroups) {
+            const center = group.reduce((acc, name) => {
+                const pos = positions.get(name);
+                acc.x += pos.x;
+                acc.y += pos.y;
+                return acc;
+            }, { x: 0, y: 0 });
+            center.x /= group.length;
+            center.y /= group.length;
+            const radius = 46 + (group.length - 2) * 10;
+            group.sort((a, b) => displayStageName(a).localeCompare(displayStageName(b)) || a.localeCompare(b));
+            group.forEach((name, index) => {
+                const angle = (-Math.PI / 2) + (index * (2 * Math.PI / group.length));
+                positions.set(name, {
+                    x: center.x + Math.cos(angle) * radius,
+                    y: center.y + Math.sin(angle) * radius,
+                });
+            });
+        }
+
+        // Keep the requested consensus backbone exactly collinear even after
+        // collision resolution.
+        if (backboneStages.length > 0) {
+            const first = positions.get(backboneStages[0]);
+            const backboneY = first ? first.y : managerLaneCenterY;
+            const backboneGap = 230;
+            const backboneStartX = first ? first.x : margin.left + 80;
+            backboneStages.forEach((stageName, index) => {
+                if (!positions.has(stageName)) return;
+                positions.set(stageName, {
+                    x: backboneStartX + index * backboneGap,
+                    y: backboneY,
+                });
+            });
+        }
+
+        // Keep cleanup_replies midway between the blockfetch protocol stage and
+        // the fetch_blocks manager stage when both are present.
+        const cleanupRepliesStage = middleRowStages.cleanup_replies;
+        const fetchBlocksStage = middleRowStages.fetch_blocks;
+        const blockfetchStage = [...positions.keys()].find(name => displayStageName(name) === 'blockfetch');
+        if (
+            cleanupRepliesStage && fetchBlocksStage && blockfetchStage &&
+            positions.has(cleanupRepliesStage) && positions.has(fetchBlocksStage) && positions.has(blockfetchStage)
+        ) {
+            const fetchBlocksPos = positions.get(fetchBlocksStage);
+            const blockfetchPos = positions.get(blockfetchStage);
+            positions.set(cleanupRepliesStage, {
+                x: (fetchBlocksPos.x + blockfetchPos.x) / 2,
+                y: (fetchBlocksPos.y + blockfetchPos.y) / 2,
+            });
+        }
+
+        const protocolColumnX = (conn) => {
+            const desc = [...(connDescendants.get(conn) || [])];
+            const preferred = ['blockfetch', 'chainsync', 'keepalive', 'mux', 'handshake', 'tx_submission'];
+            for (const label of preferred) {
+                const stageName = desc.find(name => displayStageName(name) === label && positions.has(name));
+                if (stageName) return positions.get(stageName).x;
+            }
+            return positions.has(conn) ? positions.get(conn).x : null;
+        };
+        if (connections.length >= 2) {
+            const leftProtocolX = protocolColumnX(connections[0]);
+            const rightProtocolX = protocolColumnX(connections[1]);
+            if (leftProtocolX != null && rightProtocolX != null) {
+                const midpointX = leftProtocolX + (rightProtocolX - leftProtocolX) / 2;
+                if (cleanupRepliesStage && positions.has(cleanupRepliesStage)) {
+                    const cleanupRepliesPos = positions.get(cleanupRepliesStage);
+                    positions.set(cleanupRepliesStage, {
+                        x: midpointX,
+                        y: cleanupRepliesPos.y,
+                    });
+                }
+            }
+        }
 
         curY += managerLaneHeight * nodeSpacing + laneGap;
         const bottomBandBottom = placeConnectionGroup(downstreamConnections, curY);
@@ -1969,7 +2234,36 @@
         svg.setAttribute('height', maxY);
         svg.setAttribute('viewBox', `0 0 ${maxX} ${maxY}`);
 
-        // Draw creation edges (solid gray lines)
+        const defs = document.createElementNS(ns, 'defs');
+        const sendArrow = document.createElementNS(ns, 'marker');
+        sendArrow.setAttribute('id', 'sendArrow');
+        sendArrow.setAttribute('markerWidth', '8');
+        sendArrow.setAttribute('markerHeight', '8');
+        sendArrow.setAttribute('refX', '7');
+        sendArrow.setAttribute('refY', '4');
+        sendArrow.setAttribute('orient', 'auto');
+        sendArrow.setAttribute('markerUnits', 'strokeWidth');
+        const sendArrowPath = document.createElementNS(ns, 'path');
+        sendArrowPath.setAttribute('d', 'M0,0 L8,4 L0,8 Z');
+        sendArrowPath.setAttribute('fill', '#94a3b8');
+        sendArrow.appendChild(sendArrowPath);
+        defs.appendChild(sendArrow);
+        const createArrow = document.createElementNS(ns, 'marker');
+        createArrow.setAttribute('id', 'createArrow');
+        createArrow.setAttribute('markerWidth', '8');
+        createArrow.setAttribute('markerHeight', '8');
+        createArrow.setAttribute('refX', '7');
+        createArrow.setAttribute('refY', '4');
+        createArrow.setAttribute('orient', 'auto');
+        createArrow.setAttribute('markerUnits', 'strokeWidth');
+        const createArrowPath = document.createElementNS(ns, 'path');
+        createArrowPath.setAttribute('d', 'M0,0 L8,4 L0,8 Z');
+        createArrowPath.setAttribute('fill', '#d1d5db');
+        createArrow.appendChild(createArrowPath);
+        defs.appendChild(createArrow);
+        svg.appendChild(defs);
+
+        // Draw creation edges (dashed gray lines)
         for (const [parent, children] of creates) {
             const pp = positions.get(parent);
             if (!pp) continue;
@@ -1988,11 +2282,56 @@
                 line.setAttribute('y2', cp.y - uy * r);
                 line.setAttribute('stroke', '#d1d5db');
                 line.setAttribute('stroke-width', '1.5');
+                line.setAttribute('stroke-dasharray', '4 4');
+                if (addStageEdges.has(`${parent}->${child}`)) {
+                    line.setAttribute('marker-end', 'url(#createArrow)');
+                }
                 svg.appendChild(line);
             }
         }
 
-        for (const [parent, child] of pipelineStageEdges) {
+        // Draw send edges (solid directed lines) for runtime stage-to-stage links
+        // that are not already implied by creation or the explicit backbone/pipeline.
+        const createdEdgeSet = new Set();
+        for (const [parent, children] of creates) {
+            for (const child of children) createdEdgeSet.add(`${parent}->${child}`);
+        }
+        const pipelineEdgeSet = new Set(
+            [...pipelineStageEdges, ...backboneStageEdges].map(([from, to]) => `${from}->${to}`)
+        );
+        const firstConnectionStageSet = connections.length > 0
+            ? new Set(connDescendants.get(connections[0]) || [])
+            : null;
+        for (const [from, tos] of sends) {
+            const fp = positions.get(from);
+            if (!fp) continue;
+            for (const to of tos) {
+                if (
+                    firstConnectionStageSet &&
+                    !firstConnectionStageSet.has(from) &&
+                    !firstConnectionStageSet.has(to)
+                ) continue;
+                const key = `${from}->${to}`;
+                if (createdEdgeSet.has(key) || pipelineEdgeSet.has(key)) continue;
+                const tp = positions.get(to);
+                if (!tp) continue;
+                const dx = tp.x - fp.x, dy = tp.y - fp.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 1) continue;
+                const ux = dx / dist, uy = dy / dist;
+                const line = document.createElementNS(ns, 'line');
+                line.setAttribute('x1', fp.x + ux * r);
+                line.setAttribute('y1', fp.y + uy * r);
+                line.setAttribute('x2', tp.x - ux * r);
+                line.setAttribute('y2', tp.y - uy * r);
+                line.setAttribute('stroke', '#94a3b8');
+                line.setAttribute('stroke-width', '1.5');
+                line.setAttribute('marker-end', 'url(#sendArrow)');
+                svg.appendChild(line);
+            }
+        }
+
+        for (const [parent, child] of [...pipelineStageEdges, ...backboneStageEdges]) {
             const pp = positions.get(parent);
             const cp = positions.get(child);
             if (!pp || !cp) continue;
@@ -2005,8 +2344,9 @@
             line.setAttribute('y1', pp.y + uy * r);
             line.setAttribute('x2', cp.x - ux * r);
             line.setAttribute('y2', cp.y - uy * r);
-            line.setAttribute('stroke', '#d1d5db');
+            line.setAttribute('stroke', '#94a3b8');
             line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('marker-end', 'url(#sendArrow)');
             svg.appendChild(line);
         }
 
@@ -2066,7 +2406,6 @@
         iEvent = 0;
         hashCounts = new Map();
         suspendedStages = new Set();
-        pendingSends = new Map();
         pendingBlockRanges = new Map();
         currentRunnable = [];
         updateStack(currentRunnable);
@@ -2091,19 +2430,6 @@
         svg.querySelectorAll('.hashStackBg').forEach(n => n.remove());
     }
 
-    function shouldTrackHeaderRelation(ev) {
-        if (!ev || !ev.headerRelation) return false;
-        if (ev.kind === 'input') {
-            return displayStageName(ev.stage) === 'validate_header';
-        }
-        if (ev.kind === 'suspend') {
-            const eff = ev.raw && ev.raw.effect;
-            if (!eff || eff.type !== 'send') return false;
-            return displayStageName(resolveVisibleStageName(eff.to || '')) === 'validate_header';
-        }
-        return false;
-    }
-
     function addHeaderRelationToTree(relation, stepNumber = null) {
         if (!relation || !relation.hash) return;
         const hash = relation.hash;
@@ -2123,6 +2449,39 @@
             });
         }
         renderHeaderTree();
+    }
+
+    function extractTipFromUpstreamRelation(inputStr) {
+        const hashes = extractSpecificHashList(inputStr);
+        if (hashes.length === 0) return null;
+        return {
+            hash: hashes[0],
+            parent: hashes[1] || null,
+        };
+    }
+
+    function maybeAddTipFromUpstreamToTree(ev) {
+        if (!ev || ev.kind !== 'input') return;
+        if (messageNameForEvent(ev) !== 'TipFromUpstream') return;
+        addHeaderRelationToTree(extractTipFromUpstreamRelation(ev.input), ev.step);
+    }
+
+    function maybeSelectAdoptedHeader(ev) {
+        if (!ev || ev.kind !== 'input') return;
+        if (displayStageName(ev.stage) !== 'adopt_chain') return;
+        if (messageNameForEvent(ev) !== 'AdoptChain') return;
+        const hash = extractHash(ev.input);
+        if (hash) selectHeaderInTree(hash);
+    }
+
+    function maybeMarkValidatedHeader(ev) {
+        if (!ev || ev.kind !== 'input') return;
+        const msgName = messageNameForEvent(ev);
+        if (msgName !== 'BlockValidationResult') return;
+        const result = extractLastBoolean(ev.input);
+        if (result !== 'true') return;
+        const hash = extractHash(ev.input);
+        if (hash) markHeaderBlockReceived(hash);
     }
 
     function markHeaderBlockReceived(hash) {
@@ -2498,12 +2857,17 @@
             .map(match => match[1]);
     }
 
+    function extractTipFromUpstreamHash(inputStr) {
+        const hashes = extractSpecificHashList(inputStr);
+        return hashes.length > 0 ? hashes[0] : null;
+    }
+
     function shortHash(hash) {
         return hash ? String(hash).slice(0, 6) : '?';
     }
 
     function extractRangePayload(inputStr) {
-        if (!inputStr || !/\b(FetchBlocks|RequestRange)\b/.test(inputStr)) return null;
+        if (!inputStr || !/\b(FetchBlocks|RequestRange|RequestRange2)\b/.test(inputStr)) return null;
         const fromMatch = inputStr.match(/\bfrom\s*:\s*\{Specific:\s*\[\s*\d+\s*,\s*([0-9a-fA-F]+)\s*\]\}/);
         const throughMatch = inputStr.match(/\bthrough\s*:\s*\{Specific:\s*\[\s*\d+\s*,\s*([0-9a-fA-F]+)\s*\]\}/);
         if (!fromMatch && !throughMatch) return null;
@@ -2511,6 +2875,13 @@
             from: fromMatch ? fromMatch[1] : null,
             through: throughMatch ? throughMatch[1] : null,
         };
+    }
+
+    function extractLastBoolean(inputStr) {
+        if (!inputStr) return null;
+        const matches = [...String(inputStr).matchAll(/\b(true|false)\b/gi)];
+        if (matches.length === 0) return null;
+        return matches[matches.length - 1][1].toLowerCase();
     }
 
     function extractMessageName(inputStr) {
@@ -2630,6 +3001,8 @@
     function messageNameForPayload(input, stageName) {
         const stageLabel = displayStageName(stageName);
         if (/^\s*\{\s*blocks\s*:/.test(input || '')) return 'Blocks';
+        if (stageLabel === 'validate_block' && /^\s*\{\s*tip\s*:/.test(input || '')) return 'ValidateBlock';
+        if (stageLabel === 'adopt_chain' && /^\s*\{\s*tip\s*:/.test(input || '')) return 'AdoptChain';
         if (stageLabel === 'mux') {
             const muxProtoName = resolveMuxProtocolTag(input || '');
             if (muxProtoName) return muxProtoName;
@@ -2647,6 +3020,7 @@
         }
         const embeddedMsgName = resolveEmbeddedMsgName(input || '');
         if (embeddedMsgName) return embeddedMsgName;
+        if ((input || '').includes('<bytes>') || (input || '').includes('<msg:')) return 'Bytes';
         if (extracted === 'unknown' && stageName.startsWith('reader')) return 'Read';
         if (extracted !== 'unknown') return extracted;
         if (stageLabel === 'accept') return 'Pull';
@@ -2692,8 +3066,9 @@
         const peerPort = peerPortMatch ? peerPortMatch[1] : null;
         const peerSuffix = peerPort ? `(${peerPort})` : null;
         const nameWithPeer = peerSuffix ? `${name}${peerSuffix}` : name;
-        const fetchRange = ['FetchBlocks', 'RequestRange'].includes(name) ? extractRangePayload(rawInput) : null;
+        const fetchRange = ['FetchBlocks', 'RequestRange', 'RequestRange2'].includes(name) ? extractRangePayload(rawInput) : null;
         const moreHashes = name === 'More' ? extractSpecificHashList(rawInput) : [];
+        const isOriginPoint = /\bOrigin\b/.test(rawInput || '');
         const withStep = (title) => stepNumber != null ? `${title} [step ${stepNumber}]` : title;
         const inferredRange = name === 'Blocks' ? pendingBlockRanges.get(String(peer || '')) : null;
 
@@ -2717,6 +3092,63 @@
             };
         }
 
+        if (name === 'FetchNextFrom' && isOriginPoint) {
+            return {
+                text: 'FetchNextFrom(Origin)',
+                title: withStep('FetchNextFrom(Origin)')
+            };
+        }
+
+        if (name === 'FetchNextFrom' && hasHash) {
+            return {
+                text: `FetchNextFrom(${shortHash(hash)})`,
+                title: withStep(`FetchNextFrom(${String(hash)})`)
+            };
+        }
+
+        if (name === 'TipFromUpstream') {
+            const upstreamHash = extractTipFromUpstreamHash(rawInput);
+            if (upstreamHash) {
+                return {
+                    text: `TipFromUpstream(${shortHash(upstreamHash)})`,
+                    title: withStep(`TipFromUpstream(${upstreamHash})`)
+                };
+            }
+        }
+
+        if (name === 'RequestRange2' && fetchRange) {
+            const shortFrom = fetchRange.from ? String(fetchRange.from).slice(0, 7) : '?';
+            const shortThrough = fetchRange.through ? String(fetchRange.through).slice(0, 7) : '?';
+            return {
+                text: `RequestRange2(${shortFrom}, ${shortThrough})`,
+                title: withStep(`RequestRange2(${fetchRange.from || '?'}, ${fetchRange.through || '?'})`)
+            };
+        }
+
+        if (name === 'BlockValidationResult' && hasHash) {
+            const result = extractLastBoolean(rawInput);
+            if (result != null) {
+                return {
+                    text: `BlockValidationResult(${shortHash(hash)}, ${result})`,
+                    title: withStep(`BlockValidationResult(${String(hash)}, ${result})`)
+                };
+            }
+        }
+
+        if (name === 'ValidateBlock' && hasHash) {
+            return {
+                text: `ValidateBlock(${shortHash(hash)})`,
+                title: withStep(`ValidateBlock(${String(hash)})`)
+            };
+        }
+
+        if (name === 'AdoptChain' && hasHash) {
+            return {
+                text: `AdoptChain(${shortHash(hash)})`,
+                title: withStep(`AdoptChain(${String(hash)})`)
+            };
+        }
+
         if (fetchRange && peerPort) {
             const fromShort = shortHash(fetchRange.from);
             const throughShort = shortHash(fetchRange.through);
@@ -2726,14 +3158,15 @@
             };
         }
 
+        if (name === 'NewTip' && hasHash) {
+            return {
+                text: `${name}(${shortHash(hash)})`,
+                title: withStep(`${name}(${String(hash)})`)
+            };
+        }
+
         if (hasHash) {
             const short = shortHash(hash);
-            if (!hasPeer && name === 'NewTip') {
-                return {
-                    text: `${name}(${short})`,
-                    title: withStep(`${name}(${String(hash)})`)
-                };
-            }
             if (peerPort) {
                 return {
                     text: `${name}(${peerPort}, ${short})`,
@@ -2799,58 +3232,6 @@
         // Ensure labels under this stage are stacked without gaps/overlaps
         layoutStageLabels(stageName);
         ensureCanvasHeightForLabels();
-    }
-
-    // Show a message label on the destination stage from a send suspend event.
-    // Track the message name so we can match it when the input arrives.
-    function showLabelFromSend(ev) {
-        const eff = ev.raw && ev.raw.effect;
-        if (!eff || eff.type !== 'send') return;
-        const destRaw = eff.to;
-        if (!destRaw) return;
-        const from = canonicalStageName(eff.from || '');
-        let dest = canonicalStageName(destRaw);
-        // Resolve contramap aliases to the original stage name
-        const resolved = contramapAliases.get(dest);
-        if (resolved) dest = resolved;
-        const msg = String(eff.msg || '');
-        if (from.startsWith('mux') && msg === '') return;
-        const h = extractHash(msg);
-        const peer = extractPeer(msg)
-            || connectionStageRoot(from)
-            || connectionStageRoot(dest)
-            || inferPeerForStage(from)
-            || inferPeerForStage(dest);
-        let ttype = messageNameForPayload(msg, dest);
-        // Name empty/unrecognized messages by destination stage or content
-        if (ttype === 'unknown' && dest.startsWith('reader')) ttype = 'Read';
-        if (ttype === 'unknown' && msg === '') ttype = 'Ready';
-        if (ttype === 'unknown' && (msg.includes('<bytes>') || msg.includes('<msg:'))) ttype = 'Bytes';
-        // FromNetwork means the tag wasn't resolved — use a generic label
-        if (ttype === 'FromNetwork') ttype = 'Bytes';
-        maybeRememberBlockRange(ttype, msg, peer);
-        maybeMarkBlocksReceived(ttype, peer);
-        // Track this send so we can match it to the corresponding input
-        if (!pendingSends.has(dest)) pendingSends.set(dest, []);
-        pendingSends.get(dest).push(ttype);
-        showHashForStage(dest, h, peer, ttype, msg, ev.step ?? iEvent);
-    }
-
-    // Check if an input was already accounted for by a prior send (match by message name).
-    // If msgName is "unknown", match any pending send (the send had a better name).
-    function inputHasPriorSend(stageName, msgName) {
-        const q = pendingSends.get(stageName);
-        if (!q || q.length === 0) return false;
-        if (msgName === 'unknown' && q.length > 0) {
-            q.shift();
-            return true;
-        }
-        const idx = q.indexOf(msgName);
-        if (idx >= 0) {
-            q.splice(idx, 1);
-            return true;
-        }
-        return false;
     }
 
     function showEffectLabel(stageName, effectLabel) {
@@ -3137,7 +3518,8 @@
             return '<span class="tok-punct">' + esc(p) + '</span>';
         }
 
-        function render(val, depth) {
+        const MAX_PRETTY_DEPTH = 24;
+        function render(val, depth, path = new Set()) {
             const pad = '  '.repeat(depth);
             const padNext = '  '.repeat(depth + 1);
             if (val === null) return '<span class="tok-null">null</span>';
@@ -3145,12 +3527,16 @@
             if (t === 'string') return renderString(val);
             if (t === 'number') return '<span class="tok-number">' + String(val) + '</span>';
             if (t === 'boolean') return '<span class="tok-boolean">' + String(val) + '</span>';
+            if (depth >= MAX_PRETTY_DEPTH) return '<span class="tok-muted">…</span>';
+            if (t === 'object' && path.has(val)) return '<span class="tok-muted">[Circular]</span>';
 
             if (Array.isArray(val)) {
                 if (val.length === 0) return renderPunct('[]');
+                const nextPath = new Set(path);
+                nextPath.add(val);
                 let out = renderPunct('[') + '\n';
                 for (let i = 0; i < val.length; i++) {
-                    out += padNext + render(val[i], depth + 1);
+                    out += padNext + render(val[i], depth + 1, nextPath);
                     out += (i < val.length - 1 ? renderPunct(',') : '') + '\n';
                 }
                 out += pad + renderPunct(']');
@@ -3160,10 +3546,12 @@
             if (t === 'object') {
                 const keys = Object.keys(val);
                 if (keys.length === 0) return renderPunct('{}');
+                const nextPath = new Set(path);
+                nextPath.add(val);
                 let out = renderPunct('{') + '\n';
                 for (let i = 0; i < keys.length; i++) {
                     const k = keys[i];
-                    out += padNext + renderKey(k) + renderPunct(': ') + render(val[k], depth + 1);
+                    out += padNext + renderKey(k) + renderPunct(': ') + render(val[k], depth + 1, nextPath);
                     out += (i < keys.length - 1 ? renderPunct(',') : '') + '\n';
                 }
                 out += pad + renderPunct('}');
@@ -3203,27 +3591,19 @@
                     const ttype = messageNameForEvent(ev);
                     maybeRememberBlockRange(ttype, ev.input, peer);
                     maybeMarkBlocksReceived(ttype, peer);
+                    maybeMarkValidatedHeader(ev);
+                    maybeAddTipFromUpstreamToTree(ev);
+                    maybeSelectAdoptedHeader(ev);
                     addRunnableFromInputEvent(ev);
                     setCurrentTrace(ev, h, peer, ttype);
                     setDebugTrace(ev);
-                    // Only add label if no prior send already placed one (external input)
-                    if (!inputHasPriorSend(ev.stage, ttype)) {
-                        showHashForStage(ev.stage, h, peer, ttype, ev.input, ev.step ?? (iEvent + 1));
-                    }
-                    if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
+                    showHashForStage(ev.stage, h, peer, ttype, ev.input, ev.step ?? (iEvent + 1));
                 } else if (ev.kind === 'processed') {
                     consumeProcessedLabel(ev.stage);
                     setCurrentTrace(ev);
                     setDebugTrace(ev);
                 } else if (ev.kind === 'suspend') {
                     clearEffectBadges();
-                    const effectType = ev.raw && ev.raw.effect && ev.raw.effect.type;
-                    if (effectType === 'send') {
-                        showLabelFromSend(ev);
-                    }
-                    if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
-                    const selectedHash = extractSelectedHeaderHash(ev);
-                    if (selectedHash) selectHeaderInTree(selectedHash);
                     markSuspend(ev.stage);
                     highlightStage(ev.stage, 'suspend');
                     addRunnableFromSuspendEvent(ev);
@@ -3269,7 +3649,6 @@
         prevActive = null;
         hashCounts = new Map();
         suspendedStages = new Set();
-        pendingSends = new Map();
         pendingBlockRanges = new Map();
 
         // replay events up to target
@@ -3287,21 +3666,14 @@
                 const ttype = messageNameForEvent(ev);
                 maybeRememberBlockRange(ttype, ev.input, peer);
                 maybeMarkBlocksReceived(ttype, peer);
+                maybeMarkValidatedHeader(ev);
+                maybeAddTipFromUpstreamToTree(ev);
+                maybeSelectAdoptedHeader(ev);
                 addRunnableFromInputEvent(ev);
-                if (!inputHasPriorSend(ev.stage, ttype)) {
-                    showHashForStage(ev.stage, h, peer, ttype, ev.input, ev.step ?? (iEvent + 1));
-                }
-                if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
+                showHashForStage(ev.stage, h, peer, ttype, ev.input, ev.step ?? (iEvent + 1));
             } else if (ev.kind === 'processed') {
                 consumeProcessedLabel(ev.stage);
             } else if (ev.kind === 'suspend') {
-                const effectType = ev.raw && ev.raw.effect && ev.raw.effect.type;
-                if (effectType === 'send') {
-                    showLabelFromSend(ev);
-                }
-                if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
-                const selectedHash = extractSelectedHeaderHash(ev);
-                if (selectedHash) selectHeaderInTree(selectedHash);
                 markSuspend(ev.stage);
                 highlightStage(ev.stage, 'suspend');
                 addRunnableFromSuspendEvent(ev);
