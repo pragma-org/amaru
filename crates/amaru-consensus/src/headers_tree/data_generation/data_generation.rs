@@ -23,6 +23,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER};
+use amaru_kernel::cardano::network_block::make_block_with_header;
 use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use proptest::prelude::Strategy;
@@ -79,12 +80,17 @@ impl GeneratedTree {
     }
 }
 
+/// Starting slot for generated test headers.
+/// This must fall within the Conway era for Preprod (starts at slot 68,774,400)
+/// to ensure consistency between slot-based era lookup and header structure.
+const TEST_START_SLOT: u64 = 68_774_400;
+
 /// Generate a tree of headers of a given depth.
 /// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
 pub fn generate_tree_of_headers(seed: u64, depth: usize) -> GeneratedTree {
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let root = generate_header(1, 1, None, &mut rng);
+    let root = generate_header(1, TEST_START_SLOT + 1, None, &mut rng);
     let mut root_tree = Tree::make_leaf(&root);
     let mut spine = generate_header_subtree(&mut rng, &mut root_tree, depth, depth - 1);
     spine.insert(0, root);
@@ -152,7 +158,7 @@ fn generate_header_subtree(
 /// them to the previous header in the chain until the desired length is reached.
 pub fn generate_headers_chain(length: usize) -> Vec<BlockHeader> {
     let mut rng = StdRng::seed_from_u64(42);
-    generate_headers(length, 1, 1, None, &mut rng)
+    generate_headers(length, 1, TEST_START_SLOT, None, &mut rng)
 }
 
 /// Generate just one header
@@ -234,7 +240,11 @@ fn generate_header(block: u64, slot: u64, parent: Option<HeaderHash>, rng: &mut 
     let mut header: Header = make_header(block, slot, parent);
     // introduce some randomness in the header so that the hash is not predictable
     header.body_signature = Bytes::from(random_bytes_with_rng(HEADER, rng));
-    BlockHeader::from(header)
+    let block_header = BlockHeader::from(header);
+
+    // Normalize the header through a realizable block so its hash stays consistent
+    // with the raw block bytes that blockfetch later serves in simulation tests.
+    BlockHeader::from(make_block_with_header(&block_header).header)
 }
 
 /// Very simple function to generate random sequence of bytes of given length.
@@ -253,6 +263,14 @@ mod tests {
         let tree = generate_tree_of_headers(42, 5).tree;
         assert_eq!(tree.depth(), 5);
         check_nodes(&tree);
+    }
+
+    #[test]
+    fn generated_header_matches_reconstructed_block_header() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let header = generate_header(1, TEST_START_SLOT + 1, None, &mut rng);
+        let reconstructed = BlockHeader::from(make_block_with_header(&header).header);
+        assert_eq!(header, reconstructed);
     }
 
     // HELPERS

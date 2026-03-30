@@ -18,7 +18,7 @@ use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHeaderValidation},
     headers_tree::data_generation::Action,
 };
-use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
+use amaru_kernel::{BlockHeight, EraHistory, GlobalParameters, IsHeader, Tip, Transaction, cardano::network_block::make_encoded_block};
 use amaru_ouroboros::{
     ChainStore, ConnectionsResource, ResourceMempool,
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
@@ -71,7 +71,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 pub fn create_node(
     node_config: &NodeTestConfig,
     stage_graph: &mut impl StageGraph,
-) -> anyhow::Result<(StageRef<ManagerMessage>, StageRef<Action>)> {
+) -> anyhow::Result<(StageRef<ManagerMessage>, Option<StageRef<Action>>)> {
     let config = node_config.make_node_configuration()?;
     let global_parameters: &GlobalParameters = config.network.into();
     let mut global_parameters = global_parameters.clone();
@@ -84,12 +84,20 @@ pub fn create_node(
         .map_err(|e| anyhow!("Cannot build node.\nThe node config is\n{:?}\n\nThe error is {e:?}", node_config))?;
 
     // The actions stage allows us to send NewTip messages to the manager so that chainsync
-    // events can be sent to the node under test.
-    let actions_stage = stage_graph.stage("actions", actions_stage);
-    let actions_stage = stage_graph.wire_up(actions_stage, (manager_stage.clone(), node_config.seed));
+    // events can be sent to the node under test. Only create it for nodes that have actions.
+    let actions_stage = if node_config.actions.is_empty() {
+        None
+    } else {
+        let actions_stage = stage_graph.stage("actions", actions_stage);
+        let actions_stage = stage_graph.wire_up(
+            actions_stage,
+            (manager_stage.clone(), node_config.seed, Arc::new(node_config.era_history().clone())),
+        );
+        Some(actions_stage.without_state())
+    };
 
     set_resources(node_config, stage_graph)?;
-    Ok((manager_stage, actions_stage.without_state()))
+    Ok((manager_stage, actions_stage))
 }
 
 /// This starts a responder node with a preset configuration for tests.
@@ -112,7 +120,7 @@ pub fn start_initiator(
     Ok(())
 }
 
-type ActionsState = (StageRef<ManagerMessage>, u64);
+type ActionsState = (StageRef<ManagerMessage>, u64, Arc<EraHistory>);
 
 /// Create an "actions" stage to send NewTip messages to the Manager, and eventually to the node
 /// under test.
@@ -122,7 +130,7 @@ type ActionsState = (StageRef<ManagerMessage>, u64);
 /// from the ChainStore.
 ///
 async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -> ActionsState {
-    let (manager_stage, seed) = &state;
+    let (manager_stage, seed, era_history) = &state;
     tracing::info!("Received action: {msg:?}");
     let store = Store::new(eff.clone());
     let tip = match &msg {
@@ -132,6 +140,13 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
                 .store_header(header)
                 .or_terminate(&eff, |e| async move {
                     tracing::error!("Cannot store the header {}: {e:?}. The seed is {seed}", &header);
+                })
+                .await;
+            let raw_block = make_encoded_block(header, era_history);
+            store
+                .store_block(&header.hash(), &raw_block)
+                .or_terminate(&eff, |e| async move {
+                    tracing::error!("Cannot store the block {}: {e:?}. The seed is {seed}", header.point());
                 })
                 .await;
             store

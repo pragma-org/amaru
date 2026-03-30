@@ -30,6 +30,30 @@ use pure_stage::{
 
 use crate::tests::configuration::{NodeTestConfig, NodeType};
 
+/// Holds the actions stage and its pending actions for upstream nodes that
+/// inject generated block headers into the simulation.
+pub struct ActionsStage {
+    stage: StageRef<Action>,
+    pending: VecDeque<Action>,
+}
+
+impl ActionsStage {
+    pub fn new(stage: StageRef<Action>, actions: Vec<Action>) -> Self {
+        Self { stage, pending: VecDeque::from(actions) }
+    }
+
+    /// Pop one pending action and enqueue it for execution.
+    pub fn enqueue_pending(&mut self, running: &mut SimulationRunning) {
+        if let Some(action) = self.pending.pop_front() {
+            running.enqueue_msg(&self.stage, [action]);
+        }
+    }
+
+    pub fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+}
+
 /// A node with its identifier for logging purposes.
 ///
 /// The setup of the node depends on its configuration.
@@ -39,16 +63,13 @@ use crate::tests::configuration::{NodeTestConfig, NodeType};
 ///  - A node id to uniquely identify that node in the logs and traces.
 ///  - A running stage graph containing the currently running execution graph for the node.
 ///  - An access point to the manager stage to possibly inject `ManagerMessages`
-///  - An access point to the actions stage to inject generated actions if that node is an upstream node.
-///  - A list of pending actions to inject in the node during a test, if this node is a peer driving the test
-///    (and not the node under test or a downstream node).
+///  - An optional actions stage to inject generated actions if that node is an upstream node.
 ///
 pub struct Node {
     config: NodeTestConfig,
     running: SimulationRunning,
     manager_stage: StageRef<ManagerMessage>,
-    actions_stage: StageRef<Action>,
-    pending_actions: VecDeque<Action>,
+    actions_stage: Option<ActionsStage>,
     initialized: bool,
 }
 
@@ -58,17 +79,16 @@ impl Node {
         config: NodeTestConfig,
         running: SimulationRunning,
         manager_stage: StageRef<ManagerMessage>,
-        actions_stage: StageRef<Action>,
+        actions_stage: Option<StageRef<Action>>,
     ) -> Self {
-        // If the config defines some actions to execute, we store them as pending for now.
         let actions = config.actions.clone();
+        let actions_stage = actions_stage.map(|stage| ActionsStage::new(stage, actions));
 
         let mut node = Self {
             config,
             running,
             manager_stage,
             actions_stage,
-            pending_actions: VecDeque::from(actions),
             initialized: false,
         };
         node.install_breakpoint_for_initialization();
@@ -157,10 +177,10 @@ impl Node {
         self.running.is_terminated()
     }
 
-    /// Pop one pending action and enqueue it for execution
+    /// Pop one pending action and enqueue it for execution.
     pub fn enqueue_pending_action(&mut self) {
-        if let Some(action) = self.pending_actions.pop_front() {
-            self.running.enqueue_msg(&self.actions_stage, [action]);
+        if let Some(actions) = &mut self.actions_stage {
+            actions.enqueue_pending(&mut self.running);
         }
     }
 
@@ -186,7 +206,7 @@ impl Node {
 
     /// Return true if the node still has pending actions to enqueue.
     pub fn has_pending_actions(&self) -> bool {
-        !self.pending_actions.is_empty()
+        self.actions_stage.as_ref().is_some_and(|a| a.has_pending())
     }
 
     /// Return true if the node still has runnable effects.
