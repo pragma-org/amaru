@@ -14,7 +14,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::{Block, BlockHeader, Point};
+use amaru_kernel::{Block, BlockHeader, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -30,6 +30,14 @@ pub trait CanValidateBlocks: Send + Sync {
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;
+
+    fn contains_point(&self, point: &Point) -> bool;
+
+    fn tip(&self) -> Point;
+
+    /// The chain tip of the volatile in-memory ledger view, if any (`VolatileDB::view_back`).
+    /// When `None`, the applied ledger tip is entirely in stable storage.
+    fn volatile_tip(&self) -> Option<Tip>;
 }
 #[derive(Debug, Error)]
 pub struct BlockValidationError(anyhow::Error);

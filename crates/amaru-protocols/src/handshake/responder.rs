@@ -69,7 +69,7 @@ impl StageState<State, Responder> for HandshakeResponder {
         match input {}
     }
 
-    #[instrument(name = "handshake.responder.stage", skip_all, fields(version_table = %input.0))]
+    #[instrument(level = "debug", name = "handshake.responder.stage", skip_all, fields(version_table = %input.0))]
     async fn network(
         self,
         _proto: &State,
@@ -100,7 +100,7 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), Self::Propose))
     }
 
-    #[instrument(name = "handshake.responder.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "handshake.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         anyhow::ensure!(self == &Self::Propose, "handshake responder cannot receive in confirm state");
         match (self, input) {

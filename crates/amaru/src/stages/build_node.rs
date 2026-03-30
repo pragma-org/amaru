@@ -16,12 +16,11 @@ use std::sync::Arc;
 
 use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceMeter},
-    errors::ConsensusError,
-    headers_tree::HeadersTreeState,
-    stages::{pull::SyncTracker, select_chain::SelectChain, validate_header::ValidateHeader},
+    stages::{select_chain_new::cmp_tip, validate_header::ValidateHeader},
 };
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, ORIGIN_HASH, Peer, Transaction,
+    BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point,
+    Transaction,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
@@ -40,7 +39,6 @@ use pure_stage::{
     tokio::{TokioBuilder, TokioRunning},
 };
 use tokio::runtime::Handle;
-use tracing::info;
 
 use crate::stages::{
     build_stage_graph::build_stage_graph,
@@ -80,23 +78,58 @@ pub fn build_node(
     let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone())
         .context("Failed to create ledger. Have you bootstrapped your node?")?;
 
-    let tip = ledger.get_tip();
-    info!(
-        tip.hash = %tip.hash(),
-        tip.slot = u64::from(tip.slot_or_default()),
-        "build_node"
+    let ledger_tip = ledger.get_tip();
+    tracing::info!(
+        tip.hash = %ledger_tip.hash(),
+        tip.slot = u64::from(ledger_tip.slot_or_default()),
+        "build_ledger"
     );
 
     // Make the chain store, either from the network resources if already set
     // or from the configuration.
     // This also makes sure that the chain store tip and anchors are exactly aligned to the
     // ledger tip.
-    let chain_store = initialize_chain_store(config, &tip.hash())?;
-    let tip = chain_store.load_tip(&tip.hash()).context("the ledger tip must exist in the chain store")?;
+    let chain_store = initialize_chain_store(config, ledger_tip)?;
+    let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
+
+    let best_candidates = chain_store
+        .child_tips(&chain_store.get_best_chain_hash())
+        .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
+            if tip.block_height() > best_height {
+                hashes.clear();
+                hashes.push(tip.hash());
+                (tip.block_height(), hashes)
+            } else if tip.block_height() == best_height {
+                hashes.push(tip.hash());
+                (best_height, hashes)
+            } else {
+                (best_height, hashes)
+            }
+        })
+        .1;
+    let best_candidate = best_candidates
+        .into_iter()
+        .map(|h| chain_store.load_header(&h))
+        .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
+        .flatten();
+    let anchor = chain_store.get_anchor_hash();
+    let mut best_missing = vec![];
+    if let Some(best_candidate) = best_candidate.as_ref() {
+        for (header, validity) in chain_store.ancestors_with_validity(best_candidate.hash()) {
+            // the anchor cannot be validated, so don"t return it
+            if validity.is_none() && header.hash() != anchor {
+                best_missing.push(header.hash());
+            } else {
+                break;
+            }
+        }
+        best_missing.reverse();
+    }
+
+    let tip = best_candidate.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
+    tracing::info!(%tip, "build_chain");
 
     // Make resources
-    let peers = config.upstream_peers.iter().map(|p| Peer::new(p)).collect();
-    let chain_selector = make_chain_selector(chain_store.clone(), &peers, global_parameters.consensus_security_param)?;
     let validate_header =
         make_validate_header(global_parameters, era_history, chain_store.clone(), ledger.get_stake_distribution()?);
 
@@ -104,8 +137,9 @@ pub fn build_node(
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
 
     // Build the stage graph and return a reference to the manager stage
+    let best_candidate = best_candidate.map(|h| (h, best_missing));
     let manager_stage =
-        build_stage_graph(config, era_history, chain_selector, SyncTracker::new(&peers), tip, stage_builder);
+        build_stage_graph(config, era_history, global_parameters, ledger_tip, best_candidate, stage_builder);
 
     // Open a port to listen for downstream peers
     stage_builder
@@ -146,9 +180,8 @@ fn register_resources(
     };
 }
 
-/// This function migrates the database if necessary and
-/// sets the tip and anchor of the chain store to the ledger tip.
-fn initialize_chain_store(config: &Config, tip: &HeaderHash) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
+/// This function migrates the database if necessary
+fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
         StoreType::InMem(ref chain_store) => chain_store.clone(),
         StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
@@ -157,29 +190,16 @@ fn initialize_chain_store(config: &Config, tip: &HeaderHash) -> anyhow::Result<A
         StoreType::RocksDb(ref rocks_db_config) => Arc::new(RocksDBStore::open(rocks_db_config)?),
     };
 
-    if *tip != ORIGIN_HASH && chain_store.load_header(tip).is_none() {
-        anyhow::bail!("Tip {} not found in chain database '{}'", tip, config.chain_store)
-    };
-
-    chain_store.set_anchor_hash(tip)?;
-    chain_store.set_best_chain_hash(tip)?;
-
-    Ok(chain_store)
-}
-
-fn make_chain_selector(
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
-    peers: &Vec<Peer>,
-    consensus_security_parameter: usize,
-) -> Result<SelectChain, ConsensusError> {
-    let mut tree_state = HeadersTreeState::new(consensus_security_parameter);
-
-    let anchor = chain_store.get_anchor_hash();
-    for peer in peers {
-        tree_state.initialize_peer(chain_store.clone(), peer, &anchor)?;
+    if chain_store.get_anchor_hash() == ORIGIN_HASH {
+        tracing::info!(anchor = %ledger_tip, "setting anchor hash");
+        chain_store.set_anchor_hash(&ledger_tip.hash())?;
+    }
+    if chain_store.get_best_chain_hash() == ORIGIN_HASH {
+        tracing::info!(best_chain = %ledger_tip, "setting best chain hash");
+        chain_store.set_best_chain_hash(&ledger_tip.hash())?;
     }
 
-    Ok(SelectChain::new(tree_state))
+    Ok(chain_store)
 }
 
 fn make_validate_header(

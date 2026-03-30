@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Transaction, TransactionBody, WitnessSet, cbor,
+    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, Tip, Transaction, TransactionBody, WitnessSet, cbor,
     size::{BLOCK_BODY, HEADER},
 };
 
@@ -53,6 +53,11 @@ impl Block {
     /// Number of top-level CBOR fields in a serialized block.
     pub const CBOR_FIELD_COUNT: u64 = 5;
 
+    /// Get the hash of the block's body
+    pub fn body_hash(&self) -> Hash<BLOCK_BODY> {
+        self.hash
+    }
+
     /// Get the size in bytes of the serialised block.
     pub fn body_len(&self) -> u64 {
         self.original_body_size
@@ -65,6 +70,13 @@ impl Block {
 
     pub fn header_hash(&self) -> HeaderHash {
         self.header_hash
+    }
+
+    pub fn tip(&self) -> Tip {
+        Tip::new(
+            Point::Specific(self.header.header_body.slot.into(), self.header_hash),
+            self.header.header_body.block_number.into(),
+        )
     }
 }
 

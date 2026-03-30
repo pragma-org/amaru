@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![deny(clippy::future_not_send)]
+
 pub mod effects;
 pub mod errors;
 pub mod events;

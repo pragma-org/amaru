@@ -64,7 +64,7 @@ impl StageState<State, Initiator> for HandshakeInitiator {
         match input {}
     }
 
-    #[instrument(name = "handshake.initiator.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "handshake.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         self,
         _proto: &State,
@@ -109,7 +109,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Propose), Self::Propose))
     }
 
-    #[instrument(name = "handshake.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "handshake.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         anyhow::ensure!(self == &Self::Confirm, "handshake initiator cannot receive in initial state");
         Ok(match input {

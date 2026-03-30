@@ -117,7 +117,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         })
     }
 
-    #[instrument(name = "chainsync.initiator.stage", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "chainsync.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &InitiatorState,
@@ -156,11 +156,13 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
 fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
     let mut spacing = 1;
     let mut points = Vec::new();
     let best = store.get_best_chain_hash();
     if best == ORIGIN_HASH {
+        tracing::warn!("best chain hash is origin hash");
         return vec![Point::Origin];
     }
     #[expect(clippy::expect_used)]
@@ -179,6 +181,7 @@ fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
     if points.last() != Some(&last) {
         points.push(last);
     }
+    tracing::info!(?points, "intersect points");
     points
 }
 
@@ -229,7 +232,7 @@ impl ProtocolState<Initiator> for InitiatorState {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    #[instrument(name = "chainsync.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "chainsync.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use InitiatorState::*;
 

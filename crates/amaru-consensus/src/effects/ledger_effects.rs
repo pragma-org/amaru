@@ -14,12 +14,13 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Block, BlockHeader, IgnoreEq, Peer, Point};
+use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks,
     can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
 };
+use amaru_protocols::store_effects::ResourceHeaderStore;
 use opentelemetry::trace::FutureExt;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
 
@@ -38,7 +39,6 @@ pub trait LedgerOps: Send + Sync {
         &self,
         peer: &Peer,
         point: &Point,
-        block: Block,
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
@@ -48,6 +48,12 @@ pub trait LedgerOps: Send + Sync {
         point: &Point,
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>>;
+
+    fn contains_point(&self, point: &Point) -> bool;
+
+    fn tip(&self) -> Tip;
+
+    fn volatile_tip(&self) -> Option<Tip>;
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
@@ -56,6 +62,10 @@ pub struct Ledger<T>(Effects<T>);
 impl<T> Ledger<T> {
     pub fn new(effects: Effects<T>) -> Ledger<T> {
         Ledger(effects)
+    }
+
+    pub fn eff(&self) -> &Effects<T> {
+        &self.0
     }
 }
 
@@ -72,10 +82,9 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         &self,
         peer: &Peer,
         point: &Point,
-        block: Block,
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
-        self.0.external(ValidateBlockEffect::new(peer, point, block, ctx))
+        self.0.external(ValidateBlockEffect::new(peer, point, ctx))
     }
 
     fn rollback(
@@ -85,6 +94,18 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>> {
         self.0.external(RollbackBlockEffect::new(peer, point, ctx))
+    }
+
+    fn contains_point(&self, point: &Point) -> bool {
+        self.0.external_sync(ContainsPointEffect::new(point))
+    }
+
+    fn tip(&self) -> Tip {
+        self.0.external_sync(TipEffect)
+    }
+
+    fn volatile_tip(&self) -> Option<Tip> {
+        self.0.external_sync(VolatileTipEffect)
     }
 }
 
@@ -98,23 +119,32 @@ pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub struct ValidateBlockEffect {
     peer: Peer,
     point: Point,
-    block: Block,
     #[serde(skip)]
     ctx: IgnoreEq<opentelemetry::Context>,
 }
 
 impl ValidateBlockEffect {
-    pub fn new(peer: &Peer, point: &Point, block: Block, ctx: opentelemetry::Context) -> Self {
-        Self { peer: peer.clone(), point: *point, block, ctx: ctx.into() }
+    pub fn new(peer: &Peer, point: &Point, ctx: opentelemetry::Context) -> Self {
+        Self { peer: peer.clone(), point: *point, ctx: ctx.into() }
     }
 }
 
 impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let Self { peer: _peer, point, block, ctx } = *self;
+        let Self { peer: _peer, point, ctx } = *self;
         Self::wrap(
             async move {
+                let store = resources
+                    .get::<ResourceHeaderStore>()
+                    .expect("ValidateBlockEffect requires a ResourceHeaderStore resource")
+                    .clone();
+                let block = store
+                    .load_block(&point.hash())
+                    .map_err(|e| BlockValidationError::new(e.into()))?
+                    .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?
+                    .decode()
+                    .map_err(|e| BlockValidationError::new(e.into()))?;
                 let validator = resources
                     .get::<ResourceBlockValidation>()
                     .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
@@ -198,3 +228,82 @@ impl ExternalEffectAPI for RollbackBlockEffect {
 }
 
 impl ExternalEffectSync for RollbackBlockEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ContainsPointEffect {
+    point: Point,
+}
+
+impl ContainsPointEffect {
+    pub fn new(point: &Point) -> Self {
+        Self { point: *point }
+    }
+}
+
+impl ExternalEffect for ContainsPointEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        #[expect(clippy::expect_used)]
+        Self::wrap_sync({
+            let ledger = resources
+                .get::<ResourceBlockValidation>()
+                .expect("ContainsPointEffect requires a ResourceBlockValidation resource")
+                .clone();
+            ledger.contains_point(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for ContainsPointEffect {
+    type Response = bool;
+}
+
+impl ExternalEffectSync for ContainsPointEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TipEffect;
+
+impl ExternalEffect for TipEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let ledger = resources
+                .get::<ResourceBlockValidation>()
+                .expect("TipEffect requires a ResourceBlockValidation resource")
+                .clone();
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("TipEffect requires a ResourceHeaderStore resource")
+                .clone();
+            let point = ledger.tip();
+            store.load_tip(&point.hash()).expect("cannot load header for ledger tip")
+        })
+    }
+}
+
+impl ExternalEffectAPI for TipEffect {
+    type Response = Tip;
+}
+
+impl ExternalEffectSync for TipEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct VolatileTipEffect;
+
+impl ExternalEffect for VolatileTipEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let ledger = resources
+                .get::<ResourceBlockValidation>()
+                .expect("VolatileTipPointEffect requires a ResourceBlockValidation resource")
+                .clone();
+            ledger.volatile_tip()
+        })
+    }
+}
+
+impl ExternalEffectAPI for VolatileTipEffect {
+    type Response = Option<Tip>;
+}
+
+impl ExternalEffectSync for VolatileTipEffect {}
