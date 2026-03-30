@@ -19,7 +19,7 @@ use std::{
 
 use amaru_minicbor_extra::to_cbor;
 
-use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, Slot, cbor};
+use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, IsHeader, RawBlock, Slot, cbor};
 
 /// A network block contains:
 ///  - An era tag identifying the Cardano era of the block, which determines its exact encoding.
@@ -30,11 +30,52 @@ use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, 
 ///  - The raw CBOR bytes of the block, wrapped in a `RawBlock`.
 ///  - The decoded `Block` structure, by decoding the inner CBOR bytes.
 ///  - The decoded `BlockHeader`, by decoding only the header part of the inner CBOR bytes.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[allow(clippy::len_without_is_empty)]
 pub struct NetworkBlock {
     era_tag: EraName,
     encoded_block: Vec<u8>,
+}
+
+impl serde::Serialize for NetworkBlock {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(serde::Serialize)]
+        struct NetworkBlockSer<'a> {
+            era_tag: EraName,
+            encoded_block: &'a [u8],
+            #[serde(skip_serializing_if = "Option::is_none")]
+            header_hash: Option<String>,
+        }
+
+        let helper = NetworkBlockSer {
+            era_tag: self.era_tag,
+            encoded_block: &self.encoded_block,
+            header_hash: self.decode_header().ok().map(|header| header.hash().to_string()),
+        };
+
+        helper.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for NetworkBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct NetworkBlockDe {
+            era_tag: EraName,
+            encoded_block: Vec<u8>,
+            #[allow(dead_code)]
+            header_hash: Option<String>,
+        }
+
+        let helper = NetworkBlockDe::deserialize(deserializer)?;
+        Ok(NetworkBlock { era_tag: helper.era_tag, encoded_block: helper.encoded_block })
+    }
 }
 
 impl NetworkBlock {
@@ -160,5 +201,13 @@ mod network_block_tests {
         let bytes = hex::decode(as_hex).expect("valid hex");
         let network_block: NetworkBlock = minicbor::decode(&bytes).expect("a valid network block");
         assert_eq!(network_block.era_tag, EraName::Conway);
+    }
+
+    #[test]
+    fn serde_includes_header_hash() {
+        let value = serde_json::to_value(&*NETWORK_BLOCK).expect("serialize network block");
+        let header_hash = value.get("header_hash").and_then(serde_json::Value::as_str).expect("serialized header hash");
+
+        assert_eq!(header_hash, NETWORK_BLOCK.decode_header().expect("decode header").hash().to_string());
     }
 }

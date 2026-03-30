@@ -298,11 +298,7 @@ impl SendDataValue {
             Value::Bytes(vs) => {
                 // Try to expose a CBOR message tag if present
                 // This is helpful when building debugging tools on top of the exported trace data.
-                if let Some(tag) = Self::cbor_message_tag(vs) {
-                    write!(f, "<msg:{tag}>")
-                } else {
-                    write!(f, "<bytes>")
-                }
+                if let Some(tag) = Self::cbor_message_tag(vs) { write!(f, "<msg:{tag}>") } else { write!(f, "<bytes>") }
             }
             Value::Array(vs) => {
                 match SendDataValue::array_as_bytes(vs) {

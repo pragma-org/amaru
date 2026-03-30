@@ -65,7 +65,10 @@ impl ChainSyncResponder {
         muxer: StageRef<MuxMessage>,
         era_history: Arc<EraHistory>,
     ) -> (ResponderState, Self) {
-        (ResponderState::Idle { send_rollback: false }, Self { upstream, peer, pointer: Point::Origin, conn_id, muxer, era_history })
+        (
+            ResponderState::Idle { send_rollback: false },
+            Self { upstream, peer, pointer: Point::Origin, conn_id, muxer, era_history },
+        )
     }
 }
 
@@ -82,8 +85,9 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
             ResponderMessage::NewTip(tip) => {
                 tracing::trace!(%tip, "New tip");
                 self.upstream = tip;
-                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream, &self.era_history)
-                    .context("failed to get next header")?;
+                let action =
+                    next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream, &self.era_history)
+                        .context("failed to get next header")?;
                 Ok((action, self))
             }
         }
@@ -106,8 +110,9 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 Ok((Some(action), self))
             }
             ResponderResult::RequestNext => {
-                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream, &self.era_history)
-                    .context("failed to get next header")?;
+                let action =
+                    next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream, &self.era_history)
+                        .context("failed to get next header")?;
                 Ok((action, self))
             }
             ResponderResult::Done => {

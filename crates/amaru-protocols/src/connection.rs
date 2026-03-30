@@ -264,7 +264,8 @@ async fn do_handshake(
             let header = store.load_header(&upstream).expect("best chain hash not found");
             header.tip()
         };
-        let chainsync_responder = register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, era_history.clone(), &eff).await;
+        let chainsync_responder =
+            register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, era_history.clone(), &eff).await;
         let blockfetch_responder = register_blockfetch_responder(&muxer, &eff).await;
 
         State::Responder(StateResponder {

@@ -22,8 +22,10 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER};
-use amaru_kernel::cardano::network_block::make_block_with_header;
+use amaru_kernel::{
+    BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, cardano::network_block::make_block_with_header,
+    make_header, size::HEADER,
+};
 use amaru_ouroboros::ChainStore;
 use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use proptest::prelude::Strategy;
