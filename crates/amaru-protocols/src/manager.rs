@@ -86,7 +86,7 @@ pub struct Manager {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ConnectionState {
     Scheduled,
-    Connected(ConnectionId, StageRef<ConnectionMessage>),
+    Connected(ConnectionId, Role, StageRef<ConnectionMessage>),
     // Does not contain the connection ID because that will be received in the ConnectionDied message.
     Disconnecting,
 }
@@ -226,7 +226,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 return manager;
             };
             match entry {
-                ConnectionState::Connected(_conn_id, connection) => {
+                ConnectionState::Connected(_conn_id, _role, connection) => {
                     eff.send(connection, ConnectionMessage::Disconnect).await;
                     *entry = ConnectionState::Disconnecting;
                 }
@@ -268,7 +268,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
         }
         ManagerMessage::FetchBlocks { peer, from, through, cr } => {
             tracing::trace!(?from, ?through, %peer, "fetching blocks");
-            if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
+            if let Some(ConnectionState::Connected(_, _, connection)) = manager.peers.get(&peer) {
                 eff.send(connection, ConnectionMessage::FetchBlocks { from, through, cr }).await;
             } else {
                 tracing::error!(%peer, "peer not found");
@@ -300,7 +300,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
         ManagerMessage::NewTip(tip) => {
             // forward to all peers
             for conn in manager.peers.values() {
-                if let ConnectionState::Connected(_, connection) = conn {
+                if let ConnectionState::Connected(_, _, connection) = conn {
                     eff.send(connection, ConnectionMessage::NewTip(tip)).await;
                 }
             }
@@ -313,7 +313,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             tracing::debug!(?from, ?through, "fetching blocks");
             for state in manager.peers.values() {
-                let ConnectionState::Connected(_conn_id, connection) = state else {
+                let ConnectionState::Connected(_conn_id, Role::Initiator, connection) = state else {
                     continue;
                 };
                 eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
@@ -355,7 +355,7 @@ async fn start_connection_stage(
         )
         .await;
     eff.send(&connection, ConnectionMessage::Initialize).await;
-    manager.peers.insert(peer, ConnectionState::Connected(conn_id, connection));
+    manager.peers.insert(peer, ConnectionState::Connected(conn_id, role, connection));
 }
 
 pub fn register_deserializers() -> DeserializerGuards {

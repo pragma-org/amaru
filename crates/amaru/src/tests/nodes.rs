@@ -174,7 +174,7 @@ impl Nodes {
 
     /// Pick a random non-terminated node with runnable effects
     fn pick_random_runnable_node(&mut self, rng: &mut RandStdRng) -> Option<&mut Node> {
-        self.pick_random_node(rng, |n| !n.is_terminated() && (n.has_runnable_effects() || n.has_effects()))
+        self.pick_random_node(rng, |n| !n.is_terminated() && n.has_runnable_effects())
     }
 
     fn pick_random_node<F>(&mut self, rng: &mut RandStdRng, mut predicate: F) -> Option<&mut Node>
