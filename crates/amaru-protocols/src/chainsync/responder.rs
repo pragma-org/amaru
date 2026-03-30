@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Reverse;
+use std::{cmp::Reverse, sync::Arc};
 
-use amaru_kernel::{BlockHeader, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{BlockHeader, EraHistory, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -54,6 +54,7 @@ pub struct ChainSyncResponder {
     pointer: Point,
     conn_id: ConnectionId,
     muxer: StageRef<MuxMessage>,
+    era_history: Arc<EraHistory>,
 }
 
 impl ChainSyncResponder {
@@ -62,8 +63,9 @@ impl ChainSyncResponder {
         peer: Peer,
         conn_id: ConnectionId,
         muxer: StageRef<MuxMessage>,
+        era_history: Arc<EraHistory>,
     ) -> (ResponderState, Self) {
-        (ResponderState::Idle { send_rollback: false }, Self { upstream, peer, pointer: Point::Origin, conn_id, muxer })
+        (ResponderState::Idle { send_rollback: false }, Self { upstream, peer, pointer: Point::Origin, conn_id, muxer, era_history })
     }
 }
 
@@ -80,7 +82,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
             ResponderMessage::NewTip(tip) => {
                 tracing::trace!(%tip, "New tip");
                 self.upstream = tip;
-                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream, &self.era_history)
                     .context("failed to get next header")?;
                 Ok((action, self))
             }
@@ -104,7 +106,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 Ok((Some(action), self))
             }
             ResponderResult::RequestNext => {
-                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream, &self.era_history)
                     .context("failed to get next header")?;
                 Ok((action, self))
             }
@@ -125,6 +127,7 @@ fn next_header(
     pointer: &mut Point,
     store: &dyn ReadOnlyChainStore<BlockHeader>,
     tip: Tip,
+    era_history: &EraHistory,
 ) -> anyhow::Result<Option<ResponderAction>> {
     match state {
         ResponderState::CanAwait { send_rollback: true } => {
@@ -158,7 +161,8 @@ fn next_header(
         return next_header_from_tip(pointer, store, tip);
     }
     *pointer = point;
-    Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, EraName::Conway), tip)))
+    let era_name = era_history.slot_to_era_tag(header.slot())?;
+    Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, era_name), tip)))
 }
 
 /// Rollback when the client pointer is on a different fork from our best chain.
@@ -324,7 +328,7 @@ impl ProtocolState<Responder> for ResponderState {
 mod tests {
     use std::sync::Arc;
 
-    use amaru_kernel::{BlockHeader, Hash, Slot, make_header, size::HEADER};
+    use amaru_kernel::{BlockHeader, EraName, Hash, Slot, make_header, size::HEADER};
     use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 
     use super::*;

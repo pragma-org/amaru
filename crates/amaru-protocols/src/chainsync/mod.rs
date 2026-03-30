@@ -40,7 +40,9 @@ use pallas_traverse::MultiEraHeader;
 pub use register::{register_chainsync_initiator, register_chainsync_responder};
 
 mod register {
-    use amaru_kernel::{Peer, Tip};
+    use std::sync::Arc;
+
+    use amaru_kernel::{EraHistory, Peer, Tip};
     use amaru_ouroboros::ConnectionId;
     use pure_stage::{Effects, StageRef};
 
@@ -82,12 +84,13 @@ mod register {
         upstream: Tip,
         peer: Peer,
         conn_id: ConnectionId,
+        era_history: Arc<EraHistory>,
         eff: &Effects<ConnectionMessage>,
     ) -> StageRef<ResponderMessage> {
         let chainsync = eff
             .wire_up(
                 eff.stage("chainsync", responder()).await,
-                ChainSyncResponder::new(upstream, peer, conn_id, muxer.clone()),
+                ChainSyncResponder::new(upstream, peer, conn_id, muxer.clone(), era_history),
             )
             .await;
         eff.send(
