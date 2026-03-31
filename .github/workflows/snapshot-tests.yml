@@ -121,16 +121,18 @@ jobs:
             SHOULD_RUN=false
           fi
 
-          if [ "$SHOULD_RUN" != "true" ]; then
-            echo "Skipping network '${{ matrix.network.name }}' as per input"
-            exit 1
-          fi
-
-          TIMEOUT_RUN="${DEFAULT_TIMEOUT}"
-
           # Determine target epoch using GitHub Actions expressions for reliability
           # Priority: 1) explicit input, 2) fixed epoch from matrix, 3) empty (fetch latest)
           DEMO_TARGET_EPOCH="${{ inputs.demo_target_epoch || (inputs.use_fixed_epoch && matrix.network.target_epoch) || '' }}"
+
+          TIMEOUT_RUN="${DEFAULT_TIMEOUT}"
+
+          if [ "$SHOULD_RUN" != "true" ]; then
+            echo "Skipping network '${{ matrix.network.name }}' as per input"
+            echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+            echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
           if [ -n "$DEMO_TARGET_EPOCH" ]; then
             echo "Using DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
@@ -263,7 +265,7 @@ jobs:
           echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
 
       - name: Run node
-        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
         shell: bash
         run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
 

@@ -105,8 +105,13 @@ impl FetchBlocks {
             return store.eff().terminate().await;
         }
         self.missing.reverse();
-        // TODO make configurable
-        self.missing.truncate(10);
+        // TODO: make configurable
+        // Fetch up to 20 blocks per batch. This balances throughput (fewer round trips)
+        // against the 2.5MB mux buffer for blockfetch: blocks are drained from the buffer
+        // as they arrive, but too large a batch can overflow it if blocks accumulate faster
+        // than they are processed. Conway-era blocks average ~90KB each, so 20 blocks fits
+        // comfortably within the buffer (~1.8MB) without risking overflow or timeout storms.
+        self.missing.truncate(20);
         // only the first parent is not enough
         if self.missing.len() < 2 {
             self.missing.clear();
@@ -126,7 +131,13 @@ impl FetchBlocks {
                 ManagerMessage::FetchBlocks2 { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
             )
             .await;
-        let timeout = store.eff().schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
+        // Base 5s timeout + 0.1s per block in the batch.
+        // For the max batch of 100 blocks, this gives ~15s. Even with large Conway-era
+        // blocks (~90KB each), 100 blocks is ~9MB which transfers in seconds on a typical
+        // connection. Keeping the timeout short ensures fast recovery from unresponsive peers.
+        let timeout_secs = 5 + (self.missing.len() as u64 / 10);
+        let timeout =
+            store.eff().schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(timeout_secs)).await;
         self.timeout = Some(timeout);
     }
 

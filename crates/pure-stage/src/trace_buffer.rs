@@ -415,11 +415,11 @@ impl TraceBuffer {
     }
 
     fn push<T: serde::Serialize>(&mut self, msg: T) {
-        let msg = to_cbor(&(Instant::now(), msg));
-
         if self.max_size == 0 {
             return;
         }
+
+        let msg = to_cbor(&(Instant::now(), msg));
 
         self.used_size += msg.len();
 
