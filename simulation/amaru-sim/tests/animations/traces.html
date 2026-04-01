@@ -87,6 +87,37 @@
             width: 160px;
         }
 
+        .stepBox {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--muted);
+            padding: 6px 8px 6px 6px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: white;
+        }
+
+        .stepBox input[type="text"] {
+            width: 2ch;
+            min-width: 2ch;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: var(--ink);
+            font: inherit;
+            text-align: left;
+            font-variant-numeric: tabular-nums;
+            outline: none;
+        }
+
+        .stepBox .sep,
+        .stepBox .total {
+            color: var(--ink);
+            font-variant-numeric: tabular-nums;
+        }
+
         #speedVal {
             font-variant-numeric: tabular-nums;
             font-weight: 600;
@@ -114,12 +145,107 @@
             font-weight: 600;
         }
 
+        .accordion {
+            border-bottom: 1px solid #e5e7eb;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .accordionToggle {
+            appearance: none;
+            border: 0;
+            background: #fff;
+            padding: 12px 14px;
+            font: inherit;
+            font-weight: 600;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+
+        .accordionToggle:hover {
+            background: #f9fafb;
+        }
+
+        .accordionToggle .chevron {
+            color: var(--muted);
+            transition: transform 0.15s ease;
+        }
+
+        .accordion[data-open="false"] .accordionToggle .chevron {
+            transform: rotate(-90deg);
+        }
+
         .stack {
             flex: 1 1 auto;
             min-height: 0;
             padding: 12px 14px 24px 14px;
             overflow: auto;
             background: var(--stack-bg);
+        }
+
+        .accordion[data-open="false"] .stack {
+            display: none;
+        }
+
+        .headerTreePanel {
+            min-height: 0;
+            padding: 8px 0 12px;
+            overflow: auto;
+            background: #fff;
+        }
+
+        .accordion[data-open="false"] .headerTreePanel {
+            display: none;
+        }
+
+        .headerTreeSvg {
+            display: block;
+            width: 100%;
+            min-height: 140px;
+            background: #fff;
+        }
+
+        .headerTreeEdge {
+            stroke: #cbd5e1;
+            stroke-width: 1.5;
+            fill: none;
+        }
+
+        .headerTreeNode {
+            fill: #fff;
+            stroke: #94a3b8;
+            stroke-width: 1.5;
+        }
+
+        .headerTreeNode.placeholder {
+            stroke-dasharray: 3 3;
+            fill: #f8fafc;
+        }
+
+        .headerTreeNode.filled {
+            fill: #dbeafe;
+            stroke: #60a5fa;
+        }
+
+        .headerTreeNode.selected {
+            fill: #fce7f3;
+            stroke: #ec4899;
+            stroke-width: 2.5;
+        }
+
+        .headerTreeLabel {
+            font-size: 12px;
+            fill: #334155;
+            dominant-baseline: middle;
+        }
+
+        .headerTreeEmpty {
+            font-size: 12px;
+            fill: #94a3b8;
         }
 
         .stackItem {
@@ -258,6 +384,75 @@
             background: white;
         }
 
+        .helpButton {
+            position: absolute;
+            right: 18px;
+            bottom: 18px;
+            width: 34px;
+            height: 34px;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.95);
+            color: var(--ink);
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+            z-index: 20;
+        }
+
+        .helpButton:hover {
+            background: #f8fafc;
+        }
+
+        .shortcutsPanel {
+            position: absolute;
+            right: 18px;
+            bottom: 60px;
+            width: 320px;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+            z-index: 20;
+        }
+
+        .shortcutsPanel h2 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: var(--ink);
+        }
+
+        .shortcutsPanel ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        .shortcutsPanel li {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .shortcutsPanel kbd {
+            min-width: 52px;
+            padding: 2px 6px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #f8fafc;
+            color: var(--ink);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 11px;
+            text-align: center;
+        }
+
         svg {
             display: block;
             background: white;
@@ -275,6 +470,17 @@
             stroke: var(--node-stroke);
             stroke-width: 2;
             transition: stroke-width .2s ease, fill .2s ease;
+        }
+
+        .resumeNode.hiddenStage {
+            stroke-dasharray: 4 3;
+            stroke: #cbd5e1;
+            fill: #f8fafc;
+            opacity: 1;
+        }
+
+        .stageLabel.hiddenStage {
+            opacity: 0.35;
         }
 
         .resumeNode.active {
@@ -316,6 +522,18 @@
             text-anchor: middle;
         }
 
+        .hashBadgeBg {
+            display: none;
+        }
+
+        .hashStackBg {
+            fill: #f3f4f6;
+            stroke: #e5e7eb;
+            stroke-width: 1;
+            rx: 6;
+            ry: 6;
+        }
+
         .effectLabel {
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
             font-size: 12px;
@@ -338,15 +556,30 @@
         }
 
         .statusBar {
-            padding: 8px 14px;
-            border-top: 1px solid #e5e7eb;
+            margin-top: auto;
+            padding: 10px 14px;
+            border-top: 1px solid #d1d5db;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 -8px 20px rgba(15, 23, 42, 0.04);
             font-size: 13px;
             color: var(--muted);
             display: flex;
             justify-content: space-between;
             gap: 8px;
+            z-index: 3;
         }
-    </style>
+
+        .statusBar span:first-child {
+            display: inline-block;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 6px 10px;
+            color: var(--ink);
+        }
+</style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
 <header>
@@ -355,26 +588,46 @@
         <input type="file" id="fileInput" accept=".json" hidden>
         <button id="playPause">Play</button>
         <button id="restart">Restart</button>
+        <button id="fastStepBack" title="Fast step backward">◀◀</button>
         <button id="stepBack" title="Step backward">◀ Step</button>
+        <div class="stepBox">
+            <input id="stepInput" type="text" inputmode="numeric" value="0" aria-label="Current step"/>
+            <span class="sep">/</span>
+            <span id="stepTotal" class="total">0</span>
+        </div>
         <button id="stepFwd" title="Step forward">Step ▶</button>
-        <label class="debugCtl"><input id="debugToggle" type="checkbox"> debug</label>
+        <button id="fastStepFwd" title="Fast step forward">▶▶</button>
+        <label class="debugCtl"><input id="debugToggle" type="checkbox" checked> details</label>
     </div>
 
     <div class="controls">
         <label for="speed">Speed</label>
-        <input id="speed" type="range" min="0.10" max="100.0" step="0.1" value="1.0"/>
-        <span id="speedVal">x1.00</span>
+        <input id="speed" type="range" min="1" max="1000" step="1" value="1"/>
+        <span id="speedVal">x1</span>
     </div>
-
-    <h1>Traces animation</h1>
 </header>
 
 <main>
     <aside>
         <div id="currentTrace" class="currentTrace" aria-live="polite"></div>
         <div id="debugPanel" class="debugPanel" hidden></div>
-        <div class="stackHeader">Runnable stack</div>
-        <div id="stack" class="stack" aria-live="polite"></div>
+        <section id="headerTreeAccordion" class="accordion" data-open="false">
+            <button id="headerTreeToggle" class="accordionToggle" type="button" aria-expanded="false" aria-controls="headerTreePanel">
+                <span>Headers tree</span>
+                <span class="chevron">▾</span>
+            </button>
+            <div id="headerTreePanel" class="headerTreePanel">
+                <svg id="headerTreeSvg" class="headerTreeSvg" width="260" height="140" viewBox="0 0 260 140" role="img"
+                     aria-label="Headers tree"></svg>
+            </div>
+        </section>
+        <section id="stackAccordion" class="accordion" data-open="false">
+            <button id="stackToggle" class="accordionToggle" type="button" aria-expanded="false" aria-controls="stack">
+                <span>Runnable stack</span>
+                <span class="chevron">▾</span>
+            </button>
+            <div id="stack" class="stack" aria-live="polite"></div>
+        </section>
         <div class="statusBar">
             <span id="status">No data loaded</span>
             <span id="progress">0 / 0</span>
@@ -386,6 +639,28 @@
     <div id="canvasWrap">
         <svg id="svg" width="1200" height="480" viewBox="0 0 1200 480" role="img"
              aria-label="Resume events timeline"></svg>
+        <div id="shortcutsPanel" class="shortcutsPanel" hidden>
+            <h2>Shortcuts</h2>
+            <ul>
+                <li><kbd>Space</kbd><span>Play or pause</span></li>
+                <li><kbd>S</kbd><span>Focus step input</span></li>
+                <li><kbd>←</kbd><span>Step backward</span></li>
+                <li><kbd>→</kbd><span>Step forward</span></li>
+                <li><kbd>Shift</kbd>+<kbd>←</kbd><span>Fast step backward</span></li>
+                <li><kbd>Shift</kbd>+<kbd>→</kbd><span>Fast step forward</span></li>
+                <li><kbd>+</kbd><span>Increase speed</span></li>
+                <li><kbd>-</kbd><span>Decrease speed</span></li>
+                <li><kbd>L</kbd><span>Load traces</span></li>
+                <li><kbd>R</kbd><span>Reload traces</span></li>
+                <li><kbd>?</kbd><span>Toggle help</span></li>
+            </ul>
+            <h2>Legend</h2>
+            <ul>
+                <li><kbd>↑</kbd><span>Downstream connection</span></li>
+                <li><kbd>↓</kbd><span>Upstream connection</span></li>
+            </ul>
+        </div>
+        <button id="helpBtn" class="helpButton" type="button" aria-label="Show shortcuts">?</button>
     </div>
 </main>
 
@@ -393,10 +668,10 @@
     // --- State ---
     let traces = [];
     let resumes = []; // only {i, stage, runnable}
-    let events = [];       // ordered list of { kind: 'resume'|'input', stage, runnable?, input? }
+    let events = [];       // ordered list of { kind: 'resume'|'input'|'processed'|'suspend', stage, ... }
     let uniqueStages = []; // first-seen order across resume+input
-    // no stages or stageIndex anymore
-    let stageElems = {}; // name -> { circle, label, x }
+    let stageGraph = null; // { nodes, creates, sends, positions, pipelineStages }
+    let stageElems = {}; // name -> { circle, label, x, rowY }
     let prevActive = null;
     let iEvent = 0;
     let running = false;
@@ -406,8 +681,19 @@
     let hashCounts = new Map(); // increments for each input event displayed
     let suspendedStages = new Set();
     let labelSeq = 0; // monotonically increasing order for hash labels
-    let centerY = 0; // vertical center used for nodes; labels stack from this baseline
+    let pendingSends = new Map(); // stage name -> [msg names] from sends not yet matched by an input
+    let contramapAliases = new Map(); // alias canonical name -> original canonical name
+    let createdStageAliases = new Map(); // `${creator}::${requested}` -> created canonical name
+    let connectionStageDirections = new Map(); // canonical connection stage -> 'U' | 'D'
     let currentRunnable = [];
+    let currentHeaderTree = new Map();
+    let selectedHeaderHash = null;
+    let pendingBlockRanges = new Map(); // stage name -> { from, through, peer }
+    let latestTraceFileHandle = null;
+    const latestTraceHandleDbName = 'amaru-traces-viewer';
+    const latestTraceHandleStoreName = 'handles';
+    const latestTraceHandleKey = 'latest-traces-json';
+    const latestTraceSnapshotKey = 'latest-traces-snapshot';
 
     const fileInput = document.getElementById('fileInput');
     const loadBtn = document.getElementById('loadBtn');
@@ -416,17 +702,29 @@
     const speedSlider = document.getElementById('speed');
     const speedVal = document.getElementById('speedVal');
     const currentTraceEl = document.getElementById('currentTrace');
+    const headerTreeAccordion = document.getElementById('headerTreeAccordion');
+    const headerTreeToggle = document.getElementById('headerTreeToggle');
+    const headerTreePanel = document.getElementById('headerTreePanel');
+    const headerTreeSvg = document.getElementById('headerTreeSvg');
     const stackEl = document.getElementById('stack');
+    const stackAccordion = document.getElementById('stackAccordion');
+    const stackToggle = document.getElementById('stackToggle');
     const statusEl = document.getElementById('status');
     const progressEl = document.getElementById('progress');
+    const stepInput = document.getElementById('stepInput');
+    const stepTotalEl = document.getElementById('stepTotal');
     const svg = document.getElementById('svg');
     const canvas = document.getElementById('canvasWrap');
+    const fastStepBackBtn = document.getElementById('fastStepBack');
     const stepBackBtn = document.getElementById('stepBack');
     const stepFwdBtn = document.getElementById('stepFwd');
+    const fastStepFwdBtn = document.getElementById('fastStepFwd');
     const debugToggle = document.getElementById('debugToggle');
     const debugPanel = document.getElementById('debugPanel');
     const sidebarResizer = document.getElementById('sidebarResizer');
     const mainEl = document.querySelector('main');
+    const helpBtn = document.getElementById('helpBtn');
+    const shortcutsPanel = document.getElementById('shortcutsPanel');
 
     // Persist debug panel height across sessions
     (function initDebugResizePersistence() {
@@ -448,41 +746,255 @@
         }
     })();
 
+    (function initAccordions() {
+        function initAccordion(section, toggle, key, defaultOpen = false) {
+            if (!section || !toggle) return;
+            function setOpen(open) {
+                section.dataset.open = open ? 'true' : 'false';
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+                localStorage.setItem(key, open ? 'true' : 'false');
+            }
+            const saved = localStorage.getItem(key);
+            if (saved === 'true' || saved === 'false') {
+                setOpen(saved === 'true');
+            } else {
+                setOpen(defaultOpen);
+            }
+            toggle.addEventListener('click', () => {
+                setOpen(section.dataset.open !== 'true');
+                if (section === headerTreeAccordion) renderHeaderTree();
+            });
+        }
+
+        initAccordion(headerTreeAccordion, headerTreeToggle, 'traces.headerTreeAccordionOpen', false);
+        initAccordion(stackAccordion, stackToggle, 'traces.stackAccordionOpen', false);
+    })();
+
+    if (typeof ResizeObserver !== 'undefined' && headerTreePanel) {
+        const ro = new ResizeObserver(() => renderHeaderTree());
+        ro.observe(headerTreePanel);
+    } else {
+        window.addEventListener('resize', () => renderHeaderTree());
+    }
+
+    function openHandleDb() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(latestTraceHandleDbName, 1);
+            req.onupgradeneeded = () => {
+                req.result.createObjectStore(latestTraceHandleStoreName);
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function persistLatestTraceHandle(handle) {
+        if (!window.indexedDB || !handle) return;
+        const db = await openHandleDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(latestTraceHandleStoreName, 'readwrite');
+            tx.objectStore(latestTraceHandleStoreName).put(handle, latestTraceHandleKey);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+    }
+
+    async function loadPersistedTraceHandle() {
+        if (!window.indexedDB) return null;
+        const db = await openHandleDb();
+        const handle = await new Promise((resolve, reject) => {
+            const tx = db.transaction(latestTraceHandleStoreName, 'readonly');
+            const req = tx.objectStore(latestTraceHandleStoreName).get(latestTraceHandleKey);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+        db.close();
+        return handle;
+    }
+
+    function formatTraceTimestamp(timestamp) {
+        if (!timestamp || !Number.isFinite(timestamp)) return '';
+        try {
+            const dt = new Date(timestamp);
+            const date = dt.toLocaleDateString();
+            const time = dt.toLocaleTimeString();
+            return `${date} ${time}`;
+        } catch (_err) {
+            return '';
+        }
+    }
+
+    function formatTraceStatus(sourceLabel, timestamp, cached = false) {
+        const suffix = cached ? ' (cached)' : '';
+        const dateText = formatTraceTimestamp(timestamp);
+        return dateText
+            ? `Replaying: ${sourceLabel}${suffix} ${dateText}`
+            : `Replaying: ${sourceLabel}${suffix}`;
+    }
+
+    async function persistLatestTraceSnapshot(text, sourceLabel, sourceTimestamp = null) {
+        if (!window.indexedDB || !text) return;
+        const db = await openHandleDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(latestTraceHandleStoreName, 'readwrite');
+            tx.objectStore(latestTraceHandleStoreName).put({
+                text,
+                sourceLabel: sourceLabel || 'traces.json',
+                sourceTimestamp: sourceTimestamp || null,
+                savedAt: Date.now(),
+            }, latestTraceSnapshotKey);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+    }
+
+    async function loadPersistedTraceSnapshot() {
+        if (!window.indexedDB) return null;
+        const db = await openHandleDb();
+        const snapshot = await new Promise((resolve, reject) => {
+            const tx = db.transaction(latestTraceHandleStoreName, 'readonly');
+            const req = tx.objectStore(latestTraceHandleStoreName).get(latestTraceSnapshotKey);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+        db.close();
+        return snapshot;
+    }
+
+    function normalizeTraceSourceLabel(sourceLabel) {
+        return String(sourceLabel || 'traces.json').replace(/(\s+\(cached\))+$/g, '').trim() || 'traces.json';
+    }
+
+    async function loadTracesText(text, sourceLabel = 'traces.json', opts = {}) {
+        const normalizedSourceLabel = normalizeTraceSourceLabel(sourceLabel);
+        const sourceTimestamp = opts.sourceTimestamp || null;
+        const cached = !!opts.cached;
+        traces = JSON.parse(text);
+        prepareResumes(traces);
+        drawAxis();
+        reset();
+        statusEl.textContent = formatTraceStatus(sourceLabel, sourceTimestamp, cached);
+        try {
+            await persistLatestTraceSnapshot(text, normalizedSourceLabel, sourceTimestamp);
+        } catch (_err) {
+            // Ignore snapshot persistence failures; direct loading still works.
+        }
+        if (events.length > 0) {
+            running = true;
+            playPauseBtn.textContent = 'Pause';
+            tick();
+        }
+    }
+
+    async function loadFromFile(file, sourceLabel = null) {
+        const text = await file.text();
+        await loadTracesText(text, sourceLabel || file.name || 'traces.json', {
+            sourceTimestamp: file.lastModified || null,
+        });
+    }
+
+    async function loadFromHandle(handle, opts = {}) {
+        if (!handle) return false;
+        const allowPrompt = opts.allowPrompt !== false;
+        const permission = await handle.queryPermission({mode: 'read'});
+        if (permission !== 'granted') {
+            if (!allowPrompt) return false;
+            const requested = await handle.requestPermission({mode: 'read'});
+            if (requested !== 'granted') return false;
+        }
+        latestTraceFileHandle = handle;
+        await persistLatestTraceHandle(handle);
+        const file = await handle.getFile();
+        await loadFromFile(file, handle.name || opts.sourceLabel || 'traces.json');
+        return true;
+    }
+
+    async function pickTraceFile() {
+        if (window.showOpenFilePicker) {
+            const [handle] = await window.showOpenFilePicker({
+                multiple: false,
+                types: [{
+                    description: 'Trace files',
+                    accept: {'application/json': ['.json']}
+                }]
+            });
+            if (handle) {
+                await loadFromHandle(handle, {allowPrompt: true});
+                return;
+            }
+        }
+        fileInput.click();
+    }
+
+    async function reloadLatestTraces() {
+        if (!latestTraceFileHandle) {
+            statusEl.textContent = 'Reload unavailable: no trace file selected';
+            return false;
+        }
+        try {
+            await loadFromHandle(latestTraceFileHandle, {
+                sourceLabel: latestTraceFileHandle.name || 'traces.json',
+                allowPrompt: true
+            });
+            return true;
+        } catch (err) {
+            statusEl.textContent = 'Reload failed';
+            alert('Failed to reload traces: ' + (err?.message || err));
+            return false;
+        }
+    }
+
+    async function restoreLatestTraceOnRefresh() {
+        if (!window.indexedDB) return;
+        try {
+            if (window.showOpenFilePicker) {
+                const handle = await loadPersistedTraceHandle();
+                if (handle) {
+                    latestTraceFileHandle = handle;
+                    const restored = await loadFromHandle(handle, {
+                        sourceLabel: handle.name || 'traces.json',
+                        allowPrompt: false
+                    });
+                    if (restored) return;
+                }
+            }
+            const snapshot = await loadPersistedTraceSnapshot();
+            if (snapshot && snapshot.text) {
+                await loadTracesText(snapshot.text, snapshot.sourceLabel || 'traces.json', {
+                    sourceTimestamp: snapshot.sourceTimestamp || snapshot.savedAt || null,
+                    cached: true,
+                });
+            }
+        } catch (_err) {
+            // Ignore restore failures; manual load still works.
+        }
+    }
+
     // UI handlers
-    loadBtn.onclick = () => fileInput.click();
-    fileInput.onchange = (e) => {
+    loadBtn.onclick = () => {
+        pickTraceFile().catch(err => {
+            alert('Failed to load traces: ' + (err?.message || err));
+        });
+    };
+    fileInput.onchange = async (e) => {
         const f = e.target.files[0];
         if (!f) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            try {
-                traces = JSON.parse(reader.result);
-                prepareResumes(traces);
-                drawAxis();
-                reset();
-                statusEl.textContent = 'Ready';
-                // Auto-start simulation on load if there are events
-                if (events.length > 0) {
-                    running = true;
-                    playPauseBtn.textContent = 'Pause';
-                    tick();
-                }
-            } catch (err) {
-                alert('Failed to parse JSON: ' + (err?.message || err));
-            } finally {
-                fileInput.value = '';
-            }
-        };
-        reader.readAsText(f);
+        try {
+            latestTraceFileHandle = null;
+            await loadFromFile(f, f.name || 'traces.json');
+        } catch (err) {
+            alert('Failed to parse JSON: ' + (err?.message || err));
+        } finally {
+            fileInput.value = '';
+        }
     };
 
     playPauseBtn.onclick = () => {
         if (!events.length) return;
         if (running) {
-            running = false;
-            playPauseBtn.textContent = 'Play';
-            if (rafId) cancelAnimationFrame(rafId);
-            rafId = null;
+            pausePlayback();
         } else {
             running = true;
             playPauseBtn.textContent = 'Pause';
@@ -492,30 +1004,119 @@
 
     restartBtn.onclick = () => reset();
 
+    function currentFastStepSize() {
+        return Math.max(1, Math.round(speed));
+    }
+
+    function setSpeedValue(nextSpeed) {
+        speed = Math.max(1, Math.min(1000, Math.round(nextSpeed) || 1));
+        speedSlider.value = String(speed);
+        speedVal.textContent = 'x' + String(speed);
+    }
+
     speedSlider.addEventListener('input', () => {
-        speed = parseFloat(speedSlider.value || '1.0');
-        speedVal.textContent = 'x' + speed.toFixed(2);
+        setSpeedValue(parseInt(speedSlider.value || '1', 10) || 1);
     });
 
-    // Keyboard shortcuts: 'l' to load, 'p' to play/pause, ArrowLeft/ArrowRight to step
+    function pausePlayback() {
+        running = false;
+        playPauseBtn.textContent = 'Play';
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = null;
+    }
+
+    function updateStepInputWidth(value = stepInput.value) {
+        const digits = Math.max(1, String(value || '').trim().length);
+        stepInput.style.width = `${digits}ch`;
+    }
+
+    function jumpToStep(rawValue) {
+        if (!events.length) {
+            stepInput.value = '0';
+            updateStepInputWidth('0');
+            return;
+        }
+        const parsed = Number.parseInt(String(rawValue).trim(), 10);
+        const target = Number.isFinite(parsed) ? parsed : iEvent;
+        pausePlayback();
+        renderUpTo(target);
+    }
+
+    stepInput.addEventListener('change', () => {
+        jumpToStep(stepInput.value);
+    });
+
+    stepInput.addEventListener('input', () => {
+        updateStepInputWidth(stepInput.value);
+    });
+
+    stepInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            jumpToStep(stepInput.value);
+            e.preventDefault();
+        }
+    });
+
+    function focusStepInput() {
+        pausePlayback();
+        stepInput.focus();
+        stepInput.select();
+    }
+
+    function toggleShortcuts(forceOpen = null) {
+        const nextHidden = forceOpen == null ? !shortcutsPanel.hidden : !forceOpen;
+        shortcutsPanel.hidden = nextHidden;
+    }
+
+    helpBtn.addEventListener('click', () => {
+        toggleShortcuts();
+    });
+
+    // Keyboard shortcuts: 'l' to load, 'r' to reload, 'p'/Space to play-pause,
+    // 's' to focus the step input, ArrowLeft/ArrowRight to step.
     document.addEventListener('keydown', (e) => {
         // ignore if typing inside an input or textarea
         const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
 
         if (e.key === 'l' || e.key === 'L') {
-            fileInput.click();
+            loadBtn.click();
+            e.preventDefault();
+        } else if (e.key === 'r' || e.key === 'R') {
+            reloadLatestTraces();
             e.preventDefault();
         } else if (e.key === 'p' || e.key === 'P') {
             playPauseBtn.click();
             e.preventDefault();
+        } else if (e.key === ' ' || e.code === 'Space') {
+            playPauseBtn.click();
+            e.preventDefault();
+        } else if (e.key === 's' || e.key === 'S') {
+            focusStepInput();
+            e.preventDefault();
+        } else if (e.key === '?') {
+            toggleShortcuts();
+            e.preventDefault();
+        } else if (e.key === '+' || e.key === '=') {
+            setSpeedValue(speed + 1);
+            e.preventDefault();
+        } else if (e.key === '-' || e.key === '_') {
+            setSpeedValue(speed - 1);
+            e.preventDefault();
         } else if (e.key === 'ArrowLeft') {
-            // step backward one event
-            if (stepBackBtn) stepBackBtn.click();
+            if (e.shiftKey) {
+                if (fastStepBackBtn) fastStepBackBtn.click();
+            } else if (stepBackBtn) {
+                stepBackBtn.click();
+            }
             e.preventDefault();
         } else if (e.key === 'ArrowRight') {
-            // step forward one event
-            if (stepFwdBtn) stepFwdBtn.click();
+            if (e.shiftKey) {
+                if (fastStepFwdBtn) fastStepFwdBtn.click();
+            } else if (stepFwdBtn) {
+                stepFwdBtn.click();
+            }
             e.preventDefault();
         }
     });
@@ -525,179 +1126,1271 @@
         resumes = [];
         events = [];
         uniqueStages = [];
+        stageGraph = null;
         stageElems = {};
         prevActive = null;
         if (!Array.isArray(all)) return;
+        contramapAliases = new Map();
+        createdStageAliases = new Map();
+        connectionStageDirections = new Map();
+        const pendingCreatedStages = new Map();
+        const pendingContramaps = new Map();
+        for (const t of all) {
+            if (t.type === 'suspend' && t.effect && t.effect.type === 'add_stage') {
+                const creator = canonicalStageName(t.effect.at_stage || '');
+                const requested = canonicalStageName(t.effect.name || t.effect.stage_name || '');
+                if (creator && requested) pendingCreatedStages.set(creator, requested);
+            } else if (t.type === 'suspend' && t.effect && t.effect.type === 'contramap') {
+                const creator = canonicalStageName(t.effect.at_stage || '');
+                const original = canonicalStageName(t.effect.original || '');
+                const alias = canonicalStageName(t.effect.new_name || '');
+                if (creator && alias) pendingContramaps.set(creator, { original, alias });
+                if (alias && original) contramapAliases.set(alias, original);
+            } else if (t.type === 'resume' && t.response && t.response.AddStageResponse) {
+                const creator = canonicalStageName(t.stage || '');
+                const requested = pendingCreatedStages.get(creator);
+                const created = canonicalStageName(t.response.AddStageResponse || '');
+                if (creator && requested && created) {
+                    createdStageAliases.set(`${creator}::${requested}`, created);
+                }
+                pendingCreatedStages.delete(creator);
+            } else if (t.type === 'resume' && t.response && t.response.ContramapResponse) {
+                const creator = canonicalStageName(t.stage || '');
+                const pending = pendingContramaps.get(creator);
+                const createdAlias = canonicalStageName(t.response.ContramapResponse || '');
+                if (pending && createdAlias) {
+                    const original = pending.original || creator;
+                    contramapAliases.set(createdAlias, original);
+                    if (pending.alias) contramapAliases.set(pending.alias, original);
+                }
+                pendingContramaps.delete(creator);
+            }
+        }
+
+        for (const t of all) {
+            if (t.type !== 'state' && !(t.type === 'suspend' && t.effect && t.effect.type === 'wire_stage')) continue;
+            const stageName = t.type === 'state'
+                ? canonicalStageName(t.stage || '')
+                : resolveCreatedStageName(t.effect.at_stage || t.effect.from || '', t.effect.name || t.effect.stage_name || '');
+            const body = t.type === 'state'
+                ? String(t.state || '')
+                : String((t.effect && t.effect.initial_state) || '');
+            const conn = connectionStageRoot(stageName);
+            if (!conn || connectionStageDirections.has(conn)) continue;
+            if (/\brole:\s*Initiator\b/.test(body)) {
+                connectionStageDirections.set(conn, 'U');
+            } else if (/\brole:\s*Responder\b/.test(body)) {
+                connectionStageDirections.set(conn, 'D');
+            }
+        }
+
         const seen = new Set();
+        const pendingProcessedStages = new Set();
         for (let i = 0; i < all.length; i++) {
             const t = all[i] || {};
             const stageName = make_stage_name(t);
+            let pushedEvent = false;
             if (t.type === 'resume') {
                 const runnable = (Array.isArray(t.runnable)
-                    ? t.runnable
+                    ? t.runnable.map(it => ({
+                        ...it,
+                        name: resolveVisibleStageName(it && it.name),
+                    }))
                     : (t && Object.prototype.hasOwnProperty.call(t, 'runnable') ? [] : null));
                 resumes.push({i, stage: stageName, runnable});
-                events.push({kind: 'resume', stage: stageName, runnable, raw: t});
+                events.push({kind: 'resume', stage: stageName, runnable, raw: t, step: events.length + 1});
+                pushedEvent = true;
             } else if (t.type === 'input') {
                 const input = t.input != null ? String(t.input) : '';
-                events.push({kind: 'input', stage: stageName, input, raw: t});
+                events.push({
+                    kind: 'input',
+                    stage: stageName,
+                    input,
+                    raw: t,
+                    step: events.length + 1,
+                    headerRelation: extractHeaderRelation(input),
+                });
+                if (stageName) pendingProcessedStages.add(stageName);
+                pushedEvent = true;
+            } else if ((t.type === 'state' || t.type === 'terminated') && pendingProcessedStages.has(stageName)) {
+                events.push({
+                    kind: 'processed',
+                    stage: stageName,
+                    raw: t,
+                    step: events.length + 1,
+                });
+                pendingProcessedStages.delete(stageName);
+                pushedEvent = true;
             } else if (t.type === 'suspend') {
                 const effectLabel = extractEffectLabel(t && t.effect && t.effect.effect_type);
                 const runnable = (Array.isArray(t.runnable)
-                    ? t.runnable
+                    ? t.runnable.map(it => ({
+                        ...it,
+                        name: resolveVisibleStageName(it && it.name),
+                    }))
                     : (t && Object.prototype.hasOwnProperty.call(t, 'runnable') ? [] : null));
-                events.push({kind: 'suspend', stage: stageName, runnable, raw: t, effect_label: effectLabel});
+                events.push({
+                    kind: 'suspend',
+                    stage: stageName,
+                    runnable,
+                    raw: t,
+                    effect_label: effectLabel,
+                    step: events.length + 1,
+                    headerRelation: extractHeaderRelation(t && t.effect && t.effect.msg ? String(t.effect.msg) : ''),
+                });
+                pushedEvent = true;
             }
 
-            if (t.type === 'resume' || t.type === 'input' || t.type === 'suspend') {
+            if (pushedEvent) {
                 if (!seen.has(stageName)) {
                     seen.add(stageName);
                     uniqueStages.push(stageName);
                 }
             }
         }
+        stageGraph = buildStageGraph(all);
+    }
+
+    function canonicalStageName(name) {
+        return String(name || '');
+    }
+
+    function resolveCreatedStageName(creator, requestedOrActual) {
+        const creatorName = canonicalStageName(creator);
+        const stageName = canonicalStageName(requestedOrActual);
+        return createdStageAliases.get(`${creatorName}::${stageName}`) || stageName;
+    }
+
+    function resolveVisibleStageName(name) {
+        let current = canonicalStageName(name);
+        const seen = new Set();
+        while (current && contramapAliases.has(current) && !seen.has(current)) {
+            seen.add(current);
+            current = canonicalStageName(contramapAliases.get(current));
+        }
+        return current;
+    }
+
+    function connectionStageRoot(name) {
+        const canonical = canonicalStageName(name);
+        const match = canonical.match(/^(\d+-[\d.]+:\d+)(?:-\d+)?$/);
+        return match ? match[1] : null;
     }
 
     function make_stage_name(t) {
         if (t.type === 'resume') {
-            return displayStageName(t.stage ?? '(unknown)');
+            return resolveVisibleStageName(t.stage ?? '(unknown)');
         } else if (t.type === 'input') {
-            return displayStageName(t.stage ?? '(unknown)');
+            return resolveVisibleStageName(t.stage ?? '(unknown)');
         } else if (t.type === 'suspend') {
             let stageName =
                 (t && t.effect && (t.effect.at_stage || t.effect.from)) ??
                 t.stage ??
                 '(unknown)';
-            return displayStageName(stageName);
+            return resolveVisibleStageName(stageName);
         }
-        return displayStageName(t.stage ?? '(unknown)')
+        return resolveVisibleStageName(t.stage ?? '(unknown)')
     }
 
-    // Draw a light baseline with index ticks
-    function drawAxis() {
-        while (svg.firstChild) svg.removeChild(svg.firstChild);
-        const ns = 'http://www.w3.org/2000/svg';
-        const margin = {left: 80, right: 40, top: 60, bottom: 80};
+    // Build a stage relationship graph from traces
+    function buildStageGraph(all) {
+        const nodes = new Set();
+        const creates = new Map();  // parent -> Set<child>
+        const sends = new Map();    // from -> Set<to>
 
-        const w = Math.max(800, margin.left + margin.right + uniqueStages.length * 160);
-        const h = 480;
-        svg.setAttribute('width', w);
-        svg.setAttribute('height', h);
-        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        for (const t of all) {
+            if (t.type !== 'suspend') continue;
+            const eff = t.effect || {};
+            const at = resolveVisibleStageName(eff.at_stage || eff.from || '');
 
-        const y = h / 2;
-        centerY = y;
-        // Draw connecting segments between consecutive stages
-        if (uniqueStages.length > 1) {
-            const r = 18; // circle radius (match .resumeNode)
-            for (let k = 0; k < uniqueStages.length - 1; k++) {
-                const x1 = margin.left + k * 160 + r;
-                const x2 = margin.left + (k + 1) * 160 - r;
-                const seg = document.createElementNS(ns, 'line');
-                seg.setAttribute('x1', x1);
-                seg.setAttribute('y1', y);
-                seg.setAttribute('x2', x2);
-                seg.setAttribute('y2', y);
-                seg.setAttribute('class', 'tick');
-                svg.appendChild(seg);
+            if (eff.type === 'add_stage' || eff.type === 'wire_stage') {
+                const child = resolveVisibleStageName(resolveCreatedStageName(
+                    eff.at_stage || eff.from || '',
+                    eff.name || eff.stage_name || ''
+                ));
+                if (at && child) {
+                    nodes.add(at);
+                    nodes.add(child);
+                    if (!creates.has(at)) creates.set(at, new Set());
+                    creates.get(at).add(child);
+                }
+            } else if (eff.type === 'send') {
+                let to = resolveVisibleStageName(eff.to || '');
+                if (at && to && at !== to) {
+                    nodes.add(at);
+                    nodes.add(to);
+                    if (!sends.has(at)) sends.set(at, new Set());
+                    sends.get(at).add(to);
+                }
             }
         }
 
-        // Draw one circle per first-seen stage name
-        drawStageNodes(ns, margin, y, uniqueStages);
+        // Also add stages seen in events
+        for (const stage of uniqueStages) {
+            nodes.add(stage);
+        }
+
+        return { nodes, creates, sends };
+    }
+
+    // Sugiyama-style layered layout for a set of nodes with directed edges.
+    // Returns Map<name, {x, y}>.
+    // direction: 'horizontal' (left-to-right) or 'vertical' (top-to-bottom)
+    function layeredLayout(stageNames, edges, opts = {}) {
+        const {
+            nodeSpacing = 130,
+            layerSpacing = 130,
+            direction = 'horizontal', // 'horizontal' = layers left-to-right, 'vertical' = top-to-bottom
+        } = opts;
+        const nodeSet = new Set(stageNames);
+        const adj = new Map();    // forward edges
+        const inDeg = new Map();
+        for (const n of nodeSet) { adj.set(n, []); inDeg.set(n, 0); }
+        for (const [from, to] of edges) {
+            if (!nodeSet.has(from) || !nodeSet.has(to)) continue;
+            adj.get(from).push(to);
+            inDeg.set(to, (inDeg.get(to) || 0) + 1);
+        }
+
+        // Step 1: Assign layers via longest-path (ensures children are always after parents)
+        const layer = new Map();
+        const visited = new Set();
+        function assignLayer(n) {
+            if (visited.has(n)) return layer.get(n) || 0;
+            visited.add(n);
+            let maxChild = -1;
+            for (const child of adj.get(n) || []) {
+                maxChild = Math.max(maxChild, assignLayer(child));
+            }
+            const l = maxChild < 0 ? 0 : 0; // roots get 0, we'll compute from topological order
+            layer.set(n, l);
+            return l;
+        }
+        // Topological sort
+        const topo = [];
+        const q = [];
+        const inDegCopy = new Map(inDeg);
+        for (const [n, d] of inDegCopy) { if (d === 0) q.push(n); }
+        while (q.length > 0) {
+            const n = q.shift();
+            topo.push(n);
+            for (const child of adj.get(n) || []) {
+                const nd = inDegCopy.get(child) - 1;
+                inDegCopy.set(child, nd);
+                if (nd === 0) q.push(child);
+            }
+        }
+        // Any remaining nodes (cycles) get appended
+        for (const n of nodeSet) { if (!topo.includes(n)) topo.push(n); }
+
+        // Assign layers: each node's layer = max(parent layers) + 1
+        for (const n of topo) {
+            let maxParent = -1;
+            for (const [from, to] of edges) {
+                if (to === n && nodeSet.has(from) && layer.has(from)) {
+                    maxParent = Math.max(maxParent, layer.get(from));
+                }
+            }
+            layer.set(n, maxParent + 1);
+        }
+
+        // Step 2: Group nodes by layer
+        const layers = [];
+        for (const n of topo) {
+            const l = layer.get(n);
+            while (layers.length <= l) layers.push([]);
+            layers[l].push(n);
+        }
+
+        // Step 3: Order within layers to reduce crossings (barycenter heuristic, 2 passes)
+        const posInLayer = new Map();
+        for (const layerNodes of layers) {
+            layerNodes.forEach((n, i) => posInLayer.set(n, i));
+        }
+        for (let pass = 0; pass < 4; pass++) {
+            for (let l = 1; l < layers.length; l++) {
+                const bary = new Map();
+                for (const n of layers[l]) {
+                    // Find parents in layer l-1
+                    const parents = [];
+                    for (const [from, to] of edges) {
+                        if (to === n && layer.get(from) === l - 1) {
+                            parents.push(posInLayer.get(from) || 0);
+                        }
+                    }
+                    bary.set(n, parents.length > 0 ? parents.reduce((a, b) => a + b, 0) / parents.length : posInLayer.get(n) || 0);
+                }
+                layers[l].sort((a, b) => (bary.get(a) || 0) - (bary.get(b) || 0));
+                layers[l].forEach((n, i) => posInLayer.set(n, i));
+            }
+        }
+
+        // Step 4: Assign coordinates
+        const positions = new Map();
+        for (let l = 0; l < layers.length; l++) {
+            const layerNodes = layers[l];
+            const totalCross = layerNodes.length;
+            for (let i = 0; i < layerNodes.length; i++) {
+                const centerOffset = (i - (totalCross - 1) / 2);
+                if (direction === 'horizontal') {
+                    positions.set(layerNodes[i], {
+                        x: l * layerSpacing,
+                        y: centerOffset * nodeSpacing
+                    });
+                } else {
+                    positions.set(layerNodes[i], {
+                        x: centerOffset * nodeSpacing,
+                        y: l * layerSpacing
+                    });
+                }
+            }
+        }
+
+        return { positions, layerCount: layers.length, maxLayerSize: Math.max(...layers.map(l => l.length)) };
+    }
+
+    function treeLayout(root, childMap, opts = {}) {
+        const {
+            nodeSpacing = 44,
+            layerSpacing = 130,
+            depthSpacingFactor = 1,
+            depthLayerSpacing = null,
+            sortChildren = null,
+        } = opts;
+
+        const positions = new Map();
+        let nextLeafY = 0;
+        let maxDepth = 0;
+
+        function visit(node, depth) {
+            maxDepth = Math.max(maxDepth, depth);
+            const children = [...(childMap.get(node) || [])];
+            if (sortChildren) children.sort((a, b) => sortChildren(node, a, b));
+            const spacing = nodeSpacing * Math.max(1, depthSpacingFactor - depth);
+            let y;
+            if (children.length === 0) {
+                y = nextLeafY * spacing;
+                nextLeafY += 1;
+            } else {
+                const childYs = children.map(child => visit(child, depth + 1));
+                y = (Math.min(...childYs) + Math.max(...childYs)) / 2;
+            }
+            const x = depthLayerSpacing
+                ? depthLayerSpacing.slice(0, depth).reduce((sum, value) => sum + value, 0)
+                : depth * layerSpacing;
+            positions.set(node, { x, y });
+            return y;
+        }
+
+        visit(root, 0);
+
+        return {
+            positions,
+            layerCount: maxDepth + 1,
+            maxLayerSize: Math.max(1, nextLeafY),
+        };
+    }
+
+    function d3TreeLayout(root, childMap, opts = {}) {
+        if (typeof d3 === 'undefined' || !d3.hierarchy || !d3.tree) return null;
+        const {
+            nodeSpacing = 56,
+            layerSpacing = 140,
+            sortChildren = null,
+        } = opts;
+
+        function build(node, depth = 0) {
+            let children = [...(childMap.get(node) || [])];
+            if (sortChildren) children.sort((a, b) => sortChildren(node, a, b));
+            return {
+                name: node,
+                depth,
+                children: children.map(child => build(child, depth + 1)),
+            };
+        }
+
+        const rootData = build(root, 0);
+        const hierarchy = d3.hierarchy(rootData);
+        const tree = d3.tree().nodeSize([nodeSpacing, layerSpacing]);
+        tree(hierarchy);
+
+        const positions = new Map();
+        let minX = Infinity;
+        let maxX = -Infinity;
+        hierarchy.each(node => {
+            positions.set(node.data.name, { x: node.y, y: node.x });
+            minX = Math.min(minX, node.x);
+            maxX = Math.max(maxX, node.x);
+        });
+
+        for (const [name, pos] of positions) {
+            positions.set(name, { x: pos.x, y: pos.y - minX });
+        }
+
+        return {
+            positions,
+            minY: 0,
+            maxY: Math.max(0, maxX - minX),
+        };
+    }
+
+    function fixedConnectionLayout(conn, stageList, childMap, opts = {}) {
+        const positions = new Map();
+        const labels = new Map(stageList.map(stage => [stage, displayStageName(stage)]));
+
+        const depthByNode = new Map([[conn, 0]]);
+        const q = [conn];
+        while (q.length > 0) {
+            const parent = q.shift();
+            const parentDepth = depthByNode.get(parent) || 0;
+            for (const child of childMap.get(parent) || []) {
+                if (depthByNode.has(child)) continue;
+                depthByNode.set(child, parentDepth + 1);
+                q.push(child);
+            }
+        }
+        for (const stage of stageList) {
+            if (!depthByNode.has(stage)) depthByNode.set(stage, 1);
+        }
+
+        function stageRank(stage) {
+            const label = labels.get(stage) || '';
+            if (label === 'handshake') return 0;
+            if (label === 'tx_submission') return 1;
+            if (label === 'mux') return 2;
+            if (label.startsWith('writer')) return 3;
+            if (label.startsWith('reader')) return 4;
+            if (label === 'keepalive') return 5;
+            if (label === 'chainsync') return 6;
+            if (label === 'blockfetch') return 7;
+            return 8;
+        }
+
+        const depthColumns = new Map();
+        for (const stage of stageList) {
+            if (stage === conn) continue;
+            const depth = depthByNode.get(stage) || 1;
+            if (!depthColumns.has(depth)) depthColumns.set(depth, []);
+            depthColumns.get(depth).push(stage);
+        }
+        for (const nodesAtDepth of depthColumns.values()) {
+            nodesAtDepth.sort((a, b) =>
+                stageRank(a) - stageRank(b)
+                || (labels.get(a) || '').localeCompare(labels.get(b) || '')
+                || a.localeCompare(b)
+            );
+        }
+
+        const colGap = 230;
+        const primaryRowGap = 80;
+        const secondaryRowGap = 56;
+        const orderedStages = [...stageList]
+            .filter(stage => stage !== conn)
+            .sort((a, b) =>
+                stageRank(a) - stageRank(b)
+                || (depthByNode.get(a) || 1) - (depthByNode.get(b) || 1)
+                || (labels.get(a) || '').localeCompare(labels.get(b) || '')
+                || a.localeCompare(b)
+            );
+
+        const rowIndexByStage = new Map(orderedStages.map((stage, index) => [stage, index]));
+        for (const [depth, nodesAtDepth] of [...depthColumns.entries()].sort((a, b) => a[0] - b[0])) {
+            for (const stage of nodesAtDepth) {
+                const depthGap = depth <= 1 ? primaryRowGap : secondaryRowGap;
+                positions.set(stage, {
+                    x: depth * colGap,
+                    y: (rowIndexByStage.get(stage) || 0) * depthGap,
+                });
+            }
+        }
+
+        // Place mux children around mux instead of pushing them far below the protocol stack.
+        for (const stage of stageList) {
+            if ((labels.get(stage) || '') !== 'mux') continue;
+            const muxPos = positions.get(stage);
+            if (!muxPos) continue;
+            const muxKids = [...(childMap.get(stage) || [])];
+            const writer = muxKids.find(k => (labels.get(k) || '').startsWith('writer'));
+            const reader = muxKids.find(k => (labels.get(k) || '').startsWith('reader'));
+            const muxChildGap = secondaryRowGap * 0.8;
+            if (writer && positions.has(writer)) {
+                positions.set(writer, {
+                    x: positions.get(writer).x,
+                    y: muxPos.y - muxChildGap,
+                });
+            }
+            if (reader && positions.has(reader)) {
+                positions.set(reader, {
+                    x: positions.get(reader).x,
+                    y: muxPos.y + muxChildGap,
+                });
+            }
+            const connKeepalive = stageList.find(s => labels.get(s) === 'keepalive');
+            const connChainsync = stageList.find(s => labels.get(s) === 'chainsync');
+            const connBlockfetch = stageList.find(s => labels.get(s) === 'blockfetch');
+            if (connKeepalive && positions.has(connKeepalive)) {
+                positions.set(connKeepalive, {
+                    x: positions.get(connKeepalive).x,
+                    y: muxPos.y + primaryRowGap * 0.5,
+                });
+            }
+            if (connChainsync && positions.has(connChainsync)) {
+                const baseY = positions.get(connKeepalive || connChainsync).y;
+                positions.set(connChainsync, {
+                    x: positions.get(connChainsync).x,
+                    y: baseY + primaryRowGap * 0.4,
+                });
+            }
+            if (connBlockfetch && positions.has(connBlockfetch)) {
+                const prevY = positions.get(connChainsync)?.y || positions.get(connKeepalive)?.y || positions.get(connBlockfetch).y;
+                positions.set(connBlockfetch, {
+                    x: positions.get(connBlockfetch).x,
+                    y: prevY + primaryRowGap * 0.4,
+                });
+            }
+        }
+
+        const placedYs = [...positions.values()].map(pos => pos.y);
+        const minY = placedYs.length ? Math.min(...placedYs) : 0;
+        const maxY = placedYs.length ? Math.max(...placedYs) : 0;
+        const muxStage = stageList.find(s => labels.get(s) === 'mux');
+        const keepaliveStage = stageList.find(s => labels.get(s) === 'keepalive');
+        const muxPos = muxStage ? positions.get(muxStage) : null;
+        const keepalivePos = keepaliveStage ? positions.get(keepaliveStage) : null;
+        const connY = (muxPos && keepalivePos)
+            ? (muxPos.y + keepalivePos.y) / 2
+            : (minY + maxY) / 2;
+        positions.set(conn, { x: 0, y: connY });
+
+        // enforce minimum vertical spacing per depth to avoid overlaps
+        const gapByDepth = (depth) => (depth <= 1 ? primaryRowGap : secondaryRowGap);
+        for (const [depth, nodesAtDepth] of [...depthColumns.entries()].sort((a, b) => a[0] - b[0])) {
+            const sorted = [...nodesAtDepth].sort((a, b) => (positions.get(a).y || 0) - (positions.get(b).y || 0));
+            const minGap = gapByDepth(depth);
+            for (let i = 1; i < sorted.length; i++) {
+                const prev = positions.get(sorted[i - 1]);
+                const curr = positions.get(sorted[i]);
+                if (!prev || !curr) continue;
+                const diff = curr.y - prev.y;
+                if (diff < minGap) {
+                    const delta = minGap - diff;
+                    for (let j = i; j < sorted.length; j++) {
+                        const target = positions.get(sorted[j]);
+                        target.y += delta;
+                    }
+                }
+            }
+        }
+
+        return {
+            positions,
+            minY: Math.min(minY, positions.get(conn).y),
+            maxY: Math.max(maxY, positions.get(conn).y),
+            depthByNode,
+        };
+    }
+
+    // Draw swimlane layout: manager lane + one lane per connection with layered layout
+    function drawAxis() {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        if (!stageGraph) return;
+        const ns = 'http://www.w3.org/2000/svg';
+        const r = 18;
+        const nodeSpacing = 76;
+        const layerSpacing = 170;
+        const laneGap = 72;
+        const margin = { left: 220, top: 110 };
+
+        const { nodes, creates, sends } = stageGraph;
+
+        function collectReachable(root, edgeList, allowedNodes) {
+            if (!root || !allowedNodes.has(root)) return new Set();
+            const adj = new Map();
+            for (const node of allowedNodes) adj.set(node, []);
+            for (const [from, to] of edgeList) {
+                if (!allowedNodes.has(from) || !allowedNodes.has(to)) continue;
+                adj.get(from).push(to);
+            }
+            const seen = new Set();
+            const q = [root];
+            while (q.length > 0) {
+                const cur = q.shift();
+                if (seen.has(cur)) continue;
+                seen.add(cur);
+                for (const next of adj.get(cur) || []) {
+                    if (!seen.has(next)) q.push(next);
+                }
+            }
+            return seen;
+        }
+
+        function layoutWidth(layout, spacing) {
+            const layers = Math.max(1, layout.layerCount || 1);
+            return Math.max(0, (layers - 1) * spacing);
+        }
+
+        function isConnectionStage(name) {
+            return connectionStageRoot(canonicalStageName(name)) !== null;
+        }
+
+        const managerNode = [...nodes].find(n => displayStageName(n) === 'manager') || 'manager';
+        const globalDepth = new Map([[managerNode, 0]]);
+        const depthQueue = [managerNode];
+        while (depthQueue.length > 0) {
+            const parent = depthQueue.shift();
+            const parentDepth = globalDepth.get(parent) || 0;
+            for (const child of creates.get(parent) || []) {
+                const nextDepth = parentDepth + 1;
+                if (!globalDepth.has(child) || nextDepth < globalDepth.get(child)) {
+                    globalDepth.set(child, nextDepth);
+                    depthQueue.push(child);
+                }
+            }
+        }
+        const managerChildren = creates.get(managerNode) || new Set();
+        const connections = [...managerChildren]
+            .filter(isConnectionStage)
+            .sort((a, b) => displayStageName(a).localeCompare(displayStageName(b)) || a.localeCompare(b));
+
+        // Collect all descendants of each connection
+        function collectDescendants(root) {
+            const result = new Set();
+            const q = [root];
+            while (q.length > 0) {
+                const n = q.shift();
+                result.add(n);
+                const kids = creates.get(n);
+                if (kids) for (const k of kids) { if (!result.has(k)) q.push(k); }
+            }
+            return result;
+        }
+
+        const allConnectionStages = new Set();
+        const connDescendants = new Map();
+        for (const conn of connections) {
+            const desc = collectDescendants(conn);
+            connDescendants.set(conn, desc);
+            for (const s of desc) allConnectionStages.add(s);
+        }
+
+        // Manager lane stages: everything not in a connection subtree
+        const managerStageSet = [...nodes].filter(n => !allConnectionStages.has(n));
+
+        // Build edges for manager lane from sends + creates within the set
+        const managerEdges = [];
+        const mss = new Set(managerStageSet);
+        for (const [p, kids] of creates) {
+            if (!mss.has(p)) continue;
+            for (const k of kids) { if (mss.has(k)) managerEdges.push([p, k]); }
+        }
+        for (const [f, tos] of sends) {
+            if (!mss.has(f)) continue;
+            for (const to of tos) { if (mss.has(to)) managerEdges.push([f, to]); }
+        }
+
+        const positions = new Map(); // name -> {x, y}
+        const debugConnectionDepths = {};
+
+        // Manager lane layout metadata
+        const managerStageNodes = new Set(managerStageSet);
+        const reachableFromManager = collectReachable(managerNode, managerEdges, managerStageNodes);
+        const anchoredManagerStages = managerStageSet.filter(n => reachableFromManager.has(n));
+        const orphanManagerStages = managerStageSet.filter(n => !reachableFromManager.has(n));
+
+        const anchoredManagerEdges = managerEdges.filter(([from, to]) =>
+            reachableFromManager.has(from) && reachableFromManager.has(to)
+        );
+        const orphanManagerEdges = managerEdges.filter(([from, to]) =>
+            orphanManagerStages.includes(from) && orphanManagerStages.includes(to)
+        );
+
+        const mgrLayout = layeredLayout(anchoredManagerStages, anchoredManagerEdges, {
+            nodeSpacing,
+            layerSpacing,
+            direction: 'horizontal'
+        });
+        const orphanLayout = orphanManagerStages.length > 0
+            ? layeredLayout(orphanManagerStages, orphanManagerEdges, {
+                nodeSpacing,
+                layerSpacing,
+                direction: 'horizontal'
+            })
+            : null;
+
+        const managerLaneHeight = Math.max(
+            mgrLayout.maxLayerSize || 1,
+            orphanLayout ? orphanLayout.maxLayerSize || 1 : 1
+        );
+        const managerLaneWidth = (() => {
+            const baseWidth = layoutWidth(mgrLayout, layerSpacing);
+            if (!orphanLayout) return baseWidth;
+            return baseWidth + layerSpacing * 2 + layoutWidth(orphanLayout, layerSpacing);
+        })();
+
+        const connectionLayouts = connections.map(conn => {
+            const desc = connDescendants.get(conn);
+            const stageList = [...desc];
+            const connChildMap = new Map();
+            for (const stage of stageList) connChildMap.set(stage, []);
+            for (const [p, kids] of creates) {
+                if (!desc.has(p)) continue;
+                for (const k of kids) {
+                    if (desc.has(k)) connChildMap.get(p).push(k);
+                }
+            }
+            return {
+                conn,
+                layout: fixedConnectionLayout(conn, stageList, connChildMap),
+            };
+        });
+
+        const connectionLayoutByConn = new Map(connectionLayouts.map(entry => [entry.conn, entry.layout]));
+        const upstreamConnections = connections.filter(conn => connectionStageDirections.get(connectionStageRoot(conn)) !== 'D');
+        const downstreamConnections = connections.filter(conn => connectionStageDirections.get(connectionStageRoot(conn)) === 'D');
+
+        function placeConnectionGroup(groupConnections, topY) {
+            if (groupConnections.length === 0) return topY;
+            const layouts = groupConnections.map(conn => ({ conn, layout: connectionLayoutByConn.get(conn) }));
+            const subtreeMaxWidth = Math.max(
+                ...layouts.map(({ layout }) => {
+                    const xs = [...layout.positions.values()].map(pos => pos.x);
+                    return xs.length ? Math.max(...xs) : 0;
+                }),
+                0
+            );
+            const subtreeSpacing = subtreeMaxWidth + 220;
+            const availableWidth = Math.max(subtreeSpacing * layouts.length, managerLaneWidth);
+            const startX = margin.left + Math.max(0, (availableWidth - subtreeSpacing * layouts.length) / 2);
+            let maxBottom = topY;
+
+            for (let connIndex = 0; connIndex < layouts.length; connIndex++) {
+                const { conn, layout } = layouts[connIndex];
+                const rootX = startX + connIndex * subtreeSpacing + 40;
+                const yOffset = topY - layout.minY;
+                let placedBottom = topY;
+                for (const [name, pos] of layout.positions) {
+                    const localDepth = layout.depthByNode.get(name) || 0;
+                    const placedY = yOffset + pos.y;
+                    debugConnectionDepths[name] = { conn, connDepth: localDepth === 0 ? 1 : null, localDepth };
+                    positions.set(name, {
+                        x: rootX + pos.x,
+                        y: placedY,
+                    });
+                    placedBottom = Math.max(placedBottom, placedY);
+                }
+                maxBottom = Math.max(maxBottom, placedBottom);
+            }
+            return maxBottom;
+        }
+
+        let curY = margin.top;
+        const topBandBottom = placeConnectionGroup(upstreamConnections, curY);
+
+        curY = topBandBottom + laneGap + 80;
+        const managerLaneCenterY = curY + (managerLaneHeight - 1) * nodeSpacing / 2;
+
+        for (const [name, pos] of mgrLayout.positions) {
+            positions.set(name, {
+                x: margin.left + pos.x,
+                y: managerLaneCenterY + pos.y
+            });
+        }
+
+        if (orphanLayout) {
+            const orphanOffsetX = margin.left + layoutWidth(mgrLayout, layerSpacing) + layerSpacing * 2;
+            for (const [name, pos] of orphanLayout.positions) {
+                positions.set(name, {
+                    x: orphanOffsetX + pos.x,
+                    y: managerLaneCenterY + pos.y
+                });
+            }
+        }
+
+        // Rebalance the middle row so pull sits closer to accept, while the
+        // downstream pipeline stages get a bit more horizontal breathing room.
+        const middleRowStages = Object.fromEntries(
+            [...positions.keys()]
+                .filter(name => managerStageSet.includes(name))
+                .map(name => [displayStageName(name), name])
+        );
+        const acceptStage = middleRowStages.accept;
+        const pullStage = middleRowStages.pull;
+        if (acceptStage && pullStage && positions.has(acceptStage) && positions.has(pullStage)) {
+            const acceptPos = positions.get(acceptStage);
+            const pullPos = positions.get(pullStage);
+            positions.set(pullStage, {
+                x: acceptPos.x + 250,
+                y: pullPos.y,
+            });
+        }
+        const pipelineNames = [
+            'receive_header',
+            'validate_header',
+            'fetch_block',
+            'validate_block',
+            'select_chain',
+            'forward_chain',
+        ];
+        const pipelineStageEdges = [];
+        const receiveStage = middleRowStages.receive_header;
+        const pullPos = pullStage && positions.has(pullStage) ? positions.get(pullStage) : null;
+        const receiveStartX = pullPos ? pullPos.x + 220 : null;
+        const pipelineGap = 230;
+        pipelineNames.forEach((label, index) => {
+            const stageName = middleRowStages[label];
+            if (!stageName || !positions.has(stageName)) return;
+            const pos = positions.get(stageName);
+            positions.set(stageName, {
+                x: receiveStartX != null
+                    ? receiveStartX + index * pipelineGap
+                    : (pos.x + 70 + index * 20),
+                y: pos.y,
+            });
+            if (index > 0) {
+                const prevStageName = middleRowStages[pipelineNames[index - 1]];
+                if (prevStageName) pipelineStageEdges.push([prevStageName, stageName]);
+            }
+        });
+
+        curY += managerLaneHeight * nodeSpacing + laneGap;
+        const bottomBandBottom = placeConnectionGroup(downstreamConnections, curY);
+        curY = Math.max(curY, bottomBandBottom + laneGap);
+
+        window.__debugLastPositions = Object.fromEntries([...positions.entries()]);
+        window.__debugConnectionDepths = debugConnectionDepths;
+
+        // Compute SVG dimensions
+        let maxX = 800, maxY = 480;
+        for (const { x, y } of positions.values()) {
+            maxX = Math.max(maxX, x + 200);
+            maxY = Math.max(maxY, y + 200);
+        }
+        svg.setAttribute('width', maxX);
+        svg.setAttribute('height', maxY);
+        svg.setAttribute('viewBox', `0 0 ${maxX} ${maxY}`);
+
+        // Draw creation edges (solid gray lines)
+        for (const [parent, children] of creates) {
+            const pp = positions.get(parent);
+            if (!pp) continue;
+            for (const child of children) {
+                if (parent === managerNode && connections.includes(child)) continue;
+                const cp = positions.get(child);
+                if (!cp) continue;
+                const dx = cp.x - pp.x, dy = cp.y - pp.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 1) continue;
+                const ux = dx / dist, uy = dy / dist;
+                const line = document.createElementNS(ns, 'line');
+                line.setAttribute('x1', pp.x + ux * r);
+                line.setAttribute('y1', pp.y + uy * r);
+                line.setAttribute('x2', cp.x - ux * r);
+                line.setAttribute('y2', cp.y - uy * r);
+                line.setAttribute('stroke', '#d1d5db');
+                line.setAttribute('stroke-width', '1.5');
+                svg.appendChild(line);
+            }
+        }
+
+        for (const [parent, child] of pipelineStageEdges) {
+            const pp = positions.get(parent);
+            const cp = positions.get(child);
+            if (!pp || !cp) continue;
+            const dx = cp.x - pp.x, dy = cp.y - pp.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 1) continue;
+            const ux = dx / dist, uy = dy / dist;
+            const line = document.createElementNS(ns, 'line');
+            line.setAttribute('x1', pp.x + ux * r);
+            line.setAttribute('y1', pp.y + uy * r);
+            line.setAttribute('x2', cp.x - ux * r);
+            line.setAttribute('y2', cp.y - uy * r);
+            line.setAttribute('stroke', '#d1d5db');
+            line.setAttribute('stroke-width', '1.5');
+            svg.appendChild(line);
+        }
+
+        // Draw stage nodes
+        stageElems = {};
+        for (const [name, pos] of positions) {
+            const c = document.createElementNS(ns, 'circle');
+            c.setAttribute('cx', pos.x);
+            c.setAttribute('cy', pos.y);
+            c.setAttribute('r', r);
+            c.setAttribute('class', 'resumeNode hiddenStage');
+            svg.appendChild(c);
+
+            const t = document.createElementNS(ns, 'text');
+            t.setAttribute('x', pos.x);
+            t.setAttribute('y', pos.y - 28);
+            t.setAttribute('class', 'stageLabel hiddenStage');
+            t.textContent = displayStageName(name);
+            if (connectionStageRoot(canonicalStageName(name))) {
+                t.style.fontWeight = '800';
+            }
+            svg.appendChild(t);
+
+            stageElems[name] = { circle: c, label: t, x: pos.x, rowY: pos.y };
+        }
+
         ensureCanvasHeightForLabels();
     }
 
     // Display helper: strip a trailing "-number" suffix from stage names
     function displayStageName(name) {
-        return String(name || '')
-            .replace(/-\d+$/, '');
-    }
-
-    function drawStageNodes(ns, margin, y, uniqueStages) {
-        stageElems = {};
-        const seen = new Set();
-        for (let k = 0; k < uniqueStages.length; k++) {
-            const name = uniqueStages[k];
-            if (seen.has(name)) continue; // safety guard
-            seen.add(name);
-            const x = margin.left + k * 160;
-
-            const c = document.createElementNS(ns, 'circle');
-            c.setAttribute('cx', x);
-            c.setAttribute('cy', y);
-            c.setAttribute('r', 18);
-            c.setAttribute('class', 'resumeNode');
-            svg.appendChild(c);
-
-            const t = document.createElementNS(ns, 'text');
-            t.setAttribute('x', x);
-            t.setAttribute('y', y - 28);
-            t.setAttribute('class', 'stageLabel');
-            t.textContent = displayStageName(name);
-            svg.appendChild(t);
-
-            stageElems[name] = {circle: c, label: t, x};
+        const canonical = canonicalStageName(name);
+        const connRoot = connectionStageRoot(canonical);
+        if (connRoot) {
+            const portMatch = connRoot.match(/:(\d+)$/);
+            const port = portMatch ? portMatch[1] : connRoot;
+            const direction = connectionStageDirections.get(connRoot);
+            const adornment = direction === 'U' ? '↓' : direction === 'D' ? '↑' : null;
+            return adornment ? `${port} ${adornment}` : port;
         }
+        return canonical.replace(/-\d+$/, '');
     }
 
     function reset() {
         // Clear active highlighting but keep the stage nodes
         clearHashes();
         clearEffectBadges();
+        currentHeaderTree = new Map();
+        selectedHeaderHash = null;
+        renderHeaderTree();
         Object.values(stageElems).forEach(({circle, label}) => {
             circle.classList.remove('active', 'suspend');
             label.classList.remove('active', 'suspend');
+            circle.classList.add('hiddenStage');
+            label.classList.add('hiddenStage');
         });
         iEvent = 0;
         hashCounts = new Map();
         suspendedStages = new Set();
+        pendingSends = new Map();
+        pendingBlockRanges = new Map();
         currentRunnable = [];
         updateStack(currentRunnable);
         setCurrentTrace(null);
         setDebugTrace(null);
         updateProgress();
-        running = false;
+        pausePlayback();
         prevActive = null;
-        playPauseBtn.textContent = 'Play';
         statusEl.textContent = resumes.length ? 'Ready' : 'No data loaded';
     }
 
     function updateProgress() {
-        progressEl.textContent = `${Math.min(iEvent, events.length)} / ${events.length}`;
+        const current = Math.max(0, Math.min(iEvent, events.length));
+        progressEl.textContent = `${current} / ${events.length}`;
+        stepInput.value = String(current);
+        updateStepInputWidth(stepInput.value);
+        stepTotalEl.textContent = String(events.length);
     }
 
     function clearHashes() {
-        svg.querySelectorAll('.hashLabel').forEach(n => n.remove());
+        svg.querySelectorAll('.hashBadge').forEach(n => n.remove());
+        svg.querySelectorAll('.hashStackBg').forEach(n => n.remove());
+    }
+
+    function shouldTrackHeaderRelation(ev) {
+        if (!ev || !ev.headerRelation) return false;
+        if (ev.kind === 'input') {
+            return displayStageName(ev.stage) === 'validate_header';
+        }
+        if (ev.kind === 'suspend') {
+            const eff = ev.raw && ev.raw.effect;
+            if (!eff || eff.type !== 'send') return false;
+            return displayStageName(resolveVisibleStageName(eff.to || '')) === 'validate_header';
+        }
+        return false;
+    }
+
+    function addHeaderRelationToTree(relation, stepNumber = null) {
+        if (!relation || !relation.hash) return;
+        const hash = relation.hash;
+        const parent = relation.parent || null;
+        const existing = currentHeaderTree.get(hash) || {hash, parent: null, step: null, placeholder: false, filled: false};
+        existing.parent = parent;
+        existing.placeholder = false;
+        if (stepNumber != null && existing.step == null) existing.step = stepNumber;
+        currentHeaderTree.set(hash, existing);
+        if (parent && !currentHeaderTree.has(parent)) {
+            currentHeaderTree.set(parent, {
+                hash: parent,
+                parent: null,
+                step: null,
+                placeholder: true,
+                filled: false,
+            });
+        }
+        renderHeaderTree();
+    }
+
+    function markHeaderBlockReceived(hash) {
+        if (!hash) return;
+        const existing = currentHeaderTree.get(hash) || {
+            hash,
+            parent: null,
+            step: null,
+            placeholder: true,
+            filled: false,
+        };
+        existing.placeholder = false;
+        existing.filled = true;
+        currentHeaderTree.set(hash, existing);
+        renderHeaderTree();
+    }
+
+    function selectHeaderInTree(hash) {
+        selectedHeaderHash = hash || null;
+        if (hash && !currentHeaderTree.has(hash)) {
+            currentHeaderTree.set(hash, {
+                hash,
+                parent: null,
+                step: null,
+                placeholder: true,
+                filled: false,
+            });
+        }
+        renderHeaderTree();
+    }
+
+    function renderHeaderTree() {
+        if (!headerTreeSvg) return;
+        const ns = 'http://www.w3.org/2000/svg';
+        headerTreeSvg.innerHTML = '';
+        const nodes = [...currentHeaderTree.values()];
+        const width = Math.max(240, Math.floor((headerTreePanel && headerTreePanel.clientWidth) || 260) - 8);
+        if (nodes.length === 0) {
+            headerTreeSvg.setAttribute('width', String(width));
+            headerTreeSvg.setAttribute('height', '140');
+            headerTreeSvg.setAttribute('viewBox', `0 0 ${width} 140`);
+            const empty = document.createElementNS(ns, 'text');
+            empty.setAttribute('class', 'headerTreeEmpty');
+            empty.setAttribute('x', '16');
+            empty.setAttribute('y', '28');
+            empty.textContent = 'No headers yet';
+            headerTreeSvg.appendChild(empty);
+            return;
+        }
+
+        const nodeByHash = new Map(nodes.map(node => [node.hash, node]));
+        const children = new Map(nodes.map(node => [node.hash, []]));
+        for (const node of nodes) {
+            if (node.parent && children.has(node.parent)) children.get(node.parent).push(node.hash);
+        }
+        const nodeSort = (a, b) =>
+            ((nodeByHash.get(a)?.step ?? Infinity) - (nodeByHash.get(b)?.step ?? Infinity))
+            || a.localeCompare(b);
+        for (const arr of children.values()) arr.sort(nodeSort);
+
+        const roots = nodes
+            .filter(node => !node.parent || !nodeByHash.has(node.parent))
+            .map(node => node.hash)
+            .sort(nodeSort);
+
+        const depthByHash = new Map();
+        const assignDepth = (hash, depth) => {
+            if (depthByHash.has(hash) && depthByHash.get(hash) <= depth) return;
+            depthByHash.set(hash, depth);
+            for (const childHash of children.get(hash) || []) assignDepth(childHash, depth + 1);
+        };
+        roots.forEach(root => assignDepth(root, 0));
+
+        let leafIndex = 0;
+        const yByHash = new Map();
+        const assignY = (hash) => {
+            const kids = children.get(hash) || [];
+            if (kids.length === 0) {
+                const y = 26 + leafIndex * 40;
+                leafIndex += 1;
+                yByHash.set(hash, y);
+                return y;
+            }
+            const ys = kids.map(assignY);
+            const y = (Math.min(...ys) + Math.max(...ys)) / 2;
+            yByHash.set(hash, y);
+            return y;
+        };
+        roots.forEach(assignY);
+
+        const maxDepth = Math.max(...depthByHash.values(), 0);
+        const colGap = Math.max(90, Math.min(130, Math.floor((width - 80) / Math.max(1, maxDepth + 1))));
+        const marginX = 22;
+        const positions = new Map(nodes.map(node => [node.hash, {
+            x: marginX + (depthByHash.get(node.hash) || 0) * colGap,
+            y: yByHash.get(node.hash) || 26,
+        }]));
+
+        let maxY = 80;
+        for (const node of nodes) {
+            const pos = positions.get(node.hash);
+            maxY = Math.max(maxY, pos.y + 26);
+            if (node.parent && positions.has(node.parent)) {
+                const parentPos = positions.get(node.parent);
+                const line = document.createElementNS(ns, 'line');
+                line.setAttribute('class', 'headerTreeEdge');
+                line.setAttribute('x1', String(parentPos.x + 10));
+                line.setAttribute('y1', String(parentPos.y));
+                line.setAttribute('x2', String(pos.x - 10));
+                line.setAttribute('y2', String(pos.y));
+                headerTreeSvg.appendChild(line);
+            }
+        }
+
+        headerTreeSvg.setAttribute('width', String(width));
+        headerTreeSvg.setAttribute('height', String(maxY + 12));
+        headerTreeSvg.setAttribute('viewBox', `0 0 ${width} ${maxY + 12}`);
+
+        for (const node of nodes.sort((a, b) => nodeSort(a.hash, b.hash))) {
+            const pos = positions.get(node.hash);
+            const circle = document.createElementNS(ns, 'circle');
+            const nodeClass = ['headerTreeNode'];
+            if (node.placeholder) nodeClass.push('placeholder');
+            if (node.filled) nodeClass.push('filled');
+            if (node.hash === selectedHeaderHash) nodeClass.push('selected');
+            circle.setAttribute('class', nodeClass.join(' '));
+            circle.setAttribute('cx', String(pos.x));
+            circle.setAttribute('cy', String(pos.y));
+            circle.setAttribute('r', '9');
+            headerTreeSvg.appendChild(circle);
+
+            const label = document.createElementNS(ns, 'text');
+            label.setAttribute('class', 'headerTreeLabel');
+            label.setAttribute('x', String(pos.x + 16));
+            label.setAttribute('y', String(pos.y));
+            label.textContent = node.hash.slice(0, 6);
+            headerTreeSvg.appendChild(label);
+        }
+    }
+
+    function maybeRememberBlockRange(msgName, rawInput, peer) {
+        if (!peer || !['FetchBlocks', 'RequestRange'].includes(msgName)) return;
+        const range = extractRangePayload(rawInput || '');
+        if (!range) return;
+        pendingBlockRanges.set(String(peer), {
+            from: range.from || null,
+            through: range.through || null,
+            peer: String(peer),
+        });
+    }
+
+    function maybeMarkBlocksReceived(msgName, peer) {
+        if (msgName !== 'Blocks' || !peer) return;
+        const inferredRange = pendingBlockRanges.get(String(peer));
+        if (!inferredRange) return;
+        const blockHash = inferredRange.from && inferredRange.through && inferredRange.from === inferredRange.through
+            ? inferredRange.from
+            : (inferredRange.through || inferredRange.from);
+        if (blockHash) markHeaderBlockReceived(blockHash);
+    }
+
+    // Remove the label for the message that was fully processed by a stage.
+    function consumeProcessedLabel(stageName) {
+        const nodes = Array.from(
+            svg.querySelectorAll(`.hashBadge[data-stage="${stageName}"]`)
+        );
+        if (nodes.length === 0) return;
+        nodes.sort((a, b) => (Number(a.getAttribute('data-order')) || 0) - (Number(b.getAttribute('data-order')) || 0));
+        // Fallback: remove oldest
+        nodes[0].remove();
+        layoutStageLabels(stageName);
+        ensureCanvasHeightForLabels();
+    }
+
+    function stageLabelBaseY(stageName) {
+        const el = stageElems[stageName];
+        return el ? el.rowY : 36;
+    }
+
+    function revealStage(stageName) {
+        const el = stageElems[stageName];
+        if (!el) return;
+        el.circle.classList.remove('hiddenStage');
+        el.label.classList.remove('hiddenStage');
     }
 
     function layoutStageLabels(stageName) {
-        const ns = 'http://www.w3.org/2000/svg';
         const el = stageElems[stageName];
         if (!el) return;
-        const baseY = centerY + 36;
-        const lineGap = 14; // vertical spacing between labels
+        const baseY = stageLabelBaseY(stageName);
+        const lineGap = 16; // vertical spacing between labels
+        let stackBg = svg.querySelector(`.hashStackBg[data-stage="${stageName}"]`);
         // Collect labels for this stage and sort by insertion order
         const nodes = Array.from(
-            svg.querySelectorAll(`.hashLabel[data-stage="${stageName}"]`)
+            svg.querySelectorAll(`.hashBadge[data-stage="${stageName}"]`)
         );
+        if (nodes.length === 0) {
+            if (stackBg) stackBg.remove();
+            return;
+        }
         nodes.sort((a, b) => (Number(a.getAttribute('data-order')) || 0) - (Number(b.getAttribute('data-order')) || 0));
+        const canonicalName = canonicalStageName(stageName);
+        const isConn = connectionStageRoot(canonicalName) !== null;
+        const isManager = displayStageName(stageName) === 'manager';
+        const managerEntry = Object.entries(stageElems).find(([name]) => displayStageName(name) === 'manager');
+        const middleRowY = managerEntry ? managerEntry[1].rowY : null;
+        const isMiddleRowStage = middleRowY != null && Math.abs(el.rowY - middleRowY) < 1;
+        const stackBelowNode = isMiddleRowStage;
+        const alignRight = stackBelowNode ? true : !(isConn || isManager);
+        const stageRadius = 18;
+        const circleMargin = 8;
+        const textMargin = 16;
+        const xOffset = alignRight
+            ? stageRadius + circleMargin + textMargin
+            : -(stageRadius + circleMargin + textMargin);
+        const totalHeight = Math.max(0, (nodes.length - 1) * lineGap);
+        const startY = stackBelowNode
+            ? (el.rowY + stageRadius + circleMargin + 10)
+            : (baseY - totalHeight / 2);
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
         nodes.forEach((n, idx) => {
-            const y = baseY + idx * lineGap;
-            n.setAttribute('y', y);
+            const text = n.querySelector('.hashLabel');
+            if (!text) return;
+            const y = startY + idx * lineGap;
+            const x = stackBelowNode ? el.x : (el.x + xOffset);
+            text.setAttribute('x', x);
+            text.setAttribute('y', y);
+            text.setAttribute('text-anchor', stackBelowNode ? 'middle' : (alignRight ? 'start' : 'end'));
+            text.setAttribute('alignment-baseline', 'middle');
+            text.style.textAnchor = stackBelowNode ? 'middle' : (alignRight ? 'start' : 'end');
+            const bbox = text.getBBox();
+            minX = Math.min(minX, bbox.x);
+            minY = Math.min(minY, bbox.y);
+            maxX = Math.max(maxX, bbox.x + bbox.width);
+            maxY = Math.max(maxY, bbox.y + bbox.height);
         });
+        if (!Number.isFinite(minX)) {
+            if (stackBg) stackBg.remove();
+            return;
+        }
+        if (!stackBg) {
+            stackBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            stackBg.setAttribute('class', 'hashStackBg');
+            stackBg.setAttribute('data-stage', stageName);
+            svg.insertBefore(stackBg, nodes[0]);
+        } else {
+            svg.insertBefore(stackBg, nodes[0]);
+        }
+        const padX = 8;
+        const padY = 5;
+        stackBg.setAttribute('x', String(minX - padX));
+        stackBg.setAttribute('y', String(minY - padY));
+        stackBg.setAttribute('width', String(maxX - minX + padX * 2));
+        stackBg.setAttribute('height', String(maxY - minY + padY * 2));
     }
 
     function ensureCanvasHeightForLabels() {
         const lineGap = 14;
-        const baseY = centerY + 36;
-        let maxCount = 0;
+        let needed = 480;
         for (const name of Object.keys(stageElems)) {
-            const count = svg.querySelectorAll(`.hashLabel[data-stage="${name}"]`).length;
-            if (count > maxCount) maxCount = count;
+            const count = svg.querySelectorAll(`.hashBadge[data-stage="${name}"]`).length;
+            const baseY = stageLabelBaseY(name);
+            const labelBottom = baseY + (count > 0 ? (count - 1) * lineGap : 0) + 24;
+            needed = Math.max(needed, labelBottom);
         }
-        // Leave a small bottom margin (24px). Minimum canvas height 480.
-        const needed = Math.max(480, baseY + (maxCount > 0 ? (maxCount - 1) * lineGap : 0) + 24);
 
         const vb = svg.viewBox.baseVal;
         const curH = vb && vb.height ? vb.height : svg.height.baseVal.value;
@@ -710,7 +2403,7 @@
     }
 
     function removeLabelElsewhere(stageName, key) {
-        const nodes = svg.querySelectorAll('.hashLabel[data-key]');
+        const nodes = svg.querySelectorAll('.hashBadge[data-key]');
         const affected = new Set();
         nodes.forEach(n => {
             const currentStage = n.getAttribute('data-stage')
@@ -759,7 +2452,6 @@
         // 3) block_body_hash: <value>
         m = inputStr.match(/\bblock_body_hash:\s*([^\s,}]+)\b/);
         if (m) return m[1];
-        console.warn('[traces] extractHash: no hash found for inputStr =', inputStr);
         return null;
     }
 
@@ -771,14 +2463,201 @@
         // 2) src: <peer name>
         m = inputStr.match(/\bsrc\s*:\s*["']?([^"'\\s,}]+)["']?/);
         if (m) return m[1];
+        // 3) generic nested payloads like {AddPeer: {name: 127.0.0.1:30001}}
+        m = inputStr.match(/\{\s*[A-Za-z]\w*\s*:\s*\{[^}]*\bname\s*:\s*["']?([^"'\\s,}]+)["']?/);
+        if (m) return m[1];
         return null;
+    }
+
+    function extractHeaderRelation(inputStr) {
+        if (!inputStr || !/\bRollForward\b/.test(inputStr)) return null;
+        const hashMatch = inputStr.match(/\bhash:\s*([0-9a-fA-F]+)/);
+        const prevHashMatch = inputStr.match(/\bprev_hash:\s*([0-9a-fA-F]+)/);
+        if (!hashMatch) return null;
+        return {
+            hash: hashMatch[1],
+            parent: prevHashMatch ? prevHashMatch[1] : null,
+        };
+    }
+
+    function extractSelectedHeaderHash(ev) {
+        if (!ev || ev.kind !== 'suspend') return null;
+        const raw = ev.raw || {};
+        const eff = raw.effect || {};
+        if (eff.type !== 'external') return null;
+        if (displayStageName(eff.at_stage || ev.stage || '') !== 'select_chain') return null;
+        if (!String(eff.effect_type || '').includes('RollForwardChainEffect')) return null;
+        const body = String(eff.effect || '');
+        const match = body.match(/\bSpecific:\s*\[\s*\d+\s*,\s*([0-9a-fA-F]+)\s*\]/);
+        return match ? match[1] : null;
+    }
+
+    function extractSpecificHashList(inputStr) {
+        if (!inputStr) return [];
+        return [...String(inputStr).matchAll(/\bSpecific:\s*\[\s*\d+\s*,\s*([0-9a-fA-F]+)\s*\]/g)]
+            .map(match => match[1]);
+    }
+
+    function shortHash(hash) {
+        return hash ? String(hash).slice(0, 6) : '?';
+    }
+
+    function extractRangePayload(inputStr) {
+        if (!inputStr || !/\b(FetchBlocks|RequestRange)\b/.test(inputStr)) return null;
+        const fromMatch = inputStr.match(/\bfrom\s*:\s*\{Specific:\s*\[\s*\d+\s*,\s*([0-9a-fA-F]+)\s*\]\}/);
+        const throughMatch = inputStr.match(/\bthrough\s*:\s*\{Specific:\s*\[\s*\d+\s*,\s*([0-9a-fA-F]+)\s*\]\}/);
+        if (!fromMatch && !throughMatch) return null;
+        return {
+            from: fromMatch ? fromMatch[1] : null,
+            through: throughMatch ? throughMatch[1] : null,
+        };
     }
 
     function extractMessageName(inputStr) {
         if (!inputStr) return 'unknown';
+        // {Name: ...}
         const m = inputStr.match(/^\s*\{\s*([A-Za-z]\w*)\s*:/);
-        if (m) return m[1];
+        if (m) {
+            // Unwrap {Local: RequestNext} / {Network: RollForward}
+            if (['Local', 'Network'].includes(m[1])) {
+                const bareInner = inputStr.match(/^\s*\{\s*[A-Za-z]\w*\s*:\s*([A-Za-z]\w*)\s*\}$/);
+                if (bareInner) return bareInner[1];
+                const nestedInner = inputStr.match(/^\s*\{\s*[A-Za-z]\w*\s*:\s*\{\s*([A-Za-z]\w*)\s*:/);
+                if (nestedInner) return nestedInner[1];
+            }
+            // Unwrap {Network: {InnerName: ...}} to get InnerName
+            if (m[1] === 'Network') {
+                const inner = inputStr.match(/\{Network:\s*\{\s*([A-Za-z]\w*)\s*:/);
+                if (inner) return inner[1];
+            }
+            // Unwrap protocol envelopes like {Handshake: {Accepted: ...}}
+            if (['Handshake', 'ChainSync', 'BlockFetch', 'TxSubmission', 'KeepAlive'].includes(m[1])) {
+                const inner = inputStr.match(/^\s*\{\s*[A-Za-z]\w*\s*:\s*\{\s*([A-Za-z]\w*)\s*:/);
+                if (inner) return inner[1];
+            }
+            return m[1];
+        }
+        // Bare token like "Initialize"
+        const bare = inputStr.match(/^\s*([A-Za-z]\w*)\s*$/);
+        if (bare) return bare[1];
         return 'unknown';
+    }
+
+    // Map CBOR message tag numbers to protocol message names per stage type.
+    // Cardano miniprotocol messages are [tag, ...] where tag identifies the message.
+    const PROTOCOL_TAG_NAMES = {
+        handshake:     { 0: 'Propose', 1: 'Accept', 2: 'Refuse', 3: 'QueryReply' },
+        chainsync:     { 0: 'RequestNext', 1: 'AwaitReply', 2: 'RollForward', 3: 'RollBackward',
+                         4: 'FindIntersect', 5: 'IntersectFound', 6: 'IntersectNotFound', 7: 'Done' },
+        blockfetch:    { 0: 'RequestRange', 1: 'ClientDone', 2: 'StartBatch', 3: 'NoBlocks',
+                         4: 'Block', 5: 'BatchDone' },
+        tx_submission: { 0: 'RequestTxIds', 1: 'ReplyTxIds', 2: 'RequestTxs', 3: 'ReplyTxs',
+                         4: 'Done', 6: 'Init' },
+        keepalive:     { 0: 'KeepAlive', 1: 'ResponseKeepAlive', 2: 'Done' },
+    };
+
+    const PROTOCOL_IDS = {
+        0: 'handshake',
+        2: 'chainsync',
+        3: 'blockfetch',
+        4: 'tx_submission',
+        8: 'keepalive',
+    };
+
+    // Resolve a <msg:N> tag in a message to a protocol name based on the destination stage
+    function resolveProtocolTag(msg, destStage) {
+        const tagMatch = msg.match(/<msg:(\d+)>/);
+        if (!tagMatch) return null;
+        const tag = parseInt(tagMatch[1]);
+        for (const [proto, tags] of Object.entries(PROTOCOL_TAG_NAMES)) {
+            if (destStage.startsWith(proto) && tags[tag]) {
+                return tags[tag];
+            }
+        }
+        return null;
+    }
+
+    function inferPeerForStage(stageName) {
+        const canonical = canonicalStageName(stageName);
+        const directConn = connectionStageRoot(canonical);
+        if (directConn) return directConn;
+        const debugInfo = window.__debugConnectionDepths && window.__debugConnectionDepths[canonical];
+        return debugInfo && debugInfo.conn ? debugInfo.conn : null;
+    }
+
+    function resolveMuxProtocolTag(msg) {
+        if (!msg) return null;
+        const protoMatch = msg.match(/\[\s*(\d+)\s*,\s*\]/);
+        const tagMatch = msg.match(/<msg:(\d+)>/);
+        if (!protoMatch || !tagMatch) return null;
+        const rawProtocolId = parseInt(protoMatch[1], 10);
+        const protocolId = rawProtocolId & 0x7fff;
+        const protocolName = PROTOCOL_IDS[protocolId];
+        if (!protocolName) return null;
+        const tag = parseInt(tagMatch[1], 10);
+        return PROTOCOL_TAG_NAMES[protocolName]?.[tag] || null;
+    }
+
+    function resolveRegisterProtocol(inputStr) {
+        if (!inputStr) return null;
+        const handlerMatch = inputStr.match(/\bhandler\s*:\s*\{[^}]*\bname\s*:\s*([A-Za-z0-9_:-]+)/);
+        if (!handlerMatch) return null;
+        const handlerName = canonicalStageName(handlerMatch[1]);
+        const base = handlerName
+            .replace(/-\d+$/, '')
+            .replace(/_(bytes|handler|result)$/, '');
+        return displayStageName(base);
+    }
+
+    function resolveSendProtocolName(inputStr) {
+        if (!inputStr) return null;
+        const sourceMatch = inputStr.match(/\{name:\s*([A-Za-z0-9_:-]+)/);
+        if (!sourceMatch) return null;
+        const sourceName = canonicalStageName(sourceMatch[1]);
+        const sourceLabel = displayStageName(sourceName);
+        const protoName = resolveProtocolTag(inputStr, sourceLabel);
+        return protoName ? `Send ${protoName}` : null;
+    }
+
+    function resolveEmbeddedMsgName(inputStr) {
+        if (!inputStr) return null;
+        const nestedMsgMatch = inputStr.match(/\bmsg\s*:\s*\{\s*([A-Za-z]\w*)\s*:/);
+        if (nestedMsgMatch) return nestedMsgMatch[1];
+        const msgMatch = inputStr.match(/\bmsg\s*:\s*([A-Za-z]\w*)\b/);
+        return msgMatch ? msgMatch[1] : null;
+    }
+
+    function messageNameForPayload(input, stageName) {
+        const stageLabel = displayStageName(stageName);
+        if (/^\s*\{\s*blocks\s*:/.test(input || '')) return 'Blocks';
+        if (stageLabel === 'mux') {
+            const muxProtoName = resolveMuxProtocolTag(input || '');
+            if (muxProtoName) return muxProtoName;
+        }
+        const protoName = resolveProtocolTag(input || '', stageName);
+        if (protoName) return protoName;
+        const extracted = extractMessageName(input);
+        if (extracted === 'Register') {
+            const protocol = resolveRegisterProtocol(input);
+            if (protocol) return `Register ${protocol}`;
+        }
+        if (extracted === 'Send') {
+            const protocol = resolveSendProtocolName(input);
+            if (protocol) return protocol;
+        }
+        const embeddedMsgName = resolveEmbeddedMsgName(input || '');
+        if (embeddedMsgName) return embeddedMsgName;
+        if (extracted === 'unknown' && stageName.startsWith('reader')) return 'Read';
+        if (extracted !== 'unknown') return extracted;
+        if (stageLabel === 'accept') return 'Pull';
+        if (/^\d+-[\d.]+:\d+$/.test(stageLabel)) return 'Initialize';
+        return extracted;
+    }
+
+    function messageNameForEvent(ev) {
+        const input = ev && ev.input;
+        const stageName = canonicalStageName(ev && ev.stage);
+        return messageNameForPayload(input, stageName);
     }
 
     function extractEffectLabel(effectTypeStr) {
@@ -805,38 +2684,180 @@
         return `hsl(${hue}, 65%, 40%)`;
     }
 
-    function showHashForStage(stageName, hash, peer, msgName) {
+    function formatInputBadgeText(msgName, hash, peer, rawInput = '', stepNumber = null) {
+        const name = (msgName ?? 'unknown');
+        const hasHash = hash != null && String(hash).length > 0 && String(hash) !== 'null';
+        const hasPeer = peer != null && String(peer).length > 0 && String(peer) !== 'null';
+        const peerPortMatch = hasPeer ? String(peer).match(/:(\d+)$/) : null;
+        const peerPort = peerPortMatch ? peerPortMatch[1] : null;
+        const peerSuffix = peerPort ? `(${peerPort})` : null;
+        const nameWithPeer = peerSuffix ? `${name}${peerSuffix}` : name;
+        const fetchRange = ['FetchBlocks', 'RequestRange'].includes(name) ? extractRangePayload(rawInput) : null;
+        const moreHashes = name === 'More' ? extractSpecificHashList(rawInput) : [];
+        const withStep = (title) => stepNumber != null ? `${title} [step ${stepNumber}]` : title;
+        const inferredRange = name === 'Blocks' ? pendingBlockRanges.get(String(peer || '')) : null;
+
+        if (name === 'Blocks' && inferredRange) {
+            const blockHash = inferredRange.from && inferredRange.through && inferredRange.from === inferredRange.through
+                ? inferredRange.from
+                : (inferredRange.through || inferredRange.from);
+            if (blockHash) {
+                return {
+                    text: `Blocks(${shortHash(blockHash)})`,
+                    title: withStep(`Blocks(${blockHash})`)
+                };
+            }
+        }
+
+        if (name === 'More' && moreHashes.length > 0) {
+            const shortList = moreHashes.map(shortHash).join(', ');
+            return {
+                text: `More[${shortList}]`,
+                title: withStep(`More[${moreHashes.join(', ')}]`)
+            };
+        }
+
+        if (fetchRange && peerPort) {
+            const fromShort = shortHash(fetchRange.from);
+            const throughShort = shortHash(fetchRange.through);
+            return {
+                text: `${name}(${peerPort}, ${fromShort}->${throughShort})`,
+                title: withStep(`${name}(${peerPort}, ${fetchRange.from || '?'}->${fetchRange.through || '?'})`)
+            };
+        }
+
+        if (hasHash) {
+            const short = shortHash(hash);
+            if (!hasPeer && name === 'NewTip') {
+                return {
+                    text: `${name}(${short})`,
+                    title: withStep(`${name}(${String(hash)})`)
+                };
+            }
+            if (peerPort) {
+                return {
+                    text: `${name}(${peerPort}, ${short})`,
+                    title: withStep(`${name}(${peerPort}, ${String(hash)})`)
+                };
+            }
+            const who = hasPeer ? String(peer) : 'peer unknown';
+            return {
+                text: `${nameWithPeer}: ${short} (${who})`,
+                title: withStep(`${nameWithPeer}: ${String(hash)} (${who})`)
+            };
+        }
+
+        if (hasPeer) {
+            return {
+                text: nameWithPeer,
+                title: withStep(nameWithPeer)
+            };
+        }
+
+        return {
+            text: nameWithPeer,
+            title: withStep(nameWithPeer)
+        };
+    }
+
+    function showHashForStage(stageName, hash, peer, msgName, rawInput = '', stepNumber = null) {
         const el = stageElems[stageName];
         if (!el) return;
+        revealStage(stageName);
         const ns = 'http://www.w3.org/2000/svg';
         const name = (msgName ?? 'unknown');
         const key = `${String(hash)}-${peer ?? 'unknown'}-${name}`;
         removeLabelElsewhere(stageName, key);
+        const g = document.createElementNS(ns, 'g');
+        g.setAttribute('class', 'hashBadge');
+        g.setAttribute('data-stage', stageName);
+        g.setAttribute('data-key', key);
+        if (hash) g.setAttribute('data-hash', String(hash));
+        if (peer != null) g.setAttribute('data-peer', String(peer));
+        g.setAttribute('data-order', String(++labelSeq));
+        g.setAttribute('data-msg-name', name);
+
+        const rect = document.createElementNS(ns, 'rect');
+        rect.setAttribute('class', 'hashBadgeBg');
+
         const t = document.createElementNS(ns, 'text');
         t.setAttribute('x', el.x);
         t.setAttribute('class', 'hashLabel');
-        t.setAttribute('data-stage', stageName);
-        t.setAttribute('data-key', key);
-        if (hash) t.setAttribute('data-hash', String(hash));
-        if (peer != null) t.setAttribute('data-peer', String(peer));
-        t.setAttribute('data-order', String(++labelSeq));
-        t.setAttribute('data-msg-name', name);
+        let titleEl = g.querySelector('title');
+        if (!titleEl) {
+            titleEl = document.createElementNS(ns, 'title');
+            g.appendChild(titleEl);
+        }
 
-        const short = String(hash).slice(0, 6);
-        const who = (peer != null && String(peer).length) ? String(peer) : '?';
-        t.textContent = `${name}: ${short} (${who})`;
-        t.setAttribute('title', `${name}: ${String(hash)} (${who})`);
-        svg.appendChild(t);
+        const badge = formatInputBadgeText(name, hash, peer, rawInput, stepNumber);
+        t.textContent = badge.text;
+        titleEl.textContent = badge.title;
+        g.appendChild(rect);
+        g.appendChild(t);
+        svg.appendChild(g);
 
         // Ensure labels under this stage are stacked without gaps/overlaps
         layoutStageLabels(stageName);
         ensureCanvasHeightForLabels();
     }
 
+    // Show a message label on the destination stage from a send suspend event.
+    // Track the message name so we can match it when the input arrives.
+    function showLabelFromSend(ev) {
+        const eff = ev.raw && ev.raw.effect;
+        if (!eff || eff.type !== 'send') return;
+        const destRaw = eff.to;
+        if (!destRaw) return;
+        const from = canonicalStageName(eff.from || '');
+        let dest = canonicalStageName(destRaw);
+        // Resolve contramap aliases to the original stage name
+        const resolved = contramapAliases.get(dest);
+        if (resolved) dest = resolved;
+        const msg = String(eff.msg || '');
+        if (from.startsWith('mux') && msg === '') return;
+        const h = extractHash(msg);
+        const peer = extractPeer(msg)
+            || connectionStageRoot(from)
+            || connectionStageRoot(dest)
+            || inferPeerForStage(from)
+            || inferPeerForStage(dest);
+        let ttype = messageNameForPayload(msg, dest);
+        // Name empty/unrecognized messages by destination stage or content
+        if (ttype === 'unknown' && dest.startsWith('reader')) ttype = 'Read';
+        if (ttype === 'unknown' && msg === '') ttype = 'Ready';
+        if (ttype === 'unknown' && (msg.includes('<bytes>') || msg.includes('<msg:'))) ttype = 'Bytes';
+        // FromNetwork means the tag wasn't resolved — use a generic label
+        if (ttype === 'FromNetwork') ttype = 'Bytes';
+        maybeRememberBlockRange(ttype, msg, peer);
+        maybeMarkBlocksReceived(ttype, peer);
+        // Track this send so we can match it to the corresponding input
+        if (!pendingSends.has(dest)) pendingSends.set(dest, []);
+        pendingSends.get(dest).push(ttype);
+        showHashForStage(dest, h, peer, ttype, msg, ev.step ?? iEvent);
+    }
+
+    // Check if an input was already accounted for by a prior send (match by message name).
+    // If msgName is "unknown", match any pending send (the send had a better name).
+    function inputHasPriorSend(stageName, msgName) {
+        const q = pendingSends.get(stageName);
+        if (!q || q.length === 0) return false;
+        if (msgName === 'unknown' && q.length > 0) {
+            q.shift();
+            return true;
+        }
+        const idx = q.indexOf(msgName);
+        if (idx >= 0) {
+            q.splice(idx, 1);
+            return true;
+        }
+        return false;
+    }
+
     function showEffectLabel(stageName, effectLabel) {
         if (!effectLabel) return;
         const el = stageElems[stageName];
         if (!el) return;
+        revealStage(stageName);
         const ns = 'http://www.w3.org/2000/svg';
 
         // If a badge for this exact effect already exists for this stage, do nothing
@@ -890,7 +2911,7 @@
         }
 
         // Position badge above the stage label
-        const circleY = centerY;                  // center of node row
+        const circleY = el.rowY;                  // center of this stage row
         const labelGap = 14;                      // larger gap to avoid overlap
         const stageLabelY = circleY - 28;         // existing stage label baseline
         const padX = 8, padY = 4;                 // padding inside the badge
@@ -934,6 +2955,7 @@
     function highlightStage(name, mode = 'resume') {
         const el = stageElems[name];
         if (!el) return;
+        revealStage(name);
         // clear previous visual state
         if (prevActive && stageElems[prevActive]) {
             const prev = stageElems[prevActive];
@@ -1057,19 +3079,16 @@
         const stageLabel = displayStageName(stage);
         let right = '';
         if (type === 'input') {
-            const name = (msgName ?? extractMessageName(ev.input) ?? 'unknown');
-            const short = String(hashVal).slice(0, 6);
-            const who = (peer != null && String(peer).length) ? ` (${peer})` : '';
-            right = hashVal
-                ? `<code title="${name}: ${String(hashVal)}${who}">${name}: ${short}${who}</code>`
-                : `<span class="label">—</span>`;
+            const name = (msgName ?? messageNameForEvent(ev));
+            const badge = formatInputBadgeText(name, hashVal, peer);
+            right = `<code title="${badge.title}">${badge.text}</code>`;
         } else {
             right = `<span class="label">—</span>`;
         }
         currentTraceEl.innerHTML = `
     <span class="label">type</span><span>${type}</span>
     <span class="label">stage</span><span>${stageLabel}</span>
-    <span class="label">data</span><span>${right}</span>
+    <span class="label">message</span><span>${right}</span>
   `;
     }
 
@@ -1180,14 +3199,31 @@
                     setDebugTrace(ev);
                 } else if (ev.kind === 'input') {
                     const h = extractHash(ev.input);
-                    const peer = extractPeer(ev.input);
-                    const ttype = extractMessageName(ev.input);
+                    const peer = extractPeer(ev.input) || inferPeerForStage(ev.stage);
+                    const ttype = messageNameForEvent(ev);
+                    maybeRememberBlockRange(ttype, ev.input, peer);
+                    maybeMarkBlocksReceived(ttype, peer);
                     addRunnableFromInputEvent(ev);
                     setCurrentTrace(ev, h, peer, ttype);
                     setDebugTrace(ev);
-                    showHashForStage(ev.stage, h, peer, ttype);
+                    // Only add label if no prior send already placed one (external input)
+                    if (!inputHasPriorSend(ev.stage, ttype)) {
+                        showHashForStage(ev.stage, h, peer, ttype, ev.input, ev.step ?? (iEvent + 1));
+                    }
+                    if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
+                } else if (ev.kind === 'processed') {
+                    consumeProcessedLabel(ev.stage);
+                    setCurrentTrace(ev);
+                    setDebugTrace(ev);
                 } else if (ev.kind === 'suspend') {
                     clearEffectBadges();
+                    const effectType = ev.raw && ev.raw.effect && ev.raw.effect.type;
+                    if (effectType === 'send') {
+                        showLabelFromSend(ev);
+                    }
+                    if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
+                    const selectedHash = extractSelectedHeaderHash(ev);
+                    if (selectedHash) selectHeaderInTree(selectedHash);
                     markSuspend(ev.stage);
                     highlightStage(ev.stage, 'suspend');
                     addRunnableFromSuspendEvent(ev);
@@ -1218,15 +3254,23 @@
         const target = Math.max(0, Math.min(targetIndex, events.length));
         // reset visual state (but keep events)
         clearHashes();
+        clearEffectBadges();
         Object.values(stageElems).forEach(({circle, label}) => {
-            circle.classList.remove('active');
-            label.classList.remove('active');
+            circle.classList.remove('active', 'suspend');
+            label.classList.remove('active', 'suspend');
+            circle.classList.add('hiddenStage');
+            label.classList.add('hiddenStage');
         });
         currentRunnable = [];
+        currentHeaderTree = new Map();
+        selectedHeaderHash = null;
         updateStack(currentRunnable);
+        renderHeaderTree();
         prevActive = null;
         hashCounts = new Map();
         suspendedStages = new Set();
+        pendingSends = new Map();
+        pendingBlockRanges = new Map();
 
         // replay events up to target
         for (let i = 0; i < target; i++) {
@@ -1239,11 +3283,25 @@
                 removeRunnableByStage(ev.stage);
             } else if (ev.kind === 'input') {
                 const h = extractHash(ev.input);
-                const peer = extractPeer(ev.input);
-                const ttype = extractMessageName(ev.input);
+                const peer = extractPeer(ev.input) || inferPeerForStage(ev.stage);
+                const ttype = messageNameForEvent(ev);
+                maybeRememberBlockRange(ttype, ev.input, peer);
+                maybeMarkBlocksReceived(ttype, peer);
                 addRunnableFromInputEvent(ev);
-                showHashForStage(ev.stage, h, peer, ttype);
+                if (!inputHasPriorSend(ev.stage, ttype)) {
+                    showHashForStage(ev.stage, h, peer, ttype, ev.input, ev.step ?? (iEvent + 1));
+                }
+                if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
+            } else if (ev.kind === 'processed') {
+                consumeProcessedLabel(ev.stage);
             } else if (ev.kind === 'suspend') {
+                const effectType = ev.raw && ev.raw.effect && ev.raw.effect.type;
+                if (effectType === 'send') {
+                    showLabelFromSend(ev);
+                }
+                if (shouldTrackHeaderRelation(ev)) addHeaderRelationToTree(ev.headerRelation, ev.step);
+                const selectedHash = extractSelectedHeaderHash(ev);
+                if (selectedHash) selectHeaderInTree(selectedHash);
                 markSuspend(ev.stage);
                 highlightStage(ev.stage, 'suspend');
                 addRunnableFromSuspendEvent(ev);
@@ -1251,15 +3309,14 @@
                     ev.stage,
                     ev.effect_label || (ev.raw && ev.raw.effect && extractEffectLabel(ev.raw.effect.effect_type))
                 );
-                setCurrentTrace(ev);
             }
         }
         if (target > 0) {
             const last = events[target - 1];
             if (last.kind === 'input') {
                 const h = extractHash(last.input);
-                const peer = extractPeer(last.input);
-                const ttype = extractMessageName(last.input);
+                const peer = extractPeer(last.input) || inferPeerForStage(last.stage);
+                const ttype = messageNameForEvent(last);
                 setCurrentTrace(last, h, peer, ttype);
             } else {
                 setCurrentTrace(last);
@@ -1285,6 +3342,17 @@
         renderUpTo(iEvent - 1);
     };
 
+    fastStepBackBtn.onclick = () => {
+        if (!events.length) return;
+        running = false;
+        playPauseBtn.textContent = 'Play';
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        renderUpTo(iEvent - currentFastStepSize());
+    };
+
     stepFwdBtn.onclick = () => {
         if (!events.length) return;
         // pause playback
@@ -1297,6 +3365,17 @@
         renderUpTo(iEvent + 1);
     };
 
+    fastStepFwdBtn.onclick = () => {
+        if (!events.length) return;
+        running = false;
+        playPauseBtn.textContent = 'Play';
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        renderUpTo(iEvent + currentFastStepSize());
+    };
+
     if (debugToggle) {
         debugToggle.addEventListener('change', () => {
             if (iEvent > 0 && iEvent <= events.length) {
@@ -1306,6 +3385,8 @@
             }
         });
     }
+
+    restoreLatestTraceOnRefresh();
 
     window.addEventListener('resize', () => {
         Object.keys(stageElems).forEach(name => layoutStageLabels(name));

@@ -376,7 +376,7 @@ impl TraceBuffer {
         self.push(TraceEntryRef::Clock(instant));
     }
 
-    /// Push a receive event to the trace buffer.
+    /// Push an input event to the trace buffer.
     pub fn push_input(&mut self, stage: &Name, input: &Box<dyn SendData>) {
         self.push(TraceEntryRef::Input { stage, input });
     }
