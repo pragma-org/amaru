@@ -18,19 +18,20 @@ use amaru::tests::{
     configuration::{
         NodeTestConfig,
         NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode},
+        SimulationEvent,
     },
     setup::create_nodes,
 };
 use amaru_consensus::headers_tree::data_generation::{GeneratedActions, shrink};
-use amaru_kernel::Peer;
+use amaru_kernel::{Peer, Transaction};
 use anyhow::anyhow;
 use pure_stage::trace_buffer::TraceBuffer;
 use rayon::prelude::*;
 
 use crate::simulator::{
     Args, RunConfig, TestResult,
-    checks::check_chain_property,
-    generate_actions,
+    checks::check_properties,
+    generate_actions, generate_transactions,
     report::{create_symlink_dir, display_actions_statistics, persist_args, persist_generated_data, persist_traces},
 };
 
@@ -87,13 +88,15 @@ fn run_test_nb(run_config: &RunConfig, test_run_dir: &Path, test_number: u32) ->
     let actions = generate_actions(run_config);
     display_actions_statistics(&actions);
 
-    let test_result = run_test(run_config, &actions);
+    let transactions = generate_transactions(run_config);
+
+    let test_result = run_test(run_config, &actions, &transactions);
     if test_result.is_ok() {
         tracing::info!("the test {test_number} is successful");
     }
 
     let persist = run_config.persist_on_success || test_result.is_err();
-    persist_generated_data(&test_run_dir_n, &actions, persist)?;
+    persist_generated_data(&test_run_dir_n, &actions, &transactions, persist)?;
     if let Ok(trace_buffer) = test_result.get_node_under_test_trace_buffer() {
         persist_traces(test_run_dir_n.as_path(), trace_buffer, persist)?;
     };
@@ -101,21 +104,24 @@ fn run_test_nb(run_config: &RunConfig, test_run_dir: &Path, test_number: u32) ->
 }
 
 /// Create a series of nodes and run one test on that system with generated data.
-pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResult {
-    let test = |actions: &GeneratedActions| {
+pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions, transactions: &[Transaction]) -> TestResult {
+    let test = |(actions, transactions): &(GeneratedActions, Vec<Transaction>)| {
         let mut rng = run_config.rng();
-        let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions)).expect("failed to create nodes");
+        let node_configs = node_configs(run_config, actions, transactions);
 
+        let mut nodes = create_nodes(&mut rng, &node_configs).expect("failed to create nodes");
         nodes.run(&mut rng);
-        check_chain_property(nodes, actions)
+
+        let expected_tx_ids = node_configs.iter().flat_map(|config| config.transaction_ids()).collect::<Vec<_>>();
+        check_properties(nodes, actions, &expected_tx_ids)
     };
 
     if run_config.enable_shrinking {
         let (test_result, _shrunk_actions, number_of_shrinks) =
-            shrink(&test, actions, |test_result: &TestResult| test_result.is_err());
+            shrink(&test, &(actions.clone(), transactions.to_vec()), |test_result: &TestResult| test_result.is_err());
         test_result.set_number_of_shrinks(number_of_shrinks)
     } else {
-        test(actions)
+        test(&(actions.clone(), transactions.to_vec()))
     }
 }
 
@@ -123,9 +129,13 @@ pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResul
 ///
 ///  - There are upstream nodes. They are loaded with generated data for sending chainsync messages.
 ///  - There is one node under test.
-///  - There are downstream nodes
+///  - There are downstream nodes. They are loaded with generated transactions for sending txsubmission messages.
 ///
-pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<NodeTestConfig> {
+pub fn node_configs(
+    run_config: &RunConfig,
+    actions: &GeneratedActions,
+    transactions: &[Transaction],
+) -> Vec<NodeTestConfig> {
     let upstream_peers = run_config.upstream_peers();
 
     // Only create nodes for peers that have actions. During shrinking, some peers may lose
@@ -165,6 +175,7 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
                 .with_listen_address(&peer.name)
                 .with_chain_length(run_config.generated_chain_depth)
                 .with_upstream_peer(Peer::new(listen_address))
+                .with_events(transactions.iter().map(|tx| SimulationEvent::InjectTx(tx.clone())).collect())
                 .with_validated_blocks(vec![actions.get_anchor()])
                 .with_node_type(DownstreamNode)
         })

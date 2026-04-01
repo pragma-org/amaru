@@ -35,7 +35,7 @@ fn test_connect_nodes_in_memory() -> anyhow::Result<()> {
     let mut rng = RandStdRng::from_seed(42);
     let mut nodes = create_nodes(
         &mut rng,
-        vec![
+        &[
             NodeTestConfig::initiator().with_chain_length(5).with_validated_blocks(vec![headers[0].clone()]),
             NodeTestConfig::responder().with_chain_length(5).with_validated_blocks(headers),
         ],

@@ -43,6 +43,7 @@ use crate::{
 ///  - With a specific chain store and mempool.
 ///  - With a specific connections resource which could be implemented in memory or via TCP.
 ///  - The chain length is the length of the maximum chain that has been created when generated data
+///  - With some transactions already present in the node mempool
 ///  - If this configuration is used for the initiator, it also contains the address of the upstream peer to connect to (the responder).
 ///
 #[derive(Clone)]
@@ -51,25 +52,33 @@ pub struct NodeTestConfig {
     pub mempool: Arc<InMemoryMempool<Transaction>>,
     pub connections: ConnectionsResource,
     pub chain_length: usize,
+    pub number_of_transactions: usize,
     pub upstream_peers: Vec<Peer>,
     pub listen_address: String,
     pub mailbox_size: usize,
     pub trace_buffer: Arc<Mutex<TraceBuffer>>,
     pub seed: u64,
-    pub actions: Vec<Action>,
+    pub events: Vec<SimulationEvent>,
     pub node_type: NodeType,
     pub network_name: NetworkName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SimulationEvent {
+    PeerAction(Action),
+    InjectTx(Transaction),
 }
 
 impl Debug for NodeTestConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NodeTestConfig")
             .field("chain_length", &self.chain_length)
+            .field("number_of_transactions", &self.number_of_transactions)
             .field("upstream_peers", &self.upstream_peers)
             .field("listen_address", &self.listen_address)
             .field("mailbox_size", &self.mailbox_size)
             .field("seed", &self.seed)
-            .field("actions", &self.actions)
+            .field("events", &self.events)
             .field("node_type", &self.node_type)
             .finish()
     }
@@ -89,12 +98,13 @@ impl Default for NodeTestConfig {
             mempool: Arc::new(InMemoryMempool::default()),
             connections: Arc::new(InMemoryConnectionProvider::default()),
             chain_length: 10,
+            number_of_transactions: 10,
             upstream_peers: vec![Peer::new("127.0.0.1:3001")],
             listen_address: "127.0.0.1:3000".to_string(),
             mailbox_size: 10000,
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::default())),
             seed: 42,
-            actions: Vec::new(),
+            events: Vec::new(),
             network_name: NetworkName::Preprod,
             node_type: NodeUnderTest,
         }
@@ -198,9 +208,17 @@ impl NodeTestConfig {
         self
     }
 
-    pub fn with_actions(mut self, actions: Vec<Action>) -> Self {
-        self.actions = actions;
+    pub fn with_events(mut self, events: Vec<SimulationEvent>) -> Self {
+        self.events = events;
         self
+    }
+
+    pub fn with_actions(self, actions: Vec<Action>) -> Self {
+        self.with_peer_actions(actions)
+    }
+
+    pub fn with_peer_actions(self, actions: Vec<Action>) -> Self {
+        self.with_events(actions.into_iter().map(SimulationEvent::PeerAction).collect())
     }
 
     pub fn upstream_peers(&self) -> Vec<Peer> {
@@ -270,6 +288,18 @@ impl NodeTestConfig {
         config.ledger_store = StoreType::InMem(ledger_store);
         config.chain_store = StoreType::InMem(self.chain_store.clone());
         Ok(config)
+    }
+
+    /// Return the list of transaction ids for the transations held by the node at the beginning of
+    /// the run
+    pub fn transaction_ids(&self) -> Vec<TxId> {
+        let mut result = vec![];
+        for event in self.events.iter() {
+            if let SimulationEvent::InjectTx(tx) = event {
+                result.push(TxId::from(&tx))
+            }
+        }
+        result
     }
 }
 

@@ -261,7 +261,7 @@ impl TxSubmissionInitiator {
 
         // update the window by discarding acknowledged tx ids and update the last_seq
         self.discard(ack);
-        if !mempool.wait_for_at_least(self.last_seq.unwrap_or_default().add(req as u64)).await {
+        if !mempool.wait_for_at_least(self.next_advertisable_seq()).await {
             return Ok(None);
         }
         let tx_ids = self.get_next_tx_ids(mempool, req)?;
@@ -356,6 +356,13 @@ impl TxSubmissionInitiator {
             None => MempoolSeqNo(0),
         }
     }
+
+    fn next_advertisable_seq(&self) -> MempoolSeqNo {
+        match self.last_seq {
+            Some(seq) => seq.next(),
+            None => MempoolSeqNo(1),
+        }
+    }
 }
 
 fn protocol_error(error: ProtocolError) -> anyhow::Result<Option<InitiatorAction>> {
@@ -371,7 +378,10 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{future::Future, pin::Pin, sync::Arc};
+
+    use amaru_ouroboros_traits::{Mempool, MempoolError, TxInsertResult, TxOrigin};
+    use tokio::sync::Notify;
 
     use super::*;
     use crate::tx_submission::{
@@ -463,6 +473,59 @@ mod tests {
                 reply_txs(&txs, &[4, 5]),
             ],
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn blocking_request_can_return_a_partial_final_batch() -> anyhow::Result<()> {
+        let mempool = Arc::new(SizedMempool::with_capacity(8));
+        let txs = create_transactions_in_mempool(mempool.clone(), 5);
+
+        let results = vec![
+            request_tx_ids(0, 2, Blocking::Yes),
+            request_txs(&txs, &[0, 1]),
+            request_tx_ids(2, 2, Blocking::Yes),
+            request_txs(&txs, &[2, 3]),
+            request_tx_ids(2, 2, Blocking::Yes),
+            request_txs(&txs, &[4]),
+        ];
+
+        let outcomes = run_stage(mempool, results).await?;
+
+        assert_actions_eq(
+            &outcomes,
+            &[
+                reply_tx_ids(&txs, &[0, 1]),
+                reply_txs(&txs, &[0, 1]),
+                reply_tx_ids(&txs, &[2, 3]),
+                reply_txs(&txs, &[2, 3]),
+                reply_tx_ids(&txs, &[4]),
+                reply_txs(&txs, &[4]),
+            ],
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn blocking_request_waits_for_the_first_transaction() -> anyhow::Result<()> {
+        let wait_started = Arc::new(Notify::new());
+        let mempool = Arc::new(WaitingMempool::new(4, wait_started.clone()));
+        let txs = create_transactions(1);
+        let mut initiator = TxSubmissionInitiator::new(StageRef::named_for_tests("muxer")).1;
+
+        let mempool_for_step = mempool.clone();
+        let mempool_for_insert = mempool.clone();
+        let tx = txs[0].clone();
+        let step_handle = tokio::spawn(async move {
+            step(&mut initiator, request_tx_ids(0, 2, Blocking::Yes), mempool_for_step.as_ref()).await
+        });
+
+        wait_started.notified().await;
+        mempool_for_insert.add(tx)?;
+        let action = step_handle.await??;
+
+        assert_eq!(action, Some(reply_tx_ids(&txs, &[0])));
         Ok(())
     }
 
@@ -729,5 +792,62 @@ mod tests {
 
     fn error_action(error: ProtocolError) -> InitiatorAction {
         InitiatorAction::Error(error)
+    }
+
+    /// This mempool can notify the caller that there's a client waiting for a new transaction
+    struct WaitingMempool {
+        inner: SizedMempool,
+        wait_started: Arc<Notify>,
+    }
+
+    impl WaitingMempool {
+        fn new(capacity: u64, wait_started: Arc<Notify>) -> Self {
+            Self { inner: SizedMempool::with_capacity(capacity), wait_started }
+        }
+    }
+
+    impl TxSubmissionMempool<Transaction> for WaitingMempool {
+        fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
+            self.inner.insert(tx, tx_origin)
+        }
+
+        fn get_tx(&self, tx_id: &TxId) -> Option<Transaction> {
+            self.inner.get_tx(tx_id)
+        }
+
+        fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+            self.inner.tx_ids_since(from_seq, limit)
+        }
+
+        fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            let wait_started = self.wait_started.clone();
+            let wait = self.inner.wait_for_at_least(seq_no);
+            Box::pin(async move {
+                wait_started.notify_one();
+                wait.await
+            })
+        }
+
+        fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Transaction> {
+            self.inner.get_txs_for_ids(ids)
+        }
+
+        fn last_seq_no(&self) -> MempoolSeqNo {
+            self.inner.last_seq_no()
+        }
+    }
+
+    impl Mempool<Transaction> for WaitingMempool {
+        fn take(&self) -> Vec<Transaction> {
+            self.inner.take()
+        }
+
+        fn acknowledge<TxKey: Ord, I>(&self, tx: &Transaction, keys: fn(&Transaction) -> I)
+        where
+            I: IntoIterator<Item = TxKey>,
+            Self: Sized,
+        {
+            self.inner.acknowledge(tx, keys)
+        }
     }
 }

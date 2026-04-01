@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_consensus::headers_tree::data_generation::{
-    GeneratedActions, any_select_chains_from_tree, any_tree_of_headers,
+    GeneratedActions, any_select_chains_from_tree, any_transactions, any_tree_of_headers,
 };
-use amaru_kernel::utils::tests::run_strategy_with_rng;
+use amaru_kernel::{Transaction, utils::tests::run_strategy_with_rng};
 
 use crate::simulator::RunConfig;
 
@@ -33,4 +33,13 @@ pub fn generate_actions(run_config: &RunConfig) -> GeneratedActions {
 
     // Generate actions corresponding to peers doing roll forwards and roll backs on the tree.
     run_strategy_with_rng(&mut rng.0, any_select_chains_from_tree(&generated_tree, &run_config.upstream_peers()))
+}
+
+/// Generates a sequence of random transactions from downstream peers.
+/// We only expect transactions to have unique ids.
+///
+pub fn generate_transactions(run_config: &RunConfig) -> Vec<Transaction> {
+    let mut rng = run_config.rng();
+    // Generate some transactions.
+    run_strategy_with_rng(&mut rng.0, any_transactions(run_config.number_of_transactions as u64))
 }

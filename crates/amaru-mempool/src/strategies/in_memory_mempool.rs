@@ -217,7 +217,7 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<T
 
                 // Check if we already reached the requested sequence number.
                 // (No lock guard is held across the await.)
-                if current_next_seq >= seq_no.0 {
+                if current_next_seq > seq_no.0 {
                     return true;
                 }
 
@@ -294,6 +294,32 @@ mod tests {
             timeout(Duration::from_millis(100), mempool.wait_for_at_least(seq_nb.add(100))).await.is_err(),
             "should timeout waiting for a seq no that is too high"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wait_for_at_least_blocks_until_the_requested_seq_is_inserted() -> anyhow::Result<()> {
+        let mempool = InMemoryMempool::from_config(MempoolConfig::default().with_max_txs(5));
+
+        let first_tx = Tx::from_str("tx1").unwrap();
+        let TxInsertResult::Accepted { seq_no: first_seq, .. } = mempool.insert(first_tx, TxOrigin::Local).unwrap()
+        else {
+            panic!("transaction should be accepted")
+        };
+
+        assert!(
+            timeout(Duration::from_millis(100), mempool.wait_for_at_least(first_seq.add(1))).await.is_err(),
+            "should still wait for the next sequence number"
+        );
+
+        let second_tx = Tx::from_str("tx2").unwrap();
+        let TxInsertResult::Accepted { seq_no: second_seq, .. } = mempool.insert(second_tx, TxOrigin::Local).unwrap()
+        else {
+            panic!("transaction should be accepted")
+        };
+
+        assert_eq!(second_seq, first_seq.add(1));
+        assert!(mempool.wait_for_at_least(second_seq).await, "should unblock once the requested seq is present");
         Ok(())
     }
 

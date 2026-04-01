@@ -27,11 +27,12 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
-    size::HEADER,
+    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, Slot, Transaction, TransactionBody, TransactionInput,
+    WitnessSet, make_header,
+    size::{HEADER, TRANSACTION_BODY},
     utils::string::{ListToString, ListsToString},
 };
-use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros_traits::{ChainStore, TxId, in_memory_consensus_store::InMemConsensusStore};
 use hex::FromHexError;
 use proptest::prelude::Strategy;
 use rand::{Rng, SeedableRng, prelude::SmallRng};
@@ -483,19 +484,19 @@ impl From<Action> for GeneratedAction {
 }
 
 impl Shrinkable for GeneratedActions {
-    fn complement(&self, from: usize, to: usize) -> Self
+    fn remove_range(&self, removed_start: usize, removed_end: usize) -> Self
     where
         Self: Sized,
     {
-        let mut complement: Vec<Action> = Vec::new();
+        let mut remaining_actions: Vec<Action> = Vec::new();
         let actions = self.actions();
 
-        complement.extend_from_slice(&actions[..to]);
-        if from < self.len() {
-            complement.extend_from_slice(&actions[from..]);
+        remaining_actions.extend_from_slice(&actions[..removed_start]);
+        if removed_end < self.len() {
+            remaining_actions.extend_from_slice(&actions[removed_end..]);
         };
         let mut generated_actions = self.clone();
-        generated_actions.set_actions(complement);
+        generated_actions.set_actions(remaining_actions);
         generated_actions
     }
 
@@ -544,6 +545,27 @@ pub fn any_select_chains(depth: usize, peers: &[Peer]) -> impl Strategy<Value = 
 /// Generate a random list of actions, for a fixed number of peers, with a given tree of headers.
 pub fn any_select_chains_from_tree(tree: &GeneratedTree, peers: &[Peer]) -> impl Strategy<Value = GeneratedActions> {
     (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, tree, peers))
+}
+
+/// Generate a list of unique transactions.
+pub fn any_transactions(nb: u64) -> impl Strategy<Value = Vec<Transaction>> {
+    proptest::collection::vec(any_transaction(), nb as usize).prop_map(|transactions| {
+        // make sure that the transactions are unique
+        let mut seen_ids = BTreeSet::new();
+        transactions.into_iter().filter(|tx| seen_ids.insert(TxId::from(&tx))).collect()
+    })
+}
+
+/// Generate a transaction with one input
+pub fn any_transaction() -> impl Strategy<Value = Transaction> {
+    proptest::collection::vec(proptest::bits::u8::ANY, TRANSACTION_BODY).prop_map(|bytes| {
+        let tx_input = TransactionInput {
+            transaction_id: Hash::new(<Vec<u8> as TryInto<[u8; TRANSACTION_BODY]>>::try_into(bytes).unwrap()),
+            index: 0,
+        };
+        let body = TransactionBody::new([tx_input], [], 0);
+        Transaction { body, witnesses: WitnessSet::default(), is_expected_valid: true, auxiliary_data: None }
+    })
 }
 
 /// Create an empty `HeadersTree` handling chains of maximum length `max_length` and
