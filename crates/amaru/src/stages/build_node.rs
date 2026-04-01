@@ -37,6 +37,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pure_stage::{
     StageGraph, StageRef,
     tokio::{TokioBuilder, TokioRunning},
+    trace_buffer::TraceBuffer,
 };
 use tokio::runtime::Handle;
 
@@ -48,7 +49,8 @@ use crate::stages::{
 
 /// Build a node given the provided configuration and run it using Tokio.
 pub fn build_and_run_node(config: Config, meter_provider: Option<SdkMeterProvider>) -> anyhow::Result<TokioRunning> {
-    let mut stage_builder = TokioBuilder::default();
+    let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
+    let mut stage_builder = TokioBuilder::default().with_trace_buffer(trace_buffer);
     build_node(&config, config.network.into(), meter_provider, &mut stage_builder)?;
 
     Ok(stage_builder.run(Handle::current().clone()))

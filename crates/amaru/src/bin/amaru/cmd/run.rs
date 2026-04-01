@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use amaru::{
     DEFAULT_LISTEN_ADDRESS, DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, default_chain_dir, default_ledger_dir,
@@ -27,7 +31,8 @@ use amaru_ouroboros::ResourceMempool;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use pure_stage::StageGraphRunning;
+use parking_lot::Mutex;
+use pure_stage::{StageGraphRunning, tokio::TokioRunning, trace_buffer::TraceBuffer};
 use thiserror::Error;
 use tracing::{error, info, warn};
 
@@ -140,6 +145,26 @@ pub struct Args {
         env = amaru::env_vars::PID_FILE,
     )]
     pid_file: Option<PathBuf>,
+
+    /// Stage graph trace buffer: `min_entries,max_total_bytes` (e.g. `100,1000000`).
+    ///
+    /// Omit or use `0,0` to disable recording (default).
+    #[arg(
+        long,
+        value_name = "MIN_ENTRIES,MAX_SIZE",
+        env = amaru::env_vars::TRACE_BUFFER,
+    )]
+    trace_buffer: Option<String>,
+
+    /// Concatenate raw CBOR trace entries to this file when the node shuts down.
+    ///
+    /// This is useful in conjunction with the `--trace-buffer` flag to capture the trace of the stage graph.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::DUMP_TRACE_BUFFER,
+    )]
+    dump_trace_buffer: Option<PathBuf>,
 }
 
 impl Args {
@@ -151,6 +176,7 @@ impl Args {
 pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result<(), Box<dyn std::error::Error>> {
     with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
         let config = parse_args(args)?;
+        let trace_dump_path = config.trace_dump_path.clone();
         let submit_api_address = config.submit_api_address()?;
         pre_flight_checks()?;
 
@@ -161,7 +187,9 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
         let submit_api_handle = match start_submit_api(submit_api_address, &running, &exit).await {
             Ok(handle) => handle,
             Err(err) => {
+                let trace_buffer = running.trace_buffer().clone();
                 running.abort();
+                dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
 
                 if let Some(handle) = metrics.as_ref() {
                     handle.abort();
@@ -183,8 +211,10 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
             }
         });
 
+        let trace_buffer = running.trace_buffer().clone();
         exit.cancelled().await;
         running.abort();
+        dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
 
         if let Some(handle) = submit_api_handle {
             let _ = handle.await; // Let graceful shutdown complete
@@ -202,7 +232,7 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
 /// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
 async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
-    running: &pure_stage::tokio::TokioRunning,
+    running: &TokioRunning,
     exit: &tokio_util::sync::CancellationToken,
 ) -> Result<Option<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error>> {
     let Some(addr) = address else {
@@ -214,12 +244,47 @@ async fn start_submit_api(
     Ok(Some(handle))
 }
 
+fn dump_trace_buffer_to_file(path: Option<&Path>, trace_buffer: &Arc<Mutex<TraceBuffer>>) {
+    let Some(path) = path else {
+        return;
+    };
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        let guard = trace_buffer.lock();
+        for chunk in guard.iter() {
+            file.write_all(chunk)?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => tracing::info!(path = %path.display(), "wrote stage trace buffer dump"),
+        Err(e) => tracing::error!(path = %path.display(), error = %e, "failed to write stage trace buffer dump"),
+    }
+}
+
+fn parse_trace_buffer_limits(s: &str) -> Result<(usize, usize), String> {
+    let parts: Vec<&str> = s.split(',').map(str::trim).filter(|p| !p.is_empty()).collect();
+    if parts.len() != 2 {
+        return Err(format!("expected two comma-separated integers (min_entries,max_size), got {s:?}"));
+    }
+    let min_entries = parts[0].parse().map_err(|e| format!("min_entries {:?}: {e}", parts[0]))?;
+    let max_size = parts[1].parse().map_err(|e| format!("max_size {:?}: {e}", parts[1]))?;
+    Ok((min_entries, max_size))
+}
+
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let network = args.network;
 
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
 
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+
+    let (trace_buffer_min_entries, trace_buffer_max_size) = match args.trace_buffer.as_deref() {
+        None => (0usize, 0usize),
+        Some(s) => parse_trace_buffer_limits(s)?,
+    };
+
+    let trace_dump_path = args.dump_trace_buffer;
 
     info!(
         _command = "run",
@@ -233,6 +298,9 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         peer_address = %args.peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
         pid_file = %args.pid_file.unwrap_or_default().to_string_lossy(),
         submit_api_address = %args.submit_api_address.as_deref().unwrap_or("disabled"),
+        trace_buffer_min_entries,
+        trace_buffer_max_size,
+        trace_dump_path = %trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
         "running"
     );
 
@@ -247,6 +315,9 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
         submit_api_address: args.submit_api_address,
+        trace_buffer_min_entries,
+        trace_buffer_max_size,
+        trace_dump_path,
         ..Config::default()
     })
 }

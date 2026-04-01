@@ -25,6 +25,7 @@ use std::{
 
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
+use tracing::field;
 
 use crate::{
     Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
@@ -419,7 +420,9 @@ impl TraceBuffer {
             return;
         }
 
+        let entered = tracing::span!(tracing::Level::DEBUG, "push_trace_entry", bytes = field::Empty).entered();
         let msg = to_cbor(&(Instant::now(), msg));
+        entered.record("bytes", msg.len());
 
         self.used_size += msg.len();
 

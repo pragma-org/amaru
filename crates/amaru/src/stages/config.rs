@@ -43,6 +43,15 @@ pub struct Config {
 
     /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
     pub defer_req_next_poll_ms: u64,
+
+    /// Minimum number of trace entries retained when the stage graph trace buffer is full.
+    pub trace_buffer_min_entries: usize,
+
+    /// Maximum total size in bytes of CBOR trace entries in the stage graph trace buffer.
+    pub trace_buffer_max_size: usize,
+
+    /// If set, raw trace buffer bytes are written here during node shutdown.
+    pub trace_dump_path: Option<PathBuf>,
 }
 
 impl Config {
@@ -73,6 +82,9 @@ impl Default for Config {
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
             defer_req_next_poll_ms: 2000,
+            trace_buffer_min_entries: 0,
+            trace_buffer_max_size: 0,
+            trace_dump_path: None,
         }
     }
 }
