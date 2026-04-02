@@ -15,7 +15,7 @@
 use std::{pin::Pin, sync::Arc};
 
 use amaru_kernel::Transaction;
-use amaru_mempool::{MempoolConfig, TxValidator, strategies::InMemoryMempool};
+use amaru_mempool::{MempoolConfig, strategies::InMemoryMempool};
 use amaru_ouroboros_traits::{
     Mempool, MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool,
 };
@@ -38,11 +38,7 @@ impl SizedMempool {
     }
 
     pub fn with_capacity(capacity: u64) -> Self {
-        SizedMempool::new(capacity, Arc::new(InMemoryMempool::from_config(MempoolConfig::default())))
-    }
-
-    pub fn with_tx_validator(capacity: u64, tx_validator: Arc<dyn TxValidator<Transaction>>) -> Self {
-        SizedMempool::new(capacity, Arc::new(InMemoryMempool::new(MempoolConfig::default(), tx_validator)))
+        SizedMempool::new(capacity, Arc::new(InMemoryMempool::new(MempoolConfig::default())))
     }
 }
 

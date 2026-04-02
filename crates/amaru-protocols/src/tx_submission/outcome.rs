@@ -44,6 +44,7 @@ pub enum ProtocolError {
     ReceivedTxsExceedsBatchSize(usize, usize),
     SomeReceivedTxsNotInFlight(Vec<TxId>),
     MempoolInsertFailed(TxId, MempoolError),
+    MempoolBatchInsertFailedTimedout,
 }
 
 impl Display for ProtocolError {
@@ -92,6 +93,9 @@ impl Display for ProtocolError {
             }
             ProtocolError::MempoolInsertFailed(tx_id, error) => {
                 write!(f, "failed to insert transaction {tx_id} into the mempool: {error}")
+            }
+            ProtocolError::MempoolBatchInsertFailedTimedout => {
+                write!(f, "failed to insert a transaction batch: timeout")
             }
         }
     }

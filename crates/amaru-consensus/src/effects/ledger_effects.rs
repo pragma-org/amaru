@@ -14,10 +14,10 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip};
+use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks,
+    BlockValidationError, CanValidateBlocks, CanValidateTxs, TransactionValidationError,
     can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
@@ -29,6 +29,8 @@ use crate::errors::{ConsensusError, ValidationFailed};
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps: Send + Sync {
+    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
+
     fn validate_header(
         &self,
         header: &BlockHeader,
@@ -70,6 +72,10 @@ impl<T> Ledger<T> {
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<T> {
+    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
+        self.0.external_sync(ValidateTxEffect::new(tx))
+    }
+
     fn validate_header(
         &self,
         header: &BlockHeader,
@@ -114,6 +120,37 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
+pub type ResourceTxValidation = Arc<dyn CanValidateTxs<Transaction> + Send + Sync>;
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ValidateTxEffect {
+    tx: Transaction,
+}
+
+impl ValidateTxEffect {
+    pub fn new(tx: &Transaction) -> Self {
+        Self { tx: tx.clone() }
+    }
+}
+
+impl ExternalEffect for ValidateTxEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let validator = resources
+                .get::<ResourceTxValidation>()
+                .expect("ValidateTxEffect requires a ResourceTxValidation resource")
+                .clone();
+            validator.validate_tx(&self.tx)
+        })
+    }
+}
+
+impl ExternalEffectAPI for ValidateTxEffect {
+    type Response = Result<(), TransactionValidationError>;
+}
+
+impl ExternalEffectSync for ValidateTxEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockEffect {

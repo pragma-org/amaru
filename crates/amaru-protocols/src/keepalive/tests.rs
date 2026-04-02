@@ -56,6 +56,7 @@ fn test_keepalive_with_node() {
             NetworkMagic::for_testing(),
             StageRef::blackhole(),
             Arc::new(era_history.clone()),
+            StageRef::blackhole(),
         ),
     );
     network.preload(connection, [ConnectionMessage::Initialize]).unwrap();

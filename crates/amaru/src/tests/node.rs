@@ -23,12 +23,15 @@ use amaru_protocols::{manager::ManagerMessage, mux::HandlerMessage, protocol::PR
 use futures_util::FutureExt;
 use parking_lot::Mutex;
 use pure_stage::{
-    Effect, Resources, StageGraphRunning, StageRef,
+    Effect, Resources, StageGraphRunning,
     simulation::{Blocked, SimulationRunning},
     trace_buffer::TraceBuffer,
 };
 
-use crate::tests::configuration::{NodeTestConfig, NodeType};
+use crate::tests::{
+    configuration::{NodeTestConfig, NodeType},
+    setup::TestNodeStages,
+};
 
 /// A node with its identifier for logging purposes.
 ///
@@ -46,31 +49,19 @@ use crate::tests::configuration::{NodeTestConfig, NodeType};
 pub struct Node {
     config: NodeTestConfig,
     running: SimulationRunning,
-    manager_stage: StageRef<ManagerMessage>,
-    actions_stage: StageRef<Action>,
+    test_node_stages: TestNodeStages,
     pending_actions: VecDeque<Action>,
     initialized: bool,
 }
 
 impl Node {
     /// Create a new node, ready to be executed.
-    pub fn new(
-        config: NodeTestConfig,
-        running: SimulationRunning,
-        manager_stage: StageRef<ManagerMessage>,
-        actions_stage: StageRef<Action>,
-    ) -> Self {
+    pub fn new(config: NodeTestConfig, running: SimulationRunning, test_node_stages: TestNodeStages) -> Self {
         // If the config defines some actions to execute, we store them as pending for now.
         let actions = config.actions.clone();
 
-        let mut node = Self {
-            config,
-            running,
-            manager_stage,
-            actions_stage,
-            pending_actions: VecDeque::from(actions),
-            initialized: false,
-        };
+        let mut node =
+            Self { config, running, test_node_stages, pending_actions: VecDeque::from(actions), initialized: false };
         node.install_breakpoint_for_initialization();
 
         node
@@ -160,13 +151,13 @@ impl Node {
     /// Pop one pending action and enqueue it for execution
     pub fn enqueue_pending_action(&mut self) {
         if let Some(action) = self.pending_actions.pop_front() {
-            self.running.enqueue_msg(&self.actions_stage, [action]);
+            self.running.enqueue_msg(self.test_node_stages.actions_stage(), [action]);
         }
     }
 
     /// Enqueue a message for the Manager stage
     pub fn enqueue_manager_message(&mut self, msg: ManagerMessage) {
-        self.running.enqueue_msg(&self.manager_stage, [msg]);
+        self.running.enqueue_msg(self.test_node_stages.manager_stage(), [msg]);
     }
 
     /// The node is identified by its listen_address for now.

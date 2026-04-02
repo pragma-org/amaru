@@ -159,6 +159,10 @@ pub mod tests {
     pub struct MockLedgerOps;
 
     impl LedgerOps for MockLedgerOps {
+        fn validate_tx(&self, _tx: &Transaction) -> Result<(), amaru_ouroboros_traits::TransactionValidationError> {
+            Ok(())
+        }
+
         fn validate_header(
             &self,
             _header: &BlockHeader,

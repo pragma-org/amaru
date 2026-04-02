@@ -15,12 +15,12 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
-    effects::{ResourceBlockValidation, ResourceHeaderValidation},
+    effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceTxValidation},
     headers_tree::data_generation::Action,
 };
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
 use amaru_ouroboros::{
-    ChainStore, ConnectionsResource, ResourceMempool,
+    ChainStore, ConnectionsResource, MockCanValidateTxs, ResourceMempool,
     can_validate_blocks::mock::{MockCanValidateBlocks, MockCanValidateHeaders},
 };
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
@@ -32,7 +32,7 @@ use pure_stage::{
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    stages::build_node::build_node,
+    stages::{build_node::build_node, build_stage_graph::NodeStages},
     tests::{
         configuration::NodeTestConfig, in_memory_connection_provider::InMemoryConnectionProvider, node::Node,
         nodes::Nodes,
@@ -55,8 +55,8 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
             .with_trace_buffer(config.trace_buffer.clone());
 
         let config = config.with_connections(connections.clone());
-        let (manager_stage, actions_stage) = create_node(&config, &mut stage_graph)?;
-        nodes.push(Node::new(config, stage_graph.run(), manager_stage, actions_stage));
+        let test_node_stages = create_node(&config, &mut stage_graph)?;
+        nodes.push(Node::new(config, stage_graph.run(), test_node_stages));
     }
 
     // Initialize the nodes by running until the chainsync protocol is registered
@@ -68,10 +68,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 
 /// Create a single node according to its configuration
 /// and populate its resources.
-pub fn create_node(
-    node_config: &NodeTestConfig,
-    stage_graph: &mut impl StageGraph,
-) -> anyhow::Result<(StageRef<ManagerMessage>, StageRef<Action>)> {
+pub fn create_node(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<TestNodeStages> {
     let config = node_config.make_node_configuration()?;
     let global_parameters: &GlobalParameters = config.network.into();
     let mut global_parameters = global_parameters.clone();
@@ -80,16 +77,37 @@ pub fn create_node(
     // in order to simulate what happens when new tips are added and trigger a move of the best
     // chain anchor.
     global_parameters.consensus_security_param = node_config.chain_length;
-    let manager_stage = build_node(&config, &global_parameters, None, stage_graph)
+    let node_stages = build_node(&config, &global_parameters, None, stage_graph)
         .map_err(|e| anyhow!("Cannot build node.\nThe node config is\n{:?}\n\nThe error is {e:?}", node_config))?;
 
     // The actions stage allows us to send NewTip messages to the manager so that chainsync
     // events can be sent to the node under test.
     let actions_stage = stage_graph.stage("actions", actions_stage);
-    let actions_stage = stage_graph.wire_up(actions_stage, (manager_stage.clone(), node_config.seed));
+    let actions_stage = stage_graph.wire_up(actions_stage, (node_stages.manager_stage(), node_config.seed));
 
     set_resources(node_config, stage_graph)?;
-    Ok((manager_stage, actions_stage.without_state()))
+    Ok(TestNodeStages::new(node_stages, actions_stage.without_state()))
+}
+
+/// This data type encapsulates the stages exposed by the processing graph in production
+/// + additional stage references to stages added to support testing.
+pub struct TestNodeStages {
+    node_stages: NodeStages,
+    actions_stage: StageRef<Action>,
+}
+
+impl TestNodeStages {
+    pub fn new(node_stages: NodeStages, actions_stage: StageRef<Action>) -> Self {
+        Self { node_stages, actions_stage }
+    }
+
+    pub fn manager_stage(&self) -> StageRef<ManagerMessage> {
+        self.node_stages.manager_stage()
+    }
+
+    pub fn actions_stage(&self) -> StageRef<Action> {
+        self.actions_stage.clone()
+    }
 }
 
 /// This starts a responder node with a preset configuration for tests.
@@ -168,6 +186,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
 fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<()> {
     stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+    stage_graph.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());
     Ok(())

@@ -26,13 +26,13 @@ use amaru::{
         config::{Config, MaxExtraLedgerSnapshots, StoreType},
     },
 };
-use amaru_kernel::{NetworkName, Transaction};
-use amaru_ouroboros::ResourceMempool;
+use amaru_kernel::NetworkName;
+use amaru_protocols::tx_submission::MempoolMsg;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
-use pure_stage::{StageGraphRunning, tokio::TokioRunning, trace_buffer::TraceBuffer};
+use pure_stage::{Sender, trace_buffer::TraceBuffer};
 use thiserror::Error;
 use tracing::{error, info, warn};
 
@@ -184,7 +184,7 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
         let running = build_and_run_node(config, meter_provider)?;
 
         let exit = amaru::exit::hook_exit_token();
-        let submit_api_handle = match start_submit_api(submit_api_address, &running, &exit).await {
+        let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
             Ok(handle) => handle,
             Err(err) => {
                 let trace_buffer = running.trace_buffer().clone();
@@ -232,15 +232,14 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
 /// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
 async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
-    running: &TokioRunning,
+    mempool_sender: Sender<MempoolMsg>,
     exit: &tokio_util::sync::CancellationToken,
 ) -> Result<Option<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error>> {
     let Some(addr) = address else {
         return Ok(None);
     };
-    let mempool: ResourceMempool<Transaction> = running.resources().get::<ResourceMempool<Transaction>>()?.clone();
     let shutdown = exit.child_token();
-    let (handle, _) = amaru::submit_api::start(addr, mempool, shutdown).await?;
+    let (handle, _) = amaru::submit_api::start(addr, mempool_sender, shutdown).await?;
     Ok(Some(handle))
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod adopt_chain;
-pub mod fetch_blocks;
-pub mod mempool;
-pub mod select_chain;
-#[cfg(test)]
-pub mod test_utils;
-pub mod track_peers;
-pub mod validate_block;
+pub mod stage;
+
+pub use stage::*;

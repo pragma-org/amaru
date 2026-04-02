@@ -28,6 +28,7 @@ use crate::{
     connection::{self, ConnectionMessage},
     network_effects::{Network, NetworkOps},
     protocol::Role,
+    tx_submission::MempoolMsg,
 };
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -82,6 +83,7 @@ pub struct Manager {
     config: ManagerConfig,
     era_history: Arc<EraHistory>,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
+    mempool: StageRef<MempoolMsg>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -98,8 +100,9 @@ impl Manager {
         config: ManagerConfig,
         era_history: Arc<EraHistory>,
         chain_sync: StageRef<ChainSyncInitiatorMsg>,
+        mempool: StageRef<MempoolMsg>,
     ) -> Self {
-        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync }
+        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync, mempool }
     }
 
     pub fn config(&self) -> ManagerConfig {
@@ -362,6 +365,7 @@ async fn start_connection_stage(
                 manager.magic,
                 manager.chain_sync.clone(),
                 manager.era_history.clone(),
+                manager.mempool.clone(),
             ),
         )
         .await;

@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
-    effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceMeter},
+    effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation},
     stages::select_chain::cmp_tip,
     validate_header::ValidateHeader,
 };
@@ -30,31 +30,62 @@ use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, Res
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
+    tx_submission::MempoolMsg,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::{Context, anyhow};
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
+use parking_lot::Mutex;
 use pure_stage::{
-    StageGraph, StageRef,
+    BoxFuture, Sender, StageGraph, StageGraphRunning,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
 };
 use tokio::runtime::Handle;
 
 use crate::stages::{
-    build_stage_graph::build_stage_graph,
+    build_stage_graph::{NodeStages, build_stage_graph},
     config::{Config, StoreType},
     ledger::Ledger,
 };
 
 /// Build a node given the provided configuration and run it using Tokio.
-pub fn build_and_run_node(config: Config, meter_provider: Option<SdkMeterProvider>) -> anyhow::Result<TokioRunning> {
+pub fn build_and_run_node(config: Config, meter_provider: Option<SdkMeterProvider>) -> anyhow::Result<NodeRunning> {
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default().with_trace_buffer(trace_buffer);
-    build_node(&config, config.network.into(), meter_provider, &mut stage_builder)?;
 
-    Ok(stage_builder.run(Handle::current().clone()))
+    let node_stages = build_node(&config, config.network.into(), meter_provider, &mut stage_builder)?;
+    let mempool_sender = stage_builder.input(node_stages.mempool_stage());
+    let tokio_running = stage_builder.run(Handle::current().clone());
+    Ok(NodeRunning { tokio_running, mempool_sender })
+}
+
+/// Encapsulation of the running runtime + accesses to entry points to the processing graph.
+///
+/// It gives us access to be the TokioRunning runtime and to specific input / output points for
+/// the processing graph (just one for now, the mempool, but we can add more as needed).
+pub struct NodeRunning {
+    tokio_running: TokioRunning,
+    mempool_sender: Sender<MempoolMsg>,
+}
+
+impl NodeRunning {
+    pub fn mempool_sender(&self) -> Sender<MempoolMsg> {
+        self.mempool_sender.clone()
+    }
+
+    pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
+        self.tokio_running.trace_buffer()
+    }
+
+    pub fn termination(&self) -> BoxFuture<'static, ()> {
+        self.tokio_running.termination()
+    }
+
+    pub fn abort(self) {
+        self.tokio_running.abort();
+    }
 }
 
 /// Build a node, given configuration parameters and a StageGraph implementation (could be `TokioBuilder` or `SimulationBuilder`):
@@ -74,7 +105,7 @@ pub fn build_node(
     global_parameters: &GlobalParameters,
     meter_provider: Option<SdkMeterProvider>,
     stage_builder: &mut impl StageGraph,
-) -> anyhow::Result<StageRef<ManagerMessage>> {
+) -> anyhow::Result<NodeStages> {
     let era_history: &EraHistory = config.network.into();
 
     // Make the ledger and get its tip
@@ -141,23 +172,26 @@ pub fn build_node(
 
     // Build the stage graph and return a reference to the manager stage
     let best_candidate = best_candidate.map(|h| (h, best_missing));
-    let manager_stage =
+
+    // Build the stage graph and return a reference to the stages that can be connected from outside this function
+    let node_stages =
         build_stage_graph(config, era_history, global_parameters, ledger_tip, best_candidate, stage_builder);
 
     // Open a port to listen for downstream peers
     stage_builder
-        .preload(&manager_stage, [ManagerMessage::Listen(config.listen_address()?)])
+        .preload(node_stages.manager_stage(), [ManagerMessage::Listen(config.listen_address()?)])
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
     // Connect to upstream peers
     for peer in &config.upstream_peers {
-        let Ok(_) = stage_builder.preload(&manager_stage, [ManagerMessage::AddPeer(Peer::new(peer))]) else {
+        let Ok(_) = stage_builder.preload(node_stages.manager_stage(), [ManagerMessage::AddPeer(Peer::new(peer))])
+        else {
             tracing::warn!("supplied more peers than can be initially connected");
             break;
         };
     }
 
-    Ok(manager_stage)
+    Ok(node_stages)
 }
 
 /// Register the resources required by the external effects invoked by the stages in the stage graph.
@@ -174,6 +208,7 @@ fn register_resources(
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
     stage_graph.resources().put::<ResourceBlockValidation>(ledger.get_block_validation());
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(validate_header));
+    stage_graph.resources().put::<ResourceTxValidation>(ledger.get_tx_validation());
     stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
