@@ -125,7 +125,6 @@ struct MockBlockValidatorInner {
     ledger_fails: BTreeSet<Point>,
 }
 
-#[allow(dead_code)] // empty, with_tip, with_rollback_fails reserved for future tests
 impl MockBlockValidator {
     pub fn new(tip: Point) -> Self {
         Self {
@@ -180,7 +179,6 @@ impl CanValidateBlocks for MockBlockValidator {
             return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed"))));
         }
         inner.contains.insert(*point);
-        inner.tip = *point;
         Ok(Ok(Default::default()))
     }
 
@@ -203,7 +201,8 @@ impl CanValidateBlocks for MockBlockValidator {
     }
 
     fn volatile_tip(&self) -> Option<Tip> {
-        None
+        let inner = self.inner.lock();
+        inner.contains.last().map(|p| Tip::new(*p, BlockHeight::from(inner.contains.len() as u64) + 1))
     }
 }
 

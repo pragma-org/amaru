@@ -74,7 +74,7 @@ async fn dispatch_ready(state: &mut DeferReqNext, eff: &Effects<DeferReqNextMsg>
     let ledger_height = ledger_applied_block_height(&ops);
     let mut remaining = Vec::new();
     for (peer, handler, min_h) in std::mem::take(&mut state.pending) {
-        if ledger_height > min_h {
+        if ledger_height >= min_h {
             eff.send(&handler, InitiatorMessage::RequestNext).await;
         } else {
             remaining.push((peer, handler, min_h));

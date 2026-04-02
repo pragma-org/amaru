@@ -18,7 +18,7 @@ use amaru_kernel::{
     EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes,
 };
 use amaru_ouroboros::ConnectionId;
-use pure_stage::{DeserializerGuards, Effects, StageRef, TryInStage, Void};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::instrument;
 
 use crate::{
@@ -262,23 +262,12 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                     Resp::V1(cr) => eff.send(&cr, Blocks { blocks: Vec::new() }).await,
                     Resp::V2(id, cr) => eff.send(&cr, Blocks2::NoBlocks(id)).await,
                 }
-                self.queue.get(1)
+                self.queue.front()
             }
             InitiatorResult::Block(body) => {
                 if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
                     if let Some((_, _, Resp::V2(id, cr))) = self.queue.front() {
-                        // must send NetworkBlock to the local stage for storage, otherwise validation breaks
-                        let _block = network_block
-                            .decode_block()
-                            .or_terminate(eff, async |error| {
-                                tracing::warn!(
-                                    bytes = body.len(),
-                                    %error,
-                                    "received invalid block CBOR; terminating the connection"
-                                );
-                            })
-                            .await;
-                        // TODO  check hashes etc.
+                        // must send NetworkBlock unchanged to the local stage for storage, otherwise validation breaks
                         eff.send(cr, Blocks2::Block(*id, network_block)).await;
                     } else if self.blocks.len() < MAX_FETCHED_BLOCKS {
                         self.blocks.push(network_block);
@@ -310,10 +299,9 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                             return eff.terminate().await;
                         }
                     }
-                    // TODO: implement validation for V2
                     Resp::V2(id, cr) => eff.send(&cr, Blocks2::Done(id)).await,
                 }
-                self.queue.get(1)
+                self.queue.front()
             }
         };
         let action = queued.map(|(from, through, _)| InitiatorAction::RequestRange { from: *from, through: *through });

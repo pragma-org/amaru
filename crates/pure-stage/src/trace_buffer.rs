@@ -28,7 +28,7 @@ use parking_lot::Mutex;
 use tracing::field;
 
 use crate::{
-    Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
+    EPOCH, Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
     effect::{StageEffect, StageResponse},
     serde::to_cbor,
 };
@@ -461,7 +461,7 @@ impl TraceBuffer {
                 if let Ok((instant, value)) = from_slice::<(Instant, cbor4ii::core::Value)>(m) {
                     (instant, TraceEntry::InvalidBytes(m.clone(), Some(value)))
                 } else {
-                    (Instant::now(), TraceEntry::InvalidBytes(m.clone(), None))
+                    (*EPOCH, TraceEntry::InvalidBytes(m.clone(), None))
                 }
             })
         })

@@ -124,6 +124,42 @@ fn test_parent_in_ledger_skips_roll_forward() {
 }
 
 #[test]
+fn test_mock_rollback_fails_terminates() {
+    let mut prep = test_prep();
+    prep.set_current(prep.headers.h2a.point());
+    prep.block_validator
+        .with_tip(prep.headers.h0.point())
+        .with_contains(prep.headers.h1.point())
+        .with_contains(prep.headers.h2a.point())
+        .with_rollback_fails(true);
+    prep.store_headers(&prep.headers.all());
+    prep.store_blocks(&prep.headers.all());
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let tip = prep.headers.h2.tip();
+    let parent = prep.headers.h1.point();
+    let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("vb-1", &prep.state).into(),
+            te_input("vb-1", &msg).into(),
+            te_ledger_contains("vb-1", &parent),
+            te_rollback_ledger("vb-1", &parent),
+            te_terminate("vb-1"),
+            te_terminated("vb-1", TerminationReason::Voluntary),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["validating block"])
+        .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
+        .assert_and_remove(Level::ERROR, &["ledger inconsistency: contains_point was true but rollback failed"])
+        .assert_and_remove(Level::INFO, &["terminated stage"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
 fn test_grand_parent_in_ledger() {
     let mut prep = test_prep();
     prep.set_current(prep.headers.h2a.point());

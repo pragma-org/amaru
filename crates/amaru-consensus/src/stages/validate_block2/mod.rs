@@ -90,6 +90,14 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 }
             }
             Err(err) => {
+                if matches!(&err.error, ConsensusError::LedgerContainsPointButRollbackFailed(..)) {
+                    tracing::error!(
+                        error = %err.error,
+                        parent = %msg.parent,
+                        "ledger inconsistency: contains_point was true but rollback failed"
+                    );
+                    return eff.terminate().await;
+                }
                 tracing::warn!(error = %err.error, parent = %msg.parent, "failed to rollback ledger to parent point");
                 eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
                 return state;
@@ -124,18 +132,32 @@ async fn validate(point: Point, ledger: &Ledger<ValidateBlockMsg>) -> Result<Led
         .await
 }
 
+fn validation_failed_when_contains_claimed_rollback(rollback_target: Point, vf: ValidationFailed) -> ValidationFailed {
+    #[allow(clippy::wildcard_enum_match_arm)]
+    match vf.error {
+        ConsensusError::RollbackBlockFailed(_, source) => ValidationFailed::new(
+            &Peer::new("unknown"),
+            ConsensusError::LedgerContainsPointButRollbackFailed(rollback_target, source),
+        ),
+        _ => vf,
+    }
+}
+
 async fn roll_back_to_ancestor(
     ledger: &Ledger<ValidateBlockMsg>,
     store: &Store<ValidateBlockMsg>,
     parent: Point,
 ) -> Result<(Point, Vec<Point>), ValidationFailed> {
     if ledger.contains_point(&parent) {
-        ledger.rollback(&Peer::new("unknown"), &parent, opentelemetry::Context::current()).await?;
-        return Ok((parent, Vec::new()));
+        return match ledger.rollback(&Peer::new("unknown"), &parent, opentelemetry::Context::current()).await {
+            Ok(()) => Ok((parent, Vec::new())),
+            Err(vf) => Err(validation_failed_when_contains_claimed_rollback(parent, vf)),
+        };
     }
 
     let ledger_tip = ledger.tip();
     let mut rb_point = None;
+    let mut rb_chosen_because_contains = false;
     let mut forward_points = Vec::new();
     for (ancestor, valid) in store.ancestors_with_validity(parent.hash()) {
         if valid == Some(false) {
@@ -156,8 +178,10 @@ async fn roll_back_to_ancestor(
                 ),
             ));
         }
-        if ancestor.point() == ledger_tip.point() || ledger.contains_point(&ancestor.point()) {
+        let contains_ancestor = ledger.contains_point(&ancestor.point());
+        if ancestor.point() == ledger_tip.point() || contains_ancestor {
             rb_point = Some(ancestor.point());
+            rb_chosen_because_contains = contains_ancestor;
             break;
         }
         forward_points.push(ancestor.point());
@@ -165,8 +189,13 @@ async fn roll_back_to_ancestor(
     forward_points.reverse();
 
     if let Some(rb_point) = rb_point {
-        ledger.rollback(&Peer::new("unknown"), &rb_point, opentelemetry::Context::current()).await?;
-        Ok((rb_point, forward_points))
+        return match ledger.rollback(&Peer::new("unknown"), &rb_point, opentelemetry::Context::current()).await {
+            Ok(()) => Ok((rb_point, forward_points)),
+            Err(vf) if rb_chosen_because_contains => {
+                Err(validation_failed_when_contains_claimed_rollback(rb_point, vf))
+            }
+            Err(vf) => Err(vf),
+        };
     } else {
         Err(ValidationFailed::new(
             // TODO: figure out which peer to blame
