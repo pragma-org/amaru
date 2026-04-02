@@ -144,6 +144,8 @@ fn next_header(
         return next_header_rollback(pointer, store, tip);
     }
     // pointer is on the best chain, we need to roll forward
+    // note that next_best_chain does not check that the returned point's parent matches the
+    // pointer, so we need to check that below (in case the best chain changed meanwhile)
     let Some(point) = store.next_best_chain(pointer) else {
         return Ok(None);
     };
@@ -173,6 +175,8 @@ fn next_header_rollback(
             *pointer = header.point();
             return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
         }
+        // if the above returned None then we need to keep searching; if the chain is updated to contain
+        // this header again, then we'll get there a bit later again, just with a detour via lower slots
     }
     anyhow::bail!("no overlap found between client pointer chain and stored best chain");
 }
