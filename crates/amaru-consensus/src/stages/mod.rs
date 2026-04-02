@@ -13,16 +13,9 @@
 // limitations under the License.
 
 pub mod adopt_chain;
-pub mod fetch_block;
 pub mod fetch_blocks;
-pub mod forward_chain;
-pub mod pull;
-pub mod receive_header;
 pub mod select_chain;
-pub mod select_chain_new;
 #[cfg(test)]
 pub mod test_utils;
 pub mod track_peers;
 pub mod validate_block;
-pub mod validate_block2;
-pub mod validate_header;

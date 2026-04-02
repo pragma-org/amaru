@@ -33,7 +33,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
 use crate::stages::{
-    select_chain_new::SelectChainMsg,
+    select_chain::SelectChainMsg,
     test_utils::{BufferWriter, Logs},
 };
 

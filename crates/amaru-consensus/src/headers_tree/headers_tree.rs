@@ -21,7 +21,6 @@ use std::{
 use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
 use amaru_ouroboros_traits::ChainStore;
 #[cfg(any(test, feature = "test-utils"))]
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
 use itertools::Itertools;
 
 use crate::{
@@ -31,10 +30,82 @@ use crate::{
         headers_tree::Tracker::{Me, SomePeer},
         tree::Tree,
     },
-    stages::select_chain::{
-        Fork, ForwardChainSelection, RollbackChainSelection, RollbackChainSelection::RollbackBeyondLimit,
-    },
 };
+
+/// Definition of a fork.
+///
+/// TODO: The peer should not be needed here, as the fork should be
+/// comprised of known blocks. It is only needed to download the blocks
+/// we don't currently store.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Fork<H: IsHeader> {
+    pub peer: Peer,
+    pub rollback_header: H,
+    pub fork: Vec<H>,
+}
+
+/// The outcome of the chain selection process in  case of
+/// roll forward.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ForwardChainSelection<H: IsHeader> {
+    /// The current best chain has been extended with a (single) new header.
+    NewTip { peer: Peer, tip: H },
+
+    /// The current best chain is unchanged.
+    NoChange,
+
+    /// The current best chain has switched to given fork.
+    SwitchToFork(Fork<H>),
+}
+
+impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForwardChainSelection::NewTip { peer, tip } => {
+                write!(f, "NewTip[{}, {}]", peer, tip)
+            }
+            ForwardChainSelection::NoChange => f.write_str("NoChange"),
+            ForwardChainSelection::SwitchToFork(Fork { peer, rollback_header: rollback_point, fork }) => write!(
+                f,
+                "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
+                peer,
+                rollback_point,
+                fork.list_to_string(",\n        ")
+            ),
+        }
+    }
+}
+
+/// The outcome of the chain selection process in case of rollback
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RollbackChainSelection<H: IsHeader> {
+    /// The current best chain has switched to given fork.
+    SwitchToFork(Fork<H>),
+
+    /// The peer tried to rollback beyond the limit
+    RollbackBeyondLimit { peer: Peer, rollback_point: HeaderHash, max_point: HeaderHash },
+
+    /// The current best chain has not changed
+    NoChange,
+}
+
+impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RollbackChainSelection::NoChange => f.write_str("NoChange"),
+            RollbackChainSelection::SwitchToFork(Fork { peer, rollback_header: rollback_point, fork }) => write!(
+                f,
+                "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
+                peer,
+                rollback_point,
+                fork.list_to_string(",\n        ")
+            ),
+            RollbackChainSelection::RollbackBeyondLimit { peer, rollback_point, max_point } => {
+                write!(f, "RollbackBeyondLimit[{}, {}, {}]", peer, rollback_point, max_point)
+            }
+        }
+    }
+}
 
 /// This data type stores the chains of headers known from different peers:
 ///
@@ -86,35 +157,6 @@ impl Display for HeadersTreeState {
         )?;
         writeln!(f, "  max_length: {}", &self.max_length)?;
         Ok(())
-    }
-}
-
-impl HeadersTreeState {
-    pub fn new(max_length: usize) -> Self {
-        Self { max_length, peers: BTreeMap::new() }
-    }
-
-    /// Return the peers and their current chain tips for testing.
-    #[cfg(test)]
-    pub(crate) fn peers(&self) -> &BTreeMap<Tracker, Vec<HeaderHash>> {
-        &self.peers
-    }
-
-    /// Add a peer and its current chain tip to initialize the current headers tree state.
-    pub fn initialize_peer<H: IsHeader + Clone + 'static>(
-        &mut self,
-        store: Arc<dyn ChainStore<H>>,
-        peer: &Peer,
-        hash: &HeaderHash,
-    ) -> Result<(), ConsensusError> {
-        if store.has_header(hash) || hash == &ORIGIN_HASH {
-            let mut peer_chain: Vec<_> = store.ancestors_hashes(hash).collect();
-            peer_chain.reverse();
-            self.peers.insert(SomePeer(peer.clone()), peer_chain);
-            Ok(())
-        } else {
-            Err(UnknownPoint(*hash))
-        }
     }
 }
 
@@ -290,7 +332,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
             // Remove invalid headers for that peer
             // If the rollback hash is not found indicate that the rollback point must be too far in the past.
             if self.rollback_peer_chain(peer, rollback_hash).is_err() {
-                return Ok(RollbackBeyondLimit {
+                return Ok(RollbackChainSelection::RollbackBeyondLimit {
                     peer: peer.clone(),
                     rollback_point: *rollback_hash,
                     max_point: self.anchor(),
@@ -582,11 +624,6 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
         HeadersTree::create(store, tree_state)
     }
 
-    /// Create a new HeadersTree with an in-memory store for testing purposes.
-    pub fn new_in_memory(max_length: usize) -> HeadersTree<H> {
-        HeadersTree::new(Arc::new(InMemConsensusStore::new()), max_length)
-    }
-
     /// Return true if the peer is known
     pub fn has_peer(&self, peer: &Peer) -> bool {
         self.tree_state.peers.contains_key(&SomePeer(peer.clone()))
@@ -626,39 +663,7 @@ mod tests {
     use proptest::proptest;
 
     use super::*;
-    use crate::{
-        headers_tree::data_generation::{SelectionResult::Forward, *},
-        stages::select_chain::{Fork, ForwardChainSelection::SwitchToFork},
-    };
-
-    #[test]
-    fn initialize_peer_on_empty_tree() {
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
-        let peer = Peer::new("alice");
-        let header = generate_single_header();
-        store.store_header(&header).unwrap();
-        let mut tree: HeadersTree<BlockHeader> = HeadersTree::create(store, HeadersTreeState::new(10));
-        tree.initialize_peer(&peer, &Point::Origin.hash()).unwrap();
-
-        tree.select_roll_forward(&peer, &header).unwrap();
-        assert_eq!(tree.best_chain_tip(), header, "there must be a best chain available after the first roll forward");
-    }
-
-    #[test]
-    fn single_chain_is_best_chain() {
-        let headers = generate_headers_chain(5);
-        let store = Arc::new(InMemConsensusStore::new());
-        let tree: HeadersTree<BlockHeader> = HeadersTree::create(store.clone(), HeadersTreeState::new(10));
-        for header in &headers {
-            store.store_header(header).unwrap();
-        }
-        store.set_anchor_hash(&headers[0].hash()).unwrap();
-        store.set_best_chain_hash(&headers[4].hash()).unwrap();
-
-        assert_eq!(tree.size(), 5);
-        assert_eq!(tree.best_chain_tip(), headers[4]);
-        assert_eq!(tree.best_chain_fragment(), headers);
-    }
+    use crate::headers_tree::data_generation::{SelectionResult::Forward, *};
 
     #[test]
     fn initialize_peer_on_known_point() {
@@ -830,7 +835,7 @@ mod tests {
         let fork = Fork { peer: bob.clone(), rollback_header: middle, fork };
 
         let result = tree.select_roll_forward(&bob, &bob_new_header3).unwrap();
-        assert_eq!(result, SwitchToFork(fork));
+        assert_eq!(result, ForwardChainSelection::SwitchToFork(fork));
     }
 
     #[test]
@@ -854,7 +859,7 @@ mod tests {
         let fork = Fork { peer: bob.clone(), rollback_header: anchor.clone(), fork: bob_headers };
 
         let result = tree.select_roll_forward(&bob, &bob_new_tip).unwrap();
-        assert_eq!(result, SwitchToFork(fork));
+        assert_eq!(result, ForwardChainSelection::SwitchToFork(fork));
     }
 
     #[test]
@@ -1016,7 +1021,11 @@ mod tests {
         let new_tree_anchor = added_headers[5].hash(); // after adding 15 headers, the new anchor is the 6th added header
         assert_eq!(
             result,
-            RollbackBeyondLimit { peer: alice, rollback_point: headers[3].hash(), max_point: new_tree_anchor }
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer: alice,
+                rollback_point: headers[3].hash(),
+                max_point: new_tree_anchor
+            }
         );
     }
 
@@ -1124,7 +1133,7 @@ mod tests {
         let next_header_alice = run_strategy(any_header_with_parent(next_header_alice.hash()));
         store.store_header(&next_header_alice).unwrap();
         let result = tree.select_roll_forward(&alice, &next_header_alice).unwrap();
-        assert!(matches!(dbg!(result), SwitchToFork(_)));
+        assert!(matches!(dbg!(result), ForwardChainSelection::SwitchToFork(_)));
 
         // bob catches up to alice, but alice stays the best
         let next_header_bob = run_strategy(any_header_with_parent(added_headers.last().unwrap().hash()));
@@ -1136,7 +1145,7 @@ mod tests {
         let next_header_bob = run_strategy(any_header_with_parent(next_header_bob.hash()));
         store.store_header(&next_header_bob).unwrap();
         let result = tree.select_roll_forward(&bob, &next_header_bob).unwrap();
-        assert!(matches!(dbg!(result), SwitchToFork(_)));
+        assert!(matches!(dbg!(result), ForwardChainSelection::SwitchToFork(_)));
     }
 
     #[test]
@@ -1289,7 +1298,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot create a headers tree with maximum chain length lower than 2")]
     fn cannot_initialize_tree_with_k_lower_than_2() {
-        HeadersTree::<BlockHeader>::new_in_memory(1);
+        HeadersTree::<BlockHeader>::new(Arc::new(InMemConsensusStore::new()), 1);
     }
 
     const DEPTH: usize = 10;

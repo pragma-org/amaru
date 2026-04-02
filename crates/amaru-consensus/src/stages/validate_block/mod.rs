@@ -21,7 +21,7 @@ use pure_stage::{Effects, StageRef, TryInStage};
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
     errors::{ConsensusError, ValidationFailed},
-    stages::{adopt_chain::AdoptChainMsg, select_chain_new::SelectChainMsg},
+    stages::{adopt_chain::AdoptChainMsg, select_chain::SelectChainMsg},
 };
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

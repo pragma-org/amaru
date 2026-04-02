@@ -19,7 +19,7 @@ use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, StageRef, TryInStage};
 
-use crate::stages::select_chain_new::cmp_tip;
+use crate::stages::select_chain::cmp_tip;
 
 /// This stage receives validated chains in the form of a Tip and decides
 /// whether to adopt that tip as the new downstream tip.

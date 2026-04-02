@@ -19,7 +19,7 @@ use amaru_ouroboros::{ChainStore, ReadOnlyChainStore};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, ScheduleId, StageRef, TryInStage};
 
-use crate::stages::select_chain_new::SelectChainMsg;
+use crate::stages::select_chain::SelectChainMsg;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchBlocks {
