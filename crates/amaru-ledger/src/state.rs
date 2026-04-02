@@ -23,7 +23,7 @@ use std::{
 use amaru_kernel::{
     AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory, EraHistoryError,
     GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters,
-    Slot, StakeCredential, StakeCredentialKind, TransactionInput, expect_stake_credential,
+    Slot, StakeCredential, StakeCredentialKind, Tip, TransactionInput, expect_stake_credential,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::trace as observability_trace;
@@ -235,16 +235,21 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[expect(clippy::unwrap_used)]
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
-            return Cow::Borrowed(&st.anchor.0);
+            return Cow::Owned(st.anchor.0.point());
         }
 
         Cow::Owned(self.stable.lock().unwrap().tip().unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")))
     }
 
+    /// Tip of the volatile (`VolatileDB`) sequence only, if non-empty.
+    pub fn volatile_tip(&self) -> Option<Tip> {
+        self.volatile.view_back().map(|st| st.anchor.0)
+    }
+
     #[expect(clippy::unwrap_used)]
-    #[observability_trace(amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(now_stable.anchor.0.slot_or_default()))]
+    #[observability_trace(amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(now_stable.anchor.0.slot()))]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
-        let stable_tip_slot = now_stable.anchor.0.slot_or_default();
+        let stable_tip_slot = now_stable.anchor.0.slot();
 
         let mut db = self.stable.lock().unwrap();
 
@@ -444,7 +449,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
 
-        let tip = next_state.anchor.0.slot_or_default();
+        let tip = next_state.anchor.0.slot();
         let relative_slot =
             self.era_history.slot_in_epoch(tip, tip).map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
 
@@ -595,7 +600,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 let metrics = LedgerMetrics { block_height, txs_processed, slot, slot_in_epoch, epoch, density };
 
-                match self.forward(state.anchor(point, issuer)) {
+                let tip = Tip::new(*point, block_height.into());
+                match self.forward(state.anchor(tip, issuer)) {
                     Ok(()) => BlockValidation::Valid(metrics),
                     Err(e) => {
                         error!(%e, "Failed to roll forward the ledger state");
@@ -614,14 +620,33 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             return Ok(());
         }
 
+        if self.tip().as_ref() > to {
+            return Err(BackwardError::RollbackPointBeforeTip { rollback_point: *to, tip: self.tip().into_owned() });
+        }
+
+        if self.volatile.is_empty() && self.tip().as_ref() < to {
+            return Err(BackwardError::RollbackPointInFuture(*to));
+        }
+
+        if let Some(last) = self.volatile.view_back()
+            && last.anchor.0.point() < *to
+        {
+            return Err(BackwardError::RollbackPointInFuture(*to));
+        }
+
         self.volatile.rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
     }
+
+    pub fn contains_volatile_point(&self, point: &Point) -> bool {
+        self.volatile.contains(point)
+    }
+
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
     /// If the `Point` is older than the oldest block in the volatileDB, density is 0
     pub fn chain_density(&self, point: &Point) -> f64 {
         let latest_slot = point.slot_or_default();
         let k_slot =
-            self.volatile.view_front().map(|state| &state.anchor.0).unwrap_or(&Point::Origin).slot_or_default();
+            self.volatile.view_front().map(|state| state.anchor.0.point()).unwrap_or(Point::Origin).slot_or_default();
 
         if k_slot >= latest_slot {
             0f64
@@ -1002,6 +1027,12 @@ pub enum BackwardError {
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
     #[error("error rolling back to unknown {0:?}")]
     UnknownRollbackPoint(Point),
+
+    #[error("error rolling back to point {rollback_point:?}: before tip {tip:?}")]
+    RollbackPointBeforeTip { rollback_point: Point, tip: Point },
+
+    #[error("cannot roll back to a point in the future: {0:?}")]
+    RollbackPointInFuture(Point),
 }
 
 #[derive(Debug, Error)]

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Block, BlockHeader, Point};
+use amaru_kernel::{Block, BlockHeader, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 
 use crate::{
@@ -36,6 +36,18 @@ impl CanValidateBlocks for MockCanValidateBlocks {
 
     fn rollback_block(&self, _to: &Point) -> Result<(), BlockValidationError> {
         Ok(())
+    }
+
+    fn contains_point(&self, _point: &Point) -> bool {
+        true
+    }
+
+    fn tip(&self) -> Point {
+        Point::Origin
+    }
+
+    fn volatile_tip(&self) -> Option<Tip> {
+        None
     }
 }
 

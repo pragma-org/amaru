@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use amaru_kernel::{
-    cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput,
-    NetworkName, Point, TransactionInput, Value, PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-    PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+    cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput, NetworkName, Point,
+    Tip, TransactionInput, Value, PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
 };
 use amaru_ledger::{
     context,
@@ -25,7 +26,6 @@ use amaru_ledger::{
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::in_memory::MemoryStore;
-use std::collections::BTreeMap;
 
 type BlockWrapper<'b> = (u16, Block);
 
@@ -54,24 +54,15 @@ pub fn forward_ledger(raw_block: &str) {
 
     let historical_store = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
 
-    let mut state = State::new(
-        store,
-        historical_store,
-        network,
-        era_history.clone(),
-        global_parameters.clone(),
-    )
-    .unwrap();
+    let mut state =
+        State::new(store, historical_store, network, era_history.clone(), global_parameters.clone()).unwrap();
 
     let point = Point::Specific(block.header.header_body.slot.into(), block.header_hash());
 
     let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
     fn create_input(transaction_id: &str, index: u64) -> TransactionInput {
-        TransactionInput {
-            transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()),
-            index,
-        }
+        TransactionInput { transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()), index }
     }
 
     fn create_output(address: &str) -> MemoizedTransactionOutput {
@@ -86,20 +77,16 @@ pub fn forward_ledger(raw_block: &str) {
 
     let inputs = BTreeMap::from([
         (
-            create_input(
-                "2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4",
-                0,
-            ),
+            create_input("2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4", 0),
             create_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
         ),
         (
-            create_input(
-                "d5dc99581e5f479d006aca0cd836c2bb7ddcd4a243f8e9485d3c969df66462cb",
-                0,
-            ),
+            create_input("d5dc99581e5f479d006aca0cd836c2bb7ddcd4a243f8e9485d3c969df66462cb", 0),
             create_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
         ),
     ]);
+
+    let tip = Tip::new(point, block.header.header_body.block_number.into());
 
     let mut context = context::DefaultValidationContext::new(inputs);
     if let BlockValidation::Invalid(_slot, _id, _err) = rules::validate_block(
@@ -108,9 +95,7 @@ pub fn forward_ledger(raw_block: &str) {
         &network,
         state.protocol_parameters(),
         &era_history,
-        &GovernanceActivity {
-            consecutive_dormant_epochs: 0,
-        },
+        &GovernanceActivity { consecutive_dormant_epochs: 0 },
         block,
     ) {
         panic!("Failed to validate block")
@@ -118,7 +103,5 @@ pub fn forward_ledger(raw_block: &str) {
 
     let volatile_state: VolatileState = context.into();
 
-    state
-        .forward(volatile_state.anchor(&point, issuer))
-        .unwrap()
+    state.forward(volatile_state.anchor(tip, issuer)).unwrap()
 }

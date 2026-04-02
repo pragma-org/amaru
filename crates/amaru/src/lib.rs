@@ -171,6 +171,12 @@ pub mod env_vars {
     /// --submit-api-address
     pub const SUBMIT_API_ADDRESS: &str = "AMARU_SUBMIT_API_ADDRESS";
 
+    /// --trace-buffer
+    pub const TRACE_BUFFER: &str = "AMARU_TRACE_BUFFER";
+
+    /// --dump-trace-buffer
+    pub const DUMP_TRACE_BUFFER: &str = "AMARU_DUMP_TRACE_BUFFER";
+
     /// --target-dir
     pub const TARGET_DIR: &str = "AMARU_TARGET_DIR";
 }

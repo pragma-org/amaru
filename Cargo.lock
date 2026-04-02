@@ -126,6 +126,7 @@ dependencies = [
  "amaru-protocols",
  "amaru-stores",
  "anyhow",
+ "async-trait",
  "hex",
  "itertools 0.14.0",
  "opentelemetry",
@@ -340,6 +341,7 @@ dependencies = [
  "rand 0.9.2",
  "serde",
  "thiserror 2.0.17",
+ "tracing",
 ]
 
 [[package]]

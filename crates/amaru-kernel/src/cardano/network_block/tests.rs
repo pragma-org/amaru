@@ -36,7 +36,9 @@ pub fn make_block_with_header(header: &BlockHeader) -> Block {
     block.header = header.header().clone();
     // Re-encode and decode to rebuild the cached metadata fields.
     let bytes = to_cbor(&block);
-    cbor::decode(bytes.as_slice()).expect("block encoding should round-trip")
+    let mut block = cbor::decode::<Block>(bytes.as_slice()).expect("block encoding should round-trip");
+    block.header.header_body.block_body_hash = block.body_hash();
+    cbor::decode(&to_cbor(&block)).expect("block encoding should round-trip")
 }
 
 /// Generate an arbitrary network block at Conway era for property-based testing.

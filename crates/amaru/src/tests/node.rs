@@ -194,6 +194,11 @@ impl Node {
         self.running.has_runnable()
     }
 
+    /// Return true if the node still has effects to be run.
+    pub fn has_effects(&self) -> bool {
+        self.running.has_effects()
+    }
+
     /// Return true for the node under test
     pub fn is_node_under_test(&self) -> bool {
         self.config.node_type == NodeType::NodeUnderTest

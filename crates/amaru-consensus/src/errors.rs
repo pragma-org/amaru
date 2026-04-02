@@ -67,6 +67,9 @@ pub enum ConsensusError {
     RollbackChainFailed(Point, StoreError),
     #[error("Failed to rollback block at {0}: {1}")]
     RollbackBlockFailed(Point, BlockValidationError),
+    /// Ledger reported containing this point but rollback failed (inconsistent ledger state).
+    #[error("ledger reported containing {0} but rollback failed: {1}")]
+    LedgerContainsPointButRollbackFailed(Point, BlockValidationError),
     #[error("{0}")]
     EraHistoryError(#[from] amaru_kernel::EraHistoryError),
     #[error("Era name mismatch: from raw_header {from_raw_header}, from slot={from_slot}")]

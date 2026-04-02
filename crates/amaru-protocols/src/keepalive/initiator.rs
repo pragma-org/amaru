@@ -82,7 +82,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         }
     }
 
-    #[instrument(name = "keepalive.initiator.stage", skip_all, fields(cookie = input.cookie.as_u16()))]
+    #[instrument(level = "debug", name = "keepalive.initiator.stage", skip_all, fields(cookie = input.cookie.as_u16()))]
     async fn network(
         mut self,
         _proto: &State,
@@ -118,7 +118,7 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult { cookie: Cookie::new() }), *self))
     }
 
-    #[instrument(name = "keepalive.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
+    #[instrument(level = "debug", name = "keepalive.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         use State::*;
 

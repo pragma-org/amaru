@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, ops::Add};
+use std::{
+    fmt,
+    ops::{Add, Sub},
+};
 
 use minicbor::{Decode, Decoder, Encode};
 
@@ -70,6 +73,14 @@ impl Add<u64> for Slot {
 
     fn add(self, rhs: u64) -> Self::Output {
         Slot(self.0 + rhs)
+    }
+}
+
+impl Sub<Slot> for Slot {
+    type Output = i64;
+
+    fn sub(self, rhs: Slot) -> Self::Output {
+        self.0 as i64 - rhs.0 as i64
     }
 }
 
