@@ -20,7 +20,6 @@ use std::{
 
 use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
 use amaru_ouroboros_traits::ChainStore;
-#[cfg(any(test, feature = "test-utils"))]
 use itertools::Itertools;
 
 use crate::{
@@ -235,6 +234,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
 
 impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
     /// Create a new HeadersTree
+    #[cfg(any(test, doc, feature = "test-utils"))]
     pub(crate) fn create(chain_store: Arc<dyn ChainStore<H>>, tree_state: HeadersTreeState) -> HeadersTree<H> {
         HeadersTree { tree_state, chain_store }
     }
