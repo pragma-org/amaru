@@ -49,8 +49,14 @@ amaru-minicbor-extra.workspace = true
 proptest.workspace = true
 rand.workspace = true
 test-case.workspace = true
+criterion.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 cbor4ii.workspace = true
 
 [target.'cfg(target_family="wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
+
+[[bench]]
+name = "cbor_encoding"
+harness = false
+required-features = ["test-utils"]
