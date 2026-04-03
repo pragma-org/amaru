@@ -21,7 +21,7 @@ use tracing::Level;
 
 use super::*;
 use crate::stages::{
-    select_chain_new::test_setup::{
+    select_chain::test_setup::{
         assert_trace, setup, te_get_anchor_hash, te_get_best_chain_hash, te_has_header, te_load_header, te_send,
         te_set_block_valid, te_terminate, te_terminated, test_prep,
     },

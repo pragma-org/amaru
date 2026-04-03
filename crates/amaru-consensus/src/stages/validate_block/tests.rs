@@ -18,9 +18,9 @@ use tracing::Level;
 
 use super::*;
 use crate::stages::{
-    select_chain_new::SelectChainMsg,
+    select_chain::SelectChainMsg,
     test_utils::{te_input, te_state},
-    validate_block2::test_setup::{
+    validate_block::test_setup::{
         assert_trace, setup, te_get_anchor_hash, te_ledger_contains, te_ledger_tip, te_load_header,
         te_load_header_with_validity, te_record_metrics, te_rollback_ledger, te_send, te_terminate, te_terminated,
         te_validate_block, test_prep,

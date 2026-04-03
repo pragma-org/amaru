@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceMeter},
-    stages::{select_chain_new::cmp_tip, validate_header::ValidateHeader},
+    stages::select_chain::cmp_tip,
+    validate_header::ValidateHeader,
 };
 use amaru_kernel::{
     BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point,

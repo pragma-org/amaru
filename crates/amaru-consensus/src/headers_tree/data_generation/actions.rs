@@ -49,11 +49,11 @@ use crate::{
             any_tree_of_headers,
             shrink::Shrinkable,
         },
+        headers_tree::{
+            ForwardChainSelection,
+            RollbackChainSelection::{self, RollbackBeyondLimit},
+        },
         tree::Tree,
-    },
-    stages::select_chain::{
-        ForwardChainSelection,
-        RollbackChainSelection::{self, RollbackBeyondLimit},
     },
 };
 

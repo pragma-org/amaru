@@ -17,9 +17,9 @@ use std::sync::Arc;
 use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
     fetch_blocks::{self, FetchBlocks, FetchBlocksMsg},
-    select_chain_new::{self, SelectChain, SelectChainMsg},
+    select_chain::{self, SelectChain, SelectChainMsg},
     track_peers::{self, TrackPeers, TrackPeersMsg},
-    validate_block2::{self, ValidateBlock, ValidateBlockMsg},
+    validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
 use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, Point, Tip};
 use amaru_protocols::{
@@ -51,9 +51,9 @@ pub fn build_stage_graph(
 ) -> StageRef<ManagerMessage> {
     let manager = stage_graph.stage("manager", manager::stage);
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);
-    let select_chain = stage_graph.stage("select_chain", select_chain_new::stage);
+    let select_chain = stage_graph.stage("select_chain", select_chain::stage);
     let fetch_blocks = stage_graph.stage("fetch_blocks", fetch_blocks::stage);
-    let validate_block = stage_graph.stage("validate_block", validate_block2::stage);
+    let validate_block = stage_graph.stage("validate_block", validate_block::stage);
     let adopt_chain = stage_graph.stage("adopt_chain", adopt_chain::stage);
 
     let k = {
