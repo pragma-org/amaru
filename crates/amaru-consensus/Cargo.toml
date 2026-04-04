@@ -52,6 +52,7 @@ pretty_assertions.workspace = true
 proptest.workspace = true
 rand.workspace = true
 serde_json.workspace = true
+criterion.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber.workspace = true
@@ -66,5 +67,10 @@ amaru-stores.workspace = true
 
 [[bench]]
 name = "headers_tree"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "stage_msgs"
 harness = false
 required-features = ["test-utils"]
