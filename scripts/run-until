@@ -45,8 +45,8 @@ function watchTargetEpoch() {
       | select(.level == "INFO")
       | select(.fields.message == "exit")
       | select(.span.name == "epoch_transition")
-      | select(.into != null)
-      | "epoch\t" + (.into | tostring)
+      | select((.span.into // .into) != null)
+      | "epoch\t" + ((.span.into // .into) | tostring)
     end
   '
 }
