@@ -14,7 +14,7 @@
 
 //! Tracing schemas for compile-time validation of observability instrumentation.
 //!
-//! This module defines schemas that can be used with the `#[trace]` macro to enable
+//! This module defines schemas that can be used with the `trace_span!` macro to enable
 //! compile-time validation of tracing fields. The schemas are organized by module
 //! hierarchy matching the crate structure.
 //!
@@ -32,10 +32,10 @@ define_schemas! {
         consensus {
             diffusion {
                 /// Fetch a block from the network
-                FETCH_BLOCK {}
+                public FETCH_BLOCK {}
 
                 /// Forward chain operations
-                FORWARD_CHAIN {}
+                public FORWARD_CHAIN {}
         }
 
         validate_header {
@@ -60,7 +60,7 @@ define_schemas! {
             DECODE_HEADER {}
 
             /// Pull chain updates from peer
-            RECEIVE_HEADER {}
+            public RECEIVE_HEADER {}
 
             /// Header decode failed from received data
             RECEIVE_HEADER_DECODE_FAILED {}
@@ -69,10 +69,10 @@ define_schemas! {
             SELECT_CHAIN {}
 
             /// Validate block properties
-            VALIDATE_BLOCK {}
+            public VALIDATE_BLOCK {}
 
             /// Validate header properties
-            VALIDATE_HEADER {}
+            public VALIDATE_HEADER {}
         }
     }
 

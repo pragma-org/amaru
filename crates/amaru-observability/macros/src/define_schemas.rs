@@ -1331,7 +1331,7 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) 
                 modules.push(quote! {
                     pub const #schema_ident: &str = #schema_name_lowercase;
 
-                    /// Compile-time validation constant for the #[trace] macro.
+                    /// Compile-time validation constant for the `trace_span!` macro.
                     /// Format: R|required_field:type,...|O|optional_field:type,...
                     pub const #validation_const_ident: &str = #validation_string;
 
