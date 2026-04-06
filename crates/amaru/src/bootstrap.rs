@@ -21,6 +21,7 @@ use std::{
 use amaru_kernel::{BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
+    bootstrap_hd::import_snapshot_from_node_ledger,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_ouroboros::{ChainStore, Nonces};
@@ -316,6 +317,90 @@ pub async fn import_snapshot(
     transaction.commit()?;
 
     info!(epoch=%epoch, "Imported snapshot");
+    Ok(())
+}
+
+/// Import a cardano-node UTxOHD ledger snapshot directory into the Amaru ledger database,
+/// then import the initial nonces and chain headers (same as `bootstrap`).
+///
+/// `node_snapshot_dir` must be the slot-numbered directory created by the cardano-node's LedgerDB,
+/// e.g. `db/ledger/119183041`. The function looks for:
+///
+///   <node_snapshot_dir>/state        — ledger state (without UTxO)
+///   <node_snapshot_dir>/tables/tvar  — UTxO table
+pub async fn import_node_ledger_snapshot(
+    network: NetworkName,
+    ledger_dir: PathBuf,
+    chain_dir: PathBuf,
+    node_snapshot_dirs: Vec<PathBuf>,
+) -> Result<(), Box<dyn Error>> {
+    if node_snapshot_dirs.is_empty() {
+        return Err("at least one snapshot directory is required".into());
+    }
+
+    let era_history: EraHistory = match network {
+        NetworkName::Testnet(_) => {
+            return Err("testnet networks require an explicit era history; \
+                        use convert-ledger-state + import-ledger-state instead"
+                .into());
+        }
+        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => {
+            <&EraHistory>::from(network).clone()
+        }
+    };
+
+    std::fs::create_dir_all(&ledger_dir)?;
+
+    for node_snapshot_dir in &node_snapshot_dirs {
+        let state_path = node_snapshot_dir.join("state");
+        let utxo_path = node_snapshot_dir.join("tables").join("tvar");
+
+        if !state_path.is_file() {
+            return Err(format!("state file not found: {}", state_path.display()).into());
+        }
+        if !utxo_path.is_file() {
+            return Err(format!("UTxO table file not found: {}", utxo_path.display()).into());
+        }
+
+        if std::fs::exists(ledger_dir.join("live"))? {
+            std::fs::remove_dir_all(ledger_dir.join("live"))?;
+        }
+
+        let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.clone()))?;
+        let mut state_file = std::fs::File::open(&state_path)?;
+        let mut utxo_file = std::fs::File::open(&utxo_path)?;
+
+        let era_history = era_history.clone();
+        let builder = std::thread::Builder::new().stack_size(10_000_000);
+        let (db, epoch) = builder
+            .spawn(move || {
+                import_snapshot_from_node_ledger(
+                    &db,
+                    &mut state_file,
+                    &mut utxo_file,
+                    &era_history,
+                    network,
+                    new_terminal_progress_bar,
+                )
+                .map_err(|e| e.to_string())
+                .map(|(epoch, _point)| (db, epoch))
+            })
+            .map_err(|e| format!("failed to spawn thread: {e:?}"))?
+            .join()
+            .map_err(|e| format!("thread panicked: {e:?}"))??;
+
+        db.next_snapshot(epoch)?;
+
+        let transaction = db.create_transaction();
+        transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
+        transaction.commit()?;
+
+        info!(epoch=%epoch, node_snapshot_dir=%node_snapshot_dir.display(), "Imported node ledger snapshot");
+    }
+
+    import_nonces(network.into(), &chain_dir, default_initial_nonces(network)?).await?;
+    import_headers_for_network(&chain_dir, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
+
     Ok(())
 }
 

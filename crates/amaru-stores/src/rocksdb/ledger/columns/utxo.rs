@@ -38,7 +38,12 @@ pub fn get<'a>(
 }
 
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
-    for (input, output) in rows {
+    for (input, mut output) in rows {
+        // Normalize to non-legacy (map) encoding so that outputs imported via Ogmios
+        // (which preserves the original on-chain array encoding for pre-Babbage UTxOs)
+        // and outputs imported via node snapshots (mempack, which always produces
+        // non-legacy) are stored identically.
+        output.is_legacy = false;
         db.put(as_key(&PREFIX, input), as_value(output)).map_err(|err| StoreError::Internal(err.into()))?;
     }
 

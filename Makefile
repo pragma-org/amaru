@@ -2,6 +2,7 @@ export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 DEMO_TARGET_EPOCH ?= 182
+NODE_SNAPSHOT_DIRS ?=
 HASKELL_NODE_CONFIG_REPOSITORY := https://raw.githubusercontent.com/input-output-hk/cardano-playground
 HASKELL_NODE_CONFIG_DIRECTORY := static/book.play.dev.cardano.org/environments
 CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
@@ -26,6 +27,13 @@ help:
 
 bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
+
+bootstrap-hd: ## &start Bootstrap Amaru from one or more cardano-node UTxOHD snapshot directories (NODE_SNAPSHOT_DIRS=<path>[,<path>...])
+	@if [ -z "$(NODE_SNAPSHOT_DIRS)" ]; then \
+		echo "NODE_SNAPSHOT_DIRS is required, e.g. NODE_SNAPSHOT_DIRS=data-tmp/db/ledger/119183041 make $@"; \
+		exit 1; \
+	fi
+	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap-hd --node-snapshot-dirs $(NODE_SNAPSHOT_DIRS) $(ARGS)
 
 import-headers: ## &start Import initial headers
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) import-headers $(ARGS)
