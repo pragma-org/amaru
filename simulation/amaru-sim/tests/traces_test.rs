@@ -29,7 +29,6 @@ use tracing::info_span;
 ///  - Spans for the roll forward action.
 #[test]
 #[ignore = "This test verifies tracing spans are properly emitted, but it cannot be reliably tested in CI due to reliance on environment configuration."]
-#[ignore]
 fn run_simulator_with_traces() {
     let execute = || {
         let headers = run_strategy(any_headers_chain(3));

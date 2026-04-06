@@ -250,7 +250,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let _span = trace_span!(
             amaru_observability::amaru::ledger::state::APPLY_BLOCK,
-            point_slot = u64::from(now_stable.anchor.0.slot_or_default())
+            point_slot = u64::from(now_stable.anchor.0.slot())
         );
         let _guard = _span.enter();
 

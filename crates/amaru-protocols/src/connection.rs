@@ -154,13 +154,13 @@ pub async fn stage(
                 State::Initiator(s)
             }
             (State::Initiator(s), ConnectionMessage::FetchBlocks2 { from, through, id, cr }) => {
-            eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange2 { from, through, id, cr }).await;
-            State::Initiator(s)
-        }
-        (
-            state @ (State::Initial | State::Handshake { .. }),
-            msg @ (ConnectionMessage::FetchBlocks { .. } | ConnectionMessage::FetchBlocks2 { .. }),
-        ) => {
+                eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange2 { from, through, id, cr }).await;
+                State::Initiator(s)
+            }
+            (
+                state @ (State::Initial | State::Handshake { .. }),
+                msg @ (ConnectionMessage::FetchBlocks { .. } | ConnectionMessage::FetchBlocks2 { .. }),
+            ) => {
                 // The peer might be still connecting. In that case we reschedule the message
                 // If the peer eventually can't be fully initialized, the caller timeout will trigger.
                 // We schedule after the reconnect delay (2s by default) which is shorter than the call

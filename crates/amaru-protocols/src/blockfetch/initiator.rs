@@ -247,6 +247,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         }
     }
 
+    #[expect(clippy::expect_used)]
     async fn network(
         mut self,
         _proto: &State,
@@ -259,14 +260,12 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
             let queued = match input {
                 InitiatorResult::Initialize => None,
                 InitiatorResult::NoBlocks => {
-                    let Some((_, _, cr)) = self.queue.pop_front() else {
-                        tracing::warn!(
-                            "received NoBlocks without a pending blockfetch request; terminating the connection"
-                        );
-                        return eff.terminate().await;
-                    };
-                    eff.send(&cr, Blocks { blocks: Vec::new() }).await;
-                    self.queue.get(1)
+                    let (_, _, cr) = self.queue.pop_front().expect("queue must not be empty");
+                    match cr {
+                        Resp::V1(cr) => eff.send(&cr, Blocks { blocks: Vec::new() }).await,
+                        Resp::V2(id, cr) => eff.send(&cr, Blocks2::NoBlocks(id)).await,
+                    }
+                    self.queue.front()
                 }
                 InitiatorResult::Block(body) => {
                     if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
@@ -288,24 +287,24 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                     None
                 }
                 InitiatorResult::Done => {
-                    let Some((from, through, cr)) = self.queue.pop_front() else {
-                        tracing::warn!(
-                            "received BatchDone without a pending blockfetch request; terminating the connection"
-                        );
-                        return eff.terminate().await;
-                    };
-                    let blocks = mem::take(&mut self.blocks);
-                    if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
-                        eff.send(&cr, Blocks { blocks }).await;
-                    } else {
-                        tracing::warn!(
-                            ?from,
-                            ?through,
-                            "received blocks do not form a valid range; terminating the connection"
-                        );
-                        return eff.terminate().await;
+                    let (from, through, cr) = self.queue.pop_front().expect("queue must not be empty");
+                    match cr {
+                        Resp::V1(cr) => {
+                            let blocks = mem::take(&mut self.blocks);
+                            if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
+                                eff.send(&cr, Blocks { blocks }).await;
+                            } else {
+                                tracing::warn!(
+                                    ?from,
+                                    ?through,
+                                    "received blocks do not form a valid range; terminating the connection"
+                                );
+                                return eff.terminate().await;
+                            }
+                        }
+                        Resp::V2(id, cr) => eff.send(&cr, Blocks2::Done(id)).await,
                     }
-                    self.queue.get(1)
+                    self.queue.front()
                 }
             };
             let action =
