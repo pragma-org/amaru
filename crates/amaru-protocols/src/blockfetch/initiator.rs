@@ -20,7 +20,6 @@ use amaru_kernel::{
 use amaru_observability::trace_span;
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
@@ -254,68 +253,63 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let message_type = input.message_type().to_string();
-
-        async move {
-            let queued = match input {
-                InitiatorResult::Initialize => None,
-                InitiatorResult::NoBlocks => {
-                    let (_, _, cr) = self.queue.pop_front().expect("queue must not be empty");
-                    match cr {
-                        Resp::V1(cr) => eff.send(&cr, Blocks { blocks: Vec::new() }).await,
-                        Resp::V2(id, cr) => eff.send(&cr, Blocks2::NoBlocks(id)).await,
-                    }
-                    self.queue.front()
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_PROTOCOL,
+            message_type = input.message_type()
+        );
+        let _guard = _span.enter();
+        let queued = match input {
+            InitiatorResult::Initialize => None,
+            InitiatorResult::NoBlocks => {
+                let (_, _, cr) = self.queue.pop_front().expect("queue must not be empty");
+                match cr {
+                    Resp::V1(cr) => eff.send(&cr, Blocks { blocks: Vec::new() }).await,
+                    Resp::V2(id, cr) => eff.send(&cr, Blocks2::NoBlocks(id)).await,
                 }
-                InitiatorResult::Block(body) => {
-                    if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
-                        if self.blocks.len() < MAX_FETCHED_BLOCKS {
-                            self.blocks.push(network_block);
-                        } else {
-                            tracing::warn!(
-                                "the responder sent more {MAX_FETCHED_BLOCKS} blocks; terminating the connection"
-                            );
-                            return eff.terminate().await;
-                        }
+                self.queue.front()
+            }
+            InitiatorResult::Block(body) => {
+                if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
+                    if let Some((_, _, Resp::V2(id, cr))) = self.queue.front() {
+                        // must send NetworkBlock unchanged to the local stage for storage, otherwise validation breaks
+                        eff.send(cr, Blocks2::Block(*id, network_block)).await;
+                    } else if self.blocks.len() < MAX_FETCHED_BLOCKS {
+                        self.blocks.push(network_block);
                     } else {
                         tracing::warn!(
-                            "received invalid block CBOR {}; terminating the connection",
-                            hex::encode(&body)
+                            "the responder sent more {MAX_FETCHED_BLOCKS} blocks; terminating the connection"
                         );
                         return eff.terminate().await;
                     }
-                    None
+                } else {
+                    tracing::warn!(bytes = body.len(), "received invalid block CBOR; terminating the connection");
+                    return eff.terminate().await;
                 }
-                InitiatorResult::Done => {
-                    let (from, through, cr) = self.queue.pop_front().expect("queue must not be empty");
-                    match cr {
-                        Resp::V1(cr) => {
-                            let blocks = mem::take(&mut self.blocks);
-                            if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
-                                eff.send(&cr, Blocks { blocks }).await;
-                            } else {
-                                tracing::warn!(
-                                    ?from,
-                                    ?through,
-                                    "received blocks do not form a valid range; terminating the connection"
-                                );
-                                return eff.terminate().await;
-                            }
+                None
+            }
+            InitiatorResult::Done => {
+                let (from, through, cr) = self.queue.pop_front().expect("queue must not be empty");
+                match cr {
+                    Resp::V1(cr) => {
+                        let blocks = mem::take(&mut self.blocks);
+                        if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
+                            eff.send(&cr, Blocks { blocks }).await;
+                        } else {
+                            tracing::warn!(
+                                ?from,
+                                ?through,
+                                "received blocks do not form a valid range; terminating the connection"
+                            );
+                            return eff.terminate().await;
                         }
-                        Resp::V2(id, cr) => eff.send(&cr, Blocks2::Done(id)).await,
                     }
-                    self.queue.front()
+                    Resp::V2(id, cr) => eff.send(&cr, Blocks2::Done(id)).await,
                 }
-            };
-            let action =
-                queued.map(|(from, through, _)| InitiatorAction::RequestRange { from: *from, through: *through });
-            Ok((action, self))
-        }
-        .instrument(trace_span!(
-            amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_STAGE,
-            message_type = message_type
-        ))
-        .await
+                self.queue.front()
+            }
+        };
+        let action = queued.map(|(from, through, _)| InitiatorAction::RequestRange { from: *from, through: *through });
+        Ok((action, self))
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -335,8 +329,8 @@ impl ProtocolState<Initiator> for State {
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         let _span = trace_span!(
-            amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_PROTOCOL,
-            message_type = input.message_type().to_string()
+            amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_STAGE,
+            message_type = input.message_type()
         );
         let _guard = _span.enter();
         use Message::*;
