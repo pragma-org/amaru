@@ -97,6 +97,8 @@ insta = { workspace = true, features = ["json"] }
 tempfile.workspace = true
 test-case.workspace = true
 rocksdb.workspace = true
+quote.workspace = true
+syn.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true
@@ -106,6 +108,8 @@ amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
 amaru-kernel.workspace = true
+quote.workspace = true
+syn.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true

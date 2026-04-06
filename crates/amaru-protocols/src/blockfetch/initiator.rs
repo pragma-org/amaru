@@ -17,9 +17,9 @@ use std::{collections::VecDeque, mem, sync::Arc};
 use amaru_kernel::{
     EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes,
 };
+use amaru_observability::trace_span;
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
 
 use crate::{
     blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
@@ -246,7 +246,6 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         }
     }
 
-    #[instrument(level = "debug", name = "blockfetch.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     #[expect(clippy::expect_used)]
     async fn network(
         mut self,
@@ -254,6 +253,11 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_PROTOCOL,
+            message_type = input.message_type()
+        );
+        let _guard = _span.enter();
         let queued = match input {
             InitiatorResult::Initialize => None,
             InitiatorResult::NoBlocks => {
@@ -323,8 +327,12 @@ impl ProtocolState<Initiator> for State {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    #[instrument(level = "debug", name = "blockfetch.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_STAGE,
+            message_type = input.message_type()
+        );
+        let _guard = _span.enter();
         use Message::*;
         match (self, input) {
             (Self::Busy, StartBatch) => Ok((outcome().want_next(), Self::Streaming)),

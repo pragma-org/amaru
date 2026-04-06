@@ -18,7 +18,7 @@
 //! custom expression fields (field = expr) must exist in the schema.
 //! This catches typos like `roots_constitutions` when the schema has `roots_constitution`.
 
-use amaru_observability_macros::{define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace_span};
 
 define_local_schemas! {
     test {
@@ -37,10 +37,7 @@ fn get_value() -> String {
     "test".to_string()
 }
 
-// This should fail: `typo_field` doesn't exist in schema
-#[trace(test::example::STRICT_TEST, typo_field = get_value())]
-fn test_typo_in_custom_expr(actual_field: String) {
-    let _ = actual_field;
+fn main() {
+    let actual_field = String::from("ok");
+    let _span = trace_span!(test::example::STRICT_TEST, actual_field = &actual_field, typo_field = get_value());
 }
-
-fn main() {}

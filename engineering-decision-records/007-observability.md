@@ -70,39 +70,53 @@ define_schemas! {
 ```
 
 Each schema declares:
-- **Required fields**: Must be present as function parameters with matching types
+- **Required fields**: Must be supplied when creating the span, with matching types
 - **Optional fields**: Supplementary context that can be recorded later
 
-#### Function Instrumentation
+#### Explicit Span Construction
 
-The `#[trace]` macro instruments functions with compile-time validated tracing:
+Amaru now prefers explicit span creation over function-wide instrumentation wrappers. New schema-based tracing should use `trace_span!` to create a span at the point where the work actually begins, then either enter that span or attach it to a future with `.instrument(...)`.
 
 ```rust
-#[trace(consensus::validate_header::EVOLVE_NONCE)]
 fn evolve_nonce(&self, hash: String) -> Result<Nonce, ConsensusError> {
+    let span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+    let _guard = span.enter();
+
+    // function body
 }
 ```
 
-The macro generates `#[tracing::instrument]` with consistent settings:
-- `level = Level::TRACE` - all instrumented spans are at TRACE level
-- `skip_all` - function parameters are not auto-captured (explicit recording required)
-- `target` - derived from schema path (e.g., `"consensus::validate_header"`)
-- `fields(...)` - all schema fields pre-declared as `Empty`
+For async work, the same schema-validated span can be attached directly to the future:
 
-At compile time, the macro validates:
+```rust
+async move {
+    apply_block(block).await
+}
+.instrument(trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot))
+.await;
+```
+
+At compile time, `trace_span!` validates:
 - The schema exists at the specified path
-- Required fields are present as function parameters
-- Field types match the schema declaration
+- Required fields are supplied when the span is created
+- Field names and types match the schema declaration
+
+This explicit style is preferred because it makes span boundaries visible in the code and works naturally with partial scopes and async pipelines.
 
 #### Span Augmentation
 
 The `trace_record!` macro records fields to the current span with a schema anchor:
 
 ```rust
-#[trace(ledger::state::APPLY_BLOCK)]
-fn apply_block(block: &Block) {
-    // Record additional fields with schema context
-    trace_record!(ledger::state::APPLY_BLOCK, block_size = block.size(), tx_count = block.transactions.len());
+fn apply_block(block: &Block, point_slot: u64) {
+    let span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+    let _guard = span.enter();
+
+    trace_record!(
+        ledger::state::APPLY_BLOCK,
+        block_size = block.size(),
+        tx_count = block.transactions.len()
+    );
 }
 ```
 
@@ -113,7 +127,7 @@ This macro is a lightweight way to add context to the current span without creat
 - **Compile-time safety**: Typos or type mismatches in field names cause compilation errors
 - **Consistency**: All spans follow the same instrumentation pattern
 - **Discoverability**: All schemas are defined in a central, documented location
-- **Flexibility**: Functions can have additional parameters beyond schema fields
+- **Flexibility**: Functions can have additional parameters beyond schema fields, and spans can cover exactly the synchronous or asynchronous scope that matters
 
 ### Metrics
 

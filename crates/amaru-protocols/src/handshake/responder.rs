@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_observability::trace_span;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     handshake::{State, messages::Message},
@@ -69,20 +70,28 @@ impl StageState<State, Responder> for HandshakeResponder {
         match input {}
     }
 
-    #[instrument(level = "debug", name = "handshake.responder.stage", skip_all, fields(version_table = %input.0))]
     async fn network(
         self,
         _proto: &State,
         input: Proposal,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        let result = crate::handshake::compute_negotiation_result(
-            crate::protocol::Role::Responder,
-            self.our_versions.clone(),
-            input.0,
-        );
-        eff.send(&self.connection, result.clone()).await;
-        Ok((Some(result.into()), self))
+        let version_table = input.0.to_string();
+
+        async move {
+            let result = crate::handshake::compute_negotiation_result(
+                crate::protocol::Role::Responder,
+                self.our_versions.clone(),
+                input.0,
+            );
+            eff.send(&self.connection, result.clone()).await;
+            Ok((Some(result.into()), self))
+        }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::handshake::responder::HANDSHAKE_RESPONDER_STAGE,
+            version_table = version_table
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -100,8 +109,12 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), Self::Propose))
     }
 
-    #[instrument(level = "debug", name = "handshake.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::handshake::responder::HANDSHAKE_RESPONDER_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         anyhow::ensure!(self == &Self::Propose, "handshake responder cannot receive in confirm state");
         match (self, input) {
             (Self::Propose, Message::Propose(version_table)) => {

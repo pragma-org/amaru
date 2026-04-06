@@ -17,8 +17,40 @@ They are executed via `cargo test`.
 
 ### Traces testing
 
-TODO
-Here we want to make sure OpenTelemetry traces are considered as part of the API.
+OpenTelemetry and JSON traces should be treated as part of the external API.
+
+Use the trace compatibility checker to compare a known-good baseline run against a newer run:
+
+```
+make compare-trace-contract
+```
+
+For a local terminal-oriented compare run with the compact summary and latency bars:
+
+```
+make compare-trace-contract TRACE_COMPARE_SUMMARY_FILE=/dev/stdout
+```
+
+To refresh the checked-in run-until baseline for the current network, run:
+
+```
+make update-trace-contract
+```
+
+When `AMARU_TRACE=amaru=trace` is set, `make run-until` emits normalized trace JSONL on stdout,
+and `make update-trace-contract` compacts that run into a small contract JSON snapshot.
+When run locally, `make update-trace-contract` also prints a terminal-friendly summary with
+compact sections and latency bars for the refreshed contract.
+
+The lower-level comparison command remains available when needed:
+
+```
+node scripts/compare-traces contract.json candidate.log
+```
+
+CI compares the short traced preprod run output against a checked-in compact contract at
+`data/<network>/run-until-trace-contract.json` when that file exists.
+If no contract file is present for the current network, the trace contract check is skipped.
 
 ## Real chan tests
 

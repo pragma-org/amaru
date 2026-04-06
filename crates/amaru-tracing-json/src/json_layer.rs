@@ -14,10 +14,36 @@
 
 use std::sync::{Arc, RwLock};
 
+use opentelemetry::trace::TraceContextExt as _;
 use serde_json as json;
 use serde_json::Value;
+use tracing::dispatcher;
+use tracing_opentelemetry::get_otel_context;
+use tracing_subscriber::registry::SpanRef;
 
 use crate::{json_visitor::JsonVisitor, trace_collect_config::TraceCollectConfig};
+
+fn otel_trace_id<S>(span: &SpanRef<'_, S>) -> Option<String>
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    let mut trace_id = None;
+
+    dispatcher::get_default(|dispatch| {
+        let mut extensions = span.extensions_mut();
+
+        if let Some(otel_context) = get_otel_context(&mut extensions, dispatch) {
+            let otel_span = otel_context.span();
+            let span_context = otel_span.span_context();
+
+            if span_context.is_valid() {
+                trace_id = Some(format!("{:032x}", span_context.trace_id()));
+            }
+        }
+    });
+
+    trace_id
+}
 
 /// This `tracing` layer collects spans as JSON values.
 ///
@@ -139,14 +165,32 @@ where
             span_json["level"] = Value::String(format!("{}", span.metadata().level()));
             span_json["target"] = Value::String(span.metadata().target().to_string());
 
+            if let Some(trace_id) = otel_trace_id(&span) {
+                span_json["trace_id"] = Value::String(trace_id);
+            }
+
             // Walk up the parent chain to find the nearest collected ancestor
             // (i.e., one whose target passes our filter)
             let mut current_parent = span.parent();
             while let Some(parent) = current_parent {
+                let parent_trace_id = otel_trace_id(&parent);
+
                 if self.has_target(parent.metadata().target()) {
                     span_json["parent_id"] = Value::String(format!("{:?}", parent.id()));
+
+                    if let Some(parent_trace_id) = parent_trace_id {
+                        span_json["parent_trace_id"] = Value::String(parent_trace_id);
+                    }
+
                     break;
                 }
+
+                if span_json.get("parent_trace_id").is_none()
+                    && let Some(parent_trace_id) = parent_trace_id
+                {
+                    span_json["parent_trace_id"] = Value::String(parent_trace_id);
+                }
+
                 current_parent = parent.parent();
             }
 

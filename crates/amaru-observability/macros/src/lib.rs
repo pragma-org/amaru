@@ -21,22 +21,29 @@
 //! The macros in this crate work together to provide compile-time validation of tracing:
 //!
 //! - [`define_schemas!`] - Declares schemas with their fields and types
-//! - [`#[trace]`](macro@trace) - Instruments functions, requiring all required schema fields
+//! - [`trace_span!`](macro@trace_span) - Creates typed spans with strict schema validation
 //! - [`trace_record!`](macro@trace_record) - Records fields to the current span
 //!
 //! # Disabling Tracing at Compile Time
 //!
-//! Set the `AMARU_TRACE_NOOP` environment variable during compilation to disable all tracing:
+//! Set the `AMARU_TRACE_NO_EMIT` environment variable during compilation to disable all tracing:
 //!
 //! ```bash
 //! cargo clean
-//! AMARU_TRACE_NOOP=1 cargo build --release
+//! AMARU_TRACE_NO_EMIT=1 cargo build --release
 //! ```
 //!
 //! **Note:** `cargo clean` is required because cargo caches macro expansions. The environment
 //! variable must be set during a clean build to take effect.
 //!
 //! When enabled, all macros become no-ops, completely removing tracing overhead.
+//!
+//! # Emitting Private Schemas
+//!
+//! Schemas are private by default. Set `AMARU_TRACE_EMIT_PRIVATE` to a truthy value at runtime
+//! to emit spans and records created from private schemas.
+//!
+//! Truthy values are any non-empty values except `0` and `false`.
 
 use std::env::var;
 
@@ -46,10 +53,10 @@ mod define_schemas;
 mod traces;
 mod utils;
 
-/// Check if tracing is disabled via AMARU_TRACE_NOOP environment variable.
+/// Check if tracing is disabled via AMARU_TRACE_NO_EMIT environment variable.
 /// When set (to any value), all tracing macros become no-ops.
-fn is_trace_noop() -> bool {
-    var("AMARU_TRACE_NOOP").is_ok_and(|v| !v.is_empty())
+fn is_trace_no_emit() -> bool {
+    var("AMARU_TRACE_NO_EMIT").is_ok_and(|v| !v.is_empty())
 }
 
 // =============================================================================
@@ -82,28 +89,6 @@ pub fn define_local_schemas(input: TokenStream) -> TokenStream {
     define_schemas::expand_local(input)
 }
 
-/// Instruments a function with tracing.
-///
-/// The trace argument must be a const path defined via `define_schemas!`.
-/// This macro validates at compile-time that:
-/// - The schema constant exists
-/// - All **required** fields are present as function parameters
-/// - All parameters have the correct types matching the schema
-/// - Optional fields may optionally be present with correct types
-///
-/// # Example
-///
-/// ```text
-/// #[trace(consensus::chain_sync::VALIDATE_HEADER)]
-/// fn validate_header(point_slot: u64, point_hash: String) -> Result<(), String> {
-///     Ok(())
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn trace(args: TokenStream, input: TokenStream) -> TokenStream {
-    traces::expand_trace(args, input)
-}
-
 /// Records fields to the current span with a schema anchor.
 ///
 /// This macro records fields to the current span, with the schema constant documenting
@@ -119,13 +104,17 @@ pub fn trace(args: TokenStream, input: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```text
-/// #[trace(ledger::state::APPLY_BLOCK)]
-/// fn apply_block(block: &Block) {
-///     // Record to span only
-///     trace_record!(ledger::state::APPLY_BLOCK, size = block.size());
+/// fn apply_block(point_slot: u64, error: Option<&str>) {
+///     let _span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+///     let _guard = _span.enter();
 ///
-///     // Record to span and emit INFO log event
-///     trace_record!(INFO, ledger::state::APPLY_BLOCK, tx_count = block.transactions.len());
+///     if let Some(error) = error {
+///         // Record to span only
+///         trace_record!(ledger::state::APPLY_BLOCK, error = error);
+///
+///         // Record to span and emit INFO log event
+///         trace_record!(INFO, ledger::state::APPLY_BLOCK, error = error);
+///     }
 /// }
 /// ```
 #[proc_macro]
@@ -149,7 +138,7 @@ pub fn trace_record(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// trace_span!(operations::database::OPENING_CHAIN_DB, path = "...")
-/// trace_span!(DEBUG, ledger::state::APPLY_BLOCK, block_size = 1024)
+/// trace_span!(DEBUG, ledger::state::APPLY_BLOCK, point_slot = 1024)
 /// trace_span!(INFO, consensus::VALIDATE_HEADER)
 /// ```
 #[proc_macro]

@@ -15,10 +15,11 @@
 use std::cmp::Reverse;
 
 use amaru_kernel::{BlockHeader, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
@@ -87,32 +88,40 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         }
     }
 
-    #[instrument(level = "debug", name = "chainsync.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         proto: &ResponderState,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        match input {
-            ResponderResult::FindIntersect(points) => {
-                let action = intersect(points, &Store::new(eff.clone()), self.upstream)
-                    .context("failed to find intersection")?;
-                if let ResponderAction::IntersectFound(point, _tip) = &action {
-                    self.pointer = *point;
+        let message_type = input.message_type().to_string();
+
+        async move {
+            match input {
+                ResponderResult::FindIntersect(points) => {
+                    let action = intersect(points, &Store::new(eff.clone()), self.upstream)
+                        .context("failed to find intersection")?;
+                    if let ResponderAction::IntersectFound(point, _tip) = &action {
+                        self.pointer = *point;
+                    }
+                    Ok((Some(action), self))
                 }
-                Ok((Some(action), self))
-            }
-            ResponderResult::RequestNext => {
-                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
-                    .context("failed to get next header")?;
-                Ok((action, self))
-            }
-            ResponderResult::Done => {
-                tracing::info!("peer stopped chainsync");
-                Ok((None, self))
+                ResponderResult::RequestNext => {
+                    let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                        .context("failed to get next header")?;
+                    Ok((action, self))
+                }
+                ResponderResult::Done => {
+                    tracing::info!("peer stopped chainsync");
+                    Ok((None, self))
+                }
             }
         }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE,
+            message_type = message_type
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -279,8 +288,12 @@ impl ProtocolState<Responder> for ResponderState {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(level = "debug", name = "chainsync.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::chainsync::responder::CHAINSYNC_RESPONDER_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         use ResponderState::*;
 
         Ok(match (self, input) {

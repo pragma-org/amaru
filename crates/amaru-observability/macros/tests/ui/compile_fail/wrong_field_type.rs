@@ -16,7 +16,7 @@
 //!
 //! Expected error: "Wrong type for field 'second': expected 'u64', found 'i32'"
 
-use amaru_observability_macros::{define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace_span};
 
 define_local_schemas! {
     test {
@@ -31,10 +31,7 @@ define_local_schemas! {
     }
 }
 
-// Wrong type for 'second' field (i32 instead of u64)
-#[trace(test::sub::SCHEMA)]
-fn wrong_field_type(_first: String, _second: i32, _third: u64) {
-    println!("This has the wrong type for second field");
+fn main() {
+    let first = String::from("first");
+    let _span = trace_span!(test::sub::SCHEMA, first = &first, second = 2_i32, third = 3_u64);
 }
-
-fn main() {}

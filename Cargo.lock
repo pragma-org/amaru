@@ -95,12 +95,14 @@ dependencies = [
  "pallas-network",
  "parking_lot",
  "pure-stage",
+ "quote",
  "rayon",
  "reqwest",
  "rlimit",
  "rocksdb",
  "serde",
  "serde_json",
+ "syn",
  "sysinfo",
  "tar",
  "tempfile",
@@ -294,10 +296,12 @@ dependencies = [
 name = "amaru-observability-macros"
 version = "0.1.2"
 dependencies = [
+ "async-trait",
  "inventory",
  "proc-macro2",
  "quote",
  "syn",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "trybuild",
@@ -446,9 +450,11 @@ version = "0.1.2"
 dependencies = [
  "assert-json-diff",
  "hex",
+ "opentelemetry",
  "pretty_assertions",
  "serde_json",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 

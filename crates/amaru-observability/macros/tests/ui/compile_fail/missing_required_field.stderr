@@ -9,7 +9,7 @@ error: Missing required field 'third' for schema SCHEMA. Required fields: first,
 32 | | }
    | |_^
 ...
-35 |   #[trace(test::sub::SCHEMA)]
-   |   --------------------------- in this attribute macro expansion
+36 |       let _span = trace_span!(test::sub::SCHEMA, first = &first, second = 2_u64);
+   |                   -------------------------------------------------------------- in this macro invocation
    |
-   = note: this error originates in the macro `__SCHEMA_CHECK_THIRD` which comes from the expansion of the attribute macro `trace` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `__SCHEMA_CHECK_THIRD` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

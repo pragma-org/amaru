@@ -12,49 +12,68 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Tests for the `private` keyword in trace macros and schema definitions.
+//! Tests for schema visibility in trace macros and schema definitions.
 
-use amaru_observability_macros::{define_local_schemas, trace, trace_record, trace_span};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
+
+static PRIVATE_FIELD_EVALUATIONS: AtomicUsize = AtomicUsize::new(0);
 
 define_local_schemas! {
     security {
         secrets {
             /// Public secret tracking
-            PUBLIC_SECRET {
+            public PUBLIC_SECRET {
                 required key_name: String
             }
 
-            /// Private secret tracking (marked as private)
-            private PRIVATE_SECRET {
+            /// Private secret tracking (private by default)
+            PRIVATE_SECRET {
                 required key_id: String
             }
         }
     }
 }
 
-#[trace(private, security::secrets::PRIVATE_SECRET)]
-fn trace_with_private(_key_id: String) {
-    // Function with private trace
+fn trace_private_schema(key_id: String) {
+    let _span = trace_span!(security::secrets::PRIVATE_SECRET, key_id = &key_id);
+    let _guard = _span.enter();
 }
 
-#[trace(security::secrets::PUBLIC_SECRET)]
-fn trace_without_private(_key_name: String) {
-    // Function with public trace
+fn trace_public_schema(key_name: String) {
+    let _span = trace_span!(security::secrets::PUBLIC_SECRET, key_name = &key_name);
+    let _guard = _span.enter();
 }
 
-fn trace_record_with_private(_key_id: String) {
-    trace_record!(private, security::secrets::PRIVATE_SECRET, key_id = _key_id);
+fn trace_record_private_schema(key_id: String) {
+    trace_record!(security::secrets::PRIVATE_SECRET, key_id = key_id);
 }
 
-fn trace_span_with_private() {
-    let _span = trace_span!(private, security::secrets::PRIVATE_SECRET);
+fn trace_span_private_schema(key_id: String) {
+    let _span = trace_span!(security::secrets::PRIVATE_SECRET, key_id = &key_id);
+    let _guard = _span.enter();
+}
+
+fn count_private_field_evaluation() -> String {
+    PRIVATE_FIELD_EVALUATIONS.fetch_add(1, Ordering::SeqCst);
+    "side_effect".to_string()
 }
 
 #[test]
-fn test_private_keyword_in_schemas() {
-    // Test that private schemas are defined correctly
-    trace_with_private("secret_123".into());
-    trace_without_private("public_key".into());
-    trace_record_with_private("secret_456".into());
-    trace_span_with_private();
+fn test_schema_visibility_in_schemas() {
+    trace_private_schema("secret_123".into());
+    trace_public_schema("public_key".into());
+    trace_record_private_schema("secret_456".into());
+    trace_span_private_schema("secret_789".into());
+}
+
+#[test]
+#[ignore = "This test verifies that private fields are not evaluated when tracing is disabled, but it cannot be reliably tested in CI due to reliance on environment configuration."]
+fn test_disabled_private_span_skips_field_evaluation() {
+    PRIVATE_FIELD_EVALUATIONS.store(0, Ordering::SeqCst);
+
+    let _span = trace_span!(security::secrets::PRIVATE_SECRET, key_id = count_private_field_evaluation());
+
+    assert_eq!(PRIVATE_FIELD_EVALUATIONS.load(Ordering::SeqCst), 0);
 }

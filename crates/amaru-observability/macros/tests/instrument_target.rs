@@ -22,18 +22,44 @@
 
 use std::{
     collections::BTreeMap,
+    fmt,
     sync::{Arc, Mutex},
 };
 
-use amaru_observability_macros::{define_local_schemas, trace, trace_record};
+use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
 use tracing::field::Visit;
 use tracing_subscriber::{Registry, layer::SubscriberExt};
 
+#[derive(Clone)]
+struct DistinctFormatting;
+
+impl fmt::Display for DistinctFormatting {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("display-format")
+    }
+}
+
+impl fmt::Debug for DistinctFormatting {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("debug-format")
+    }
+}
+
 define_local_schemas! {
+    formatting {
+        test {
+            /// Formatter behavior for testing
+            public DISTINCT_FORMATTING {
+                required display_value: DistinctFormatting
+                required debug_value: DistinctFormatting
+            }
+        }
+    }
+
     consensus {
         validate_header {
             /// Evolve nonce for testing
-            EVOLVE_NONCE {
+            public EVOLVE_NONCE {
                 required hash: String
             }
         }
@@ -42,12 +68,12 @@ define_local_schemas! {
     ledger {
         state {
             /// Apply block for testing
-            APPLY_BLOCK {
+            public APPLY_BLOCK {
                 required point_slot: u64
             }
 
             /// Create validation context for testing
-            CREATE_VALIDATION_CONTEXT {
+            public CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: String
                 required block_number: u64
                 required block_body_size: u64
@@ -112,6 +138,17 @@ impl<S> tracing_subscriber::Layer<S> for ValueCapturingLayer
 where
     S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
 {
+    fn on_new_span(
+        &self,
+        attrs: &tracing::span::Attributes<'_>,
+        _id: &tracing::span::Id,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut collector = FieldValueCollector::default();
+        attrs.values().record(&mut collector);
+        self.captured.lock().unwrap().extend(collector.values);
+    }
+
     fn on_record(
         &self,
         _id: &tracing::span::Id,
@@ -124,26 +161,48 @@ where
     }
 }
 
-#[trace(consensus::validate_header::EVOLVE_NONCE)]
 fn evolve_nonce(hash: String) {
-    let _ = hash;
+    let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+    let _guard = _span.enter();
 }
 
-#[trace(ledger::state::APPLY_BLOCK)]
 fn apply_block(point_slot: u64) {
-    let _ = point_slot;
+    let _span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+    let _guard = _span.enter();
 }
 
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-fn process_block(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {}
+fn process_block(block_body_hash: String, block_number: u64, block_body_size: u64) {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = &block_body_hash,
+        block_number = block_number,
+        block_body_size = block_body_size
+    );
+    let _guard = _span.enter();
+}
 
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
-fn outer_with_record(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {
+fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size: u64) {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = &block_body_hash,
+        block_number = block_number,
+        block_body_size = block_body_size
+    );
+    let _guard = _span.enter();
     inner_record(5);
 }
 
 fn inner_record(_total_inputs: u64) {
     trace_record!(ledger::state::CREATE_VALIDATION_CONTEXT, total_inputs = _total_inputs);
+}
+
+fn distinct_formatting(display_value: DistinctFormatting, debug_value: DistinctFormatting) {
+    let _span = trace_span!(
+        formatting::test::DISTINCT_FORMATTING,
+        display_value = %display_value,
+        debug_value = ?debug_value
+    );
+    let _guard = _span.enter();
 }
 
 #[test]
@@ -226,4 +285,18 @@ fn test_trace_record_records_to_span() {
         "Expected some fields to be recorded, got {:?}",
         recorded
     );
+}
+
+#[test]
+fn test_trace_span_preserves_formatter_kind() {
+    let values = Arc::new(Mutex::new(BTreeMap::new()));
+    let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
+
+    tracing::subscriber::with_default(subscriber, || {
+        distinct_formatting(DistinctFormatting, DistinctFormatting);
+    });
+
+    let recorded = values.lock().unwrap();
+    assert_eq!(recorded.get("display_value"), Some(&"display-format".to_string()));
+    assert_eq!(recorded.get("debug_value"), Some(&"debug-format".to_string()));
 }

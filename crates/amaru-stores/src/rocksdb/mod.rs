@@ -36,10 +36,7 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
-use amaru_observability::{
-    amaru::stores::rocksdb::{SAVE_POINT, VALIDATE_SNAPSHOTS},
-    trace, trace_record,
-};
+use amaru_observability::{trace_record, trace_span};
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
@@ -254,8 +251,16 @@ impl Snapshot for RocksDBSnapshot {
 impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
-    #[trace(INFO, amaru::stores::ledger::SNAPSHOT, epoch = u64::from(epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
+        let _span = trace_span!(
+            INFO,
+            amaru::stores::ledger::SNAPSHOT,
+            epoch = u64::from(epoch),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "checkpoint".to_string()
+        );
+        let _guard = _span.enter();
+
         let path = self.dir.join(epoch.to_string());
 
         if path.exists() {
@@ -307,8 +312,15 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
-    #[trace(amaru::stores::ledger::PRUNE, functional_minimum = u64::from(functional_minimum))]
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
+        let _span = trace_span!(
+            amaru::stores::ledger::PRUNE,
+            functional_minimum = u64::from(functional_minimum),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "delete".to_string()
+        );
+        let _guard = _span.enter();
+
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
         with_snapshots(&self.config.dir, |path, epoch| {
             if epoch < desired_minimum {
@@ -524,24 +536,46 @@ pub struct RocksDBTransactionalContext<'a> {
 
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn commit(self) -> Result<(), StoreError> {
+        let _span = trace_span!(
+            amaru::stores::rocksdb::COMMIT,
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "commit".to_string()
+        );
+        let _guard = _span.enter();
+
         let res = self.db.commit().map_err(|err| StoreError::Internal(err.into()));
         self.host.transaction_ended();
         res
     }
 
     fn rollback(mut self) -> Result<(), StoreError> {
+        let _span = trace_span!(
+            amaru::stores::rocksdb::ROLLBACK,
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "rollback".to_string()
+        );
+        let _guard = _span.enter();
+
         let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
         let res = transaction.rollback().map_err(|err| StoreError::Internal(err.into()));
         self.host.transaction_ended();
         res
     }
 
-    #[trace(amaru::stores::ledger::TRY_EPOCH_TRANSITION, has_from = from.is_some(), has_to = to.is_some())]
     fn try_epoch_transition(
         &self,
         from: Option<EpochTransitionProgress>,
         to: Option<EpochTransitionProgress>,
     ) -> Result<bool, StoreError> {
+        let _span = trace_span!(
+            amaru::stores::ledger::TRY_EPOCH_TRANSITION,
+            has_from = from.is_some(),
+            has_to = to.is_some(),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "put".to_string()
+        );
+        let _guard = _span.enter();
+
         let previous_progress = self
             .db
             .get_pinned(KEY_PROGRESS)
@@ -667,7 +701,12 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             }
             _ => {
                 let tip = point.slot_or_default();
-                trace_record!(SAVE_POINT, slot = tip);
+                trace_record!(
+                    amaru_observability::amaru::stores::rocksdb::SAVE_POINT,
+                    slot = tip,
+                    db_system_name = "rocksdb".to_string(),
+                    db_operation_name = "write".to_string()
+                );
                 self.db.put(KEY_TIP, as_value(point)).map_err(|err| StoreError::Internal(err.into()))?;
 
                 let current_epoch =
@@ -758,31 +797,31 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     }
 
     fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, utxo::PREFIX, with)
+        with_prefix_iterator(&self.db, utxo::PREFIX, "utxo", with)
     }
 
     fn with_pools(&self, with: impl FnMut(scolumns::pools::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, pools::PREFIX, with)
+        with_prefix_iterator(&self.db, pools::PREFIX, "pools", with)
     }
 
     fn with_accounts(&self, with: impl FnMut(scolumns::accounts::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, accounts::PREFIX, with)
+        with_prefix_iterator(&self.db, accounts::PREFIX, "accounts", with)
     }
 
     fn with_block_issuers(&self, with: impl FnMut(scolumns::slots::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, slots::PREFIX, with)
+        with_prefix_iterator(&self.db, slots::PREFIX, "slots", with)
     }
 
     fn with_dreps(&self, with: impl FnMut(scolumns::dreps::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, dreps::PREFIX, with)
+        with_prefix_iterator(&self.db, dreps::PREFIX, "dreps", with)
     }
 
     fn with_proposals(&self, with: impl FnMut(scolumns::proposals::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, proposals::PREFIX, with)
+        with_prefix_iterator(&self.db, proposals::PREFIX, "proposals", with)
     }
 
     fn with_cc_members(&self, with: impl FnMut(scolumns::cc_members::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, cc_members::PREFIX, with)
+        with_prefix_iterator(&self.db, cc_members::PREFIX, "cc_members", with)
     }
 }
 
@@ -812,7 +851,13 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
     let snapshot_count = snapshots.len() as u64;
     let continuous_ranges = snapshots_ranges.len() as u64;
-    trace_record!(VALIDATE_SNAPSHOTS, snapshot_count = snapshot_count, continuous_ranges = continuous_ranges);
+    trace_record!(
+        amaru_observability::amaru::stores::rocksdb::VALIDATE_SNAPSHOTS,
+        snapshot_count = snapshot_count,
+        continuous_ranges = continuous_ranges,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "scan".to_string()
+    );
     if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }
@@ -900,8 +945,17 @@ fn with_prefix_iterator<
 >(
     db: &rocksdb::Transaction<'_, DB>,
     prefix: [u8; PREFIX_LEN],
+    collection: &'static str,
     mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
 ) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru::stores::ledger::columns::ITER_SCAN,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "scan".to_string(),
+        db_collection_name = collection.to_string()
+    );
+    let _guard = _span.enter();
+
     let mut iterator = amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
         // FIXME: clarify what kind of errors can come from the database at this point.
         // We are merely iterating over a collection.
@@ -910,13 +964,28 @@ fn with_prefix_iterator<
 
     with(iterator.as_iter_borrow());
 
+    let rows_scanned = iterator.rows_seen();
+    let mut rows_written: u64 = 0;
+    let mut rows_deleted: u64 = 0;
     for (k, v) in iterator.into_iter_updates() {
         match v {
-            Some(v) => db.put(k, as_value(v)),
-            None => db.delete(k),
+            Some(v) => {
+                rows_written += 1;
+                db.put(k, as_value(v))
+            }
+            None => {
+                rows_deleted += 1;
+                db.delete(k)
+            }
         }
         .map_err(|err| StoreError::Internal(err.into()))?;
     }
+    trace_record!(
+        amaru_observability::amaru::stores::ledger::columns::ITER_SCAN,
+        rows_scanned = rows_scanned,
+        rows_written = rows_written,
+        rows_deleted = rows_deleted
+    );
     Ok(())
 }
 

@@ -19,10 +19,11 @@ use std::{
 
 use ProtocolError::*;
 use amaru_kernel::Transaction;
+use amaru_observability::trace_span;
 use amaru_ouroboros::TxSubmissionMempool;
 use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     mempool_effects::MemoryPool,
@@ -56,25 +57,33 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         match input {}
     }
 
-    #[instrument(level = "debug", name = "tx_submission.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &State,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+        let message_type = input.message_type().to_string();
 
-        let action = match input {
-            ResponderResult::Init => {
-                tracing::trace!("received Init");
-                self.initialize_state(mempool)
-            }
-            ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(mempool, tx_ids)?,
-            ResponderResult::ReplyTxs(txs) => self.process_txs_reply(mempool, txs, self.origin.clone())?,
-            ResponderResult::Done => None,
-        };
-        Ok((action, self))
+        async move {
+            let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+
+            let action = match input {
+                ResponderResult::Init => {
+                    tracing::trace!("received Init");
+                    self.initialize_state(mempool)
+                }
+                ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(mempool, tx_ids)?,
+                ResponderResult::ReplyTxs(txs) => self.process_txs_reply(mempool, txs, self.origin.clone())?,
+                ResponderResult::Done => None,
+            };
+            Ok((action, self))
+        }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::tx_submission::responder::TX_SUBMISSION_RESPONDER_STAGE,
+            message_type = message_type
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -93,8 +102,12 @@ impl ProtocolState<Responder> for State {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(level = "debug", name = "tx_submission.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::tx_submission::responder::TX_SUBMISSION_RESPONDER_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         Ok(match (self, input) {
             (State::Init, Message::Init) => (outcome().result(ResponderResult::Init), State::Idle),
             (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => {

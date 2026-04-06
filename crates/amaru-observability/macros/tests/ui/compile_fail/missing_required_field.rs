@@ -16,7 +16,7 @@
 //!
 //! Expected error: Missing required field 'third' for schema SCHEMA
 
-use amaru_observability_macros::{define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace_span};
 
 define_local_schemas! {
     test {
@@ -31,10 +31,7 @@ define_local_schemas! {
     }
 }
 
-// This function is missing the required 'third' field
-#[trace(test::sub::SCHEMA)]
-fn process_block(_first: String, _second: u64) {
-    println!("Processing block");
+fn main() {
+    let first = String::from("one");
+    let _span = trace_span!(test::sub::SCHEMA, first = &first, second = 2_u64);
 }
-
-fn main() {}

@@ -24,11 +24,13 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::Type;
 
 use crate::utils::{
-    format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_ident,
-    make_instrument_macro_name, make_module_validator_name, make_record_macro_name, make_require_macro_name,
-    make_schema_field_const_name,
+    format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_assign_macro_name,
+    make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
+    make_require_macro_name, make_schema_field_const_name, make_schema_field_count_const_name,
+    make_schema_public_const_name,
 };
 
 // =============================================================================
@@ -85,10 +87,10 @@ pub struct SchemaField {
 /// A complete schema definition.
 #[derive(Debug, Clone)]
 pub struct Schema {
-    /// Whether this schema is marked as private
-    /// Used in generated documentation and JSON schema
+    /// Whether this schema is explicitly public.
+    /// Schemas are private by default unless marked `public` in define_schemas!.
     #[allow(dead_code)]
-    private: bool,
+    public: bool,
     /// Category path components (e.g., ["ledger", "state"] for ledger::state)
     /// Can be arbitrary depth: ["a"], ["a", "b"], ["a", "b", "c"], etc.
     categories: Vec<String>,
@@ -106,7 +108,7 @@ impl Schema {
     /// Create a new schema with the given path components.
     fn new(name: &str, categories: Vec<String>) -> Self {
         Schema {
-            private: false,
+            public: false,
             categories,
             name: name.to_string(),
             description: None,
@@ -291,7 +293,7 @@ impl ParserState {
     }
 
     /// Try to start a new scope (category or schema).
-    fn try_start_scope(&mut self, name: &str, private: bool, errors: &mut Vec<String>) {
+    fn try_start_scope(&mut self, name: &str, public: bool, errors: &mut Vec<String>) {
         if is_uppercase_identifier(name) {
             // Uppercase identifier = schema definition
             // Validate that schema name is a valid Rust identifier
@@ -306,13 +308,20 @@ impl ParserState {
             }
 
             let mut schema = Schema::new(name, self.category_stack.clone());
-            schema.private = private;
+            schema.public = public;
             if let Some(description) = self.pending_description.take() {
                 schema.set_description(description);
             }
             self.current_schema = Some(schema);
             self.schema_depth = self.depth;
         } else {
+            if public {
+                errors.push(format!(
+                    "Invalid use of `public` before category '{}'. Only schema definitions may be marked public.",
+                    name
+                ));
+                return;
+            }
             // Lowercase identifier = category level
             // Validate that category name is a valid Rust identifier
             if !is_valid_identifier(name) {
@@ -400,11 +409,18 @@ fn parse_token(
                 return index + 1;
             }
 
-            if state.can_add_field()
-                && let Some((name, ty)) = try_parse_prefixed_field(tokens, index)
-            {
-                state.add_required_field(name, ty, errors);
-                return index + 4; // Skip required, name, :, and type
+            if state.can_add_field() {
+                match try_parse_prefixed_field(tokens, index) {
+                    Ok(Some((name, ty, next_index))) => {
+                        state.add_required_field(&name, &ty, errors);
+                        return next_index;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        errors.push(error);
+                        return index + 1;
+                    }
+                }
             }
             index + 1
         }
@@ -420,29 +436,36 @@ fn parse_token(
                 return index + 1;
             }
 
-            if state.can_add_field()
-                && let Some((name, ty)) = try_parse_prefixed_field(tokens, index)
-            {
-                state.add_optional_field(name, ty, errors);
-                return index + 4; // Skip optional, name, :, and type
+            if state.can_add_field() {
+                match try_parse_prefixed_field(tokens, index) {
+                    Ok(Some((name, ty, next_index))) => {
+                        state.add_optional_field(&name, &ty, errors);
+                        return next_index;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        errors.push(error);
+                        return index + 1;
+                    }
+                }
             }
             index + 1
         }
         _ if is_identifier_start(token) => {
-            // Check for optional private keyword before schema/category
-            let (private, actual_name_idx) =
-                if token == "private" && tokens.get(index + 1).map(|s| s.as_str()).is_some() {
-                    (true, index + 1)
-                } else {
-                    (false, index)
-                };
+            // Check for optional public keyword before schema/category
+            let (public, actual_name_idx) = if token == "public" && tokens.get(index + 1).map(|s| s.as_str()).is_some()
+            {
+                (true, index + 1)
+            } else {
+                (false, index)
+            };
 
             // Check if this starts a new scope (followed by `{`)
             let name_token = tokens.get(actual_name_idx).map(|s| s.as_str()).unwrap_or("");
             if tokens.get(actual_name_idx + 1).map(|s| s.as_str()) == Some("{") {
-                state.try_start_scope(name_token, private, errors);
-                // Return adjusted index if we consumed the private keyword
-                if private {
+                state.try_start_scope(name_token, public, errors);
+                // Return adjusted index if we consumed the public keyword
+                if public {
                     return actual_name_idx + 1;
                 }
             }
@@ -454,31 +477,83 @@ fn parse_token(
 
 /// Try to parse a prefixed field definition: `required/optional name: type`.
 ///
-/// Returns `Some((name, type))` if the pattern matches.
+/// Returns `Some((name, type, next_index))` if the pattern matches.
 ///
 /// Note: Field names MUST be valid Rust identifiers (alphanumeric + underscore).
 /// String literals like `"proposal.id"` are explicitly rejected to ensure schema
 /// field names can be used directly in macro code generation.
-fn try_parse_prefixed_field(tokens: &[String], index: usize) -> Option<(&str, &str)> {
+fn try_parse_prefixed_field(tokens: &[String], index: usize) -> Result<Option<(String, String, usize)>, String> {
     // tokens[index] is "required" or "optional"
     // tokens[index+1] should be the field name
     // tokens[index+2] should be ":"
-    // tokens[index+3] should be the type
-    let name = tokens.get(index + 1).map(|s| s.as_str())?;
+    let Some(name) = tokens.get(index + 1).map(|s| s.as_str()) else {
+        return Ok(None);
+    };
 
     // Explicitly reject string literals as field names - they cannot be used as Rust identifiers
     if name.starts_with('"') || name.starts_with('\'') {
-        return None;
+        return Ok(None);
     }
 
     if !is_identifier_start(name) {
-        return None;
+        return Ok(None);
     }
     if tokens.get(index + 2).map(|s| s.as_str()) != Some(":") {
-        return None;
+        return Ok(None);
     }
-    let ty = tokens.get(index + 3).map(|s| s.as_str()).filter(|s| !s.is_empty())?;
-    Some((name, ty))
+
+    let (ty, next_index) = collect_field_type(tokens, index + 3)?;
+    Ok(Some((name.to_string(), ty, next_index)))
+}
+
+fn collect_field_type(tokens: &[String], start_index: usize) -> Result<(String, usize), String> {
+    let mut index = start_index;
+    let mut type_tokens = Vec::new();
+
+    while let Some(token) = tokens.get(index).map(|s| s.as_str()) {
+        if is_type_boundary(tokens, index) {
+            break;
+        }
+
+        type_tokens.push(token.to_string());
+        index += 1;
+    }
+
+    if type_tokens.is_empty() {
+        return Err("Missing field type after ':' in schema definition".to_string());
+    }
+
+    let ty = render_type_tokens(&type_tokens);
+    syn::parse_str::<Type>(&ty).map_err(|error| format!("Invalid schema field type '{ty}': {error}"))?;
+
+    Ok((ty, index))
+}
+
+fn is_type_boundary(tokens: &[String], index: usize) -> bool {
+    match tokens.get(index).map(|s| s.as_str()) {
+        Some("}") | Some(",") => true,
+        Some("required") | Some("optional") => true,
+        Some(token) if token.starts_with("///") => true,
+        Some(_) | None => false,
+    }
+}
+
+fn render_type_tokens(tokens: &[String]) -> String {
+    let mut rendered = String::new();
+    let mut index = 0;
+
+    while index < tokens.len() {
+        if tokens[index] == ":" && index + 1 < tokens.len() && tokens[index + 1] == ":" {
+            rendered.push_str("::");
+            index += 2;
+            continue;
+        }
+
+        rendered.push_str(&tokens[index]);
+        index += 1;
+    }
+
+    rendered
 }
 
 /// Extract all schemas and errors from input using functional approach.
@@ -498,9 +573,9 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
                 // Check if we're about to start a schema and attach any preceding doc comment
                 // This needs to happen BEFORE parse_token creates the schema
 
-                // Check for schema pattern: [private] UPPERCASE_IDENTIFIER {
-                let is_private_keyword = token == "private";
-                let schema_idx = if is_private_keyword { idx + 1 } else { idx };
+                // Check for schema pattern: [public] UPPERCASE_IDENTIFIER {
+                let is_public_keyword = token == "public";
+                let schema_idx = if is_public_keyword { idx + 1 } else { idx };
 
                 let schema_token = tokens.get(schema_idx).map(|s| s.as_str());
                 let next_brace = tokens.get(schema_idx + 1).map(|s| s.as_str());
@@ -657,141 +732,199 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
     }
 }
 
-/// Generate the instrument helper macro for a schema.
+/// Generate the span helper macro for a schema.
 ///
-/// This macro provides the `#[tracing::instrument]` attribute with:
-/// - `level = Level::TRACE`
-/// - `skip_all`
+/// This macro returns a `tracing::Span` expression configured with:
+/// - `level = Level::TRACE` by default
 /// - `target = "module::path"`
-/// - `fields(...)` with:
-///   - Required fields: `field` - captures value from function param (validated to exist)
-///   - Optional fields: `field = tracing::field::Empty` - set via `Span::current().record()`
+/// - field declarations initialized to `tracing::field::Empty`
+/// - optional initialization from a prepared value slice
 fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let macro_name = make_instrument_macro_name(&schema.categories, &schema.name);
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
     let crate_prefix = config.crate_prefix();
 
-    // Target is the category path joined with ::
     let target = schema.target_path();
     let name = schema.name.to_lowercase();
 
-    // Required fields: declare as Empty, set via Span::current().record()
-    // We can't reference function params by name because:
-    // 1. This macro is generated per-schema, not per-function
-    // 2. Function params may have different names than schema fields
-    // Users must explicitly record field values in the function body
-    let required_fields: Vec<proc_macro2::TokenStream> = schema
-        .required_fields
-        .iter()
-        .map(|f| {
-            let field_ident = make_ident(&f.name);
-            quote! { #field_ident = tracing::field::Empty }
-        })
-        .collect();
+    let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
+    let field_count = all_fields.len();
+    let field_name_literals: Vec<_> =
+        all_fields.iter().map(|field| syn::LitStr::new(&field.name, proc_macro2::Span::call_site())).collect();
 
-    // Optional fields: declare as Empty, set via Span::current().record()
-    let optional_fields: Vec<proc_macro2::TokenStream> = schema
-        .optional_fields
-        .iter()
-        .map(|f| {
-            let field_ident = make_ident(&f.name);
-            quote! { #field_ident = tracing::field::Empty }
-        })
-        .collect();
+    let span_expr = quote! {{
+        use ::tracing::__macro_support::Callsite as _;
 
-    // Build the fields expression
-    let fields_expr = if required_fields.is_empty() && optional_fields.is_empty() {
-        quote! {}
-    } else if optional_fields.is_empty() {
-        quote! { fields(#(#required_fields),*) }
-    } else if required_fields.is_empty() {
-        quote! { fields(#(#optional_fields),*) }
-    } else {
-        quote! { fields(#(#required_fields,)* #(#optional_fields),*) }
-    };
+        static __CALLSITE: ::tracing::callsite::DefaultCallsite = {
+            static META: ::tracing::Metadata<'static> = ::tracing::Metadata::new(
+                #name,
+                #target,
+                $level,
+                ::tracing::__macro_support::Option::Some(file!()),
+                ::tracing::__macro_support::Option::Some(line!()),
+                ::tracing::__macro_support::Option::Some(module_path!()),
+                ::tracing::field::FieldSet::new(
+                    &[#(#field_name_literals),*],
+                    ::tracing::callsite::Identifier(&__CALLSITE),
+                ),
+                ::tracing::metadata::Kind::SPAN,
+            );
+            ::tracing::callsite::DefaultCallsite::new(&META)
+        };
+
+        let __amaru_default_values = [
+            ::tracing::__macro_support::Option::Some(
+                &tracing::field::Empty as &dyn ::tracing::field::Value
+            );
+            #field_count
+        ];
+        let __amaru_values = __amaru_values.unwrap_or(&__amaru_default_values);
+
+        __CALLSITE.register();
+
+        #[allow(unused_assignments)]
+        let mut interest = ::tracing::subscriber::Interest::never();
+        if $level <= ::tracing::level_filters::STATIC_MAX_LEVEL
+            && $level <= ::tracing::level_filters::LevelFilter::current()
+            && {
+                interest = __CALLSITE.interest();
+                !interest.is_never()
+            }
+            && ::tracing::__macro_support::__is_enabled(__CALLSITE.metadata(), interest)
+        {
+            let meta = __CALLSITE.metadata();
+            let __amaru_values = &meta.fields().value_set_all(__amaru_values);
+            match __amaru_parent {
+                ::std::option::Option::Some(parent) => ::tracing::Span::child_of(parent.id(), meta, __amaru_values),
+                ::std::option::Option::None => ::tracing::Span::new(meta, __amaru_values),
+            }
+        } else {
+            ::tracing::__macro_support::__disabled_span(__CALLSITE.metadata())
+        }
+    }};
 
     quote! {
         #macro_export
         #[doc(hidden)]
         macro_rules! #macro_ident {
-            // Internal implementation rule (must be first to avoid catch-all match)
-            (@impl $level:expr, $($func:tt)*) => {
-                #[tracing::instrument(
-                    level = $level,
-                    skip_all,
-                    name = #name,
-                    target = #target,
-                    #fields_expr
-                )]
-                $($func)*
+            (parent = $parent:expr, level = $level:expr, values = $values_expr:expr) => {
+                {
+                    let __amaru_parent = ::std::option::Option::Some($parent);
+                    let __amaru_values = ::std::option::Option::Some($values_expr);
+                    #span_expr
+                }
             };
-            // With explicit level
-            (level = $level:expr, { $($func:tt)* }) => {
-                #crate_prefix #macro_ident!(@impl $level, $($func)*);
+            (parent = $parent:expr, values = $values_expr:expr) => {
+                #crate_prefix #macro_ident!(parent = $parent, level = tracing::Level::TRACE, values = $values_expr)
             };
-            // Default level (TRACE)
-            ($($func:tt)*) => {
-                #crate_prefix #macro_ident!(@impl tracing::Level::TRACE, $($func)*);
+            (parent = $parent:expr, level = $level:expr) => {
+                {
+                    let __amaru_parent = ::std::option::Option::Some($parent);
+                    let __amaru_values: ::std::option::Option<&[::tracing::__macro_support::Option<&dyn ::tracing::field::Value>]> = ::std::option::Option::None;
+                    #span_expr
+                }
+            };
+            (parent = $parent:expr) => {
+                #crate_prefix #macro_ident!(parent = $parent, level = tracing::Level::TRACE)
+            };
+            (level = $level:expr, values = $values_expr:expr) => {
+                {
+                    let __amaru_parent: ::std::option::Option<::tracing::Span> = ::std::option::Option::None;
+                    let __amaru_values = ::std::option::Option::Some($values_expr);
+                    #span_expr
+                }
+            };
+            (values = $values_expr:expr) => {
+                #crate_prefix #macro_ident!(level = tracing::Level::TRACE, values = $values_expr)
+            };
+            (level = $level:expr) => {
+                {
+                    let __amaru_parent: ::std::option::Option<::tracing::Span> = ::std::option::Option::None;
+                    let __amaru_values: ::std::option::Option<&[::tracing::__macro_support::Option<&dyn ::tracing::field::Value>]> = ::std::option::Option::None;
+                    #span_expr
+                }
+            };
+            () => {
+                #crate_prefix #macro_ident!(level = tracing::Level::TRACE)
             };
         }
     }
 }
 
-/// Generate the unified record helper macro for a schema.
+fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
+    let macro_name = make_assign_macro_name(&schema.categories, &schema.name);
+    let macro_ident = make_ident(&macro_name);
+    let macro_export = config.macro_export_attr();
+
+    let assign_patterns: Vec<_> = schema
+        .required_fields
+        .iter()
+        .chain(schema.optional_fields.iter())
+        .enumerate()
+        .map(|(index, field)| {
+            let field_name = &field.name;
+            quote! {
+                ($values:ident, #field_name, $value:expr) => {
+                    $values[#index] = ::tracing::__macro_support::Option::Some($value);
+                };
+            }
+        })
+        .collect();
+
+    quote! {
+        #macro_export
+        #[doc(hidden)]
+        macro_rules! #macro_ident {
+            #(#assign_patterns)*
+            ($values:ident, $name:literal, $value:expr) => {};
+        }
+    }
+}
+
+/// Generate the schema validation helper macro.
 ///
-/// This macro handles multiple validation modes:
-/// - Lenient mode: `_RECORD!("name", expr)` - silently ignores unknown fields (for function params)
-/// - Strict mode: `_RECORD!("name", expr, strict)` - errors on unknown fields (for custom expressions)
-/// - Validate mode: `_RECORD!("name", "type", validate)` - validates field name/type pair (for #[trace])
-///
-/// Usage:
-/// - `__SCHEMA_RECORD!("field_name", expr);` → records if known, ignores if unknown
-/// - `__SCHEMA_RECORD!("field_name", expr, strict);` → records if known, errors if unknown
-/// - `__SCHEMA_RECORD!("field_name", "type", validate);` → validates field name/type (for #[trace])
+/// This macro currently handles only the validation modes used by the
+/// latest public macro syntax:
+/// - Validate mode: `_RECORD!("name", "type", validate)` validates field name/type pairs
+/// - Validate-value mode: `_RECORD!("name", expr, validate_value)` validates already-bound values
+///   and enforces that they can be rendered via `Display`
 fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let macro_name = make_record_macro_name(&schema.categories, &schema.name);
     let macro_ident = make_ident(&macro_name);
     let schema_name = &schema.name;
     let macro_export = config.macro_export_attr();
 
-    // Generate match arms for all schema fields (required + optional)
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
 
-    // Generate patterns for lenient mode (no mode marker)
-    let lenient_field_patterns: Vec<_> = all_fields
+    let validate_value_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
             let field_name = &field.name;
-            quote! {
-                (#field_name, $expr:expr) => {{
-                    tracing::Span::current().record(
-                        #field_name,
-                        tracing::field::display(&$expr)
-                    );
-                }};
+            if field.ty == "String" {
+                quote! {
+                    (#field_name, $expr:expr, validate_value) => {{
+                        let __amaru_assert_type = |_: &dyn AsRef<str>| {};
+                        let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
+                        __amaru_assert_type($expr);
+                        __amaru_assert_display($expr);
+                    }};
+                }
+            } else {
+                let field_type = syn::parse_str::<Type>(&field.ty)
+                    .expect("schema field types should remain valid Rust types when generating record macros");
+                quote! {
+                    (#field_name, $expr:expr, validate_value) => {{
+                        let __amaru_assert_type = |_: &#field_type| {};
+                        let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
+                        __amaru_assert_type($expr);
+                        __amaru_assert_display($expr);
+                    }};
+                }
             }
         })
         .collect();
 
-    // Generate patterns for strict mode (with strict marker)
-    let strict_field_patterns: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let field_name = &field.name;
-            quote! {
-                (#field_name, $expr:expr, strict) => {{
-                    tracing::Span::current().record(
-                        #field_name,
-                        tracing::field::display(&$expr)
-                    );
-                }};
-            }
-        })
-        .collect();
-
-    // Generate patterns for validate mode (field name + type checking)
-    // This replaces the old _VALIDATOR macro
     let validate_exact_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
@@ -803,7 +936,6 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
-    // Generate wrong-type patterns for validate mode
     let validate_wrong_type_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
@@ -825,7 +957,6 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
-    // List all fields for error messages
     let all_field_names: Vec<_> = all_fields.iter().map(|f| f.name.as_str()).collect();
     let fields_list = all_field_names.join(", ");
 
@@ -833,17 +964,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         #macro_export
         #[doc(hidden)]
         macro_rules! #macro_ident {
-            // ===== LENIENT MODE =====
-            // Known fields - record the value
-            #(#lenient_field_patterns)*
-            // Unknown field - silently ignore (allows extra function params)
-            ($name:literal, $expr:expr) => {};
-
-            // ===== STRICT MODE =====
-            // Known fields - record the value
-            #(#strict_field_patterns)*
-            // Unknown field - compile error (catches typos in custom expressions)
-            ($name:literal, $expr:expr, strict) => {
+            #(#validate_value_patterns)*
+            ($name:literal, $expr:expr, validate_value) => {
                 compile_error!(concat!(
                     "Unknown field '",
                     $name,
@@ -854,12 +976,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                 ));
             };
 
-            // ===== VALIDATE MODE =====
-            // Exact matches (correct name and type)
             #(#validate_exact_patterns)*
-            // Wrong type patterns
             #(#validate_wrong_type_patterns)*
-            // Unknown field - ignored to allow extra function parameters
             ($name:literal, $ty:literal, validate) => {};
         }
     }
@@ -885,8 +1003,8 @@ fn generate_module_validator_macro(
         .map(|name| {
             let schema_ident = make_ident(name);
             quote! {
-                (#schema_ident, { $($body:tt)* }) => {
-                    $($body)*
+                (#schema_ident => $body:block) => {
+                    $body
                 };
             }
         })
@@ -899,15 +1017,17 @@ fn generate_module_validator_macro(
         #[doc(hidden)]
         macro_rules! #validator_ident {
             #(#valid_schema_patterns)*
-            ($schema:ident, { $($body:tt)* }) => {
-                compile_error!(concat!(
-                    "Invalid trace in module ",
-                    #module_path,
-                    " : ",
-                    stringify!($schema),
-                    ". Expected one of: ",
-                    #schemas_list
-                ));
+            ($schema:ident => $body:block) => {
+                {
+                    compile_error!(concat!(
+                        "Invalid trace in module ",
+                        #module_path,
+                        " : ",
+                        stringify!($schema),
+                        ". Expected one of: ",
+                        #schemas_list
+                    ))
+                }
             };
         }
     }
@@ -967,7 +1087,11 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
     // Description should exist if validation passed, but use a fallback for error recovery
     let description = schema.description.as_deref().unwrap_or("Missing description");
 
-    let private = schema.private;
+    if !schema.public {
+        return quote! {};
+    }
+
+    let public = schema.public;
 
     quote! {
         #[allow(non_upper_case_globals)]
@@ -979,7 +1103,7 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
                 target: #target_path,
                 level: "TRACE",
                 description: #description,
-                private: #private,
+                public: #public,
                 required_fields: &[#(#required_fields_array),*],
                 optional_fields: &[#(#optional_fields_array),*],
             });
@@ -1107,6 +1231,7 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
 
         validation_macros.push(generate_required_fields_macro(schema, config));
         validation_macros.push(generate_instrument_macro(schema, config));
+        validation_macros.push(generate_assign_macro(schema, config));
         validation_macros.push(generate_record_macro(schema, config));
 
         inventory_submissions.push(generate_inventory_submission(schema, config));
@@ -1158,9 +1283,14 @@ fn build_modules_noop(tree: &BTreeMap<String, TreeNode>) -> Vec<proc_macro2::Tok
             TreeNode::Schema(schema) => {
                 let schema_ident = make_ident(&schema.name);
                 let schema_name_lowercase = schema.name.to_lowercase();
+                let public_const_name = make_schema_public_const_name(&schema.categories, &schema.name);
+                let public_const_ident = make_ident(&public_const_name);
+                let is_public = schema.public;
 
                 modules.push(quote! {
                     pub const #schema_ident: &str = #schema_name_lowercase;
+                    #[doc(hidden)]
+                    pub const #public_const_ident: bool = #is_public;
                 });
             }
         }
@@ -1191,13 +1321,25 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) 
                 let validation_string = schema.validation_string();
                 let validation_const_name = make_schema_field_const_name(&schema.categories, &schema.name);
                 let validation_const_ident = make_ident(&validation_const_name);
+                let field_count_const_name = make_schema_field_count_const_name(&schema.categories, &schema.name);
+                let field_count_const_ident = make_ident(&field_count_const_name);
+                let public_const_name = make_schema_public_const_name(&schema.categories, &schema.name);
+                let public_const_ident = make_ident(&public_const_name);
+                let field_count = schema.required_fields.len() + schema.optional_fields.len();
+                let is_public = schema.public;
 
                 modules.push(quote! {
                     pub const #schema_ident: &str = #schema_name_lowercase;
 
-                    /// Compile-time validation constant for the #[trace] macro.
+                    /// Compile-time validation constant for the `trace_span!` macro.
                     /// Format: R|required_field:type,...|O|optional_field:type,...
                     pub const #validation_const_ident: &str = #validation_string;
+
+                    #[doc(hidden)]
+                    pub const #field_count_const_ident: usize = #field_count;
+
+                    #[doc(hidden)]
+                    pub const #public_const_ident: bool = #is_public;
                 });
             }
         }
@@ -1239,7 +1381,7 @@ fn collect_category_validators(
 
 /// Internal expansion with configurable export behavior.
 fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
-    if crate::is_trace_noop() {
+    if crate::is_trace_no_emit() {
         let input2: proc_macro2::TokenStream = input.into();
         let input_str = input2.to_string();
         let (schemas, errors) = extract_schemas(&input_str);
@@ -1369,6 +1511,46 @@ mod tests {
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].optional_fields.len(), 1);
         assert_eq!(schemas[0].optional_fields[0].name, "name");
+    }
+
+    #[test]
+    fn test_extract_schema_with_qualified_type_path() {
+        let input = r#"
+            amaru {
+                test {
+                    sub {
+                        /// Test schema
+                        SCHEMA {
+                            required credential_type: amaru_kernel::StakeCredentialKind
+                        }
+                    }
+                }
+            }
+        "#;
+        let (schemas, errors) = extract_schemas(input);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert_eq!(schemas.len(), 1);
+        assert_eq!(schemas[0].required_fields[0].ty, "amaru_kernel::StakeCredentialKind");
+    }
+
+    #[test]
+    fn test_extract_schema_with_qualified_generic_type() {
+        let input = r#"
+            amaru {
+                test {
+                    sub {
+                        /// Test schema
+                        SCHEMA {
+                            required credential_hash: amaru_kernel::Hash<28>
+                        }
+                    }
+                }
+            }
+        "#;
+        let (schemas, errors) = extract_schemas(input);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert_eq!(schemas.len(), 1);
+        assert_eq!(schemas[0].required_fields[0].ty, "amaru_kernel::Hash<28>");
     }
 
     #[test]

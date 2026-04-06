@@ -26,7 +26,12 @@ pub type IterBorrow<'a, 'b, K, V> = Box<dyn Iterator<Item = (K, Box<dyn BorrowMu
 pub fn new<'a, const PREFIX: usize, K: Clone, V: Clone>(
     inner: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
 ) -> KeyValueIterator<'a, PREFIX, K, V> {
-    KeyValueIterator { inner: Box::new(inner), updates: Rc::new(RefCell::new(Vec::new())), phantom_k: PhantomData }
+    KeyValueIterator {
+        inner: Box::new(inner),
+        updates: Rc::new(RefCell::new(Vec::new())),
+        rows_seen: 0,
+        phantom_k: PhantomData,
+    }
 }
 
 /// A KeyValueIterator defines an abstraction on top of another iterator, that stores updates applied to
@@ -36,6 +41,7 @@ pub fn new<'a, const PREFIX: usize, K: Clone, V: Clone>(
 pub struct KeyValueIterator<'a, const PREFIX: usize, K, V: Clone> {
     updates: SharedVec<Option<V>>,
     inner: RawIterator<'a>,
+    rows_seen: u64,
     phantom_k: PhantomData<&'a K>,
 }
 
@@ -44,6 +50,11 @@ pub type RawIterator<'a> = Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>
 pub type SharedVec<T> = Rc<RefCell<Vec<(Vec<u8>, T)>>>;
 
 impl<const PREFIX: usize, K: Clone, V: Clone> KeyValueIterator<'_, PREFIX, K, V> {
+    /// Number of rows yielded by this iterator so far.
+    pub fn rows_seen(&self) -> u64 {
+        self.rows_seen
+    }
+
     /// Obtain an iterator on the updates to be done. This takes ownership of the original
     /// iterator to ensure that it is correctly de-allocated as we now process updates.
     pub fn into_iter_updates(self) -> impl Iterator<Item = (Vec<u8>, Option<V>)> {
@@ -74,6 +85,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(k, v)| {
+            self.rows_seen += 1;
             let key: K = cbor::decode(&k[PREFIX..])?;
             let original: V = cbor::decode(&v)?;
 
