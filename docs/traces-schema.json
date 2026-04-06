@@ -4,6 +4,66 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
+    "amaru::consensus::chain_sync::RECEIVE_HEADER": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "receive_header",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_sync",
+      "description": "Pull chain updates from peer",
+      "public": true
+    },
+    "amaru::consensus::chain_sync::VALIDATE_BLOCK": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_block",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_sync",
+      "description": "Validate block properties",
+      "public": true
+    },
+    "amaru::consensus::chain_sync::VALIDATE_HEADER": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_header",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_sync",
+      "description": "Validate header properties",
+      "public": true
+    },
+    "amaru::consensus::diffusion::FETCH_BLOCK": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch_block",
+      "level": "TRACE",
+      "target": "amaru::consensus::diffusion",
+      "description": "Fetch a block from the network",
+      "public": true
+    },
+    "amaru::consensus::diffusion::FORWARD_CHAIN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forward_chain",
+      "level": "TRACE",
+      "target": "amaru::consensus::diffusion",
+      "description": "Forward chain operations",
+      "public": true
+    },
     "amaru::ledger::context::ADD_FEES": {
       "type": "object",
       "properties": {

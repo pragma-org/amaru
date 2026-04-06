@@ -5,6 +5,21 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
+## target: `amaru::consensus::chain_sync`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `receive_header` | `TRACE` | public | Pull chain updates from peer |  |  |
+| `validate_block` | `TRACE` | public | Validate block properties |  |  |
+| `validate_header` | `TRACE` | public | Validate header properties |  |  |
+
+## target: `amaru::consensus::diffusion`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `fetch_block` | `TRACE` | public | Fetch a block from the network |  |  |
+| `forward_chain` | `TRACE` | public | Forward chain operations |  |  |
+
 ## target: `amaru::ledger::context`
 
 | name | level | public | description | required fields | optional fields |
