@@ -268,9 +268,18 @@ jobs:
           # Make sure to export RUN_UNTIL_TARGET_EPOCH for subsequent steps
           echo "RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH" >> "$GITHUB_ENV"
 
+      - name: Run until target epoch
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          AMARU_TRACE=amaru=info \
+          make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until
+
       - name: Run traced contract check (preprod only)
         if: matrix.network.name == 'preprod'
-        timeout-minutes: 10
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -284,15 +293,6 @@ jobs:
         shell: bash
         run: |
           make compare-trace-contract
-
-      - name: Run until target epoch
-        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          AMARU_TRACE=amaru=info \
-          make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until
 
       - name: Run tests
         if: inputs.run_tests
