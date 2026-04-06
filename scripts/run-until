@@ -44,17 +44,15 @@ function watchTargetEpoch() {
       (try fromjson catch empty)
       | select(.level == "INFO")
       | select(.fields.message == "exit")
-      | select(.target == "amaru::ledger::state")
       | select(.span.name == "epoch_transition")
-      | select((.span.into // .into) != null)
-      | "epoch\t" + ((.span.into // .into) | tostring)
+      | select(.into != null)
+      | "epoch\t" + (.into | tostring)
     end
   '
 }
 
 function filterTraceLines() {
-  grep --line-buffered -E '"message":"(enter|exit|close)"' \
-    | grep --line-buffered -E '"level":"TRACE"'
+  grep --line-buffered -Ev '"level":"TRACE"'
 }
 
 function targetEpochEvents() {
