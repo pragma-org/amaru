@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Find schema constants (from dump-traces-schema JSON) never referenced in trace_span! calls.
+
+set -euo pipefail
+
+AMARU_BIN="${AMARU_BIN:-./target/debug/amaru}"
+
+if [[ ! -x "$AMARU_BIN" ]]; then
+    echo "Building amaru binary..." >&2
+    cargo build -p amaru --bin amaru 2>&1 >&2
+fi
+
+# Get all schema paths from the compiled registry
+all_paths=$("$AMARU_BIN" dump-traces-schema -c 2>&1 | jq -r '.definitions | keys[]' | sort)
+
+# Find all constants referenced via ::CONSTANT in any .rs file (excluding target/)
+used=$(find crates simulation -name "*.rs" \
+    -not -path "*/target/*" \
+    | xargs grep -ohE '::[A-Z][A-Z0-9_]+' 2>/dev/null \
+    | sed 's/^:://' \
+    | sort -u)
+
+total=$(echo "$all_paths" | wc -l | tr -d ' ')
+unused=0
+
+while IFS= read -r path; do
+    # The constant name is the last segment after ::
+    schema="${path##*::}"
+    if ! echo "$used" | grep -qxF "$schema"; then
+        echo "UNUSED  $path"
+        unused=$((unused + 1))
+    fi
+done <<< "$all_paths"
+
+echo ""
+echo "$unused unused / $total total schema constants"
