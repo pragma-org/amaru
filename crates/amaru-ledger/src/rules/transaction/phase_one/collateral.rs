@@ -18,12 +18,12 @@ use std::{
 };
 
 use amaru_kernel::{
-    MemoizedTransactionOutput, ProtocolParameters, TransactionInput, Value, is_locked_by_script,
-    transaction_input_to_string,
+    AddrType, Address, HasOwnership, Hash, MemoizedTransactionOutput, ProtocolParameters, StakeCredential,
+    TransactionInput, Value, is_locked_by_script, transaction_input_to_string,
 };
 use thiserror::Error;
 
-use crate::context::UtxoSlice;
+use crate::context::{UtxoSlice, WitnessSlice};
 
 /*
 * CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
@@ -121,6 +121,11 @@ impl From<&Value> for CollateralBalance {
     }
 }
 
+enum CollateralWitness {
+    VKey(Hash<28>),
+    Bootstrap(Hash<28>),
+}
+
 #[derive(Debug, Error)]
 pub enum InvalidCollateral {
     #[error("Unknown input: {}", transaction_input_to_string(.0))]
@@ -157,7 +162,7 @@ pub fn execute<C>(
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidCollateral>
 where
-    C: UtxoSlice,
+    C: UtxoSlice + WitnessSlice,
 {
     let collaterals = collaterals.filter(|c| !c.is_empty()).ok_or(InvalidCollateral::NoCollateral)?;
 
@@ -176,7 +181,33 @@ where
             return Err(InvalidCollateral::LockedAtScriptAddress(collateral.clone()));
         }
 
+        let witness = match &output.address {
+            Address::Shelley(addr) => match addr.owner() {
+                StakeCredential::AddrKeyhash(hash) => CollateralWitness::VKey(hash),
+                StakeCredential::ScriptHash(_) => unreachable!("already rejected by is_locked_by_script"),
+            },
+            Address::Byron(byron_address) => {
+                let payload = byron_address.decode().map_err(|e| {
+                    InvalidCollateral::UncategorizedError(format!(
+                        "Invalid byron address payload. (error {e:?}) address: {byron_address:?})",
+                    ))
+                })?;
+
+                #[allow(clippy::wildcard_enum_match_arm)]
+                match payload.addrtype {
+                    AddrType::PubKey => CollateralWitness::Bootstrap(payload.root),
+                    _ => unreachable!("non-PubKey Byron address in collateral input"),
+                }
+            }
+            Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
+        };
+
         balance.add_output_value(output);
+
+        match witness {
+            CollateralWitness::VKey(hash) => context.require_vkey_witness(hash),
+            CollateralWitness::Bootstrap(root) => context.require_bootstrap_witness(root),
+        }
     }
 
     let collateral_return_balance = CollateralBalance::from(collateral_return);
