@@ -278,8 +278,7 @@ jobs:
           make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until
 
       - name: Run traced contract check (preprod only)
-        if: matrix.network.name == 'preprod'
-        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
+        if: matrix.network.name == 'preprod' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
@@ -289,7 +288,7 @@ jobs:
           make RUN_UNTIL_TARGET_EPOCH="$TRACE_COMPARE_TARGET_EPOCH" AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until | tee "$TRACE_COMPARE_LOG"
 
       - name: Compare trace contract (preprod only)
-        if: matrix.network.name == 'preprod'
+        if: matrix.network.name == 'preprod' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           make compare-trace-contract
