@@ -59,19 +59,16 @@ impl Connection {
 
 struct Connections {
     connections: BTreeMap<ConnectionId, Connection>,
+    next_id: ConnectionId,
 }
 
 impl Connections {
     fn new() -> Self {
-        Self { connections: BTreeMap::new() }
+        Self { connections: BTreeMap::new(), next_id: ConnectionId::initial() }
     }
 
     fn add_connection(&mut self, connection: Connection) -> ConnectionId {
-        let id = if let Some((&last_id, _)) = self.connections.iter().next_back() {
-            last_id.next()
-        } else {
-            ConnectionId::initial()
-        };
+        let id = self.next_id.get_and_increment();
         self.insert(id, connection);
         id
     }

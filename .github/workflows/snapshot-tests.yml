@@ -124,17 +124,19 @@ jobs:
             SHOULD_RUN=false
           fi
 
-          if [ "$SHOULD_RUN" != "true" ]; then
-            echo "Skipping network '${{ matrix.network.name }}' as per input"
-            exit 1
-          fi
-
-          TIMEOUT_RUN="${DEFAULT_TIMEOUT}"
-
           # Determine target epoch using GitHub Actions expressions for reliability.
           # Priority: 1) explicit run_until input, 2) fixed epoch from matrix,
           # 3) empty (fetch latest)
           RUN_UNTIL_TARGET_EPOCH="${{ inputs.run_until_target_epoch || (inputs.use_fixed_epoch && matrix.network.target_epoch) || '' }}"
+
+          TIMEOUT_RUN="${DEFAULT_TIMEOUT}"
+
+          if [ "$SHOULD_RUN" != "true" ]; then
+            echo "Skipping network '${{ matrix.network.name }}' as per input"
+            echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+            echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
           if [ -n "$RUN_UNTIL_TARGET_EPOCH" ]; then
             echo "Using RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH"
@@ -284,7 +286,7 @@ jobs:
           make compare-trace-contract
 
       - name: Run until target epoch
-        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
         shell: bash
         run: |
           set -euo pipefail

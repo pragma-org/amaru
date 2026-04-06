@@ -77,3 +77,14 @@ impl ExternalEffectAPI for RecordMetricsEffect {
 }
 
 impl ExternalEffectSync for RecordMetricsEffect {}
+
+#[test]
+fn record_metrics_cbor_roundtrip() {
+    use amaru_metrics::ledger::LedgerMetrics;
+    use pure_stage::serde::{from_cbor, to_cbor};
+
+    let event = RecordMetricsEffect::new(MetricsEvent::LedgerMetrics(LedgerMetrics::default()));
+    let cbor = to_cbor(&event);
+    let decoded = from_cbor::<RecordMetricsEffect>(&cbor).expect("Failed to decode metrics event");
+    assert_eq!(event, decoded);
+}

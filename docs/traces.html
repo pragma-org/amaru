@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Amaru Trace Schemas</title>
+  <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sidebar-w: 280px;
+  --bg: #f8fafc;
+  --card-bg: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --muted: #64748b;
+  --accent: #6366f1;
+  --accent-light: #eef2ff;
+  --accent-dim: #c7d2fe;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.6; font-size: 14px;
+}
+
+/* Layout */
+#layout { display: flex; min-height: 100vh; }
+#sidebar {
+  width: var(--sidebar-w); min-width: var(--sidebar-w);
+  background: var(--card-bg); border-right: 1px solid var(--border);
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+#sidebar-header { padding: 20px 16px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+#sidebar-header h1 { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+#sidebar-header p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+#main { flex: 1; padding: 32px 40px; max-width: 960px; }
+
+/* Search */
+#search-wrap { padding: 12px 12px 6px; flex-shrink: 0; }
+#search {
+  width: 100%; padding: 7px 10px 7px 32px;
+  border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px;
+  background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") 9px center / 14px no-repeat;
+  outline: none; transition: border-color .15s; color: var(--text);
+}
+#search:focus { border-color: var(--accent); }
+#search-count { font-size: 11px; color: var(--muted); padding: 0 12px 6px; min-height: 18px; flex-shrink: 0; }
+
+/* Tree */
+#tree-root-label {
+  padding: 2px 14px 6px; font-size: 11px; color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, monospace; letter-spacing: .03em; flex-shrink: 0;
+}
+#tree-scroll { overflow-y: auto; flex: 1; padding-bottom: 16px; }
+.tree-root { list-style: none; padding: 0; }
+ul.tree-children { list-style: none; padding-left: 6px; margin-left: 8px; border-left: 1px solid var(--border); }
+.tree-node { display: block; }
+.tree-node-row {
+  display: flex; align-items: center; gap: 2px;
+  padding: 2px 6px 2px 2px; border-radius: 4px; margin: 1px 4px; transition: background .1s;
+}
+.tree-node-row:hover { background: var(--bg); }
+.tree-node-row.subtree-active > .tree-label > code { color: var(--accent); }
+.tree-node-row.prefix-active { background: var(--accent-light); }
+.tree-node-row.prefix-active > .tree-label > code { color: var(--accent); font-weight: 700; }
+.tree-toggle {
+  flex-shrink: 0; width: 16px; height: 16px; background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 10px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 3px; transition: color .1s, transform .15s;
+}
+.tree-toggle:hover { color: var(--text); background: var(--border); }
+.tree-toggle[data-open="false"] { transform: rotate(-90deg); }
+.tree-toggle-ph { flex-shrink: 0; width: 16px; height: 16px; display: inline-block; }
+.tree-label {
+  background: none; border: none; cursor: pointer;
+  text-align: left; padding: 0; flex: 1; min-width: 0; overflow: hidden;
+}
+.tree-label code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px; color: var(--text); transition: color .1s; white-space: nowrap;
+}
+.is-target > .tree-node-row > .tree-label code { font-weight: 600; }
+.tree-jump {
+  flex-shrink: 0; font-size: 11px; color: var(--muted); text-decoration: none;
+  opacity: 0; padding: 0 2px; transition: opacity .1s, color .1s;
+}
+.tree-node-row:hover > .tree-jump { opacity: 1; }
+.tree-jump:hover { color: var(--accent); }
+
+/* Filter chip */
+#filter-chip-wrap { display: none; margin-bottom: 20px; }
+#filter-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 12px;
+  background: var(--accent-light); border: 1px solid var(--accent-dim);
+  border-radius: 20px; font-size: 12.5px; color: var(--accent);
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+#filter-chip-clear {
+  background: none; border: none; cursor: pointer; color: var(--accent);
+  font-size: 14px; line-height: 1; padding: 0 2px; opacity: .7; transition: opacity .1s;
+}
+#filter-chip-clear:hover { opacity: 1; }
+
+/* Page header */
+#page-header { margin-bottom: 32px; }
+#page-header h1 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+#page-header p  { color: var(--muted); margin-top: 6px; font-size: 14px; }
+.header-meta { display: flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+.meta-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 20px; font-size: 12px; color: var(--muted);
+}
+.meta-chip strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Legend */
+#legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 28px; }
+
+/* Target sections */
+.target-section { margin-bottom: 40px; scroll-margin-top: 20px; }
+.target-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px; padding-bottom: 8px;
+  border-bottom: 2px solid var(--border); flex-wrap: wrap;
+}
+.breadcrumb {
+  display: inline-flex; align-items: center;
+  font-family: "SFMono-Regular", Consolas, monospace; font-size: 15px; font-weight: 700;
+}
+.bc-part {
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  font-size: inherit; font-weight: inherit; color: var(--muted); padding: 2px 3px;
+  border-radius: 4px; transition: color .1s, background .1s; line-height: 1;
+}
+.bc-part:last-child { color: var(--text); }
+.bc-part:hover { color: var(--accent); background: var(--accent-light); }
+.bc-part.active { color: var(--accent); }
+.bc-sep { color: var(--border); font-size: 13px; user-select: none; }
+.target-count { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: auto; }
+
+/* Cards */
+.cards-grid { display: flex; flex-direction: column; gap: 10px; }
+.trace-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px;
+  box-shadow: var(--shadow); transition: border-color .15s; scroll-margin-top: 20px;
+}
+.trace-card:hover { border-color: #cbd5e1; }
+.trace-card:target { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+.trace-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.trace-name { text-decoration: none; color: var(--text); font-weight: 600; }
+.trace-name code { font-size: 14px; font-family: "SFMono-Regular", Consolas, monospace; transition: color .1s; }
+.trace-name:hover code { color: var(--accent); }
+.trace-badges { display: flex; gap: 6px; flex-shrink: 0; }
+.badge {
+  display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11px;
+  font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+.trace-desc { margin-top: 6px; color: var(--muted); font-size: 13px; }
+
+/* Fields */
+.fields-details { margin-top: 10px; }
+.fields-details summary {
+  cursor: pointer; font-size: 12px; color: var(--accent); font-weight: 600;
+  user-select: none; list-style: none; display: inline-flex; align-items: center; gap: 4px;
+}
+.fields-details summary::before { content: "▶"; font-size: 9px; transition: transform .15s; }
+.fields-details[open] summary::before { transform: rotate(90deg); }
+.fields-table { margin-top: 8px; width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.fields-table th, .fields-table td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+.fields-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; background: var(--bg); }
+.fields-table tr:last-child td { border-bottom: none; }
+.fields-table code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+
+/* States */
+#loading, #error {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 100vh; gap: 12px; color: var(--muted); font-size: 15px;
+}
+#error { color: #ef4444; }
+#error code {
+  font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px;
+  background: #fef2f2; padding: 8px 14px; border-radius: 6px; color: #b91c1c;
+  max-width: 520px; text-align: center; line-height: 1.6;
+}
+#empty-state { display: none; text-align: center; padding: 60px 20px; color: var(--muted); }
+#empty-state p { font-size: 15px; margin-top: 12px; }
+
+mark { background: #fef08a; color: inherit; border-radius: 2px; padding: 0 1px; }
+
+#sidebar::-webkit-scrollbar { width: 4px; }
+#sidebar::-webkit-scrollbar-track { background: transparent; }
+#sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 768px) { #sidebar { display: none; } #main { padding: 20px; } }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       style="animation:spin 1s linear infinite">
+    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+  </svg>
+  Loading schema&hellip;
+</div>
+<div id="error" style="display:none"></div>
+
+<div id="layout" style="display:none">
+  <nav id="sidebar">
+    <div id="sidebar-header">
+      <h1>Amaru Traces</h1>
+      <p id="sidebar-meta"></p>
+    </div>
+    <div id="search-wrap">
+      <input id="search" type="search" placeholder="Search spans, fields, targets&hellip;" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="search-count"></div>
+    <div id="tree-root-label" style="display:none"></div>
+    <div id="tree-scroll">
+      <ul id="tree-root" class="tree-root"></ul>
+    </div>
+  </nav>
+
+  <main id="main">
+    <div id="page-header">
+      <h1 id="page-title"></h1>
+      <p id="page-desc"></p>
+      <div class="header-meta" id="header-meta"></div>
+    </div>
+
+    <div id="legend"></div>
+
+    <div id="filter-chip-wrap">
+      <span id="filter-chip">
+        <span id="filter-chip-text"></span>
+        <button id="filter-chip-clear" title="Clear filter">&times;</button>
+      </span>
+    </div>
+
+    <div id="sections"></div>
+
+    <div id="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <p>No spans match your search.</p>
+    </div>
+  </main>
+</div>
+
+<script>
+'use strict';
+
+// ── Constants ────────────────────────────────────────────
+
+const LEVEL_STYLE = {
+  TRACE: { color: '#6b7280', bg: '#f3f4f6' },
+  DEBUG: { color: '#3b82f6', bg: '#eff6ff' },
+  INFO:  { color: '#10b981', bg: '#ecfdf5' },
+  WARN:  { color: '#f59e0b', bg: '#fffbeb' },
+  ERROR: { color: '#ef4444', bg: '#fef2f2' },
+};
+
+// ── Utilities ────────────────────────────────────────────
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escRx(s) { return s.replace(/[.*+?^{}()|[\]\\]/g, '\\$&'); }
+
+function highlight(text, rx) {
+  if (!rx) return esc(text);
+  return esc(text).replace(rx, m => '<mark>' + m + '</mark>');
+}
+
+function levelBadge(level) {
+  const s = LEVEL_STYLE[level.toUpperCase()] || LEVEL_STYLE.TRACE;
+  return '<span class="badge" style="color:' + s.color + ';background:' + s.bg +
+    ';border:1px solid ' + s.color + '33">' + esc(level) + '</span>';
+}
+
+function privateBadge() {
+  return '<span class="badge" style="color:#7c3aed;background:#f5f3ff;border:1px solid #7c3aed33">private</span>';
+}
+
+function targetId(t)       { return 'target-' + t.replace(/::/g, '-').replace(/_/g, '-'); }
+function spanId(tgt, name) { return 'span-' + tgt.replace(/::/g, '-').replace(/_/g, '-') + '-' + name.replace(/_/g, '-'); }
+
+// ── Tree ─────────────────────────────────────────────────
+
+function buildTree(targets) {
+  const root = {};
+  for (const target of [...targets].sort()) {
+    const parts = target.split('::');
+    let cur = root;
+    parts.forEach((part, i) => {
+      const full = parts.slice(0, i + 1).join('::');
+      if (!cur[part]) cur[part] = { full, children: {}, isTarget: false };
+      if (i === parts.length - 1) cur[part].isTarget = true;
+      cur = cur[part].children;
+    });
+  }
+  return root;
+}
+
+function findImplicitRoot(tree) {
+  const keys = Object.keys(tree);
+  if (keys.length === 1) {
+    const node = tree[keys[0]];
+    if (!node.isTarget) return { label: node.full, subtree: node.children };
+  }
+  return { label: null, subtree: tree };
+}
+
+// ── DOM builders ─────────────────────────────────────────
+
+function buildTreeNode(part, node) {
+  const li = document.createElement('li');
+  li.className = 'tree-node' + (node.isTarget ? ' is-target' : '');
+  li.dataset.full = node.full;
+
+  const row = document.createElement('div');
+  row.className = 'tree-node-row';
+
+  const hasChildren = Object.keys(node.children).length > 0;
+
+  if (hasChildren) {
+    const toggle = document.createElement('button');
+    toggle.className = 'tree-toggle';
+    toggle.dataset.open = 'true';
+    toggle.setAttribute('aria-label', 'toggle');
+    toggle.textContent = '\u25be';
+    let childUl;
+    toggle.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!childUl) childUl = li.querySelector(':scope > ul.tree-children');
+      const open = toggle.dataset.open === 'true';
+      toggle.dataset.open = open ? 'false' : 'true';
+      if (childUl) childUl.style.display = open ? 'none' : '';
+    });
+    row.appendChild(toggle);
+  } else {
+    const ph = document.createElement('span');
+    ph.className = 'tree-toggle-ph';
+    row.appendChild(ph);
+  }
+
+  const label = document.createElement('button');
+  label.className = 'tree-label';
+  label.dataset.prefix = node.full;
+  const code = document.createElement('code');
+  code.textContent = part;
+  label.appendChild(code);
+  row.appendChild(label);
+
+  if (node.isTarget) {
+    const jump = document.createElement('a');
+    jump.className = 'tree-jump';
+    jump.href = '#' + targetId(node.full);
+    jump.title = 'Jump to section';
+    jump.tabIndex = -1;
+    jump.textContent = '\u2197';
+    row.appendChild(jump);
+  }
+
+  li.appendChild(row);
+
+  if (hasChildren) {
+    const childUl = document.createElement('ul');
+    childUl.className = 'tree-children';
+    buildTreeItems(node.children, childUl);
+    li.appendChild(childUl);
+  }
+
+  return li;
+}
+
+function buildTreeItems(treeDict, ul) {
+  for (const [part, node] of Object.entries(treeDict).sort((a, b) => a[0].localeCompare(b[0]))) {
+    ul.appendChild(buildTreeNode(part, node));
+  }
+}
+
+function buildBreadcrumb(target) {
+  const span = document.createElement('span');
+  span.className = 'breadcrumb';
+  const parts = target.split('::');
+  parts.forEach((part, i) => {
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.className = 'bc-sep';
+      sep.textContent = '::';
+      span.appendChild(sep);
+    }
+    const btn = document.createElement('button');
+    btn.className = 'bc-part';
+    btn.dataset.prefix = parts.slice(0, i + 1).join('::');
+    btn.textContent = part;
+    span.appendChild(btn);
+  });
+  return span;
+}
+
+function buildFieldsTable(properties, required) {
+  const table = document.createElement('table');
+  table.className = 'fields-table';
+  table.innerHTML = '<thead><tr><th>field</th><th>type</th><th>required</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  for (const [field, schema] of Object.entries(properties).sort()) {
+    const tr = document.createElement('tr');
+    const isReq = (required || []).includes(field);
+    tr.innerHTML = '<td><code>' + esc(field) + '</code></td><td><code>' + esc(schema.type || 'any') + '</code></td>' +
+      '<td style="text-align:center">' + (isReq ? '<span style="color:#10b981;font-weight:600">\u2713</span>' : '') + '</td>';
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildTraceCard(entry) {
+  const { name, level = 'TRACE', target = '', description = '',
+          private: isPrivate, properties = {}, required = [] } = entry;
+
+  const sid = spanId(target, name);
+  const div = document.createElement('div');
+  div.className = 'trace-card';
+  div.id = sid;
+  div.dataset.name = name;
+  div.dataset.description = description;
+  div.dataset.target = target;
+  div.dataset.level = level;
+  div.dataset.fields = Object.keys(properties).join(' ');
+
+  const header = document.createElement('div');
+  header.className = 'trace-header';
+
+  const nameLink = document.createElement('a');
+  nameLink.className = 'trace-name';
+  nameLink.href = '#' + sid;
+  const nameCode = document.createElement('code');
+  nameCode.textContent = name;
+  nameLink.appendChild(nameCode);
+  header.appendChild(nameLink);
+
+  const badges = document.createElement('div');
+  badges.className = 'trace-badges';
+  badges.innerHTML = levelBadge(level) + (isPrivate ? ' ' + privateBadge() : '');
+  header.appendChild(badges);
+  div.appendChild(header);
+
+  if (description) {
+    const p = document.createElement('p');
+    p.className = 'trace-desc';
+    p.textContent = description;
+    div.appendChild(p);
+  }
+
+  const propKeys = Object.keys(properties);
+  if (propKeys.length > 0) {
+    const details = document.createElement('details');
+    details.className = 'fields-details';
+    const summary = document.createElement('summary');
+    summary.textContent = propKeys.length + ' field' + (propKeys.length !== 1 ? 's' : '');
+    details.appendChild(summary);
+    details.appendChild(buildFieldsTable(properties, required));
+    div.appendChild(details);
+  }
+
+  return div;
+}
+
+function buildTargetSection(target, entries) {
+  const section = document.createElement('section');
+  section.className = 'target-section';
+  section.id = targetId(target);
+  section.dataset.target = target;
+
+  const headerDiv = document.createElement('div');
+  headerDiv.className = 'target-header';
+  headerDiv.appendChild(buildBreadcrumb(target));
+
+  const count = document.createElement('span');
+  count.className = 'target-count';
+  count.textContent = entries.length + ' span' + (entries.length !== 1 ? 's' : '');
+  headerDiv.appendChild(count);
+  section.appendChild(headerDiv);
+
+  const grid = document.createElement('div');
+  grid.className = 'cards-grid';
+  for (const entry of entries) grid.appendChild(buildTraceCard(entry));
+  section.appendChild(grid);
+
+  return section;
+}
+
+// ── Render ───────────────────────────────────────────────
+
+function render(schema) {
+  const definitions = schema.definitions || {};
+  const title = schema.title || 'Trace Schemas';
+  const desc  = schema.description || '';
+
+  const byTarget = {};
+  for (const entry of Object.values(definitions)) {
+    const t = entry.target || 'unknown';
+    (byTarget[t] = byTarget[t] || []).push(entry);
+  }
+  const targets = Object.keys(byTarget).sort();
+  for (const t of targets) byTarget[t].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  const totalSpans   = Object.keys(definitions).length;
+  const totalTargets = targets.length;
+
+  document.getElementById('page-title').textContent  = title;
+  document.getElementById('page-desc').textContent   = desc;
+  document.getElementById('sidebar-meta').textContent = totalSpans + ' spans \u00b7 ' + totalTargets + ' targets';
+  document.getElementById('header-meta').innerHTML =
+    '<span class="meta-chip">Spans <strong>' + totalSpans + '</strong></span>' +
+    '<span class="meta-chip">Targets <strong>' + totalTargets + '</strong></span>';
+
+  const legend = document.getElementById('legend');
+  for (const lvl of ['TRACE','DEBUG','INFO','WARN','ERROR']) {
+    const s = LEVEL_STYLE[lvl];
+    legend.insertAdjacentHTML('beforeend',
+      '<span class="badge" style="color:' + s.color + ';background:' + s.bg + ';border:1px solid ' + s.color + '33">' + lvl + '</span>');
+  }
+
+  const tree = buildTree(targets);
+  const { label: rootLabel, subtree } = findImplicitRoot(tree);
+  if (rootLabel) {
+    const el = document.getElementById('tree-root-label');
+    el.textContent = rootLabel + '::';
+    el.style.display = '';
+  }
+  buildTreeItems(subtree, document.getElementById('tree-root'));
+
+  const sectionsEl = document.getElementById('sections');
+  for (const t of targets) sectionsEl.appendChild(buildTargetSection(t, byTarget[t]));
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('layout').style.display  = '';
+  document.title = title;
+
+  initInteractivity();
+}
+
+// ── Interactivity ────────────────────────────────────────
+
+function initInteractivity() {
+  const searchEl   = document.getElementById('search');
+  const countEl    = document.getElementById('search-count');
+  const emptyState = document.getElementById('empty-state');
+  const chipWrap   = document.getElementById('filter-chip-wrap');
+  const chipText   = document.getElementById('filter-chip-text');
+  const chipClear  = document.getElementById('filter-chip-clear');
+
+  let currentPrefix = '';
+
+  function matchesPrefix(target, prefix) {
+    return !prefix || target === prefix || target.startsWith(prefix + '::');
+  }
+
+  function setPrefix(prefix) {
+    currentPrefix = (currentPrefix === prefix) ? '' : prefix;
+    updateChip();
+    applyFilters();
+  }
+
+  function updateChip() {
+    chipText.textContent   = currentPrefix;
+    chipWrap.style.display = currentPrefix ? '' : 'none';
+  }
+
+  function updateTreeHighlight() {
+    document.querySelectorAll('.tree-node-row').forEach(row => {
+      const node = row.closest('.tree-node');
+      const full = node ? node.dataset.full : '';
+      const isActive = full === currentPrefix;
+      const isAnc    = currentPrefix && !isActive && currentPrefix.startsWith(full + '::');
+      row.classList.toggle('prefix-active',  isActive);
+      row.classList.toggle('subtree-active', !!isAnc);
+    });
+    document.querySelectorAll('.bc-part').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.prefix === currentPrefix);
+    });
+  }
+
+  function applyFilters() {
+    const q  = searchEl.value.trim().toLowerCase();
+    const rx = q ? new RegExp(escRx(q), 'gi') : null;
+    let total = 0;
+
+    document.querySelectorAll('.trace-card').forEach(card => {
+      card._textMatch = !q ||
+        (card.dataset.name        || '').toLowerCase().includes(q) ||
+        (card.dataset.description || '').toLowerCase().includes(q) ||
+        (card.dataset.fields      || '').toLowerCase().includes(q) ||
+        (card.dataset.level       || '').toLowerCase().includes(q) ||
+        (card.dataset.target      || '').toLowerCase().includes(q);
+
+      const nameEl = card.querySelector('.trace-name code');
+      const descEl = card.querySelector('.trace-desc');
+      if (nameEl) nameEl.innerHTML = highlight(card.dataset.name || '', rx);
+      if (descEl) descEl.innerHTML = highlight(card.dataset.description || '', rx);
+    });
+
+    document.querySelectorAll('.target-section').forEach(sec => {
+      if (!matchesPrefix(sec.dataset.target || '', currentPrefix)) {
+        sec.style.display = 'none'; return;
+      }
+      let any = false;
+      sec.querySelectorAll('.trace-card').forEach(card => {
+        const show = card._textMatch !== false;
+        card.style.display = show ? '' : 'none';
+        if (show) { any = true; total++; }
+      });
+      sec.style.display = any ? '' : 'none';
+    });
+
+    document.querySelectorAll('.tree-node').forEach(node => {
+      const full = node.dataset.full || '';
+      const row  = node.querySelector(':scope > .tree-node-row');
+      if (!row) return;
+      const hasVis = [...document.querySelectorAll('.target-section')].some(
+        s => matchesPrefix(s.dataset.target || '', full) && s.style.display !== 'none');
+      row.style.opacity = hasVis ? '' : '0.35';
+    });
+
+    updateTreeHighlight();
+    countEl.textContent       = q ? total + ' result' + (total !== 1 ? 's' : '') : '';
+    emptyState.style.display  = total === 0 ? '' : 'none';
+  }
+
+  searchEl.addEventListener('input', applyFilters);
+  chipClear.addEventListener('click', () => setPrefix(''));
+
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-prefix]');
+    if (btn) setPrefix(btn.dataset.prefix);
+  });
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const target = entry.target.dataset.target || '';
+      document.querySelectorAll('.tree-node').forEach(node => {
+        const row = node.querySelector(':scope > .tree-node-row');
+        if (row && !row.classList.contains('prefix-active')) {
+          row.classList.toggle('subtree-active',
+            !!target && target.startsWith((node.dataset.full || '') + '::'));
+        }
+      });
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+
+  document.querySelectorAll('.target-section').forEach(s => observer.observe(s));
+}
+
+// ── Bootstrap ────────────────────────────────────────────
+
+fetch('./traces-schema.json')
+  .then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+    return r.json();
+  })
+  .then(render)
+  .catch(err => {
+    document.getElementById('loading').style.display = 'none';
+    const el = document.getElementById('error');
+    el.style.display = '';
+    const isFile = location.protocol === 'file:';
+    el.innerHTML =
+      '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+        '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>' +
+      '<strong>Could not load traces-schema.json</strong>' +
+      (isFile
+        ? '<code>Browsers block fetch() over file://.<br>Serve this directory with:<br>python3 -m http.server 8080</code>'
+        : '<code>' + esc(err.message) + '</code>');
+  });
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

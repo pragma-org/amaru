@@ -14,7 +14,9 @@
 
 use std::{collections::VecDeque, mem, sync::Arc};
 
-use amaru_kernel::{EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock};
+use amaru_kernel::{
+    EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes,
+};
 use amaru_observability::trace_span;
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -53,10 +55,36 @@ impl std::fmt::Debug for Blocks {
     }
 }
 
+#[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
+pub enum Blocks2 {
+    NoBlocks(u64),
+    Block(u64, NetworkBlock),
+    Done(u64),
+}
+
+impl std::fmt::Debug for Blocks2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoBlocks(arg0) => f.debug_tuple("NoBlocks").field(arg0).finish(),
+            Self::Block(arg0, arg1) => {
+                f.debug_tuple("Block").field(arg0).field(&debug_bytes(arg1.as_slice(), 80)).finish()
+            }
+            Self::Done(arg0) => f.debug_tuple("Done").field(arg0).finish(),
+        }
+    }
+}
+
 /// Message that can be sent by an internal stage to request blocks for range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
     RequestRange { from: Point, through: Point, cr: StageRef<Blocks> },
+    RequestRange2 { from: Point, through: Point, id: u64, cr: StageRef<Blocks2> },
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Resp {
+    V1(StageRef<Blocks>),
+    V2(u64, StageRef<Blocks2>),
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -68,7 +96,7 @@ pub struct BlockFetchInitiator {
     ///
     /// Note that the first two elements of the queue have already been sent
     /// to the network (pipelining).
-    queue: VecDeque<(Point, Point, StageRef<Blocks>)>,
+    queue: VecDeque<(Point, Point, Resp)>,
     blocks: Vec<NetworkBlock>,
     era_history: Arc<EraHistory>,
 }
@@ -208,7 +236,12 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         match input {
             BlockFetchMessage::RequestRange { from, through, cr } => {
                 let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
-                self.queue.push_back((from, through, cr));
+                self.queue.push_back((from, through, Resp::V1(cr)));
+                Ok((action, self))
+            }
+            BlockFetchMessage::RequestRange2 { from, through, id, cr } => {
+                let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
+                self.queue.push_back((from, through, Resp::V2(id, cr)));
                 Ok((action, self))
             }
         }

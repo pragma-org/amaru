@@ -25,9 +25,10 @@ use std::{
 
 use cbor4ii::serde::from_slice;
 use parking_lot::Mutex;
+use tracing::field;
 
 use crate::{
-    Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
+    EPOCH, Effect, ExternalEffect, Instant, Name, ScheduleId, SendData,
     effect::{StageEffect, StageResponse},
     serde::to_cbor,
 };
@@ -76,6 +77,7 @@ pub enum TraceEntry {
         stage: Name,
         reason: TerminationReason,
     },
+    InvalidBytes(Vec<u8>, Option<cbor4ii::core::Value>),
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -116,6 +118,9 @@ impl TraceEntry {
             "stage": stage,
             "reason": reason,
             }),
+            TraceEntry::InvalidBytes(_bytes, _value) => serde_json::json!({
+            "type": "invalid_bytes",
+            }),
         }
     }
 }
@@ -139,7 +144,23 @@ impl Debug for TraceEntry {
             TraceEntry::Terminated { stage, reason } => {
                 f.debug_struct("Terminated").field("stage", stage).field("reason", reason).finish()
             }
+            TraceEntry::InvalidBytes(bytes, value) => {
+                f.debug_tuple("InvalidBytes").field(&DebugBytes(bytes)).field(value).finish()
+            }
         }
+    }
+}
+
+struct DebugBytes<'a>(&'a [u8]);
+impl<'a> Debug for DebugBytes<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (idx, byte) in self.0.iter().enumerate() {
+            write!(f, "{:02x}", byte)?;
+            if idx & 3 == 3 {
+                write!(f, " ")?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -184,6 +205,7 @@ impl Display for TraceEntry {
             TraceEntry::Terminated { stage, reason } => {
                 write!(f, "terminated {stage} {reason:?}")
             }
+            TraceEntry::InvalidBytes(bytes, value) => write!(f, "invalid bytes {bytes:?} {value:?}"),
         }
     }
 }
@@ -227,6 +249,7 @@ impl TraceEntry {
             TraceEntry::Input { stage, .. } => Some(stage),
             TraceEntry::State { stage, .. } => Some(stage),
             TraceEntry::Terminated { stage, .. } => Some(stage),
+            TraceEntry::InvalidBytes(..) => None,
         }
     }
 }
@@ -393,11 +416,13 @@ impl TraceBuffer {
     }
 
     fn push<T: serde::Serialize>(&mut self, msg: T) {
-        let msg = to_cbor(&(Instant::now(), msg));
-
         if self.max_size == 0 {
             return;
         }
+
+        let entered = tracing::span!(tracing::Level::DEBUG, "push_trace_entry", bytes = field::Empty).entered();
+        let msg = to_cbor(&(Instant::now(), msg));
+        entered.record("bytes", msg.len());
 
         self.used_size += msg.len();
 
@@ -431,8 +456,15 @@ impl TraceBuffer {
 
     /// Iterate over the deserialized entries in the trace buffer.
     pub fn iter_entries(&self) -> impl Iterator<Item = (Instant, TraceEntry)> {
-        #[expect(clippy::expect_used)]
-        self.messages.iter().map(|m| from_slice(m).expect("trace buffer is not supposed to contain invalid CBOR"))
+        self.messages.iter().map(|m| {
+            from_slice(m).unwrap_or_else(|_| {
+                if let Ok((instant, value)) = from_slice::<(Instant, cbor4ii::core::Value)>(m) {
+                    (instant, TraceEntry::InvalidBytes(m.clone(), Some(value)))
+                } else {
+                    (*EPOCH, TraceEntry::InvalidBytes(m.clone(), None))
+                }
+            })
+        })
     }
 
     /// Take the entries from the trace buffer, leaving it empty.
@@ -441,23 +473,13 @@ impl TraceBuffer {
     }
 
     /// Hydrate the trace buffer (stored in CBOR format) into a vector of entries.
-    #[expect(clippy::expect_used)]
     pub fn hydrate(&self) -> Vec<(Instant, TraceEntry)> {
-        self.messages
-            .iter()
-            .map(|m| from_slice(m).expect("trace buffer is not supposed to contain invalid CBOR"))
-            .collect()
+        self.iter_entries().collect()
     }
 
     /// Hydrate the trace buffer (stored in CBOR format) into a vector of entries.
-    #[expect(clippy::expect_used)]
     pub fn hydrate_without_timestamps(&self) -> Vec<TraceEntry> {
-        self.messages
-            .iter()
-            .map(|m| {
-                from_slice::<(Instant, TraceEntry)>(m).expect("trace buffer is not supposed to contain invalid CBOR").1
-            })
-            .collect()
+        self.iter_entries().map(|(_, entry)| entry).collect()
     }
 
     /// Clear the trace buffer.

@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
-use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros::{ConnectionId, can_validate_blocks::mock::MockCanValidateBlocks};
 use amaru_ouroboros_traits::{
     ChainStore,
     can_validate_blocks::{CanValidateHeaders, HeaderValidationError, mock::MockCanValidateHeaders},
@@ -38,7 +38,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
 use crate::{
-    effects::{ResourceHeaderValidation, ValidateHeaderEffect},
+    effects::{ResourceBlockValidation, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect, VolatileTipEffect},
     stages::test_utils::{BufferWriter, Logs},
 };
 
@@ -72,6 +72,8 @@ pub fn test_prep() -> TestPrep {
         TESTNET_ERA_HISTORY.clone(),
         StageRef::named_for_tests("manager"),
         StageRef::named_for_tests("downstream"),
+        10_000_000,
+        200,
     );
     let rt = Builder::new_current_thread().build().unwrap();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
@@ -88,6 +90,14 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
 
 pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
+}
+
+pub fn te_volatile_tip(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(VolatileTipEffect)))
+}
+
+pub fn te_tip(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(TipEffect)))
 }
 
 pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
@@ -118,6 +128,8 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
     ]
 }
 
@@ -153,6 +165,7 @@ pub fn setup_with_validation(
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
     network.resources().put::<ResourceHeaderStore>(store.clone());
     network.resources().put::<ResourceHeaderValidation>(validation);
+    network.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
 
     let tp = network.stage("tp", stage);
     let tp = network.wire_up(tp, state);

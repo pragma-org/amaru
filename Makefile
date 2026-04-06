@@ -8,6 +8,7 @@ CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
+TRACES_PORT ?= 8000
 TRACE_CONTRACT ?= data/$(AMARU_NETWORK)/run-until-trace-contract.json
 TRACE_COMPARE_LOG ?= trace-compare.log
 TRACE_COMPARE_SUMMARY_FILE ?= $${GITHUB_STEP_SUMMARY:-/dev/null}
@@ -20,7 +21,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-contract
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -72,6 +73,10 @@ sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $
 
 generate-traces-doc: ## &build Generate documentation for Amaru's tracing spans
 	@./scripts/generate-traces-doc
+
+serve-traces-doc: generate-traces-doc ## &build Regenerate traces docs and serve docs/traces.html on http://127.0.0.1:$(TRACES_PORT)/traces.html
+	@echo "Serving docs/traces.html at http://127.0.0.1:$(TRACES_PORT)/traces.html"
+	@python3 -m http.server $(TRACES_PORT) --directory docs
 
 dev: start # 'backward-compatibility'; might remove after a while.
 start: ## &build Compile and run for $BUILD_PROFILE with default options

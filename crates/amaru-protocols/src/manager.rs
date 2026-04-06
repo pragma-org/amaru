@@ -23,7 +23,7 @@ use tracing::Instrument;
 use crate::{
     accept,
     accept::PullAccept,
-    blockfetch::Blocks,
+    blockfetch::{Blocks, Blocks2},
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
     network_effects::{Network, NetworkOps},
@@ -50,6 +50,12 @@ pub enum ManagerMessage {
         through: Point,
         cr: StageRef<Blocks>,
     },
+    FetchBlocks2 {
+        from: Point,
+        through: Point,
+        cr: StageRef<Blocks2>,
+        id: u64,
+    },
     NewTip(Tip),
 }
 
@@ -63,6 +69,7 @@ impl ManagerMessage {
             ManagerMessage::RemovePeer(_) => "RemovePeer",
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
+            ManagerMessage::FetchBlocks2 { .. } => "FetchBlocks2",
             ManagerMessage::NewTip(_) => "NewTip",
         }
     }
@@ -287,13 +294,27 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 }
             }
             ManagerMessage::NewTip(tip) => {
-                for peer in &manager.peers {
-                    if let ConnectionState::Connected(_, connection) = peer.1 {
+                for conn in manager.peers.values() {
+                    if let ConnectionState::Connected(_, connection) = conn {
                         eff.send(connection, ConnectionMessage::NewTip(tip)).await;
                     }
                 }
             }
+            ManagerMessage::FetchBlocks2 { from, through, cr, id } => {
+            if manager.peers.is_empty() {
+                tracing::warn!("no peers to fetch blocks");
+                eff.send(&cr, Blocks2::NoBlocks(id)).await;
+                return manager;
+            }
+            tracing::debug!(?from, ?through, "fetching blocks");
+            for state in manager.peers.values() {
+                let ConnectionState::Connected(_conn_id, connection) = state else {
+                    continue;
+                };
+                eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+            }
         }
+    }
         manager
     }
     .instrument(trace_span!(

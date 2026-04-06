@@ -1,0 +1,107 @@
+cabal-version: 3.0
+
+name:           haskell-node-extractor
+version:        0
+synopsis:       A tool for extracting test data from the Haskell's implementation.
+description:    A tool for extracting test data from the Haskell's implementation, to be used for conformance.
+category:       Web
+stability:      experimental
+homepage:       https://github.com/pragma-org/amaru
+bug-reports:    https://github.com/pragma-org/amaru/issues
+author:         KtorZ <matthias.benkort@gmail.com>
+maintainer:     matthias.benkort@gmail.com
+copyright:      2026 KtorZ
+license:        Apache-2.0
+license-file:   LICENSE
+build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/pragma-org/amaru
+
+library
+  default-language: Haskell2010
+  hs-source-dirs: src
+  exposed-modules:
+      Command
+    , Command.ExtractSnapshot
+    , Data.Coin
+    , Data.Credential
+    , Data.DelegateRepresentative
+    , Data.Mandate
+    , Data.NetworkName
+    , Data.Nonce
+    , Data.HexString
+    , Data.PoolMetadata
+    , Data.PoolParameters
+    , Data.PoolDelegator
+    , Data.PoolId
+    , Data.PoolRelay
+    , Data.PoolRewardsInfo
+    , Data.Rational
+    , Data.RewardAccount
+    , Data.RewardsProvenance
+    , Data.Pools
+    , Error
+    , Genesis
+    , Query.DelegateRepresentatives
+    , Query.Nonces
+    , Query.Pots
+    , Query.Pools
+    , Query.RewardsProvenance
+    , Snapshot
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -Wunused-packages -threaded
+  default-extensions:
+      LambdaCase
+      MultiWayIf
+      NamedFieldPuns
+      NoImplicitPrelude
+      OverloadedStrings
+      TypeApplications
+  build-depends:
+      async
+    , aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , base16
+    , base58-bytestring
+    , bytestring
+    , cardano-ledger-allegra
+    , cardano-ledger-alonzo
+    , cardano-ledger-api
+    , cardano-ledger-babbage
+    , cardano-ledger-binary
+    , cardano-ledger-byron
+    , cardano-ledger-conway
+    , cardano-ledger-core
+    , cardano-ledger-mary
+    , cardano-ledger-shelley
+    , cardano-protocol-tpraos
+    , cardano-slotting
+    , cardano-strict-containers
+    , containers
+    , directory
+    , filepath
+    , fs-api
+    , io-classes
+    , io-sim
+    , mtl
+    , microlens
+    , optparse-applicative
+    , ouroboros-consensus
+    , ouroboros-consensus-cardano
+    , ouroboros-consensus-protocol
+    , relude
+    , serialise
+    , text
+    , vector
+    , vector-map
+
+executable haskell-node-extractor
+  main-is: Main.hs
+  default-language: Haskell2010
+  hs-source-dirs: app
+  ghc-options: -rtsopts
+  build-depends:
+      base >=4.7 && <5
+    , haskell-node-extractor

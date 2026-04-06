@@ -22,7 +22,8 @@ use tracing::Instrument;
 
 use crate::{
     blockfetch::{
-        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator, register_blockfetch_responder,
+        self, BlockFetchMessage, Blocks, Blocks2, StreamBlocks, register_blockfetch_initiator,
+        register_blockfetch_responder,
     },
     chainsync::{self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder},
     handshake,
@@ -106,6 +107,7 @@ pub enum ConnectionMessage {
     Handshake(HandshakeResult),
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks> },
     NewTip(Tip),
+    FetchBlocks2 { from: Point, through: Point, id: u64, cr: StageRef<Blocks2> },
     // LATER: make full duplex, etc.
 }
 
@@ -117,6 +119,7 @@ impl ConnectionMessage {
             ConnectionMessage::Handshake(_) => "Handshake",
             ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
             ConnectionMessage::NewTip(_) => "NewTip",
+            ConnectionMessage::FetchBlocks2 { .. } => "FetchBlocks2",
         }
     }
 }
@@ -150,7 +153,14 @@ pub async fn stage(
                 // don't propagate new tip messages when using the initiator side of a connection.
                 State::Initiator(s)
             }
-            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {
+            (State::Initiator(s), ConnectionMessage::FetchBlocks2 { from, through, id, cr }) => {
+            eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange2 { from, through, id, cr }).await;
+            State::Initiator(s)
+        }
+        (
+            state @ (State::Initial | State::Handshake { .. }),
+            msg @ (ConnectionMessage::FetchBlocks { .. } | ConnectionMessage::FetchBlocks2 { .. }),
+        ) => {
                 // The peer might be still connecting. In that case we reschedule the message
                 // If the peer eventually can't be fully initialized, the caller timeout will trigger.
                 // We schedule after the reconnect delay (2s by default) which is shorter than the call

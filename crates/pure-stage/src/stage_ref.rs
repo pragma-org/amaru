@@ -99,6 +99,10 @@ impl<Msg> StageRef<Msg> {
         &self.name
     }
 
+    pub fn is_blackhole(&self) -> bool {
+        self.name == *BLACKHOLE_NAME
+    }
+
     pub(crate) fn extra(&self) -> Option<&Arc<dyn Any + Send + Sync>> {
         self.extra.as_ref()
     }
