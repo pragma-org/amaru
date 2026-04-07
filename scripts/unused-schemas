@@ -34,3 +34,7 @@ done <<< "$all_paths"
 
 echo ""
 echo "$unused unused / $total total schema constants"
+
+if [[ $unused -gt 0 ]]; then
+    exit 1
+fi
