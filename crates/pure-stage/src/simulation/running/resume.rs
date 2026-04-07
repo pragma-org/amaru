@@ -20,6 +20,7 @@ use crate::{
     Instant, Name, ScheduleId, SendData, StageResponse,
     adapter::StageOrAdapter,
     effect::{CallExtra, CallTimeout, StageEffect, TransitionFactory},
+    sender::StageRefExtra,
     simulation::{
         SimulationRunning,
         running::{AssertStage, DeliverMessageResult, LogTermination},
@@ -107,7 +108,16 @@ pub fn resume_send_internal(
     let Some(StageEffect::Send(_, call, _)) = data.waiting.take() else {
         panic!("checked above");
     };
-    let call = call.map(|call| *call.downcast_ref::<ScheduleId>().expect("StageRef extra must be a ScheduleId"));
+    let call = call.map(|call| {
+        if let Some(sender) = call.downcast_ref::<StageRefExtra>() {
+            // reply channel from an external Sender::call() — fire the oneshot and signal no wakeup needed
+            drop(sender.lock().take());
+            None
+        } else {
+            Some(*call.downcast_ref::<ScheduleId>().expect("StageRef extra must be a ScheduleId or StageRefExtra"))
+        }
+    });
+    let call = call.flatten();
 
     run(data.name.clone(), StageResponse::Unit);
     Ok(call)
