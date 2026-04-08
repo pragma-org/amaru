@@ -180,6 +180,8 @@ pub struct TxSubmissionResponder {
     params: ResponderParams,
     /// All tx_ids advertised but not yet acked (and their size).
     window: VecDeque<(TxId, u32)>,
+    /// Fetched tx ids that were fully processed, even if they were rejected.
+    processed_fetch_set: BTreeSet<TxId>,
     /// Tx ids we want to fetch but haven't yet requested.
     pending_fetch: VecDeque<TxId>,
     /// Then as a set for quick lookup when processing received ids.
@@ -205,6 +207,7 @@ impl TxSubmissionResponder {
             Self {
                 params,
                 window: VecDeque::new(),
+                processed_fetch_set: BTreeSet::new(),
                 pending_fetch: VecDeque::new(),
                 inflight_fetch_set: BTreeSet::new(),
                 origin,
@@ -250,8 +253,9 @@ impl TxSubmissionResponder {
         let mut ack = 0_u16;
 
         while let Some((tx_id, _size)) = self.window.front() {
+            let already_processed = self.processed_fetch_set.remove(tx_id);
             let already_in_mempool = mempool.contains(tx_id);
-            if already_in_mempool {
+            if already_processed || already_in_mempool {
                 // pop from window and ack it
                 if self.window.pop_front().is_some() {
                     ack = ack.checked_add(1).expect("ack overflow: protocol invariant violated");
@@ -338,6 +342,7 @@ impl TxSubmissionResponder {
             None => return protocol_error(MempoolBatchInsertFailedTimedout),
             Some(Err(error)) => return protocol_error(MempoolInsertFailed(error.tx_id, error.error)),
             Some(Ok(results)) => {
+                self.record_processed_results(&results);
                 for result in results {
                     log_insert_result(&result);
                 }
@@ -372,6 +377,10 @@ impl TxSubmissionResponder {
         }
 
         Ok(None)
+    }
+
+    fn record_processed_results(&mut self, results: &[TxInsertResult]) {
+        self.processed_fetch_set.extend(results.iter().map(TxInsertResult::tx_id).cloned());
     }
 }
 
@@ -460,7 +469,9 @@ mod tests {
 
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
-    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult};
+    use amaru_ouroboros_traits::{
+        MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxRejectReason,
+    };
 
     use super::*;
     use crate::tx_submission::{assert_actions_eq, tests::create_transactions};
@@ -672,18 +683,23 @@ mod tests {
                         Some(action)
                     } else {
                         let origin = responder.origin.clone();
+                        let mut processed_results = Vec::with_capacity(txs.len());
                         let mut error = None;
                         for tx in txs {
                             let requested_id = TxId::from(&tx);
                             responder.inflight_fetch_set.remove(&requested_id);
-                            if let Err(e) = mempool.insert(tx, origin.clone()) {
-                                error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
-                                break;
+                            match mempool.insert(tx, origin.clone()) {
+                                Ok(result) => processed_results.push(result),
+                                Err(e) => {
+                                    error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
+                                    break;
+                                }
                             }
                         }
                         if let Some(error) = error {
                             error
                         } else {
+                            responder.record_processed_results(&processed_results);
                             let (ack, req, blocking) = responder.request_tx_ids(mempool.as_ref());
                             Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
                         }
@@ -769,7 +785,9 @@ mod tests {
 
     impl MockMempool {
         fn new(results: Vec<TxInsertResult>) -> Self {
-            Self { results: std::sync::Mutex::new(results.into_iter().map(|result| (*result.tx_id(), result)).collect()) }
+            Self {
+                results: std::sync::Mutex::new(results.into_iter().map(|result| (*result.tx_id(), result)).collect()),
+            }
         }
     }
 

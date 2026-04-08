@@ -146,7 +146,10 @@ mod tests {
         extract::State,
         http::HeaderMap,
     };
-    use pure_stage::{Sender, StageGraph, tokio::{TokioBuilder, TokioRunning}};
+    use pure_stage::{
+        Sender, StageGraph,
+        tokio::{TokioBuilder, TokioRunning},
+    };
     use reqwest::{Response, header::CONTENT_TYPE};
     use tokio::runtime::Handle;
     use tokio_util::sync::CancellationToken;
