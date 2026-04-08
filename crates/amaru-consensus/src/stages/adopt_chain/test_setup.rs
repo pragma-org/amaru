@@ -18,8 +18,9 @@ use amaru_kernel::{BlockHeader, HeaderHash, Point, Tip, make_header, make_header
 use amaru_ouroboros::StoreError;
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, GetBestChainHashEffect, LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect,
-    ResourceHeaderStore, RollBackChainEffect, RollForwardChainEffect, SetAnchorHashEffect, SetBestChainHashEffect,
+    FindForkPointEffect, GetAnchorHashEffect, GetBestChainHashEffect, LoadFromBestChainEffect, LoadHeaderEffect,
+    NextBestChainEffect, ResourceHeaderStore, RollBackChainEffect, RollForwardChainEffect, SetAnchorHashEffect,
+    SetBestChainHashEffect,
 };
 use pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
@@ -139,6 +140,8 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<RollBackChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<FindForkPointEffect>().boxed(),
+        pure_stage::register_data_deserializer::<Option<(Point, Vec<Point>)>>().boxed(),
     ]
 }
 
@@ -204,12 +207,12 @@ pub fn te_rollback_chain(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(RollBackChainEffect::new(point))))
 }
 
-pub fn te_load_from_best_chain(at_stage: &str, point: Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadFromBestChainEffect::new(point))))
-}
-
 pub fn te_next_best_chain(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(NextBestChainEffect::new(point))))
+}
+
+pub fn te_find_fork_point(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindForkPointEffect::new(hash))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {

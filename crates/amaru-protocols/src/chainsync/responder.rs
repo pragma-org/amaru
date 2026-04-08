@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Reverse;
-
-use amaru_kernel::{BlockHeader, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{EraName, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
+use amaru_ouroboros::ConnectionId;
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
@@ -82,6 +80,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 tracing::trace!(%tip, "New tip");
                 self.upstream = tip;
                 let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                    .await
                     .context("failed to get next header")?;
                 Ok((action, self))
             }
@@ -100,6 +99,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
             match input {
                 ResponderResult::FindIntersect(points) => {
                     let action = intersect(points, &Store::new(eff.clone()), self.upstream)
+                        .await
                         .context("failed to find intersection")?;
                     if let ResponderAction::IntersectFound(point, _tip) = &action {
                         self.pointer = *point;
@@ -108,6 +108,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 }
                 ResponderResult::RequestNext => {
                     let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                        .await
                         .context("failed to get next header")?;
                     Ok((action, self))
                 }
@@ -129,10 +130,10 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
     }
 }
 
-fn next_header(
+async fn next_header(
     state: ResponderState,
     pointer: &mut Point,
-    store: &dyn ReadOnlyChainStore<BlockHeader>,
+    store: &Store<Inputs<ResponderMessage>>,
     tip: Tip,
 ) -> anyhow::Result<Option<ResponderAction>> {
     match state {
@@ -148,99 +149,71 @@ fn next_header(
         return Ok((matches!(state, ResponderState::CanAwait { .. })).then_some(ResponderAction::AwaitReply));
     }
 
-    if store.load_from_best_chain(pointer).is_none() {
+    if store.load_from_best_chain(pointer).await.is_none() {
         // client is on a different fork, we need to roll backward
-        return next_header_rollback(pointer, store, tip);
+        return next_header_rollback(pointer, store, tip).await;
     }
     // pointer is on the best chain, we need to roll forward
     // note that next_best_chain does not check that the returned point's parent matches the
     // pointer, so we need to check that below (in case the best chain changed meanwhile)
-    let Some(point) = store.next_best_chain(pointer) else {
+    let Some(point) = store.next_best_chain(pointer).await else {
         return Ok(None);
     };
-    let header =
-        store.load_header(&point.hash()).ok_or_else(|| anyhow::anyhow!("best-chain header not found: {}", point))?;
+    let header = store
+        .load_header(&point.hash())
+        .await
+        .ok_or_else(|| anyhow::anyhow!("best-chain header not found: {}", point))?;
     // Validate that the header's parent matches our pointer; the store can change between
     // load_from_best_chain and next_best_chain, so the "next" block may no longer be correct.
     let expected_parent = pointer.hash();
     let actual_parent = header.parent_hash().unwrap_or(ORIGIN_HASH);
     if actual_parent != expected_parent {
         // Best chain changed; fall back to searching backwards from the advertised tip
-        return next_header_from_tip(pointer, store, tip);
+        return next_header_from_tip(pointer, store, tip).await;
     }
     *pointer = point;
     Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, EraName::Conway), tip)))
 }
 
 /// Rollback when the client pointer is on a different fork from our best chain.
-fn next_header_rollback(
+async fn next_header_rollback(
     pointer: &mut Point,
-    store: &dyn ReadOnlyChainStore<BlockHeader>,
+    store: &Store<Inputs<ResponderMessage>>,
     tip: Tip,
 ) -> anyhow::Result<Option<ResponderAction>> {
-    let header = store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
-    for header in store.ancestors(header) {
-        if store.load_from_best_chain(&header.point()).is_some() {
-            *pointer = header.point();
-            return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
-        }
-        // if the above returned None then we need to keep searching; if the chain is updated to contain
-        // this header again, then we'll get there a bit later again, just with a detour via lower slots
-    }
-    anyhow::bail!("no overlap found between client pointer chain and stored best chain");
+    let (fork_point, _) = store
+        .find_fork_point(pointer.hash())
+        .await
+        .ok_or_else(|| anyhow::anyhow!("no overlap found between client pointer chain and stored best chain"))?;
+    *pointer = fork_point;
+    Ok(Some(ResponderAction::RollBackward(fork_point, tip)))
 }
 
 /// Find the next action by searching backwards from the advertised tip.
 /// Used when next_best_chain would return a header whose parent doesn't match the pointer
 /// (e.g. because the store changed between load_from_best_chain and next_best_chain).
-fn next_header_from_tip(
+async fn next_header_from_tip(
     pointer: &mut Point,
-    store: &dyn ReadOnlyChainStore<BlockHeader>,
+    store: &Store<Inputs<ResponderMessage>>,
     tip: Tip,
 ) -> anyhow::Result<Option<ResponderAction>> {
-    let tip_header = store
-        .load_header(&tip.point().hash())
-        .ok_or_else(|| anyhow::anyhow!("tip header not found: {}", tip.point()))?;
-    let mut tip_chain = store.ancestors(tip_header).map(|h| h.point()).peekable();
-    let pointer_header =
-        store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
-    for point in store.ancestors(pointer_header).map(|h| h.point()) {
-        while let Some(tip_point) = tip_chain.peek() {
-            if tip_point.slot_or_default() > point.slot_or_default() {
-                tip_chain.next();
-            } else {
-                break;
-            }
-        }
-        if let Some(tip_point) = tip_chain.peek() {
-            if *tip_point == point {
-                *pointer = point;
-                return Ok(Some(ResponderAction::RollBackward(point, tip)));
-            }
-        } else {
-            break;
-        }
-    }
-    Err(anyhow::anyhow!("no overlap found between client pointer chain and tip chain"))
+    let common = store
+        .find_common_ancestor(tip.point().hash(), pointer.hash())
+        .await
+        .ok_or_else(|| anyhow::anyhow!("no overlap found between client pointer chain and tip chain"))?;
+    *pointer = common;
+    Ok(Some(ResponderAction::RollBackward(common, tip)))
 }
 
-fn intersect(
-    mut points: Vec<Point>,
-    store: &dyn ReadOnlyChainStore<BlockHeader>,
+async fn intersect(
+    points: Vec<Point>,
+    store: &Store<Inputs<ResponderMessage>>,
     tip: Tip,
 ) -> anyhow::Result<ResponderAction> {
-    if points.is_empty() {
-        return Ok(ResponderAction::IntersectNotFound(tip));
-    }
-
-    points.sort_by_key(|p| Reverse(*p));
-
-    for point in &points {
-        if store.load_from_best_chain(point).is_some() {
-            return Ok(ResponderAction::IntersectFound(*point, tip));
-        }
-    }
-    Ok(ResponderAction::IntersectNotFound(tip))
+    Ok(match store.find_intersect_point(points).await {
+        Some(point) => ResponderAction::IntersectFound(point, tip),
+        None => ResponderAction::IntersectNotFound(tip),
+    })
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -339,61 +312,8 @@ impl ProtocolState<Responder> for ResponderState {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use amaru_kernel::{BlockHeader, Hash, Slot, make_header, size::HEADER};
-    use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
-
     use super::*;
     use crate::{chainsync::initiator::InitiatorState, protocol::ProtoSpec};
-
-    #[test]
-    fn intersect_finds_point_on_best_chain() {
-        let (store, points) = build_chain_store(10, 0);
-        let tip = make_tip(&points);
-
-        let result = intersect(vec![points[5]], store.as_ref(), tip).unwrap();
-        assert_eq!(result, ResponderAction::IntersectFound(points[5], tip));
-    }
-
-    #[test]
-    fn intersect_returns_most_recent_matching_point() {
-        let (store, points) = build_chain_store(10, 0);
-        let tip = make_tip(&points);
-
-        // points are sorted highest-first, so point[7] should be found first
-        let result = intersect(vec![points[3], points[7]], store.as_ref(), tip).unwrap();
-        assert_eq!(result, ResponderAction::IntersectFound(points[7], tip));
-    }
-
-    #[test]
-    fn intersect_finds_point_before_anchor() {
-        // Anchor at index 5, but point[2] is still on the best chain index
-        let (store, points) = build_chain_store(10, 5);
-        let tip = make_tip(&points);
-
-        let result = intersect(vec![points[2]], store.as_ref(), tip).unwrap();
-        assert_eq!(result, ResponderAction::IntersectFound(points[2], tip));
-    }
-
-    #[test]
-    fn intersect_not_found_with_empty_points() {
-        let (store, points) = build_chain_store(10, 0);
-        let tip = make_tip(&points);
-
-        let result = intersect(vec![], store.as_ref(), tip).unwrap();
-        assert_eq!(result, ResponderAction::IntersectNotFound(tip));
-    }
-
-    #[test]
-    fn intersect_not_found_with_unknown_points() {
-        let (store, points) = build_chain_store(10, 0);
-        let tip = make_tip(&points);
-
-        let unknown = Point::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
-        let result = intersect(vec![unknown], store.as_ref(), tip).unwrap();
-        assert_eq!(result, ResponderAction::IntersectNotFound(tip));
-    }
 
     #[expect(clippy::wildcard_enum_match_arm)]
     #[test]
@@ -444,35 +364,5 @@ mod tests {
             Intersect => InitiatorState::Intersect,
             Done => InitiatorState::Done,
         });
-    }
-
-    // HELPERS
-
-    /// Build an in-memory chain store with `n` headers on the best chain,
-    /// and set the anchor at `anchor_index`.
-    fn build_chain_store(n: u64, anchor_index: u64) -> (Arc<InMemConsensusStore<BlockHeader>>, Vec<Point>) {
-        let store = Arc::new(InMemConsensusStore::new());
-        let mut points = Vec::new();
-        let mut prev_hash = None;
-
-        for slot in 0..n {
-            let header_raw = make_header(slot, slot, prev_hash);
-            let hash = Hash::new([slot as u8; HEADER]);
-            let header = BlockHeader::new(header_raw, hash);
-            store.store_header(&header).unwrap();
-            let point = Point::Specific(Slot::from(slot), hash);
-            store.roll_forward_chain(&point).unwrap();
-            points.push(point);
-            prev_hash = Some(hash);
-        }
-
-        store.set_anchor_hash(&points[anchor_index as usize].hash()).unwrap();
-        store.set_best_chain_hash(&points.last().unwrap().hash()).unwrap();
-        (store, points)
-    }
-
-    fn make_tip(points: &[Point]) -> Tip {
-        let last = points.last().unwrap();
-        Tip::new(*last, 0.into())
     }
 }

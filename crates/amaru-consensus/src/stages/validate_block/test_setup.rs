@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, fmt, net::SocketAddr, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
+    BlockHeader, HeaderHash, IsHeader, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
@@ -327,18 +327,6 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
     (running, guards, logs.logs())
 }
 
-pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash)))).into()
-}
-
-pub fn te_load_header_with_validity(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderWithValidityEffect::new(hash)))).into()
-}
-
-pub fn te_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new()))).into()
-}
-
 pub fn te_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceMatch<'static> {
     let ctx = opentelemetry::Context::current();
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point, ctx)))).into()
@@ -363,6 +351,14 @@ pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceMatch<'static> 
 
 pub fn te_ledger_tip(at_stage: &str) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(TipEffect))).into()
+}
+
+pub fn te_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new()))).into()
+}
+
+pub fn te_load_header_with_validity(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderWithValidityEffect::new(hash)))).into()
 }
 
 pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceMatch<'static> {

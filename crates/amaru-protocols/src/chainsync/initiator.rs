@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use amaru_ouroboros::ConnectionId;
+use pure_stage::{DeserializerGuards, Effects, SendData, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
@@ -131,7 +131,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
             let action = match &input {
                 InitiatorResult::Initialize => {
                     self.me = eff.contramap(eff.me(), format!("{}-handler", eff.me().name()), Inputs::Local).await;
-                    Some(Intersect(intersect_points(&Store::new(eff.clone()))))
+                    Some(Intersect(intersect_points(&Store::new(eff.clone())).await))
                 }
                 InitiatorResult::IntersectFound(_, tip)
                 | InitiatorResult::IntersectNotFound(tip)
@@ -166,30 +166,8 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
-fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
-    let mut spacing = 1;
-    let mut points = Vec::new();
-    let best = store.get_best_chain_hash();
-    if best == ORIGIN_HASH {
-        tracing::warn!("best chain hash is origin hash");
-        return vec![Point::Origin];
-    }
-    #[expect(clippy::expect_used)]
-    let best = store.load_header(&best).expect("best chain hash is valid");
-    let best_point = best.tip().point();
-    points.push(best_point);
-
-    let mut last = best_point;
-    for (index, header) in store.ancestors(best).enumerate() {
-        last = header.tip().point();
-        if index + 1 == spacing {
-            points.push(last);
-            spacing *= 2;
-        }
-    }
-    if points.last() != Some(&last) {
-        points.push(last);
-    }
+async fn intersect_points<T: SendData + Sync + 'static>(store: &Store<T>) -> Vec<Point> {
+    let points = store.sample_ancestor_points().await;
     tracing::info!(?points, "intersect points");
     points
 }
@@ -298,13 +276,17 @@ impl ProtocolState<Initiator> for InitiatorState {
 #[cfg(test)]
 #[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
+    use std::sync::Arc;
+
     use InitiatorState::*;
     use Message::*;
-    use amaru_kernel::{EraName, Hash, HeaderHash, RawBlock, Slot, make_header, size::HEADER};
-    use amaru_ouroboros_traits::{Nonces, StoreError};
+    use amaru_kernel::{BlockHeader, EraName, IsHeader, make_header};
+    use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use pure_stage::{Effect, StageGraph, trace_buffer::TraceBuffer};
+    use tokio::runtime::Builder;
 
     use super::*;
-    use crate::protocol::ProtoSpec;
+    use crate::{protocol::ProtoSpec, store_effects::ResourceHeaderStore};
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
         // canonical states and messages
@@ -339,84 +321,69 @@ pub mod tests {
         });
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    enum IntersectPointsTestMsg {
+        Run,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct IntersectPointsTestState {
+        output: StageRef<Vec<Point>>,
+    }
+
+    async fn intersect_points_test_stage(
+        state: IntersectPointsTestState,
+        msg: IntersectPointsTestMsg,
+        eff: Effects<IntersectPointsTestMsg>,
+    ) -> IntersectPointsTestState {
+        match msg {
+            IntersectPointsTestMsg::Run => {
+                let points = intersect_points(&Store::new(eff.clone())).await;
+                eff.send(&state.output, points).await;
+                state
+            }
+        }
+    }
+
     #[test]
     fn test_intersect_points_includes_best_point_and_are_spaced_with_a_factor_2() {
-        let store = MockChainStoreForIntersectPoints::default();
-        let points = intersect_points(&store);
-        let slots = points.iter().map(|p| p.slot_or_default().into()).collect::<Vec<u64>>();
-        // The expected slots contain the best point (100) and the other points are spaced with a factor of 2.
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        let store = Arc::new(InMemConsensusStore::new());
+        let mut parent = None;
+        let mut chain = Vec::new();
+        for slot in 0..=100 {
+            let header = BlockHeader::from(make_header(slot + 1, slot, parent));
+            store.store_header(&header).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+            parent = Some(header.hash());
+            chain.push(header);
+        }
+        let best = chain.last().unwrap();
+        store.set_best_chain_hash(&best.hash()).unwrap();
+
+        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+        let _guard = TraceBuffer::drop_guard(&trace_buffer);
+        let mut network = pure_stage::simulation::SimulationBuilder::default().with_trace_buffer(trace_buffer);
+        network.resources().put::<ResourceHeaderStore>(store as Arc<dyn ChainStore<BlockHeader>>);
+
+        let (output, mut rx) = network.output::<Vec<Point>>("intersect_points_output", 1);
+        let stage = network.stage("intersect_points_test", intersect_points_test_stage);
+        let stage = network.wire_up(stage, IntersectPointsTestState { output: output.clone() });
+        network.preload(&stage, [IntersectPointsTestMsg::Run]).unwrap();
+
+        let output_name = output.name().clone();
+        let mut running = network.run();
+        running.breakpoint(
+            "output",
+            move |eff| matches!(eff, Effect::External { at_stage, .. } if at_stage == &output_name),
+        );
+
+        let effect = running.run_until_blocked_incl_effects(runtime.handle()).assert_breakpoint("output");
+        running.handle_effect(effect);
+        runtime.block_on(running.await_external_effect()).unwrap();
+
+        let points = rx.try_next().unwrap();
+        let slots = points.iter().map(|point| point.slot_or_default().into()).collect::<Vec<u64>>();
         assert_eq!(slots, vec![100, 99, 98, 96, 92, 84, 68, 36, 0]);
-    }
-
-    /// This chain store contains a chain of 100 blocks with slots from 0 to 100 where 100 is the best point.
-    #[derive(Debug)]
-    struct MockChainStoreForIntersectPoints {
-        best_point: Point,
-    }
-
-    impl Default for MockChainStoreForIntersectPoints {
-        fn default() -> Self {
-            Self { best_point: Point::Specific(Slot::from(100), Hash::new([100u8; HEADER])) }
-        }
-    }
-
-    #[expect(clippy::todo)]
-    impl ReadOnlyChainStore<BlockHeader> for MockChainStoreForIntersectPoints {
-        fn get_best_chain_hash(&self) -> HeaderHash {
-            self.best_point.hash()
-        }
-
-        fn load_header_with_validity(&self, _hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
-            todo!()
-        }
-
-        fn load_header(&self, _hash: &HeaderHash) -> Option<BlockHeader> {
-            Some(BlockHeader::new(
-                make_header(1, self.best_point.slot_or_default().into(), None),
-                self.best_point.hash(),
-            ))
-        }
-
-        fn ancestors<'a>(&'a self, _from: BlockHeader) -> Box<dyn Iterator<Item = BlockHeader> + 'a>
-        where
-            BlockHeader: 'a,
-        {
-            let mut ancestor_block_headers = vec![];
-            for slot in 0..100 {
-                let header_hash = Hash::new([slot as u8; HEADER]);
-                let block_header = BlockHeader::new(make_header(1, slot, None), header_hash);
-                ancestor_block_headers.push(block_header);
-            }
-            ancestor_block_headers.reverse();
-            Box::new(ancestor_block_headers.into_iter())
-        }
-
-        fn get_children(&self, _hash: &HeaderHash) -> Vec<HeaderHash> {
-            todo!()
-        }
-
-        fn get_anchor_hash(&self) -> HeaderHash {
-            todo!()
-        }
-
-        fn load_from_best_chain(&self, _point: &Point) -> Option<HeaderHash> {
-            todo!()
-        }
-
-        fn next_best_chain(&self, _point: &Point) -> Option<Point> {
-            todo!()
-        }
-
-        fn load_block(&self, _hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
-            todo!()
-        }
-
-        fn get_nonces(&self, _header: &HeaderHash) -> Option<Nonces> {
-            todo!()
-        }
-
-        fn has_header(&self, _hash: &HeaderHash) -> bool {
-            todo!()
-        }
     }
 }

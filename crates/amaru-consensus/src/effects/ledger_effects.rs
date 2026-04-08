@@ -22,14 +22,14 @@ use amaru_ouroboros_traits::{
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use opentelemetry::trace::FutureExt;
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 
 use crate::errors::{ConsensusError, ValidationFailed};
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps: Send + Sync {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
+    fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>>;
 
     fn validate_header(
         &self,
@@ -51,11 +51,11 @@ pub trait LedgerOps: Send + Sync {
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>>;
 
-    fn contains_point(&self, point: &Point) -> bool;
+    fn contains_point(&self, point: &Point) -> BoxFuture<'_, bool>;
 
-    fn tip(&self) -> Tip;
+    fn tip(&self) -> BoxFuture<'_, Tip>;
 
-    fn volatile_tip(&self) -> Option<Tip>;
+    fn volatile_tip(&self) -> BoxFuture<'_, Option<Tip>>;
 
     /// Get the registered relay socket addresses from the stable store.
     ///
@@ -79,8 +79,8 @@ impl<T> Ledger<T> {
 }
 
 impl<T: SendData + Sync> LedgerOps for Ledger<T> {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
-        self.0.external_sync(ValidateTxEffect::new(tx))
+    fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>> {
+        self.0.external(ValidateTxEffect::new(tx))
     }
 
     fn validate_header(
@@ -109,16 +109,16 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         self.0.external(RollbackBlockEffect::new(peer, point, ctx))
     }
 
-    fn contains_point(&self, point: &Point) -> bool {
-        self.0.external_sync(ContainsPointEffect::new(point))
+    fn contains_point(&self, point: &Point) -> BoxFuture<'_, bool> {
+        self.0.external(ContainsPointEffect::new(point))
     }
 
-    fn tip(&self) -> Tip {
-        self.0.external_sync(TipEffect)
+    fn tip(&self) -> BoxFuture<'_, Tip> {
+        self.0.external(TipEffect)
     }
 
-    fn volatile_tip(&self) -> Option<Tip> {
-        self.0.external_sync(VolatileTipEffect)
+    fn volatile_tip(&self) -> BoxFuture<'_, Option<Tip>> {
+        self.0.external(VolatileTipEffect)
     }
 
     fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
@@ -161,8 +161,6 @@ impl ExternalEffect for ValidateTxEffect {
 impl ExternalEffectAPI for ValidateTxEffect {
     type Response = Result<(), TransactionValidationError>;
 }
-
-impl ExternalEffectSync for ValidateTxEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockEffect {
@@ -240,8 +238,6 @@ impl ExternalEffectAPI for ValidateHeaderEffect {
     type Response = Result<(), HeaderValidationError>;
 }
 
-impl ExternalEffectSync for ValidateHeaderEffect {}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RollbackBlockEffect {
     peer: Peer,
@@ -276,8 +272,6 @@ impl ExternalEffectAPI for RollbackBlockEffect {
     type Response = anyhow::Result<(), ValidationFailed>;
 }
 
-impl ExternalEffectSync for RollbackBlockEffect {}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ContainsPointEffect {
     point: Point,
@@ -306,8 +300,6 @@ impl ExternalEffectAPI for ContainsPointEffect {
     type Response = bool;
 }
 
-impl ExternalEffectSync for ContainsPointEffect {}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TipEffect;
 
@@ -333,8 +325,6 @@ impl ExternalEffectAPI for TipEffect {
     type Response = Tip;
 }
 
-impl ExternalEffectSync for TipEffect {}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VolatileTipEffect;
 
@@ -354,8 +344,6 @@ impl ExternalEffect for VolatileTipEffect {
 impl ExternalEffectAPI for VolatileTipEffect {
     type Response = Option<Tip>;
 }
-
-impl ExternalEffectSync for VolatileTipEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RegisteredRelaySocketAddrsEffect;

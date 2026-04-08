@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use amaru_kernel::{BlockHeight, HeaderHash, ORIGIN_HASH, Point, Slot};
+use amaru_kernel::{BlockHeight, HeaderHash, Point, Slot};
 use amaru_ouroboros_traits::{StoreError, overriding_consensus_store::OverridingChainStore};
 use pure_stage::trace_buffer::TerminationReason;
 use tracing::Level;
@@ -22,7 +22,8 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        setup, te_get_anchor_hash, te_get_best_chain_hash, te_has_header, te_load_header, te_set_block_valid, test_prep,
+        assert_trace, setup, te_get_best_chain_hash, te_has_header, te_load_header, te_send, te_set_block_valid,
+        te_terminate, te_terminated, te_unvalidated_ancestor_hashes, test_prep,
     },
     test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
 };
@@ -137,10 +138,7 @@ fn test_tip_extends_from_h1() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", ORIGIN_HASH, false),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
             te_send("sc-1", "downstream", (tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -174,9 +172,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h2.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
             te_send("sc-1", "downstream", (tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -219,11 +215,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
             te_send("sc-1", "downstream", (tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -262,11 +254,7 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_load_header("sc-1", prep.headers.h2a.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
             te_state("sc-1", &expected),
         ],
     );
@@ -304,10 +292,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h1.hash(), false),
-            te_load_header("sc-1", prep.headers.h2a.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
             te_send("sc-1", "downstream", (tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -338,11 +323,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
             te_state("sc-1", &expected),
         ],
     );

@@ -34,8 +34,7 @@ mod types;
 pub mod simulation;
 
 pub use effect::{
-    Effect, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, ScheduleIds, StageResponse,
-    UnknownExternalEffect,
+    Effect, Effects, ExternalEffect, ExternalEffectAPI, ScheduleIds, StageResponse, UnknownExternalEffect,
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;

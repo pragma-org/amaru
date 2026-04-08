@@ -147,12 +147,14 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
             tracing::info!(point = %header.point(), "rollforward");
             store
                 .store_header(header)
+                .await
                 .or_terminate(&eff, |e| async move {
                     tracing::error!("Cannot store the header {}: {e:?}. The seed is {seed}", &header);
                 })
                 .await;
             store
                 .roll_forward_chain(&header.point())
+                .await
                 .or_terminate(&eff, |e| async move {
                     tracing::error!("Cannot rollforward chain: {e:?}. The seed is {seed}");
                 })
@@ -163,6 +165,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
             tracing::info!(point = %rollback_point, "rollback");
             store
                 .rollback_chain(rollback_point)
+                .await
                 .or_terminate(&eff, |e| async move {
                     tracing::error!("Cannot rollback the chain to {}: {e:?}. The seed is {seed}", &rollback_point,);
                 })
@@ -172,6 +175,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
     };
     store
         .set_best_chain_hash(&msg.hash())
+        .await
         .or_terminate(&eff, |e| async move {
             tracing::error!("Cannot set the best chain: {e:?}. The seed is {seed}");
         })

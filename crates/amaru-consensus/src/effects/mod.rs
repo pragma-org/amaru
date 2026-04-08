@@ -13,14 +13,10 @@
 // limitations under the License.
 
 mod base_effects;
-mod consensus_effects;
 mod ledger_effects;
 mod metrics_effects;
 
 pub use base_effects::{Base, BaseOps};
-#[cfg(test)]
-pub use consensus_effects::tests::*;
-pub use consensus_effects::{ConsensusEffects, ConsensusOps};
 pub use ledger_effects::{
     ContainsPointEffect, Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation,
     ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation, RollbackBlockEffect, TipEffect,

@@ -14,14 +14,14 @@
 
 use amaru_kernel::ORIGIN_HASH;
 use pure_stage::trace_buffer::TerminationReason;
-use test_setup::{assert_trace, setup, te_load_header, te_terminate, te_terminated, test_prep};
+use test_setup::{assert_trace, setup, te_find_fork_point, te_load_header, te_terminate, te_terminated, test_prep};
 use tracing::Level;
 
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_get_anchor_hash, te_load_from_best_chain, te_next_best_chain, te_roll_forward_chain,
-        te_rollback_chain, te_send, te_set_anchor_hash, te_set_best_chain_hash,
+        te_get_anchor_hash, te_next_best_chain, te_roll_forward_chain, te_rollback_chain, te_send, te_set_anchor_hash,
+        te_set_best_chain_hash,
     },
     test_utils::{te_input, te_state},
 };
@@ -167,14 +167,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h3a.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h2a.point()),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h1.point()),
+            te_find_fork_point("ac-1", msg.hash()),
             te_rollback_chain("ac-1", prep.headers.h1.point()),
             te_roll_forward_chain("ac-1", prep.headers.h2a.point()),
             te_roll_forward_chain("ac-1", prep.headers.h3a.point()),
@@ -221,12 +214,7 @@ fn test_fork_switch_opcert_hacked() {
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h2.point()),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h1.point()),
+            te_find_fork_point("ac-1", msg.hash()),
             te_rollback_chain("ac-1", prep.headers.h1.point()),
             te_roll_forward_chain("ac-1", prep.headers.h2.point()),
             te_set_best_chain_hash("ac-1", msg.hash()),

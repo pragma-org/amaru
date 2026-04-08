@@ -14,9 +14,8 @@
 
 use std::fmt::Debug;
 
-use amaru_kernel::{BlockHeader, IsHeader, NonEmptyVec, Point, RawBlock};
+use amaru_kernel::{IsHeader, NonEmptyVec, Point, RawBlock};
 use amaru_observability::trace_span;
-use amaru_ouroboros_traits::ChainStore;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -72,12 +71,12 @@ impl PointsRange {
 
     /// Load the first available block in the current range (the block is expected to be found).
     /// Each time we attempt to fetch a block we pop its point from the current_range.
-    fn next_block(self, store: &dyn ChainStore<BlockHeader>) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
+    async fn next_block(self, store: &Store<Inputs<StreamBlocks>>) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
         // points are stored from most recent to oldest, so we pop from the end
         let (last, rest) = self.0.pop();
         let last_hash = last.hash();
         let stored_block =
-            store.load_block(&last_hash)?.ok_or_else(|| anyhow::anyhow!("block {} was pruned", last_hash))?;
+            store.load_block(&last_hash).await?.ok_or_else(|| anyhow::anyhow!("block {} was pruned", last_hash))?;
         Ok((stored_block, rest.map(PointsRange)))
     }
 
@@ -86,8 +85,8 @@ impl PointsRange {
     ///  - Check that there is a valid path of block from `from` to `through` in the chain store.
     ///  - Check that we don't return too many headers to avoid getting over the protocol limits.
     ///  - Return None if any of the above checks fail and return the points range otherwise.
-    pub fn request_range(
-        store: &dyn ChainStore<BlockHeader>,
+    pub async fn request_range(
+        store: &Store<Inputs<StreamBlocks>>,
         from: Point,
         through: Point,
     ) -> anyhow::Result<Option<PointsRange>> {
@@ -98,7 +97,7 @@ impl PointsRange {
         };
 
         if from == through {
-            return if store.load_block(&from.hash())?.is_some() {
+            return if store.load_block(&from.hash()).await?.is_some() {
                 Ok(Some(PointsRange::singleton(from)))
             } else {
                 Ok(None)
@@ -118,12 +117,12 @@ impl PointsRange {
                 return Ok(None);
             }
             // check that the block exists
-            if store.load_block(&current_hash)?.is_none() {
+            if store.load_block(&current_hash).await?.is_none() {
                 return Ok(None);
             }
 
             // load the header for the current hash
-            if let Some(header) = store.load_header(&current_hash) {
+            if let Some(header) = store.load_header(&current_hash).await {
                 result.push(header.point());
                 // if we found the from point, we're done
                 if current_hash == from.hash() {
@@ -172,7 +171,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
         match input {
             StreamBlocks::Done => Ok((Some(ResponderAction::BatchDone), self)),
             StreamBlocks::More(points_range) => {
-                let (block, points_range) = points_range.next_block(&store)?;
+                let (block, points_range) = points_range.next_block(&store).await?;
                 // recurse if there are more blocks to fetch or signal that streaming is done
                 if let Some(points_range) = points_range {
                     eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::More(points_range))).await;
@@ -196,7 +195,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
             match input {
                 ResponderResult::RequestRange { from, through } => {
                     let store = Store::new(eff.clone());
-                    if let Some(points_range) = PointsRange::request_range(&store, from, through)? {
+                    if let Some(points_range) = PointsRange::request_range(&store, from, through).await? {
                         eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::More(points_range))).await;
                         Ok((Some(ResponderAction::StartBatch), self))
                     } else {
@@ -298,6 +297,59 @@ pub mod tests {
     use super::*;
     use crate::protocol::Responder;
 
+    fn request_range_in_store(
+        store: &dyn ChainStore<BlockHeader>,
+        from: Point,
+        through: Point,
+    ) -> anyhow::Result<Option<PointsRange>> {
+        if from > through {
+            return Ok(None);
+        }
+
+        if from == through {
+            return Ok(store.load_block(&from.hash())?.is_some().then(|| PointsRange::singleton(from)));
+        }
+
+        let mut current_hash = through.hash();
+        let mut result = vec![];
+        loop {
+            if result.len() >= MAX_FETCHED_BLOCKS {
+                return Ok(None);
+            }
+            if store.load_block(&current_hash)?.is_none() {
+                return Ok(None);
+            }
+            if let Some(header) = store.load_header(&current_hash) {
+                result.push(header.point());
+                if current_hash == from.hash() {
+                    break;
+                }
+                if header.slot() < from.slot_or_default() {
+                    return Ok(None);
+                }
+                if let Some(parent_hash) = header.parent_hash() {
+                    current_hash = parent_hash;
+                } else {
+                    return Ok(None);
+                }
+            } else {
+                return Ok(None);
+            }
+        }
+        Ok(PointsRange::from_vec(result))
+    }
+
+    fn next_block_in_store(
+        range: PointsRange,
+        store: &dyn ChainStore<BlockHeader>,
+    ) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
+        let (last, rest) = range.0.pop();
+        let last_hash = last.hash();
+        let stored_block =
+            store.load_block(&last_hash)?.ok_or_else(|| anyhow::anyhow!("block {} was pruned", last_hash))?;
+        Ok((stored_block, rest.map(PointsRange)))
+    }
+
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
     fn test_responder_protocol() {
@@ -321,7 +373,7 @@ pub mod tests {
     #[test]
     fn test_request_range_invalid_from_greater_than_through() {
         let (store, headers) = make_store_with_chain(5);
-        let result = PointsRange::request_range(&*store, headers[3].point(), headers[1].point()).unwrap();
+        let result = request_range_in_store(&*store, headers[3].point(), headers[1].point()).unwrap();
         assert_eq!(result, None, "should return None when from > through");
     }
 
@@ -330,14 +382,14 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(3);
         store_blocks(store.clone(), &headers[1..2]);
 
-        let result = PointsRange::request_range(&*store, headers[1].point(), headers[1].point()).unwrap();
+        let result = request_range_in_store(&*store, headers[1].point(), headers[1].point()).unwrap();
         assert_eq!(result, Some(PointsRange::singleton(headers[1].point())));
     }
 
     #[test]
     fn test_request_range_single_point_block_missing() {
         let (store, headers) = make_store_with_chain(3);
-        let result = PointsRange::request_range(&*store, headers[1].point(), headers[1].point()).unwrap();
+        let result = request_range_in_store(&*store, headers[1].point(), headers[1].point()).unwrap();
         assert_eq!(result, None, "should return None when from == through but block doesn't exist");
     }
 
@@ -345,7 +397,7 @@ pub mod tests {
     fn test_request_range_valid_chain() {
         let (store, headers) = make_store_with_chain(5);
         store_blocks(store.clone(), &headers);
-        let result = PointsRange::request_range(&*store, headers[0].point(), headers[4].point()).unwrap();
+        let result = request_range_in_store(&*store, headers[0].point(), headers[4].point()).unwrap();
         assert_eq!(
             result,
             PointsRange::from_vec(vec![
@@ -371,7 +423,7 @@ pub mod tests {
             }
         }
 
-        let result = PointsRange::request_range(&*store, headers[0].point(), headers[4].point()).unwrap();
+        let result = request_range_in_store(&*store, headers[0].point(), headers[4].point()).unwrap();
         assert_eq!(result, None, "should return None when a block is missing in the chain");
     }
 
@@ -395,7 +447,7 @@ pub mod tests {
             }
         }
 
-        let result = PointsRange::request_range(&*store, headers[0].point(), headers[4].point()).unwrap();
+        let result = request_range_in_store(&*store, headers[0].point(), headers[4].point()).unwrap();
         assert_eq!(result, None, "should return None when a header is missing in the chain");
     }
 
@@ -404,7 +456,7 @@ pub mod tests {
         let genesis = Point::Specific(Slot::from(10), run_strategy(any_fake_header()).hash());
         let (store, headers) = make_store_with_chain_starting_from(5, genesis);
 
-        let result = PointsRange::request_range(
+        let result = request_range_in_store(
             &*store,
             Point::Specific(Slot::from(2), run_strategy(any_fake_header()).hash()),
             headers[3].point(),
@@ -426,7 +478,7 @@ pub mod tests {
         let non_existent_hash = run_strategy(any_fake_header()).hash();
         let from = Point::Specific(from_slot, non_existent_hash);
 
-        let result = PointsRange::request_range(&*store, from, headers[4].point()).unwrap();
+        let result = request_range_in_store(&*store, from, headers[4].point()).unwrap();
         assert_eq!(result, None, "should return None when we reach a slot before 'from' without finding 'from'");
     }
 
@@ -437,7 +489,7 @@ pub mod tests {
         store_blocks(store.clone(), &headers);
 
         let result =
-            PointsRange::request_range(&*store, headers[0].point(), headers[MAX_FETCHED_BLOCKS - 1].point()).unwrap();
+            request_range_in_store(&*store, headers[0].point(), headers[MAX_FETCHED_BLOCKS - 1].point()).unwrap();
 
         assert_eq!(result.unwrap().points().len(), MAX_FETCHED_BLOCKS);
     }
@@ -449,8 +501,7 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(chain_length);
         store_blocks(store.clone(), &headers);
 
-        let result =
-            PointsRange::request_range(&*store, headers[0].point(), headers[chain_length - 1].point()).unwrap();
+        let result = request_range_in_store(&*store, headers[0].point(), headers[chain_length - 1].point()).unwrap();
         assert_eq!(result, None, "should return None when the requested range exceeds MAX_BLOCKS limit");
     }
 
@@ -459,7 +510,8 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(3);
         store_blocks(store.clone(), &headers);
 
-        let (block, remaining_range) = PointsRange::singleton(headers[1].point()).next_block(&*store).unwrap();
+        let (block, remaining_range) =
+            next_block_in_store(PointsRange::singleton(headers[1].point()), &*store).unwrap();
 
         // Should return the block for the single point
         let network_block: NetworkBlock = block.try_into().unwrap();
@@ -474,11 +526,11 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(5);
         store_blocks(store.clone(), &headers);
 
-        let (block, remaining_range) =
-            PointsRange::from_vec(vec![headers[2].point(), headers[1].point(), headers[0].point()])
-                .unwrap()
-                .next_block(&*store)
-                .unwrap();
+        let (block, remaining_range) = next_block_in_store(
+            PointsRange::from_vec(vec![headers[2].point(), headers[1].point(), headers[0].point()]).unwrap(),
+            &*store,
+        )
+        .unwrap();
 
         // Should return the first block
         let network_block: NetworkBlock = block.try_into().unwrap();

@@ -15,7 +15,6 @@
 use std::{cmp::Ordering, collections::BTreeMap};
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, Tip};
-use amaru_ouroboros::{ChainStore, ReadOnlyChainStore};
 use amaru_protocols::store_effects::Store;
 use pure_stage::{Effects, StageRef, TryInStage};
 
@@ -69,7 +68,7 @@ impl SelectChain {
     async fn handle_tip_from_upstream(mut self, tip: Tip, parent: Point, eff: Effects<SelectChainMsg>) -> SelectChain {
         let store = Store::new(eff.clone());
 
-        let Some((header, valid)) = store.load_header_with_validity(&tip.hash()) else {
+        let Some((header, valid)) = store.load_header_with_validity(&tip.hash()).await else {
             tracing::error!(tip = %tip.point(), "tip not found");
             return eff.terminate().await;
         };
@@ -95,22 +94,9 @@ impl SelectChain {
             // since track_peers will only send newly stored tips, this is the case where
             // a new fork is detected; while the new fork can only be one header long, it
             // may still require multiple block validations to reach a valid chain
-            let mut valid = true;
-            let mut ancestors = store
-                .ancestors_with_validity(parent.hash())
-                .take_while(|(_h, v)| {
-                    if *v == Some(false) {
-                        valid = false;
-                        false
-                    } else {
-                        v.is_none()
-                    }
-                })
-                .map(|(h, _)| h.hash())
-                .collect::<Vec<_>>();
+            let (mut ancestors, valid) = store.unvalidated_ancestor_hashes(parent.hash()).await;
             if valid {
                 tracing::debug!(%parent, tip = %tip.point(), "new chain");
-                ancestors.reverse();
                 ancestors.push(tip.hash()); // new block must be validated by definition
                 self.tips.insert(tip.hash(), ancestors);
             } else {
@@ -137,13 +123,14 @@ impl SelectChain {
         eff: Effects<SelectChainMsg>,
     ) -> SelectChain {
         let store = Store::new(eff.clone());
-        if !store.has_header(&tip.hash()) {
+        if !store.has_header(&tip.hash()).await {
             tracing::error!(%tip, "header not found while trying to store block validation result");
             return eff.terminate().await;
         }
 
         store
             .set_block_valid(&tip.hash(), valid)
+            .await
             .or_terminate(&eff, async |error| {
                 tracing::error!(%error, %valid, "failed to store block validation result");
             })
@@ -168,23 +155,30 @@ impl SelectChain {
             {
                 tracing::info!(%removed, "best tip candidate invalidated");
                 // need to pick new best tip
-                let (parent, new_best_tip) = self
-                    .tips
-                    .keys()
-                    .filter_map(|h| store.load_header(h).map(|h| (h.parent_hash(), Some(h))))
-                    .max_by(|a, b| cmp_tip(a.1.as_ref(), b.1.as_ref()))
-                    .unwrap_or_else(|| {
-                        store
-                            .load_header(&store.get_best_chain_hash())
-                            .map(|h| (h.parent_hash(), Some(h)))
-                            .unwrap_or_default()
-                    });
+                let mut candidate = None;
+                for hash in self.tips.keys() {
+                    let Some(header) = store.load_header(hash).await else {
+                        continue;
+                    };
+
+                    if candidate.as_ref().is_none_or(|best| cmp_tip(Some(&header), Some(best)).is_gt()) {
+                        candidate = Some(header);
+                    }
+                }
+                let candidate = if let Some(candidate) = candidate {
+                    Some(candidate)
+                } else {
+                    let best_chain_hash = store.get_best_chain_hash().await;
+                    store.load_header(&best_chain_hash).await
+                };
+                let (parent, new_best_tip) = candidate.map(|c| (c.parent_hash(), Some(c))).unwrap_or_default();
                 self.best_tip = new_best_tip;
                 if let Some(new_best_tip) = &self.best_tip {
                     tracing::debug!(%new_best_tip, "new best tip candidate");
                     let parent = if let Some(parent) = parent {
                         store
                             .load_tip(&parent)
+                            .await
                             .or_terminate(store.eff(), async |_| {
                                 tracing::warn!(
                                     "failed to load parent {:?} of best tip candidate {:?}",
@@ -224,6 +218,7 @@ impl SelectChain {
             let store = Store::new(eff);
             let header = store
                 .load_header(&best_tip.hash())
+                .await
                 .or_terminate(store.eff(), async |_| {
                     tracing::error!("failed to load header of best candidate");
                 })
@@ -231,6 +226,7 @@ impl SelectChain {
             let parent = if let Some(parent) = header.parent_hash() {
                 store
                     .load_tip(&parent)
+                    .await
                     .or_terminate(store.eff(), async |_| {
                         tracing::error!("failed to load parent of best candidate");
                     })

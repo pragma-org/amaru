@@ -500,7 +500,9 @@ pub mod test {
         BlockHeader, Nonce, ORIGIN_HASH, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
         utils::tests::{random_bytes, run_strategy},
     };
-    use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use amaru_ouroboros_traits::{
+        ChainStore, DiagnosticChainStore, MissingBlockRange, in_memory_consensus_store::InMemConsensusStore,
+    };
     use rocksdb::Direction;
 
     use super::*;
@@ -796,6 +798,154 @@ pub mod test {
     }
 
     #[test]
+    fn unvalidated_ancestor_hashes_returns_missing_validity_segment_in_chain_order() {
+        with_db(|store| {
+            // h0 -> h1(valid) -> h2(?) -> h3(start)
+            //        \
+            //         -> h2a -> h3a
+            let headers = make_forked_headers();
+            for header in headers.all() {
+                store.store_header(header).unwrap();
+            }
+            store.set_block_valid(&headers.h1.hash(), true).unwrap();
+
+            let result = store.unvalidated_ancestor_hashes(headers.h3.hash());
+            assert_eq!(result, (vec![headers.h2.hash(), headers.h3.hash()], true));
+        });
+    }
+
+    #[test]
+    fn unvalidated_ancestor_hashes_marks_chain_invalid_when_it_hits_invalid_ancestor() {
+        with_db(|store| {
+            // h0 -> h1(invalid) -> h2(?) -> h3(start)
+            //          \
+            //           -> h2a -> h3a
+            let headers = make_forked_headers();
+            for header in headers.all() {
+                store.store_header(header).unwrap();
+            }
+            store.set_block_valid(&headers.h1.hash(), false).unwrap();
+
+            let result = store.unvalidated_ancestor_hashes(headers.h3.hash());
+            assert_eq!(result, (vec![headers.h2.hash(), headers.h3.hash()], false));
+        });
+    }
+
+    #[test]
+    fn find_fork_point_returns_best_chain_intersection_and_forward_path() {
+        with_db(|store| {
+            // Best chain: h0 -> h1 -> h2 -> h3
+            //                   \
+            // fork:              -> h2a -> h3a(start)
+            let headers = make_forked_headers();
+            for header in headers.main() {
+                store.store_header(header).unwrap();
+                store.roll_forward_chain(&header.point()).unwrap();
+                store.set_best_chain_hash(&header.hash()).unwrap();
+            }
+            store.set_anchor_hash(&headers.h0.hash()).unwrap();
+            for header in [&headers.h2a, &headers.h3a] {
+                store.store_header(header).unwrap();
+            }
+
+            let result = store.find_fork_point(headers.h3a.hash());
+            assert_eq!(result, Some((headers.h1.point(), vec![headers.h2a.point(), headers.h3a.point()])));
+        });
+    }
+
+    #[test]
+    fn find_common_ancestor_returns_shared_point_between_forks() {
+        with_db(|store| {
+            // h0 -> h1 -> h2 -> h3
+            //        \
+            //         -> h2a -> h3a
+            // common_ancestor(h3, h3a) = h1
+            let headers = make_forked_headers();
+            for header in headers.all() {
+                store.store_header(header).unwrap();
+            }
+
+            let result = store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash());
+            assert_eq!(result, Some(headers.h1.point()));
+        });
+    }
+
+    #[test]
+    fn sample_ancestor_points_returns_exponential_walk_back_from_best_tip() {
+        with_db(|store| {
+            // Best chain:
+            // h0 -> h1 -> h2 -> h3 -> h4 -> h5 -> h6 -> h7 -> h8 -> h9 (tip)
+            // Samples:
+            // h9, h8, h7, h5, h1, h0
+            let chain = populate_db(store.clone());
+
+            let result = store.sample_ancestor_points();
+
+            assert_eq!(
+                result,
+                vec![
+                    chain[9].point(),
+                    chain[8].point(),
+                    chain[7].point(),
+                    chain[5].point(),
+                    chain[1].point(),
+                    chain[0].point(),
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn find_missing_blocks_returns_path_from_nearest_available_block_to_tip() {
+        with_db(|store| {
+            // Best chain:
+            // h0 -> h1 -> h2 -> h3 -> h4 -> h5 -> h6 -> h7 -> h8 -> h9 (tip)
+            //                                     *
+            //                                 block present
+            // Missing path to fetch from h9:
+            // h6 -> h7 -> h8 -> h9
+            let chain = populate_db(store.clone());
+            let block = RawBlock::from(&*vec![1; 64]);
+            store.store_block(&chain[6].hash(), &block).unwrap();
+
+            let result = store.find_missing_blocks(chain[9].hash(), 10).unwrap();
+
+            assert_eq!(
+                result,
+                Some(MissingBlockRange::new(
+                    chain[6].point(),
+                    vec![chain[7].point(), chain[8].point(), chain[9].point()],
+                ))
+            );
+        });
+    }
+
+    #[test]
+    fn find_missing_blocks_returns_none_when_tip_is_not_found() {
+        with_db(|store| {
+            let missing_tip = run_strategy(any_header_hash());
+            let result = store.find_missing_blocks(missing_tip, 10).unwrap();
+            assert_eq!(result, None);
+        });
+    }
+
+    #[test]
+    fn find_missing_blocks_returns_boundary_only_when_tip_block_exists() {
+        with_db(|store| {
+            // Best chain:
+            // h0 -> h1 -> h2 -> h3 -> h4 -> h5 -> h6 -> h7 -> h8 -> h9 (tip)
+            //                                                   *
+            //                                               block present
+            let chain = populate_db(store.clone());
+            let block = RawBlock::from(&*vec![1; 64]);
+            store.store_block(&chain[9].hash(), &block).unwrap();
+
+            let result = store.find_missing_blocks(chain[9].hash(), 10).unwrap();
+            assert_eq!(result, Some(MissingBlockRange::new(chain[9].point(), vec![])));
+        });
+    }
+
+    #[test]
     fn raises_error_if_rollback_is_not_on_best_chain() {
         with_db(|store| {
             let chain = populate_db(store.clone());
@@ -998,6 +1148,36 @@ pub mod test {
     // HELPERS
 
     const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
+
+    struct ForkedHeaders {
+        h0: BlockHeader,
+        h1: BlockHeader,
+        h2: BlockHeader,
+        h3: BlockHeader,
+        h2a: BlockHeader,
+        h3a: BlockHeader,
+    }
+
+    impl ForkedHeaders {
+        fn main(&self) -> [&BlockHeader; 4] {
+            [&self.h0, &self.h1, &self.h2, &self.h3]
+        }
+
+        fn all(&self) -> [&BlockHeader; 6] {
+            [&self.h0, &self.h1, &self.h2, &self.h3, &self.h2a, &self.h3a]
+        }
+    }
+
+    fn make_forked_headers() -> ForkedHeaders {
+        let h0 = BlockHeader::from(make_header(1, 1, None));
+        let h1 = BlockHeader::from(make_header(2, 2, Some(h0.hash())));
+        let h2 = BlockHeader::from(make_header(3, 3, Some(h1.hash())));
+        let h3 = BlockHeader::from(make_header(4, 4, Some(h2.hash())));
+        let h2a = BlockHeader::from(make_header(3, 10, Some(h1.hash())));
+        let h3a = BlockHeader::from(make_header(4, 11, Some(h2a.hash())));
+
+        ForkedHeaders { h0, h1, h2, h3, h2a, h3a }
+    }
 
     fn populate_db(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
         let chain = run_strategy(any_headers_chain(10));

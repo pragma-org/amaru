@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, MempoolMsg, ReadOnlyChainStore, TxOrigin};
+use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 use tracing::Instrument;
 
@@ -279,11 +279,11 @@ async fn do_handshake(
         })
     } else {
         let store = Store::new(eff.clone());
-        let upstream = store.get_best_chain_hash();
+        let upstream = store.get_best_chain_hash().await;
         let upstream = if upstream == ORIGIN_HASH {
             Tip::new(Point::Origin, 0.into())
         } else {
-            let header = store.load_header(&upstream).expect("best chain hash not found");
+            let header = store.load_header(&upstream).await.expect("best chain hash not found");
             header.tip()
         };
         let chainsync_responder = register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;

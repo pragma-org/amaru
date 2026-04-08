@@ -150,15 +150,8 @@ pub fn build_node(
     let anchor = chain_store.get_anchor_hash();
     let mut best_missing = vec![];
     if let Some(best_candidate) = best_candidate.as_ref() {
-        for (header, validity) in chain_store.ancestors_with_validity(best_candidate.hash()) {
-            // the anchor cannot be validated, so don"t return it
-            if validity.is_none() && header.hash() != anchor {
-                best_missing.push(header.hash());
-            } else {
-                break;
-            }
-        }
-        best_missing.reverse();
+        let (hashes, _valid) = chain_store.unvalidated_ancestor_hashes(best_candidate.hash());
+        best_missing = hashes.into_iter().filter(|h| *h != anchor).collect();
     }
 
     let tip = best_candidate.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);

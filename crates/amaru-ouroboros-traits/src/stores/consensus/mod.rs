@@ -16,6 +16,7 @@ pub mod in_memory_consensus_store;
 pub mod overriding_consensus_store;
 
 use std::{
+    cmp::Reverse,
     fmt::Display,
     iter::{self, successors},
 };
@@ -24,6 +25,44 @@ use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlo
 use thiserror::Error;
 
 use crate::Nonces;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MissingBlockRange {
+    boundary: Point,
+    missing: Vec<Point>,
+}
+
+impl MissingBlockRange {
+    pub fn new(boundary: Point, missing: Vec<Point>) -> Self {
+        Self { boundary, missing }
+    }
+
+    pub fn boundary(&self) -> Point {
+        self.boundary
+    }
+
+    pub fn first(&self) -> Option<Point> {
+        self.missing.first().cloned()
+    }
+
+    pub fn last(&self) -> Option<Point> {
+        self.missing.last().cloned()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.missing.is_empty()
+    }
+
+    pub fn nb_missing_blocks(&self) -> usize {
+        self.missing.len()
+    }
+
+    /// This method is called when the first missing block has been fetched.
+    /// It is then removed from the list of missing blocks and becomes the boundary.
+    pub fn shift_one_block(&mut self) {
+        self.boundary = self.missing.remove(0);
+    }
+}
 
 pub trait ReadOnlyChainStore<H>
 where
@@ -131,6 +170,195 @@ where
         }
     }
 
+    /// Return  the hashes of the ancestors of the header (inclusive of the start hash and in parent -> child order),
+    /// until the first validated ancestor (exclusive) and return a bool denoting
+    /// if that ancestor is valid or invalid.
+    ///
+    /// Example:
+    /// <V>--A--B--C
+    ///            ^
+    ///          start
+    ///
+    /// Returns `([A, B, C], true)`.
+    ///
+    /// If the first validated ancestor is invalid instead:
+    ///
+    /// <X>--A--B--C
+    ///            ^
+    ///          start
+    ///
+    /// Returns `([A, B, C], false)`.
+    ///
+    /// Note that the anchor hash will not be returned since it is always valid
+    fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> (Vec<HeaderHash>, bool)
+    where
+        H: 'static,
+    {
+        let mut hashes = Vec::new();
+        let mut valid = true;
+        for (header, v) in self.ancestors_with_validity(start) {
+            match v {
+                Some(is_valid) => {
+                    valid = is_valid;
+                    break;
+                }
+                None => {
+                    hashes.push(header.hash());
+                }
+            }
+        }
+        hashes.reverse();
+        (hashes, valid)
+    }
+
+    /// Return the fork point with the best chain (if it exists) and the list of points from
+    /// that point to the new best tip (in that order, ending with `start`)
+    ///
+    /// Example:
+    ///            D--E  current best chain
+    ///           /
+    /// O--A--B--C
+    ///          \
+    ///           F--G
+    ///              ^
+    ///            start = new best tip
+    ///
+    /// Returns `(C, [F, G])`.
+    fn find_fork_point(&self, start: HeaderHash) -> Option<(Point, Vec<Point>)>
+    where
+        H: 'static,
+    {
+        let header = self.load_header(&start)?;
+        let mut forward_points = Vec::new();
+        for ancestor in self.ancestors(header) {
+            let point = ancestor.point();
+            if self.load_from_best_chain(&point).is_some() {
+                forward_points.reverse();
+                return Some((point, forward_points));
+            }
+            forward_points.push(point);
+        }
+        None
+    }
+
+    /// Return the most recent point shared by both chains if it exists.
+    ///
+    /// Example:
+    /// O--A--B--C--D
+    ///       \
+    ///        E--F--G
+    ///
+    /// `find_common_ancestor(D, G)` returns `Some(B)`.
+    fn find_common_ancestor(&self, hash1: HeaderHash, hash2: HeaderHash) -> Option<Point>
+    where
+        H: 'static,
+    {
+        let header1 = self.load_header(&hash1)?;
+        let header2 = self.load_header(&hash2)?;
+        let mut chain1 = self.ancestors(header1).map(|h| h.point()).peekable();
+        for point in self.ancestors(header2).map(|h| h.point()) {
+            while let Some(a_point) = chain1.peek() {
+                if a_point.slot_or_default() > point.slot_or_default() {
+                    chain1.next();
+                } else {
+                    break;
+                }
+            }
+            if let Some(a_point) = chain1.peek() {
+                if *a_point == point {
+                    return Some(point);
+                }
+            } else {
+                break;
+            }
+        }
+        None
+    }
+
+    fn find_intersect_point(&self, mut points: Vec<Point>) -> Option<Point>
+    where
+        H: 'static,
+    {
+        if points.is_empty() {
+            return None;
+        }
+
+        points.sort_by_key(|p| Reverse(*p));
+        points.into_iter().find(|&point| self.load_from_best_chain(&point).is_some())
+    }
+
+    /// Return a sparse sample of points from the best chain, starting at the tip, with
+    /// exponentially increasing spacing, always ending with the oldest reachable point.
+    ///
+    /// Example:
+    /// O--A--B--C--D--E--F--G  tip
+    ///
+    /// Returns `[G, F, D, O]`.
+    fn sample_ancestor_points(&self) -> Vec<Point>
+    where
+        H: 'static,
+    {
+        let best = self.get_best_chain_hash();
+        if best == ORIGIN_HASH {
+            return vec![Point::Origin];
+        }
+        let Some(best) = self.load_header(&best) else {
+            return vec![Point::Origin];
+        };
+        let best_point = best.tip().point();
+        let mut points = vec![best_point];
+        let mut spacing = 1;
+        let mut last = best_point;
+        for (index, header) in self.ancestors(best).skip(1).enumerate() {
+            last = header.tip().point();
+            if index + 1 == spacing {
+                points.push(last);
+                spacing *= 2;
+            }
+        }
+        if points.last() != Some(&last) {
+            points.push(last);
+        }
+        points
+    }
+
+    /// Return the range of missing blocks on the path from the nearest available block (or anchor)
+    /// up to `start_hash`, in ancestor -> descendant order, truncated to `limit`.
+    ///
+    /// Example:
+    /// O--A--B--C--D--E
+    ///       *        ^
+    ///   block present start_hash
+    ///
+    /// If blocks for `C`, `D`, and `E` are missing, returns
+    /// `Some(MissingBlockRange { boundary: B, missing: [C, D, E] })`.
+    ///
+    /// Return `None` if the start header does not exist in the database.
+    ///
+    /// Note: the anchor point is not returned because that will confuse block validation.
+    ///
+    fn find_missing_blocks(&self, start_hash: HeaderHash, limit: usize) -> Result<Option<MissingBlockRange>, StoreError>
+    where
+        H: 'static,
+    {
+        let Some(start) = self.load_header(&start_hash) else {
+            return Ok(None);
+        };
+        let anchor = self.get_anchor_hash();
+        let mut missing = Vec::new();
+        for header in self.ancestors(start) {
+            let block = self.load_block(&header.hash())?;
+            if block.is_some() || header.hash() == anchor {
+                missing.reverse();
+                missing.truncate(limit);
+                return Ok(Some(MissingBlockRange { boundary: header.point(), missing }));
+            } else {
+                missing.push(header.point());
+            }
+        }
+        Ok(None)
+    }
+
     fn child_tips<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = Tip> + 'a>
     where
         H: 'a,
@@ -167,6 +395,48 @@ pub trait DiagnosticChainStore {
 }
 
 impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+        self.as_ref().load_header(hash)
+    }
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+        self.as_ref().load_header_with_validity(hash)
+    }
+
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        self.as_ref().get_children(hash)
+    }
+
+    fn get_anchor_hash(&self) -> HeaderHash {
+        self.as_ref().get_anchor_hash()
+    }
+
+    fn get_best_chain_hash(&self) -> HeaderHash {
+        self.as_ref().get_best_chain_hash()
+    }
+
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+        self.as_ref().load_block(hash)
+    }
+
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+        self.as_ref().get_nonces(header)
+    }
+
+    fn has_header(&self, hash: &HeaderHash) -> bool {
+        self.as_ref().has_header(hash)
+    }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        self.as_ref().load_from_best_chain(point)
+    }
+
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        self.as_ref().next_best_chain(point)
+    }
+}
+
+impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ReadOnlyChainStore<H> + '_> {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         self.as_ref().load_header(hash)
     }

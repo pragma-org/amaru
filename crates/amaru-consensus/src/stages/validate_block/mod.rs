@@ -14,7 +14,7 @@
 
 use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros::{BlockValidationError, ReadOnlyChainStore};
+use amaru_ouroboros::BlockValidationError;
 use amaru_protocols::store_effects::Store;
 use pure_stage::{Effects, StageRef, TryInStage};
 
@@ -148,63 +148,96 @@ async fn roll_back_to_ancestor(
     store: &Store<ValidateBlockMsg>,
     parent: Point,
 ) -> Result<(Point, Vec<Point>), ValidationFailed> {
-    if ledger.contains_point(&parent) {
+    if ledger.contains_point(&parent).await {
         return match ledger.rollback(&Peer::new("unknown"), &parent, opentelemetry::Context::current()).await {
             Ok(()) => Ok((parent, Vec::new())),
             Err(vf) => Err(validation_failed_when_contains_claimed_rollback(parent, vf)),
         };
     }
 
-    let ledger_tip = ledger.tip();
-    let mut rb_point = None;
-    let mut rb_chosen_because_contains = false;
-    let mut forward_points = Vec::new();
-    for (ancestor, valid) in store.ancestors_with_validity(parent.hash()) {
-        if valid == Some(false) {
-            return Err(ValidationFailed::new(
-                &Peer::new("unknown"),
-                ConsensusError::RollbackBlockFailed(
-                    parent,
-                    anyhow::anyhow!("rollback point depends on invalid block").into(),
-                ),
-            ));
-        }
-        if ancestor.point() < ledger_tip.point() {
-            return Err(ValidationFailed::new(
-                &Peer::new("unknown"),
-                ConsensusError::RollbackBlockFailed(
-                    parent,
-                    anyhow::anyhow!("cannot rollback into the immutable db").into(),
-                ),
-            ));
-        }
-        let contains_ancestor = ledger.contains_point(&ancestor.point());
-        if ancestor.point() == ledger_tip.point() || contains_ancestor {
-            rb_point = Some(ancestor.point());
-            rb_chosen_because_contains = contains_ancestor;
-            break;
-        }
-        forward_points.push(ancestor.point());
-    }
-    forward_points.reverse();
-
-    if let Some(rb_point) = rb_point {
-        return match ledger.rollback(&Peer::new("unknown"), &rb_point, opentelemetry::Context::current()).await {
-            Ok(()) => Ok((rb_point, forward_points)),
-            Err(vf) if rb_chosen_because_contains => {
-                Err(validation_failed_when_contains_claimed_rollback(rb_point, vf))
+    match find_rollback_point(ledger, store, parent).await {
+        RollbackPointSearchResult::Found { point, forward_points, chosen_because_contains } => {
+            match ledger.rollback(&Peer::new("unknown"), &point, opentelemetry::Context::current()).await {
+                Ok(()) => Ok((point, forward_points)),
+                Err(vf) if chosen_because_contains => Err(validation_failed_when_contains_claimed_rollback(point, vf)),
+                Err(vf) => Err(vf),
             }
-            Err(vf) => Err(vf),
-        };
-    } else {
-        Err(ValidationFailed::new(
-            // TODO: figure out which peer to blame
+        }
+        RollbackPointSearchResult::DependsOnInvalid => Err(ValidationFailed::new(
+            &Peer::new("unknown"),
+            ConsensusError::RollbackBlockFailed(
+                parent,
+                anyhow::anyhow!("rollback point depends on invalid block").into(),
+            ),
+        )),
+        RollbackPointSearchResult::BelowImmutable => Err(ValidationFailed::new(
+            &Peer::new("unknown"),
+            ConsensusError::RollbackBlockFailed(
+                parent,
+                anyhow::anyhow!("cannot rollback into the immutable db").into(),
+            ),
+        )),
+        RollbackPointSearchResult::NotFound => Err(ValidationFailed::new(
             &Peer::new("unknown"),
             ConsensusError::RollbackBlockFailed(
                 parent,
                 anyhow::anyhow!("rollback point not found in volatile db").into(),
             ),
-        ))
+        )),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+enum RollbackPointSearchResult {
+    Found { point: Point, forward_points: Vec<Point>, chosen_because_contains: bool },
+    DependsOnInvalid,
+    BelowImmutable,
+    NotFound,
+}
+
+async fn find_rollback_point(
+    ledger: &Ledger<ValidateBlockMsg>,
+    store: &Store<ValidateBlockMsg>,
+    parent: Point,
+) -> RollbackPointSearchResult {
+    let ledger_tip = ledger.tip().await;
+    let anchor_hash = store.get_anchor_hash().await;
+    let mut current_hash = parent.hash();
+    let mut forward_points = Vec::new();
+
+    loop {
+        let Some((ancestor, valid)) = store.load_header_with_validity(&current_hash).await else {
+            return RollbackPointSearchResult::NotFound;
+        };
+
+        if valid == Some(false) {
+            return RollbackPointSearchResult::DependsOnInvalid;
+        }
+
+        if ancestor.point() < ledger_tip.point() {
+            return RollbackPointSearchResult::BelowImmutable;
+        }
+
+        let chosen_because_contains =
+            ancestor.point() != ledger_tip.point() && ledger.contains_point(&ancestor.point()).await;
+        if ancestor.point() == ledger_tip.point() || chosen_because_contains {
+            forward_points.reverse();
+            return RollbackPointSearchResult::Found {
+                point: ancestor.point(),
+                forward_points,
+                chosen_because_contains,
+            };
+        }
+
+        forward_points.push(ancestor.point());
+        if current_hash == anchor_hash {
+            return RollbackPointSearchResult::NotFound;
+        }
+
+        let Some(parent_hash) = ancestor.parent_hash() else {
+            return RollbackPointSearchResult::NotFound;
+        };
+        current_hash = parent_hash;
     }
 }
 
