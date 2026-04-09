@@ -23,7 +23,8 @@ use std::{
 };
 
 use opentelemetry::trace::TracerProvider;
-use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use opentelemetry_sdk::{logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
 use tracing::{Metadata, Subscriber, info, level_filters::LevelFilter, span, subscriber::Interest, warn};
 use tracing_subscriber::{
@@ -53,7 +54,12 @@ const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
 // TracingSubscriber
 // -----------------------------------------------------------------------------
 
-type OpenTelemetryLayer<S> = Layered<OpenTelemetryFilter<S>, S>;
+type InnerOtelStack<S> = Layered<OpenTelemetryFilter<S>, S>;
+
+type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, InnerOtelStack<S>>;
+
+type LogBridgeFilter<S> =
+    Filtered<OpenTelemetryTracingBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>, ThrottledEnvFilter, InnerOtelStack<S>>;
 
 type OpenTelemetryFilter<S> =
     Filtered<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, ThrottledEnvFilter, S>;
@@ -144,10 +150,14 @@ impl TracingSubscriber<Registry> {
 
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>) {
+    pub fn with_open_telemetry(
+        &mut self,
+        layer: OpenTelemetryFilter<Registry>,
+        log_bridge: LogBridgeFilter<Registry>,
+    ) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer));
+                *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer).with(log_bridge));
             }
             _ => panic!("'with_open_telemetry' called after 'with_json'"),
         }
@@ -336,7 +346,7 @@ pub fn setup_open_telemetry(
 
     let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(metric_reader)
-        .with_resource(resource)
+        .with_resource(resource.clone())
         .build();
 
     // FIXME RK: this doesn’t seem to be used anywhere?
@@ -349,12 +359,25 @@ pub fn setup_open_telemetry(
     let opentelemetry_layer =
         tracing_opentelemetry::layer().with_tracer(opentelemetry_tracer).with_level(true).with_filter(default_filter);
 
-    subscriber.with_open_telemetry(opentelemetry_layer);
+    // Logs
+    let logs_exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .build()
+        .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}"));
+    let logs_provider = SdkLoggerProvider::builder()
+        .with_resource(resource)
+        .with_batch_exporter(logs_exporter)
+        .build();
+    let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider);
+    let (log_bridge_filter, _) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let log_bridge = log_bridge.with_filter(log_bridge_filter);
+
+    subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
 
     (
         OpenTelemetryHandle {
             metrics: Some(metrics_provider.clone()),
-            teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider)),
+            teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider, logs_provider)),
         },
         warning,
     )
@@ -363,11 +386,13 @@ pub fn setup_open_telemetry(
 fn teardown_open_telemetry(
     tracing: SdkTracerProvider,
     metrics: SdkMeterProvider,
+    logs: SdkLoggerProvider,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Shut down the providers so that it flushes any remaining spans
     // TODO: we might also want to wrap this in a timeout, so we don't hold the process open forever?
     tracing.shutdown()?;
     metrics.shutdown()?;
+    logs.shutdown()?;
 
     Ok(())
 }

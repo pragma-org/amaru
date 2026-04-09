@@ -43,6 +43,7 @@ indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
 mithril-client = { workspace = true, optional = true }
+opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 opentelemetry.workspace = true
