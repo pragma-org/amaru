@@ -90,6 +90,10 @@ impl UtxoSlice for DefaultValidationContext {
     fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
         self.state.utxo.produce(input, output)
     }
+
+    fn produced_inputs(&self) -> Vec<&TransactionInput> {
+        self.state.utxo.produced.keys().collect()
+    }
 }
 
 impl PoolsSlice for DefaultValidationContext {

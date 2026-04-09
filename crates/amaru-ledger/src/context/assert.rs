@@ -48,6 +48,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
     fn from(ctx: AssertPreparationContext) -> AssertValidationContext {
         AssertValidationContext {
             utxo: ctx.utxo,
+            produced: BTreeSet::default(),
             required_signers: BTreeSet::default(),
             required_scripts: BTreeSet::default(),
             known_scripts: BTreeMap::default(),
@@ -94,6 +95,8 @@ pub struct AssertValidationContext {
     #[serde(deserialize_with = "deserialize_map_proxy")]
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     #[serde(default)]
+    produced: BTreeSet<TransactionInput>,
+    #[serde(default)]
     required_signers: BTreeSet<Hash<KEY>>,
     #[serde(default)]
     required_scripts: BTreeSet<RequiredScript>,
@@ -132,7 +135,12 @@ impl UtxoSlice for AssertValidationContext {
     }
 
     fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
+        self.produced.insert(input.clone());
         self.utxo.insert(input, output);
+    }
+
+    fn produced_inputs(&self) -> Vec<&TransactionInput> {
+        self.produced.iter().collect()
     }
 }
 

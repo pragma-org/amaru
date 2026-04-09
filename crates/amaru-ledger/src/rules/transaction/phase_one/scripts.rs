@@ -19,12 +19,13 @@ use std::{
 };
 
 use amaru_kernel::{
-    HasRedeemers, Hash, MemoizedDatum, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet,
-    script_purpose_to_string,
+    HasRedeemers, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, RedeemerKey, RequiredScript, ScriptKind,
+    ScriptPurpose, WitnessSet, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
 use thiserror::Error;
+use uplc_turbo::{arena::Arena, binder::DeBruijn, flat};
 
 use crate::context::{UtxoSlice, WitnessSlice};
 
@@ -69,6 +70,10 @@ pub enum InvalidScripts {
         )).collect::<Vec<_>>().join(", ")
     )]
     MissingRedeemers(Vec<RedeemerKey>),
+    #[error("malformed script witnesses: [{}]", display_collection(.0))]
+    MalformedScriptWitnesses(BTreeSet<Hash<SCRIPT>>),
+    #[error("malformed reference scripts: [{}]", display_collection(.0))]
+    MalformedReferenceScripts(BTreeSet<Hash<SCRIPT>>),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -76,6 +81,8 @@ pub fn execute<C>(context: &mut C, witness_set: &WitnessSet) -> Result<(), Inval
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
+    fail_on_malformed_scripts(context, witness_set)?;
+
     let required_scripts = context.required_scripts();
 
     let required_script_hashes: BTreeSet<&Hash<SCRIPT>> =
@@ -112,8 +119,6 @@ where
     if !extra_redeemers.is_empty() {
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
-
-    // TODO: evaluate scripts
 
     Ok(())
 }
@@ -323,6 +328,65 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
     Ok(())
 }
 
+pub fn is_plutus_script_well_formed(script_bytes: &[u8]) -> bool {
+    let arena = Arena::new();
+    flat::decode::<DeBruijn>(&arena, script_bytes).is_ok()
+}
+
+fn get_malformed_witness_scripts(witness_set: &WitnessSet) -> BTreeSet<Hash<SCRIPT>> {
+    let mut malformed = BTreeSet::new();
+
+    if let Some(scripts) = witness_set.plutus_v1_script.as_ref() {
+        malformed.extend(scripts.iter().filter(|s| !is_plutus_script_well_formed(&s.0)).map(|s| s.script_hash()));
+    }
+    if let Some(scripts) = witness_set.plutus_v2_script.as_ref() {
+        malformed.extend(scripts.iter().filter(|s| !is_plutus_script_well_formed(&s.0)).map(|s| s.script_hash()));
+    }
+    if let Some(scripts) = witness_set.plutus_v3_script.as_ref() {
+        malformed.extend(scripts.iter().filter(|s| !is_plutus_script_well_formed(&s.0)).map(|s| s.script_hash()));
+    }
+
+    malformed
+}
+
+fn get_malformed_reference_scripts<C>(context: &C) -> BTreeSet<Hash<SCRIPT>>
+where
+    C: UtxoSlice,
+{
+    context
+        .produced_inputs()
+        .into_iter()
+        .filter_map(|input| context.lookup(input))
+        .filter_map(|output| output.script.as_ref())
+        .filter_map(|script| match script {
+            MemoizedScript::PlutusV1Script(s) if !is_plutus_script_well_formed(&s.0) => Some(script.script_hash()),
+            MemoizedScript::PlutusV2Script(s) if !is_plutus_script_well_formed(&s.0) => Some(script.script_hash()),
+            MemoizedScript::PlutusV3Script(s) if !is_plutus_script_well_formed(&s.0) => Some(script.script_hash()),
+            MemoizedScript::NativeScript(_)
+            | MemoizedScript::PlutusV1Script(_)
+            | MemoizedScript::PlutusV2Script(_)
+            | MemoizedScript::PlutusV3Script(_) => None,
+        })
+        .collect()
+}
+
+fn fail_on_malformed_scripts<C>(context: &C, witness_set: &WitnessSet) -> Result<(), InvalidScripts>
+where
+    C: UtxoSlice,
+{
+    let malformed_witnesses = get_malformed_witness_scripts(witness_set);
+    if !malformed_witnesses.is_empty() {
+        return Err(InvalidScripts::MalformedScriptWitnesses(malformed_witnesses));
+    }
+
+    let malformed_refs = get_malformed_reference_scripts(context);
+    if !malformed_refs.is_empty() {
+        return Err(InvalidScripts::MalformedReferenceScripts(malformed_refs));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{WitnessSet, include_cbor};
@@ -381,5 +445,35 @@ mod tests {
     #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
     fn test_scripts((mut ctx, witness_set): (AssertValidationContext, WitnessSet)) -> Result<(), InvalidScripts> {
         super::execute(&mut ctx, &witness_set)
+    }
+
+    #[test]
+    fn malformed_script_rejected() {
+        assert!(!super::is_plutus_script_well_formed(&[0xDE, 0xAD]));
+    }
+
+    #[test]
+    fn empty_script_rejected() {
+        assert!(!super::is_plutus_script_well_formed(&[]));
+    }
+
+    #[test]
+    fn malformed_witness_script_detected() {
+        use amaru_kernel::{NonEmptyVec, PlutusScript};
+
+        let witness_set = WitnessSet {
+            plutus_v3_script: Some(NonEmptyVec::singleton(PlutusScript(vec![0xDE, 0xAD].into()))),
+            ..WitnessSet::default()
+        };
+
+        let malformed = super::get_malformed_witness_scripts(&witness_set);
+        assert_eq!(malformed.len(), 1);
+    }
+
+    #[test]
+    fn no_scripts_no_malformed() {
+        let witness_set = WitnessSet::default();
+        let malformed = super::get_malformed_witness_scripts(&witness_set);
+        assert!(malformed.is_empty());
     }
 }
