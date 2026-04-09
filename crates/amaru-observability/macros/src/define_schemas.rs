@@ -1087,10 +1087,6 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
     // Description should exist if validation passed, but use a fallback for error recovery
     let description = schema.description.as_deref().unwrap_or("Missing description");
 
-    if !schema.public {
-        return quote! {};
-    }
-
     let public = schema.public;
 
     quote! {
