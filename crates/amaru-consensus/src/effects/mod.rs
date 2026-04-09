@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod base_effects;
 mod ledger_effects;
 mod metrics_effects;
 
-pub use base_effects::{Base, BaseOps};
 pub use ledger_effects::{
     ContainsPointEffect, Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation,
     ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation, RollbackBlockEffect, TipEffect,

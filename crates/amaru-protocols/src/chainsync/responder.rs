@@ -133,7 +133,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
 async fn next_header(
     state: ResponderState,
     pointer: &mut Point,
-    store: &Store<Inputs<ResponderMessage>>,
+    store: &Store,
     tip: Tip,
 ) -> anyhow::Result<Option<ResponderAction>> {
     match state {
@@ -176,11 +176,7 @@ async fn next_header(
 }
 
 /// Rollback when the client pointer is on a different fork from our best chain.
-async fn next_header_rollback(
-    pointer: &mut Point,
-    store: &Store<Inputs<ResponderMessage>>,
-    tip: Tip,
-) -> anyhow::Result<Option<ResponderAction>> {
+async fn next_header_rollback(pointer: &mut Point, store: &Store, tip: Tip) -> anyhow::Result<Option<ResponderAction>> {
     let (fork_point, _) = store
         .find_fork_point(pointer.hash())
         .await
@@ -192,11 +188,7 @@ async fn next_header_rollback(
 /// Find the next action by searching backwards from the advertised tip.
 /// Used when next_best_chain would return a header whose parent doesn't match the pointer
 /// (e.g. because the store changed between load_from_best_chain and next_best_chain).
-async fn next_header_from_tip(
-    pointer: &mut Point,
-    store: &Store<Inputs<ResponderMessage>>,
-    tip: Tip,
-) -> anyhow::Result<Option<ResponderAction>> {
+async fn next_header_from_tip(pointer: &mut Point, store: &Store, tip: Tip) -> anyhow::Result<Option<ResponderAction>> {
     let common = store
         .find_common_ancestor(tip.point().hash(), pointer.hash())
         .await

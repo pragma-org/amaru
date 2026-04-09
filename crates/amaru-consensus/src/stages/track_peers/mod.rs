@@ -140,7 +140,7 @@ impl TrackPeers {
         variant: EraName,
         header: BlockHeader,
         tip: Tip,
-        ledger: &Ledger<TrackPeersMsg>,
+        ledger: &Ledger,
     ) -> Result<(BlockHeader, Point), ConsensusError> {
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
@@ -190,7 +190,7 @@ impl TrackPeers {
         peer: &Peer,
         header: BlockHeader,
         tip: Tip,
-        store: &Store<TrackPeersMsg>,
+        store: &Store,
     ) -> Result<Option<Tip>, ConsensusError> {
         let Some(per_peer) = self.upstream.get_mut(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
@@ -211,7 +211,7 @@ impl TrackPeers {
         peer: &Peer,
         current: Point,
         tip: Tip,
-        store: &Store<TrackPeersMsg>,
+        store: &Store,
     ) -> Result<(), ConsensusError> {
         let Some(header) = store.load_header(&current.hash()).await else {
             return Err(ConsensusError::UnknownPoint(current.hash()));

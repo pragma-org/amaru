@@ -76,7 +76,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 tracing::info!(parent = %msg.parent, current = %state.current, points = %forward_points.len(), "rolling forward ledger to reach parent");
                 for point in forward_points {
                     tracing::debug!(point = %point, "validating block (roll forward)");
-                    match validate(point, &ledger).await {
+                    match validate(point, &ledger, &eff).await {
                         Ok(metrics) => {
                             Metrics::new(&eff).record(metrics.into()).await;
                             state.current = point;
@@ -105,7 +105,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         }
     }
 
-    match validate(msg.tip.point(), &ledger).await {
+    match validate(msg.tip.point(), &ledger, &eff).await {
         Ok(metrics) => {
             Metrics::new(&eff).record(metrics.into()).await;
             eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
@@ -121,12 +121,16 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
     state
 }
 
-async fn validate(point: Point, ledger: &Ledger<ValidateBlockMsg>) -> Result<LedgerMetrics, BlockValidationError> {
+async fn validate(
+    point: Point,
+    ledger: &Ledger,
+    eff: &Effects<ValidateBlockMsg>,
+) -> Result<LedgerMetrics, BlockValidationError> {
     let ctx = opentelemetry::Context::current();
     ledger
         .validate_block(&Peer::new("unknown"), &point, ctx)
         .await
-        .or_terminate(ledger.eff(), async |error| {
+        .or_terminate(eff, async |error| {
             tracing::error!(error = %error, %point, "failed to validate block");
         })
         .await
@@ -144,8 +148,8 @@ fn validation_failed_when_contains_claimed_rollback(rollback_target: Point, vf: 
 }
 
 async fn roll_back_to_ancestor(
-    ledger: &Ledger<ValidateBlockMsg>,
-    store: &Store<ValidateBlockMsg>,
+    ledger: &Ledger,
+    store: &Store,
     parent: Point,
 ) -> Result<(Point, Vec<Point>), ValidationFailed> {
     if ledger.contains_point(&parent).await {
@@ -195,11 +199,7 @@ enum RollbackPointSearchResult {
     NotFound,
 }
 
-async fn find_rollback_point(
-    ledger: &Ledger<ValidateBlockMsg>,
-    store: &Store<ValidateBlockMsg>,
-    parent: Point,
-) -> RollbackPointSearchResult {
+async fn find_rollback_point(ledger: &Ledger, store: &Store, parent: Point) -> RollbackPointSearchResult {
     let ledger_tip = ledger.tip().await;
     let anchor_hash = store.get_anchor_hash().await;
     let mut current_hash = parent.hash();

@@ -22,8 +22,6 @@ use amaru_protocols::chainsync::InitiatorMessage;
 use pure_stage::{Effects, StageRef};
 
 use super::ledger_applied_block_height;
-use crate::effects::{Base, BaseOps};
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DeferReqNextMsg {
     Register { handler: StageRef<InitiatorMessage>, min_ledger_height: BlockHeight },

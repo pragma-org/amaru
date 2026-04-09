@@ -16,26 +16,17 @@ use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, GlobalParameters, HeaderHash, Point, RawBlock};
 use amaru_ouroboros_traits::{ChainStore, MissingBlockRange, Nonces, StoreError};
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 
 /// Implementation of ChainStore using pure_stage::Effects.
-pub struct Store<T> {
-    effects: Effects<T>,
+#[derive(Clone, Debug)]
+pub struct Store {
+    effects: Effects<Void>,
 }
 
-impl<T> Clone for Store<T> {
-    fn clone(&self) -> Self {
-        Self { effects: self.effects.clone() }
-    }
-}
-
-impl<T: SendData + Sync + 'static> Store<T> {
-    pub fn new(effects: Effects<T>) -> Store<T> {
-        Store { effects }
-    }
-
-    pub fn eff(&self) -> &Effects<T> {
-        &self.effects
+impl Store {
+    pub fn new<T: SendData>(effects: Effects<T>) -> Store {
+        Store { effects: effects.erase() }
     }
 
     pub fn external<E: ExternalEffectAPI + 'static>(&self, effect: E) -> BoxFuture<'static, E::Response> {
@@ -118,7 +109,7 @@ impl<T: SendData + Sync + 'static> Store<T> {
     }
 
     pub fn load_tip(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<amaru_kernel::Tip>> {
-        let store = Self { effects: self.effects.clone() };
+        let store = self.clone();
         let hash = *hash;
         Box::pin(async move {
             if hash == amaru_kernel::ORIGIN_HASH {
@@ -131,7 +122,7 @@ impl<T: SendData + Sync + 'static> Store<T> {
 
 // ASYNC QUERY METHODS (single-effect operations for simulation compatibility)
 
-impl<T: SendData + Sync> Store<T> {
+impl Store {
     pub fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> BoxFuture<'static, (Vec<HeaderHash>, bool)> {
         self.effects.external(UnvalidatedAncestorHashesEffect::new(start))
     }
@@ -654,7 +645,8 @@ impl ExternalEffect for UnvalidatedAncestorHashesEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("UnvalidatedAncestorHashesEffect requires a chain store")
                 .clone();
-            store.unvalidated_ancestor_hashes(self.start)
+            let snapshot = store.snapshot();
+            snapshot.unvalidated_ancestor_hashes(self.start)
         })
     }
 }
@@ -680,7 +672,8 @@ impl ExternalEffect for FindForkPointEffect {
         Self::wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("FindForkPointEffect requires a chain store").clone();
-            store.find_fork_point(self.start)
+            let snapshot = store.snapshot();
+            snapshot.find_fork_point(self.start)
         })
     }
 }
@@ -709,7 +702,8 @@ impl ExternalEffect for FindCommonAncestorEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("FindCommonAncestorEffect requires a chain store")
                 .clone();
-            store.find_common_ancestor(self.hash_a, self.hash_b)
+            let snapshot = store.snapshot();
+            snapshot.find_common_ancestor(self.hash_a, self.hash_b)
         })
     }
 }
@@ -764,7 +758,8 @@ impl ExternalEffect for SampleAncestorPointsEffect {
                 .get::<ResourceHeaderStore>()
                 .expect("SampleAncestorPointsEffect requires a chain store")
                 .clone();
-            store.sample_ancestor_points()
+            let snapshot = store.snapshot();
+            snapshot.sample_ancestor_points()
         })
     }
 }
@@ -791,7 +786,8 @@ impl ExternalEffect for FindMissingBlocksEffect {
         Self::wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("FindMissingBlocksEffect requires a chain store").clone();
-            store.find_missing_blocks(self.start, self.limit)
+            let snapshot = store.snapshot();
+            snapshot.find_missing_blocks(self.start, self.limit)
         })
     }
 }

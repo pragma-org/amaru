@@ -38,6 +38,7 @@ use crate::{
     simulation::Transition,
     time::Clock,
     trace_buffer::TraceBuffer,
+    types::Void,
 };
 
 /// A handle for performing effects on the current stage.
@@ -99,6 +100,23 @@ impl<M: SendData> Effects<M> {
     /// message to the current stage. For owned access, see [`me()`](Self::me).
     pub fn me_ref(&self) -> &StageRef<M> {
         &self.me
+    }
+
+    /// Return an erased version of Effects to be used when a self reference is not necessary.
+    pub fn erase(&self) -> Effects<Void> {
+        let me = StageRef::new(self.me.name().clone());
+        let me = match self.me.extra().cloned() {
+            Some(extra) => me.with_extra(extra),
+            None => me,
+        };
+        Effects {
+            me,
+            effect: self.effect.clone(),
+            clock: self.clock.clone(),
+            resources: self.resources.clone(),
+            schedule_ids: self.schedule_ids.clone(),
+            trace_buffer: self.trace_buffer.clone(),
+        }
     }
 }
 

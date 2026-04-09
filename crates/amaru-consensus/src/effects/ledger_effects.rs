@@ -22,7 +22,7 @@ use amaru_ouroboros_traits::{
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use opentelemetry::trace::FutureExt;
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 
 use crate::errors::{ConsensusError, ValidationFailed};
 
@@ -35,27 +35,27 @@ pub trait LedgerOps: Send + Sync {
         &self,
         header: &BlockHeader,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<(), HeaderValidationError>>;
+    ) -> BoxFuture<'static, Result<(), HeaderValidationError>>;
 
     fn validate_block(
         &self,
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
+    ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
     fn rollback(
         &self,
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>>;
+    ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>>;
 
-    fn contains_point(&self, point: &Point) -> BoxFuture<'_, bool>;
+    fn contains_point(&self, point: &Point) -> BoxFuture<'static, bool>;
 
-    fn tip(&self) -> BoxFuture<'_, Tip>;
+    fn tip(&self) -> BoxFuture<'static, Tip>;
 
-    fn volatile_tip(&self) -> BoxFuture<'_, Option<Tip>>;
+    fn volatile_tip(&self) -> BoxFuture<'static, Option<Tip>>;
 
     /// Get the registered relay socket addresses from the stable store.
     ///
@@ -66,19 +66,18 @@ pub trait LedgerOps: Send + Sync {
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
-pub struct Ledger<T>(Effects<T>);
+#[derive(Clone, Debug)]
+pub struct Ledger {
+    effects: Effects<Void>,
+}
 
-impl<T> Ledger<T> {
-    pub fn new(effects: Effects<T>) -> Ledger<T> {
-        Ledger(effects)
-    }
-
-    pub fn eff(&self) -> &Effects<T> {
-        &self.0
+impl Ledger {
+    pub fn new<T: SendData>(effects: Effects<T>) -> Self {
+        Self { effects: effects.erase() }
     }
 }
 
-impl<T: SendData + Sync> LedgerOps for Ledger<T> {
+impl LedgerOps for Ledger {
     fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>> {
         self.0.external(ValidateTxEffect::new(tx))
     }
@@ -87,8 +86,8 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         &self,
         header: &BlockHeader,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
-        self.0.external(ValidateHeaderEffect::new(header, ctx))
+    ) -> BoxFuture<'static, Result<(), HeaderValidationError>> {
+        self.effects.external(ValidateHeaderEffect::new(header, ctx))
     }
 
     fn validate_block(
@@ -96,8 +95,8 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
-        self.0.external(ValidateBlockEffect::new(peer, point, ctx))
+    ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
+        self.effects.external(ValidateBlockEffect::new(peer, point, ctx))
     }
 
     fn rollback(
@@ -105,20 +104,20 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>> {
-        self.0.external(RollbackBlockEffect::new(peer, point, ctx))
+    ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>> {
+        self.effects.external(RollbackBlockEffect::new(peer, point, ctx))
     }
 
-    fn contains_point(&self, point: &Point) -> BoxFuture<'_, bool> {
-        self.0.external(ContainsPointEffect::new(point))
+    fn contains_point(&self, point: &Point) -> BoxFuture<'static, bool> {
+        self.effects.external(ContainsPointEffect::new(point))
     }
 
-    fn tip(&self) -> BoxFuture<'_, Tip> {
-        self.0.external(TipEffect)
+    fn tip(&self) -> BoxFuture<'static, Tip> {
+        self.effects.external(TipEffect)
     }
 
-    fn volatile_tip(&self) -> BoxFuture<'_, Option<Tip>> {
-        self.0.external(VolatileTipEffect)
+    fn volatile_tip(&self) -> BoxFuture<'static, Option<Tip>> {
+        self.effects.external(VolatileTipEffect)
     }
 
     fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {

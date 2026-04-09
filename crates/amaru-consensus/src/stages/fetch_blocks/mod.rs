@@ -76,7 +76,7 @@ impl FetchBlocks {
         self.block_height = tip.block_height().max(self.block_height);
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
-        let store = Store::new(eff);
+        let store = Store::new(eff.clone());
         assert!(
             self.missing_range.is_none(),
             "there shouldn't be any missing block range when starting a new tip: {:?}",
@@ -86,14 +86,14 @@ impl FetchBlocks {
         match store.find_missing_blocks(tip.hash(), 10).await {
             Ok(None) => {
                 tracing::error!("failed to load initial header");
-                return store.eff().terminate().await;
+                return eff.terminate().await;
             }
             Ok(Some(range)) => {
                 self.missing_range = Some(range);
             }
             Err(error) => {
                 tracing::error!(%error, "failed to find missing blocks");
-                return store.eff().terminate().await;
+                return eff.terminate().await;
             }
         }
         let Some(range) = self.missing_range.as_ref() else {
@@ -102,26 +102,24 @@ impl FetchBlocks {
         if range.is_empty() {
             self.missing_range = None;
             tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
-            store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
+            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
             return;
         }
         let from = range.first().expect("checked above that this exists");
         let through = range.last().expect("checked above that not empty");
         tracing::debug!(%from, %through, length = range.nb_missing_blocks(), "requesting blocks");
         self.req_id += 1;
-        store
-            .eff()
-            .send(
-                &self.manager,
-                ManagerMessage::FetchBlocks2 { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
-            )
-            .await;
-        let timeout = store.eff().schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
+        eff.send(
+            &self.manager,
+            ManagerMessage::FetchBlocks2 { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
+        )
+        .await;
+        let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
         self.timeout = Some(timeout);
     }
 
     pub async fn block(&mut self, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
-        let store = Store::new(eff);
+        let store = Store::new(eff.clone());
         let block = match network_block.decode_block() {
             Ok(block) => block,
             Err(error) => {
@@ -154,12 +152,12 @@ impl FetchBlocks {
         store
             .store_block(&point.hash(), &network_block.raw_block())
             .await
-            .or_terminate(store.eff(), async |error| {
+            .or_terminate(&eff, async |error| {
                 tracing::error!(%error, "failed to store block");
             })
             .await;
         let tip = Tip::new(point, block.header.header_body.block_number.into());
-        store.eff().send(&self.downstream, (tip, range.boundary(), self.block_height)).await;
+        eff.send(&self.downstream, (tip, range.boundary(), self.block_height)).await;
 
         let done = {
             #[expect(clippy::expect_used)]
@@ -170,9 +168,9 @@ impl FetchBlocks {
         if done {
             self.missing_range = None;
             if let Some(timeout) = self.timeout.take() {
-                store.eff().cancel_schedule(timeout).await;
+                eff.cancel_schedule(timeout).await;
             }
-            store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
+            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
         }
     }
 

@@ -78,12 +78,12 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         return state;
     }
 
-    let store = Store::new(eff);
+    let store = Store::new(eff.clone());
 
     let incoming_header = store
         .load_header(&msg.hash())
         .await
-        .or_terminate(store.eff(), async |_| {
+        .or_terminate(&eff, async |_| {
             tracing::warn!(tip = %msg, "failed to load incoming tip");
         })
         .await;
@@ -91,7 +91,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
     let current_best = store
         .load_header(&state.current_best_tip.hash())
         .await
-        .or_terminate(store.eff(), async |_| {
+        .or_terminate(&eff, async |_| {
             tracing::warn!("failed to load current best");
         })
         .await;
@@ -103,14 +103,14 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
 
     adopt_tip(&store, &incoming_header, &current_best)
         .await
-        .or_terminate(store.eff(), async |error| {
+        .or_terminate(&eff, async |error| {
             tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
         })
         .await;
 
     drag_anchor_forward(&store, &msg, state.consensus_security_param)
         .await
-        .or_terminate(store.eff(), async |error| {
+        .or_terminate(&eff, async |error| {
             tracing::error!(error = %error, tip = %msg, "failed to drag anchor forward");
         })
         .await;
@@ -125,18 +125,14 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
         state.suppressed += 1;
     }
-    store.eff().send(&state.downstream, ManagerMessage::NewTip(msg)).await;
+    eff.send(&state.downstream, ManagerMessage::NewTip(msg)).await;
     state.current_best_tip = msg;
     state
 }
 
 /// Adopt the tip: update best_chain_hash and maintain best chain links via
 /// roll_forward_chain and rollback_chain.
-async fn adopt_tip(
-    store: &Store<AdoptChainMsg>,
-    incoming_header: &BlockHeader,
-    current_best: &BlockHeader,
-) -> Result<(), StoreError> {
+async fn adopt_tip(store: &Store, incoming_header: &BlockHeader, current_best: &BlockHeader) -> Result<(), StoreError> {
     if incoming_header.parent() == Some(current_best.hash()) {
         store.roll_forward_chain(&incoming_header.point()).await?;
     } else {
@@ -149,7 +145,7 @@ async fn adopt_tip(
 
 /// Find the youngest point on the current best chain that is an ancestor of
 /// the given header (the intersection point when switching forks).
-async fn mark_new_chain(store: &Store<AdoptChainMsg>, incoming_header: &BlockHeader) -> Result<(), StoreError> {
+async fn mark_new_chain(store: &Store, incoming_header: &BlockHeader) -> Result<(), StoreError> {
     let Some((fork_point, forward_points)) = store.find_fork_point(incoming_header.hash()).await else {
         return Err(StoreError::ReadError {
             error: "rollback point not found: new tip has no ancestor on best chain".to_string(),
@@ -165,11 +161,7 @@ async fn mark_new_chain(store: &Store<AdoptChainMsg>, incoming_header: &BlockHea
 /// Drag the store anchor forward so it is at most `consensus_security_param`
 /// blocks behind the adopted tip. Walks forward from the anchor along the
 /// best chain using next_best_chain. Only moves the anchor forward, never backward.
-async fn drag_anchor_forward(
-    store: &Store<AdoptChainMsg>,
-    tip: &Tip,
-    consensus_security_param: u64,
-) -> Result<(), StoreError> {
+async fn drag_anchor_forward(store: &Store, tip: &Tip, consensus_security_param: u64) -> Result<(), StoreError> {
     let target_anchor_height = tip.block_height() - consensus_security_param;
 
     if target_anchor_height.as_u64() == 0 {

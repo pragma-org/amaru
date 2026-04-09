@@ -179,7 +179,7 @@ impl SelectChain {
                         store
                             .load_tip(&parent)
                             .await
-                            .or_terminate(store.eff(), async |_| {
+                            .or_terminate(&eff, async |_| {
                                 tracing::warn!(
                                     "failed to load parent {:?} of best tip candidate {:?}",
                                     parent,
@@ -215,11 +215,11 @@ impl SelectChain {
         if let Some(best_tip) = &self.best_tip
             && best_tip.point() != point
         {
-            let store = Store::new(eff);
+            let store = Store::new(eff.clone());
             let header = store
                 .load_header(&best_tip.hash())
                 .await
-                .or_terminate(store.eff(), async |_| {
+                .or_terminate(&eff, async |_| {
                     tracing::error!("failed to load header of best candidate");
                 })
                 .await;
@@ -227,7 +227,7 @@ impl SelectChain {
                 store
                     .load_tip(&parent)
                     .await
-                    .or_terminate(store.eff(), async |_| {
+                    .or_terminate(&eff, async |_| {
                         tracing::error!("failed to load parent of best candidate");
                     })
                     .await
@@ -236,7 +236,7 @@ impl SelectChain {
                 Point::Origin
             };
             tracing::debug!(tip = %best_tip.point(), %parent, "resuming block fetching");
-            store.eff().send(&self.downstream, (best_tip.tip(), parent)).await;
+            eff.send(&self.downstream, (best_tip.tip(), parent)).await;
         } else {
             self.may_fetch_blocks = true;
         }

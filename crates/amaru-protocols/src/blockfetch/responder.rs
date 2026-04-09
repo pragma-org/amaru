@@ -71,7 +71,7 @@ impl PointsRange {
 
     /// Load the first available block in the current range (the block is expected to be found).
     /// Each time we attempt to fetch a block we pop its point from the current_range.
-    async fn next_block(self, store: &Store<Inputs<StreamBlocks>>) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
+    async fn next_block(self, store: &Store) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
         // points are stored from most recent to oldest, so we pop from the end
         let (last, rest) = self.0.pop();
         let last_hash = last.hash();
@@ -85,11 +85,7 @@ impl PointsRange {
     ///  - Check that there is a valid path of block from `from` to `through` in the chain store.
     ///  - Check that we don't return too many headers to avoid getting over the protocol limits.
     ///  - Return None if any of the above checks fail and return the points range otherwise.
-    pub async fn request_range(
-        store: &Store<Inputs<StreamBlocks>>,
-        from: Point,
-        through: Point,
-    ) -> anyhow::Result<Option<PointsRange>> {
+    pub async fn request_range(store: &Store, from: Point, through: Point) -> anyhow::Result<Option<PointsRange>> {
         // make sure that from <= through
         if from > through {
             tracing::debug!(%from, %through, "requested range is invalid: from > through");

@@ -15,7 +15,7 @@
 use amaru_kernel::{Peer, Point, Tip};
 use amaru_observability::trace_span;
 use amaru_ouroboros::ConnectionId;
-use pure_stage::{DeserializerGuards, Effects, SendData, StageRef, Void};
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
@@ -166,7 +166,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
-async fn intersect_points<T: SendData + Sync + 'static>(store: &Store<T>) -> Vec<Point> {
+async fn intersect_points(store: &Store) -> Vec<Point> {
     let points = store.sample_ancestor_points().await;
     tracing::info!(?points, "intersect points");
     points
