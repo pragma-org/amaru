@@ -53,8 +53,20 @@ impl<'b, C> cbor::Decode<'b, C> for Metadatum {
                 let i = d.decode()?;
                 Ok(Metadatum::Int(i))
             }
-            Bytes => Ok(Metadatum::Bytes(Vec::from(d.decode_with::<C, cbor::bytes::ByteVec>(ctx)?))),
-            String => Ok(Metadatum::Text(d.decode_with(ctx)?)),
+            Bytes => {
+                let bytes = Vec::from(d.decode_with::<C, cbor::bytes::ByteVec>(ctx)?);
+                if bytes.len() > 64 {
+                    return Err(cbor::decode::Error::message(format!("bytes exceeds 64 bytes: got {}", bytes.len())));
+                }
+                Ok(Metadatum::Bytes(bytes))
+            }
+            String => {
+                let text: std::string::String = d.decode_with(ctx)?;
+                if text.len() > 64 {
+                    return Err(cbor::decode::Error::message(format!("text exceeds 64 bytes: got {}", text.len())));
+                }
+                Ok(Metadatum::Text(text))
+            }
             Array | ArrayIndef => Ok(Metadatum::Array(d.decode_with(ctx)?)),
             Map | MapIndef => Ok(Metadatum::Map(d.decode_with(ctx)?)),
             any => {
@@ -148,19 +160,6 @@ mod tests {
         bytes(hex::decode("667a841296e8057ab7792bfb8fd16f8a39b0b648f1e6f0fa586c7785033ec00c").unwrap().as_slice());
         "bytes - some hash"
     )]
-    // NOTE: on invalid Metadatum
-    //
-    // Interestingly, the ledger doesn't allow text and bytes chunks over 64 bytes; but will still
-    // allow to deserialize them. The metadatum validation happens through a ledger rule, rather
-    // than being a decoder failure. While it should be equivalent, we will match the Haskell's
-    // behaviour here and allow decoding of over-64 bytes text and bytes. Note that this is
-    // "generally" safe provided that the size of the transaction / block is somewhat checked
-    // beforehand.
-    #[test_case(
-        "58E74C6F72656D20697073756D20646F6C6F722073697420616D65742C20636F6E73656374657475722061646970697363696E6720656C69742C2073656420646F20656975736D6F642074656D706F7220696E6369646964756E74207574206C61626F726520657420646F6C6F7265206D61676E6120616C697175612E20557420656E696D206164206D696E696D2076656E69616D2C2071756973206E6F737472756420657865726369746174696F6E20756C6C616D636F206C61626F726973206E69736920757420616C697175697020657820656120636F6D6D6F646F20636F6E7365717561742E",
-        bytes(b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.");
-        "bytes - over 64"
-    )]
     #[test_case(
         "5840F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9",
         bytes("💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩".as_bytes());
@@ -168,14 +167,6 @@ mod tests {
     )]
     #[test_case("60", text(""))]
     #[test_case("63666F6F", text("foo"))]
-    // NOTE: on invalid Metadatum
-    //
-    // See above.
-    #[test_case(
-        "78E74C6F72656D20697073756D20646F6C6F722073697420616D65742C20636F6E73656374657475722061646970697363696E6720656C69742C2073656420646F20656975736D6F642074656D706F7220696E6369646964756E74207574206C61626F726520657420646F6C6F7265206D61676E6120616C697175612E20557420656E696D206164206D696E696D2076656E69616D2C2071756973206E6F737472756420657865726369746174696F6E20756C6C616D636F206C61626F726973206E69736920757420616C697175697020657820656120636F6D6D6F646F20636F6E7365717561742E",
-        text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.");
-        "text - over 64"
-    )]
     #[test_case(
         "7840F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9F09F92A9",
         text("💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩");
@@ -225,6 +216,14 @@ mod tests {
     #[test_case("BF01FF", "decode error: unexpected CBOR datatype Break when decoding metadatum")]
     #[test_case("A101020304", "decode error: leftovers bytes after decoding after position 3")]
     #[test_case("BF0102FF0304", "decode error: leftovers bytes after decoding after position 4")]
+    #[test_case(
+        "58E74C6F72656D20697073756D20646F6C6F722073697420616D65742C20636F6E73656374657475722061646970697363696E6720656C69742C2073656420646F20656975736D6F642074656D706F7220696E6369646964756E74207574206C61626F726520657420646F6C6F7265206D61676E6120616C697175612E20557420656E696D206164206D696E696D2076656E69616D2C2071756973206E6F737472756420657865726369746174696F6E20756C6C616D636F206C61626F726973206E69736920757420616C697175697020657820656120636F6D6D6F646F20636F6E7365717561742E",
+        "decode error: bytes exceeds 64 bytes: got 231"
+    )]
+    #[test_case(
+        "78E74C6F72656D20697073756D20646F6C6F722073697420616D65742C20636F6E73656374657475722061646970697363696E6720656C69742C2073656420646F20656975736D6F642074656D706F7220696E6369646964756E74207574206C61626F726520657420646F6C6F7265206D61676E6120616C697175612E20557420656E696D206164206D696E696D2076656E69616D2C2071756973206E6F737472756420657865726369746174696F6E20756C6C616D636F206C61626F726973206E69736920757420616C697175697020657820656120636F6D6D6F646F20636F6E7365717561742E",
+        "decode error: text exceeds 64 bytes: got 231"
+    )]
     fn decode_malformed(fixture: &str, expected: &str) {
         let bytes = hex::decode(fixture).unwrap();
         match from_cbor_no_leftovers::<Metadatum>(bytes.as_slice()) {

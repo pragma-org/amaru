@@ -1,4 +1,4 @@
-"eras/conway/impl/dump/Conway/Imp/AllegraImpSpec/UTXOW/InvalidMetadata" = "Expected failure, got success"
+"eras/conway/impl/dump/Conway/Imp/AllegraImpSpec/UTXOW/InvalidMetadata" = "decode error: text exceeds 64 bytes: got 669"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXO/PlutusV1/Too many execution units for tx" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXO/PlutusV2/Too many execution units for tx" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXO/PlutusV3/Too many execution units for tx" = "Expected failure, got success"

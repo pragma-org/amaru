@@ -14,6 +14,11 @@
 
 use amaru_kernel::{AuxiliaryData, Bytes, Hash, TransactionBody};
 use thiserror::Error;
+use uplc_turbo::{
+    arena::Arena,
+    binder::DeBruijn,
+    flat::{self, FlatDecodeError},
+};
 
 #[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
@@ -28,17 +33,19 @@ pub enum InvalidTransactionMetadata {
         supplied: Hash<{ AuxiliaryData::HASH_SIZE }>,
         expected: Hash<{ AuxiliaryData::HASH_SIZE }>,
     },
+    #[error("Invalid script bytes: {0}")]
+    InvalidScriptBytes(#[from] FlatDecodeError),
 }
 
 pub fn execute(
     transaction: &TransactionBody,
     auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransactionMetadata> {
-    match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data.map(|aux| aux.hash())) {
+    match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data.map(|aux| (aux, aux.hash()))) {
         (None, None) => Ok(()),
-        (None, Some(hash)) => Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash)),
+        (None, Some((_data, hash))) => Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash)),
         (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(adh.clone())),
-        (Some(supplied_hash), Some(expected_hash)) => {
+        (Some(supplied_hash), Some((data, expected_hash))) => {
             let supplied_hash = Hash::from(&supplied_hash[..]);
             if expected_hash != supplied_hash {
                 Err(InvalidTransactionMetadata::ConflictingMetadataHash {
@@ -46,7 +53,16 @@ pub fn execute(
                     expected: expected_hash,
                 })
             } else {
-                // the validateMetadata logic is not implemented here (unlike the Haskell code), but instead during deserialization (TODO)
+                data.plutus_v1_scripts()
+                    .iter()
+                    .map(|s| s.0.as_ref())
+                    .chain(data.plutus_v2_scripts().iter().map(|s| s.0.as_ref()))
+                    .chain(data.plutus_v3_scripts().iter().map(|s| s.0.as_ref()))
+                    .try_for_each(|script_bytes| {
+                        let arena = Arena::new();
+                        flat::decode::<DeBruijn>(&arena, script_bytes).map(|_| ())
+                    })?;
+
                 Ok(())
             }
         }
