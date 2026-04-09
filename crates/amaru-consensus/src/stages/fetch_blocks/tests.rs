@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use amaru_ouroboros_traits::MissingBlockRange;
+use amaru_ouroboros_traits::MissingBlocks;
 use pure_stage::{Instant, ScheduleIds, trace_buffer::TerminationReason};
 use tracing::Level;
 
@@ -97,14 +97,14 @@ fn test_new_tip_blocks_to_fetch() {
     let timeout_at = Instant::at_offset(Duration::from_secs(5));
     let schedule_id = ScheduleIds::default().next_at(timeout_at);
     let mut state_with_timeout = prep.state_with_request(
-        MissingBlockRange::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
         1,
         schedule_id,
     );
     state_with_timeout.block_height = BlockHeight::from(3);
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
-        state.missing_range = None;
+        state.missing = None;
         state.timeout = None;
         state
     };
@@ -141,7 +141,7 @@ fn test_new_tip_blocks_to_fetch() {
 fn test_block_received() {
     let mut prep = test_prep();
     prep.state = prep.state_with_request(
-        MissingBlockRange::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
         1,
         prep.schedule_at(Duration::from_secs(5)),
     );
@@ -153,7 +153,7 @@ fn test_block_received() {
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
-        state.missing_range = Some(MissingBlockRange::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]));
+        state.missing = Some(MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]));
         state
     };
     assert_trace(
@@ -178,7 +178,7 @@ fn test_block2_received() {
     let mut prep = test_prep();
     let schedule_id = prep.schedule_at(Duration::from_secs(5));
     prep.state = prep.state_with_request(
-        MissingBlockRange::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]),
+        MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]),
         1,
         schedule_id,
     );
@@ -190,7 +190,7 @@ fn test_block2_received() {
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
-        state.missing_range = None;
+        state.missing = None;
         state.timeout = None;
         state
     };

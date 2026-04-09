@@ -15,7 +15,7 @@
 use std::future::Future;
 
 use amaru_kernel::{NonEmptyBytes, cbor};
-use pure_stage::{BoxFuture, Effects, SendData, StageRef, TryInStage, Void, err};
+use pure_stage::{BoxFuture, Effects, OrTerminateWith, SendData, StageRef, TryInStage, Void, err};
 
 use crate::{
     mux::{HandlerMessage, MuxMessage},
@@ -163,8 +163,7 @@ where
                 LocalOrNetwork::Local(local) => {
                     let (action, s) = stage
                         .local(&proto, local, &eff)
-                        .await
-                        .or_terminate(&eff, err("failed to step stage state (local)"))
+                        .or_terminate_with(&eff, err("failed to step stage state (local)"))
                         .await;
                     stage = s;
                     action
@@ -172,8 +171,7 @@ where
                 LocalOrNetwork::Network(network) => {
                     let (action, s) = stage
                         .network(&proto, network, &eff)
-                        .await
-                        .or_terminate(&eff, err("failed to step stage state (network)"))
+                        .or_terminate_with(&eff, err("failed to step stage state (network)"))
                         .await;
                     stage = s;
                     action

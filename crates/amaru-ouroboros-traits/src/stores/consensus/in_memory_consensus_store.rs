@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, Point, RawBlock};
+use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, NonEmptyVec, Point, RawBlock};
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 
@@ -142,6 +142,21 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
 
 impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsensusStore<H> {
     #[expect(clippy::unwrap_used)]
+    fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_> {
+        let inner = self.inner.lock().unwrap();
+        Box::new(InMemConsensusSnapshot {
+            nonces: inner.nonces.clone(),
+            headers: inner.headers.clone(),
+            parent_child_relationship: inner.parent_child_relationship.clone(),
+            anchor: inner.anchor,
+            best_chain: inner.best_chain,
+            blocks: inner.blocks.clone(),
+            chain: inner.chain.clone(),
+            block_validity: inner.block_validity.clone(),
+        })
+    }
+
+    #[expect(clippy::unwrap_used)]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
         let mut inner = self.inner.lock().unwrap();
@@ -187,6 +202,7 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.chain.push(*point);
+        inner.best_chain = point.hash();
         Ok(())
     }
 
@@ -198,16 +214,79 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     }
 
     #[expect(clippy::unwrap_used)]
-    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+    fn switch_to_fork(&self, fork_point: &Point, forward_points: &NonEmptyVec<Point>) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        if let Some(pos) = inner.chain.iter().rposition(|p| p == point) {
-            let removed = inner.chain.len().saturating_sub(pos + 1);
-            inner.chain.truncate(pos + 1); // keep the rollback point
-            Ok(removed)
+        if let Some(pos) = inner.chain.iter().rposition(|p| p == fork_point) {
+            inner.chain.truncate(pos + 1);
+            inner.chain.extend(forward_points.iter().copied());
+            inner.best_chain = forward_points.last().hash();
+            Ok(())
         } else {
             Err(StoreError::ReadError {
-                error: format!("Cannot roll back chain to point {:?} as it does not exist on the best chain", point),
+                error: format!(
+                    "Cannot switch to a fork from point {:?} as it does not exist on the best chain",
+                    fork_point
+                ),
             })
         }
+    }
+}
+
+/// Snapshot of the current in-memory consensus store.
+/// It is used to navigate data that is guaranteed to be immutable.
+#[derive(Clone)]
+struct InMemConsensusSnapshot<H> {
+    nonces: BTreeMap<HeaderHash, Nonces>,
+    headers: BTreeMap<HeaderHash, H>,
+    parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
+    anchor: HeaderHash,
+    best_chain: HeaderHash,
+    blocks: BTreeMap<HeaderHash, RawBlock>,
+    chain: Vec<Point>,
+    block_validity: BTreeMap<HeaderHash, bool>,
+}
+
+impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMemConsensusSnapshot<H> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+        self.headers.get(hash).cloned()
+    }
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+        let header = self.headers.get(hash).cloned();
+        let validity = self.block_validity.get(hash).copied();
+        header.map(|h| (h, validity))
+    }
+
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+        self.nonces.get(header).cloned()
+    }
+
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+        Ok(self.blocks.get(hash).cloned())
+    }
+
+    fn has_header(&self, hash: &HeaderHash) -> bool {
+        self.headers.contains_key(hash)
+    }
+
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        self.parent_child_relationship.get(hash).cloned().unwrap_or_default()
+    }
+
+    fn get_anchor_hash(&self) -> HeaderHash {
+        self.anchor
+    }
+
+    fn get_best_chain_hash(&self) -> HeaderHash {
+        self.best_chain
+    }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        self.chain.iter().find(|p| *p == point).map(|p| p.hash())
+    }
+
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        let min_slot = point.slot_or_default();
+        self.chain.iter().find(|p| p.slot_or_default() > min_slot).copied()
     }
 }

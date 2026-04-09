@@ -15,13 +15,14 @@
 use std::{fs, path::PathBuf};
 
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER, to_cbor,
+    BlockHeader, Hash, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER,
+    to_cbor,
 };
 use amaru_observability::trace_span;
 use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{
     DB, DBCommon, DBIteratorWithThreadMode, DBPinnableSlice, IteratorMode, OptimisticTransactionDB, Options,
-    PrefixRange, ReadOptions,
+    PrefixRange, ReadOptions, SnapshotWithThreadMode,
 };
 
 use crate::rocksdb::{
@@ -87,6 +88,20 @@ impl DbOps for DB {
 pub struct RocksDBStore<T: DbOps = OptimisticTransactionDB> {
     pub basedir: PathBuf,
     pub db: T,
+}
+
+/// Read-only view of the chain store backed by a RocksDB snapshot so related reads stay consistent.
+struct RocksDBSnapshot<'a> {
+    db: &'a OptimisticTransactionDB,
+    snapshot: SnapshotWithThreadMode<'a, OptimisticTransactionDB>,
+}
+
+impl RocksDBSnapshot<'_> {
+    fn read_options(&self) -> ReadOptions {
+        let mut opts = ReadOptions::default();
+        opts.set_snapshot(&self.snapshot);
+        opts
+    }
 }
 
 impl RocksDBStore<OptimisticTransactionDB> {
@@ -183,6 +198,124 @@ pub(crate) fn store_chain_point(db: &OptimisticTransactionDB, point: &Point) -> 
         .map_err(|e| StoreError::WriteError { error: e.to_string() })
 }
 
+impl<H> ReadOnlyChainStore<H> for RocksDBSnapshot<'_>
+where
+    H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>,
+{
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+        let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
+        let opts = self.read_options();
+        DbOps::get_pinned(self.db, &prefix, &opts).ok().flatten().and_then(|bytes| from_cbor(bytes.as_ref()))
+    }
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+        let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
+        let head_len = prefix.len() - 1;
+        let opts = self.read_options();
+        let mut results = DbOps::multi_get(self.db, &[&prefix[..head_len], &prefix], &opts).into_iter();
+        let header = results.next().and_then(|bytes| from_cbor(bytes.ok()??.as_ref()));
+        let validity = results.next().and_then(|bytes| {
+            let bytes = bytes.ok()??;
+            if bytes.len() == 1 { Some(bytes[0] == 1) } else { None }
+        });
+        header.map(|h| (h, validity))
+    }
+
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        let mut result = Vec::new();
+        let mut opts = self.read_options();
+        opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
+
+        for res in self.db.iterator_opt(IteratorMode::Start, opts) {
+            // FIXME: RocksDB iterator errors (transient I/O, corruption) panic the node here.
+            // Propagating as StoreError requires changing the `get_children` trait signature
+            // across ReadOnlyChainStore and all impls/callers. Tracked as follow-up.
+            #[expect(clippy::expect_used)]
+            let (key, _value) = res.expect("error iterating over children");
+            let mut arr = [0u8; HEADER];
+            arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER)..]);
+            result.push(Hash::from(arr));
+        }
+        result
+    }
+
+    fn get_anchor_hash(&self) -> HeaderHash {
+        let opts = self.read_options();
+        self.db
+            .get_pinned_opt(ANCHOR_PREFIX, &opts)
+            .ok()
+            .flatten()
+            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
+            .unwrap_or(ORIGIN_HASH)
+    }
+
+    fn get_best_chain_hash(&self) -> HeaderHash {
+        let opts = self.read_options();
+        self.db
+            .get_pinned_opt(BEST_CHAIN_PREFIX, &opts)
+            .ok()
+            .flatten()
+            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
+            .unwrap_or(ORIGIN_HASH)
+    }
+
+    fn has_header(&self, hash: &HeaderHash) -> bool {
+        let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
+        let opts = self.read_options();
+        DbOps::get_pinned(self.db, &prefix, &opts).map(|opt| opt.is_some()).unwrap_or(false)
+    }
+
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+        let opts = self.read_options();
+        self.db
+            .get_pinned_opt([&NONCES_PREFIX[..], &header[..]].concat(), &opts)
+            .ok()
+            .flatten()
+            .as_deref()
+            .and_then(from_cbor)
+    }
+
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+        let opts = self.read_options();
+        Ok(DbOps::get_pinned(self.db, &[&BLOCK_PREFIX[..], &hash[..]].concat(), &opts)?
+            .map(|bytes| bytes.as_ref().into()))
+    }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        let slot = u64::from(point.slot_or_default()).to_be_bytes();
+        let opts = self.read_options();
+        DbOps::get_pinned(self.db, &[&CHAIN_PREFIX[..], &slot[..]].concat(), &opts).ok().flatten().and_then(|bytes| {
+            if bytes.len() == HEADER {
+                let hash = Hash::from(bytes.as_ref());
+                if *hash == *point.hash() { Some(hash) } else { None }
+            } else {
+                None
+            }
+        })
+    }
+
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        let mut readopts = self.read_options();
+        readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
+        let prefix = [&CHAIN_PREFIX[..], &(u64::from(point.slot_or_default()) + 1).to_be_bytes()].concat();
+        let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
+
+        if let Some(Ok((k, v))) = iter.next() {
+            #[expect(clippy::unwrap_used)]
+            let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
+            let slot = u64::from_be_bytes(slot_bytes);
+            if v.len() == HEADER {
+                let hash = <HeaderHash>::from(v.as_ref());
+                Some(Point::Specific(slot.into(), hash))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
 impl<H, T: DbOps> ReadOnlyChainStore<H> for RocksDBStore<T>
 where
     H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>,
@@ -210,6 +343,9 @@ where
         opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
 
         for res in self.db.iterator_opt(IteratorMode::Start, opts) {
+            // FIXME: RocksDB iterator errors (transient I/O, corruption) panic the node here.
+            // Propagating as StoreError requires changing the `get_children` trait signature
+            // across ReadOnlyChainStore and all impls/callers. Tracked as follow-up.
             #[expect(clippy::expect_used)]
             let (key, _value) = res.expect("error iterating over children");
             let mut arr = [0u8; HEADER];
@@ -336,6 +472,8 @@ impl DiagnosticChainStore for RocksDBStore<DB> {
         opts.set_iterate_range(PrefixRange(&CHILD_PREFIX[..]));
 
         for kv in self.db.iterator_opt(IteratorMode::Start, opts) {
+            // FIXME: same as `get_children`; iterator errors panic the node. Diagnostic-only
+            // path today, but worth unifying when the trait-level fix lands.
             let (k, _v) = kv.expect("error iterating over children keys");
 
             //Key layout: [CHILD_PREFIX][parent][child]
@@ -379,6 +517,10 @@ impl DiagnosticChainStore for RocksDBStore<DB> {
 
 use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
+    fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_> {
+        Box::new(RocksDBSnapshot { db: &self.db, snapshot: self.db.snapshot() })
+    }
+
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let _span = trace_span!(
             amaru_observability::amaru::stores::consensus::STORE_HEADER,
@@ -435,6 +577,67 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         self.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
+    fn switch_to_fork(&self, fork_point: &Point, forward_points: &NonEmptyVec<Point>) -> Result<(), StoreError> {
+        let last = forward_points.last();
+        let _span = trace_span!(
+            amaru_observability::amaru::stores::consensus::SWITCH_TO_FORK,
+            hash = last.hash(),
+            slot = u64::from(last.slot_or_default()),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "delete".to_string(),
+            db_collection_name = "chain".to_string()
+        );
+        let _guard = _span.enter();
+
+        let fork_slot = u64::from(fork_point.slot_or_default()).to_be_bytes();
+        let fork_key = [&CHAIN_PREFIX[..], &fork_slot[..]].concat();
+
+        let slot = (u64::from(fork_point.slot_or_default()) + 1).to_be_bytes();
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&CHAIN_PREFIX[..]));
+        let starting_point = [&CHAIN_PREFIX[..], &slot[..]].concat();
+        let mode = IteratorMode::From(starting_point.as_slice(), rocksdb::Direction::Forward);
+
+        self.with_transaction(|tx| {
+            // Validate the fork point *inside* the transaction using `get_for_update`, so any
+            // concurrent writer that deletes or overwrites the fork-point chain entry causes
+            // this transaction to conflict on commit rather than silently succeeding against
+            // stale state.
+            let existing =
+                tx.get_for_update(&fork_key, true).map_err(|e| StoreError::ReadError { error: e.to_string() })?;
+            let matches = existing
+                .as_ref()
+                .map(|bytes| bytes.len() == HEADER && bytes.as_slice() == fork_point.hash().as_ref())
+                .unwrap_or(false);
+            if !matches {
+                return Err(StoreError::ReadError {
+                    error: format!(
+                        "Cannot switch to a fork from point {:?} as it does not exist on the best chain",
+                        fork_point
+                    ),
+                });
+            }
+
+            for kv in tx.iterator_opt(mode, opts) {
+                match kv {
+                    Ok((k, _v)) => tx.delete(k).map_err(|e| StoreError::WriteError { error: e.to_string() })?,
+                    Err(e) => return Err(StoreError::ReadError { error: e.to_string() }),
+                }
+            }
+
+            for point in forward_points.iter() {
+                let slot = u64::from(point.slot_or_default()).to_be_bytes();
+                tx.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
+                    .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+            }
+
+            tx.put(BEST_CHAIN_PREFIX, forward_points.last().hash().as_ref())
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+
+            Ok(())
+        })
+    }
+
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         let _span = trace_span!(
             amaru_observability::amaru::stores::consensus::ROLL_FORWARD_CHAIN,
@@ -446,48 +649,13 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         );
         let _guard = _span.enter();
 
-        store_chain_point(&self.db, point)
-    }
-
-    fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
-        let _span = trace_span!(
-            amaru_observability::amaru::stores::consensus::ROLLBACK_CHAIN,
-            hash = point.hash(),
-            slot = u64::from(point.slot_or_default()),
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "delete".to_string(),
-            db_collection_name = "chain".to_string()
-        );
-        let _guard = _span.enter();
-
-        if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
-            return Err(StoreError::ReadError {
-                error: format!("Cannot roll back chain to point {:?} as it does not exist on the best chain", point),
-            });
-        };
-
-        // keep the rollback point so delete starting 1 slot after it
-        let slot = (u64::from(point.slot_or_default()) + 1).to_be_bytes();
-        let mut count = 0usize;
-        let mut opts = ReadOptions::default();
-        opts.set_iterate_range(PrefixRange(&CHAIN_PREFIX[..]));
-        let starting_point = [&CHAIN_PREFIX[..], &slot[..]].concat();
-        let mode = IteratorMode::From(starting_point.as_slice(), rocksdb::Direction::Forward);
-
         self.with_transaction(|tx| {
-            for kv in tx.iterator_opt(mode, opts) {
-                match kv {
-                    Ok((k, _v)) => {
-                        tx.delete(k).map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-                        count += 1;
-                    }
-                    Err(e) => {
-                        return Err(StoreError::ReadError { error: e.to_string() });
-                    }
-                }
-            }
-
-            Ok(count)
+            let slot = u64::from(point.slot_or_default()).to_be_bytes();
+            tx.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+            tx.put(BEST_CHAIN_PREFIX, point.hash().as_ref())
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+            Ok(())
         })
     }
 }
@@ -497,11 +665,14 @@ pub mod test {
     use std::{collections::BTreeMap, fs, io, path::Path, sync::Arc};
 
     use amaru_kernel::{
-        BlockHeader, Nonce, ORIGIN_HASH, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
+        BlockHeader, BlockHeight, Nonce, ORIGIN_HASH, Point, Slot, any_header_hash, any_header_with_parent,
+        any_headers_chain, make_header,
+        size::HEADER,
         utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
-        ChainStore, DiagnosticChainStore, MissingBlockRange, in_memory_consensus_store::InMemConsensusStore,
+        ChainStore, DiagnosticChainStore, MissingBlocks, ReadOnlyChainStore,
+        in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
 
@@ -727,6 +898,7 @@ pub mod test {
             store.roll_forward_chain(&root.point()).expect("should roll forward successfully");
 
             assert_eq!(store.load_from_best_chain(&root.point()), Some(root.hash()));
+            assert_eq!(store.get_best_chain_hash(), root.hash());
         });
     }
 
@@ -739,18 +911,131 @@ pub mod test {
             store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
 
             assert_eq!(store.load_from_best_chain(&new_tip.point()), Some(new_tip.hash()));
+            assert_eq!(store.get_best_chain_hash(), new_tip.hash());
         });
     }
 
     #[test]
-    fn update_best_chain_to_rollback_point() {
+    fn switch_to_fork_switches_to_fork_and_updates_tip() {
         with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            for header in [&headers.h2a, &headers.h3a] {
+                store.store_header(header).unwrap();
+            }
+
+            store
+                .switch_to_fork(
+                    &headers.h1.point(),
+                    &NonEmptyVec::try_from(vec![headers.h2a.point(), headers.h3a.point()]).unwrap(),
+                )
+                .expect("should replace the best chain successfully");
+
+            assert_eq!(store.get_best_chain_hash(), headers.h3a.hash());
+            assert_eq!(store.load_from_best_chain(&headers.h3.point()), None);
+            assert_eq!(store.load_from_best_chain(&headers.h2a.point()), Some(headers.h2a.hash()));
+            assert_eq!(store.load_from_best_chain(&headers.h3a.point()), Some(headers.h3a.hash()));
+        });
+    }
+
+    #[test]
+    fn switch_to_fork_raises_error_if_fork_point_is_not_on_best_chain() {
+        with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            for header in [&headers.h2a, &headers.h3a] {
+                store.store_header(header).unwrap();
+            }
+
+            let result = store.switch_to_fork(&headers.h2a.point(), &NonEmptyVec::singleton(headers.h3a.point()));
+
+            if result.is_ok() {
+                panic!("expected test to fail");
+            }
+        });
+    }
+
+    #[test]
+    fn switch_to_fork_preserves_state_when_fork_point_is_not_on_best_chain() {
+        // Atomicity: a switch_to_fork call that fails its fork-point check must leave both
+        // the chain index AND the best-tip pointer unchanged from pre-call state.
+        with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            for header in [&headers.h2a, &headers.h3a] {
+                store.store_header(header).unwrap();
+            }
+
+            let best_chain_before = store.get_best_chain_hash();
+            let chain_before = store.retrieve_best_chain();
+
+            let result = store.switch_to_fork(&headers.h2a.point(), &NonEmptyVec::singleton(headers.h3a.point()));
+            assert!(result.is_err(), "expected fork-point-not-on-chain error");
+
+            assert_eq!(store.get_best_chain_hash(), best_chain_before, "best tip must not move");
+            assert_eq!(store.retrieve_best_chain(), chain_before, "chain index must be unchanged");
+            assert_eq!(store.load_from_best_chain(&headers.h3.point()), Some(headers.h3.hash()));
+            assert_eq!(store.load_from_best_chain(&headers.h3a.point()), None);
+        });
+    }
+
+    #[test]
+    fn find_fork_point_returns_none_when_start_header_is_not_in_store() {
+        with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+            let absent = run_strategy(any_header_hash());
+            assert_eq!(store.find_fork_point(absent), None);
+        });
+    }
+
+    #[test]
+    fn find_fork_point_handles_one_block_fork_off_non_tip() {
+        // Best chain: h0 -> h1 -> h2 -> h3
+        //                   \
+        //                    -> h2a (start, single-block fork off h1)
+        with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            store.set_anchor_hash(&headers.h0.hash()).unwrap();
+            store.store_header(&headers.h2a).unwrap();
+
+            let result = store.find_fork_point(headers.h2a.hash());
+            assert_eq!(result, Some((headers.h1.point(), NonEmptyVec::singleton(headers.h2a.point()))));
+        });
+    }
+
+    #[test]
+    fn find_missing_blocks_preserves_boundary_parent_invariant_under_truncation() {
+        // For any non-empty return, missing[0].parent() == boundary, regardless of limit.
+        with_db(|store| {
+            // h0 -> ... -> h9, all headers stored, block present only for h0.
             let chain = populate_db(store.clone());
+            let block = RawBlock::from(&*vec![1; 64]);
+            store.store_block(&chain[0].hash(), &block).unwrap();
 
-            store.rollback_chain(&chain[5].point()).expect("should rollback successfully");
-
-            assert_eq!(store.load_from_best_chain(&chain[9].point()), None);
-            assert_eq!(store.load_from_best_chain(&chain[5].point()), Some(chain[5].hash()));
+            for limit in 1..=9usize {
+                let result = store.find_missing_blocks(chain[9].hash(), limit).unwrap();
+                let range = result.expect("range exists when start header is in the store");
+                let boundary = range.boundary();
+                let first_missing = range.first().expect("non-empty missing list with block gap present");
+                let first_missing_header =
+                    store.load_header(&first_missing.hash()).expect("first missing header exists");
+                assert_eq!(
+                    first_missing_header.parent(),
+                    Some(boundary.hash()),
+                    "invariant broken at limit={}: missing[0].parent() != boundary",
+                    limit,
+                );
+                assert!(
+                    range.nb_missing_blocks() <= limit,
+                    "truncation not respected at limit={}: got {}",
+                    limit,
+                    range.nb_missing_blocks(),
+                );
+            }
         });
     }
 
@@ -798,6 +1083,54 @@ pub mod test {
     }
 
     #[test]
+    fn find_anchor_at_height_returns_first_header_at_or_above_target() {
+        with_db(|store| {
+            // populate_db sets the anchor to chain[0] (block_height = 1) and best chain to chain[9].
+            let chain = populate_db(store.clone());
+
+            let result = store.find_anchor_at_height(BlockHeight::from(5));
+            assert_eq!(result, Some(chain[4].hash()));
+        });
+    }
+
+    #[test]
+    fn find_anchor_at_height_returns_none_when_target_at_or_below_current_anchor() {
+        with_db(|store| {
+            // Anchor is at chain[0] (block_height = 1).
+            let _chain = populate_db(store.clone());
+
+            assert!(store.find_anchor_at_height(BlockHeight::from(0)).is_none());
+            assert!(store.find_anchor_at_height(BlockHeight::from(1)).is_none());
+        });
+    }
+
+    #[test]
+    fn find_anchor_at_height_returns_none_when_target_beyond_best_chain() {
+        with_db(|store| {
+            // Best chain tip is chain[9] (block_height = 10).
+            let _chain = populate_db(store.clone());
+
+            assert!(store.find_anchor_at_height(BlockHeight::from(100)).is_none());
+        });
+    }
+
+    #[test]
+    fn find_anchor_at_height_walks_from_origin_when_anchor_is_origin() {
+        with_db(|store| {
+            // Do not set an anchor; leave it at ORIGIN. Only roll forward the best chain.
+            let chain = run_strategy(any_headers_chain(10));
+            for header in chain.iter() {
+                store.store_header(header).unwrap();
+                store.roll_forward_chain(&header.point()).unwrap();
+            }
+            assert_eq!(store.get_anchor_hash(), ORIGIN_HASH);
+
+            let result = store.find_anchor_at_height(BlockHeight::from(3));
+            assert_eq!(result, Some(chain[2].hash()));
+        });
+    }
+
+    #[test]
     fn unvalidated_ancestor_hashes_returns_missing_validity_segment_in_chain_order() {
         with_db(|store| {
             // h0 -> h1(valid) -> h2(?) -> h3(start)
@@ -838,18 +1171,29 @@ pub mod test {
             //                   \
             // fork:              -> h2a -> h3a(start)
             let headers = make_forked_headers();
-            for header in headers.main() {
-                store.store_header(header).unwrap();
-                store.roll_forward_chain(&header.point()).unwrap();
-                store.set_best_chain_hash(&header.hash()).unwrap();
-            }
+            append_best_chain(store.clone(), headers.main());
             store.set_anchor_hash(&headers.h0.hash()).unwrap();
             for header in [&headers.h2a, &headers.h3a] {
                 store.store_header(header).unwrap();
             }
 
             let result = store.find_fork_point(headers.h3a.hash());
-            assert_eq!(result, Some((headers.h1.point(), vec![headers.h2a.point(), headers.h3a.point()])));
+            assert_eq!(
+                result,
+                Some((headers.h1.point(), NonEmptyVec::new(headers.h2a.point(), vec![headers.h3a.point()])))
+            );
+        });
+    }
+
+    #[test]
+    fn find_fork_point_returns_none_when_start_is_already_on_best_chain() {
+        with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+            let result = store.find_fork_point(headers.h3.hash());
+            assert_eq!(result, None);
         });
     }
 
@@ -896,6 +1240,24 @@ pub mod test {
     }
 
     #[test]
+    fn test_intersect_points_includes_best_point_and_are_spaced_with_a_factor_2() {
+        with_db(|store| {
+            let mut parent = None;
+            for slot in 0..=100 {
+                let header = BlockHeader::from(make_header(slot + 1, slot, parent));
+                store.store_header(&header).unwrap();
+                store.roll_forward_chain(&header.point()).unwrap();
+                parent = Some(header.hash());
+            }
+
+            let result = store.sample_ancestor_points();
+            let slots = result.iter().map(|point| u64::from(point.slot_or_default())).collect::<Vec<_>>();
+
+            assert_eq!(slots, vec![100, 99, 98, 96, 92, 84, 68, 36, 0]);
+        });
+    }
+
+    #[test]
     fn find_missing_blocks_returns_path_from_nearest_available_block_to_tip() {
         with_db(|store| {
             // Best chain:
@@ -912,10 +1274,7 @@ pub mod test {
 
             assert_eq!(
                 result,
-                Some(MissingBlockRange::new(
-                    chain[6].point(),
-                    vec![chain[7].point(), chain[8].point(), chain[9].point()],
-                ))
+                Some(MissingBlocks::new(chain[6].point(), vec![chain[7].point(), chain[8].point(), chain[9].point()],))
             );
         });
     }
@@ -941,22 +1300,232 @@ pub mod test {
             store.store_block(&chain[9].hash(), &block).unwrap();
 
             let result = store.find_missing_blocks(chain[9].hash(), 10).unwrap();
-            assert_eq!(result, Some(MissingBlockRange::new(chain[9].point(), vec![])));
+            assert_eq!(result, Some(MissingBlocks::new(chain[9].point(), vec![])));
         });
     }
 
     #[test]
-    fn raises_error_if_rollback_is_not_on_best_chain() {
-        with_db(|store| {
-            let chain = populate_db(store.clone());
-            let new_tip = run_strategy(any_header_with_parent(chain[6].hash()));
+    fn read_snapshot_keeps_original_best_chain_view_after_store_changes() {
+        with_read_db(
+            |store| {
+                populate_db(store);
+            },
+            |store, snapshot| {
+                let best_chain_hash = snapshot.get_best_chain_hash();
+                let best_chain = snapshot.retrieve_best_chain();
+                let tip = snapshot.load_header(&best_chain_hash).expect("tip should exist in snapshot");
+                let next_slot = u64::from(tip.slot()) + 1;
+                let new_tip = BlockHeader::from(make_header(next_slot, next_slot, Some(tip.hash())));
 
-            let result = store.rollback_chain(&new_tip.point());
+                store.store_header(&new_tip).expect("should store header successfully");
+                store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
+                assert_eq!(snapshot.get_best_chain_hash(), best_chain_hash);
+                assert_eq!(snapshot.retrieve_best_chain(), best_chain);
+                assert_eq!(snapshot.load_from_best_chain(&new_tip.point()), None);
+                assert!(snapshot.next_best_chain(&tip.point()).is_none());
+            },
+        );
+    }
 
-            if result.is_ok() {
-                panic!("expected test to fail");
-            }
-        });
+    #[test]
+    fn read_snapshot_exposes_direct_read_operations() {
+        let headers = make_forked_headers();
+        let nonces = Nonces {
+            active: Nonce::from(random_bytes(32).as_slice()),
+            evolving: Nonce::from(random_bytes(32).as_slice()),
+            candidate: Nonce::from(random_bytes(32).as_slice()),
+            tail: headers.h1.hash(),
+            epoch: Default::default(),
+        };
+        let block = RawBlock::from(&*vec![1; 64]);
+
+        with_read_db(
+            {
+                let headers = headers.clone();
+                let nonces = nonces.clone();
+                let block = block.clone();
+                move |store| {
+                    append_best_chain(store.clone(), headers.main());
+                    for header in [&headers.h2a, &headers.h3a] {
+                        store.store_header(header).unwrap();
+                    }
+                    store.set_anchor_hash(&headers.h0.hash()).unwrap();
+                    store.put_nonces(&headers.h2.hash(), &nonces).unwrap();
+                    store.store_block(&headers.h3.hash(), &block).unwrap();
+                    store.set_block_valid(&headers.h2.hash(), true).unwrap();
+                }
+            },
+            {
+                let headers = headers.clone();
+                let nonces = nonces.clone();
+                let block = block.clone();
+                move |_store, snapshot| {
+                    let mut children = snapshot.get_children(&headers.h1.hash());
+                    children.sort();
+
+                    assert_eq!(snapshot.load_header(&headers.h2.hash()), Some(headers.h2.clone()));
+                    assert_eq!(
+                        snapshot.load_header_with_validity(&headers.h2.hash()),
+                        Some((headers.h2.clone(), Some(true)))
+                    );
+                    assert_eq!(children, vec![headers.h2.hash(), headers.h2a.hash()]);
+                    assert_eq!(snapshot.get_anchor_hash(), headers.h0.hash());
+                    assert_eq!(snapshot.get_best_chain_hash(), headers.h3.hash());
+                    assert_eq!(snapshot.get_nonces(&headers.h2.hash()), Some(nonces.clone()));
+                    assert_eq!(snapshot.load_block(&headers.h3.hash()).unwrap(), Some(block.clone()));
+                    assert!(snapshot.has_header(&headers.h3a.hash()));
+                    assert!(!snapshot.has_header(&run_strategy(any_header_hash())));
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn read_snapshot_supports_best_chain_traversal() {
+        let chain = make_linear_headers(10);
+
+        with_read_db(
+            {
+                let chain = chain.clone();
+                move |store| {
+                    store.set_anchor_hash(&chain[0].hash()).unwrap();
+                    append_best_chain(store.clone(), &chain);
+                }
+            },
+            {
+                let chain = chain.clone();
+                move |_store, snapshot| {
+                    let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
+
+                    assert_eq!(snapshot.retrieve_best_chain(), chain.iter().map(BlockHeader::hash).collect::<Vec<_>>());
+                    assert_eq!(snapshot.load_from_best_chain(&chain[0].point()), Some(chain[0].hash()));
+                    assert_eq!(snapshot.load_from_best_chain(&invalid_point), None);
+                    assert_eq!(snapshot.next_best_chain(&Point::Origin), Some(chain[0].point()));
+                    assert_eq!(snapshot.next_best_chain(&chain[5].point()), Some(chain[6].point()));
+                    assert_eq!(snapshot.next_best_chain(&chain[9].point()), None);
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn read_snapshot_supports_find_intersect_point_queries() {
+        let chain = make_linear_headers(10);
+
+        with_read_db(
+            {
+                let chain = chain.clone();
+                move |store| {
+                    append_best_chain(store.clone(), &chain);
+                    store.set_anchor_hash(&chain[5].hash()).unwrap();
+                }
+            },
+            {
+                let chain = chain.clone();
+                move |store, _snapshot| {
+                    let unknown = Point::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
+
+                    // intersect one point
+                    assert_eq!(store.find_intersect_point(vec![chain[5].point()]), Some(chain[5].point()));
+                    // intersect the most recent point
+                    assert_eq!(
+                        store.find_intersect_point(vec![chain[3].point(), chain[7].point()]),
+                        Some(chain[7].point())
+                    );
+                    // intersect the most recent point
+                    assert_eq!(store.find_intersect_point(vec![chain[2].point()]), Some(chain[2].point()));
+                    // intersect with no points
+                    assert_eq!(store.find_intersect_point(vec![]), None);
+                    // intersect with an unknown pointThe thing is not comparable.
+                    assert_eq!(store.find_intersect_point(vec![unknown]), None);
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn read_snapshot_supports_ancestor_fork_and_sampling_queries() {
+        let headers = make_forked_headers();
+        let chain = make_linear_headers(10);
+
+        with_read_db(
+            {
+                let headers = headers.clone();
+                let chain = chain.clone();
+                move |store| {
+                    append_best_chain(store.clone(), headers.main());
+                    for header in [&headers.h2a, &headers.h3a] {
+                        store.store_header(header).unwrap();
+                    }
+                    store.set_anchor_hash(&headers.h0.hash()).unwrap();
+                    store.set_block_valid(&headers.h1.hash(), true).unwrap();
+
+                    append_best_chain(store.clone(), &chain[4..]);
+                }
+            },
+            {
+                let headers = headers.clone();
+                let chain = chain.clone();
+                move |store, _snapshot| {
+                    assert_eq!(
+                        store.unvalidated_ancestor_hashes(headers.h3.hash()),
+                        (vec![headers.h2.hash(), headers.h3.hash()], true)
+                    );
+                    assert_eq!(
+                        store.find_fork_point(headers.h3a.hash()),
+                        Some((headers.h1.point(), NonEmptyVec::new(headers.h2a.point(), vec![headers.h3a.point()])))
+                    );
+                    assert_eq!(
+                        store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash()),
+                        Some(headers.h1.point())
+                    );
+                    assert_eq!(
+                        store.sample_ancestor_points(),
+                        vec![
+                            chain[9].point(),
+                            chain[8].point(),
+                            chain[7].point(),
+                            chain[5].point(),
+                            chain[1].point(),
+                            chain[0].point(),
+                        ]
+                    );
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn read_snapshot_supports_missing_block_queries() {
+        let chain = make_linear_headers(10);
+        let block = RawBlock::from(&*vec![1; 64]);
+
+        with_read_db(
+            {
+                let chain = chain.clone();
+                let block = block.clone();
+                move |store| {
+                    store.set_anchor_hash(&chain[0].hash()).unwrap();
+                    append_best_chain(store.clone(), &chain);
+                    store.store_block(&chain[6].hash(), &block).unwrap();
+                }
+            },
+            {
+                let chain = chain.clone();
+                move |store, _snapshot| {
+                    let missing_tip = run_strategy(any_header_hash());
+
+                    assert_eq!(
+                        store.find_missing_blocks(chain[9].hash(), 10).unwrap(),
+                        Some(MissingBlocks::new(
+                            chain[6].point(),
+                            vec![chain[7].point(), chain[8].point(), chain[9].point()],
+                        ))
+                    );
+                    assert_eq!(store.find_missing_blocks(missing_tip, 10).unwrap(), None);
+                }
+            },
+        );
     }
 
     // MIGRATIONS
@@ -1149,6 +1718,7 @@ pub mod test {
 
     const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
 
+    #[derive(Clone)]
     struct ForkedHeaders {
         h0: BlockHeader,
         h1: BlockHeader,
@@ -1179,6 +1749,25 @@ pub mod test {
         ForkedHeaders { h0, h1, h2, h3, h2a, h3a }
     }
 
+    fn make_linear_headers(len: usize) -> Vec<BlockHeader> {
+        let mut headers = Vec::with_capacity(len);
+        for i in 0..len {
+            let parent = headers.last().map(BlockHeader::hash);
+            headers.push(BlockHeader::from(make_header((i + 1) as u64, (i + 1) as u64, parent)));
+        }
+        headers
+    }
+
+    fn append_best_chain<'a>(
+        store: Arc<dyn ChainStore<BlockHeader>>,
+        headers: impl IntoIterator<Item = &'a BlockHeader>,
+    ) {
+        for header in headers {
+            store.store_header(header).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+    }
+
     fn populate_db(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
         let chain = run_strategy(any_headers_chain(10));
 
@@ -1186,7 +1775,6 @@ pub mod test {
         store.set_anchor_hash(&chain[0].hash()).expect("should set anchor hash successfully");
 
         for header in chain.iter() {
-            store.set_best_chain_hash(&header.hash()).expect("should set best chain hash successfully");
             store.roll_forward_chain(&header.point()).expect("should roll forward successfully");
             store.store_header(header).expect("should store header successfully");
         }
@@ -1248,6 +1836,26 @@ pub mod test {
         let tempdir = tempfile::tempdir().unwrap();
         let rw_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(initialise_test_rw_store(tempdir.path()));
         f(rw_store);
+    }
+
+    fn with_read_db(
+        setup: impl Fn(Arc<dyn ChainStore<BlockHeader>>),
+        assert: impl Fn(Arc<dyn ChainStore<BlockHeader>>, &dyn ReadOnlyChainStore<BlockHeader>),
+    ) {
+        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
+        // Initialize the store and take a snapshot
+        setup(in_memory_store.clone());
+        let snapshot = in_memory_store.snapshot();
+        // check assertions against the in-memory snapshot
+        assert(in_memory_store.clone(), snapshot.as_ref());
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let rw_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(initialise_test_rw_store(tempdir.path()));
+        // Initialize the store and take a snapshot
+        setup(rw_store.clone());
+        let snapshot = rw_store.snapshot();
+        // check assertions against the RocksDB snapshot
+        assert(rw_store.clone(), snapshot.as_ref());
     }
 
     fn with_db_path(f: impl Fn((Arc<dyn ChainStore<BlockHeader>>, &Path))) {

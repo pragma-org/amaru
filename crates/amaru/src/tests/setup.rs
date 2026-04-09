@@ -18,14 +18,14 @@ use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation},
     headers_tree::data_generation::Action,
 };
-use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
+use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
 use amaru_ouroboros::{
     ChainStore, ConnectionsResource, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
 };
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use anyhow::anyhow;
 use pure_stage::{
-    Effects, StageGraph, StageRef, TryInStage,
+    Effects, OrTerminateWith, StageGraph, StageRef,
     simulation::{RandStdRng, SimulationBuilder},
 };
 use tracing_subscriber::EnvFilter;
@@ -147,15 +147,13 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
             tracing::info!(point = %header.point(), "rollforward");
             store
                 .store_header(header)
-                .await
-                .or_terminate(&eff, |e| async move {
+                .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot store the header {}: {e:?}. The seed is {seed}", &header);
                 })
                 .await;
             store
                 .roll_forward_chain(&header.point())
-                .await
-                .or_terminate(&eff, |e| async move {
+                .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot rollforward chain: {e:?}. The seed is {seed}");
                 })
                 .await;
@@ -164,9 +162,8 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
         Action::Rollback { rollback_point, .. } => {
             tracing::info!(point = %rollback_point, "rollback");
             store
-                .rollback_chain(rollback_point)
-                .await
-                .or_terminate(&eff, |e| async move {
+                .switch_to_fork(rollback_point, &NonEmptyVec::singleton(*rollback_point))
+                .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot rollback the chain to {}: {e:?}. The seed is {seed}", &rollback_point,);
                 })
                 .await;
@@ -175,8 +172,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
     };
     store
         .set_best_chain_hash(&msg.hash())
-        .await
-        .or_terminate(&eff, |e| async move {
+        .or_terminate_with(&eff, |e| async move {
             tracing::error!("Cannot set the best chain: {e:?}. The seed is {seed}");
         })
         .await;

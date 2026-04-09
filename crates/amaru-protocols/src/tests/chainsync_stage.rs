@@ -91,8 +91,6 @@ pub(super) async fn test_chainsync_stage(
             // store the header, update the best chain, fetch and store the block
             store.store_header(&block_header).await.unwrap();
             store.roll_forward_chain(&point).await.unwrap();
-            store.set_best_chain_hash(&header_hash).await.unwrap();
-
             // We accumulate points to fetch and fetch them in batches of 3
             state.blocks_to_fetch.push(point);
 

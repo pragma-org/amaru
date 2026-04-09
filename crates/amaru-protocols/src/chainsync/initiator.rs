@@ -276,17 +276,12 @@ impl ProtocolState<Initiator> for InitiatorState {
 #[cfg(test)]
 #[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
-    use std::sync::Arc;
-
     use InitiatorState::*;
     use Message::*;
-    use amaru_kernel::{BlockHeader, EraName, IsHeader, make_header};
-    use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
-    use pure_stage::{Effect, StageGraph, trace_buffer::TraceBuffer};
-    use tokio::runtime::Builder;
+    use amaru_kernel::EraName;
 
     use super::*;
-    use crate::{protocol::ProtoSpec, store_effects::ResourceHeaderStore};
+    use crate::protocol::ProtoSpec;
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
         // canonical states and messages
@@ -319,71 +314,5 @@ pub mod tests {
             Message::Done => Some(InitiatorAction::Done),
             _ => None,
         });
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    enum IntersectPointsTestMsg {
-        Run,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    struct IntersectPointsTestState {
-        output: StageRef<Vec<Point>>,
-    }
-
-    async fn intersect_points_test_stage(
-        state: IntersectPointsTestState,
-        msg: IntersectPointsTestMsg,
-        eff: Effects<IntersectPointsTestMsg>,
-    ) -> IntersectPointsTestState {
-        match msg {
-            IntersectPointsTestMsg::Run => {
-                let points = intersect_points(&Store::new(eff.clone())).await;
-                eff.send(&state.output, points).await;
-                state
-            }
-        }
-    }
-
-    #[test]
-    fn test_intersect_points_includes_best_point_and_are_spaced_with_a_factor_2() {
-        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
-        let store = Arc::new(InMemConsensusStore::new());
-        let mut parent = None;
-        let mut chain = Vec::new();
-        for slot in 0..=100 {
-            let header = BlockHeader::from(make_header(slot + 1, slot, parent));
-            store.store_header(&header).unwrap();
-            store.roll_forward_chain(&header.point()).unwrap();
-            parent = Some(header.hash());
-            chain.push(header);
-        }
-        let best = chain.last().unwrap();
-        store.set_best_chain_hash(&best.hash()).unwrap();
-
-        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
-        let _guard = TraceBuffer::drop_guard(&trace_buffer);
-        let mut network = pure_stage::simulation::SimulationBuilder::default().with_trace_buffer(trace_buffer);
-        network.resources().put::<ResourceHeaderStore>(store as Arc<dyn ChainStore<BlockHeader>>);
-
-        let (output, mut rx) = network.output::<Vec<Point>>("intersect_points_output", 1);
-        let stage = network.stage("intersect_points_test", intersect_points_test_stage);
-        let stage = network.wire_up(stage, IntersectPointsTestState { output: output.clone() });
-        network.preload(&stage, [IntersectPointsTestMsg::Run]).unwrap();
-
-        let output_name = output.name().clone();
-        let mut running = network.run();
-        running.breakpoint(
-            "output",
-            move |eff| matches!(eff, Effect::External { at_stage, .. } if at_stage == &output_name),
-        );
-
-        let effect = running.run_until_blocked_incl_effects(runtime.handle()).assert_breakpoint("output");
-        running.handle_effect(effect);
-        runtime.block_on(running.await_external_effect()).unwrap();
-
-        let points = rx.try_next().unwrap();
-        let slots = points.iter().map(|point| point.slot_or_default().into()).collect::<Vec<u64>>();
-        assert_eq!(slots, vec![100, 99, 98, 96, 92, 84, 68, 36, 0]);
     }
 }

@@ -16,7 +16,7 @@ use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros::BlockValidationError;
 use amaru_protocols::store_effects::Store;
-use pure_stage::{Effects, StageRef, TryInStage};
+use pure_stage::{Effects, OrTerminateWith, StageRef};
 
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
@@ -129,8 +129,7 @@ async fn validate(
     let ctx = opentelemetry::Context::current();
     ledger
         .validate_block(&Peer::new("unknown"), &point, ctx)
-        .await
-        .or_terminate(eff, async |error| {
+        .or_terminate_with(eff, async |error| {
             tracing::error!(error = %error, %point, "failed to validate block");
         })
         .await
@@ -191,14 +190,6 @@ async fn roll_back_to_ancestor(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-enum RollbackPointSearchResult {
-    Found { point: Point, forward_points: Vec<Point>, chosen_because_contains: bool },
-    DependsOnInvalid,
-    BelowImmutable,
-    NotFound,
-}
-
 async fn find_rollback_point(ledger: &Ledger, store: &Store, parent: Point) -> RollbackPointSearchResult {
     let ledger_tip = ledger.tip().await;
     let anchor_hash = store.get_anchor_hash().await;
@@ -239,6 +230,14 @@ async fn find_rollback_point(ledger: &Ledger, store: &Store, parent: Point) -> R
         };
         current_hash = parent_hash;
     }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+enum RollbackPointSearchResult {
+    Found { point: Point, forward_points: Vec<Point>, chosen_because_contains: bool },
+    DependsOnInvalid,
+    BelowImmutable,
+    NotFound,
 }
 
 #[cfg(test)]

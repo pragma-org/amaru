@@ -18,7 +18,7 @@ use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_o
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, HasHeaderEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
-    ResourceHeaderStore, SetBlockValidEffect, UnvalidatedAncestorHashesEffect,
+    LoadTipEffect, ResourceHeaderStore, SetBlockValidEffect, UnvalidatedAncestorHashesEffect,
 };
 use pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
@@ -125,6 +125,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<SetBlockValidEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
@@ -185,6 +186,10 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> 
 
 pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
+}
+
+pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
 }
 
 pub fn te_set_block_valid(at_stage: &str, hash: HeaderHash, valid: bool) -> TraceEntry {

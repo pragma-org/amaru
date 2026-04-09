@@ -17,7 +17,7 @@ use std::{cmp::Ordering, time::Duration};
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Tip};
 use amaru_ouroboros_traits::StoreError;
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
-use pure_stage::{Effects, Instant, StageRef, TryInStage};
+use pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 
 use crate::stages::select_chain::cmp_tip;
 
@@ -27,8 +27,7 @@ use crate::stages::select_chain::cmp_tip;
 /// It only adopts when the incoming tip is strictly better than the current
 /// best chain (e.g. when switching forks, a valid chain may not be the best).
 ///
-/// It manages the best_chain_hash and best chain link pointers in the store
-/// using roll_forward_chain and rollback_chain. When switching forks, it
+/// It manages the best chain in the store atomically. When switching forks, it
 /// finds the rollback point as the youngest point on the current best chain
 /// that is an ancestor of the newly adopted tip.
 ///
@@ -82,16 +81,14 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
 
     let incoming_header = store
         .load_header(&msg.hash())
-        .await
-        .or_terminate(&eff, async |_| {
+        .or_terminate_with(&eff, async |_| {
             tracing::warn!(tip = %msg, "failed to load incoming tip");
         })
         .await;
 
     let current_best = store
         .load_header(&state.current_best_tip.hash())
-        .await
-        .or_terminate(&eff, async |_| {
+        .or_terminate_with(&eff, async |_| {
             tracing::warn!("failed to load current best");
         })
         .await;
@@ -102,15 +99,13 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
     }
 
     adopt_tip(&store, &incoming_header, &current_best)
-        .await
-        .or_terminate(&eff, async |error| {
+        .or_terminate_with(&eff, async |error| {
             tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
         })
         .await;
 
     drag_anchor_forward(&store, &msg, state.consensus_security_param)
-        .await
-        .or_terminate(&eff, async |error| {
+        .or_terminate_with(&eff, async |error| {
             tracing::error!(error = %error, tip = %msg, "failed to drag anchor forward");
         })
         .await;
@@ -130,65 +125,29 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
     state
 }
 
-/// Adopt the tip: update best_chain_hash and maintain best chain links via
-/// roll_forward_chain and rollback_chain.
+/// Adopt the tip: update the best chain fragment and best chain hash in a single store transaction.
 async fn adopt_tip(store: &Store, incoming_header: &BlockHeader, current_best: &BlockHeader) -> Result<(), StoreError> {
     if incoming_header.parent() == Some(current_best.hash()) {
-        store.roll_forward_chain(&incoming_header.point()).await?;
-    } else {
-        mark_new_chain(store, incoming_header).await?;
+        return store.roll_forward_chain(&incoming_header.point()).await;
     }
 
-    store.set_best_chain_hash(&incoming_header.hash()).await?;
-    Ok(())
-}
-
-/// Find the youngest point on the current best chain that is an ancestor of
-/// the given header (the intersection point when switching forks).
-async fn mark_new_chain(store: &Store, incoming_header: &BlockHeader) -> Result<(), StoreError> {
     let Some((fork_point, forward_points)) = store.find_fork_point(incoming_header.hash()).await else {
         return Err(StoreError::ReadError {
             error: "rollback point not found: new tip has no ancestor on best chain".to_string(),
         });
     };
-    store.rollback_chain(&fork_point).await?;
-    for point in forward_points {
-        store.roll_forward_chain(&point).await?;
-    }
-    Ok(())
+    store.switch_to_fork(&fork_point, &forward_points).await
 }
 
 /// Drag the store anchor forward so it is at most `consensus_security_param`
-/// blocks behind the adopted tip. Walks forward from the anchor along the
-/// best chain using next_best_chain. Only moves the anchor forward, never backward.
+/// blocks behind the adopted tip. The walk along the best chain runs in a single
+/// store effect against a consistent snapshot; only the resulting anchor write
+/// is a separate effect. Only moves the anchor forward, never backward.
 async fn drag_anchor_forward(store: &Store, tip: &Tip, consensus_security_param: u64) -> Result<(), StoreError> {
-    let target_anchor_height = tip.block_height() - consensus_security_param;
-
-    if target_anchor_height.as_u64() == 0 {
-        return Ok(());
+    let target_height = tip.block_height() - consensus_security_param;
+    if let Some(new_anchor) = store.find_anchor_at_height(target_height).await {
+        store.set_anchor_hash(&new_anchor).await?;
     }
-
-    let current_anchor_tip =
-        store.load_header(&store.get_anchor_hash().await).await.map(|h: BlockHeader| h.tip()).unwrap_or(Tip::origin());
-
-    if target_anchor_height <= current_anchor_tip.block_height() {
-        return Ok(());
-    }
-
-    let mut point = current_anchor_tip.point();
-
-    while let Some(next_point) = store.next_best_chain(&point).await {
-        let next_header = match store.load_header(&next_point.hash()).await {
-            Some(h) => h,
-            None => break,
-        };
-        if next_header.block_height() >= target_anchor_height {
-            store.set_anchor_hash(&next_point.hash()).await?;
-            return Ok(());
-        }
-        point = next_point;
-    }
-
     Ok(())
 }
 

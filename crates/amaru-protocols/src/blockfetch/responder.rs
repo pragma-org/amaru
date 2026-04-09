@@ -289,62 +289,11 @@ pub mod tests {
         utils::tests::run_strategy,
     };
     use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use pure_stage::{Effects, StageGraph, trace_buffer::TraceBuffer};
+    use tokio::runtime::Builder;
 
     use super::*;
-    use crate::protocol::Responder;
-
-    fn request_range_in_store(
-        store: &dyn ChainStore<BlockHeader>,
-        from: Point,
-        through: Point,
-    ) -> anyhow::Result<Option<PointsRange>> {
-        if from > through {
-            return Ok(None);
-        }
-
-        if from == through {
-            return Ok(store.load_block(&from.hash())?.is_some().then(|| PointsRange::singleton(from)));
-        }
-
-        let mut current_hash = through.hash();
-        let mut result = vec![];
-        loop {
-            if result.len() >= MAX_FETCHED_BLOCKS {
-                return Ok(None);
-            }
-            if store.load_block(&current_hash)?.is_none() {
-                return Ok(None);
-            }
-            if let Some(header) = store.load_header(&current_hash) {
-                result.push(header.point());
-                if current_hash == from.hash() {
-                    break;
-                }
-                if header.slot() < from.slot_or_default() {
-                    return Ok(None);
-                }
-                if let Some(parent_hash) = header.parent_hash() {
-                    current_hash = parent_hash;
-                } else {
-                    return Ok(None);
-                }
-            } else {
-                return Ok(None);
-            }
-        }
-        Ok(PointsRange::from_vec(result))
-    }
-
-    fn next_block_in_store(
-        range: PointsRange,
-        store: &dyn ChainStore<BlockHeader>,
-    ) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
-        let (last, rest) = range.0.pop();
-        let last_hash = last.hash();
-        let stored_block =
-            store.load_block(&last_hash)?.ok_or_else(|| anyhow::anyhow!("block {} was pruned", last_hash))?;
-        Ok((stored_block, rest.map(PointsRange)))
-    }
+    use crate::{protocol::Responder, store_effects::ResourceHeaderStore};
 
     #[test]
     #[expect(clippy::wildcard_enum_match_arm)]
@@ -369,7 +318,7 @@ pub mod tests {
     #[test]
     fn test_request_range_invalid_from_greater_than_through() {
         let (store, headers) = make_store_with_chain(5);
-        let result = request_range_in_store(&*store, headers[3].point(), headers[1].point()).unwrap();
+        let result = request_range(store, headers[3].point(), headers[1].point());
         assert_eq!(result, None, "should return None when from > through");
     }
 
@@ -378,14 +327,14 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(3);
         store_blocks(store.clone(), &headers[1..2]);
 
-        let result = request_range_in_store(&*store, headers[1].point(), headers[1].point()).unwrap();
+        let result = request_range(store, headers[1].point(), headers[1].point());
         assert_eq!(result, Some(PointsRange::singleton(headers[1].point())));
     }
 
     #[test]
     fn test_request_range_single_point_block_missing() {
         let (store, headers) = make_store_with_chain(3);
-        let result = request_range_in_store(&*store, headers[1].point(), headers[1].point()).unwrap();
+        let result = request_range(store, headers[1].point(), headers[1].point());
         assert_eq!(result, None, "should return None when from == through but block doesn't exist");
     }
 
@@ -393,7 +342,7 @@ pub mod tests {
     fn test_request_range_valid_chain() {
         let (store, headers) = make_store_with_chain(5);
         store_blocks(store.clone(), &headers);
-        let result = request_range_in_store(&*store, headers[0].point(), headers[4].point()).unwrap();
+        let result = request_range(store, headers[0].point(), headers[4].point());
         assert_eq!(
             result,
             PointsRange::from_vec(vec![
@@ -419,7 +368,7 @@ pub mod tests {
             }
         }
 
-        let result = request_range_in_store(&*store, headers[0].point(), headers[4].point()).unwrap();
+        let result = request_range(store, headers[0].point(), headers[4].point());
         assert_eq!(result, None, "should return None when a block is missing in the chain");
     }
 
@@ -437,13 +386,12 @@ pub mod tests {
                 // Skip storing header for index 2
                 store.store_header(h).unwrap();
                 store.roll_forward_chain(&h.point()).unwrap();
-                store.set_best_chain_hash(&h.hash()).unwrap();
                 let raw_block = RawBlock::from(&[1u8, 2, 3][..]);
                 store.store_block(&h.hash(), &raw_block).unwrap();
             }
         }
 
-        let result = request_range_in_store(&*store, headers[0].point(), headers[4].point()).unwrap();
+        let result = request_range(store, headers[0].point(), headers[4].point());
         assert_eq!(result, None, "should return None when a header is missing in the chain");
     }
 
@@ -452,12 +400,11 @@ pub mod tests {
         let genesis = Point::Specific(Slot::from(10), run_strategy(any_fake_header()).hash());
         let (store, headers) = make_store_with_chain_starting_from(5, genesis);
 
-        let result = request_range_in_store(
-            &*store,
+        let result = request_range(
+            store,
             Point::Specific(Slot::from(2), run_strategy(any_fake_header()).hash()),
             headers[3].point(),
-        )
-        .unwrap();
+        );
         assert_eq!(result, None, "should return None when we hit genesis before finding from");
     }
 
@@ -474,7 +421,7 @@ pub mod tests {
         let non_existent_hash = run_strategy(any_fake_header()).hash();
         let from = Point::Specific(from_slot, non_existent_hash);
 
-        let result = request_range_in_store(&*store, from, headers[4].point()).unwrap();
+        let result = request_range(store, from, headers[4].point());
         assert_eq!(result, None, "should return None when we reach a slot before 'from' without finding 'from'");
     }
 
@@ -484,8 +431,7 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(MAX_FETCHED_BLOCKS);
         store_blocks(store.clone(), &headers);
 
-        let result =
-            request_range_in_store(&*store, headers[0].point(), headers[MAX_FETCHED_BLOCKS - 1].point()).unwrap();
+        let result = request_range(store, headers[0].point(), headers[MAX_FETCHED_BLOCKS - 1].point());
 
         assert_eq!(result.unwrap().points().len(), MAX_FETCHED_BLOCKS);
     }
@@ -497,7 +443,7 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(chain_length);
         store_blocks(store.clone(), &headers);
 
-        let result = request_range_in_store(&*store, headers[0].point(), headers[chain_length - 1].point()).unwrap();
+        let result = request_range(store, headers[0].point(), headers[chain_length - 1].point());
         assert_eq!(result, None, "should return None when the requested range exceeds MAX_BLOCKS limit");
     }
 
@@ -506,8 +452,7 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(3);
         store_blocks(store.clone(), &headers);
 
-        let (block, remaining_range) =
-            next_block_in_store(PointsRange::singleton(headers[1].point()), &*store).unwrap();
+        let (block, remaining_range) = next_block(store, PointsRange::singleton(headers[1].point()));
 
         // Should return the block for the single point
         let network_block: NetworkBlock = block.try_into().unwrap();
@@ -522,11 +467,10 @@ pub mod tests {
         let (store, headers) = make_store_with_chain(5);
         store_blocks(store.clone(), &headers);
 
-        let (block, remaining_range) = next_block_in_store(
+        let (block, remaining_range) = next_block(
+            store,
             PointsRange::from_vec(vec![headers[2].point(), headers[1].point(), headers[0].point()]).unwrap(),
-            &*store,
-        )
-        .unwrap();
+        );
 
         // Should return the first block
         let network_block: NetworkBlock = block.try_into().unwrap();
@@ -553,7 +497,6 @@ pub mod tests {
         for h in &headers {
             store.store_header(h).unwrap();
             store.roll_forward_chain(&h.point()).unwrap();
-            store.set_best_chain_hash(&h.hash()).unwrap();
         }
         (store, headers)
     }
@@ -562,6 +505,81 @@ pub mod tests {
         for h in headers {
             let raw_block = make_encoded_block(h, &TESTNET_ERA_HISTORY);
             store.store_block(&h.hash(), &raw_block).unwrap();
+        }
+    }
+
+    /// Invoke the PointsRange::request_range method via a stage
+    fn request_range(store: Arc<InMemConsensusStore<BlockHeader>>, from: Point, through: Point) -> Option<PointsRange> {
+        match run_points_range_test(store, PointsRangeTestMsg::RequestRange { from, through }) {
+            PointsRangeTestResult::RequestRange(result) => result,
+            PointsRangeTestResult::NextBlock(_) => unreachable!(),
+        }
+    }
+
+    /// Invoke the PointsRange::next_block method via a stage
+    fn next_block(store: Arc<InMemConsensusStore<BlockHeader>>, range: PointsRange) -> (RawBlock, Option<PointsRange>) {
+        match run_points_range_test(store, PointsRangeTestMsg::NextBlock { range }) {
+            PointsRangeTestResult::NextBlock(result) => result,
+            PointsRangeTestResult::RequestRange(_) => unreachable!(),
+        }
+    }
+
+    /// Invoke the PointsRange methods via a stage
+    fn run_points_range_test(
+        store: Arc<InMemConsensusStore<BlockHeader>>,
+        msg: PointsRangeTestMsg,
+    ) -> PointsRangeTestResult {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+        let _guard = TraceBuffer::drop_guard(&trace_buffer);
+        let mut network = pure_stage::simulation::SimulationBuilder::default().with_trace_buffer(trace_buffer);
+        network.resources().put::<ResourceHeaderStore>(store as Arc<dyn ChainStore<BlockHeader>>);
+
+        let stage = network.stage("points_range_test", points_range_test_stage);
+        let stage = network.wire_up(stage, PointsRangeTestState::default());
+        network.preload(&stage, [msg]).unwrap();
+
+        let mut running = network.run();
+        running.run_until_blocked_incl_effects(runtime.handle()).assert_idle();
+
+        running.get_state(&stage).unwrap().result.clone().unwrap()
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    enum PointsRangeTestMsg {
+        RequestRange { from: Point, through: Point },
+        NextBlock { range: PointsRange },
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    enum PointsRangeTestResult {
+        RequestRange(Option<PointsRange>),
+        NextBlock((RawBlock, Option<PointsRange>)),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+    struct PointsRangeTestState {
+        result: Option<PointsRangeTestResult>,
+    }
+
+    /// Create a stage to exercise the PointsRange methods
+    async fn points_range_test_stage(
+        mut state: PointsRangeTestState,
+        msg: PointsRangeTestMsg,
+        eff: Effects<PointsRangeTestMsg>,
+    ) -> PointsRangeTestState {
+        match msg {
+            PointsRangeTestMsg::RequestRange { from, through } => {
+                state.result = Some(PointsRangeTestResult::RequestRange(
+                    PointsRange::request_range(&Store::new(eff.clone()), from, through).await.unwrap(),
+                ));
+                state
+            }
+            PointsRangeTestMsg::NextBlock { range } => {
+                state.result =
+                    Some(PointsRangeTestResult::NextBlock(range.next_block(&Store::new(eff.clone())).await.unwrap()));
+                state
+            }
         }
     }
 }

@@ -16,7 +16,7 @@ use std::{cmp::Ordering, collections::BTreeMap};
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, Tip};
 use amaru_protocols::store_effects::Store;
-use pure_stage::{Effects, StageRef, TryInStage};
+use pure_stage::{Effects, OrTerminateWith, StageRef};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SelectChain {
@@ -130,8 +130,7 @@ impl SelectChain {
 
         store
             .set_block_valid(&tip.hash(), valid)
-            .await
-            .or_terminate(&eff, async |error| {
+            .or_terminate_with(&eff, async |error| {
                 tracing::error!(%error, %valid, "failed to store block validation result");
             })
             .await;
@@ -178,8 +177,7 @@ impl SelectChain {
                     let parent = if let Some(parent) = parent {
                         store
                             .load_tip(&parent)
-                            .await
-                            .or_terminate(&eff, async |_| {
+                            .or_terminate_with(&eff, async |_| {
                                 tracing::warn!(
                                     "failed to load parent {:?} of best tip candidate {:?}",
                                     parent,
@@ -218,16 +216,14 @@ impl SelectChain {
             let store = Store::new(eff.clone());
             let header = store
                 .load_header(&best_tip.hash())
-                .await
-                .or_terminate(&eff, async |_| {
+                .or_terminate_with(&eff, async |_| {
                     tracing::error!("failed to load header of best candidate");
                 })
                 .await;
             let parent = if let Some(parent) = header.parent_hash() {
                 store
                     .load_tip(&parent)
-                    .await
-                    .or_terminate(&eff, async |_| {
+                    .or_terminate_with(&eff, async |_| {
                         tracing::error!("failed to load parent of best candidate");
                     })
                     .await

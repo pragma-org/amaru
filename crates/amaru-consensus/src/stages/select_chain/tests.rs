@@ -22,8 +22,8 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        assert_trace, setup, te_get_best_chain_hash, te_has_header, te_load_header, te_send, te_set_block_valid,
-        te_terminate, te_terminated, te_unvalidated_ancestor_hashes, test_prep,
+        assert_trace, setup, te_get_best_chain_hash, te_has_header, te_load_header, te_load_tip, te_send,
+        te_set_block_valid, te_terminate, te_terminated, te_unvalidated_ancestor_hashes, test_prep,
     },
     test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
 };
@@ -385,7 +385,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_set_block_valid("sc-1", tip.hash(), false),
             te_get_best_chain_hash("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
+            te_load_tip("sc-1", prep.headers.h0.hash()),
             te_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point())),
             te_state("sc-1", &expected),
         ],
@@ -426,7 +426,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_has_header("sc-1", tip.hash()),
             te_set_block_valid("sc-1", tip.hash(), false),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
-            te_load_header("sc-1", prep.headers.h2a.hash(), false),
+            te_load_tip("sc-1", prep.headers.h2a.hash()),
             te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point())),
             te_state("sc-1", &expected),
         ],
@@ -546,7 +546,7 @@ fn test_startup_with_non_empty_store() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", prep.headers.h3.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), false),
+            te_load_tip("sc-1", prep.headers.h2.hash()),
             te_send("sc-1", "downstream", (prep.headers.h3.tip(), prep.headers.h2.point())),
             te_state("sc-1", &prep.state),
         ],

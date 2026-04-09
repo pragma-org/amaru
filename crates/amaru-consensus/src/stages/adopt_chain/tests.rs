@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::ORIGIN_HASH;
+use amaru_kernel::{NonEmptyVec, ORIGIN_HASH};
 use pure_stage::trace_buffer::TerminationReason;
 use test_setup::{assert_trace, setup, te_find_fork_point, te_load_header, te_terminate, te_terminated, test_prep};
 use tracing::Level;
@@ -20,8 +20,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_get_anchor_hash, te_next_best_chain, te_roll_forward_chain, te_rollback_chain, te_send, te_set_anchor_hash,
-        te_set_best_chain_hash,
+        te_find_anchor_at_height, te_roll_forward_chain, te_send, te_set_anchor_hash, te_switch_to_fork,
     },
     test_utils::{te_input, te_state},
 };
@@ -101,7 +100,7 @@ fn test_incoming_not_better_than_current_best() {
     ]);
 }
 
-/// Extension: h3 extends h2 -> roll_forward, set_best_chain, drag anchor, send.
+/// Extension: h3 extends h2 -> roll_forward, drag anchor, send.
 #[test]
 fn test_extension_adopts_and_sends() {
     let mut prep = test_prep(2);
@@ -123,11 +122,7 @@ fn test_extension_adopts_and_sends() {
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
             te_roll_forward_chain("ac-1", msg.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_next_best_chain("ac-1", prep.headers.h0.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
+            te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
@@ -168,14 +163,12 @@ fn test_fork_switch_adopts_and_sends() {
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
             te_find_fork_point("ac-1", msg.hash()),
-            te_rollback_chain("ac-1", prep.headers.h1.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h2a.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h3a.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_next_best_chain("ac-1", prep.headers.h0.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
+            te_switch_to_fork(
+                "ac-1",
+                prep.headers.h1.point(),
+                NonEmptyVec::try_from(vec![prep.headers.h2a.point(), prep.headers.h3a.point()]).unwrap(),
+            ),
+            te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
@@ -215,12 +208,8 @@ fn test_fork_switch_opcert_hacked() {
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2a.hash()),
             te_find_fork_point("ac-1", msg.hash()),
-            te_rollback_chain("ac-1", prep.headers.h1.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h2.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_clock("ac-1"),
+            te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
+            te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
             te_state("ac-1", &expected),
         ],
