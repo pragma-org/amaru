@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
 };
+use amaru_observability::trace_span;
 use amaru_ouroboros::ReadOnlyChainStore;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
@@ -303,7 +304,7 @@ impl TrackPeers {
                 tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
 
                 let variant = header_content.variant;
-                let probe = decode_header(header_content);
+                let probe = decode_header(header_content, &peer);
                 let header = match probe {
                     Ok(h) => h,
                     Err(error) => {
@@ -349,12 +350,9 @@ impl TrackPeers {
     }
 }
 
-#[tracing::instrument(
-    level = tracing::Level::TRACE,
-    skip_all,
-    name = "chain_sync.decode_header",
-)]
-pub fn decode_header(raw_header: HeaderContent) -> Result<BlockHeader, ConsensusError> {
+pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<BlockHeader, ConsensusError> {
+    let _span = trace_span!(amaru_observability::amaru::consensus::chain_sync::DECODE_HEADER, peer = peer.to_string());
+    let _guard = _span.enter();
     // need to list all the variants supported by the current Amaru implementation
     if !matches!(raw_header.variant, EraName::Conway) {
         return Err(ConsensusError::InvalidHeaderVariant(raw_header.variant));

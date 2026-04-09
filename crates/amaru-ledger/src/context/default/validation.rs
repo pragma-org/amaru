@@ -23,7 +23,7 @@ use amaru_kernel::{
     ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
 };
-use tracing::trace;
+use amaru_observability::trace_span;
 
 use crate::{
     context::{
@@ -98,12 +98,22 @@ impl PoolsSlice for DefaultValidationContext {
     }
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer) {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, pool_id = %params.id, "certificate.pool.registration");
+        let pool_id = params.id;
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_POOL_REGISTRATION,
+            pool_id = %pool_id
+        );
+        let _guard = _span.enter();
         self.state.pools.register(params.id, (params, pointer))
     }
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, pool_id = %pool, epoch = %epoch, "certificate.pool.retirement");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_POOL_RETIREMENT,
+            pool_id = %pool,
+            epoch = u64::from(epoch)
+        );
+        let _guard = _span.enter();
         self.state.pools.unregister(pool, epoch)
     }
 }
@@ -118,7 +128,11 @@ impl AccountsSlice for DefaultValidationContext {
         credential: StakeCredential,
         state: AccountState,
     ) -> Result<(), RegisterError<AccountState, StakeCredential>> {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?credential, "certificate.stake.registration");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_STAKE_REGISTRATION,
+            credential = format!("{credential:?}")
+        );
+        let _guard = _span.enter();
         self.state.accounts.register(credential, state.deposit, state.pool, state.drep)?;
         Ok(())
     }
@@ -129,7 +143,12 @@ impl AccountsSlice for DefaultValidationContext {
         pool: PoolId,
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?credential, %pool, "certificate.stake.delegation");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_STAKE_DELEGATION,
+            credential = format!("{credential:?}"),
+            pool_id = %pool
+        );
+        let _guard = _span.enter();
         self.state.accounts.bind_left(credential, Some((pool, pointer)))?;
         Ok(())
     }
@@ -140,13 +159,29 @@ impl AccountsSlice for DefaultValidationContext {
         drep: DRep,
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, DRep>> {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?credential, ?drep, "certificate.vote.delegation");
+        let drep_stake_credential: Option<StakeCredential> = match &drep {
+            DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
+            DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
+            DRep::Abstain | DRep::NoConfidence => None,
+        };
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_VOTE_DELEGATION,
+            credential = format!("{credential:?}")
+        );
+        if let Some(d) = &drep_stake_credential {
+            _span.record("drep", format!("{d:?}"));
+        }
+        let _guard = _span.enter();
         self.state.accounts.bind_right(credential, Some((drep, pointer)))?;
         Ok(())
     }
 
     fn unregister(&mut self, credential: StakeCredential) {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?credential, "certificate.stake.deregistration");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_STAKE_DEREGISTRATION,
+            credential = format!("{credential:?}")
+        );
+        let _guard = _span.enter();
         self.state.accounts.unregister(credential)
     }
 
@@ -166,19 +201,39 @@ impl DRepsSlice for DefaultValidationContext {
         registration: DRepRegistration,
         anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?drep, deposit = %registration.deposit, "certificate.drep.registration");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_DREP_REGISTRATION,
+            drep = format!("{drep:?}"),
+            deposit = u64::from(registration.deposit)
+        );
+        if let Some(a) = &anchor {
+            _span.record("anchor_url", &a.url);
+        }
+        let _guard = _span.enter();
         self.state.dreps.register(drep, registration, anchor, None)?;
         Ok(())
     }
 
     fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?drep, ?anchor, "certificate.drep.update");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_DREP_UPDATE,
+            drep = format!("{drep:?}")
+        );
+        if let Some(a) = &anchor {
+            _span.record("anchor_url", &a.url);
+        }
+        let _guard = _span.enter();
         self.state.dreps.bind_left(drep, anchor)?;
         Ok(())
     }
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer) {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?drep, ?refund, "certificate.drep.retirement");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_DREP_RETIREMENT,
+            drep = format!("{drep:?}"),
+            refund = u64::from(refund)
+        );
+        let _guard = _span.enter();
         self.state.dreps_deregistrations.insert(drep.clone(), pointer);
         self.state.dreps.unregister(drep)
     }
@@ -190,7 +245,12 @@ impl CommitteeSlice for DefaultValidationContext {
         cc_member: StakeCredential,
         delegate: StakeCredential,
     ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?cc_member, ?delegate, "certificate.committee.delegate");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_COMMITTEE_DELEGATE,
+            cc_member = format!("{cc_member:?}"),
+            delegate = format!("{delegate:?}")
+        );
+        let _guard = _span.enter();
         self.state.committee.bind_left(cc_member, Some(delegate))?;
         Ok(())
     }
@@ -200,7 +260,14 @@ impl CommitteeSlice for DefaultValidationContext {
         cc_member: StakeCredential,
         anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
-        trace!(target: amaru_observability::CERTIFICATE_TARGET, ?cc_member, ?anchor, "certificate.committee.resign");
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_COMMITTEE_RESIGN,
+            cc_member = format!("{cc_member:?}")
+        );
+        if let Some(a) = &anchor {
+            _span.record("anchor_url", &a.url);
+        }
+        let _guard = _span.enter();
         self.state.committee.unregister(cc_member);
         Ok(())
     }
