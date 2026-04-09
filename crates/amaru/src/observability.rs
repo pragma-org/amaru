@@ -19,11 +19,10 @@ use std::{
     io::{self, IsTerminal},
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use opentelemetry::trace::TracerProvider;
-use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
 use tracing::{Metadata, Subscriber, info, level_filters::LevelFilter, span, subscriber::Interest, warn};
@@ -268,7 +267,6 @@ impl Default for OpenTelemetryHandle {
 }
 
 const DEFAULT_OTLP_SERVICE_NAME: &str = "amaru";
-const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
 /// Context hints supplied by the caller to refine observability defaults.
 pub trait ObservabilityHints {
@@ -330,14 +328,11 @@ pub fn setup_open_telemetry(
     // support gRPC for metrics.
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_http()
-        .with_endpoint(DEFAULT_OTLP_METRIC_URL)
         .with_temporality(Temporality::default())
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
 
-    let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
-        .with_interval(Duration::from_secs(10))
-        .build();
+    let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build();
 
     let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(metric_reader)
