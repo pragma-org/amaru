@@ -13,3 +13,16 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::PlutusScript;
+
+use crate::cbor;
+
+pub trait PlutusScriptExt {
+    /// Unwrap the CBOR bytestring envelope to get the raw flat-encoded program bytes.
+    fn flat_bytes(&self) -> Result<&[u8], cbor::decode::Error>;
+}
+
+impl<const V: usize> PlutusScriptExt for PlutusScript<V> {
+    fn flat_bytes(&self) -> Result<&[u8], cbor::decode::Error> {
+        cbor::Decoder::new(&self.0).bytes()
+    }
+}

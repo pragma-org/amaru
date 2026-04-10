@@ -32,8 +32,6 @@
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOW/Valid transactions/PlutusV3/Not validating MINT script" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOW/Valid transactions/PlutusV3/Not validating SPEND script" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOW/Valid transactions/PlutusV3/Not validating WITHDRAWAL script" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/BabbageImpSpec/UTXOW/MalformedReferenceScripts" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/BabbageImpSpec/UTXOW/MalformedScriptWitnesses" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/CERTS/Withdrawals/Withdrawing from an unregistered reward account" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/CERTS/Withdrawals/Withdrawing the wrong amount" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Delegate stake/Delegate to unregistered pool" = "Expected failure, got success"

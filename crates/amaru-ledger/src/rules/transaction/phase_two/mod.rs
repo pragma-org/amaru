@@ -15,8 +15,8 @@
 use std::{collections::BTreeMap, fmt};
 
 use amaru_kernel::{
-    EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
-    cbor, to_cbor, transaction_input_to_string,
+    EraHistory, NetworkName, ProtocolParameters, ProtocolVersionExt, TransactionBody, TransactionInput,
+    TransactionPointer, WitnessSet, cbor, to_cbor, transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
@@ -162,12 +162,13 @@ where
 
             let script_bytes = script.to_bytes().map_err(PhaseTwoError::ScriptDeserializationError)?;
 
-            let mut program = flat::decode::<DeBruijn>(
-                &arena,
-                &script_bytes,
-                plutus_version,
-                protocol_parameters.protocol_version.0 as u32,
-            )
+            let pv = protocol_parameters.protocol_version.major();
+            let mut program = match plutus_version {
+                PlutusVersion::V3 => flat::decode_strict::<DeBruijn>(&arena, &script_bytes, plutus_version, pv),
+                PlutusVersion::V1 | PlutusVersion::V2 => {
+                    flat::decode::<DeBruijn>(&arena, &script_bytes, plutus_version, pv)
+                }
+            }
             .map_err(PhaseTwoError::from)?;
 
             // TODO: we should stop using Pallas' PlutusData
