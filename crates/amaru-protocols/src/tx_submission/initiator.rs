@@ -386,6 +386,8 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 mod tests {
     use std::sync::Arc;
 
+    use amaru_ouroboros_traits::TxOrigin;
+
     use super::*;
     use crate::tx_submission::{
         assert_actions_eq, create_transactions_in_mempool,
@@ -439,7 +441,7 @@ mod tests {
         let txs = create_transactions(6);
 
         for tx in txs.iter().take(2) {
-            mempool.add(tx.clone())?;
+            mempool.insert(tx.clone(), TxOrigin::Local)?;
         }
 
         // Send requests to retrieve transactions and block until they are available.
@@ -452,7 +454,7 @@ mod tests {
 
         // Refill the mempool with more transactions
         for tx in &txs[2..] {
-            mempool.add(tx.clone())?;
+            mempool.insert(tx.clone(), TxOrigin::Local)?;
         }
         let messages = vec![
             request_tx_ids(1, 2, Blocking::Yes),

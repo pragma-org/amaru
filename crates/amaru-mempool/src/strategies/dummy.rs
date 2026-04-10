@@ -100,17 +100,17 @@ mod tests {
     #[test]
     fn add_then_take() {
         let mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1])).unwrap();
-        mempool.add(FakeTx::new("tx2", &[2])).unwrap();
+        mempool.insert(FakeTx::new("tx1", &[1]), TxOrigin::Local).unwrap();
+        mempool.insert(FakeTx::new("tx2", &[2]), TxOrigin::Local).unwrap();
         assert_eq!(mempool.take(), vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]);
     }
 
     #[test]
     fn invalidate_entries() {
         let mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1, 2])).unwrap();
-        mempool.add(FakeTx::new("tx2", &[3, 4])).unwrap();
-        mempool.add(FakeTx::new("tx3", &[5, 6])).unwrap();
+        mempool.insert(FakeTx::new("tx1", &[1, 2]), TxOrigin::Local).unwrap();
+        mempool.insert(FakeTx::new("tx2", &[3, 4]), TxOrigin::Local).unwrap();
+        mempool.insert(FakeTx::new("tx3", &[5, 6]), TxOrigin::Local).unwrap();
         mempool.acknowledge(&FakeTx::new("tx4", &[2, 5, 7]), FakeTx::keys);
         assert_eq!(mempool.take(), vec![FakeTx::new("tx2", &[3, 4])]);
     }
