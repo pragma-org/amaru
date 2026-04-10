@@ -13,10 +13,8 @@
 // limitations under the License.
 
 mod assertions;
-mod sized_mempool;
 mod system_test;
 mod test_data;
 
 pub use assertions::*;
-pub use sized_mempool::*;
 pub use test_data::*;
