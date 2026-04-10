@@ -81,7 +81,7 @@ impl Default for Config {
             submit_api_address: None,
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
-            defer_req_next_poll_ms: 2000,
+            defer_req_next_poll_ms: 200,
             trace_buffer_min_entries: 0,
             trace_buffer_max_size: 0,
             trace_dump_path: None,
