@@ -14,11 +14,12 @@
 
 use std::cmp::Reverse;
 
-use amaru_kernel::{BlockHeader, EraName, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeader, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
@@ -87,32 +88,40 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         }
     }
 
-    #[instrument(name = "chainsync.responder.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         proto: &ResponderState,
         input: ResponderResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        match input {
-            ResponderResult::FindIntersect(points) => {
-                let action = intersect(points, &Store::new(eff.clone()), self.upstream)
-                    .context("failed to find intersection")?;
-                if let ResponderAction::IntersectFound(point, _tip) = &action {
-                    self.pointer = *point;
+        let message_type = input.message_type().to_string();
+
+        async move {
+            match input {
+                ResponderResult::FindIntersect(points) => {
+                    let action = intersect(points, &Store::new(eff.clone()), self.upstream)
+                        .context("failed to find intersection")?;
+                    if let ResponderAction::IntersectFound(point, _tip) = &action {
+                        self.pointer = *point;
+                    }
+                    Ok((Some(action), self))
                 }
-                Ok((Some(action), self))
-            }
-            ResponderResult::RequestNext => {
-                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
-                    .context("failed to get next header")?;
-                Ok((action, self))
-            }
-            ResponderResult::Done => {
-                tracing::info!("peer stopped chainsync");
-                Ok((None, self))
+                ResponderResult::RequestNext => {
+                    let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                        .context("failed to get next header")?;
+                    Ok((action, self))
+                }
+                ResponderResult::Done => {
+                    tracing::info!("peer stopped chainsync");
+                    Ok((None, self))
+                }
             }
         }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE,
+            message_type = message_type
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -141,23 +150,78 @@ fn next_header(
 
     if store.load_from_best_chain(pointer).is_none() {
         // client is on a different fork, we need to roll backward
-        let header = store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
-        for header in store.ancestors(header) {
-            if store.load_from_best_chain(&header.point()).is_some() {
-                *pointer = header.point();
-                return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
-            }
-        }
-        anyhow::bail!("no overlap found between client pointer chain and stored best chain");
+        return next_header_rollback(pointer, store, tip);
     }
     // pointer is on the best chain, we need to roll forward
+    // note that next_best_chain does not check that the returned point's parent matches the
+    // pointer, so we need to check that below (in case the best chain changed meanwhile)
     let Some(point) = store.next_best_chain(pointer) else {
         return Ok(None);
     };
     let header =
         store.load_header(&point.hash()).ok_or_else(|| anyhow::anyhow!("best-chain header not found: {}", point))?;
+    // Validate that the header's parent matches our pointer; the store can change between
+    // load_from_best_chain and next_best_chain, so the "next" block may no longer be correct.
+    let expected_parent = pointer.hash();
+    let actual_parent = header.parent_hash().unwrap_or(ORIGIN_HASH);
+    if actual_parent != expected_parent {
+        // Best chain changed; fall back to searching backwards from the advertised tip
+        return next_header_from_tip(pointer, store, tip);
+    }
     *pointer = point;
     Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, EraName::Conway), tip)))
+}
+
+/// Rollback when the client pointer is on a different fork from our best chain.
+fn next_header_rollback(
+    pointer: &mut Point,
+    store: &dyn ReadOnlyChainStore<BlockHeader>,
+    tip: Tip,
+) -> anyhow::Result<Option<ResponderAction>> {
+    let header = store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
+    for header in store.ancestors(header) {
+        if store.load_from_best_chain(&header.point()).is_some() {
+            *pointer = header.point();
+            return Ok(Some(ResponderAction::RollBackward(header.point(), tip)));
+        }
+        // if the above returned None then we need to keep searching; if the chain is updated to contain
+        // this header again, then we'll get there a bit later again, just with a detour via lower slots
+    }
+    anyhow::bail!("no overlap found between client pointer chain and stored best chain");
+}
+
+/// Find the next action by searching backwards from the advertised tip.
+/// Used when next_best_chain would return a header whose parent doesn't match the pointer
+/// (e.g. because the store changed between load_from_best_chain and next_best_chain).
+fn next_header_from_tip(
+    pointer: &mut Point,
+    store: &dyn ReadOnlyChainStore<BlockHeader>,
+    tip: Tip,
+) -> anyhow::Result<Option<ResponderAction>> {
+    let tip_header = store
+        .load_header(&tip.point().hash())
+        .ok_or_else(|| anyhow::anyhow!("tip header not found: {}", tip.point()))?;
+    let mut tip_chain = store.ancestors(tip_header).map(|h| h.point()).peekable();
+    let pointer_header =
+        store.load_header(&pointer.hash()).ok_or_else(|| anyhow::anyhow!("remote pointer not found"))?;
+    for point in store.ancestors(pointer_header).map(|h| h.point()) {
+        while let Some(tip_point) = tip_chain.peek() {
+            if tip_point.slot_or_default() > point.slot_or_default() {
+                tip_chain.next();
+            } else {
+                break;
+            }
+        }
+        if let Some(tip_point) = tip_chain.peek() {
+            if *tip_point == point {
+                *pointer = point;
+                return Ok(Some(ResponderAction::RollBackward(point, tip)));
+            }
+        } else {
+            break;
+        }
+    }
+    Err(anyhow::anyhow!("no overlap found between client pointer chain and tip chain"))
 }
 
 fn intersect(
@@ -224,8 +288,12 @@ impl ProtocolState<Responder> for ResponderState {
         Ok((outcome().want_next(), *self))
     }
 
-    #[instrument(name = "chainsync.responder.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::chainsync::responder::CHAINSYNC_RESPONDER_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         use ResponderState::*;
 
         Ok(match (self, input) {

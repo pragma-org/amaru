@@ -8,14 +8,14 @@ on:
         type: choice
         options: [preprod, preview]
         required: false
-      demo_target_epoch:
-        description: "Override DEMO_TARGET_EPOCH (leave empty for fixed epoch)"
+      run_until_target_epoch:
+        description: "Override run-until target epoch (leave empty for fixed epoch)"
         required: false
       timeout:
         description: "Override timeout for snapshot tests"
         required: false
-      demo_trace_level:
-        description: "Override AMARU_TRACE (leave empty for default)"
+      run_until_trace_level:
+        description: "Override AMARU_TRACE for run-until (leave empty for default)"
         required: false
   push:
     branches: ["main"]
@@ -194,9 +194,9 @@ jobs:
       use_fixed_epoch: true
       default_timeout: 15
       network: ${{ github.event.inputs.network || '' }}
-      demo_target_epoch: ${{ github.event.inputs.demo_target_epoch || '' }}
+      run_until_target_epoch: ${{ github.event.inputs.run_until_target_epoch || '' }}
       timeout: ${{ github.event.inputs.timeout || '' }}
-      demo_trace_level: ${{ github.event.inputs.demo_trace_level || '' }}
+      run_until_trace_level: ${{ github.event.inputs.run_until_trace_level || '' }}
       use_buildjet_runner: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
       run_tests: ${{ github.event_name == 'pull_request' }}
     secrets:

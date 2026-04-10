@@ -23,6 +23,8 @@ syn.workspace = true
 inventory.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
 trybuild.workspace = true

@@ -23,15 +23,15 @@ use std::{
 use amaru_kernel::{
     AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory, EraHistoryError,
     GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters,
-    Slot, StakeCredential, StakeCredentialKind, TransactionInput, expect_stake_credential,
+    Slot, StakeCredential, StakeCredentialKind, Tip, TransactionInput, expect_stake_credential,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::trace as observability_trace;
+use amaru_observability::trace_span;
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::{Context, anyhow};
 use thiserror::Error;
-use tracing::{Span, debug, error, info, trace, warn};
+use tracing::{Span, debug, error, info, trace};
 use volatile_db::AnchoredVolatileState;
 pub use volatile_db::VolatileState;
 
@@ -235,16 +235,26 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[expect(clippy::unwrap_used)]
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
-            return Cow::Borrowed(&st.anchor.0);
+            return Cow::Owned(st.anchor.0.point());
         }
 
         Cow::Owned(self.stable.lock().unwrap().tip().unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")))
     }
 
+    /// Tip of the volatile (`VolatileDB`) sequence only, if non-empty.
+    pub fn volatile_tip(&self) -> Option<Tip> {
+        self.volatile.view_back().map(|st| st.anchor.0)
+    }
+
     #[expect(clippy::unwrap_used)]
-    #[observability_trace(amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(now_stable.anchor.0.slot_or_default()))]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
-        let stable_tip_slot = now_stable.anchor.0.slot_or_default();
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::state::APPLY_BLOCK,
+            point_slot = u64::from(now_stable.anchor.0.slot())
+        );
+        let _guard = _span.enter();
+
+        let stable_tip_slot = now_stable.anchor.0.slot();
 
         let mut db = self.stable.lock().unwrap();
 
@@ -325,7 +335,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(())
     }
 
-    #[observability_trace(INFO, amaru::ledger::state::EPOCH_TRANSITION, from = u64::from(next_epoch - 1), into = u64::from(next_epoch))]
     fn epoch_transition(
         &self,
         db: &mut impl Store,
@@ -333,6 +342,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         next_epoch: Epoch,
         rewards_summary: Option<RewardsSummary>,
     ) -> Result<ProtocolParameters, StateError> {
+        let _span = trace_span!(
+            INFO,
+            amaru_observability::amaru::ledger::state::EPOCH_TRANSITION,
+            from = u64::from(next_epoch - 1),
+            into = u64::from(next_epoch)
+        );
+        let _guard = _span.enter();
+
         // ---------------------------------------------------------------------------- End of epoch
         let batch = db.create_transaction();
         let should_end_epoch = batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
@@ -404,8 +421,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[expect(clippy::unwrap_used)]
-    #[observability_trace(amaru::ledger::state::COMPUTE_REWARDS)]
     fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::COMPUTE_REWARDS);
+        let _guard = _span.enter();
+
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution =
             stake_distributions.pop_back().ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
@@ -429,8 +448,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Roll the ledger forward with the given block by applying transactions one by one, in
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
-    #[observability_trace(amaru::ledger::state::FORWARD)]
     pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::FORWARD);
+        let _guard = _span.enter();
+        let volatile_len_before = self.volatile.len() as u64;
+        let security_param = self.global_parameters.consensus_security_param as u64;
+
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
         if self.volatile.len() >= self.global_parameters.consensus_security_param {
@@ -439,12 +462,21 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 .pop_front()
                 .unwrap_or_else(|| unreachable!("pre-condition: self.volatile.len() >= consensus_security_param"));
 
+            let _span = trace_span!(
+                amaru_observability::amaru::ledger::state::VOLATILE_TO_STABLE,
+                persisted_point = now_stable.anchor.0.to_string(),
+                volatile_len_before = volatile_len_before,
+                volatile_len_after = volatile_len_before.saturating_sub(1),
+                k = security_param
+            );
+            let _guard = _span.enter();
+
             self.apply_block(now_stable)?;
         } else {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
 
-        let tip = next_state.anchor.0.slot_or_default();
+        let tip = next_state.anchor.0.slot();
         let relative_slot =
             self.era_history.slot_in_epoch(tip, tip).map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
 
@@ -464,12 +496,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[expect(clippy::unwrap_used)]
-    #[observability_trace(amaru::ledger::state::RESOLVE_INPUTS)]
     pub fn resolve_inputs<'a>(
         &'_ self,
         ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
     ) -> Result<Vec<(TransactionInput, Option<MemoizedTransactionOutput>)>, StoreError> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_INPUTS);
+        let _guard = _span.enter();
+
         let mut result = Vec::new();
 
         let mut resolved_from_context = 0;
@@ -511,12 +545,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         StakeDistributionView::new(guard, epoch)
     }
 
-    #[observability_trace(amaru::ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = block.header.header_body.block_body_hash,
-        block_number = block.header.header_body.block_number,
-        block_body_size = block.header.header_body.block_body_size
-    )]
     fn create_validation_context(&self, block: &Block) -> anyhow::Result<DefaultValidationContext> {
+        let _span = trace_span!(
+            amaru_observability::amaru::ledger::state::CREATE_VALIDATION_CONTEXT,
+            block_body_hash = block.header.header_body.block_body_hash,
+            block_number = block.header.header_body.block_number,
+            block_body_size = block.header.header_body.block_body_size
+        );
+        let _guard = _span.enter();
+
         let mut ctx = context::DefaultPreparationContext::new();
         rules::prepare_block(&mut ctx, block);
         Span::current().record("total_inputs", ctx.utxo.len());
@@ -548,13 +585,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// * `Ok(u64)` - if no error occurred and the block is valid. `u64` is the block height.
     /// * `Err(<InvalidBlockDetails>)` - if the block is invalid.
     /// * `Err(_)` - if another error occurred.
-    #[observability_trace(amaru::ledger::state::ROLL_FORWARD)]
     pub fn roll_forward(
         &mut self,
         point: &Point,
         block: Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::ROLL_FORWARD);
+        let _guard = _span.enter();
+
         let mut context = match self.create_validation_context(&block) {
             Ok(context) => context,
             Err(e) => return BlockValidation::Err(anyhow!(e)),
@@ -595,7 +634,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 let metrics = LedgerMetrics { block_height, txs_processed, slot, slot_in_epoch, epoch, density };
 
-                match self.forward(state.anchor(point, issuer)) {
+                let tip = Tip::new(*point, block_height.into());
+                match self.forward(state.anchor(tip, issuer)) {
                     Ok(()) => BlockValidation::Valid(metrics),
                     Err(e) => {
                         error!(%e, "Failed to roll forward the ledger state");
@@ -606,22 +646,44 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
     }
 
-    #[observability_trace(amaru::ledger::state::ROLL_BACKWARD)]
     pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
+        let _span =
+            trace_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string());
+        let _guard = _span.enter();
+
         // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
         // rollback to the last known point, which ought to be the tip of the database.
         if self.volatile.is_empty() && self.tip().as_ref() == to {
             return Ok(());
         }
 
+        if self.tip().as_ref() > to {
+            return Err(BackwardError::RollbackPointBeforeTip { rollback_point: *to, tip: self.tip().into_owned() });
+        }
+
+        if self.volatile.is_empty() && self.tip().as_ref() < to {
+            return Err(BackwardError::RollbackPointInFuture(*to));
+        }
+
+        if let Some(last) = self.volatile.view_back()
+            && last.anchor.0.point() < *to
+        {
+            return Err(BackwardError::RollbackPointInFuture(*to));
+        }
+
         self.volatile.rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
     }
+
+    pub fn contains_volatile_point(&self, point: &Point) -> bool {
+        self.volatile.contains(point)
+    }
+
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
     /// If the `Point` is older than the oldest block in the volatileDB, density is 0
     pub fn chain_density(&self, point: &Point) -> f64 {
         let latest_slot = point.slot_or_default();
         let k_slot =
-            self.volatile.view_front().map(|state| &state.anchor.0).unwrap_or(&Point::Origin).slot_or_default();
+            self.volatile.view_front().map(|state| state.anchor.0.point()).unwrap_or(Point::Origin).slot_or_default();
 
         if k_slot >= latest_slot {
             0f64
@@ -667,12 +729,18 @@ pub fn initial_stake_distributions(
     Ok(stake_distributions)
 }
 
-#[observability_trace(INFO, amaru::ledger::state::COMPUTE_STAKE_DISTRIBUTION, epoch = u64::from(snapshot.epoch()))]
 pub fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
+    let _span = trace_span!(
+        INFO,
+        amaru_observability::amaru::ledger::state::COMPUTE_STAKE_DISTRIBUTION,
+        epoch = u64::from(snapshot.epoch())
+    );
+    let _guard = _span.enter();
+
     StakeDistribution::new(snapshot, protocol_parameters, GovernanceSummary::new(snapshot, era_history)?)
         .map_err(StateError::Storage)
 }
@@ -680,11 +748,13 @@ pub fn compute_stake_distribution(
 // Epoch Transitions
 // ----------------------------------------------------------------------------
 
-#[observability_trace(INFO, amaru::ledger::state::END_EPOCH)]
 fn end_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     mut rewards_summary: RewardsSummary,
 ) -> Result<(), StoreError> {
+    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::END_EPOCH);
+    let _guard = _span.enter();
+
     // Pay rewards to each account.
     db.with_accounts(|iterator| {
         for (account, mut row) in iterator {
@@ -710,7 +780,6 @@ fn end_epoch<'store>(
     Ok(())
 }
 
-#[observability_trace(INFO, amaru::ledger::state::BEGIN_EPOCH)]
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
@@ -720,6 +789,9 @@ fn begin_epoch<'store>(
     roots: ProposalsRoots,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<ProtocolParameters, StateError> {
+    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::BEGIN_EPOCH);
+    let _guard = _span.enter();
+
     // Reset counters before the epoch begins.
     reset_blocks_count(db)?;
     reset_fees(db)?;
@@ -744,15 +816,19 @@ fn begin_epoch<'store>(
 // Operations on the state
 // ----------------------------------------------------------------------------
 
-#[observability_trace(amaru::ledger::state::RESET_FEES)]
 pub fn reset_fees<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
+    let _span = trace_span!(amaru_observability::amaru::ledger::state::RESET_FEES);
+    let _guard = _span.enter();
+
     db.with_pots(|mut row| {
         row.borrow_mut().fees = 0;
     })
 }
 
-#[observability_trace(amaru::ledger::state::RESET_BLOCKS_COUNT)]
 pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
+    let _span = trace_span!(amaru_observability::amaru::ledger::state::RESET_BLOCKS_COUNT);
+    let _guard = _span.enter();
+
     // TODO: If necessary, come up with a more efficient way of dropping a "table".
     // RocksDB does support batch-removing of key ranges, but somehow, not in a
     // transactional way. So it isn't as trivial to implement as it may seem.
@@ -788,12 +864,14 @@ pub fn refund_many<'store>(
     Ok(())
 }
 
-#[observability_trace(INFO, amaru::ledger::state::TICK_POOL)]
 pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StateError> {
+    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::TICK_POOL);
+    let _guard = _span.enter();
+
     let mut refunds = Vec::new();
 
     db.with_pools(|iterator| {
@@ -807,7 +885,6 @@ pub fn tick_pools<'store>(
     refund_many(db, refunds.into_iter().map(|credential| (credential, protocol_parameters.stake_pool_deposit)))
 }
 
-#[observability_trace(INFO, amaru::ledger::state::TICK_PROPOSALS, proposals_count = proposals.len() as u64)]
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
@@ -816,6 +893,13 @@ pub fn tick_proposals<'store>(
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
     roots: ProposalsRoots,
 ) -> Result<ProtocolParameters, StateError> {
+    let _span = trace_span!(
+        INFO,
+        amaru_observability::amaru::ledger::state::TICK_PROPOSALS,
+        proposals_count = proposals.len() as u64
+    );
+    let _guard = _span.enter();
+
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
     let RatificationResult { context: ctx, store_updates, pruned_proposals } = ctx
@@ -879,13 +963,15 @@ pub fn tick_proposals<'store>(
     Ok(ctx.protocol_parameters)
 }
 
-#[observability_trace(INFO, amaru::ledger::state::RATIFICATION_CONTEXT_NEW)]
 fn new_ratification_context<'distr>(
     snapshot: impl Snapshot,
     stake_distribution: StakeDistributionView<'distr>,
     protocol_parameters: ProtocolParameters,
     treasury: Lovelace,
 ) -> Result<RatificationContext<'distr>, StoreError> {
+    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::RATIFICATION_CONTEXT_NEW);
+    let _guard = _span.enter();
+
     let constitutional_committee = match snapshot.constitutional_committee()? {
         ConstitutionalCommitteeStatus::NoConfidence => None,
         ConstitutionalCommitteeStatus::Trusted { threshold } => {
@@ -1002,6 +1088,12 @@ pub enum BackwardError {
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
     #[error("error rolling back to unknown {0:?}")]
     UnknownRollbackPoint(Point),
+
+    #[error("error rolling back to point {rollback_point:?}: before tip {tip:?}")]
+    RollbackPointBeforeTip { rollback_point: Point, tip: Point },
+
+    #[error("cannot roll back to a point in the future: {0:?}")]
+    RollbackPointInFuture(Point),
 }
 
 #[derive(Debug, Error)]

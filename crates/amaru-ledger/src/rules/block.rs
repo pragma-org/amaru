@@ -22,7 +22,7 @@ use amaru_kernel::{
     Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
     TransactionPointer,
 };
-use amaru_observability::trace;
+use amaru_observability::trace_span;
 use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
@@ -139,7 +139,6 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
     }
 }
 
-#[trace(amaru::ledger::state::VALIDATE_BLOCK)]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
     arena_pool: &ArenaPool,
@@ -152,6 +151,9 @@ pub fn execute<C, S: From<C>>(
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
+    let _span = trace_span!(amaru_observability::amaru::ledger::state::VALIDATE_BLOCK);
+    let _guard = _span.enter();
+
     let slot = Slot::from(block.header.header_body.slot);
 
     let header_hash = block.header_hash();

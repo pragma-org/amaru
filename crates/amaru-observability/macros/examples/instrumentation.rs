@@ -14,15 +14,15 @@
 
 //! Example demonstrating the observability instrumentation macros
 //!
-//! This shows how to use #[trace] and trace_record! with local schemas.
+//! This shows how to use trace_span! and trace_record! with local schemas.
 //!
 //! Key features demonstrated:
 //! - Using define_local_schemas! to define schemas locally
 //! - Compile-time const path validation for schema names
-//! - Function instrumentation with required and optional parameters
+//! - Explicit span construction and entry in sync code
 //! - Custom expression fields using field = expr syntax
 
-use amaru_observability_macros::{define_local_schemas, trace, trace_record};
+use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
 
 define_local_schemas! {
     consensus {
@@ -74,25 +74,34 @@ define_local_schemas! {
 }
 
 /// Example 1: Basic tracing with required fields
-#[trace(consensus::validate_header::EVOLVE_NONCE)]
 pub fn evolve_nonce(_hash: String) -> Result<(), String> {
+    let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &_hash);
+    let _guard = _span.enter();
     Ok(())
 }
 
 /// Example 2: Tracing with multiple required fields
-#[trace(ledger::state::EPOCH_TRANSITION)]
 pub fn epoch_transition(from: u64, into: u64) -> Result<(), String> {
+    let _span = trace_span!(ledger::state::EPOCH_TRANSITION, from = from, into = into);
+    let _guard = _span.enter();
     Ok(())
 }
 
 /// Example 3: Tracing with required and optional fields
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
 pub fn create_validation_context(
-    _block_body_hash: String,
-    _block_number: u64,
-    _block_body_size: u64,
-    _total_inputs: u64,
+    block_body_hash: String,
+    block_number: u64,
+    block_body_size: u64,
+    total_inputs: u64,
 ) -> Result<(), String> {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = &block_body_hash,
+        block_number = block_number,
+        block_body_size = block_body_size,
+        total_inputs = total_inputs
+    );
+    let _guard = _span.enter();
     Ok(())
 }
 
@@ -106,14 +115,17 @@ pub fn add_resolve_stats(_resolved_from_context: u64, _resolved_from_volatile: u
 }
 
 /// Example 5: Schema with only optional fields
-#[trace(ledger::state::ROLL_FORWARD)]
 pub fn roll_forward() -> Result<(), String> {
+    let _span = trace_span!(ledger::state::ROLL_FORWARD);
+    let _guard = _span.enter();
     Ok(())
 }
 
 /// Example 6: Network schema
-#[trace(network::chainsync_client::FIND_INTERSECTION)]
-pub fn find_intersection(_peer: String, _intersection_slot: u64) -> Result<(), String> {
+pub fn find_intersection(peer: String, intersection_slot: u64) -> Result<(), String> {
+    let _span =
+        trace_span!(network::chainsync_client::FIND_INTERSECTION, peer = &peer, intersection_slot = intersection_slot);
+    let _guard = _span.enter();
     Ok(())
 }
 
@@ -131,30 +143,36 @@ fn calculate_total_inputs() -> u64 {
 }
 
 /// Example 7: Custom expression fields - providing required fields through expressions
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = "hash_current_block",
-        block_number = get_current_block_number(),
-        block_body_size = get_block_size())]
 pub fn process_block_with_computed_fields(
     _block_body_hash: String,
     _block_number: u64,
     _block_body_size: u64,
 ) -> Result<(), String> {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = "hash_current_block",
+        block_number = get_current_block_number(),
+        block_body_size = get_block_size()
+    );
+    let _guard = _span.enter();
     Ok(())
 }
 
 /// Example 8: Custom expressions with optional fields
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = "hash_block_abc",
-        block_number = get_current_block_number(),
-        block_body_size = get_block_size(),
-        total_inputs = calculate_total_inputs())]
 pub fn process_block_with_all_custom_fields(
     _block_body_hash: String,
     _block_number: u64,
     _block_body_size: u64,
     _total_inputs: u64,
 ) -> Result<(), String> {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = "hash_block_abc",
+        block_number = get_current_block_number(),
+        block_body_size = get_block_size(),
+        total_inputs = calculate_total_inputs()
+    );
+    let _guard = _span.enter();
     Ok(())
 }
 
@@ -165,7 +183,6 @@ pub fn add_processing_metrics() {
 }
 
 /// Example 10: Function params vs custom expressions
-#[trace(ledger::state::CREATE_VALIDATION_CONTEXT)]
 pub fn create_validation_with_context(
     block_body_hash: String,
     block_number: u64,
@@ -173,6 +190,13 @@ pub fn create_validation_with_context(
     _context: &str,    // Extra param - ignored (not in schema)
     _debug_mode: bool, // Extra param - ignored (not in schema)
 ) -> Result<(), String> {
+    let _span = trace_span!(
+        ledger::state::CREATE_VALIDATION_CONTEXT,
+        block_body_hash = &block_body_hash,
+        block_number = block_number,
+        block_body_size = block_body_size
+    );
+    let _guard = _span.enter();
     Ok(())
 }
 

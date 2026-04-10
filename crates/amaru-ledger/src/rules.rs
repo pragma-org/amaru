@@ -15,7 +15,7 @@
 use std::{fmt, fmt::Display};
 
 use amaru_kernel::Block;
-use amaru_observability::trace;
+use amaru_observability::trace_span;
 pub use block::execute as validate_block;
 
 use crate::context::PreparationContext;
@@ -40,8 +40,10 @@ impl<T: Display> Display for WithPosition<T> {
     }
 }
 
-#[trace(amaru::ledger::state::PREPARE_BLOCK)]
 pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
+    let _span = trace_span!(amaru_observability::amaru::ledger::state::PREPARE_BLOCK);
+    let _guard = _span.enter();
+
     block.transaction_bodies.iter().for_each(|transaction| {
         let inputs = transaction.inputs.iter();
 

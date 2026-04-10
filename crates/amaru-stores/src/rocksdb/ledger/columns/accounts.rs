@@ -26,6 +26,7 @@ use amaru_ledger::{
         },
     },
 };
+use amaru_observability::trace_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::{debug, error};
 
@@ -48,6 +49,14 @@ pub fn reset_delegation<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
 ) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_RESET_DELEGATION,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "account".to_string()
+    );
+    let _guard = _span.enter();
+
     for (credential, unregistered_at) in rows {
         let key = as_key(&PREFIX, &credential);
 
@@ -120,6 +129,14 @@ pub fn add<DB>(
     rows: impl Iterator<Item = (Key, Value)>,
     protocol_version: ProtocolVersion,
 ) -> Result<Vec<(StakeCredential, DRep, CertificatePointer)>, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_ADD,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "account".to_string()
+    );
+    let _guard = _span.enter();
+
     let mut previous_delegations = Vec::new();
 
     for (credential, (pool, drep, deposit, rewards)) in rows {
@@ -178,6 +195,14 @@ pub fn add<DB>(
 
 /// Reset rewards counter of many accounts.
 pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_RESET_MANY,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "account".to_string()
+    );
+    let _guard = _span.enter();
+
     for credential in rows {
         let key = as_key(&PREFIX, &credential);
 
@@ -203,6 +228,14 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_GET,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "get".to_string(),
+        db_collection_name = "account".to_string()
+    );
+    let _guard = _span.enter();
+
     let key = as_key(&PREFIX, credential);
     let bytes = db_get(&key);
     bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
@@ -215,6 +248,14 @@ pub fn set<DB>(
     credential: &Key,
     with_rewards: impl FnOnce(Lovelace) -> Lovelace,
 ) -> Result<Lovelace, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_SET,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "account".to_string()
+    );
+    let _guard = _span.enter();
+
     let key = as_key(&PREFIX, credential);
 
     if let Some(mut row) =
@@ -237,6 +278,14 @@ pub fn set<DB>(
 
 /// Clear a stake credential registration.
 pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_REMOVE,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "delete".to_string(),
+        db_collection_name = "account".to_string()
+    );
+    let _guard = _span.enter();
+
     for credential in rows {
         db.delete(as_key(&PREFIX, &credential)).map_err(|err| StoreError::Internal(err.into()))?;
     }

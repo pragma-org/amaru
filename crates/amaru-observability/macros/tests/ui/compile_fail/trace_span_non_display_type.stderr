@@ -1,0 +1,13 @@
+error[E0277]: `NoDisplay` doesn't implement `std::fmt::Display`
+  --> tests/ui/compile_fail/trace_span_non_display_type.rs:33:17
+   |
+33 |     let _span = trace_span!(test::example::NON_DISPLAY, value = NoDisplay);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `std::fmt::Display` is not implemented for `NoDisplay`
+  --> tests/ui/compile_fail/trace_span_non_display_type.rs:19:1
+   |
+19 | struct NoDisplay;
+   | ^^^^^^^^^^^^^^^^
+   = note: required for the cast from `&NoDisplay` to `&dyn std::fmt::Display`
+   = note: this error originates in the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

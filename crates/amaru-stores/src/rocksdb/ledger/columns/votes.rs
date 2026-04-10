@@ -19,6 +19,7 @@ pub use amaru_ledger::store::{
     StoreError,
     columns::votes::{Key, Row, Value},
 };
+use amaru_observability::trace_span;
 use rocksdb::Transaction;
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -32,6 +33,14 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<BTreeSet<StakeCredential>, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::VOTES_ADD,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "vote".to_string()
+    );
+    let _guard = _span.enter();
+
     let mut voting_dreps = BTreeSet::new();
 
     for (key, value) in rows {

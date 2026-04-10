@@ -1,0 +1,15 @@
+error: Missing required field 'second' for schema SCHEMA. Required fields: first, second
+  --> tests/ui/compile_fail/trace_span_missing_required.rs:17:1
+   |
+17 | / define_local_schemas! {
+18 | |     test {
+19 | |         sub {
+20 | |             /// Test schema for missing required trace_span field
+...  |
+27 | | }
+   | |_^
+...
+30 |       let _span = trace_span!(test::sub::SCHEMA, first = 42_u64);
+   |                   ---------------------------------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `__SCHEMA_CHECK_SECOND` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

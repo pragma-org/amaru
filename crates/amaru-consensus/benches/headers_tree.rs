@@ -31,17 +31,16 @@
 fn main() {
     use std::{fs::File, sync::Arc};
 
-    use amaru_consensus::{
-        headers_tree::{
-            HeadersTree,
-            data_generation::{execute_actions_on_tree, generate_random_walks, generate_tree_of_headers},
-        },
-        stages::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
+    use amaru_consensus::headers_tree::{
+        HeadersTree,
+        data_generation::{execute_actions_on_tree, generate_random_walks, generate_tree_of_headers},
     };
     use amaru_kernel::{BlockHeader, IsHeader, Peer};
     use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
+
+    const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
     let profile = false;
     let in_memory = false;

@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{BlockHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::instrument;
+use tracing::Instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
@@ -117,38 +118,46 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         })
     }
 
-    #[instrument(name = "chainsync.initiator.stage", skip_all, fields(message_type = input.message_type()))]
     async fn network(
         mut self,
         _proto: &InitiatorState,
         input: <InitiatorState as ProtocolState<Initiator>>::Out,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<<InitiatorState as ProtocolState<Initiator>>::Action>, Self)> {
-        use InitiatorAction::*;
-        let action = match &input {
-            InitiatorResult::Initialize => {
-                self.me = eff.contramap(eff.me(), format!("{}-handler", eff.me().name()), Inputs::Local).await;
-                Some(Intersect(intersect_points(&Store::new(eff.clone()))))
-            }
-            InitiatorResult::IntersectFound(_, tip)
-            | InitiatorResult::IntersectNotFound(tip)
-            | InitiatorResult::RollForward(_, tip)
-            | InitiatorResult::RollBackward(_, tip) => {
-                self.upstream = Some(*tip);
-                None
-            }
-        };
-        eff.send(
-            &self.pipeline,
-            ChainSyncInitiatorMsg {
-                peer: self.peer.clone(),
-                conn_id: self.conn_id,
-                handler: self.me.clone(),
-                msg: input,
-            },
-        )
-        .await;
-        Ok((action, self))
+        let message_type = input.message_type().to_string();
+
+        async move {
+            use InitiatorAction::*;
+            let action = match &input {
+                InitiatorResult::Initialize => {
+                    self.me = eff.contramap(eff.me(), format!("{}-handler", eff.me().name()), Inputs::Local).await;
+                    Some(Intersect(intersect_points(&Store::new(eff.clone()))))
+                }
+                InitiatorResult::IntersectFound(_, tip)
+                | InitiatorResult::IntersectNotFound(tip)
+                | InitiatorResult::RollForward(_, tip)
+                | InitiatorResult::RollBackward(_, tip) => {
+                    self.upstream = Some(*tip);
+                    None
+                }
+            };
+            eff.send(
+                &self.pipeline,
+                ChainSyncInitiatorMsg {
+                    peer: self.peer.clone(),
+                    conn_id: self.conn_id,
+                    handler: self.me.clone(),
+                    msg: input,
+                },
+            )
+            .await;
+            Ok((action, self))
+        }
+        .instrument(trace_span!(
+            amaru_observability::amaru::protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE,
+            message_type = message_type
+        ))
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -156,11 +165,13 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
 fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
     let mut spacing = 1;
     let mut points = Vec::new();
     let best = store.get_best_chain_hash();
     if best == ORIGIN_HASH {
+        tracing::warn!("best chain hash is origin hash");
         return vec![Point::Origin];
     }
     #[expect(clippy::expect_used)]
@@ -179,6 +190,7 @@ fn intersect_points(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Vec<Point> {
     if points.last() != Some(&last) {
         points.push(last);
     }
+    tracing::info!(?points, "intersect points");
     points
 }
 
@@ -229,8 +241,12 @@ impl ProtocolState<Initiator> for InitiatorState {
         Ok((outcome().result(InitiatorResult::Initialize), *self))
     }
 
-    #[instrument(name = "chainsync.initiator.protocol", skip_all, fields(message_type = input.message_type()))]
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
+        let _span = trace_span!(
+            amaru_observability::amaru::protocols::chainsync::initiator::CHAINSYNC_INITIATOR_PROTOCOL,
+            message_type = input.message_type().to_string()
+        );
+        let _guard = _span.enter();
         use InitiatorState::*;
 
         Ok(match (self, input) {

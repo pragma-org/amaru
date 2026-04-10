@@ -16,7 +16,7 @@
 //!
 //! Expected error: "Invalid trace in module test::sub : NON_EXISTENT. Expected one of: SCHEMA"
 
-use amaru_observability_macros::{define_local_schemas, trace};
+use amaru_observability_macros::{define_local_schemas, trace_span};
 
 define_local_schemas! {
     test {
@@ -30,9 +30,7 @@ define_local_schemas! {
     }
 }
 
-#[trace(test::sub::NON_EXISTENT)]
-fn wrong_schema_name(_first: String, _second: u64) {
-    println!("This schema name doesn't exist");
+fn main() {
+    let first = String::from("first");
+    let _span = trace_span!(test::sub::NON_EXISTENT, first = &first, second = 2_u64);
 }
-
-fn main() {}

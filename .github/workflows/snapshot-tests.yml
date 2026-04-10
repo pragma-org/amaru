@@ -17,8 +17,8 @@ on:
         type: string
         required: false
         default: ''
-      demo_target_epoch:
-        description: "Override DEMO_TARGET_EPOCH"
+      run_until_target_epoch:
+        description: "Override run-until target epoch"
         type: string
         required: false
         default: ''
@@ -27,8 +27,8 @@ on:
         type: string
         required: false
         default: ''
-      demo_trace_level:
-        description: "Override AMARU_TRACE"
+      run_until_trace_level:
+        description: "Override AMARU_TRACE for run-until"
         type: string
         required: false
         default: ''
@@ -61,7 +61,7 @@ env:
     ~/.cargo/git/db/
     target/
   INPUT_TIMEOUT: ${{ inputs.timeout }}
-  AMARU_TRACE: ${{ inputs.demo_trace_level || 'info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info' }}
+  AMARU_TRACE: ${{ inputs.run_until_trace_level || 'info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info' }}
   RUSTUP_LOG: error
 
 permissions:
@@ -104,6 +104,9 @@ jobs:
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
       CARDANO_CLI_VERSION: 10.11.0.0
       DEFAULT_TIMEOUT: ${{ inputs.default_timeout }}
+      TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
+      TRACE_COMPARE_LOG: trace-compare.log
+      TRACE_COMPARE_TARGET_EPOCH: 166
     continue-on-error: true
 
     steps:
@@ -121,21 +124,24 @@ jobs:
             SHOULD_RUN=false
           fi
 
-          if [ "$SHOULD_RUN" != "true" ]; then
-            echo "Skipping network '${{ matrix.network.name }}' as per input"
-            exit 1
-          fi
+          # Determine target epoch using GitHub Actions expressions for reliability.
+          # Priority: 1) explicit run_until input, 2) fixed epoch from matrix,
+          # 3) empty (fetch latest)
+          RUN_UNTIL_TARGET_EPOCH="${{ inputs.run_until_target_epoch || (inputs.use_fixed_epoch && matrix.network.target_epoch) || '' }}"
 
           TIMEOUT_RUN="${DEFAULT_TIMEOUT}"
 
-          # Determine target epoch using GitHub Actions expressions for reliability
-          # Priority: 1) explicit input, 2) fixed epoch from matrix, 3) empty (fetch latest)
-          DEMO_TARGET_EPOCH="${{ inputs.demo_target_epoch || (inputs.use_fixed_epoch && matrix.network.target_epoch) || '' }}"
+          if [ "$SHOULD_RUN" != "true" ]; then
+            echo "Skipping network '${{ matrix.network.name }}' as per input"
+            echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+            echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
-          if [ -n "$DEMO_TARGET_EPOCH" ]; then
-            echo "Using DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
+          if [ -n "$RUN_UNTIL_TARGET_EPOCH" ]; then
+            echo "Using RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH"
           else
-            echo "DEMO_TARGET_EPOCH not set, will retrieve latest epoch"
+            echo "RUN_UNTIL_TARGET_EPOCH not set, will retrieve latest epoch"
           fi
 
           if [ -n "$INPUT_TIMEOUT" ]; then
@@ -148,7 +154,7 @@ jobs:
           fi
 
           # Make sure to export all env variables for subsequent steps
-          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+          echo "RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH" >> "$GITHUB_ENV"
           echo "TIMEOUT_RUN=$TIMEOUT_RUN" >> "$GITHUB_ENV"
 
       - name: Support longpaths
@@ -239,7 +245,7 @@ jobs:
           key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
 
       - name: Retrieve latest epoch if needed
-        if: env.DEMO_TARGET_EPOCH == ''
+        if: env.RUN_UNTIL_TARGET_EPOCH == ''
         shell: bash
         run: |
           curl -L -o cardano-cli.tar.gz \
@@ -250,22 +256,42 @@ jobs:
           mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
           chmod +x cardano-cli-bin/cardano-cli
 
-          DEMO_TARGET_EPOCH=$(
+          RUN_UNTIL_TARGET_EPOCH=$(
             sudo $PWD/cardano-cli-bin/cardano-cli query tip \
               --socket-path ${{ runner.temp }}/ipc/node.socket \
               --testnet-magic ${{ matrix.network.magic }} \
             | jq '.epoch - 1'
           )
 
-          echo "Auto-resolved DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH"
+          echo "Auto-resolved RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH"
 
-          # Make sure to export DEMO_TARGET_EPOCH for subsequent steps
-          echo "DEMO_TARGET_EPOCH=$DEMO_TARGET_EPOCH" >> "$GITHUB_ENV"
+          # Make sure to export RUN_UNTIL_TARGET_EPOCH for subsequent steps
+          echo "RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH" >> "$GITHUB_ENV"
 
-      - name: Run node
-        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN) }}
+      - name: Run until target epoch
+        timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
         shell: bash
-        run: make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all demo
+        run: |
+          set -euo pipefail
+
+          AMARU_TRACE=amaru=info \
+          make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until
+
+      - name: Run traced contract check (preprod only)
+        if: matrix.network.name == 'preprod' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -f "$TRACE_COMPARE_LOG"
+          AMARU_TRACE=amaru=trace \
+          make RUN_UNTIL_TARGET_EPOCH="$TRACE_COMPARE_TARGET_EPOCH" AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until | tee "$TRACE_COMPARE_LOG"
+
+      - name: Compare trace contract (preprod only)
+        if: matrix.network.name == 'preprod' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          make compare-trace-contract
 
       - name: Run tests
         if: inputs.run_tests

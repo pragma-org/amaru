@@ -26,7 +26,8 @@ use crate::stages::track_peers::{
     TrackPeersMsg,
     test_setup::{
         FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
-        te_has_header, te_load_header, te_send, te_store_header, te_validate_header, test_prep,
+        te_has_header, te_load_header, te_send, te_store_header, te_tip, te_validate_header, te_volatile_tip,
+        test_prep,
     },
 };
 
@@ -231,6 +232,8 @@ fn test_roll_forward_unknown_peer_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
+            te_volatile_tip("tp-1"),
+            te_tip("tp-1"),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(state)),
@@ -266,6 +269,8 @@ fn test_roll_forward_known_peer_header_already_stored() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
+            te_volatile_tip("tp-1"),
+            te_tip("tp-1"),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
@@ -304,6 +309,8 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
+            te_volatile_tip("tp-1"),
+            te_tip("tp-1"),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
@@ -341,12 +348,11 @@ fn test_roll_forward_invalid_variant_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header variant"])
+    logs.assert_and_remove(Level::ERROR, &["chain_sync.decode_header.failed", "Invalid header variant"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -375,12 +381,11 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Failed to decode header"])
+    logs.assert_and_remove(Level::ERROR, &["chain_sync.decode_header.failed", "Failed to decode header"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -408,6 +413,8 @@ fn test_roll_forward_invalid_parent_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
+            te_volatile_tip("tp-1"),
+            te_tip("tp-1"),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
@@ -440,6 +447,8 @@ fn test_roll_forward_invalid_height_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
+            te_volatile_tip("tp-1"),
+            te_tip("tp-1"),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
@@ -472,6 +481,8 @@ fn test_roll_forward_invalid_point_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
+            te_volatile_tip("tp-1"),
+            te_tip("tp-1"),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
@@ -516,6 +527,8 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
+            te_volatile_tip("tp-1"),
+            te_tip("tp-1"),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),

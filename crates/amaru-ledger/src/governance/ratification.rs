@@ -21,7 +21,7 @@ use amaru_kernel::{
     Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace, PoolId,
     ProtocolParameters, RationalNumber, StakeCredential, Vote, Voter,
 };
-use amaru_observability::trace;
+use amaru_observability::trace_span;
 use num::Zero;
 use tracing::{Span, field, info};
 
@@ -89,18 +89,22 @@ pub struct RatificationResult<'distr, S> {
 pub type StoreUpdate<'distr, S> = Box<dyn FnOnce(&S, &RatificationContext<'distr>) -> Result<(), StoreError>>;
 
 impl<'distr> RatificationContext<'distr> {
-    #[trace(INFO, amaru::ledger::governance::RATIFY_PROPOSALS,
-        roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
-        roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
-        roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
-        roots_constitution = opt_root(roots.constitution.as_deref())
-    )]
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
         era_history: &EraHistory,
         proposals: Vec<(ComparableProposalId, proposals::Row)>,
         roots: ProposalsRootsRc,
     ) -> Result<RatificationResult<'distr, S>, RatificationInternalError> {
+        let _span = trace_span!(
+            INFO,
+            amaru_observability::amaru::ledger::governance::RATIFY_PROPOSALS,
+            roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
+            roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
+            roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
+            roots_constitution = opt_root(roots.constitution.as_deref())
+        );
+        let _guard = _span.enter();
+
         // A forest (i.e. a multitude of trees) that tracks what proposals needs to be ratified,
         // in what order and what are the relationships between proposals; such that, when a
         // proposal is enacted, conflicting proposals (those pointing at the same parent) are
@@ -309,10 +313,10 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        tracing::trace_span!(
-            "ratifying",
-            "proposal.id" = id.to_compact_string(),
-            "proposal.kind" = proposal.display_kind(),
+        trace_span!(
+            amaru_observability::amaru::ledger::governance::RATIFYING,
+            proposal_id = id.to_compact_string(),
+            proposal_kind = proposal.display_kind().to_string(),
         )
     }
 

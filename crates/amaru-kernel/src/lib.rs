@@ -142,7 +142,7 @@ pub use cardano::{
     ballot_id::{any_ballot_id, any_voter},
     block_header::{
         any_fake_header, any_header, any_header_hash, any_header_with_parent, any_header_with_some_parent,
-        any_headers_chain, any_headers_chain_with_root, make_header,
+        any_headers_chain, any_headers_chain_with_root, make_header, make_header_with_op_cert_seq,
     },
     block_height::any_block_height,
     certificate_pointer::any_certificate_pointer,

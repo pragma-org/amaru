@@ -19,6 +19,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
+use amaru_observability::trace_span;
 use rocksdb::Transaction;
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -28,6 +29,14 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x43, 0x4F, 0x4D, 0x4D];
 
 /// Register a new CC Member.
 pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::CC_MEMBERS_UPSERT,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "cc_member".to_string()
+    );
+    let _guard = _span.enter();
+
     for (cold_credential, (hot_credential, valid_until)) in rows {
         let key = as_key(&PREFIX, &cold_credential);
 

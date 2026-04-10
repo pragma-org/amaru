@@ -17,7 +17,7 @@ use std::{fs, path::PathBuf};
 use amaru_kernel::{
     BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER, to_cbor,
 };
-use amaru_observability::trace;
+use amaru_observability::trace_span;
 use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{
     DB, DBCommon, DBIteratorWithThreadMode, DBPinnableSlice, IteratorMode, OptimisticTransactionDB, Options,
@@ -373,8 +373,16 @@ impl DiagnosticChainStore for RocksDBStore<DB> {
 
 use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
-    #[trace(amaru::stores::consensus::STORE_HEADER, hash = format!("{}", header.hash()))]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
+        let _span = trace_span!(
+            amaru_observability::amaru::stores::consensus::STORE_HEADER,
+            hash = header.hash(),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "put".to_string(),
+            db_collection_name = "header".to_string()
+        );
+        let _guard = _span.enter();
+
         let hash = header.hash();
         let tx = self.db.transaction();
         if let Some(parent) = header.parent() {
@@ -398,8 +406,16 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    #[trace(amaru::stores::consensus::STORE_BLOCK, hash = format!("{}", hash))]
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
+        let _span = trace_span!(
+            amaru_observability::amaru::stores::consensus::STORE_BLOCK,
+            hash = *hash,
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "put".to_string(),
+            db_collection_name = "block".to_string()
+        );
+        let _guard = _span.enter();
+
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
@@ -413,17 +429,31 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         self.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    #[trace(amaru::stores::consensus::ROLL_FORWARD_CHAIN,
-        hash = point.hash(),
-        slot = u64::from(point.slot_or_default()))]
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+        let _span = trace_span!(
+            amaru_observability::amaru::stores::consensus::ROLL_FORWARD_CHAIN,
+            hash = point.hash(),
+            slot = u64::from(point.slot_or_default()),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "put".to_string(),
+            db_collection_name = "chain".to_string()
+        );
+        let _guard = _span.enter();
+
         store_chain_point(&self.db, point)
     }
 
-    #[trace(amaru::stores::consensus::ROLLBACK_CHAIN,
-        hash = point.hash(),
-        slot = u64::from(point.slot_or_default()))]
     fn rollback_chain(&self, point: &Point) -> Result<usize, StoreError> {
+        let _span = trace_span!(
+            amaru_observability::amaru::stores::consensus::ROLLBACK_CHAIN,
+            hash = point.hash(),
+            slot = u64::from(point.slot_or_default()),
+            db_system_name = "rocksdb".to_string(),
+            db_operation_name = "delete".to_string(),
+            db_collection_name = "chain".to_string()
+        );
+        let _guard = _span.enter();
+
         if <Self as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(self, point).is_none() {
             return Err(StoreError::ReadError {
                 error: format!("Cannot roll back chain to point {:?} as it does not exist on the best chain", point),

@@ -19,13 +19,6 @@
 //!
 use proc_macro2::Span;
 
-/// Strip leading underscores from a string.
-///
-/// This is used to normalize field names like `_field_name` to `field_name`.
-pub fn strip_leading_underscores(s: &str) -> String {
-    s.trim_start_matches('_').to_string()
-}
-
 /// Format a field specification as "name:type".
 pub fn format_field_spec(name: &str, ty: &str) -> String {
     format!("{name}:{ty}")
@@ -205,6 +198,22 @@ pub fn make_schema_field_const_name(categories: &[String], schema_name: &str) ->
     format!("__{namespace}{schema_name}_SCHEMA_FIELDS")
 }
 
+/// Generate a schema field count constant name.
+///
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_FIELD_COUNT`
+pub fn make_schema_field_count_const_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
+    format!("__{namespace}{schema_name}_FIELD_COUNT")
+}
+
+/// Generate a schema visibility constant name.
+///
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_PUBLIC`
+pub fn make_schema_public_const_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
+    format!("__{namespace}{schema_name}_PUBLIC")
+}
+
 /// Generate a schema validation registry constant name.
 ///
 /// Convention: `_SCHEMA_{CATEGORIES}__{SCHEMA_NAME}`
@@ -222,6 +231,14 @@ pub fn make_instrument_macro_name(categories: &[String], schema_name: &str) -> S
     format!("__{namespace}{schema_name}_INSTRUMENT")
 }
 
+/// Generate a schema field assignment helper macro name.
+///
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_ASSIGN`
+pub fn make_assign_macro_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
+    format!("__{namespace}{schema_name}_ASSIGN")
+}
+
 /// Generate a schema field record helper macro name.
 ///
 /// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_RECORD`
@@ -233,14 +250,6 @@ pub fn make_record_macro_name(categories: &[String], schema_name: &str) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_strip_leading_underscores() {
-        assert_eq!(strip_leading_underscores("_field"), "field");
-        assert_eq!(strip_leading_underscores("__field"), "field");
-        assert_eq!(strip_leading_underscores("field"), "field");
-        assert_eq!(strip_leading_underscores("___"), "");
-    }
 
     #[test]
     fn test_path_operations() {

@@ -1,7 +1,7 @@
 export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
-DEMO_TARGET_EPOCH ?= 182
+RUN_UNTIL_TARGET_EPOCH ?= 182
 NODE_SNAPSHOT_DIRS ?=
 HASKELL_NODE_CONFIG_REPOSITORY := https://raw.githubusercontent.com/input-output-hk/cardano-playground
 HASKELL_NODE_CONFIG_DIRECTORY := static/book.play.dev.cardano.org/environments
@@ -9,8 +9,20 @@ CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
+TRACES_PORT ?= 8000
+TRACE_CONTRACT ?= data/$(AMARU_NETWORK)/run-until-trace-contract.json
+TRACE_COMPARE_LOG ?= trace-compare.log
+TRACE_COMPARE_SUMMARY_FILE ?= $${GITHUB_STEP_SUMMARY:-/dev/null}
+TRACE_UPDATE_AMARU_TRACE ?= amaru=trace
+TRACE_UPDATE_AMARU_TRACE_EMIT_PRIVATE ?= 1
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev
+ifeq (,$(findstring n,$(MAKEFLAGS)))
+TRACE_SUMMARY_OUTPUT_ENABLED := 1
+else
+TRACE_SUMMARY_OUTPUT_ENABLED := 0
+endif
+
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -50,10 +62,6 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 build: ## &build Compile for $BUILD_PROFILE
 	cargo build --profile $(BUILD_PROFILE) $(ARGS)
 
-build-notrace: ## &build Compile for $BUILD_PROFILE with tracing disabled (requires clean build)
-	cargo clean
-	AMARU_TRACE_NOOP=1 cargo build --profile $(BUILD_PROFILE) $(ARGS)
-
 build-examples: ## &build Build all examples
 	@for dir in $(wildcard examples/*/.); do \
 		if [ -f $$dir/Makefile ]; then \
@@ -66,17 +74,53 @@ sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
 
+generate-traces-doc: ## &build Generate documentation for Amaru's tracing spans
+	@./scripts/generate-traces-doc
+
+serve-traces-doc: generate-traces-doc ## &build Regenerate traces docs and serve docs/traces.html on http://127.0.0.1:$(TRACES_PORT)/traces.html
+	@echo "Serving docs/traces.html at http://127.0.0.1:$(TRACES_PORT)/traces.html"
+	@python3 -m http.server $(TRACES_PORT) --directory docs
+
 dev: start # 'backward-compatibility'; might remove after a while.
 start: ## &build Compile and run for $BUILD_PROFILE with default options
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) run $(ARGS)
 
-demo: ## &build Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
-		./scripts/demo $(BUILD_PROFILE) $(DEMO_TARGET_EPOCH)
+run-until: ## &build Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
+		./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
+
+compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CONTRACT) including performance thresholds
+	@set -e; \
+	if [ ! -f "$(TRACE_CONTRACT)" ]; then \
+		echo "No trace contract found for $(AMARU_NETWORK), skipping trace contract check."; \
+	elif [ ! -f "$(TRACE_COMPARE_LOG)" ]; then \
+		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced run-until first." >&2; \
+		exit 1; \
+	else \
+		if ! node scripts/compare-traces --summary-file "$(TRACE_COMPARE_SUMMARY_FILE)" "$(TRACE_CONTRACT)" "$(TRACE_COMPARE_LOG)"; then \
+			echo "Warning: trace contract performance thresholds exceeded; see summary for details"; \
+		fi; \
+	fi
+
+update-trace-contract: ## &test Refresh $(TRACE_CONTRACT) from a traced run-until run
+	@mkdir -p "$(dir $(TRACE_CONTRACT))"
+	@tmp_log="$$(mktemp)"; \
+	AMARU_TRACE="$(TRACE_UPDATE_AMARU_TRACE)" AMARU_TRACE_EMIT_PRIVATE="$(TRACE_UPDATE_AMARU_TRACE_EMIT_PRIVATE)" $(MAKE) run-until > "$$tmp_log"; \
+	node scripts/compare-traces --export-contract "$(TRACE_CONTRACT)" "$$tmp_log"; \
+	if [ "$(TRACE_SUMMARY_OUTPUT_ENABLED)" = "1" ]; then \
+		echo ""; \
+		echo "Trace contract summary:"; \
+		node scripts/compare-traces --summary-file /dev/stdout "$(TRACE_CONTRACT)" "$$tmp_log"; \
+	else \
+		echo "Dry-run mode: skipping trace contract summary generation."; \
+	fi; \
+	rm -f "$$tmp_log"
+	@echo "Updated $(TRACE_CONTRACT)"
 
 all-ci-checks: ## &test Run all CI checks
 	@cargo fmt-amaru
 	@cargo clippy-amaru
 	@cargo test --workspace --all-targets
+	@cargo test --doc
 	@$(MAKE) build-examples
 	@$(MAKE) coverage-lconv
 

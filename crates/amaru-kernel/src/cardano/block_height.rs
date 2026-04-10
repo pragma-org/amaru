@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, ops::Add};
+use std::{
+    fmt,
+    ops::{Add, Sub},
+};
 
 use crate::cbor;
 
@@ -42,6 +45,14 @@ impl Add<u64> for BlockHeight {
 
     fn add(self, rhs: u64) -> Self::Output {
         Self(self.0 + rhs)
+    }
+}
+
+impl Sub<u64> for BlockHeight {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        Self(self.0.saturating_sub(rhs))
     }
 }
 

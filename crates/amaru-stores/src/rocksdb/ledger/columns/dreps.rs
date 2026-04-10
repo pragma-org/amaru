@@ -22,6 +22,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
+use amaru_observability::trace_span;
 use rocksdb::Transaction;
 use tracing::{error, warn};
 
@@ -36,6 +37,14 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 
 /// Retrieve a single DRep
 pub fn get<DB>(db: &Transaction<'_, DB>, credential: &StakeCredential) -> Result<Option<Row>, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::DREPS_GET,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "get".to_string(),
+        db_collection_name = "drep".to_string()
+    );
+    let _guard = _span.enter();
+
     let key = as_key(&PREFIX, credential);
     Ok(db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)))
 }
@@ -46,6 +55,14 @@ pub fn add<DB>(
     valid_until_on_update: Epoch,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::DREPS_ADD,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "drep".to_string()
+    );
+    let _guard = _span.enter();
+
     for (credential, (anchor, registration)) in rows {
         let key = as_key(&PREFIX, &credential);
 
@@ -104,6 +121,14 @@ pub fn set_valid_until<DB>(
     credentials: BTreeSet<StakeCredential>,
     valid_until: Epoch,
 ) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::DREPS_SET_VALID_UNTIL,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "drep".to_string()
+    );
+    let _guard = _span.enter();
+
     for credential in credentials {
         let key = as_key(&PREFIX, &credential);
 
@@ -130,6 +155,14 @@ pub fn remove<DB>(
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
     protocol_version: ProtocolVersion,
 ) -> Result<(), StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::DREPS_REMOVE,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "write".to_string(),
+        db_collection_name = "drep".to_string()
+    );
+    let _guard = _span.enter();
+
     for (drep, pointer) in rows {
         let key = as_key(&PREFIX, &drep);
 

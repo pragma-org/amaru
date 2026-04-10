@@ -22,7 +22,6 @@ use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{RocksDB, RocksDBHistoricalStores},
 };
-use anyhow::anyhow;
 
 use crate::stages::config::{Config, StoreType};
 
@@ -80,11 +79,11 @@ impl Ledger {
     pub fn get_stake_distribution(&self) -> anyhow::Result<Arc<dyn HasStakeDistribution>> {
         match self {
             Ledger::InMemLedger(stage) => {
-                let state = stage.state.lock().map_err(|e| anyhow!(format!("{e:?}")))?;
+                let state = stage.state.lock().map_err(|e| anyhow::anyhow!("{:?}", e))?;
                 Ok(Arc::new(state.view_stake_distribution()))
             }
             Ledger::OnDiskLedger(stage) => {
-                let state = stage.state.lock().map_err(|e| anyhow!(format!("{e:?}")))?;
+                let state = stage.state.lock().map_err(|e| anyhow::anyhow!("{:?}", e))?;
                 Ok(Arc::new(state.view_stake_distribution()))
             }
         }
