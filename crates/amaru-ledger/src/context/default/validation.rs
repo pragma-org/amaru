@@ -204,7 +204,7 @@ impl DRepsSlice for DefaultValidationContext {
         let _span = trace_span!(
             amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_DREP_REGISTRATION,
             drep = format!("{drep:?}"),
-            deposit = u64::from(registration.deposit)
+            deposit = registration.deposit
         );
         if let Some(a) = &anchor {
             _span.record("anchor_url", &a.url);
@@ -231,7 +231,7 @@ impl DRepsSlice for DefaultValidationContext {
         let _span = trace_span!(
             amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_DREP_RETIREMENT,
             drep = format!("{drep:?}"),
-            refund = u64::from(refund)
+            refund = refund
         );
         let _guard = _span.enter();
         self.state.dreps_deregistrations.insert(drep.clone(), pointer);
