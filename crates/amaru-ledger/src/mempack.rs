@@ -206,11 +206,7 @@ fn decode_address28(decoder: &mut Decoder<'_>, stake: StakeCredential) -> Result
     //   Word64 0-2: payment hash bytes 0-23 (each Word64 is byte-reversed)
     //   Word64 3:   low  4 bytes = flags (LE u32, already correct)
     //               high 4 bytes = payment hash bytes 24-27 (LE Word32, byte-reversed)
-    let flags = u32::from_le_bytes(
-        extra[24..28]
-            .try_into()
-            .map_err(|_| "slice length checked".to_string())?,
-    );
+    let flags = u32::from_le_bytes(extra[24..28].try_into().map_err(|_| "slice length checked".to_string())?);
 
     let mut payment_hash = [0u8; 28];
     for (i, chunk) in extra[..24].chunks(8).enumerate() {

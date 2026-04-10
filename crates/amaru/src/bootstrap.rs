@@ -344,9 +344,7 @@ pub async fn import_node_ledger_snapshot(
                         use convert-ledger-state + import-ledger-state instead"
                 .into());
         }
-        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => {
-            <&EraHistory>::from(network).clone()
-        }
+        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => <&EraHistory>::from(network).clone(),
     };
 
     std::fs::create_dir_all(&ledger_dir)?;
