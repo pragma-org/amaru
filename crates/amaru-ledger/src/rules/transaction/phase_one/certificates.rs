@@ -115,6 +115,12 @@ where
             pool_metadata: metadata,
         } => {
             context.require_vkey_witness(id);
+            // https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/UTxO.hs#L250-L256
+            // The Haskell node requires both the owners and the operators, which may be the same pkh.
+            // TODO: We need coverage for this branch, we have none in either conformance tests or unit tests.
+            for owner in owners.iter() {
+                context.require_vkey_witness(*owner);
+            }
             let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
             PoolsSlice::register(context, params, pointer);
             Ok(())
