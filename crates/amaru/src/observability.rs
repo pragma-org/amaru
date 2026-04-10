@@ -58,8 +58,11 @@ type InnerOtelStack<S> = Layered<OpenTelemetryFilter<S>, S>;
 
 type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, InnerOtelStack<S>>;
 
-type LogBridgeFilter<S> =
-    Filtered<OpenTelemetryTracingBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>, ThrottledEnvFilter, InnerOtelStack<S>>;
+type LogBridgeFilter<S> = Filtered<
+    OpenTelemetryTracingBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
+    ThrottledEnvFilter,
+    InnerOtelStack<S>,
+>;
 
 type OpenTelemetryFilter<S> =
     Filtered<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, ThrottledEnvFilter, S>;
@@ -150,11 +153,7 @@ impl TracingSubscriber<Registry> {
 
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_open_telemetry(
-        &mut self,
-        layer: OpenTelemetryFilter<Registry>,
-        log_bridge: LogBridgeFilter<Registry>,
-    ) {
+    pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>, log_bridge: LogBridgeFilter<Registry>) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
                 *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer).with(log_bridge));
@@ -364,10 +363,7 @@ pub fn setup_open_telemetry(
         .with_tonic()
         .build()
         .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}"));
-    let logs_provider = SdkLoggerProvider::builder()
-        .with_resource(resource)
-        .with_batch_exporter(logs_exporter)
-        .build();
+    let logs_provider = SdkLoggerProvider::builder().with_resource(resource).with_batch_exporter(logs_exporter).build();
     let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider);
     let (log_bridge_filter, _) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
     let log_bridge = log_bridge.with_filter(log_bridge_filter);

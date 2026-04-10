@@ -72,19 +72,29 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    if ledger_dir.exists() {
+    if ledger_dir.exists() || chain_dir.exists() {
         if !args.force {
             warn!(
                 ledger_dir=%ledger_dir.to_string_lossy(),
-                "ledger directory already exists"
+                chain_dir=%chain_dir.to_string_lossy(),
+                "ledger or chain directory already exists"
             );
             return Ok(());
         } else {
-            info!(
-                ledger_dir=%ledger_dir.to_string_lossy(),
-                "forcing bootstrap, removing existing ledger directory"
-            );
-            remove_dir_all(&ledger_dir)?;
+            if ledger_dir.exists() {
+                info!(
+                    ledger_dir=%ledger_dir.to_string_lossy(),
+                    "forcing bootstrap, removing existing ledger directory"
+                );
+                remove_dir_all(&ledger_dir)?;
+            }
+            if chain_dir.exists() {
+                info!(
+                    chain_dir=%chain_dir.to_string_lossy(),
+                    "forcing bootstrap, removing existing chain directory"
+                );
+                remove_dir_all(&chain_dir)?;
+            }
         }
     }
 
