@@ -278,11 +278,11 @@ jobs:
           key: cargo-x86_64-unknown-linux-gnu
           restore-keys: |
             cargo-x86_64-unknown-linux-gnu
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
       - name: Generate current schemas
         run: |
           cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
+      - name: Check for unused trace schemas
+        run: ./scripts/unused-schemas
       - name: Compare schemas
         run: |
           set -euo pipefail

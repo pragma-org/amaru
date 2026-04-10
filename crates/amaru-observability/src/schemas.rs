@@ -30,15 +30,7 @@ pub const CERTIFICATE_TARGET: &str = "amaru::ledger::context::default::validatio
 define_schemas! {
     amaru {
         consensus {
-            diffusion {
-                /// Fetch a block from the network
-                public FETCH_BLOCK {}
-
-                /// Forward chain operations
-                public FORWARD_CHAIN {}
-        }
-
-        validate_header {
+            validate_header {
 
             /// Evolve the nonce based on header
             EVOLVE_NONCE {
@@ -53,26 +45,10 @@ define_schemas! {
 
         // Chain sync operations
         chain_sync {
-            /// Chain sync pull operation
-            PULL {}
-
             /// Decode header from raw bytes
-            DECODE_HEADER {}
-
-            /// Pull chain updates from peer
-            public RECEIVE_HEADER {}
-
-            /// Header decode failed from received data
-            RECEIVE_HEADER_DECODE_FAILED {}
-
-            /// Select best chain from available headers
-            SELECT_CHAIN {}
-
-            /// Validate block properties
-            public VALIDATE_BLOCK {}
-
-            /// Validate header properties
-            public VALIDATE_HEADER {}
+            DECODE_HEADER {
+                required peer: String
+            }
         }
     }
 
@@ -182,9 +158,6 @@ define_schemas! {
             /// Begin epoch operations
             public BEGIN_EPOCH {}
 
-            /// Compute stake distribution for epoch
-            public COMPUTE_STAKE_DISTRIBUTION_NAMED {}
-
             /// Reset fees to zero
             public RESET_FEES {}
 
@@ -199,21 +172,6 @@ define_schemas! {
             /// Create ratification context
             public RATIFICATION_CONTEXT_NEW {}
 
-            /// Manage transaction outputs
-            public MANAGE_TRANSACTION_OUTPUTS {}
-
-            /// Cleanup old epochs
-            public CLEANUP_OLD_EPOCHS {}
-
-            /// Cleanup expired proposals
-            public CLEANUP_EXPIRED_PROPOSALS {}
-        }
-
-        rules {
-            /// Parse raw block bytes
-            public PARSE_BLOCK {
-                required block_size: u64
-            }
         }
 
         context {
@@ -254,74 +212,66 @@ define_schemas! {
                 validation {
                     /// Register a stake credential
                     public CERTIFICATE_STAKE_REGISTRATION {
-                        required credential_type: amaru_kernel::StakeCredentialKind
-                        required credential_hash: amaru_kernel::Hash<28>
+                        required credential: String
                     }
 
                     /// Delegate stake to a pool
                     public CERTIFICATE_STAKE_DELEGATION {
-                        required credential_type: amaru_kernel::StakeCredentialKind
-                        required credential_hash: amaru_kernel::Hash<28>
-                        required pool_id: String
+                        required credential: String
+                        required pool_id: amaru_kernel::PoolId
                     }
 
                     /// Unregister a stake credential
                     public CERTIFICATE_STAKE_DEREGISTRATION {
-                        required credential_type: amaru_kernel::StakeCredentialKind
-                        required credential_hash: amaru_kernel::Hash<28>
+                        required credential: String
                     }
 
                     /// Register a DRep
                     public CERTIFICATE_DREP_REGISTRATION {
-                        required drep_type: amaru_kernel::StakeCredentialKind
-                        required drep_hash: amaru_kernel::Hash<28>
+                        required drep: String
                         required deposit: u64
+                        optional anchor_url: String
                     }
 
                     /// Update DRep anchor
                     public CERTIFICATE_DREP_UPDATE {
-                        required drep_type: amaru_kernel::StakeCredentialKind
-                        required drep_hash: amaru_kernel::Hash<28>
+                        required drep: String
+                        optional anchor_url: String
                     }
 
                     /// Unregister a DRep
                     public CERTIFICATE_DREP_RETIREMENT {
-                        required drep_type: amaru_kernel::StakeCredentialKind
-                        required drep_hash: amaru_kernel::Hash<28>
+                        required drep: String
                         required refund: u64
                     }
 
                     /// Delegate vote to DRep
                     public CERTIFICATE_VOTE_DELEGATION {
-                        required credential_type: amaru_kernel::StakeCredentialKind
-                        required credential_hash: amaru_kernel::Hash<28>
-                        required drep_type: amaru_kernel::StakeCredentialKind
-                        required drep_hash: amaru_kernel::Hash<28>
+                        required credential: String
+                        optional drep: String
                     }
 
                     /// Register a pool
                     public CERTIFICATE_POOL_REGISTRATION {
-                        required pool_id: String
+                        required pool_id: amaru_kernel::PoolId
                     }
 
                     /// Retire a pool
                     public CERTIFICATE_POOL_RETIREMENT {
-                        required pool_id: String
+                        required pool_id: amaru_kernel::PoolId
                         required epoch: u64
                     }
 
                     /// Delegate cold key to committee
                     public CERTIFICATE_COMMITTEE_DELEGATE {
-                        required cc_member_type: amaru_kernel::StakeCredentialKind
-                        required cc_member_hash: amaru_kernel::Hash<28>
-                        required delegate_type: amaru_kernel::StakeCredentialKind
-                        required delegate_hash: amaru_kernel::Hash<28>
+                        required cc_member: String
+                        required delegate: String
                     }
 
                     /// Resign from committee
                     public CERTIFICATE_COMMITTEE_RESIGN {
-                        required cc_member_type: amaru_kernel::StakeCredentialKind
-                        required cc_member_hash: amaru_kernel::Hash<28>
+                        required cc_member: String
+                        optional anchor_url: String
                     }
                 }
             }
@@ -626,37 +576,6 @@ define_schemas! {
                 required db_collection_name: String
             }
 
-            /// Store block to tip operations
-            public STORE_BLOCK_TO_TIP {
-                required hash: String
-                required db_system_name: String
-                required db_operation_name: String
-                required db_collection_name: String
-            }
-
-            /// Rollback to tip operations
-            public ROLLBACK_TO_TIP {
-                required hash: String
-                required db_system_name: String
-                required db_operation_name: String
-                required db_collection_name: String
-            }
-
-            /// Read headers operations
-            public READ_HEADERS {
-                required hash: String
-                required db_system_name: String
-                required db_operation_name: String
-                required db_collection_name: String
-            }
-
-            /// Read blocks operations
-            public READ_BLOCKS {
-                required hash: String
-                required db_system_name: String
-                required db_operation_name: String
-                required db_collection_name: String
-            }
         }
     }
 
@@ -673,8 +592,36 @@ define_schemas! {
 
         manager {
             /// Handle manager stage messages
-            MANAGER_STAGE {
+            public MANAGER_STAGE {
                 required message_type: String
+            }
+
+            /// A new peer was added to the manager
+            public ADD_PEER {
+                required peer: String
+            }
+
+            /// Initiating an outbound connection to a peer
+            public CONNECT {
+                required peer: String
+            }
+
+            /// An inbound connection was accepted from a peer
+            public ACCEPTED {
+                required peer: String
+                required conn_id: String
+            }
+
+            /// A peer was removed from the manager
+            public REMOVE_PEER {
+                required peer: String
+            }
+
+            /// A peer connection has died
+            public CONNECTION_DIED {
+                required peer: String
+                required conn_id: String
+                required role: String
             }
         }
 
@@ -831,24 +778,6 @@ define_schemas! {
 
             /// Want next message for protocol
             WANT_NEXT {}
-
-            /// Demultiplex incoming bytes
-            DEMUX {
-                required proto_id: u16
-                required bytes: u64
-            }
-
-            /// Multiplex outgoing bytes
-            MUX {
-                required bytes: u64
-            }
-        }
-    }
-
-    simulator {
-        node {
-            /// Handle message in simulator node
-            public HANDLE_MSG {}
         }
     }
 

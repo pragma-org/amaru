@@ -51,8 +51,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
     let aliases = load_workspace_type_aliases();
 
-    // Sort entries by path to ensure deterministic output across builds and platforms
-    let mut sorted_entries = entries.to_vec();
+    // Only public schemas appear in the JSON output and generated documentation.
+    // Private schemas are present in the registry solely for tooling (e.g. unused-schemas).
+    let mut sorted_entries: Vec<_> = entries.iter().filter(|e| e.public).cloned().collect();
     sorted_entries.sort_by(|a, b| a.path.cmp(b.path));
 
     let schemas_map = sorted_entries

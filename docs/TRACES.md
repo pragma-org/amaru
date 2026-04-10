@@ -5,21 +5,6 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
-## target: `amaru::consensus::chain_sync`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `receive_header` | `TRACE` | public | Pull chain updates from peer |  |  |
-| `validate_block` | `TRACE` | public | Validate block properties |  |  |
-| `validate_header` | `TRACE` | public | Validate header properties |  |  |
-
-## target: `amaru::consensus::diffusion`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `fetch_block` | `TRACE` | public | Fetch a block from the network |  |  |
-| `forward_chain` | `TRACE` | public | Forward chain operations |  |  |
-
 ## target: `amaru::ledger::context`
 
 | name | level | public | description | required fields | optional fields |
@@ -86,26 +71,24 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `certificate_committee_delegate` | `TRACE` | public | Delegate cold key to committee | cc_member_type, cc_member_hash, delegate_type, delegate_hash |  |
-| `certificate_committee_resign` | `TRACE` | public | Resign from committee | cc_member_type, cc_member_hash |  |
-| `certificate_drep_registration` | `TRACE` | public | Register a DRep | drep_type, drep_hash, deposit |  |
-| `certificate_drep_retirement` | `TRACE` | public | Unregister a DRep | drep_type, drep_hash, refund |  |
-| `certificate_drep_update` | `TRACE` | public | Update DRep anchor | drep_type, drep_hash |  |
+| `certificate_committee_delegate` | `TRACE` | public | Delegate cold key to committee | cc_member, delegate |  |
+| `certificate_committee_resign` | `TRACE` | public | Resign from committee | cc_member | anchor_url |
+| `certificate_drep_registration` | `TRACE` | public | Register a DRep | drep, deposit | anchor_url |
+| `certificate_drep_retirement` | `TRACE` | public | Unregister a DRep | drep, refund |  |
+| `certificate_drep_update` | `TRACE` | public | Update DRep anchor | drep | anchor_url |
 | `certificate_pool_registration` | `TRACE` | public | Register a pool | pool_id |  |
 | `certificate_pool_retirement` | `TRACE` | public | Retire a pool | pool_id, epoch |  |
-| `certificate_stake_delegation` | `TRACE` | public | Delegate stake to a pool | credential_type, credential_hash, pool_id |  |
-| `certificate_stake_deregistration` | `TRACE` | public | Unregister a stake credential | credential_type, credential_hash |  |
-| `certificate_stake_registration` | `TRACE` | public | Register a stake credential | credential_type, credential_hash |  |
-| `certificate_vote_delegation` | `TRACE` | public | Delegate vote to DRep | credential_type, credential_hash, drep_type, drep_hash |  |
+| `certificate_stake_delegation` | `TRACE` | public | Delegate stake to a pool | credential, pool_id |  |
+| `certificate_stake_deregistration` | `TRACE` | public | Unregister a stake credential | credential |  |
+| `certificate_stake_registration` | `TRACE` | public | Register a stake credential | credential |  |
+| `certificate_vote_delegation` | `TRACE` | public | Delegate vote to DRep | credential | drep |
 
 <details><summary>span: `certificate_committee_delegate`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `cc_member_type` | `string` | ✓ |
-| `cc_member_hash` | `string` | ✓ |
-| `delegate_type` | `string` | ✓ |
-| `delegate_hash` | `string` | ✓ |
+| `cc_member` | `string` | ✓ |
+| `delegate` | `string` | ✓ |
 
 </details>
 
@@ -113,8 +96,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `cc_member_type` | `string` | ✓ |
-| `cc_member_hash` | `string` | ✓ |
+| `cc_member` | `string` | ✓ |
+| `anchor_url` | `string` |  |
 
 </details>
 
@@ -122,9 +105,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `drep_type` | `string` | ✓ |
-| `drep_hash` | `string` | ✓ |
+| `drep` | `string` | ✓ |
 | `deposit` | `integer` | ✓ |
+| `anchor_url` | `string` |  |
 
 </details>
 
@@ -132,8 +115,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `drep_type` | `string` | ✓ |
-| `drep_hash` | `string` | ✓ |
+| `drep` | `string` | ✓ |
 | `refund` | `integer` | ✓ |
 
 </details>
@@ -142,8 +124,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `drep_type` | `string` | ✓ |
-| `drep_hash` | `string` | ✓ |
+| `drep` | `string` | ✓ |
+| `anchor_url` | `string` |  |
 
 </details>
 
@@ -168,8 +150,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `credential_type` | `string` | ✓ |
-| `credential_hash` | `string` | ✓ |
+| `credential` | `string` | ✓ |
 | `pool_id` | `string` | ✓ |
 
 </details>
@@ -178,8 +159,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `credential_type` | `string` | ✓ |
-| `credential_hash` | `string` | ✓ |
+| `credential` | `string` | ✓ |
 
 </details>
 
@@ -187,8 +167,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `credential_type` | `string` | ✓ |
-| `credential_hash` | `string` | ✓ |
+| `credential` | `string` | ✓ |
 
 </details>
 
@@ -196,10 +175,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `credential_type` | `string` | ✓ |
-| `credential_hash` | `string` | ✓ |
-| `drep_type` | `string` | ✓ |
-| `drep_hash` | `string` | ✓ |
+| `credential` | `string` | ✓ |
+| `drep` | `string` |  |
 
 </details>
 
@@ -220,36 +197,18 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::rules`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `parse_block` | `TRACE` | public | Parse raw block bytes | block_size |  |
-
-<details><summary>span: `parse_block`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `block_size` | `integer` | ✓ |
-
-</details>
-
 ## target: `amaru::ledger::state`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `apply_block` | `TRACE` | public | Apply a block to stable state | point_slot |  |
 | `begin_epoch` | `TRACE` | public | Begin epoch operations |  |  |
-| `cleanup_expired_proposals` | `TRACE` | public | Cleanup expired proposals |  |  |
-| `cleanup_old_epochs` | `TRACE` | public | Cleanup old epochs |  |  |
 | `compute_rewards` | `TRACE` | public | Compute rewards for epoch |  |  |
 | `compute_stake_distribution` | `TRACE` | public | Compute stake distribution for epoch | epoch |  |
-| `compute_stake_distribution_named` | `TRACE` | public | Compute stake distribution for epoch |  |  |
 | `create_validation_context` | `TRACE` | public | Create validation context for a block | block_body_hash, block_number, block_body_size | total_inputs |
 | `end_epoch` | `TRACE` | public | End epoch operations |  |  |
 | `epoch_transition` | `TRACE` | public | Epoch transition processing | from, into |  |
 | `forward` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
-| `manage_transaction_outputs` | `TRACE` | public | Manage transaction outputs |  |  |
 | `prepare_block` | `TRACE` | public | Prepare block for validation |  |  |
 | `ratification_context_new` | `TRACE` | public | Create ratification context |  |  |
 | `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
@@ -335,46 +294,76 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::simulator::node`
+## target: `amaru::protocols::manager`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `handle_msg` | `TRACE` | public | Handle message in simulator node |  |  |
+| `accepted` | `TRACE` | public | An inbound connection was accepted from a peer | peer, conn_id |  |
+| `add_peer` | `TRACE` | public | A new peer was added to the manager | peer |  |
+| `connect` | `TRACE` | public | Initiating an outbound connection to a peer | peer |  |
+| `connection_died` | `TRACE` | public | A peer connection has died | peer, conn_id, role |  |
+| `manager_stage` | `TRACE` | public | Handle manager stage messages | message_type |  |
+| `remove_peer` | `TRACE` | public | A peer was removed from the manager | peer |  |
+
+<details><summary>span: `accepted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `add_peer`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connect`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connection_died`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `string` | ✓ |
+| `role` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `manager_stage`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `message_type` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `remove_peer`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+
+</details>
 
 ## target: `amaru::stores::consensus`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `read_blocks` | `TRACE` | public | Read blocks operations | hash, db_system_name, db_operation_name, db_collection_name |  |
-| `read_headers` | `TRACE` | public | Read headers operations | hash, db_system_name, db_operation_name, db_collection_name |  |
 | `roll_forward_chain` | `TRACE` | public | Roll forward the chain to a point | hash, slot, db_system_name, db_operation_name, db_collection_name |  |
 | `rollback_chain` | `TRACE` | public | Rollback the chain to a point | hash, slot, db_system_name, db_operation_name, db_collection_name |  |
-| `rollback_to_tip` | `TRACE` | public | Rollback to tip operations | hash, db_system_name, db_operation_name, db_collection_name |  |
 | `store_block` | `TRACE` | public | Store a raw block | hash, db_system_name, db_operation_name, db_collection_name |  |
-| `store_block_to_tip` | `TRACE` | public | Store block to tip operations | hash, db_system_name, db_operation_name, db_collection_name |  |
 | `store_header` | `TRACE` | public | Store a block header | hash, db_system_name, db_operation_name, db_collection_name |  |
-
-<details><summary>span: `read_blocks`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-| `db_system_name` | `string` | ✓ |
-| `db_operation_name` | `string` | ✓ |
-| `db_collection_name` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `read_headers`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-| `db_system_name` | `string` | ✓ |
-| `db_operation_name` | `string` | ✓ |
-| `db_collection_name` | `string` | ✓ |
-
-</details>
 
 <details><summary>span: `roll_forward_chain`</summary>
 
@@ -400,29 +389,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `rollback_to_tip`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-| `db_system_name` | `string` | ✓ |
-| `db_operation_name` | `string` | ✓ |
-| `db_collection_name` | `string` | ✓ |
-
-</details>
-
 <details><summary>span: `store_block`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-| `db_system_name` | `string` | ✓ |
-| `db_operation_name` | `string` | ✓ |
-| `db_collection_name` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `store_block_to_tip`</summary>
 
 | field | type | required |
 | --- | --- | --- |

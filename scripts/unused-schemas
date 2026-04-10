@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Find schema constants (from dump-traces-schema JSON) never referenced in trace_span! calls.
+#
+# Private schemas (public: false) are included in the registry so they appear here too.
 
 set -euo pipefail
 
@@ -10,23 +12,23 @@ if [[ ! -x "$AMARU_BIN" ]]; then
     cargo build -p amaru --bin amaru 2>&1 >&2
 fi
 
-# Get all schema paths from the compiled registry
-all_paths=$("$AMARU_BIN" dump-traces-schema -c 2>&1 | jq -r '.definitions | keys[]' | sort)
-
-# Find all constants referenced via ::CONSTANT in any .rs file (excluding target/)
-used=$(find crates simulation -name "*.rs" \
-    -not -path "*/target/*" \
-    | xargs grep -ohE '::[A-Z][A-Z0-9_]+' 2>/dev/null \
-    | sed 's/^:://' \
-    | sort -u)
+# Get all schema paths from the compiled registry (both public and private)
+all_paths=$("$AMARU_BIN" dump-traces-schema 2>&1 | jq -r '.definitions | keys[]' | sort)
 
 total=$(echo "$all_paths" | wc -l | tr -d ' ')
 unused=0
 
+# Single pass: extract all multi-segment ::path::CONSTANT references from source.
+# Exclude amaru-observability itself (schema definitions and macro doc comments
+# would trivially match their own paths and produce false "used" results).
+used=$(find crates simulation -name "*.rs" \
+    -not -path "*/target/*" \
+    -not -path "*/amaru-observability/*" \
+    | xargs grep -ohE '([a-z_]+::)+[A-Z][A-Z0-9_]+' 2>/dev/null \
+    | sort -u)
+
 while IFS= read -r path; do
-    # The constant name is the last segment after ::
-    schema="${path##*::}"
-    if ! echo "$used" | grep -qxF "$schema"; then
+    if ! echo "$used" | grep -qF "$path"; then
         echo "UNUSED  $path"
         unused=$((unused + 1))
     fi
@@ -34,3 +36,7 @@ done <<< "$all_paths"
 
 echo ""
 echo "$unused unused / $total total schema constants"
+
+if [[ $unused -gt 0 ]]; then
+    exit 1
+fi

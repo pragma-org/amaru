@@ -155,6 +155,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
     async move {
         match msg {
             ManagerMessage::AddPeer(peer) => {
+                let _span = trace_span!(amaru_observability::amaru::protocols::manager::ADD_PEER, peer = peer.to_string());
+                let _guard = _span.enter();
                 match manager.peers.get_mut(&peer) {
                     Some(ConnectionState::Connected(..) | ConnectionState::Scheduled) => {
                         tracing::info!(%peer, "discarding connection request, already connected or scheduled");
@@ -172,6 +174,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 eff.send(eff.me_ref(), ManagerMessage::Connect(peer)).await;
             }
             ManagerMessage::Connect(peer) => {
+                let _span = trace_span!(amaru_observability::amaru::protocols::manager::CONNECT, peer = peer.to_string());
+                let _guard = _span.enter();
                 let entry = match manager.peers.get_mut(&peer) {
                     Some(ConnectionState::Connected(..)) => {
                         tracing::debug!(%peer, "discarding connection request, already connected");
@@ -201,6 +205,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 start_connection_stage(&mut manager, &eff, peer, conn_id, Role::Initiator).await;
             }
             ManagerMessage::Accepted(peer, conn_id) => {
+                let _span = trace_span!(amaru_observability::amaru::protocols::manager::ACCEPTED, peer = peer.to_string(), conn_id = conn_id.to_string());
+                let _guard = _span.enter();
                 match manager.peers.get(&peer) {
                     Some(ConnectionState::Connected(..)) => {
                         tracing::debug!(%peer, "already connected. Closing the newly accepted connection");
@@ -222,6 +228,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 start_connection_stage(&mut manager, &eff, peer, conn_id, Role::Responder).await;
             }
             ManagerMessage::RemovePeer(peer) => {
+                let _span = trace_span!(amaru_observability::amaru::protocols::manager::REMOVE_PEER, peer = peer.to_string());
+                let _guard = _span.enter();
                 let Some(entry) = manager.peers.get_mut(&peer) else {
                     tracing::info!(%peer, "disconnect request ignored, not connected");
                     return manager;
@@ -238,6 +246,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 }
             }
             ManagerMessage::ConnectionDied(peer, conn_id, role) => {
+                let _span = trace_span!(amaru_observability::amaru::protocols::manager::CONNECTION_DIED, peer = peer.to_string(), conn_id = conn_id.to_string(), role = role.to_string());
+                let _guard = _span.enter();
                 close_connection(&eff, &peer, conn_id).await;
                 let Some(peer_state) = manager.peers.get_mut(&peer) else {
                     tracing::debug!(%peer, "connection died, peer already removed");
