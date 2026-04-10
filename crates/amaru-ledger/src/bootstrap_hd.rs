@@ -41,6 +41,7 @@ use crate::{
 /// This function reads the `state` file, navigates the outer Ouroboros/HFC wrapper to locate the
 /// `NewEpochState` at path `root[0][1][0][6][1][1][1]`:
 ///
+/// ```text
 ///   root[0]              → array(2)          Ouroboros wrapper
 ///     [1]                → array(2)          current + previous epoch snapshots
 ///       [0]              → array(7)          current epoch nonce state (Praos)
@@ -51,6 +52,7 @@ use crate::{
 ///               [0]      → array(1, array(3)) anchor (WithOrigin(AnnTip))
 ///               [1]      → array(7)          ← THE NewEpochState
 ///               [2]      → array(4)          stake distribution snapshot
+/// ```
 ///
 /// Then it imports UTxO from `tables/tvar`.
 ///
