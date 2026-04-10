@@ -13,10 +13,9 @@
 // limitations under the License.
 
 mod can_validate_txs;
-#[allow(clippy::module_inception)]
-mod mempool;
+mod mempool_traits;
 mod values;
 
 pub use can_validate_txs::*;
-pub use mempool::*;
+pub use mempool_traits::*;
 pub use values::*;

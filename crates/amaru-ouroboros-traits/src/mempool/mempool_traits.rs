@@ -46,24 +46,6 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError>;
 
-    /// Add a new local transaction to the mempool so it can be considered for forging blocks on
-    /// the current node.
-    ///
-    /// This is the local-forging API. Use `insert` when the transaction origin matters, for
-    /// example when handling tx-submission traffic from remote peers.
-    ///
-    /// TODO: Have the mempool perform its own set of validations and possibly fail to add new
-    /// elements. This is non-trivial, since it requires the mempool to have ways of re-validating
-    /// transactions provided a slightly different context.
-    ///
-    /// We shall circle back to this once we've done some progress on the ledger validations and
-    /// the so-called ledger slices.
-    ///
-    /// Return the insertion outcome for a locally-created transaction.
-    fn add(&self, tx: Tx) -> Result<TxInsertResult, MempoolError> {
-        self.insert(tx, TxOrigin::Local)
-    }
-
     /// Retrieve a transaction by its id.
     fn get_tx(&self, tx_id: &TxId) -> Option<Tx>;
 
