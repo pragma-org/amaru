@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Tip};
 use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
-use pure_stage::{Effects, StageRef, TryInStage};
+use pure_stage::{Effects, Instant, StageRef, TryInStage};
 
 use crate::stages::select_chain::cmp_tip;
 
@@ -40,11 +40,20 @@ pub struct AdoptChain {
     consensus_security_param: u64,
     current_best_tip: Tip,
     max_block_height: BlockHeight,
+    last_printed: Instant,
+    suppressed: u32,
 }
 
 impl AdoptChain {
     pub fn new(downstream: StageRef<ManagerMessage>, consensus_security_param: u64, current_best_tip: Tip) -> Self {
-        Self { downstream, consensus_security_param, current_best_tip, max_block_height: BlockHeight::from(0) }
+        Self {
+            downstream,
+            consensus_security_param,
+            current_best_tip,
+            max_block_height: BlockHeight::from(0),
+            last_printed: Instant::at_offset(Duration::from_secs(0)),
+            suppressed: 0,
+        }
     }
 }
 
@@ -103,10 +112,14 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         .await;
 
     // do not print every single block while catching up
-    if msg.block_height() > state.max_block_height - 10 || msg.block_height().as_u64() & 255 == 0 {
-        tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, "adopted tip");
+    let now = store.eff().clock().await;
+    if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
+        tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
+        state.last_printed = now;
+        state.suppressed = 0;
     } else {
-        tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, "adopted tip");
+        tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
+        state.suppressed += 1;
     }
     store.eff().send(&state.downstream, ManagerMessage::NewTip(msg)).await;
     state.current_best_tip = msg;

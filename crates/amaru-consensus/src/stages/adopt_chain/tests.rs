@@ -20,8 +20,8 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_get_anchor_hash, te_load_from_best_chain, te_next_best_chain, te_roll_forward_chain, te_rollback_chain,
-        te_send, te_set_anchor_hash, te_set_best_chain_hash,
+        te_clock, te_get_anchor_hash, te_load_from_best_chain, te_next_best_chain, te_roll_forward_chain,
+        te_rollback_chain, te_send, te_set_anchor_hash, te_set_best_chain_hash,
     },
     test_utils::{te_input, te_state},
 };
@@ -128,6 +128,7 @@ fn test_extension_adopts_and_sends() {
             te_next_best_chain("ac-1", prep.headers.h0.point()),
             te_load_header("ac-1", prep.headers.h1.hash()),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
+            te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
             te_state("ac-1", &expected),
         ],
@@ -137,7 +138,7 @@ fn test_extension_adopts_and_sends() {
     assert_eq!(prep.store.get_best_chain_hash(), prep.headers.h3.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h1.hash());
 
-    logs.assert_and_remove(Level::INFO, &["adopted tip"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -181,6 +182,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_next_best_chain("ac-1", prep.headers.h0.point()),
             te_load_header("ac-1", prep.headers.h1.hash()),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
+            te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
             te_state("ac-1", &expected),
         ],
@@ -190,7 +192,7 @@ fn test_fork_switch_adopts_and_sends() {
     assert_eq!(prep.store.get_best_chain_hash(), msg.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h1.hash());
 
-    logs.assert_and_remove(Level::INFO, &["adopted tip"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -227,6 +229,7 @@ fn test_fork_switch_opcert_hacked() {
             te_set_best_chain_hash("ac-1", msg.hash()),
             te_get_anchor_hash("ac-1"),
             te_load_header("ac-1", prep.headers.h0.hash()),
+            te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
             te_state("ac-1", &expected),
         ],
@@ -236,7 +239,7 @@ fn test_fork_switch_opcert_hacked() {
     assert_eq!(prep.store.get_best_chain_hash(), msg.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h0.hash());
 
-    logs.assert_and_remove(Level::INFO, &["adopted tip"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,

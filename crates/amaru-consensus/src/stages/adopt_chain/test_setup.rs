@@ -216,6 +216,10 @@ pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage:
     TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
 }
 
+pub fn te_clock(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(pure_stage::Effect::clock(at_stage))
+}
+
 pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
     TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
 }

@@ -27,7 +27,7 @@ use amaru_protocols::{
     store_effects::Store,
 };
 pub use defer_req_next::DeferReqNextMsg;
-use pure_stage::{Effects, StageRef};
+use pure_stage::{Effects, SendData, StageRef};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -37,9 +37,10 @@ use crate::{
 };
 
 /// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
-pub(super) fn ledger_applied_block_height(eff: &impl ConsensusOps) -> BlockHeight {
-    let ledger = eff.ledger();
-    ledger.volatile_tip().unwrap_or_else(|| ledger.tip()).block_height()
+fn ledger_applied_block_height<T: SendData>(eff: &Effects<T>) -> BlockHeight {
+    let store = Store::new(eff.clone());
+    let best = store.get_best_chain_hash();
+    store.load_header(&best).map(|h| h.block_height()).unwrap_or(BlockHeight::from(0))
 }
 
 /// This is the state of the [`stage`] that tracks peers from whom we are receiving headers.
@@ -265,11 +266,7 @@ impl TrackPeers {
 
         if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
             self.ensure_defer_req_next_stage(&eff).await;
-            eff.send(
-                &self.defer_req_next,
-                DeferReqNextMsg::Register { peer: peer.clone(), handler, min_ledger_height },
-            )
-            .await;
+            eff.send(&self.defer_req_next, DeferReqNextMsg::Register { handler, min_ledger_height }).await;
         }
     }
 
@@ -315,8 +312,7 @@ impl TrackPeers {
                     }
                 };
 
-                let consensus = ConsensusEffects::new(eff.clone());
-                let ledger_h = ledger_applied_block_height(&consensus);
+                let ledger_h = ledger_applied_block_height(&eff);
                 let limit = self.consensus_security_parameter;
                 let mode = if header.block_height() > ledger_h + limit {
                     tracing::debug!(
@@ -335,9 +331,6 @@ impl TrackPeers {
             }
             RollBackward(current, tip) => {
                 tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
-                if !self.defer_req_next.is_blackhole() {
-                    eff.send(&self.defer_req_next, DeferReqNextMsg::Cancel { peer: peer.clone() }).await;
-                }
                 eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
 
                 if let Err(error) = self.roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone())).await {
