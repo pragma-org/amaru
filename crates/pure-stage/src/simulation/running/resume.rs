@@ -96,6 +96,7 @@ pub fn resume_send_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
     to: Name,
+    msg: &mut Option<Box<dyn SendData>>,
 ) -> anyhow::Result<Option<ScheduleId>> {
     let waiting_for =
         data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
@@ -110,8 +111,12 @@ pub fn resume_send_internal(
     };
     let call = call.map(|call| {
         if let Some(sender) = call.downcast_ref::<StageRefExtra>() {
-            // reply channel from an external Sender::call() — fire the oneshot and signal no wakeup needed
-            drop(sender.lock().take());
+            let Some(sender) = sender.lock().take() else {
+                panic!("missing reply sender for external Sender::call()");
+            };
+            let msg =
+                msg.take().expect("external Sender::call() requires the send payload when resuming in simulation");
+            sender.send(msg).ok();
             None
         } else {
             Some(*call.downcast_ref::<ScheduleId>().expect("StageRef extra must be a ScheduleId or StageRefExtra"))
