@@ -49,7 +49,7 @@ where
     }
 }
 
-impl<S, HS> CanValidateTxs<Transaction> for BlockValidator<S, HS>
+impl<S, HS> CanValidateTxs for BlockValidator<S, HS>
 where
     S: Store + Send,
     HS: HistoricalStores + Send,

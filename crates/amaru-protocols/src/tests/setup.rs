@@ -56,7 +56,7 @@ pub(super) fn ephemeral_localhost_addr() -> anyhow::Result<SocketAddr> {
 /// Resource type definitions
 pub(super) type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub(super) type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
-pub(super) type ResourceTxValidation = Arc<dyn CanValidateTxs<Transaction> + Send + Sync>;
+pub(super) type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 
 /// Add resources for each role.
 /// In particular set up an in-memory chain store with different chain lengths for the initiator and responder.

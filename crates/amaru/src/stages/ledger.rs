@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{EraHistory, GlobalParameters, Point, Transaction};
+use amaru_kernel::{EraHistory, GlobalParameters, Point};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros::{CanValidateBlocks, CanValidateTxs, HasStakeDistribution};
 use amaru_plutus::arena_pool::ArenaPool;
@@ -97,7 +97,7 @@ impl Ledger {
         }
     }
 
-    pub fn get_tx_validation(&self) -> Arc<dyn CanValidateTxs<Transaction> + Send + Sync> {
+    pub fn get_tx_validation(&self) -> Arc<dyn CanValidateTxs + Send + Sync> {
         match self {
             Ledger::InMemLedger(stage) => Arc::new((*stage).clone()),
             Ledger::OnDiskLedger(stage) => Arc::new((*stage).clone()),

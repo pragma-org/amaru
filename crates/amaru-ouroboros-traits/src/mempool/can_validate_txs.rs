@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,21 +18,20 @@ use amaru_kernel::Transaction;
 
 use crate::mempool::TransactionValidationError;
 
-pub type ResourceTxValidation<Tx> = Arc<dyn CanValidateTxs<Tx>>;
+pub type ResourceTxValidation = Arc<dyn CanValidateTxs>;
 
 /// This trait abstract over the possibility to validate transactions.
 /// Concretely speaking this will be done by the ledger.
-pub trait CanValidateTxs<Tx: Send + Sync + 'static>: Send + Sync {
-    fn validate_tx(&self, tx: &Tx) -> Result<(), TransactionValidationError>;
+pub trait CanValidateTxs: Send + Sync {
+    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
 }
 
 /// A simple function can be used to implement the validation trait
-impl<Tx, F> CanValidateTxs<Tx> for F
+impl<F> CanValidateTxs for F
 where
-    Tx: Send + Sync + 'static,
-    F: Fn(&Tx) -> Result<(), TransactionValidationError> + Send + Sync,
+    F: Fn(&Transaction) -> Result<(), TransactionValidationError> + Send + Sync,
 {
-    fn validate_tx(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
+    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
         self(tx)
     }
 }
@@ -40,7 +39,8 @@ where
 /// A fake transaction validator that always returns ok.
 #[derive(Clone, Debug, Default)]
 pub struct MockCanValidateTxs;
-impl CanValidateTxs<Transaction> for MockCanValidateTxs {
+
+impl CanValidateTxs for MockCanValidateTxs {
     fn validate_tx(&self, _tx: &Transaction) -> Result<(), TransactionValidationError> {
         Ok(())
     }

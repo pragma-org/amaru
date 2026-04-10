@@ -120,7 +120,7 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
-pub type ResourceTxValidation = Arc<dyn CanValidateTxs<Transaction> + Send + Sync>;
+pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
