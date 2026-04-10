@@ -16,22 +16,22 @@ on:
         description: "Network to run (leave empty for both)"
         type: string
         required: false
-        default: ''
+        default: ""
       run_until_target_epoch:
         description: "Override run-until target epoch"
         type: string
         required: false
-        default: ''
+        default: ""
       timeout:
         description: "Override timeout for snapshot tests"
         type: string
         required: false
-        default: ''
+        default: ""
       run_until_trace_level:
         description: "Override AMARU_TRACE for run-until"
         type: string
         required: false
-        default: ''
+        default: ""
       use_buildjet_runner:
         description: "Use buildjet runner for better performance"
         type: boolean
@@ -88,7 +88,7 @@ jobs:
         network:
           - name: preprod
             magic: 1
-            target_epoch: 176
+            target_epoch: 185
           - name: preview
             magic: 2
             target_epoch: 680
