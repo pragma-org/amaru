@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, fmt, io, sync::Arc};
 
 use parking_lot::Mutex;
-use pure_stage::{Name, SendData, trace_buffer::TraceEntry};
+use pure_stage::{Effect, Name, SendData, TerminationReason, simulation::SimulationRunning, trace_buffer::TraceEntry};
 use tracing::{Level, subscriber::DefaultGuard};
 
 pub struct BufferWriter {
@@ -141,4 +141,27 @@ pub fn te_state<T: SendData + Clone>(stage: impl AsRef<str>, state: &T) -> Trace
 
 pub fn te_input<T: SendData + Clone>(stage: impl AsRef<str>, msg: &T) -> TraceEntry {
     TraceEntry::Input { stage: Name::from(stage.as_ref()), input: Box::new(msg.clone()) }
+}
+
+pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
+    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
+}
+
+pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
+    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
+}
+
+pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
+    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
+}
+
+#[track_caller]
+pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
+    let mut tb = running.trace_buffer().lock();
+    let trace = tb
+        .iter_entries()
+        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
+        .collect::<Vec<_>>();
+    tb.clear();
+    pretty_assertions::assert_eq!(trace, expected);
 }

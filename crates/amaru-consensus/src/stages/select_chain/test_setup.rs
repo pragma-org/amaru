@@ -21,7 +21,7 @@ use amaru_protocols::store_effects::{
     ResourceHeaderStore, SetBlockValidEffect,
 };
 use pure_stage::{
-    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
+    DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
@@ -195,27 +195,4 @@ pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
 
 pub fn te_get_best_chain_hash(at_stage: &str) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetBestChainHashEffect::new())))
-}
-
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
-    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
-}
-
-pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
-    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
-}
-
-pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
-    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
 }

@@ -15,3 +15,9 @@
 pub mod stage;
 
 pub use stage::*;
+
+#[cfg(test)]
+mod test_setup;
+
+#[cfg(test)]
+mod tests;

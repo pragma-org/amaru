@@ -34,9 +34,9 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             let tx_id = TxId::from(&tx);
             match validate_and_insert(&ledger, &memory_pool, tx, &origin) {
                 Ok(result) => eff.send(&caller, Ok(result)).await,
-                Err(e) => {
-                    tracing::error!(error = %e, %tx_id, "failed to insert transaction into mempool");
-                    eff.send(&caller, Err(MempoolInsertError { tx_id, error: e })).await;
+                Err(error) => {
+                    tracing::error!(%error, %tx_id, "failed to insert transaction into mempool");
+                    eff.send(&caller, Err(MempoolInsertError { tx_id, error })).await;
                 }
             };
         }
@@ -46,9 +46,9 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
                 let tx_id = TxId::from(&tx);
                 match validate_and_insert(&ledger, &memory_pool, tx, &origin) {
                     Ok(result) => results.push(result),
-                    Err(e) => {
-                        tracing::error!(error = %e, %tx_id, "failed to insert transaction into mempool");
-                        eff.send(&caller, Err(MempoolInsertError { tx_id, error: e })).await;
+                    Err(error) => {
+                        tracing::error!(%error, %tx_id, "failed to insert transaction into mempool");
+                        eff.send(&caller, Err(MempoolInsertError { tx_id, error })).await;
                         return state;
                     }
                 }
@@ -75,78 +75,3 @@ fn validate_and_insert(
 }
 
 pub type MempoolStageState = ();
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
-    use amaru_mempool::InMemoryMempool;
-    use amaru_ouroboros::ResourceMempool;
-    use amaru_ouroboros_traits::{TransactionValidationError, TxOrigin};
-    use amaru_protocols::tx_submission::MEMPOOL_INSERT_TIMEOUT;
-    use pure_stage::{Sender, StageGraph, tokio::TokioBuilder};
-    use tokio::runtime::Handle;
-
-    use super::*;
-    use crate::effects::ResourceTxValidation;
-
-    #[tokio::test]
-    async fn insert_batch_returns_one_result_per_transaction() {
-        let sender = make_mempool_sender(Arc::new(InMemoryMempool::<Transaction>::default()), Arc::new(reject_tx_1));
-        let tx_0 = create_transaction(0);
-        let tx_1 = create_transaction(1);
-        // one ok transaction
-        // one invalid
-        // one duplicated
-        let txs = vec![tx_0.clone(), tx_1.clone(), tx_0.clone()];
-        let batch = txs.clone();
-
-        let result = sender
-            .call(
-                move |caller| MempoolMsg::InsertBatch { txs: batch.clone(), origin: TxOrigin::Local, caller },
-                MEMPOOL_INSERT_TIMEOUT,
-            )
-            .await;
-
-        let Ok(Ok(results)) = result else { panic!("batch insert should succeed") };
-
-        assert_eq!(results.len(), txs.len());
-        assert!(matches!(results[0], TxInsertResult::Accepted { .. }));
-        assert!(matches!(results[1], TxInsertResult::Rejected { .. }));
-        assert!(matches!(results[2], TxInsertResult::Rejected { .. }));
-    }
-
-    // HELPERS
-
-    /// Make a sender to be able to call the mempool stage with messages
-    fn make_mempool_sender(
-        mempool: ResourceMempool<Transaction>,
-        validator: ResourceTxValidation,
-    ) -> Sender<MempoolMsg> {
-        let mut graph = TokioBuilder::default();
-        let mempool_stage = graph.stage("mempool", stage);
-        let mempool_stage = graph.wire_up(mempool_stage, ());
-        graph.resources().put::<ResourceMempool<Transaction>>(mempool);
-        graph.resources().put::<ResourceTxValidation>(validator);
-        let sender = graph.input(mempool_stage.without_state());
-        let _ = graph.run(Handle::current());
-        sender
-    }
-
-    /// This implementation of the CanValidateTxs trait rejects the transaction with input index 1
-    fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
-        if tx.body.inputs.first().is_some_and(|input| input.index == 1) {
-            Err(anyhow::anyhow!("transaction rejected for testing").into())
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Create a transaction with an input at a specific index
-    fn create_transaction(input_index: usize) -> Transaction {
-        let tx_input = TransactionInput { transaction_id: Hash::new([1; TRANSACTION_BODY]), index: input_index as u64 };
-        let body = TransactionBody::new([tx_input], [], 0);
-        Transaction { body, witnesses: WitnessSet::default(), is_expected_valid: true, auxiliary_data: None }
-    }
-}
