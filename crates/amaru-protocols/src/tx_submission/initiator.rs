@@ -64,14 +64,14 @@ use crate::{
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
     },
-    tx_submission::{Blocking, Message, ProtocolError, State},
+    tx_submission::{Blocking, MempoolMsg, Message, ProtocolError, State},
 };
 
 const MAX_REQUESTED_TX_IDS: u16 = 10;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
-        pure_stage::register_data_deserializer::<Void>().boxed(),
+        pure_stage::register_data_deserializer::<InitiatorLocalIn>().boxed(),
         pure_stage::register_data_deserializer::<TxSubmissionInitiator>().boxed(),
         pure_stage::register_data_deserializer::<(State, TxSubmissionInitiator)>().boxed(),
     ]
@@ -82,16 +82,19 @@ pub fn initiator() -> Miniprotocol<State, TxSubmissionInitiator, Initiator> {
 }
 
 impl StageState<State, Initiator> for TxSubmissionInitiator {
-    type LocalIn = Void;
+    type LocalIn = InitiatorLocalIn;
 
     async fn local(
-        self,
+        mut self,
         _proto: &State,
-        _input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        input: Self::LocalIn,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        // Currently no local inputs are handled
-        Ok((None, self))
+        let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+        let action = match input {
+            InitiatorLocalIn::WaitForAtLeastReached => self.complete_request_tx_ids_blocking(mempool)?,
+        };
+        Ok((action, self))
     }
 
     async fn network(
@@ -107,7 +110,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
 
             let action = match input {
                 InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
-                    self.request_tx_ids_blocking(mempool, ack, req).await?
+                    self.request_tx_ids_blocking(eff, ack, req).await?
                 }
                 InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
                     self.request_tx_ids_non_blocking(mempool, ack, req)?
@@ -246,37 +249,72 @@ pub struct TxSubmissionInitiator {
     /// Last seq_no we have ever pulled from the mempool for this peer.
     /// None if we have not pulled anything yet.
     last_seq: Option<MempoolSeqNo>,
+    /// Request sent to the mempool, to wait for new transactions to be available.
+    pending_blocking_request: Option<PendingBlockingRequest>,
+    mempool_stage: StageRef<MempoolMsg>,
     muxer: StageRef<MuxMessage>,
 }
 
 impl TxSubmissionInitiator {
-    pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Init, Self { window: VecDeque::new(), last_seq: None, muxer })
+    pub fn new(muxer: StageRef<MuxMessage>, mempool_stage: StageRef<MempoolMsg>) -> (State, Self) {
+        (
+            State::Init,
+            Self { window: VecDeque::new(), last_seq: None, pending_blocking_request: None, mempool_stage, muxer },
+        )
     }
 
     async fn request_tx_ids_blocking(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
+        eff: &Effects<Inputs<InitiatorLocalIn>>,
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
+        let expected_seq_no = match self.begin_request_tx_ids_blocking(ack, req) {
+            Ok(seq_no) => seq_no,
+            Err(error) => return protocol_error(error),
+        };
+
+        // Ask the mempool to notify us when it has reached the expected sequence number,
+        // so that we can reply to the peer with the requested tx ids.
+        let caller = eff
+            .contramap(eff.me_ref(), format!("tx_submission_wait_for_at_least_{}", expected_seq_no), |_: ()| {
+                Inputs::<InitiatorLocalIn>::Local(InitiatorLocalIn::WaitForAtLeastReached)
+            })
+            .await;
+        eff.send(&self.mempool_stage, MempoolMsg::WaitForAtLeast { seq_no: expected_seq_no, caller }).await;
+        Ok(None)
+    }
+
+    /// Check the request and store an internal pending request to wait until the mempool has enough
+    /// new transactions.
+    fn begin_request_tx_ids_blocking(&mut self, ack: u16, req: u16) -> Result<MempoolSeqNo, ProtocolError> {
         // check the ack and req values
-        tracing::debug!(%ack, %req, "received RequestTxIdsBlocking");
         if req == 0 {
-            return protocol_error(NoTxIdsRequested);
+            return Err(NoTxIdsRequested);
         };
         if let Some(value) = self.check_ack_req(ack, req) {
-            return protocol_error(value);
+            return Err(value);
         }
         if (ack as usize) < self.window.len() {
-            return protocol_error(BlockingRequestMadeWhenTxsStillUnacknowledged);
+            return Err(BlockingRequestMadeWhenTxsStillUnacknowledged);
         }
 
         // update the window by discarding acknowledged tx ids and update the last_seq
         self.discard(ack);
-        if !mempool.wait_for_at_least(self.last_seq.unwrap_or_default().add(req as u64)).await {
-            return Ok(None);
-        }
+        let seq_no = self.last_seq.unwrap_or_default().add(req as u64);
+        self.pending_blocking_request = Some(PendingBlockingRequest { req });
+        Ok(seq_no)
+    }
+
+    /// Drop the internal pending request and return the new transaction ids
+    fn complete_request_tx_ids_blocking(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
+    ) -> anyhow::Result<Option<InitiatorAction>> {
+        let Some(PendingBlockingRequest { req }) = self.pending_blocking_request.take() else {
+            anyhow::bail!("missing pending blocking request")
+        };
+
         let tx_ids = self.get_next_tx_ids(mempool, req)?;
         Ok(Some(InitiatorAction::SendReplyTxIds(tx_ids)))
     }
@@ -371,6 +409,16 @@ impl TxSubmissionInitiator {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum InitiatorLocalIn {
+    WaitForAtLeastReached,
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct PendingBlockingRequest {
+    req: u16,
+}
+
 fn protocol_error(error: ProtocolError) -> anyhow::Result<Option<InitiatorAction>> {
     tracing::warn!("protocol error: {error}");
     Ok(Some(InitiatorAction::Error(error)))
@@ -386,18 +434,16 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 mod tests {
     use std::sync::Arc;
 
+    use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros_traits::TxOrigin;
 
     use super::*;
-    use crate::tx_submission::{
-        assert_actions_eq, create_transactions_in_mempool,
-        tests::{SizedMempool, create_transactions},
-    };
+    use crate::tx_submission::{assert_actions_eq, create_transactions_in_mempool, tests::create_transactions};
 
     #[tokio::test]
     async fn serve_transactions() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = Arc::new(SizedMempool::with_capacity(6));
+        let mempool = new_mempool(6);
         let txs = create_transactions_in_mempool(mempool.clone(), 6);
 
         // Send requests to retrieve transactions and block until they are available.
@@ -437,7 +483,7 @@ mod tests {
     #[tokio::test]
     async fn serve_transactions_with_mempool_refilling() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = Arc::new(SizedMempool::with_capacity(6));
+        let mempool = new_mempool(6);
         let txs = create_transactions(6);
 
         for tx in txs.iter().take(2) {
@@ -484,7 +530,7 @@ mod tests {
     #[tokio::test]
     async fn request_txs_must_come_from_requested_ids() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = Arc::new(SizedMempool::with_capacity(6));
+        let mempool = new_mempool(6);
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         // Send requests to retrieve transactions and block until they are available.
@@ -508,7 +554,7 @@ mod tests {
 
     #[tokio::test]
     async fn blocking_requested_ids_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(6));
+        let mempool = new_mempool(6);
 
         let results = vec![request_tx_ids(0, 0, Blocking::Yes)];
         let actions = run_stage(mempool, results).await?;
@@ -518,7 +564,7 @@ mod tests {
 
     #[tokio::test]
     async fn blocking_requested_txs_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(4));
+        let mempool = new_mempool(4);
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![request_tx_ids(0, 2, Blocking::Yes), request_txs(&txs, &[])];
@@ -530,7 +576,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_blocking_ack_or_requested_ids_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(6));
+        let mempool = new_mempool(6);
 
         let results = vec![request_tx_ids(0, 0, Blocking::No)];
         let actions = run_stage(mempool, results).await?;
@@ -540,7 +586,7 @@ mod tests {
 
     #[tokio::test]
     async fn blocking_requested_nb_must_be_less_than_protocol_limit() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(6));
+        let mempool = new_mempool(6);
 
         let results = vec![request_tx_ids(0, 12, Blocking::Yes)];
         let actions = run_stage(mempool, results).await?;
@@ -550,7 +596,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_blocking_requested_nb_must_be_less_than_protocol_limit() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(6));
+        let mempool = new_mempool(6);
 
         let results = vec![request_tx_ids(0, 12, Blocking::No)];
         let actions = run_stage(mempool, results).await?;
@@ -560,7 +606,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_blocking_request_must_be_made_when_all_txs_are_acknowledged() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(4));
+        let mempool = new_mempool(4);
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![
@@ -586,7 +632,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_non_blocking_request_must_be_made_when_some_txs_are_unacknowledged() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(4));
+        let mempool = new_mempool(4);
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results =
@@ -605,7 +651,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_blocking() -> anyhow::Result<()> {
-        let mempool = Arc::new(SizedMempool::with_capacity(4));
+        let mempool = new_mempool(4);
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![
@@ -632,7 +678,7 @@ mod tests {
     #[tokio::test]
     async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_non_blocking() -> anyhow::Result<()>
     {
-        let mempool = Arc::new(SizedMempool::with_capacity(4));
+        let mempool = new_mempool(4);
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![
@@ -672,7 +718,7 @@ mod tests {
     // HELPERS
 
     async fn run_stage(
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+        mempool: Arc<InMemoryMempool<Transaction>>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<Vec<InitiatorAction>> {
         let (actions, _initiator) = run_stage_and_return_state(mempool, results).await?;
@@ -680,11 +726,11 @@ mod tests {
     }
 
     async fn run_stage_and_return_state(
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+        mempool: Arc<InMemoryMempool<Transaction>>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         run_stage_and_return_state_with(
-            TxSubmissionInitiator::new(StageRef::named_for_tests("muxer")).1,
+            TxSubmissionInitiator::new(StageRef::named_for_tests("muxer"), StageRef::blackhole()).1,
             mempool,
             results,
         )
@@ -693,7 +739,7 @@ mod tests {
 
     async fn run_stage_and_return_state_with(
         mut initiator: TxSubmissionInitiator,
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+        mempool: Arc<InMemoryMempool<Transaction>>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         let mut actions = vec![];
@@ -709,11 +755,17 @@ mod tests {
     async fn step(
         initiator: &mut TxSubmissionInitiator,
         input: InitiatorResult,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
+        mempool: &InMemoryMempool<Transaction>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         let action = match input {
             InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
-                initiator.request_tx_ids_blocking(mempool, ack, req).await?
+                match initiator.begin_request_tx_ids_blocking(ack, req) {
+                    Ok(seq_no) if mempool.last_seq_no() >= seq_no => {
+                        initiator.complete_request_tx_ids_blocking(mempool)?
+                    }
+                    Ok(_) => None,
+                    Err(error) => Some(error_action(error)),
+                }
             }
             InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
                 initiator.request_tx_ids_non_blocking(mempool, ack, req)?
@@ -736,6 +788,10 @@ mod tests {
 
     fn request_tx_ids(ack: u16, req: u16, blocking: Blocking) -> InitiatorResult {
         InitiatorResult::RequestTxIds { ack, req, blocking }
+    }
+
+    fn new_mempool(capacity: usize) -> Arc<InMemoryMempool<Transaction>> {
+        Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_txs(capacity)))
     }
 
     fn request_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorResult {

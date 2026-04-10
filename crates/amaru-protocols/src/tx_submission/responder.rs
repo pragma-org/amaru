@@ -22,7 +22,7 @@ use ProtocolError::*;
 use amaru_kernel::Transaction;
 use amaru_observability::trace_span;
 use amaru_ouroboros::TxSubmissionMempool;
-use amaru_ouroboros_traits::{MempoolError, TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -450,6 +450,10 @@ pub struct MempoolInsertError {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMsg {
+    WaitForAtLeast {
+        seq_no: MempoolSeqNo,
+        caller: StageRef<()>,
+    },
     Insert {
         tx: Box<Transaction>,
         origin: TxOrigin,
@@ -465,7 +469,7 @@ pub enum MempoolMsg {
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::BTreeMap, pin::Pin, sync::Arc};
+    use std::{collections::BTreeMap, sync::Arc};
 
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
@@ -766,10 +770,6 @@ mod tests {
             vec![]
         }
 
-        fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-            Box::pin(async { false })
-        }
-
         fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
             vec![]
         }
@@ -813,10 +813,6 @@ mod tests {
 
         fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
             vec![]
-        }
-
-        fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-            Box::pin(async { false })
         }
 
         fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {

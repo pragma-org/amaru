@@ -132,7 +132,7 @@ mod tests {
         },
     };
 
-    use amaru_consensus::effects::ResourceTxValidation;
+    use amaru_consensus::{effects::ResourceTxValidation, stages::mempool::MempoolStageState};
     use amaru_kernel::{RawBlock, Transaction};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::ResourceMempool;
@@ -358,7 +358,7 @@ mod tests {
         use amaru_consensus::stages::mempool;
         let mut stage_graph = TokioBuilder::default();
         let mempool_stage = stage_graph.stage("mempool", mempool::stage);
-        let mempool_stage = stage_graph.wire_up(mempool_stage, ());
+        let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default());
         stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
         stage_graph.resources().put::<ResourceTxValidation>(validator);
         let sender = stage_graph.input(mempool_stage.without_state());
@@ -432,13 +432,6 @@ mod tests {
 
         fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
             vec![]
-        }
-
-        fn wait_for_at_least(
-            &self,
-            _seq_no: MempoolSeqNo,
-        ) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-            Box::pin(async { false })
         }
 
         fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {

@@ -72,7 +72,10 @@ impl<Msg: SendData> Sender<Msg> {
             .await
             .map_err(|_| CallError::TimedOut)??;
 
-            resp.cast_deserialize::<Resp>().map_err(|_| CallError::ResponseDeserializeFailed)
+            resp.cast_deserialize::<Resp>().map_err(|e| {
+                tracing::warn!(error = ?e, "Failed to deserialize response");
+                CallError::ResponseDeserializeFailed
+            })
         })
     }
 }

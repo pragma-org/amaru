@@ -72,7 +72,7 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
 
     let mempool = network.stage("mempool", stage);
-    let mempool = network.wire_up(mempool, ());
+    let mempool = network.wire_up(mempool, MempoolStageState::default());
     network.preload(&mempool, [prep.msg.clone()]).unwrap();
 
     let mut running = network.run();

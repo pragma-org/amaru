@@ -179,12 +179,13 @@ pub fn build_node(
 
     // Open a port to listen for downstream peers
     stage_builder
-        .preload(node_stages.manager_stage(), [ManagerMessage::Listen(config.listen_address()?)])
+        .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(config.listen_address()?)])
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
     // Connect to upstream peers
     for peer in &config.upstream_peers {
-        let Ok(_) = stage_builder.preload(node_stages.manager_stage(), [ManagerMessage::AddPeer(Peer::new(peer))])
+        let Ok(_) =
+            stage_builder.preload(node_stages.manager_stage.clone(), [ManagerMessage::AddPeer(Peer::new(peer))])
         else {
             tracing::warn!("supplied more peers than can be initially connected");
             break;

@@ -16,14 +16,19 @@ use std::sync::Arc;
 
 use amaru_kernel::Transaction;
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros_traits::{TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros_traits::{
+    MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
+};
 use amaru_protocols::tx_submission::MempoolMsg;
 use pure_stage::StageRef;
 use tokio::runtime::Builder;
 use tracing::Level;
 
 use crate::stages::{
-    mempool::test_setup::{TestPrep, create_transaction, setup, te_insert, te_send, te_validate_tx},
+    mempool::{
+        MempoolStageState,
+        test_setup::{TestPrep, create_transaction, setup, te_insert, te_send, te_validate_tx},
+    },
     test_utils::{assert_trace, te_input, te_state},
 };
 
@@ -37,7 +42,7 @@ fn insert_batch_returns_one_result_per_transaction() {
     assert_trace(
         &running,
         &[
-            te_state("mempool-1", &()),
+            te_state("mempool-1", &MempoolStageState::default()),
             te_input("mempool-1", &expected_msg),
             te_validate_tx("mempool-1", &txs[0]),
             te_insert("mempool-1", &txs[0], TxOrigin::Local),
@@ -47,7 +52,7 @@ fn insert_batch_returns_one_result_per_transaction() {
             // is attempted
             te_insert("mempool-1", &txs[2], TxOrigin::Local),
             te_send("mempool-1", "caller", Ok(expected_results(&txs))),
-            te_state("mempool-1", &()),
+            te_state("mempool-1", &MempoolStageState::default()),
         ],
     );
 
@@ -79,7 +84,7 @@ fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
 
 fn expected_results(txs: &[Transaction]) -> Vec<TxInsertResult> {
     vec![
-        TxInsertResult::accepted(TxId::from(&txs[0]), amaru_ouroboros_traits::MempoolSeqNo(1)),
+        TxInsertResult::accepted(TxId::from(&txs[0]), MempoolSeqNo(1)),
         TxInsertResult::rejected(
             TxId::from(&txs[1]),
             TxRejectReason::Invalid(anyhow::anyhow!("transaction rejected for testing").into()),

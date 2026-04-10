@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, mem, pin::Pin};
+use std::{collections::BTreeSet, mem};
 
 use amaru_kernel::cbor;
 use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
@@ -49,10 +49,6 @@ impl<Tx: cbor::Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for D
 
     fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         vec![]
-    }
-
-    fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        Box::pin(async move { true })
     }
 
     fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Tx> {

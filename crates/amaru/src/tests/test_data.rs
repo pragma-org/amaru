@@ -15,8 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
-use amaru_ouroboros::Mempool;
-use amaru_ouroboros_traits::TxOrigin;
+use amaru_ouroboros::{Mempool, TxInsertResult, TxOrigin};
 
 pub fn create_transactions(number: usize) -> Vec<Transaction> {
     (0..number).map(create_transaction).collect()
@@ -28,7 +27,8 @@ pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Transaction>>, nu
     for i in 0..number {
         let tx = create_transaction(i);
         txs.push(tx.clone());
-        mempool.insert(tx, TxOrigin::Local).unwrap();
+        let result = mempool.insert(tx.clone(), TxOrigin::Local).unwrap();
+        assert!(matches!(result, TxInsertResult::Accepted { .. }), "transaction {tx:?} was rejected: {result:?}");
     }
     txs
 }

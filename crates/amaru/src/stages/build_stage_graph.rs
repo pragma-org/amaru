@@ -17,7 +17,7 @@ use std::sync::Arc;
 use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
     fetch_blocks::{self, FetchBlocks, FetchBlocksMsg},
-    mempool,
+    mempool::{self, MempoolStageState},
     select_chain::{self, SelectChain, SelectChainMsg},
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
@@ -96,7 +96,7 @@ pub fn build_stage_graph(
     );
     let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
 
-    let mempool_stage = stage_graph.wire_up(mempool_stage, ()).without_state();
+    let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
 
     let manager_stage = stage_graph
         .wire_up(
@@ -117,8 +117,8 @@ pub fn build_stage_graph(
 /// interact with some stages of the processing graph.
 #[derive(Debug, Clone)]
 pub struct NodeStages {
-    manager_stage: StageRef<ManagerMessage>,
-    mempool_stage: StageRef<MempoolMsg>,
+    pub manager_stage: StageRef<ManagerMessage>,
+    pub mempool_stage: StageRef<MempoolMsg>,
 }
 
 impl NodeStages {

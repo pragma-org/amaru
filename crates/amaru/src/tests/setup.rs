@@ -83,7 +83,7 @@ pub fn create_node(node_config: &NodeTestConfig, stage_graph: &mut impl StageGra
     // The actions stage allows us to send NewTip messages to the manager so that chainsync
     // events can be sent to the node under test.
     let actions_stage = stage_graph.stage("actions", actions_stage);
-    let actions_stage = stage_graph.wire_up(actions_stage, (node_stages.manager_stage(), node_config.seed));
+    let actions_stage = stage_graph.wire_up(actions_stage, (node_stages.manager_stage.clone(), node_config.seed));
 
     set_resources(node_config, stage_graph)?;
     Ok(TestNodeStages::new(node_stages, actions_stage.without_state()))
@@ -101,12 +101,12 @@ impl TestNodeStages {
         Self { node_stages, actions_stage }
     }
 
-    pub fn manager_stage(&self) -> StageRef<ManagerMessage> {
-        self.node_stages.manager_stage()
+    pub fn manager_stage(&self) -> &StageRef<ManagerMessage> {
+        &self.node_stages.manager_stage
     }
 
-    pub fn actions_stage(&self) -> StageRef<Action> {
-        self.actions_stage.clone()
+    pub fn actions_stage(&self) -> &StageRef<Action> {
+        &self.actions_stage
     }
 }
 

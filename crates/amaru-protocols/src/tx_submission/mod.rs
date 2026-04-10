@@ -76,9 +76,9 @@ pub async fn register_tx_submission(
     mempool_stage: StageRef<MempoolMsg>,
 ) -> StageRef<mux::HandlerMessage> {
     let tx_submission = if role == Role::Initiator {
-        let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone());
+        let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone(), mempool_stage.clone());
         let tx_submission = eff.wire_up(eff.stage("tx_submission", initiator::initiator()).await, (state, stage)).await;
-        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<Void>::Network).await
+        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<initiator::InitiatorLocalIn>::Network).await
     } else {
         let (state, stage) =
             responder::TxSubmissionResponder::new(muxer.clone(), ResponderParams::new(2, 3), origin, mempool_stage);

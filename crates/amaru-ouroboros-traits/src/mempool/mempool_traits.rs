@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use crate::mempool::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin};
 
@@ -56,16 +56,6 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
 
     /// Retrieve a list of transaction ids from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)>;
-
-    /// Wait until the mempool reaches at least the given sequence number.
-    /// Then a tx submission initiator knows that there are enough new transactions to send to its peer.
-    ///
-    /// When the mempool is already at or above the required number,
-    /// this future will resolve to `true` immediately.
-    ///
-    /// Otherwise, if for some reason the mempool cannot reach the required number, it should return
-    /// false.
-    fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
 
     /// Retrieve a list of transactions for the given ids.
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx>;

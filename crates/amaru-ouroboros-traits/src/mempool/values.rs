@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -91,6 +91,12 @@ impl MempoolSeqNo {
 
     pub fn add(&self, n: u64) -> MempoolSeqNo {
         MempoolSeqNo(self.0 + n)
+    }
+}
+
+impl Display for MempoolSeqNo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

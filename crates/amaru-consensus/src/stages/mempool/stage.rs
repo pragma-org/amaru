@@ -13,12 +13,14 @@
 // limitations under the License.
 
 use amaru_kernel::Transaction;
-use amaru_ouroboros_traits::{MempoolError, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool};
+use amaru_ouroboros_traits::{
+    MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
+};
 use amaru_protocols::{
     mempool_effects::MemoryPool,
     tx_submission::{MempoolInsertError, MempoolMsg},
 };
-use pure_stage::Effects;
+use pure_stage::{Effects, StageRef};
 
 use crate::effects::{Ledger, LedgerOps};
 
@@ -28,12 +30,25 @@ use crate::effects::{Ledger, LedgerOps};
 pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<MempoolMsg>) -> MempoolStageState {
     let memory_pool = MemoryPool::new(eff.clone());
     let ledger = Ledger::new(eff.clone());
+    let mut state = state;
     match msg {
+        MempoolMsg::WaitForAtLeast { seq_no, caller } => {
+            if memory_pool.last_seq_no() >= seq_no {
+                eff.send(&caller, ()).await;
+            } else {
+                state.waiters.push(MempoolWaiter { seq_no, caller });
+            }
+        }
         MempoolMsg::Insert { tx, origin, caller } => {
             let tx = *tx;
             let tx_id = TxId::from(&tx);
             match validate_and_insert(&ledger, &memory_pool, tx, &origin) {
-                Ok(result) => eff.send(&caller, Ok(result)).await,
+                Ok(result) => {
+                    if let TxInsertResult::Accepted { seq_no, .. } = result {
+                        notify_ready_waiters(&mut state, &eff, seq_no).await;
+                    }
+                    eff.send(&caller, Ok(result)).await;
+                }
                 Err(error) => {
                     tracing::error!(%error, %tx_id, "failed to insert transaction into mempool");
                     eff.send(&caller, Err(MempoolInsertError { tx_id, error })).await;
@@ -45,7 +60,12 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             for tx in txs {
                 let tx_id = TxId::from(&tx);
                 match validate_and_insert(&ledger, &memory_pool, tx, &origin) {
-                    Ok(result) => results.push(result),
+                    Ok(result) => {
+                        if let TxInsertResult::Accepted { seq_no, .. } = result {
+                            notify_ready_waiters(&mut state, &eff, seq_no).await;
+                        }
+                        results.push(result);
+                    }
                     Err(error) => {
                         tracing::error!(%error, %tx_id, "failed to insert transaction into mempool");
                         eff.send(&caller, Err(MempoolInsertError { tx_id, error })).await;
@@ -74,4 +94,37 @@ fn validate_and_insert(
     }
 }
 
-pub type MempoolStageState = ();
+/// Notify the waiters whose target sequence number has just been reached.
+async fn notify_ready_waiters(state: &mut MempoolStageState, eff: &Effects<MempoolMsg>, reached_seq_no: MempoolSeqNo) {
+    if state.waiters.is_empty() {
+        return;
+    }
+
+    let mut ready_waiters = Vec::new();
+    let mut pending_waiters = Vec::with_capacity(state.waiters.len());
+
+    for waiter in state.waiters.drain(..) {
+        if waiter.seq_no <= reached_seq_no {
+            ready_waiters.push(waiter.caller);
+        } else {
+            pending_waiters.push(waiter);
+        }
+    }
+
+    state.waiters = pending_waiters;
+
+    for caller in ready_waiters {
+        eff.send(&caller, ()).await;
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MempoolStageState {
+    waiters: Vec<MempoolWaiter>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct MempoolWaiter {
+    seq_no: MempoolSeqNo,
+    caller: StageRef<()>,
+}
