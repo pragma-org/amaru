@@ -120,7 +120,7 @@ pub use cardano::{
     script_kind::ScriptKind,
     script_purpose::{ScriptPurpose, script_purpose_to_string},
     slot::{Slot, SlotArithmeticError},
-    stake_credential::{BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account},
+    stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
     tip::Tip,
     transaction::Transaction,

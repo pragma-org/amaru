@@ -60,7 +60,7 @@ pub enum SupplementalDatumPolicy {
 pub fn execute<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
-    network: &Network,
+    network: Network,
     outputs: Vec<MemoizedTransactionOutput>,
     supplemental_datum_policy: SupplementalDatumPolicy,
     construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
@@ -102,10 +102,10 @@ where
     Ok(())
 }
 
-fn validate_network(output: &MemoizedTransactionOutput, expected_network: &Network) -> Result<(), InvalidOutput> {
+fn validate_network(output: &MemoizedTransactionOutput, expected_network: Network) -> Result<(), InvalidOutput> {
     let given_network = output.address.has_network();
 
-    if &given_network != expected_network {
+    if given_network != expected_network {
         Err(InvalidOutput::WrongNetwork { expected: expected_network.as_index(), actual: given_network.as_index() })
     } else {
         Ok(())
@@ -219,7 +219,7 @@ mod tests {
         let result = super::execute(
             &mut context,
             &protocol_parameters,
-            &Network::Testnet,
+            Network::Testnet,
             tx.outputs,
             SupplementalDatumPolicy::Allow,
             |_| None,
@@ -239,7 +239,7 @@ mod tests {
         let result = super::execute(
             &mut context,
             &protocol_parameters,
-            &Network::Testnet,
+            Network::Testnet,
             outputs,
             SupplementalDatumPolicy::Disallow,
             |_| None,

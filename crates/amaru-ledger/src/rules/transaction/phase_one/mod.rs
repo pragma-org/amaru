@@ -15,8 +15,8 @@
 use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer,
-    WitnessSet,
+    AuxiliaryData, EraHistory, Network, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
+    TransactionPointer, WitnessSet,
 };
 use thiserror::Error;
 
@@ -91,7 +91,7 @@ pub enum PhaseOneError {
 #[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
-    network: &NetworkName,
+    network_name: &NetworkName,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
@@ -105,6 +105,8 @@ where
     C: ValidationContext + fmt::Debug,
 {
     let transaction_id = transaction_body.id();
+
+    let network: Network = (*network_name).into();
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
@@ -143,7 +145,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        &(*network).into(),
+        network,
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
         SupplementalDatumPolicy::Disallow,
         |_index| {
@@ -164,7 +166,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        &(*network).into(),
+        network,
         mem::take(&mut transaction_body.outputs),
         SupplementalDatumPolicy::Allow,
         |index| {
@@ -176,7 +178,7 @@ where
         },
     )?;
 
-    withdrawals::execute(context, mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()))?;
+    withdrawals::execute(context, mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()), network)?;
 
     proposals::execute(
         context,
