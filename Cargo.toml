@@ -116,7 +116,7 @@ amaru-sim = { path = "crates/amaru-sim", version = "0.1.2" }
 amaru-stores = { path = "crates/amaru-stores", version = "0.1.2" }
 amaru-tracing-json = { path = "crates/amaru-tracing-json", version = "0.1.2" }
 pure-stage = { path = "crates/pure-stage", version = "0.1.2" }
-amaru-uplc-turbo = "0.1.0"
+amaru-uplc-turbo = "0.1.1"
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { package = "amaru-vrf-dalek", path = "crates/vendor/amaru-vrf-dalek", version = "0.1.0" }

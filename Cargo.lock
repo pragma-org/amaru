@@ -461,9 +461,9 @@ dependencies = [
 
 [[package]]
 name = "amaru-uplc-turbo"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e80bbaa184a54245cee2477d8da4833b505838e63160cd2d6fbf0c46c6dcdfdf"
+checksum = "5be84c377654d70899b2f3d55d4ed56f3fd09ffc8e7164ca12f2b9ba53d9b501"
 dependencies = [
  "append-only-vec",
  "blst",
