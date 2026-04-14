@@ -86,6 +86,9 @@ pub enum PhaseOneError {
 
     #[error("invalid transaction metadata: {0}")]
     Metadata(#[from] InvalidTransactionMetadata),
+
+    #[error("invalid network ID in transaction body: expected {expected:?} recevied {received:?}")]
+    InvalidNetworkID { expected: Network, received: Network },
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -107,6 +110,13 @@ where
     let transaction_id = transaction_body.id();
 
     let network: Network = (*network_name).into();
+
+    if let Some(network_id) = transaction_body.network_id {
+        let received: Network = u8::from(network_id).into();
+        if network != received {
+            return Err(PhaseOneError::InvalidNetworkID { expected: network, received });
+        }
+    }
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
