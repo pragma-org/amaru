@@ -88,6 +88,81 @@ pub fn heterogeneous_array<'d, A>(
     }
 }
 
+/// Decode each item of an array, returning the items along with the byte size of each item's
+/// CBOR encoding. Handles both definite and indefinite arrays.
+pub fn decode_array_with_item_sizes<'b, T, C>(
+    d: &mut cbor::Decoder<'b>,
+    ctx: &mut C,
+) -> Result<(Vec<T>, Vec<u64>), cbor::decode::Error>
+where
+    T: cbor::Decode<'b, C>,
+{
+    let len = d.array()?;
+    let cap = len.unwrap_or(0) as usize;
+    let mut items: Vec<T> = Vec::with_capacity(cap);
+    let mut sizes: Vec<u64> = Vec::with_capacity(cap);
+
+    match len {
+        Some(n) => {
+            for _ in 0..n {
+                let (item, bytes) = tee(d, |d| T::decode(d, ctx))?;
+                sizes.push(bytes.len() as u64);
+                items.push(item);
+            }
+        }
+        None => {
+            while d.datatype()? != Type::Break {
+                let (item, bytes) = tee(d, |d| T::decode(d, ctx))?;
+                sizes.push(bytes.len() as u64);
+                items.push(item);
+            }
+            d.skip()?;
+        }
+    }
+
+    Ok((items, sizes))
+}
+
+/// Decode each value of a map, returning a map of decoded values along with a parallel map of
+/// per-value CBOR byte sizes. Handles both definite and indefinite maps.
+pub fn decode_map_with_value_sizes<'b, K, V, C>(
+    d: &mut cbor::Decoder<'b>,
+    ctx: &mut C,
+    decode_key: impl Fn(&mut cbor::Decoder<'b>) -> Result<K, cbor::decode::Error>,
+) -> Result<(std::collections::BTreeMap<K, V>, std::collections::BTreeMap<K, u64>), cbor::decode::Error>
+where
+    K: Ord + Clone,
+    V: cbor::Decode<'b, C>,
+{
+    let len = d.map()?;
+    let mut values: std::collections::BTreeMap<K, V> = std::collections::BTreeMap::new();
+    let mut sizes: std::collections::BTreeMap<K, u64> = std::collections::BTreeMap::new();
+
+    let mut decode_one = |d: &mut cbor::Decoder<'b>| -> Result<(), cbor::decode::Error> {
+        let key = decode_key(d)?;
+        let (value, bytes) = tee(d, |d| V::decode(d, ctx))?;
+        sizes.insert(key.clone(), bytes.len() as u64);
+        values.insert(key, value);
+        Ok(())
+    };
+
+    match len {
+        Some(n) => {
+            for _ in 0..n {
+                decode_one(d)?;
+            }
+        }
+        None => {
+            while d.datatype()? != Type::Break {
+                decode_one(d)?;
+            }
+            d.skip()?;
+        }
+    }
+
+    Ok((values, sizes))
+}
+
 /// Collect the raw CBOR bytes of each item in an array, without fully decoding them.
 pub fn collect_array_item_bytes(decoder: &mut cbor::Decoder<'_>) -> Result<Vec<Vec<u8>>, cbor::decode::Error> {
     let len = decoder.array()?;
