@@ -2,7 +2,6 @@
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXO/PlutusV1/Too many execution units for tx" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXO/PlutusV2/Too many execution units for tx" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXO/PlutusV3/Too many execution units for tx" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXO/Wrong network ID" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOS/PlutusV1/Invalid transaction marked as valid" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOS/PlutusV1/No cost model" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOS/PlutusV1/Valid transaction marked as invalid" = "Expected failure, got success"

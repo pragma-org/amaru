@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AsIndex, HasNetwork, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
-    Network, ProtocolParameters, ProtocolVersion, TransactionInput, size::SCRIPT, utils::string::display_collection,
+    AddrAttrProperty, Address, AddressPayload, AsIndex, HasNetwork, HasScriptHash, Hash, Lovelace, MemoizedDatum,
+    MemoizedScript, MemoizedTransactionOutput, Network, ProtocolParameters, ProtocolVersion, TransactionInput, cbor,
+    from_cbor, size::SCRIPT, utils::string::display_collection,
 };
 use amaru_uplc::{arena::Arena, machine::PlutusVersion};
 use thiserror::Error;
@@ -44,6 +45,9 @@ pub enum InvalidOutput {
 
     #[error("malformed reference script: {0}")]
     MalformedReferenceScript(Hash<SCRIPT>),
+
+    #[error("bootstrap address attributes too big: {size} bytes, max 64")]
+    BootAddrAttrsTooBig { size: usize },
 
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("uncategorized error: {0}")]
@@ -79,6 +83,9 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
+        validate_bootstrap_attributes(&output)
+            .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
+
         if matches!(supplemental_datum_policy, SupplementalDatumPolicy::Allow)
             && let MemoizedDatum::Hash(hash) = &output.datum
         {
@@ -99,6 +106,44 @@ where
         return Err(InvalidOutputs { invalid_outputs });
     }
 
+    Ok(())
+}
+
+fn validate_bootstrap_attributes(output: &MemoizedTransactionOutput) -> Result<(), InvalidOutput> {
+    if let Address::Byron(addr) = &output.address {
+        // This logic assumes the address (and thus the payload) has already been checked
+        let Some(payload) = from_cbor::<AddressPayload>(&addr.payload.0) else {
+            return Ok(());
+        };
+
+        // This differs from the Haskell logic:
+        // bootstrapAddressAttrsSize (BootstrapAddress addr) =
+        //  maybe 0 payloadLen derivationPath + Byron.unknownAttributesLength attrs
+        //  where
+        //    payloadLen = BS.length . Byron.getHDAddressPayload
+        //
+        // In Haskell, anything other than keys 1 (derivation path) and 2 (network magic)
+        // goes into attrRemain and is counted by unknownAttributesLength. The Pallas decoder differs in two ways:
+        //   1. Keys 3+ are rejected outright (decoder error), so we never see them here.
+        //   2. Key 0 (AddrDistr) is decoded as a known variant, but its wire-format
+        //      handling may not match Haskell's bytestring-wrapped convention.
+        //
+        // These points make our check here incomplete relative to Haskell.
+        let size: usize = payload.attributes.iter().try_fold(0usize, |acc, attr| {
+            let n = match attr {
+                AddrAttrProperty::DerivationPath(bytes) => bytes.len(),
+                AddrAttrProperty::AddrDistr(distr) => cbor::to_vec(distr)
+                    .map(|v| v.len())
+                    .map_err(|e| InvalidOutput::UncategorizedError(format!("AddrDistr re-encoding failed: {e}")))?,
+                AddrAttrProperty::NetworkTag(_) => 0,
+            };
+            Ok::<_, InvalidOutput>(acc + n)
+        })?;
+
+        if size > 64 {
+            return Err(InvalidOutput::BootAddrAttrsTooBig { size });
+        }
+    }
     Ok(())
 }
 
