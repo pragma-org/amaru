@@ -123,6 +123,7 @@ where
 
     certificates::execute(
         context,
+        network,
         protocol_parameters,
         era_history,
         governance_activity,
