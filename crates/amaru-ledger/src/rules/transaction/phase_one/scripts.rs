@@ -476,14 +476,14 @@ mod tests {
             (
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $pp:expr) => {
@@ -529,7 +529,7 @@ mod tests {
     #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", ProtocolParameters {
         max_tx_ex_units: ExUnits { mem: 1, steps: 1 },
-        ..amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+        ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
         }) =>
         matches Err(InvalidScripts::TooManyExUnits{..});
         "too many ex units"

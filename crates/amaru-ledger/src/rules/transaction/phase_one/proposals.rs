@@ -13,20 +13,51 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Hash, MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptPurpose, TransactionId,
+    Address, GovernanceAction, HasNetwork, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal, ProposalId,
+    ProposalPointer, ProtocolParameters, ProtocolVersion, RequiredScript, ScriptPurpose, TransactionId,
     TransactionPointer, size::SCRIPT,
 };
+use thiserror::Error;
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 
+#[derive(Debug, Error)]
+pub enum InvalidProposals {
+    #[error("incorrect proposal deposit: provided {provided}, expected {expected}")]
+    IncorrectDeposit { provided: Lovelace, expected: Lovelace },
+
+    #[error("proposal return address has wrong network: expected {expected:?}, actual {actual:?}")]
+    ReturnAddressWrongNetwork { expected: Network, actual: Network },
+
+    #[error("proposal return address is malformed")]
+    MalformedReturnAddress,
+
+    #[error("treasury withdrawals total is zero")]
+    ZeroTreasuryWithdrawals,
+
+    #[error("conflicting committee update: members appear in both add and remove sets")]
+    ConflictingCommitteeUpdate,
+
+    #[error("disallowed proposal during bootstrap phase")]
+    DisallowedDuringBootstrap,
+
+    #[error("hardfork version {new:?} cannot follow current version {current:?}")]
+    HardforkCantFollow { current: ProtocolVersion, new: ProtocolVersion },
+}
+
 pub(crate) fn execute<C>(
     context: &mut C,
+    network: Network,
+    protocol_parameters: &ProtocolParameters,
     transaction: (TransactionId, TransactionPointer),
     proposals: Option<Vec<Proposal>>,
-) where
+) -> Result<(), InvalidProposals>
+where
     C: ProposalsSlice + WitnessSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
+        validate_proposal(&proposal, network, protocol_parameters)?;
+
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
                 hash: script_hash,
@@ -40,6 +71,79 @@ pub(crate) fn execute<C>(
         let id = ProposalId { transaction_id: transaction.0, action_index: proposal_index as u32 };
         context.acknowledge(id, pointer, proposal)
     }
+
+    Ok(())
+}
+
+fn validate_proposal(
+    proposal: &Proposal,
+    network: Network,
+    protocol_parameters: &ProtocolParameters,
+) -> Result<(), InvalidProposals> {
+    if proposal.deposit != protocol_parameters.gov_action_deposit {
+        return Err(InvalidProposals::IncorrectDeposit {
+            provided: proposal.deposit,
+            expected: protocol_parameters.gov_action_deposit,
+        });
+    }
+
+    let reward_address =
+        Address::from_bytes(&proposal.reward_account[..]).map_err(|_| InvalidProposals::MalformedReturnAddress)?;
+    if reward_address.has_network() != network {
+        return Err(InvalidProposals::ReturnAddressWrongNetwork {
+            expected: network,
+            actual: reward_address.has_network(),
+        });
+    }
+
+    let is_bootstrap = protocol_parameters.protocol_version.0 == 9;
+
+    match &proposal.gov_action {
+        GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
+            if is_bootstrap {
+                return Err(InvalidProposals::DisallowedDuringBootstrap);
+            }
+            if !wdrls.iter().any(|(_, coin)| *coin > 0) {
+                return Err(InvalidProposals::ZeroTreasuryWithdrawals);
+            }
+        }
+
+        GovernanceAction::UpdateCommittee(_, removed, added, _) => {
+            if is_bootstrap {
+                return Err(InvalidProposals::DisallowedDuringBootstrap);
+            }
+            let added_keys: std::collections::BTreeSet<_> = added.iter().map(|(k, _)| k).collect();
+            let removed_keys: std::collections::BTreeSet<_> = removed.iter().collect();
+            if !added_keys.is_disjoint(&removed_keys) {
+                return Err(InvalidProposals::ConflictingCommitteeUpdate);
+            }
+        }
+
+        GovernanceAction::NoConfidence(_) | GovernanceAction::NewConstitution(..) => {
+            if is_bootstrap {
+                return Err(InvalidProposals::DisallowedDuringBootstrap);
+            }
+        }
+
+        GovernanceAction::HardForkInitiation(_, new_version) => {
+            if !pv_can_follow(protocol_parameters.protocol_version, *new_version) {
+                return Err(InvalidProposals::HardforkCantFollow {
+                    current: protocol_parameters.protocol_version,
+                    new: *new_version,
+                });
+            }
+        }
+
+        GovernanceAction::ParameterChange(..) | GovernanceAction::Information => {}
+    }
+
+    Ok(())
+}
+
+fn pv_can_follow(current: ProtocolVersion, new: ProtocolVersion) -> bool {
+    let (cur_major, cur_minor) = current;
+    let (new_major, new_minor) = new;
+    (new_major == cur_major + 1 && new_minor == 0) || (new_major == cur_major && new_minor == cur_minor + 1)
 }
 
 fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
@@ -101,7 +205,16 @@ mod tests {
         ),
     ) {
         assert_trace(
-            || super::execute(&mut ctx, (tx.id(), tx_pointer), mem::take(&mut tx.proposals).map(|xs| xs.to_vec())),
+            || {
+                super::execute(
+                    &mut ctx,
+                    amaru_kernel::Network::Testnet,
+                    &amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+                    (tx.id(), tx_pointer),
+                    mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
+                )
+                .expect("validation should not fail for this fixture")
+            },
             expected_traces,
         )
     }
