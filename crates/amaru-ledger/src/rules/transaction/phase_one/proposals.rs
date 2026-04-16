@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Address, GovernanceAction, HasNetwork, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal, ProposalId,
-    ProposalPointer, ProtocolParameters, ProtocolVersion, RequiredScript, ScriptPurpose, TransactionId,
-    TransactionPointer, size::SCRIPT,
+    Address, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal, ProposalId, ProposalPointer,
+    ProtocolParameters, ProtocolVersion, RequiredScript, ScriptPurpose, TransactionId, TransactionPointer,
+    size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -34,6 +34,9 @@ pub enum InvalidProposals {
 
     #[error("treasury withdrawals total is zero")]
     ZeroTreasuryWithdrawals,
+
+    #[error("treasury withdrawal address has wrong network: expected {expected:?}, actual {actual:?}")]
+    TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
 
     #[error("conflicting committee update: members appear in both add and remove sets")]
     ConflictingCommitteeUpdate,
@@ -87,13 +90,14 @@ fn validate_proposal(
         });
     }
 
-    let reward_address =
-        Address::from_bytes(&proposal.reward_account[..]).map_err(|_| InvalidProposals::MalformedReturnAddress)?;
-    if reward_address.has_network() != network {
-        return Err(InvalidProposals::ReturnAddressWrongNetwork {
-            expected: network,
-            actual: reward_address.has_network(),
-        });
+    match Address::from_bytes(&proposal.reward_account[..]) {
+        Ok(Address::Stake(addr)) => {
+            let actual = addr.network();
+            if actual != network {
+                return Err(InvalidProposals::ReturnAddressWrongNetwork { expected: network, actual });
+            }
+        }
+        _ => return Err(InvalidProposals::MalformedReturnAddress),
     }
 
     let is_bootstrap = protocol_parameters.protocol_version.0 == 9;
@@ -102,6 +106,17 @@ fn validate_proposal(
         GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
             if is_bootstrap {
                 return Err(InvalidProposals::DisallowedDuringBootstrap);
+            }
+            for (account, _) in wdrls.iter() {
+                match Address::from_bytes(&account[..]) {
+                    Ok(Address::Stake(addr)) => {
+                        let actual = addr.network();
+                        if actual != network {
+                            return Err(InvalidProposals::TreasuryWithdrawalWrongNetwork { expected: network, actual });
+                        }
+                    }
+                    _ => return Err(InvalidProposals::MalformedReturnAddress),
+                }
             }
             if !wdrls.iter().any(|(_, coin)| *coin > 0) {
                 return Err(InvalidProposals::ZeroTreasuryWithdrawals);

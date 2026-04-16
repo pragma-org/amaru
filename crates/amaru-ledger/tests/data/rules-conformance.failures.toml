@@ -66,7 +66,6 @@
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Voting/VotersDoNotExist" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Withdrawals/Fails for empty withdrawals" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [5e7d655d8036173ee03b3548d5b7b023f21366eabc4045653d4c3efd]"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Withdrawals/Fails predicate when treasury withdrawal has nonexistent return address" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Withdrawals/Fails with invalid network ID in withdrawal addresses" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOVCERT/fails for/invalid refund provided with DRep deregistration cert" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOVCERT/fails for/registering a resigned CC member hotkey" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7]"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOVCERT/fails for/unregistering a nonexistent DRep" = "Expected failure, got success"
