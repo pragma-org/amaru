@@ -36,6 +36,7 @@ pub fn forward_ledger(raw_block: &str) {
     let bytes = hex::decode(raw_block).unwrap();
 
     let network = NetworkName::Preprod;
+
     let era_history: &EraHistory = network.into();
 
     let (_era, block): BlockWrapper = cbor::decode(&bytes).unwrap();

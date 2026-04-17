@@ -14,8 +14,8 @@
 
 use amaru_kernel::{
     Address, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal, ProposalId, ProposalPointer,
-    ProtocolParameters, ProtocolVersion, RequiredScript, ScriptPurpose, TransactionId, TransactionPointer,
-    size::SCRIPT,
+    ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RequiredScript, ScriptPurpose, TransactionId,
+    TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -46,6 +46,9 @@ pub enum InvalidProposals {
 
     #[error("hardfork version {new:?} cannot follow current version {current:?}")]
     HardforkCantFollow { current: ProtocolVersion, new: ProtocolVersion },
+
+    #[error("malformed parameter change proposal: {reason}")]
+    MalformedProposal { reason: String },
 }
 
 pub(crate) fn execute<C>(
@@ -149,7 +152,11 @@ fn validate_proposal(
             }
         }
 
-        GovernanceAction::ParameterChange(..) | GovernanceAction::Information => {}
+        GovernanceAction::ParameterChange(_, ppu, _) => {
+            ppu_well_formed(protocol_parameters.protocol_version, ppu)?;
+        }
+
+        GovernanceAction::Information => {}
     }
 
     Ok(())
@@ -159,6 +166,67 @@ fn pv_can_follow(current: ProtocolVersion, new: ProtocolVersion) -> bool {
     let (cur_major, cur_minor) = current;
     let (new_major, new_minor) = new;
     (new_major == cur_major + 1 && new_minor == 0) || (new_major == cur_major && new_minor == cur_minor + 1)
+}
+
+fn ppu_well_formed(pv: ProtocolVersion, ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {
+    fn reject_zero(field: Option<u64>, field_name: &str) -> Result<(), InvalidProposals> {
+        if field == Some(0) {
+            return Err(InvalidProposals::MalformedProposal { reason: format!("{field_name} cannot be 0") });
+        }
+        Ok(())
+    }
+
+    reject_zero(ppu.max_block_body_size, "max_block_body_size")?;
+    reject_zero(ppu.max_transaction_size, "max_transaction_size")?;
+    reject_zero(ppu.max_block_header_size, "max_block_header_size")?;
+    reject_zero(ppu.max_value_size, "max_value_size")?;
+    reject_zero(ppu.collateral_percentage, "collateral_percentage")?;
+    reject_zero(ppu.committee_term_limit, "committee_term_limit")?;
+    reject_zero(ppu.governance_action_validity_period, "governance_action_validity_period")?;
+    reject_zero(ppu.pool_deposit, "pool_deposit")?;
+    reject_zero(ppu.governance_action_deposit, "governance_action_deposit")?;
+    reject_zero(ppu.drep_deposit, "drep_deposit")?;
+
+    if pv.0 != 9 {
+        reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
+    }
+
+    let is_empty = ppu.minfee_a.is_none()
+        && ppu.minfee_b.is_none()
+        && ppu.max_block_body_size.is_none()
+        && ppu.max_transaction_size.is_none()
+        && ppu.max_block_header_size.is_none()
+        && ppu.key_deposit.is_none()
+        && ppu.pool_deposit.is_none()
+        && ppu.maximum_epoch.is_none()
+        && ppu.desired_number_of_stake_pools.is_none()
+        && ppu.pool_pledge_influence.is_none()
+        && ppu.expansion_rate.is_none()
+        && ppu.treasury_growth_rate.is_none()
+        && ppu.min_pool_cost.is_none()
+        && ppu.ada_per_utxo_byte.is_none()
+        && ppu.cost_models_for_script_languages.is_none()
+        && ppu.execution_costs.is_none()
+        && ppu.max_tx_ex_units.is_none()
+        && ppu.max_block_ex_units.is_none()
+        && ppu.max_value_size.is_none()
+        && ppu.collateral_percentage.is_none()
+        && ppu.max_collateral_inputs.is_none()
+        && ppu.pool_voting_thresholds.is_none()
+        && ppu.drep_voting_thresholds.is_none()
+        && ppu.min_committee_size.is_none()
+        && ppu.committee_term_limit.is_none()
+        && ppu.governance_action_validity_period.is_none()
+        && ppu.governance_action_deposit.is_none()
+        && ppu.drep_deposit.is_none()
+        && ppu.drep_inactivity_period.is_none()
+        && ppu.minfee_refscript_cost_per_byte.is_none();
+
+    if is_empty {
+        return Err(InvalidProposals::MalformedProposal { reason: "parameter update cannot be empty".into() });
+    }
+
+    Ok(())
 }
 
 fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
