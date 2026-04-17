@@ -199,6 +199,7 @@ where
         context,
         network,
         protocol_parameters,
+        era_history,
         (transaction_id, pointer),
         mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
     )?;

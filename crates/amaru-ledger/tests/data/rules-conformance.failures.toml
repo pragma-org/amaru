@@ -44,7 +44,6 @@
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/valid GovPurposeId but invalid purpose" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/HardFork/Hardfork is the second one (has a GovPurposeId)/Hardfork minorFollow" = "Expected success, got failure: invalid proposals: hardfork version (10, 2) cannot follow current version (10, 0)"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Policy/policy is respected by proposals" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Predicate failures/ExpirationEpochTooSmall" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Predicate failures/ProposalReturnAccountDoesNotExist" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Proposals/Consistency/Proposals submitted without proper parent fail" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Voting/committee member can not vote on NoConfidence action" = "Expected failure, got success"

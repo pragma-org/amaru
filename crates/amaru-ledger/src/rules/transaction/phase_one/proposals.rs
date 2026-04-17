@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Address, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal, ProposalId, ProposalPointer,
-    ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RequiredScript, ScriptPurpose, TransactionId,
-    TransactionPointer, size::SCRIPT,
+    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal,
+    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RequiredScript,
+    ScriptPurpose, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -49,12 +49,19 @@ pub enum InvalidProposals {
 
     #[error("malformed parameter change proposal: {reason}")]
     MalformedProposal { reason: String },
+
+    #[error("committee member expiration epoch {expiry} is not greater than current epoch {current}")]
+    ExpirationEpochTooSmall { expiry: Epoch, current: Epoch },
+
+    #[error("era history error: {0}")]
+    EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
 pub(crate) fn execute<C>(
     context: &mut C,
     network: Network,
     protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
     transaction: (TransactionId, TransactionPointer),
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
@@ -62,7 +69,7 @@ where
     C: ProposalsSlice + WitnessSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
-        validate_proposal(&proposal, network, protocol_parameters)?;
+        validate_proposal(&proposal, network, protocol_parameters, era_history, transaction.1)?;
 
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
@@ -85,6 +92,8 @@ fn validate_proposal(
     proposal: &Proposal,
     network: Network,
     protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
+    pointer: TransactionPointer,
 ) -> Result<(), InvalidProposals> {
     if proposal.deposit != protocol_parameters.gov_action_deposit {
         return Err(InvalidProposals::IncorrectDeposit {
@@ -134,6 +143,15 @@ fn validate_proposal(
             let removed_keys: std::collections::BTreeSet<_> = removed.iter().collect();
             if !added_keys.is_disjoint(&removed_keys) {
                 return Err(InvalidProposals::ConflictingCommitteeUpdate);
+            }
+
+            // NOTE: conformance tests are brittle on this check due to era_history mismatch.
+            // (see certificates.rs PoolRetirement comment for details)
+            let current = era_history.slot_to_epoch(pointer.slot, pointer.slot)?;
+            for (_, expiry) in added.iter() {
+                if Epoch::from(*expiry) <= current {
+                    return Err(InvalidProposals::ExpirationEpochTooSmall { expiry: Epoch::from(*expiry), current });
+                }
             }
         }
 
@@ -249,7 +267,9 @@ fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
 mod tests {
     use std::mem;
 
-    use amaru_kernel::{Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json};
+    use amaru_kernel::{
+        EraHistory, NetworkName, Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json,
+    };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -293,6 +313,7 @@ mod tests {
                     &mut ctx,
                     amaru_kernel::Network::Testnet,
                     &amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+                    <&EraHistory>::from(NetworkName::Preprod),
                     (tx.id(), tx_pointer),
                     mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
                 )
