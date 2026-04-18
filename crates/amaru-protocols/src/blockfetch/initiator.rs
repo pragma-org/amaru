@@ -36,6 +36,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<(State, BlockFetchInitiator)>().boxed(),
         pure_stage::register_data_deserializer::<BlockFetchMessage>().boxed(),
         pure_stage::register_data_deserializer::<Blocks>().boxed(),
+        pure_stage::register_data_deserializer::<Blocks2>().boxed(),
     ]
 }
 
@@ -57,7 +58,7 @@ impl std::fmt::Debug for Blocks {
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks2 {
     NoBlocks(u64),
-    Block(u64, NetworkBlock),
+    Block(u64, Peer, NetworkBlock),
     Done(u64),
 }
 
@@ -65,8 +66,8 @@ impl std::fmt::Debug for Blocks2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoBlocks(arg0) => f.debug_tuple("NoBlocks").field(arg0).finish(),
-            Self::Block(arg0, arg1) => {
-                f.debug_tuple("Block").field(arg0).field(&debug_bytes(arg1.as_slice(), 80)).finish()
+            Self::Block(arg0, peer, arg2) => {
+                f.debug_tuple("Block").field(arg0).field(peer).field(&debug_bytes(arg2.as_slice(), 80)).finish()
             }
             Self::Done(arg0) => f.debug_tuple("Done").field(arg0).finish(),
         }
@@ -272,7 +273,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
                     if let Some((_, _, Resp::V2(id, cr))) = self.queue.front() {
                         // must send NetworkBlock unchanged to the local stage for storage, otherwise validation breaks
-                        eff.send(cr, Blocks2::Block(*id, network_block)).await;
+                        eff.send(cr, Blocks2::Block(*id, self.peer.clone(), network_block)).await;
                     } else if self.blocks.len() < MAX_FETCHED_BLOCKS {
                         self.blocks.push(network_block);
                     } else {

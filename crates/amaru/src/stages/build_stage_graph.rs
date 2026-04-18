@@ -16,6 +16,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
+    block_source::{self, BlockSource, BlockSourceFault},
     fetch_blocks::{self, FetchBlocks, FetchBlocksMsg},
     mempool::{self, MempoolStageState},
     peer_selection::{self, PeerSelection, PeerSelectionMsg},
@@ -70,6 +71,8 @@ pub fn build_stage_graph(
     let validate_block = stage_graph.stage("validate_block", validate_block::stage);
     let adopt_chain = stage_graph.stage("adopt_chain", adopt_chain::stage);
     let mempool_stage = stage_graph.stage("mempool", mempool::stage);
+    let block_source_stage = stage_graph.stage("block_source", block_source::stage);
+    let block_source_sender = block_source_stage.sender();
 
     let k = {
         #[expect(clippy::expect_used)]
@@ -78,19 +81,32 @@ pub fn build_stage_graph(
             .try_into()
             .expect("consensus security param will not be larger than u64::MAX")
     };
-    let adopt_chain = stage_graph.wire_up(adopt_chain, AdoptChain::new(manager.sender(), k, ledger_tip));
+    let _block_source = stage_graph.wire_up(
+        block_source_stage,
+        BlockSource::new(ledger_tip, config.block_source_max_tip_distance, StageRef::<BlockSourceFault>::blackhole()),
+    );
+
+    let adopt_chain =
+        stage_graph.wire_up(adopt_chain, AdoptChain::new(manager.sender(), block_source_sender.clone(), k, ledger_tip));
 
     let validate_block = stage_graph.wire_up(
         validate_block,
-        ValidateBlock::new(adopt_chain.without_state(), select_chain.sender(), ledger_tip.point()),
+        ValidateBlock::new(
+            adopt_chain.without_state(),
+            select_chain.sender(),
+            block_source_sender.clone(),
+            ledger_tip.point(),
+        ),
     );
     let validate_block_input =
         stage_graph.contramap(validate_block, "validate_block_input", |(tip, parent, max_block_height)| {
             ValidateBlockMsg::new(tip, parent, max_block_height)
         });
 
-    let fetch_blocks = stage_graph
-        .wire_up(fetch_blocks, FetchBlocks::new(validate_block_input, select_chain.sender(), manager.sender()));
+    let fetch_blocks = stage_graph.wire_up(
+        fetch_blocks,
+        FetchBlocks::new(validate_block_input, select_chain.sender(), manager.sender(), block_source_sender),
+    );
     let fetch_blocks_input =
         stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |(tip, parent)| FetchBlocksMsg::NewTip(tip, parent));
 

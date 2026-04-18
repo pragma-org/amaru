@@ -19,7 +19,7 @@ use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, Instant, StageRef, TryInStage};
 
-use crate::stages::select_chain::cmp_tip;
+use crate::stages::{block_source::BlockSourceMsg, select_chain::cmp_tip};
 
 /// This stage receives validated chains in the form of a Tip and decides
 /// whether to adopt that tip as the new downstream tip.
@@ -37,6 +37,7 @@ use crate::stages::select_chain::cmp_tip;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AdoptChain {
     downstream: StageRef<ManagerMessage>,
+    block_source: StageRef<BlockSourceMsg>,
     consensus_security_param: u64,
     current_best_tip: Tip,
     max_block_height: BlockHeight,
@@ -45,9 +46,15 @@ pub struct AdoptChain {
 }
 
 impl AdoptChain {
-    pub fn new(downstream: StageRef<ManagerMessage>, consensus_security_param: u64, current_best_tip: Tip) -> Self {
+    pub fn new(
+        downstream: StageRef<ManagerMessage>,
+        block_source: StageRef<BlockSourceMsg>,
+        consensus_security_param: u64,
+        current_best_tip: Tip,
+    ) -> Self {
         Self {
             downstream,
+            block_source,
             consensus_security_param,
             current_best_tip,
             max_block_height: BlockHeight::from(0),
@@ -122,6 +129,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         state.suppressed += 1;
     }
     store.eff().send(&state.downstream, ManagerMessage::NewTip(msg)).await;
+    store.eff().send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
     state.current_best_tip = msg;
     state
 }

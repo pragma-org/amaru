@@ -23,6 +23,7 @@ use crate::stages::{
         te_clock, te_get_anchor_hash, te_load_from_best_chain, te_next_best_chain, te_roll_forward_chain,
         te_rollback_chain, te_send, te_set_anchor_hash, te_set_best_chain_hash,
     },
+    block_source::BlockSourceMsg,
     test_utils::{te_input, te_state},
 };
 
@@ -131,6 +132,7 @@ fn test_extension_adopts_and_sends() {
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
+            te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(msg)),
             te_state("ac-1", &expected),
         ],
     );
@@ -186,6 +188,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
+            te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(msg)),
             te_state("ac-1", &expected),
         ],
     );
@@ -234,6 +237,7 @@ fn test_fork_switch_opcert_hacked() {
             te_load_header("ac-1", prep.headers.h0.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
+            te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(msg)),
             te_state("ac-1", &expected),
         ],
     );

@@ -31,7 +31,10 @@ use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
-use crate::stages::test_utils::{BufferWriter, Logs};
+use crate::stages::{
+    block_source::BlockSourceMsg,
+    test_utils::{BufferWriter, Logs},
+};
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
     BlockHeader::from(make_header(block_number, slot, parent))
@@ -127,6 +130,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
+        pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         pure_stage::register_data_deserializer::<Option<BlockHeader>>().boxed(),
         pure_stage::register_data_deserializer::<Option<Point>>().boxed(),
         pure_stage::register_data_deserializer::<Result<(), StoreError>>().boxed(),
@@ -144,8 +148,9 @@ pub fn register_guards() -> DeserializerGuards {
 
 pub fn test_prep(consensus_security_param: u64) -> TestPrep {
     let downstream = StageRef::named_for_tests("downstream");
+    let block_source = StageRef::named_for_tests("block_source");
     let headers = HeaderTree::new();
-    let state = AdoptChain::new(downstream, consensus_security_param, Tip::origin());
+    let state = AdoptChain::new(downstream, block_source, consensus_security_param, Tip::origin());
     TestPrep {
         state,
         rt: Builder::new_current_thread().build().unwrap(),

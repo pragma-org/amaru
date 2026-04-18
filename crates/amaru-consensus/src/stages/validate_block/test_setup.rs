@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, fmt, net::SocketAddr, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
+    BlockHeader, BlockHeight, HeaderHash, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
@@ -41,7 +41,10 @@ use crate::{
         ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, RollbackBlockEffect,
         TipEffect, ValidateBlockEffect,
     },
-    stages::test_utils::{BufferWriter, Logs},
+    stages::{
+        block_source::BlockSourceMsg,
+        test_utils::{BufferWriter, Logs},
+    },
 };
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -219,6 +222,7 @@ pub struct TestPrep {
     pub rt: Runtime,
     pub manager: StageRef<AdoptChainMsg>,
     pub select_chain: StageRef<SelectChainMsg>,
+    pub block_source: StageRef<BlockSourceMsg>,
     pub headers: HeaderTree,
     pub store: Arc<InMemConsensusStore<BlockHeader>>,
     pub block_validator: Arc<MockBlockValidator>,
@@ -267,6 +271,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<ValidateBlockMsg>().boxed(),
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
+        pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
@@ -284,15 +289,17 @@ pub fn register_guards() -> DeserializerGuards {
 pub fn test_prep() -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
     let select_chain = StageRef::named_for_tests("select_chain");
+    let block_source = StageRef::named_for_tests("block_source");
     let block_validator = Arc::new(MockBlockValidator::new(Point::Origin));
 
-    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), Point::Origin);
+    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), Point::Origin);
 
     TestPrep {
         state,
         rt: Builder::new_current_thread().build().unwrap(),
         manager,
         select_chain,
+        block_source,
         headers: HeaderTree::new(),
         store: Arc::new(InMemConsensusStore::new()),
         block_validator,

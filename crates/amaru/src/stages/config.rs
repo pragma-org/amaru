@@ -47,6 +47,9 @@ pub struct Config {
     /// After a misbehaving upstream peer is removed, do not allow it to be re-added for this many seconds.
     pub peer_removal_cooldown_secs: u64,
 
+    /// Maximum distance (in block height) below the adopted tip for which `block_source` retains provenance.
+    pub block_source_max_tip_distance: u64,
+
     /// Minimum number of trace entries retained when the stage graph trace buffer is full.
     pub trace_buffer_min_entries: usize,
 
@@ -86,6 +89,7 @@ impl Default for Config {
             ledger_vm_alloc_arena_size: 1_024_000,
             defer_req_next_poll_ms: 200,
             peer_removal_cooldown_secs: 600,
+            block_source_max_tip_distance: 2_500,
             trace_buffer_min_entries: 0,
             trace_buffer_max_size: 0,
             trace_dump_path: None,
