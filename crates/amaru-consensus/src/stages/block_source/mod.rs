@@ -18,26 +18,31 @@ use amaru_kernel::{BlockHeight, Peer, Point, Tip};
 use pure_stage::{Effects, StageRef};
 use tracing::field;
 
+use crate::stages::peer_selection::PeerSelectionMsg;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BlockSource {
     adopted_tip: Tip,
     max_tip_distance: u64,
-    by_point: BTreeMap<Point, BlockSourceEntry>,
-    invalid_peer_sink: StageRef<BlockSourceFault>,
+    by_point: BTreeMap<Point, BlockValidity>,
+    invalid_peer_sink: StageRef<PeerSelectionMsg>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(super) enum BlockValidity {
-    Pending,
-    Valid,
-    Invalid,
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum BlockValidity {
+    Pending(BlockHeight, BTreeSet<Peer>),
+    Valid(BlockHeight),
+    Invalid(BlockHeight),
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(super) struct BlockSourceEntry {
-    peers: BTreeSet<Peer>,
-    block_height: BlockHeight,
-    validity: BlockValidity,
+impl BlockValidity {
+    fn block_height(&self) -> BlockHeight {
+        match self {
+            BlockValidity::Pending(h, _) => *h,
+            BlockValidity::Valid(h) => *h,
+            BlockValidity::Invalid(h) => *h,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -47,24 +52,16 @@ pub enum BlockSourceMsg {
     AdoptedTip(Tip),
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum BlockSourceFault {
-    InvalidBlock { peer: Peer, point: Point },
-}
-
 impl BlockSource {
-    pub fn new(adopted_tip: Tip, max_tip_distance: u64, invalid_peer_sink: StageRef<BlockSourceFault>) -> Self {
+    pub fn new(adopted_tip: Tip, max_tip_distance: u64, invalid_peer_sink: StageRef<PeerSelectionMsg>) -> Self {
         Self { adopted_tip, max_tip_distance, by_point: BTreeMap::new(), invalid_peer_sink }
     }
 
     fn prune(&mut self) {
         let span = tracing::debug_span!("block_source.prune", pruned = field::Empty, retained = field::Empty).entered();
-        let adopted_h = self.adopted_tip.block_height().as_u64();
+        let adopted_h = self.adopted_tip.block_height();
         let entries = self.by_point.len();
-        self.by_point.retain(|_, entry| {
-            let h = entry.block_height.as_u64();
-            adopted_h.saturating_sub(h) <= self.max_tip_distance
-        });
+        self.by_point.retain(|_, entry| entry.block_height() - self.max_tip_distance <= adopted_h);
         let retained = self.by_point.len();
         span.record("pruned", entries - retained);
         span.record("retained", retained);
@@ -77,27 +74,22 @@ impl BlockSource {
         block_height: BlockHeight,
         eff: &Effects<BlockSourceMsg>,
     ) {
+        use BlockValidity::*;
+
         tracing::debug!(%peer, %point, %block_height, "block received");
         match self.by_point.get_mut(&point) {
-            Some(entry) => {
-                entry.block_height = block_height;
-                match entry.validity {
-                    BlockValidity::Invalid => {
-                        if entry.peers.insert(peer.clone()) {
-                            tracing::info!(%peer, %point, "received known invalid block from new peer");
-                            eff.send(&self.invalid_peer_sink, BlockSourceFault::InvalidBlock { peer, point }).await;
-                        }
-                    }
-                    BlockValidity::Pending | BlockValidity::Valid => {
-                        entry.peers.insert(peer);
-                    }
-                }
+            Some(Invalid(_height)) => {
+                tracing::info!(%peer, %point, "received known invalid block from new peer");
+                eff.send(&self.invalid_peer_sink, PeerSelectionMsg::Adversarial(peer)).await;
+            }
+            Some(Pending(_height, peers)) => {
+                peers.insert(peer);
+            }
+            Some(Valid(_height)) => {
+                // do nothing
             }
             None => {
-                self.by_point.insert(
-                    point,
-                    BlockSourceEntry { peers: BTreeSet::from([peer]), block_height, validity: BlockValidity::Pending },
-                );
+                self.by_point.insert(point, Pending(block_height, BTreeSet::from([peer])));
             }
         }
         self.prune();
@@ -105,15 +97,17 @@ impl BlockSource {
 
     async fn on_validation(&mut self, valid: bool, point: Point, eff: &Effects<BlockSourceMsg>) {
         tracing::debug!(%valid, %point, "validation result");
-        if valid {
-            if let Some(entry) = self.by_point.get_mut(&point) {
-                entry.validity = BlockValidity::Valid;
+        if let Some(validity) = self.by_point.get_mut(&point)
+            && let BlockValidity::Pending(height, peers) = validity
+        {
+            if valid {
+                *validity = BlockValidity::Valid(*height);
+            } else {
+                for p in std::mem::take(peers) {
+                    eff.send(&self.invalid_peer_sink, PeerSelectionMsg::Adversarial(p.clone())).await;
+                }
+                *validity = BlockValidity::Invalid(*height);
             }
-        } else if let Some(entry) = self.by_point.get_mut(&point) {
-            for p in entry.peers.iter() {
-                eff.send(&self.invalid_peer_sink, BlockSourceFault::InvalidBlock { peer: p.clone(), point }).await;
-            }
-            entry.validity = BlockValidity::Invalid;
         }
         self.prune();
     }

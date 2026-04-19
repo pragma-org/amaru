@@ -87,7 +87,7 @@ fn test_remove_peer_forwards_and_schedules_cooldown() {
     let prep = test_prep_no_static();
     let p = TestPrep::peer("8.8.8.8:8");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::RemovePeer(p.clone());
+    let msg = PeerSelectionMsg::Adversarial(p.clone());
     let sid = first_schedule_id();
     let in_cooldown = prep.state_with_timers(BTreeMap::from([(p.clone(), sid)]));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -113,7 +113,7 @@ fn test_remove_peer_static_warns_and_cooldown_ended_readds() {
     let prep = test_prep_static(&["7.7.7.7:7"]);
     let p = TestPrep::peer("7.7.7.7:7");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::RemovePeer(p.clone());
+    let msg = PeerSelectionMsg::Adversarial(p.clone());
     let sid = first_schedule_id();
     let in_cooldown = prep.state_with_timers(BTreeMap::from([(p.clone(), sid)]));
     let after_readd = prep.state.clone();
@@ -143,7 +143,7 @@ fn test_cooldown_ended_non_static_does_not_readd() {
     let prep = test_prep_no_static();
     let p = TestPrep::peer("6.6.6.6:6");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::RemovePeer(p.clone());
+    let msg = PeerSelectionMsg::Adversarial(p.clone());
     let sid = first_schedule_id();
     let in_cooldown = prep.state_with_timers(BTreeMap::from([(p.clone(), sid)]));
     let after_clear = prep.state.clone();
@@ -184,12 +184,12 @@ fn test_add_peer_during_cooldown_skipped() {
     let sid = first_schedule_id();
     let after_remove = prep.state_with_timers(BTreeMap::from([(p.clone(), sid)]));
     let (running, _guards, mut logs) =
-        setup_preload(&prep, [PeerSelectionMsg::RemovePeer(p.clone()), PeerSelectionMsg::AddPeer(p.clone())]);
+        setup_preload(&prep, [PeerSelectionMsg::Adversarial(p.clone()), PeerSelectionMsg::AddPeer(p.clone())]);
     assert_trace(
         &running,
         &[
             te_state("ps-1", &state),
-            te_input("ps-1", &PeerSelectionMsg::RemovePeer(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
             te_send("ps-1", "manager", ManagerMessage::RemovePeer(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
             te_state("ps-1", &after_remove),
@@ -214,16 +214,16 @@ fn test_remove_peer_twice_cancels_and_reschedules() {
     let sid1 = second_schedule_id();
     let after_second = prep.state_with_timers(BTreeMap::from([(p.clone(), sid1)]));
     let (running, _guards, mut logs) =
-        setup_preload(&prep, [PeerSelectionMsg::RemovePeer(p.clone()), PeerSelectionMsg::RemovePeer(p.clone())]);
+        setup_preload(&prep, [PeerSelectionMsg::Adversarial(p.clone()), PeerSelectionMsg::Adversarial(p.clone())]);
     assert_trace(
         &running,
         &[
             te_state("ps-1", &state),
-            te_input("ps-1", &PeerSelectionMsg::RemovePeer(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
             te_send("ps-1", "manager", ManagerMessage::RemovePeer(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid0),
             te_state("ps-1", &prep.state_with_timers(BTreeMap::from([(p.clone(), sid0)]))),
-            te_input("ps-1", &PeerSelectionMsg::RemovePeer(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
             te_cancel_schedule("ps-1", sid0),
             te_send("ps-1", "manager", ManagerMessage::RemovePeer(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid1),
@@ -295,7 +295,7 @@ fn test_downstream_connected_then_remove_peer_preserves_downstream_after_cooldow
     };
     let (running, _guards, mut logs) = setup_preload(
         &prep,
-        [PeerSelectionMsg::DownstreamConnected(p.clone()), PeerSelectionMsg::RemovePeer(p.clone())],
+        [PeerSelectionMsg::DownstreamConnected(p.clone()), PeerSelectionMsg::Adversarial(p.clone())],
     );
     assert_trace(
         &running,
@@ -303,7 +303,7 @@ fn test_downstream_connected_then_remove_peer_preserves_downstream_after_cooldow
             te_state("ps-1", &initial),
             te_input("ps-1", &PeerSelectionMsg::DownstreamConnected(p.clone())),
             te_state("ps-1", &after_downstream),
-            te_input("ps-1", &PeerSelectionMsg::RemovePeer(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
             te_send("ps-1", "manager", ManagerMessage::RemovePeer(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
             te_state("ps-1", &in_cooldown),

@@ -244,7 +244,7 @@ impl TrackPeers {
             Err(error) => {
                 tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                 self.upstream.remove(&peer);
-                eff.send(&self.peer_selection, PeerSelectionMsg::RemovePeer(peer)).await;
+                eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                 return;
             }
         };
@@ -256,7 +256,7 @@ impl TrackPeers {
             Err(error) => {
                 tracing::error!(%error, %peer, "chain_sync.store_header.failed");
                 self.upstream.remove(&peer);
-                eff.send(&self.peer_selection, PeerSelectionMsg::RemovePeer(peer)).await;
+                eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                 return;
             }
         };
@@ -311,7 +311,7 @@ impl TrackPeers {
                     Err(error) => {
                         tracing::error!(%error, %peer, "chain_sync.decode_header.failed");
                         self.upstream.remove(&peer);
-                        eff.send(&self.peer_selection, PeerSelectionMsg::RemovePeer(peer)).await;
+                        eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                         return;
                     }
                 };
@@ -347,7 +347,7 @@ impl TrackPeers {
                 if let Err(error) = self.roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone())).await {
                     tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
                     self.upstream.remove(&peer);
-                    eff.send(&self.peer_selection, PeerSelectionMsg::RemovePeer(peer)).await;
+                    eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                 }
             }
         }

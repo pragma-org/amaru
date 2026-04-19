@@ -22,8 +22,11 @@ use tokio::runtime::{Builder, Runtime};
 use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use super::{BlockSource, BlockSourceEntry, BlockSourceFault, BlockSourceMsg, stage};
-use crate::stages::test_utils::{BufferWriter, Logs};
+use super::{BlockSource, BlockSourceMsg, stage};
+use crate::stages::{
+    peer_selection::PeerSelectionMsg,
+    test_utils::{BufferWriter, Logs},
+};
 
 pub struct TestPrep {
     pub state: BlockSource,
@@ -40,8 +43,7 @@ pub fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<BlockSource>().boxed(),
         pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
-        pure_stage::register_data_deserializer::<BlockSourceFault>().boxed(),
-        pure_stage::register_data_deserializer::<BlockSourceEntry>().boxed(),
+        pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::Peer>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::Point>().boxed(),

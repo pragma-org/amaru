@@ -32,7 +32,7 @@ pub struct PeerSelection {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PeerSelectionMsg {
-    RemovePeer(Peer),
+    Adversarial(Peer),
     AddPeer(Peer),
     ConnectInitial,
     CooldownEnded(Peer),
@@ -63,7 +63,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::AddPeer(p.clone())).await;
             }
         }
-        PeerSelectionMsg::RemovePeer(peer) => {
+        PeerSelectionMsg::Adversarial(peer) => {
             tracing::info!(%peer, "peer_selection.remove_peer");
             if state.static_peers.contains(&peer) {
                 tracing::warn!(%peer, "removing static peer");
