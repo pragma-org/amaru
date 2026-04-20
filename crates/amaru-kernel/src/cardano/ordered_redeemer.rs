@@ -77,7 +77,7 @@ mod tests {
             ex_units: ExUnits { mem, steps },
         }
     }
-    
+
     #[test]
     fn btreemap_insert_keeps_old_key() {
         let r1 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
@@ -109,4 +109,3 @@ mod tests {
         assert_eq!(key.ex_units, ExUnits { mem: 999, steps: 888 });
     }
 }
-
