@@ -61,3 +61,52 @@ impl<'a> From<&'a Redeemer> for OrderedRedeemer<'a> {
         Self(Cow::Borrowed(value))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::{ExUnits, PlutusData, ScriptPurpose};
+
+    fn make_redeemer(tag: ScriptPurpose, index: u32, mem: u64, steps: u64) -> Redeemer {
+        Redeemer {
+            tag,
+            index,
+            data: PlutusData::BigInt(pallas_primitives::BigInt::Int(pallas_codec::utils::Int::from(0))),
+            ex_units: ExUnits { mem, steps },
+        }
+    }
+    
+    #[test]
+    fn btreemap_insert_keeps_old_key() {
+        let r1 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
+        let r2 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 999, 888));
+
+        let mut map = BTreeMap::new();
+        map.insert(r1, "first");
+        map.insert(r2, "second");
+
+        assert_eq!(map.len(), 1);
+        let (key, value) = map.iter().next().unwrap();
+        assert_eq!(*value, "second");
+        assert_eq!(key.ex_units, ExUnits { mem: 100, steps: 200 });
+    }
+
+    #[test]
+    fn btreemap_remove_then_insert_replaces_key() {
+        let r1 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
+        let r2 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 999, 888));
+
+        let mut map = BTreeMap::new();
+        map.insert(r1, "first");
+        map.remove(&r2);
+        map.insert(r2, "second");
+
+        assert_eq!(map.len(), 1);
+        let (key, value) = map.iter().next().unwrap();
+        assert_eq!(*value, "second");
+        assert_eq!(key.ex_units, ExUnits { mem: 999, steps: 888 });
+    }
+}
+

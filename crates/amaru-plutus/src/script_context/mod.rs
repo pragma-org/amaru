@@ -374,6 +374,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(StakeCredential::ScriptHash(hash)) = output.address.as_shelley().map(|addr| addr.owner()) {
                     let script = scripts.get(&hash);
                     script.map(|script| {
+                        script_table.remove(redeemer);
                         script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Spending(input, ())
                     })
@@ -384,6 +385,7 @@ impl<'a> ScriptPurpose<'a> {
             RedeemerTag::Mint => mint.0.keys().nth(index).copied().and_then(|policy_id| {
                 let script = scripts.get(&policy_id);
                 script.map(|script| {
+                    script_table.remove(redeemer);
                     script_table.insert(redeemer.clone(), script.clone());
                     ScriptPurpose::Minting(policy_id)
                 })
@@ -392,6 +394,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let StakePayload::Script(hash) = stake.0.payload() {
                     let script = scripts.get(hash);
                     script.map(|script| {
+                        script_table.remove(redeemer);
                         script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash))
                     })
@@ -403,6 +406,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let StakeCredential::ScriptHash(hash) = certificate.owner() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
+                        script_table.remove(redeemer);
                         script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Certifying(index, certificate.clone())
                     })
@@ -414,6 +418,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let StakeCredential::ScriptHash(hash) = voter.owner() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
+                        script_table.remove(redeemer);
                         script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Voting(voter)
                     })
@@ -439,6 +444,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(hash) = script_hash {
                     let script = scripts.get(&hash);
                     script.map(|script| {
+                        script_table.remove(redeemer);
                         script_table.insert(redeemer.clone(), script.clone());
                         ScriptPurpose::Proposing(index, proposal)
                     })
@@ -1332,3 +1338,4 @@ mod tests {
         });
     }
 }
+
