@@ -72,9 +72,14 @@ impl FetchBlocks {
     }
 
     #[expect(clippy::expect_used)]
-    pub async fn new_tip(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
-        self.block_height = tip.block_height().max(self.block_height);
-
+    pub async fn new_tip(
+        &mut self,
+        tip: Tip,
+        parent: Point,
+        max_block_height: BlockHeight,
+        eff: Effects<FetchBlocksMsg>,
+    ) {
+        self.block_height = self.block_height.max(max_block_height);
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
         let store = Store::new(eff);
         // find blocks to retrieve
@@ -193,7 +198,7 @@ impl FetchBlocks {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
-    NewTip(Tip, Point),
+    NewTip(Tip, Point, BlockHeight),
     Block(NetworkBlock),
     Timeout(u64),
 }
@@ -204,7 +209,9 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
         state.cleanup_replies = eff.wire_up(stage, (0, eff.me())).await;
     }
     match msg {
-        FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
+        FetchBlocksMsg::NewTip(tip, parent, max_block_height) => {
+            state.new_tip(tip, parent, max_block_height, eff).await
+        }
         FetchBlocksMsg::Block(block) => state.block(block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
     }

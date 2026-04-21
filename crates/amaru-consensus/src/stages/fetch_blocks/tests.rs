@@ -32,7 +32,7 @@ fn test_new_tip_load_header_fails() {
     // Tip h2 but store has no headers - load will fail
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = FetchBlocksMsg::NewTip(tip, parent);
+    let msg = FetchBlocksMsg::NewTip(tip, parent, tip.block_height());
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -61,7 +61,7 @@ fn test_new_tip_no_blocks_to_fetch() {
 
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = FetchBlocksMsg::NewTip(tip, parent);
+    let msg = FetchBlocksMsg::NewTip(tip, parent, tip.block_height());
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -95,7 +95,7 @@ fn test_new_tip_blocks_to_fetch() {
 
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = FetchBlocksMsg::NewTip(tip, parent);
+    let msg = FetchBlocksMsg::NewTip(tip, parent, tip.block_height());
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let timeout_at = Instant::at_offset(Duration::from_secs(5));

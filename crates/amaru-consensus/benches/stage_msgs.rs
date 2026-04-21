@@ -60,7 +60,7 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::FetchNextFrom", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = FetchBlocksMsg::NewTip(tip, point);
+    let msg = FetchBlocksMsg::NewTip(tip, point, bh);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::NewTip", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 

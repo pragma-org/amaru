@@ -14,14 +14,14 @@
 
 use std::{cmp::Ordering, collections::BTreeMap};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, Tip};
+use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, Point, Tip};
 use amaru_ouroboros::{ChainStore, ReadOnlyChainStore};
 use amaru_protocols::store_effects::Store;
 use pure_stage::{Effects, StageRef, TryInStage};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SelectChain {
-    downstream: StageRef<(Tip, Point)>,
+    downstream: StageRef<(Tip, Point, BlockHeight)>,
     /// Maps all block tree tips to the list of headers whose blocks are yet to be validated
     /// (oldest first)
     tips: BTreeMap<HeaderHash, Vec<HeaderHash>>,
@@ -32,7 +32,10 @@ pub struct SelectChain {
 }
 
 impl SelectChain {
-    pub fn new(downstream: StageRef<(Tip, Point)>, best_tip: Option<(BlockHeader, Vec<HeaderHash>)>) -> Self {
+    pub fn new(
+        downstream: StageRef<(Tip, Point, BlockHeight)>,
+        best_tip: Option<(BlockHeader, Vec<HeaderHash>)>,
+    ) -> Self {
         let mut tips = BTreeMap::new();
         let best_tip = best_tip.map(|(best_tip, to_validate)| {
             tips.insert(best_tip.hash(), to_validate);
@@ -123,7 +126,7 @@ impl SelectChain {
             tracing::debug!(tip = %tip.point(), height = %tip.block_height(), %best_tip, "new best tip candidate");
             if self.may_fetch_blocks {
                 self.may_fetch_blocks = false;
-                eff.send(&self.downstream, (tip, parent)).await;
+                eff.send(&self.downstream, (tip, parent, header.block_height())).await;
             }
             self.best_tip = Some(header);
         }
@@ -199,7 +202,7 @@ impl SelectChain {
                     };
                     if self.may_fetch_blocks {
                         self.may_fetch_blocks = false;
-                        eff.send(&self.downstream, (new_best_tip.tip(), parent)).await;
+                        eff.send(&self.downstream, (new_best_tip.tip(), parent, new_best_tip.block_height())).await;
                     }
                     // if falling back to best_chain_hash, add as fully validated to the tips map
                     self.tips.entry(new_best_tip.hash()).or_insert(vec![]);
@@ -240,7 +243,7 @@ impl SelectChain {
                 Point::Origin
             };
             tracing::debug!(tip = %best_tip.point(), %parent, "resuming block fetching");
-            store.eff().send(&self.downstream, (best_tip.tip(), parent)).await;
+            store.eff().send(&self.downstream, (best_tip.tip(), parent, best_tip.block_height())).await;
         } else {
             self.may_fetch_blocks = true;
         }

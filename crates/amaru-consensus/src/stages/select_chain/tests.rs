@@ -102,7 +102,7 @@ fn test_tip_extends_from_origin() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", (tip, parent, tip.block_height())),
             te_state("sc-1", &expected),
         ],
     );
@@ -142,7 +142,7 @@ fn test_tip_extends_from_h1() {
             te_load_header("sc-1", ORIGIN_HASH, false),
             te_load_header("sc-1", prep.headers.h1.hash(), true),
             te_load_header("sc-1", prep.headers.h0.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", (tip, parent, tip.block_height())),
             te_state("sc-1", &expected),
         ],
     );
@@ -178,7 +178,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
             te_get_anchor_hash("sc-1"),
             te_load_header("sc-1", prep.headers.h2.hash(), false),
             te_load_header("sc-1", prep.headers.h2.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", (tip, parent, tip.block_height())),
             te_state("sc-1", &expected),
         ],
     );
@@ -225,7 +225,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             te_load_header("sc-1", prep.headers.h2.hash(), true),
             te_load_header("sc-1", prep.headers.h1.hash(), true),
             te_load_header("sc-1", prep.headers.h0.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", (tip, parent, tip.block_height())),
             te_state("sc-1", &expected),
         ],
     );
@@ -309,7 +309,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             te_load_header("sc-1", prep.headers.h1.hash(), false),
             te_load_header("sc-1", prep.headers.h2a.hash(), true),
             te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", (tip, parent, tip.block_height())),
             te_state("sc-1", &expected),
         ],
     );
@@ -406,7 +406,11 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_get_best_chain_hash("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
             te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point())),
+            te_send(
+                "sc-1",
+                "downstream",
+                (prep.headers.h1.tip(), prep.headers.h0.point(), prep.headers.h1.block_height()),
+            ),
             te_state("sc-1", &expected),
         ],
     );
@@ -447,7 +451,11 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_set_block_valid("sc-1", tip.hash(), false),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
             te_load_header("sc-1", prep.headers.h2a.hash(), false),
-            te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point())),
+            te_send(
+                "sc-1",
+                "downstream",
+                (prep.headers.h3a.tip(), prep.headers.h2a.point(), prep.headers.h3a.block_height()),
+            ),
             te_state("sc-1", &expected),
         ],
     );
@@ -567,7 +575,11 @@ fn test_startup_with_non_empty_store() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", prep.headers.h3.hash(), false),
             te_load_header("sc-1", prep.headers.h2.hash(), false),
-            te_send("sc-1", "downstream", (prep.headers.h3.tip(), prep.headers.h2.point())),
+            te_send(
+                "sc-1",
+                "downstream",
+                (prep.headers.h3.tip(), prep.headers.h2.point(), prep.headers.h3.block_height()),
+            ),
             te_state("sc-1", &prep.state),
         ],
     );
