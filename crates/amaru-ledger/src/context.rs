@@ -114,7 +114,6 @@ pub trait UtxoSlice {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput>;
     fn consume(&mut self, input: TransactionInput);
     fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput);
-    fn produced_inputs(&self) -> Vec<&TransactionInput>;
 }
 
 /// An interface to help constructing the concrete UtxoSlice ahead of time.
@@ -281,6 +280,12 @@ pub trait WitnessSlice {
 
     /// Obtain the full list of known datums collected while traversing the transaction.
     fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData>;
+
+    /// Record a script found in a produced output for later validation.
+    fn produce_script(&mut self, script: MemoizedScript);
+
+    /// Obtain the scripts collected from produced outputs.
+    fn produced_scripts(&mut self) -> Vec<MemoizedScript>;
 }
 
 /// Implement 'known_script' using the provided script locations and a context that is at least a

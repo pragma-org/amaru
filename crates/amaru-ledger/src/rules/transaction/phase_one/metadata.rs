@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryData, Bytes, Hash, TransactionBody};
-use amaru_uplc::{flat::FlatDecodeError, machine::PlutusVersion};
+use amaru_kernel::{AuxiliaryData, Bytes, Hash, ProtocolVersion, TransactionBody};
+use amaru_uplc::flat::FlatDecodeError;
 use thiserror::Error;
 
-use super::scripts::validate_plutus_script;
+use super::scripts::validate_auxiliary_data_scripts;
 
 #[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
@@ -38,7 +38,7 @@ pub enum InvalidTransactionMetadata {
 pub fn execute(
     transaction: &TransactionBody,
     auxiliary_data: Option<&AuxiliaryData>,
-    protocol_version_major: u32,
+    protocol_version: ProtocolVersion,
 ) -> Result<(), InvalidTransactionMetadata> {
     match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data.map(|aux| (aux, aux.hash()))) {
         (None, None) => Ok(()),
@@ -52,16 +52,7 @@ pub fn execute(
                     expected: expected_hash,
                 })
             } else {
-                data.plutus_v1_scripts()
-                    .iter()
-                    .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V1, protocol_version_major))?;
-                data.plutus_v2_scripts()
-                    .iter()
-                    .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V2, protocol_version_major))?;
-                data.plutus_v3_scripts()
-                    .iter()
-                    .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V3, protocol_version_major))?;
-
+                validate_auxiliary_data_scripts(data, protocol_version)?;
                 Ok(())
             }
         }
@@ -70,9 +61,7 @@ pub fn execute(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{
-        AuxiliaryData, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolVersionExt, TransactionBody, include_cbor,
-    };
+    use amaru_kernel::{AuxiliaryData, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, TransactionBody, include_cbor};
     use test_case::test_case;
 
     use super::InvalidTransactionMetadata;
@@ -128,10 +117,6 @@ mod tests {
     fn test_metadata(
         (transaction, auxiliary_data): (TransactionBody, Option<AuxiliaryData>),
     ) -> Result<(), InvalidTransactionMetadata> {
-        super::execute(
-            &transaction,
-            auxiliary_data.as_ref(),
-            PREPROD_DEFAULT_PROTOCOL_PARAMETERS.protocol_version.major(),
-        )
+        super::execute(&transaction, auxiliary_data.as_ref(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.protocol_version)
     }
 }

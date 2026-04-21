@@ -74,6 +74,11 @@ where
             context.allow_supplemental_datum(*hash);
         }
 
+        // TODO: avoid cloning here; requires changing produce() to not take ownership
+        if let Some(ref script) = output.script {
+            context.produce_script(script.clone());
+        }
+
         if let Some(input) = construct_utxo(position as u64) {
             context.produce(input, output);
         }
