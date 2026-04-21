@@ -23,8 +23,8 @@ use std::{
 
 use amaru_kernel::{
     AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory, EraHistoryError,
-    GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters,
-    Slot, StakeCredential, StakeCredentialKind, Tip, TransactionInput, expect_stake_credential,
+    GlobalParameters, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId,
+    ProtocolParameters, Slot, StakeCredential, StakeCredentialKind, Tip, TransactionInput, expect_stake_credential,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::trace_span;
@@ -656,75 +656,79 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         block: Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::ROLL_FORWARD);
-        let _guard = _span.enter();
+        trace_span!(amaru_observability::amaru::ledger::state::ROLL_FORWARD).in_scope(|| {
+            let mut context = match self.create_validation_context(&block) {
+                Ok(context) => context,
+                Err(e) => return BlockValidation::Err(anyhow!(e)),
+            };
 
-        let mut context = match self.create_validation_context(&block) {
-            Ok(context) => context,
-            Err(e) => return BlockValidation::Err(anyhow!(e)),
-        };
+            let block_height = block.header.header_body.block_number;
 
-        let block_height = block.header.header_body.block_number;
-        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-        let prev_hash = block.header.header_body.prev_hash;
-        let txs_processed = block.transaction_bodies.len() as u64;
+            let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
-        match rules::validate_block(
-            &mut context,
-            arena_pool,
-            self.network(),
-            self.protocol_parameters(),
-            self.era_history(),
-            self.governance_activity(),
-            block,
-        ) {
-            BlockValidation::Err(err) => BlockValidation::Err(err),
-            BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
-            BlockValidation::Valid(()) => {
-                let state: VolatileState = context.into();
-                let slot = point.slot_or_default();
-                let epoch = match self.era_history().slot_to_epoch(slot, slot) {
-                    Ok(epoch) => epoch,
-                    Err(_) => 0.into(),
-                }
-                .into();
-                let slot_in_epoch = match self.era_history().slot_in_epoch(slot, slot) {
-                    Ok(slot) => slot,
-                    Err(_) => 0.into(),
-                }
-                .into();
+            let metrics = self.new_metrics(point, &block, issuer);
 
-                let slot: u64 = slot.into();
+            rules::validate_block(
+                &mut context,
+                arena_pool,
+                self.network(),
+                self.protocol_parameters(),
+                self.era_history(),
+                self.governance_activity(),
+                block,
+            )?;
 
-                let density = self.chain_density(point);
+            let state: VolatileState = context.into();
 
-                let current_kes_period = slot.checked_div(self.global_parameters.slots_per_kes_period).unwrap_or(0);
-                let remaining_kes_periods =
-                    (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
+            let tip = Tip::new(*point, block_height.into());
 
-                let metrics = LedgerMetrics {
-                    block_height,
-                    txs_processed,
-                    slot,
-                    slot_in_epoch,
-                    epoch,
-                    density,
-                    current_kes_period,
-                    remaining_kes_periods,
-                    hash: hex::encode(point.hash()),
-                    parent_hash: prev_hash.map(hex::encode).unwrap_or_default(),
-                    issuer_verification_key_hash: hex::encode(issuer),
-                };
-
-                let tip = Tip::new(*point, block_height.into());
-                match self.forward(state.anchor(tip, issuer)) {
-                    Ok(()) => BlockValidation::Valid(metrics),
-                    Err(e) => {
-                        error!(%e, "Failed to roll forward the ledger state");
-                        BlockValidation::Err(anyhow!(e))
-                    }
+            match self.forward(state.anchor(tip, issuer)) {
+                Ok(()) => BlockValidation::Valid(metrics),
+                Err(e) => {
+                    error!(%e, "Failed to roll forward the ledger state");
+                    BlockValidation::Err(anyhow!(e))
                 }
             }
+        })
+    }
+
+    fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
+        let slot = point.slot_or_default();
+
+        let prev_hash = block.header.header_body.prev_hash;
+
+        let block_height = block.header.header_body.block_number;
+
+        let txs_processed = block.transaction_bodies.len() as u64;
+
+        let epoch = self
+            .era_history()
+            .slot_to_epoch(slot, slot)
+            .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from current slot ({slot}): {e}"));
+
+        let slot_in_epoch = self.era_history().slot_in_epoch(slot, slot).unwrap_or_else(|e| {
+            unreachable!("impossible; failed to compute relative slot from current slot ({slot}): {e}")
+        });
+
+        let density = self.chain_density(point);
+
+        let current_kes_period = u64::from(slot).checked_div(self.global_parameters.slots_per_kes_period).unwrap_or(0);
+
+        let remaining_kes_periods =
+            (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
+
+        LedgerMetrics {
+            block_height,
+            txs_processed,
+            slot: u64::from(slot),
+            slot_in_epoch: u64::from(slot_in_epoch),
+            epoch: u64::from(epoch),
+            density,
+            current_kes_period,
+            remaining_kes_periods,
+            block_header_hash: hex::encode(point.hash()),
+            parent_block_header_hash: prev_hash.map(hex::encode).unwrap_or_default(),
+            issuer_verification_key_hash: hex::encode(issuer),
         }
     }
 

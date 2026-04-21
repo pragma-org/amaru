@@ -29,8 +29,8 @@ pub struct LedgerMetrics {
     pub density: f64,
     pub current_kes_period: u64,
     pub remaining_kes_periods: u64,
-    pub hash: String,
-    pub parent_hash: String,
+    pub block_header_hash: String,
+    pub parent_block_header_hash: String,
     pub issuer_verification_key_hash: String,
 }
 
@@ -45,8 +45,8 @@ impl Default for LedgerMetrics {
             density: Default::default(),
             current_kes_period: Default::default(),
             remaining_kes_periods: Default::default(),
-            hash: Default::default(),
-            parent_hash: Default::default(),
+            block_header_hash: Default::default(),
+            parent_block_header_hash: Default::default(),
             issuer_verification_key_hash: Default::default(),
         }
     }
@@ -139,8 +139,8 @@ impl MetricRecorder for LedgerMetrics {
         remaining_kes_periods.record(self.remaining_kes_periods, &[]);
 
         crate::protocol::TipBlockMetrics {
-            hash: self.hash.clone(),
-            parent_hash: self.parent_hash.clone(),
+            hash: self.block_header_hash.clone(),
+            parent_hash: self.parent_block_header_hash.clone(),
             issuer_verification_key_hash: self.issuer_verification_key_hash.clone(),
         }
         .record_to_meter(meter);
