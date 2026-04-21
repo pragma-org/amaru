@@ -313,91 +313,91 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[expect(clippy::unwrap_used)]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
-        let _span = trace_span!(
+        trace_span!(
             amaru_observability::amaru::ledger::state::APPLY_BLOCK,
             point_slot = u64::from(now_stable.anchor.0.slot())
-        );
-        let _guard = _span.enter();
+        )
+        .in_scope(|| {
+            let stable_tip_slot = now_stable.anchor.0.slot();
 
-        let stable_tip_slot = now_stable.anchor.0.slot();
+            let mut db = self.stable.lock().unwrap();
 
-        let mut db = self.stable.lock().unwrap();
+            let latest_stored_tip = db.tip().map_err(StateError::Storage)?;
+            let latest_stored_tip_slot = latest_stored_tip.slot_or_default();
 
-        let latest_stored_tip = db.tip().map_err(StateError::Storage)?;
-        let latest_stored_tip_slot = latest_stored_tip.slot_or_default();
+            let current_epoch = self
+                .era_history
+                .slot_to_epoch(stable_tip_slot, stable_tip_slot)
+                .map_err(|e| StateError::ErrorComputingEpoch(stable_tip_slot, e))?;
 
-        let current_epoch = self
-            .era_history
-            .slot_to_epoch(stable_tip_slot, stable_tip_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(stable_tip_slot, e))?;
+            let latest_stored_epoch = self
+                .era_history
+                .slot_to_epoch(latest_stored_tip_slot, stable_tip_slot)
+                .map_err(|e| StateError::ErrorComputingEpoch(latest_stored_tip_slot, e))?;
 
-        let latest_stored_epoch = self
-            .era_history
-            .slot_to_epoch(latest_stored_tip_slot, stable_tip_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(latest_stored_tip_slot, e))?;
+            let epoch_transitioning = current_epoch > latest_stored_epoch;
 
-        let epoch_transitioning = current_epoch > latest_stored_epoch;
+            // The volatile sequence may contain points belonging to two epochs.
+            //
+            // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
+            // epoch than the previously applied block (i.e. the tip of the stable storage).
+            if epoch_transitioning {
+                let old_protocol_version = self.protocol_parameters.protocol_version;
 
-        // The volatile sequence may contain points belonging to two epochs.
-        //
-        // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
-        // epoch than the previously applied block (i.e. the tip of the stable storage).
-        if epoch_transitioning {
-            let old_protocol_version = self.protocol_parameters.protocol_version;
+                let rewards_summary = self.rewards_summary.take();
 
-            let rewards_summary = self.rewards_summary.take();
+                let protocol_parameters =
+                    self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
 
-            let protocol_parameters =
-                self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
+                self.protocol_parameters = protocol_parameters;
+                self.governance_activity = db.governance_activity()?;
 
-            self.protocol_parameters = protocol_parameters;
-            self.governance_activity = db.governance_activity()?;
-
-            if old_protocol_version != self.protocol_parameters.protocol_version {
-                info!(
-                    from = old_protocol_version.0,
-                    to = self.protocol_parameters.protocol_version.0,
-                    "protocol.upgrade"
-                )
-            }
-        }
-
-        // Persist changes for this block
-        let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
-            now_stable.into_store_update(current_epoch, &self.protocol_parameters);
-
-        let batch = db.create_transaction();
-
-        batch
-            .save(
-                &self.era_history,
-                &self.protocol_parameters,
-                &mut self.governance_activity,
-                &stable_point,
-                Some(&stable_issuer),
-                add,
-                remove,
-                withdrawals,
-            )
-            .and_then(|()| {
-                batch.with_pots(|mut row| {
-                    row.borrow_mut().fees += fees;
-                })?;
-
-                // Reset the epoch transition progress once we've successfully applied the first
-                // block of the next epoch.
-                if epoch_transitioning {
-                    let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
-                    if !success {
-                        unreachable!("epoch transition reset did not succeed after first block!")
-                    }
+                if old_protocol_version != self.protocol_parameters.protocol_version {
+                    info!(
+                        from = old_protocol_version.0,
+                        to = self.protocol_parameters.protocol_version.0,
+                        "protocol.upgrade"
+                    )
                 }
+            }
 
-                batch.commit()
-            })
-            .map_err(StateError::Storage)?;
+            // Persist changes for this block
+            let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
+                now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
-        Ok(())
+            let batch = db.create_transaction();
+
+            batch
+                .save(
+                    &self.era_history,
+                    &self.protocol_parameters,
+                    &mut self.governance_activity,
+                    &stable_point,
+                    Some(&stable_issuer),
+                    add,
+                    remove,
+                    withdrawals,
+                )
+                .and_then(|()| {
+                    batch.with_pots(|mut row| {
+                        row.borrow_mut().fees += fees;
+                    })?;
+
+                    // Reset the epoch transition progress once we've successfully applied the first
+                    // block of the next epoch.
+                    if epoch_transitioning {
+                        let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
+                        if !success {
+                            unreachable!("epoch transition reset did not succeed after first block!")
+                        }
+                    }
+
+                    batch.commit()
+                })
+                .map_err(StateError::Storage)?;
+
+            Ok(())
+        })
     }
 
     fn epoch_transition(
@@ -514,50 +514,48 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
     pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::FORWARD);
-        let _guard = _span.enter();
-        let volatile_len_before = self.volatile.len() as u64;
-        let security_param = self.global_parameters.consensus_security_param as u64;
+        trace_span!(amaru_observability::amaru::ledger::state::FORWARD).in_scope(|| {
+            let volatile_len_before = self.volatile.len() as u64;
+            let security_param = self.global_parameters.consensus_security_param as u64;
 
-        // Persist the next now-immutable block, which may not quite exist when we just
-        // bootstrapped the system
-        if self.volatile.len() >= self.global_parameters.consensus_security_param {
-            let now_stable = self
-                .volatile
-                .pop_front()
-                .unwrap_or_else(|| unreachable!("pre-condition: self.volatile.len() >= consensus_security_param"));
+            // Persist the next now-immutable block, which may not quite exist when we just
+            // bootstrapped the system
+            if self.volatile.len() >= self.global_parameters.consensus_security_param {
+                let now_stable = self
+                    .volatile
+                    .pop_front()
+                    .unwrap_or_else(|| unreachable!("pre-condition: self.volatile.len() >= consensus_security_param"));
 
-            let _span = trace_span!(
-                amaru_observability::amaru::ledger::state::VOLATILE_TO_STABLE,
-                persisted_point = now_stable.anchor.0.to_string(),
-                volatile_len_before = volatile_len_before,
-                volatile_len_after = volatile_len_before.saturating_sub(1),
-                k = security_param
-            );
-            let _guard = _span.enter();
+                trace_span!(
+                    amaru_observability::amaru::ledger::state::VOLATILE_TO_STABLE,
+                    persisted_point = now_stable.anchor.0.to_string(),
+                    volatile_len_before = volatile_len_before,
+                    volatile_len_after = volatile_len_before.saturating_sub(1),
+                    k = security_param
+                )
+                .in_scope(|| self.apply_block(now_stable))?;
+            } else {
+                trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
+            }
 
-            self.apply_block(now_stable)?;
-        } else {
-            trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
-        }
+            let tip = next_state.anchor.0.slot();
+            let relative_slot =
+                self.era_history.slot_in_epoch(tip, tip).map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
 
-        let tip = next_state.anchor.0.slot();
-        let relative_slot =
-            self.era_history.slot_in_epoch(tip, tip).map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
+            // Once we reach the stability window, compute rewards unless we've already done so.
+            //
+            // FIXME: compute rewards in a thread, or in a non-blocking manner to carry on with other
+            // tasks while rewards are being computed; they only need to be available at the epoch
+            // boundary.
+            let stability_window = self.global_parameters.stability_window;
+            if self.rewards_summary.is_none() && relative_slot >= stability_window {
+                self.rewards_summary = Some(self.compute_rewards()?);
+            }
 
-        // Once we reach the stability window, compute rewards unless we've already done so.
-        //
-        // FIXME: compute rewards in a thread, or in a non-blocking manner to carry on with other
-        // tasks while rewards are being computed; they only need to be available at the epoch
-        // boundary.
-        let stability_window = self.global_parameters.stability_window;
-        if self.rewards_summary.is_none() && relative_slot >= stability_window {
-            self.rewards_summary = Some(self.compute_rewards()?);
-        }
+            self.volatile.push_back(next_state);
 
-        self.volatile.push_back(next_state);
-
-        Ok(())
+            Ok(())
+        })
     }
 
     #[expect(clippy::unwrap_used)]
