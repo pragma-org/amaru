@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
 use tracing::Instrument;
 
@@ -28,7 +28,6 @@ use crate::{
     connection::{self, ConnectionMessage},
     network_effects::{Network, NetworkOps},
     protocol::Role,
-    tx_submission::MempoolMsg,
 };
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

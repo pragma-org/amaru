@@ -16,7 +16,8 @@ use std::net::SocketAddr;
 
 use amaru_kernel::Transaction;
 use amaru_ouroboros::{TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_protocols::tx_submission::{MEMPOOL_INSERT_TIMEOUT, MempoolMsg};
+use amaru_ouroboros_traits::MempoolMsg;
+use amaru_protocols::tx_submission::MEMPOOL_INSERT_TIMEOUT;
 use anyhow::Context;
 use axum::{
     Json, Router,
@@ -135,12 +136,11 @@ mod tests {
     use amaru_consensus::{effects::ResourceTxValidation, stages::mempool::MempoolStageState};
     use amaru_kernel::{RawBlock, Transaction};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
-    use amaru_ouroboros::ResourceMempool;
+    use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
         MempoolError, MempoolSeqNo, MockCanValidateTxs, TransactionValidationError, TxId, TxInsertResult, TxOrigin,
         TxSubmissionMempool,
     };
-    use amaru_protocols::tx_submission::MempoolMsg;
     use axum::{
         body::{Bytes, to_bytes},
         extract::State,

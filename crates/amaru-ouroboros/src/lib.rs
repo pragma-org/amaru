@@ -18,11 +18,13 @@ pub use pallas_math::math;
 pub use pallas_primitives::{VrfCert, conway::OperationalCert};
 
 pub mod kes;
+pub mod mempool;
 pub mod praos;
 mod serde_util;
 pub mod vrf;
 
 pub use amaru_ouroboros_traits::*;
+pub use mempool::*;
 
 /// The node's cold vkey is hashed with blake2b224 to create the pool id
 pub fn issuer_to_pool_id(issuer: &ed25519::PublicKey) -> PoolId {

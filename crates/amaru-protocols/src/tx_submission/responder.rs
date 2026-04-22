@@ -21,8 +21,9 @@ use std::{
 use ProtocolError::*;
 use amaru_kernel::Transaction;
 use amaru_observability::trace_span;
-use amaru_ouroboros::TxSubmissionMempool;
-use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros::{
+    MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
+};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -433,23 +434,8 @@ impl Display for ResponderAction {
     }
 }
 
-/// Messages accepted by the mempool stage.
-///
-/// `Insert` is used for single-transaction submission (e.g. the HTTP Submit API).
-///
-/// `InsertBatch` is used for bulk insertion from the TX submission protocol,
-/// where transactions arrive in batches and a single round-trip is preferable.
-///
-/// The response to `InsertBatch` contains one `TxInsertResult` per input transaction,
-/// in the same order.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct MempoolInsertError {
-    pub tx_id: TxId,
-    pub error: MempoolError,
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum MempoolMsg {
+pub enum TxSubmissionMsg {
     WaitForAtLeast {
         seq_no: MempoolSeqNo,
         caller: StageRef<()>,

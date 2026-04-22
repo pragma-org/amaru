@@ -53,8 +53,7 @@ use std::fmt::{Debug, Display};
 use ProtocolError::*;
 use amaru_kernel::{Transaction, utils::string::display_collection};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{MempoolSeqNo, TxSubmissionMempool};
-use amaru_ouroboros_traits::TxId;
+use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxId, TxSubmissionMempool};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -64,7 +63,7 @@ use crate::{
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
     },
-    tx_submission::{Blocking, MempoolMsg, Message, ProtocolError, State},
+    tx_submission::{Blocking, Message, ProtocolError, State},
 };
 
 const MAX_REQUESTED_TX_IDS: u16 = 10;

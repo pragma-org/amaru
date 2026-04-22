@@ -16,10 +16,9 @@ use std::sync::Arc;
 
 use amaru_kernel::Transaction;
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros_traits::{
-    MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
+use amaru_ouroboros::{
+    MempoolMsg, MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
 };
-use amaru_protocols::tx_submission::MempoolMsg;
 use pure_stage::StageRef;
 use tokio::runtime::Builder;
 use tracing::Level;

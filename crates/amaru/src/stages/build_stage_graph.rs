@@ -23,10 +23,10 @@ use amaru_consensus::stages::{
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
 use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, Point, Tip};
+use amaru_ouroboros_traits::MempoolMsg;
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
-    tx_submission::MempoolMsg,
 };
 use pure_stage::{StageGraph, StageRef};
 

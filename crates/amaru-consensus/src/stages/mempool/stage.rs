@@ -13,13 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::Transaction;
-use amaru_ouroboros_traits::{
-    MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
+use amaru_ouroboros::{
+    MempoolError, MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason,
+    TxSubmissionMempool,
 };
-use amaru_protocols::{
-    mempool_effects::MemoryPool,
-    tx_submission::{MempoolInsertError, MempoolMsg},
-};
+use amaru_protocols::mempool_effects::MemoryPool;
 use pure_stage::{Effects, StageRef};
 
 use crate::effects::{Ledger, LedgerOps};

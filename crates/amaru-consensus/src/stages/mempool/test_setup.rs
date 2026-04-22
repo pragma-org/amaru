@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
-use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{TxInsertResult, TxOrigin};
-use amaru_protocols::tx_submission::{MempoolInsertError, MempoolMsg};
+use amaru_ouroboros::{MempoolInsertError, MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
 use pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
     serde::SendDataValue,

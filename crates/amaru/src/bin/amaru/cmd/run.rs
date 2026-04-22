@@ -27,7 +27,7 @@ use amaru::{
     },
 };
 use amaru_kernel::NetworkName;
-use amaru_protocols::tx_submission::MempoolMsg;
+use amaru_ouroboros_traits::MempoolMsg;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
