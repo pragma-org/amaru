@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, time::Duration};
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Tip};
+use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
 use amaru_ouroboros_traits::StoreError;
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
@@ -86,23 +86,38 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         })
         .await;
 
-    let current_best = store
-        .load_header(&state.current_best_tip.hash())
-        .or_terminate_with(&eff, async |_| {
-            tracing::warn!("failed to load current best");
-        })
-        .await;
+    let current_best = if state.current_best_tip.point() == Point::Origin {
+        None
+    } else {
+        Some(
+            store
+                .load_header(&state.current_best_tip.hash())
+                .or_terminate_with(&eff, async |_| {
+                    tracing::warn!("failed to load current best");
+                })
+                .await,
+        )
+    };
 
-    if cmp_tip(Some(&incoming_header), Some(&current_best)) != Ordering::Greater {
+    if cmp_tip(Some(&incoming_header), current_best.as_ref()) != Ordering::Greater {
         tracing::debug!(tip = %msg, "incoming tip not better than current best, not adopting");
         return state;
     }
 
-    adopt_tip(&store, &incoming_header, &current_best)
-        .or_terminate_with(&eff, async |error| {
-            tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
-        })
-        .await;
+    if let Some(current_best) = current_best.as_ref() {
+        adopt_tip(&store, &incoming_header, current_best)
+            .or_terminate_with(&eff, async |error| {
+                tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
+            })
+            .await;
+    } else {
+        store
+            .roll_forward_chain(&incoming_header.point())
+            .or_terminate_with(&eff, async |error| {
+                tracing::error!(error = %error, tip = %msg, "failed to adopt first tip");
+            })
+            .await;
+    }
 
     drag_anchor_forward(&store, &msg, state.consensus_security_param)
         .or_terminate_with(&eff, async |error| {

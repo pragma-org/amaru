@@ -213,13 +213,13 @@ impl TrackPeers {
         tip: Tip,
         store: &Store,
     ) -> Result<(), ConsensusError> {
-        let Some(header) = store.load_header(&current.hash()).await else {
+        let Some(current_tip) = store.load_tip(&current.hash()).await else {
             return Err(ConsensusError::UnknownPoint(current.hash()));
         };
         let Some(per_peer) = self.upstream.get_mut(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         };
-        per_peer.current = Tip::new(current, header.block_height());
+        per_peer.current = current_tip;
         per_peer.highest = tip;
         Ok(())
     }
@@ -290,14 +290,14 @@ impl TrackPeers {
                 tracing::info!(%peer,"initializing chainsync");
             }
             IntersectFound(current, tip) => {
-                let Some(header) = Store::new(eff.clone()).load_header(&current.hash()).await else {
+                let current_tip = Store::new(eff.clone()).load_tip(&current.hash()).await;
+                let Some(current_tip) = current_tip else {
                     tracing::warn!(%peer, %current, tip = %tip.point(), reason = "peer sent unknown intersection point", "stopping chainsync");
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
                 tracing::info!(%peer, %current, highest = %tip.point(), "intersect found");
-                let current = Tip::new(current, header.block_height());
-                self.upstream.insert(peer, PerPeer { current, highest: tip });
+                self.upstream.insert(peer, PerPeer { current: current_tip, highest: tip });
             }
             IntersectNotFound(tip) => {
                 tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
