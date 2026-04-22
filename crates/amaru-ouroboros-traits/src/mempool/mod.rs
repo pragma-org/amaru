@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod can_validate_txs;
 mod mempool_traits;
 mod values;
 
-pub use can_validate_txs::*;
 pub use mempool_traits::*;
 pub use values::*;

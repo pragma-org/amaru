@@ -15,10 +15,9 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
-use amaru_ouroboros::{ConnectionId, can_validate_blocks::mock::MockCanValidateBlocks};
+use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    ChainStore,
-    can_validate_blocks::{CanValidateHeaders, HeaderValidationError, mock::MockCanValidateHeaders},
+    CanValidateHeaders, ChainStore, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders,
     in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_protocols::{

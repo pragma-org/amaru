@@ -15,8 +15,7 @@
 use std::net::SocketAddr;
 
 use amaru_kernel::Transaction;
-use amaru_ouroboros::{TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_ouroboros_traits::MempoolMsg;
+use amaru_ouroboros::{MempoolMsg, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::tx_submission::MEMPOOL_INSERT_TIMEOUT;
 use anyhow::Context;
 use axum::{

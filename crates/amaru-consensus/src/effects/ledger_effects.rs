@@ -17,8 +17,8 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateTxs, TransactionValidationError,
-    can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
+    BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HeaderValidationError,
+    TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use opentelemetry::trace::FutureExt;

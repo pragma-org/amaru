@@ -26,8 +26,7 @@ use amaru_kernel::{
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, ResourceMempool};
-use amaru_ouroboros_traits::MempoolMsg;
+use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, MempoolMsg, ResourceMempool};
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},

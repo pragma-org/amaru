@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,20 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
+use amaru_kernel::BlockHeader;
 
-pub mod validators;
-pub use validators::*;
+use crate::{CanValidateHeaders, HeaderValidationError};
 
-pub mod connections;
-pub use connections::*;
+/// A fake header validator that always returns ok
+#[derive(Clone, Debug, Default)]
+pub struct MockCanValidateHeaders;
 
-pub mod mempool;
-pub use mempool::*;
-
-pub mod stores;
-pub use stores::*;
-
-pub mod praos;
-pub use praos::*;
+impl CanValidateHeaders for MockCanValidateHeaders {
+    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
+        Ok(())
+    }
+}

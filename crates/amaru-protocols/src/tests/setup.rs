@@ -25,12 +25,9 @@ use std::{
 use amaru_kernel::{BlockHeader, NonEmptyBytes, Peer, Transaction};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, ChainStore, ConnectionId, ConnectionProvider, ConnectionsResource, Mempool,
-    MockCanValidateTxs, ResourceMempool, ToSocketAddrs,
-    can_validate_blocks::{
-        CanValidateHeaders,
-        mock::{MockCanValidateBlocks, MockCanValidateHeaders},
-    },
+    CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ChainStore, ConnectionId, ConnectionProvider,
+    ConnectionsResource, Mempool, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
+    ToSocketAddrs,
 };
 use pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};

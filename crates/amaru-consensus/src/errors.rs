@@ -15,7 +15,7 @@
 use std::{fmt, fmt::Display};
 
 use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
-use amaru_ouroboros_traits::{BlockValidationError, StoreError, can_validate_blocks::HeaderValidationError};
+use amaru_ouroboros_traits::{BlockValidationError, HeaderValidationError, StoreError};
 use serde::ser::SerializeStruct;
 use thiserror::Error;
 

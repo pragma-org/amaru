@@ -109,8 +109,8 @@ pub mod tests {
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics};
     use amaru_ouroboros::has_stake_distribution::GetPoolError;
     use amaru_ouroboros_traits::{
-        BlockValidationError, HasStakeDistribution, PoolSummary, TxSubmissionMempool,
-        can_validate_blocks::HeaderValidationError, in_memory_consensus_store::InMemConsensusStore,
+        BlockValidationError, HasStakeDistribution, HeaderValidationError, PoolSummary, TxSubmissionMempool,
+        in_memory_consensus_store::InMemConsensusStore,
     };
     use amaru_protocols::blockfetch::Blocks;
     use parking_lot::Mutex;

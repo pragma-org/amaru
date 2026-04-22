@@ -12,13 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Block, BlockHeader, Point, Tip};
+use amaru_kernel::{Block, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 
-use crate::{
-    CanValidateBlocks,
-    can_validate_blocks::{BlockValidationError, CanValidateHeaders, HeaderValidationError},
-};
+use crate::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
 
 /// A fake block validator that always returns the same height.
 #[derive(Clone, Debug, Default)]
@@ -48,15 +45,5 @@ impl CanValidateBlocks for MockCanValidateBlocks {
 
     fn volatile_tip(&self) -> Option<Tip> {
         None
-    }
-}
-
-/// A fake header validator that always returns ok
-#[derive(Clone, Debug, Default)]
-pub struct MockCanValidateHeaders;
-
-impl CanValidateHeaders for MockCanValidateHeaders {
-    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        Ok(())
     }
 }
