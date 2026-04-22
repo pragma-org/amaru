@@ -279,42 +279,8 @@ jobs:
           key: cargo-x86_64-unknown-linux-gnu
           restore-keys: |
             cargo-x86_64-unknown-linux-gnu
-      - name: Generate current schemas
-        run: |
-          cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
-      - name: Check for unused trace schemas
-        run: ./scripts/unused-schemas
-      - name: Compare schemas
-        run: |
-          set -euo pipefail
-
-          # Canonicalize JSON to avoid formatting noise
-          # Remove 'private' field from comparison as it doesn't affect functionality
-          jq -S 'walk(if type == "object" then del(.private) else . end)' docs/traces-schema.json > /tmp/expected.json
-          jq -S 'walk(if type == "object" then del(.private) else . end)' /tmp/schemas-current.json > /tmp/current.json
-
-          if diff -u /tmp/expected.json /tmp/current.json > /tmp/schemas.diff; then
-            echo "✓ Schemas are up-to-date"
-          else
-            echo "::group::❌ Schema diff (expected → generated)"
-            diff --color=always -u /tmp/expected.json /tmp/current.json || true
-            echo "::endgroup::"
-
-            echo "::error title=Schema out of date::Generated schema does not match docs/traces-schema.json"
-
-            {
-              echo "## ❌ Schema mismatch"
-              echo ""
-              echo "The generated schema differs from \`docs/traces-schema.json\`."
-              echo ""
-              echo "**How to fix:**"
-              echo '```bash'
-              echo './scripts/generate-traces-doc'
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-
-            exit 1
-          fi
+      - name: Validate trace schemas
+        run: make validate-trace-schemas
       - name: Upload schema diff
         if: failure()
         uses: actions/upload-artifact@v4

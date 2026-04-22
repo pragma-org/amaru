@@ -21,7 +21,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -77,6 +77,33 @@ generate-traces-doc: ## &build Generate documentation for Amaru's tracing spans
 serve-traces-doc: generate-traces-doc ## &build Regenerate traces docs and serve docs/traces.html on http://127.0.0.1:$(TRACES_PORT)/traces.html
 	@echo "Serving docs/traces.html at http://127.0.0.1:$(TRACES_PORT)/traces.html"
 	@python3 -m http.server $(TRACES_PORT) --directory docs
+
+validate-trace-schemas: ## &test Validate generated trace schemas against docs/traces-schema.json
+	@cargo build --bin amaru --quiet
+	@./target/debug/amaru dump-traces-schema 2> /tmp/schemas-current.json
+	@./scripts/unused-schemas
+	@set -eu; \
+	jq -S 'walk(if type == "object" then del(.private) else . end)' docs/traces-schema.json > /tmp/expected.json; \
+	jq -S 'walk(if type == "object" then del(.private) else . end)' /tmp/schemas-current.json > /tmp/current.json; \
+	if diff -u /tmp/expected.json /tmp/current.json > /tmp/schemas.diff; then \
+		echo "✓ Schemas are up-to-date"; \
+	else \
+		echo "::group::❌ Schema diff (expected → generated)"; \
+		diff --color=always -u /tmp/expected.json /tmp/current.json || true; \
+		echo "::endgroup::"; \
+		echo "::error title=Schema out of date::Generated schema does not match docs/traces-schema.json"; \
+		{ \
+			echo "## ❌ Schema mismatch"; \
+			echo ""; \
+			echo "The generated schema differs from \`docs/traces-schema.json\`."; \
+			echo ""; \
+			echo "**How to fix:**"; \
+			echo '```bash'; \
+			echo './scripts/generate-traces-doc'; \
+			echo '```'; \
+		} >> "$${GITHUB_STEP_SUMMARY:-/dev/null}"; \
+		exit 1; \
+	fi
 
 dev: start # 'backward-compatibility'; might remove after a while.
 start: ## &build Compile and run for $BUILD_PROFILE with default options
