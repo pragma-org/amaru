@@ -8,7 +8,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - `cargo check-amaru`: `check --workspace --all-targets`
 - `cargo clippy-amaru`: `clippy --workspace --all-targets -- -D warnings`
 - `cargo fmt-amaru`: `fmt --all -- --check`
-- Use nightly toolchain: `nightly-2025-11-21` (see rust-toolchain.toml)
+- Use nightly toolchain: `nightly-2026-04-17` (see rust-toolchain.toml)
 
 ### Makefile Targets (preferred for consistency)
 - `make build`: Build in release profile

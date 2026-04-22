@@ -14,7 +14,7 @@
 
 // EDR-010 - Ledger Validation Context
 // <https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/010-ledger-validation-context.md>
-#![feature(try_trait_v2)]
+#![feature(try_trait_v2, try_trait_v2_residual)]
 
 pub mod block_validator;
 pub mod bootstrap;

@@ -14,7 +14,7 @@
 
 use std::{
     fmt::{self, Display},
-    ops::{ControlFlow, FromResidual, Try},
+    ops::{ControlFlow, FromResidual, Residual, Try},
     process::{ExitCode, Termination},
 };
 
@@ -54,6 +54,11 @@ pub enum InvalidBlockDetails {
 #[derive(Debug)]
 pub enum BlockValidation<A, E> {
     Valid(A),
+    Invalid(Slot, HeaderHash, InvalidBlockDetails),
+    Err(E),
+}
+
+pub enum BlockValidationResidual<E> {
     Invalid(Slot, HeaderHash, InvalidBlockDetails),
     Err(E),
 }
@@ -115,7 +120,7 @@ impl<A, E> Termination for BlockValidation<A, E> {
 
 impl<A, E> Try for BlockValidation<A, E> {
     type Output = A;
-    type Residual = Result<(Slot, HeaderHash, InvalidBlockDetails), E>;
+    type Residual = BlockValidationResidual<E>;
 
     fn from_output(result: Self::Output) -> Self {
         Self::Valid(result)
@@ -124,19 +129,25 @@ impl<A, E> Try for BlockValidation<A, E> {
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             Self::Valid(result) => ControlFlow::Continue(result),
-            Self::Invalid(slot, id, violation) => ControlFlow::Break(Ok((slot, id, violation))),
-            Self::Err(err) => ControlFlow::Break(Err(err)),
+            Self::Invalid(slot, id, violation) => {
+                ControlFlow::Break(BlockValidationResidual::Invalid(slot, id, violation))
+            }
+            Self::Err(err) => ControlFlow::Break(BlockValidationResidual::Err(err)),
         }
     }
 }
 
 impl<A, E> FromResidual for BlockValidation<A, E> {
-    fn from_residual(residual: Result<(Slot, HeaderHash, InvalidBlockDetails), E>) -> Self {
+    fn from_residual(residual: BlockValidationResidual<E>) -> Self {
         match residual {
-            Ok((slot, id, violation)) => BlockValidation::Invalid(slot, id, violation),
-            Err(err) => BlockValidation::Err(err),
+            BlockValidationResidual::Invalid(slot, id, violation) => BlockValidation::Invalid(slot, id, violation),
+            BlockValidationResidual::Err(err) => BlockValidation::Err(err),
         }
     }
+}
+
+impl<A, E> Residual<A> for BlockValidationResidual<E> {
+    type TryType = BlockValidation<A, E>;
 }
 
 pub fn execute<C, S: From<C>>(

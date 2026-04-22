@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CARGO_TOML="$ROOT_DIR/Cargo.toml"
+TOOLCHAIN_TOML="$ROOT_DIR/rust-toolchain.toml"
+
+channel="$(
+  sed -nE 's/^channel = "([^"]+)".*/\1/p' "$TOOLCHAIN_TOML" | head -n 1
+)"
+
+rust_version="$(
+  sed -nE 's/^rust-version = "([^"]+)".*/\1/p' "$CARGO_TOML" | head -n 1
+)"
+
+if [[ -z "$channel" ]]; then
+  echo "Could not read toolchain channel from $TOOLCHAIN_TOML" >&2
+  exit 1
+fi
+
+if [[ -z "$rust_version" ]]; then
+  echo "Could not read rust-version from $CARGO_TOML" >&2
+  exit 1
+fi
+
+actual_version="$(
+  rustc "+$channel" --version | sed -nE 's/^rustc ([0-9]+\.[0-9]+)\..*/\1/p'
+)"
+
+if [[ -z "$actual_version" ]]; then
+  echo "Could not determine Rust version for toolchain $channel" >&2
+  exit 1
+fi
+
+if [[ "$(printf '%s\n%s\n' "$rust_version" "$actual_version" | sort -V | tail -n 1)" != "$actual_version" ]]; then
+  echo "Rust toolchain is too old for the declared rust-version:" >&2
+  echo "  rust-toolchain.toml channel: $channel" >&2
+  echo "  channel resolves to Rust:    $actual_version" >&2
+  echo "  Cargo.toml rust-version:    $rust_version" >&2
+  exit 1
+fi
+
+echo "Rust toolchain is compatible: $channel -> $actual_version (rust-version: $rust_version)"

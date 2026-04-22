@@ -1212,15 +1212,13 @@ mod tests {
 
         (Just(ids), any_root, any_parents, any_pointers, any_action_args).prop_map(
             move |(ids, root, parents, mut pointers, mut args)| {
-                let mut next = 1;
-
                 let root = root.map(|ix| ids[ix].clone());
 
                 let mut known_parents = vec![root.clone()];
 
                 let mut sequence = Vec::new();
 
-                for parent in parents {
+                for (next, parent) in (1..).zip(parents) {
                     let sibling = ids[next].clone();
 
                     let action = into_action(select(&known_parents, parent), args.remove(0));
@@ -1230,8 +1228,6 @@ mod tests {
                     sequence.push((sibling.as_ref().clone(), pointer, action));
 
                     known_parents.push(Some(sibling));
-
-                    next += 1;
                 }
 
                 (root.clone(), sequence)
