@@ -232,8 +232,10 @@ fn make_validate_header(
 fn startup_best_candidate(
     chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
 ) -> Option<(BlockHeader, Vec<amaru_kernel::HeaderHash>)> {
+    let best_chain_hash = chain_store.get_best_chain_hash();
     let best_candidates = chain_store
-        .child_tips(&chain_store.get_best_chain_hash())
+        .child_tips(&best_chain_hash)
+        .filter(|tip| tip.hash() != best_chain_hash)
         .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
             if tip.block_height() > best_height {
                 hashes.clear();

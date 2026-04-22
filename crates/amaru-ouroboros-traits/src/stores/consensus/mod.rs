@@ -260,6 +260,24 @@ where
     /// Return an immutable, read-only version of the chain store.
     fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_>;
 
+    /// Return the next best-chain header from the given pointer using a single snapshot.
+    fn next_best_chain_header(&self, pointer: &Point) -> Result<NextBestChainHeader<H>, StoreError> {
+        let snapshot = self.snapshot();
+        if snapshot.load_from_best_chain(pointer).is_none() {
+            return Ok(NextBestChainHeader::NeedRollback);
+        }
+        let Some(point) = snapshot.next_best_chain(pointer) else {
+            return Ok(NextBestChainHeader::AtTip);
+        };
+        let Some(header) = snapshot.load_header(&point.hash()) else {
+            return Ok(NextBestChainHeader::MissingHeader { point });
+        };
+        if header.parent().unwrap_or(ORIGIN_HASH) != pointer.hash() {
+            return Ok(NextBestChainHeader::NeedRollback);
+        }
+        Ok(NextBestChainHeader::RollForward { point, header })
+    }
+
     /// Return the hashes of the ancestors of the header (inclusive of the start hash and in parent -> child order),
     /// until the first validated ancestor (exclusive) and return a bool denoting
     /// if that ancestor's block is valid or invalid.
@@ -569,4 +587,12 @@ pub fn get_best_chain_block_headers(store: std::sync::Arc<dyn ChainStore<BlockHe
         .iter()
         .map(|h| store.load_header(h).expect("missing header for the best chain"))
         .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum NextBestChainHeader<H> {
+    NeedRollback,
+    AtTip,
+    MissingHeader { point: Point },
+    RollForward { point: Point, header: H },
 }

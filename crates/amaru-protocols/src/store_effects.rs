@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
-use amaru_ouroboros_traits::{ChainStore, MissingBlocks, Nonces, StoreError};
+use amaru_ouroboros_traits::{ChainStore, MissingBlocks, NextBestChainHeader, Nonces, StoreError};
 use pure_stage::{
     BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
 };
@@ -72,6 +72,13 @@ impl Store {
 
     pub fn next_best_chain(&self, point: &Point) -> BoxFuture<'static, Option<Point>> {
         self.effects.external(NextBestChainEffect::new(*point))
+    }
+
+    pub fn next_best_chain_header(
+        &self,
+        point: &Point,
+    ) -> BoxFuture<'static, Result<NextBestChainHeader<BlockHeader>, StoreError>> {
+        self.effects.external(NextBestChainHeaderEffect::new(*point))
     }
 
     pub fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> BoxFuture<'static, Result<(), StoreError>> {
@@ -162,6 +169,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<NextBestChainHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
@@ -389,6 +397,34 @@ impl ExternalEffect for NextBestChainEffect {
 
 impl ExternalEffectAPI for NextBestChainEffect {
     type Response = Option<Point>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NextBestChainHeaderEffect {
+    point: Point,
+}
+
+impl NextBestChainHeaderEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
+    }
+}
+
+impl ExternalEffect for NextBestChainHeaderEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("NextBestChainHeaderEffect requires a chain store")
+                .clone();
+            store.next_best_chain_header(&self.point)
+        })
+    }
+}
+
+impl ExternalEffectAPI for NextBestChainHeaderEffect {
+    type Response = Result<NextBestChainHeader<BlockHeader>, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

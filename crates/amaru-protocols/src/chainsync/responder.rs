@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraName, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{EraName, Peer, Point, Tip};
 use amaru_observability::trace_span;
 use amaru_ouroboros::ConnectionId;
-use anyhow::{Context, ensure};
+use amaru_ouroboros_traits::NextBestChainHeader;
+use anyhow::{Context, anyhow, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -149,30 +150,15 @@ async fn next_header(
         return Ok((matches!(state, ResponderState::CanAwait { .. })).then_some(ResponderAction::AwaitReply));
     }
 
-    if store.load_from_best_chain(pointer).await.is_none() {
-        // client is on a different fork, we need to roll backward
-        return next_header_rollback(pointer, store, tip).await;
+    match store.next_best_chain_header(pointer).await? {
+        NextBestChainHeader::NeedRollback => next_header_rollback(pointer, store, tip).await,
+        NextBestChainHeader::AtTip => Ok(None),
+        NextBestChainHeader::MissingHeader { point } => Err(anyhow!("missing header for point {point}")),
+        NextBestChainHeader::RollForward { point, header } => {
+            *pointer = point;
+            Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, EraName::Conway), tip)))
+        }
     }
-    // pointer is on the best chain, we need to roll forward
-    // note that next_best_chain does not check that the returned point's parent matches the
-    // pointer, so we need to check that below (in case the best chain changed meanwhile)
-    let Some(point) = store.next_best_chain(pointer).await else {
-        return Ok(None);
-    };
-    let header = store
-        .load_header(&point.hash())
-        .await
-        .ok_or_else(|| anyhow::anyhow!("best-chain header not found: {}", point))?;
-    // Validate that the header's parent matches our pointer; the store can change between
-    // load_from_best_chain and next_best_chain, so the "next" block may no longer be correct.
-    let expected_parent = pointer.hash();
-    let actual_parent = header.parent_hash().unwrap_or(ORIGIN_HASH);
-    if actual_parent != expected_parent {
-        // Best chain changed; fall back to searching backwards from the advertised tip
-        return next_header_from_tip(pointer, store, tip).await;
-    }
-    *pointer = point;
-    Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, EraName::Conway), tip)))
 }
 
 /// Rollback when the client pointer is on a different fork from our best chain.

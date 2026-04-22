@@ -673,7 +673,7 @@ pub mod test {
         utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
-        ChainStore, DiagnosticChainStore, MissingBlocks, ReadOnlyChainStore,
+        ChainStore, DiagnosticChainStore, MissingBlocks, NextBestChainHeader, ReadOnlyChainStore,
         in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
@@ -1081,6 +1081,43 @@ pub mod test {
             let tip_header = store.load_header(&tip).unwrap();
 
             assert!(store.next_best_chain(&tip_header.point()).is_none());
+        });
+    }
+
+    #[test]
+    fn next_best_chain_header_rolls_forward_from_best_chain_pointer() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+
+            let result = store.next_best_chain_header(&chain[5].point()).unwrap();
+
+            assert_eq!(result, NextBestChainHeader::RollForward { point: chain[6].point(), header: chain[6].clone() });
+        });
+    }
+
+    #[test]
+    fn next_best_chain_header_requests_rollback_for_non_best_chain_pointer() {
+        with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            for header in [&headers.h2a, &headers.h3a] {
+                store.store_header(header).unwrap();
+            }
+
+            let result = store.next_best_chain_header(&headers.h3a.point()).unwrap();
+
+            assert_eq!(result, NextBestChainHeader::NeedRollback);
+        });
+    }
+
+    #[test]
+    fn next_best_chain_header_reports_at_tip() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+
+            let result = store.next_best_chain_header(&chain[9].point()).unwrap();
+
+            assert_eq!(result, NextBestChainHeader::AtTip);
         });
     }
 
