@@ -25,9 +25,9 @@ use amaru_kernel::{
     ComputeHash, EraHistory, EraHistoryError, ExUnits, GlobalParameters, HasOwnership, HasScriptHash, Hash, Lovelace,
     MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, NativeScript, Network, NetworkName,
     NonEmptyKeyValuePairs, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
-    Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion, Redeemer,
-    Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload,
-    TransactionBody, TransactionId, TransactionInput, Vote, Voter, VotingProcedure, WitnessSet, cbor,
+    Nullable, OrderedRedeemer, PallasRedeemers, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion,
+    Redeemer, Redeemers as KernelRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential,
+    StakePayload, TransactionBody, TransactionId, TransactionInput, Vote, Voter, VotingProcedure, WitnessSet, cbor,
     size::{CREDENTIAL, DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
@@ -930,8 +930,8 @@ where
 }
 
 impl Redeemers<'_> {
-    pub fn iter_from<'a>(redeemers: &'a PallasRedeemers) -> Box<dyn Iterator<Item = OrderedRedeemer<'a>> + 'a> {
-        match redeemers {
+    pub fn iter_from<'a>(redeemers: &'a KernelRedeemers) -> Box<dyn Iterator<Item = OrderedRedeemer<'a>> + 'a> {
+        match &**redeemers {
             PallasRedeemers::List(list) => Box::new(list.iter().map(OrderedRedeemer::from)),
             PallasRedeemers::Map(map) => Box::new(map.iter().map(|(tag, value)| {
                 OrderedRedeemer::from(Redeemer {
