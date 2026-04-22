@@ -111,7 +111,7 @@ pub use cardano::{
     raw_block::RawBlock,
     redeemer::Redeemer,
     redeemer_key::RedeemerKey,
-    redeemers::Redeemers,
+    redeemers::{PallasRedeemers, Redeemers},
     relay::Relay,
     required_script::RequiredScript,
     reward::Reward,
