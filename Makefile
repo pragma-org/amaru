@@ -21,7 +21,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -113,7 +113,11 @@ update-trace-contract: ## &test Refresh $(TRACE_CONTRACT) from a traced run-unti
 	rm -f "$$tmp_log"
 	@echo "Updated $(TRACE_CONTRACT)"
 
+check-rust-toolchain-version: ## &test Verify rust-toolchain.toml and Cargo.toml rust-version stay aligned
+	@./scripts/check-rust-toolchain-version
+
 all-ci-checks: ## &test Run all CI checks
+	@$(MAKE) check-rust-toolchain-version
 	@cargo fmt-amaru
 	@cargo clippy-amaru
 	@cargo test --workspace --all-targets

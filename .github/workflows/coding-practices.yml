@@ -20,6 +20,12 @@ env:
     target/
 
 jobs:
+  rust-toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-rust-toolchain-version
+
   changes:
     runs-on: ubuntu-latest
     # Required to expose outputs to dependent jobs (unused-dependencies, licenses-compatibility)

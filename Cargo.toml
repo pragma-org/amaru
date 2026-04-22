@@ -9,7 +9,7 @@ homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
 keywords = ["cardano", "blockchain", "node", "ouroboros", "crypto"]
 categories = ["cryptography::cryptocurrencies"]
-rust-version = "1.93"                                    # ⚠️ Also change in rust-toolchain.toml
+rust-version = "1.93" # Find versions here: https://rust-lang.github.io/rustup-components-history
 
 [workspace]
 members = ["crates/*", "crates/amaru-observability/macros/", "crates/vendor/*", "simulation/*"]
