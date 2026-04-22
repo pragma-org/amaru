@@ -574,7 +574,7 @@ fn import_dreps(
 
     info!(size = delegations.len(), "dreps delegations");
 
-    transaction.add_drep_delegations(delegations.into_iter())?;
+    transaction.add_drep_delegations(delegations)?;
 
     Ok(transaction.commit()?)
 }
@@ -678,7 +678,7 @@ fn import_stake_pools(
         None,
         store::Columns {
             utxo: iter::empty(),
-            pools: state.registered.into_iter().flat_map(move |(_, registrations)| {
+            pools: state.registered.into_values().flat_map(move |registrations| {
                 registrations.into_iter().map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, epoch)).collect::<Vec<_>>()
             }),
             accounts: iter::empty(),
