@@ -127,34 +127,9 @@ pub fn build_node(
     let chain_store = initialize_chain_store(config, ledger_tip)?;
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
-    let best_candidates = chain_store
-        .child_tips(&chain_store.get_best_chain_hash())
-        .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
-            if tip.block_height() > best_height {
-                hashes.clear();
-                hashes.push(tip.hash());
-                (tip.block_height(), hashes)
-            } else if tip.block_height() == best_height {
-                hashes.push(tip.hash());
-                (best_height, hashes)
-            } else {
-                (best_height, hashes)
-            }
-        })
-        .1;
-    let best_candidate = best_candidates
-        .into_iter()
-        .map(|h| chain_store.load_header(&h))
-        .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
-        .flatten();
-    let anchor = chain_store.get_anchor_hash();
-    let mut best_missing = vec![];
-    if let Some(best_candidate) = best_candidate.as_ref() {
-        let (hashes, _valid) = chain_store.unvalidated_ancestor_hashes(best_candidate.hash());
-        best_missing = hashes.into_iter().filter(|h| *h != anchor).collect();
-    }
+    let best_candidate = startup_best_candidate(chain_store.as_ref());
 
-    let tip = best_candidate.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
+    let tip = best_candidate.as_ref().map(|(h, _)| h.point()).unwrap_or(Point::Origin);
     tracing::info!(%tip, "build_chain");
 
     // Make resources
@@ -246,4 +221,99 @@ fn make_validate_header(
         Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
 
     ValidateHeader::new(consensus_parameters, chain_store, stake_distribution)
+}
+
+/// Return the highest startup candidate that extends the current best chain, together with
+/// the missing unvalidated suffix that should be resumed from on startup.
+///
+/// A candidate is rejected if `unvalidated_ancestor_hashes` reports that its ancestry reaches
+/// a known invalid block. This prevents node restart from restoring a branch that was already
+/// determined to be invalid before shutdown.
+fn startup_best_candidate(
+    chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
+) -> Option<(BlockHeader, Vec<amaru_kernel::HeaderHash>)> {
+    let best_candidates = chain_store
+        .child_tips(&chain_store.get_best_chain_hash())
+        .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
+            if tip.block_height() > best_height {
+                hashes.clear();
+                hashes.push(tip.hash());
+                (tip.block_height(), hashes)
+            } else if tip.block_height() == best_height {
+                hashes.push(tip.hash());
+                (best_height, hashes)
+            } else {
+                (best_height, hashes)
+            }
+        })
+        .1;
+    let mut best_candidate = best_candidates
+        .into_iter()
+        .map(|h| chain_store.load_header(&h))
+        .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
+        .flatten();
+    let anchor = chain_store.get_anchor_hash();
+    let mut best_missing = vec![];
+    if let Some(candidate) = best_candidate.as_ref() {
+        let candidate_hash = candidate.hash();
+        let (hashes, valid) = chain_store.unvalidated_ancestor_hashes(candidate_hash);
+        if valid {
+            best_missing = hashes.into_iter().filter(|h| *h != anchor).collect();
+        } else {
+            tracing::warn!(hash = %candidate_hash, "skipping startup best candidate with invalid ancestry");
+            best_candidate = None;
+        }
+    }
+    best_candidate.map(|candidate| (candidate, best_missing))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use amaru_kernel::{BlockHeader, IsHeader, any_headers_chain, utils::tests::run_strategy};
+    use amaru_ouroboros::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+
+    use super::startup_best_candidate;
+
+    #[test]
+    fn rejects_startup_candidate_with_invalid_ancestry() {
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        let chain = run_strategy(any_headers_chain(4));
+        let [a, b, c, d] = chain.try_into().unwrap();
+
+        for header in [&a, &b, &c, &d] {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&a.hash()).unwrap();
+        for header in [&a, &b] {
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+        store.set_block_valid(&c.hash(), false).unwrap();
+
+        let candidate = startup_best_candidate(store.as_ref());
+
+        assert_eq!(candidate, None);
+    }
+
+    #[test]
+    fn keeps_startup_candidate_with_valid_ancestry() {
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        let chain = run_strategy(any_headers_chain(4));
+        let [a, b, c, d] = chain.try_into().unwrap();
+
+        for header in [&a, &b, &c, &d] {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&a.hash()).unwrap();
+        for header in [&a, &b] {
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+        store.set_block_valid(&b.hash(), true).unwrap();
+        let d_hash = d.hash();
+
+        let candidate = startup_best_candidate(store.as_ref());
+
+        assert_eq!(candidate, Some((d, vec![c.hash(), d_hash])));
+    }
 }
