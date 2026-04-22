@@ -16,11 +16,7 @@ use std::ops::Deref;
 
 pub use pallas_primitives::conway::Redeemers as PallasRedeemers;
 
-use crate::{Bytes, cbor};
-
-fn empty_bytes() -> Bytes {
-    Bytes::from(Vec::new())
-}
+use crate::{Bytes, cbor, empty_bytes};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]

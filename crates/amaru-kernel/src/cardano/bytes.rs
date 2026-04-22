@@ -13,3 +13,9 @@
 // limitations under the License.
 
 pub use pallas_codec::utils::Bytes;
+
+/// Utility function to construct empty Bytes.
+/// Used for default values
+pub fn empty_bytes() -> Bytes {
+    Bytes::from(Vec::new())
+}
