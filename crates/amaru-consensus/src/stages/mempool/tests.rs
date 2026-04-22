@@ -1,0 +1,93 @@
+// Copyright 2026 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::sync::Arc;
+
+use amaru_kernel::Transaction;
+use amaru_mempool::InMemoryMempool;
+use amaru_ouroboros::{
+    MempoolMsg, MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
+};
+use pure_stage::StageRef;
+use tokio::runtime::Builder;
+use tracing::Level;
+
+use crate::stages::{
+    mempool::{
+        MempoolStageState,
+        test_setup::{TestPrep, create_transaction, setup, te_insert, te_send, te_validate_tx},
+    },
+    test_utils::{assert_trace, te_input, te_state},
+};
+
+#[test]
+fn insert_batch_returns_one_result_per_transaction() {
+    let batch_example = make_insert_batch_example();
+    let expected_msg = batch_example.msg.clone();
+    let (running, _guards, mut logs) = setup(&batch_example);
+
+    let MempoolMsg::InsertBatch { txs, .. } = batch_example.msg else { unreachable!() };
+    assert_trace(
+        &running,
+        &[
+            te_state("mempool-1", &MempoolStageState::default()),
+            te_input("mempool-1", &expected_msg),
+            te_validate_tx("mempool-1", &txs[0]),
+            te_insert("mempool-1", &txs[0], TxOrigin::Local),
+            te_validate_tx("mempool-1", &txs[1]),
+            te_validate_tx("mempool-1", &txs[2]),
+            // Note that the de-duplication check is performed by the mempool when the insertion
+            // is attempted
+            te_insert("mempool-1", &txs[2], TxOrigin::Local),
+            te_send("mempool-1", "caller", Ok(expected_results(&txs))),
+            te_state("mempool-1", &MempoolStageState::default()),
+        ],
+    );
+
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+pub fn make_insert_batch_example() -> TestPrep {
+    let caller = StageRef::named_for_tests("caller");
+    let tx_0 = create_transaction(0);
+    let tx_1 = create_transaction(1);
+    let txs = vec![tx_0.clone(), tx_1.clone(), tx_0.clone()];
+
+    TestPrep {
+        msg: MempoolMsg::InsertBatch { txs, origin: TxOrigin::Local, caller },
+        rt: Builder::new_current_thread().build().unwrap(),
+        mempool: Arc::new(InMemoryMempool::<Transaction>::default()),
+        validator: Arc::new(reject_tx_1),
+    }
+}
+
+/// Return a transaction as invalid if its index is 1
+fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
+    if tx.body.inputs.first().is_some_and(|input| input.index == 1) {
+        Err(anyhow::anyhow!("transaction rejected for testing").into())
+    } else {
+        Ok(())
+    }
+}
+
+fn expected_results(txs: &[Transaction]) -> Vec<TxInsertResult> {
+    vec![
+        TxInsertResult::accepted(TxId::from(&txs[0]), MempoolSeqNo(1)),
+        TxInsertResult::rejected(
+            TxId::from(&txs[1]),
+            TxRejectReason::Invalid(anyhow::anyhow!("transaction rejected for testing").into()),
+        ),
+        TxInsertResult::rejected(TxId::from(&txs[2]), TxRejectReason::Duplicate),
+    ]
+}

@@ -15,64 +15,34 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
-    pin::Pin,
     sync::Arc,
 };
 
 use amaru_kernel::{cbor, to_cbor};
 use amaru_ouroboros_traits::{
-    MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
-    mempool::Mempool,
+    MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool, mempool::Mempool,
 };
-use tokio::sync::Notify;
-
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
 /// It stores transactions in memory, indexed by their TxId and by a sequence number assigned
 /// at insertion time.
 ///
-/// The validation of transactions is delegated to an injected validator.
-///
 #[derive(Clone)]
 pub struct InMemoryMempool<Tx> {
     config: MempoolConfig,
     inner: Arc<parking_lot::RwLock<MempoolInner<Tx>>>,
-    tx_validator: Arc<dyn TxValidator<Tx>>,
-}
-
-pub trait TxValidator<Tx>: Send + Sync {
-    fn validate(&self, tx: &Tx) -> Result<(), TransactionValidationError>;
-}
-
-impl<Tx, F> TxValidator<Tx> for F
-where
-    F: Fn(&Tx) -> Result<(), TransactionValidationError> + Send + Sync,
-{
-    fn validate(&self, tx: &Tx) -> Result<(), TransactionValidationError> {
-        self(tx)
-    }
 }
 
 impl<Tx: 'static> Default for InMemoryMempool<Tx> {
     fn default() -> Self {
-        Self::from_config(MempoolConfig::default())
+        Self::new(MempoolConfig::default())
     }
 }
 
 impl<Tx> InMemoryMempool<Tx> {
-    pub fn new(config: MempoolConfig, tx_validator: Arc<dyn TxValidator<Tx>>) -> Self {
-        InMemoryMempool { config, inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())), tx_validator }
+    pub fn new(config: MempoolConfig) -> Self {
+        InMemoryMempool { config, inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())) }
     }
-}
-
-impl<Tx: 'static> InMemoryMempool<Tx> {
-    pub fn from_config(config: MempoolConfig) -> Self {
-        Self::new(config, Arc::new(default_tx_validator::<Tx>))
-    }
-}
-
-pub fn default_tx_validator<Tx>(_tx: &Tx) -> Result<(), TransactionValidationError> {
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -80,17 +50,11 @@ struct MempoolInner<Tx> {
     next_seq: u64,
     entries_by_id: BTreeMap<TxId, MempoolEntry<Tx>>,
     entries_by_seq: BTreeMap<MempoolSeqNo, TxId>,
-    notify: Arc<Notify>,
 }
 
 impl<Tx> Default for MempoolInner<Tx> {
     fn default() -> Self {
-        MempoolInner {
-            next_seq: 1,
-            entries_by_id: Default::default(),
-            entries_by_seq: Default::default(),
-            notify: Arc::new(Notify::new()),
-        }
+        MempoolInner { next_seq: 1, entries_by_id: Default::default(), entries_by_seq: Default::default() }
     }
 }
 
@@ -180,18 +144,12 @@ impl MempoolConfig {
 
 impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx> for InMemoryMempool<Tx> {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, amaru_ouroboros_traits::MempoolError> {
-        if let Err(error) = self.tx_validator.validate(&tx) {
-            return Ok(TxInsertResult::rejected(TxRejectReason::Invalid(error)));
-        }
-
+        let tx_id = TxId::from(&tx);
         let mut inner = self.inner.write();
         let res = inner.insert(&self.config, tx, tx_origin);
-        if let Ok((_, _)) = res {
-            inner.notify.notify_waiters();
-        }
         Ok(match res {
             Ok((tx_id, seq_no)) => TxInsertResult::accepted(tx_id, seq_no),
-            Err(reason) => TxInsertResult::rejected(reason),
+            Err(reason) => TxInsertResult::rejected(tx_id, reason),
         })
     }
 
@@ -201,30 +159,6 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<T
 
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         self.inner.read().tx_ids_since(from_seq, limit)
-    }
-
-    /// Waits until the mempool reaches at least the given sequence number.
-    fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        Box::pin(async move {
-            loop {
-                // Prepare a notification future first to avoid races where we miss a notify
-                // between the check and awaiting.
-                let (current_next_seq, notify) = {
-                    let inner = self.inner.read();
-                    (inner.next_seq, inner.notify.clone())
-                };
-                let notified = notify.notified();
-
-                // Check if we already reached the requested sequence number.
-                // (No lock guard is held across the await.)
-                if current_next_seq >= seq_no.0 {
-                    return true;
-                }
-
-                // Wait until someone inserts a new transaction and notifies us.
-                notified.await;
-            }
-        })
     }
 
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
@@ -268,17 +202,16 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMem
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Deref, slice, str::FromStr, sync::Arc, time::Duration};
+    use std::{ops::Deref, slice, str::FromStr};
 
     use amaru_kernel::{Peer, cbor, cbor as minicbor};
     use assertables::assert_some_eq_x;
-    use tokio::time::timeout;
 
     use super::*;
 
     #[tokio::test]
     async fn insert_a_transaction() -> anyhow::Result<()> {
-        let mempool = InMemoryMempool::from_config(MempoolConfig::default().with_max_txs(5));
+        let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_txs(5));
         let tx = Tx::from_str("tx1").unwrap();
         let TxInsertResult::Accepted { tx_id, seq_no: seq_nb } =
             mempool.insert(tx.clone(), TxOrigin::Remote(Peer::new("upstream"))).unwrap()
@@ -289,27 +222,8 @@ mod tests {
         assert_some_eq_x!(mempool.get_tx(&tx_id), tx.clone());
         assert_eq!(mempool.get_txs_for_ids(slice::from_ref(&tx_id)), vec![tx.clone()]);
         assert_eq!(mempool.tx_ids_since(seq_nb, 100), vec![(tx_id, 5, seq_nb)]);
-        assert!(mempool.wait_for_at_least(seq_nb).await, "should have at least seq no");
-        assert!(
-            timeout(Duration::from_millis(100), mempool.wait_for_at_least(seq_nb.add(100))).await.is_err(),
-            "should timeout waiting for a seq no that is too high"
-        );
+        assert_eq!(mempool.last_seq_no(), seq_nb);
         Ok(())
-    }
-
-    #[test]
-    fn reject_invalid_transaction_on_insert() {
-        let mempool = InMemoryMempool::new(MempoolConfig::default(), Arc::new(reject_tx));
-        let tx = Tx::from_str("tx1").unwrap();
-
-        let result = mempool.insert(tx, TxOrigin::Local);
-
-        assert_eq!(
-            result,
-            Ok(TxInsertResult::Rejected(TxRejectReason::Invalid(
-                anyhow::anyhow!("transaction rejected for testing").into()
-            )))
-        );
     }
 
     // HELPERS
@@ -328,9 +242,5 @@ mod tests {
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             Ok(Tx(s.to_string()))
         }
-    }
-
-    fn reject_tx(_tx: &Tx) -> Result<(), TransactionValidationError> {
-        Err(anyhow::anyhow!("transaction rejected for testing").into())
     }
 }

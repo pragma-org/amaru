@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore, TxOrigin};
+use amaru_ouroboros::{ConnectionId, MempoolMsg, ReadOnlyChainStore, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 use tracing::Instrument;
 
@@ -46,6 +46,7 @@ pub struct Connection {
 }
 
 impl Connection {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         peer: Peer,
         conn_id: ConnectionId,
@@ -54,8 +55,12 @@ impl Connection {
         magic: NetworkMagic,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
         era_history: Arc<EraHistory>,
+        mempool_stage: StageRef<MempoolMsg>,
     ) -> Self {
-        Self { params: Params { peer, conn_id, role, config, magic, pipeline, era_history }, state: State::Initial }
+        Self {
+            params: Params { peer, conn_id, role, config, magic, pipeline, era_history, mempool_stage },
+            state: State::Initial,
+        }
     }
 }
 
@@ -68,6 +73,7 @@ struct Params {
     config: ManagerConfig,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     era_history: Arc<EraHistory>,
+    mempool_stage: StageRef<MempoolMsg>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -234,7 +240,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
 
 #[expect(clippy::expect_used)]
 async fn do_handshake(
-    Params { role, peer, conn_id, era_history, .. }: &Params,
+    Params { role, peer, conn_id, era_history, mempool_stage, .. }: &Params,
     muxer: StageRef<MuxMessage>,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     handshake: StageRef<Inputs<Void>>,
@@ -254,7 +260,8 @@ async fn do_handshake(
     };
 
     let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
-    let tx_submission = register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone())).await;
+    let tx_submission =
+        register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone()), mempool_stage.clone()).await;
 
     if *role == Role::Initiator {
         let chainsync_initiator = register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
@@ -400,6 +407,7 @@ mod tests {
                 magic: NetworkMagic::PREPROD,
                 pipeline: StageRef::blackhole(),
                 era_history: Arc::new(era_history.clone()),
+                mempool_stage: StageRef::blackhole(),
             },
             state,
         }

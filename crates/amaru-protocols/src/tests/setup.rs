@@ -25,12 +25,9 @@ use std::{
 use amaru_kernel::{BlockHeader, NonEmptyBytes, Peer, Transaction};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, ChainStore, ConnectionId, ConnectionProvider, ConnectionsResource, Mempool, ResourceMempool,
+    CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ChainStore, ConnectionId, ConnectionProvider,
+    ConnectionsResource, Mempool, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
     ToSocketAddrs,
-    can_validate_blocks::{
-        CanValidateHeaders,
-        mock::{MockCanValidateBlocks, MockCanValidateHeaders},
-    },
 };
 use pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -56,6 +53,7 @@ pub(super) fn ephemeral_localhost_addr() -> anyhow::Result<SocketAddr> {
 /// Resource type definitions
 pub(super) type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub(super) type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
+pub(super) type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 
 /// Add resources for each role.
 /// In particular set up an in-memory chain store with different chain lengths for the initiator and responder.
@@ -78,6 +76,7 @@ pub(super) fn set_resources_with_connections(
     network.resources().put::<ResourceHeaderStore>(chain_store);
     network.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
     network.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
+    network.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     network.resources().put::<ConnectionsResource>(connections);
     network.resources().put::<ResourceMempool<Transaction>>(mempool);
     Ok(())

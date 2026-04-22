@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
 use tracing::Instrument;
 
@@ -82,6 +82,7 @@ pub struct Manager {
     config: ManagerConfig,
     era_history: Arc<EraHistory>,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
+    mempool: StageRef<MempoolMsg>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -98,8 +99,9 @@ impl Manager {
         config: ManagerConfig,
         era_history: Arc<EraHistory>,
         chain_sync: StageRef<ChainSyncInitiatorMsg>,
+        mempool: StageRef<MempoolMsg>,
     ) -> Self {
-        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync }
+        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync, mempool }
     }
 
     pub fn config(&self) -> ManagerConfig {
@@ -362,6 +364,7 @@ async fn start_connection_stage(
                 manager.magic,
                 manager.chain_sync.clone(),
                 manager.era_history.clone(),
+                manager.mempool.clone(),
             ),
         )
         .await;

@@ -298,5 +298,5 @@ fn era_history() -> Arc<EraHistory> {
 }
 
 fn create_manager(config: ManagerConfig, chainsync_stage: StageRef<ChainSyncInitiatorMsg>) -> Manager {
-    Manager::new(NetworkMagic::PREPROD, config, era_history(), chainsync_stage)
+    Manager::new(NetworkMagic::PREPROD, config, era_history(), chainsync_stage, StageRef::blackhole())
 }

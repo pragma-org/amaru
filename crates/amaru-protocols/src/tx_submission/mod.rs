@@ -27,10 +27,10 @@ pub use outcome::*;
 #[cfg(test)]
 mod tests;
 
-use amaru_ouroboros::TxOrigin;
+use amaru_ouroboros::{MempoolMsg, TxOrigin};
 pub use initiator::initiator;
 use pure_stage::{Effects, StageRef, Void};
-pub use responder::{ResponderResult, responder};
+pub use responder::{MEMPOOL_INSERT_TIMEOUT, ResponderResult, TxSubmissionMsg, responder};
 #[cfg(test)]
 pub use tests::*;
 
@@ -73,13 +73,15 @@ pub async fn register_tx_submission(
     muxer: StageRef<mux::MuxMessage>,
     eff: &Effects<ConnectionMessage>,
     origin: TxOrigin,
+    mempool_stage: StageRef<MempoolMsg>,
 ) -> StageRef<mux::HandlerMessage> {
     let tx_submission = if role == Role::Initiator {
-        let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone());
+        let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone(), mempool_stage.clone());
         let tx_submission = eff.wire_up(eff.stage("tx_submission", initiator::initiator()).await, (state, stage)).await;
-        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<Void>::Network).await
+        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<initiator::InitiatorLocalIn>::Network).await
     } else {
-        let (state, stage) = responder::TxSubmissionResponder::new(muxer.clone(), ResponderParams::new(2, 3), origin);
+        let (state, stage) =
+            responder::TxSubmissionResponder::new(muxer.clone(), ResponderParams::new(2, 3), origin, mempool_stage);
         let tx_submission = eff.wire_up(eff.stage("tx_submission", responder::responder()).await, (state, stage)).await;
         eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<Void>::Network).await
     };

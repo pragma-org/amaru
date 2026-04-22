@@ -48,6 +48,7 @@ use crate::{
     effect::{CallExtra, CallTimeout, CanSupervise, StageEffect, StageResponse, TransitionFactory},
     effect_box::EffectBox,
     resources::Resources,
+    sender::StageRefExtra,
     serde::NoDebug,
     simulation::Transition,
     stage_name,
@@ -395,8 +396,6 @@ fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg
         })
     }))
 }
-
-type StageRefExtra = Mutex<Option<oneshot::Sender<Box<dyn SendData>>>>;
 
 // clippy is lying, changing to async fn does not work.
 #[expect(clippy::manual_async_fn)]

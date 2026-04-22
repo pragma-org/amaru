@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod assertions;
-mod system_test;
-mod test_data;
+pub mod can_validate_headers;
+pub mod can_validate_headers_mock;
 
-pub use assertions::*;
-pub use test_data::*;
+pub use can_validate_headers::*;
+pub use can_validate_headers_mock::*;

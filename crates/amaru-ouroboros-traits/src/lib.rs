@@ -15,8 +15,8 @@
 pub mod has_stake_distribution;
 pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
 
-pub mod can_validate_blocks;
-pub use can_validate_blocks::{BlockValidationError, CanValidateBlocks};
+pub mod validators;
+pub use validators::*;
 
 pub mod connections;
 pub use connections::*;

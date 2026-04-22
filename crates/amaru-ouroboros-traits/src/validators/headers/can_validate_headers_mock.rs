@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,9 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod assertions;
-mod system_test;
-mod test_data;
+use amaru_kernel::BlockHeader;
 
-pub use assertions::*;
-pub use test_data::*;
+use crate::{CanValidateHeaders, HeaderValidationError};
+
+/// A fake header validator that always returns ok
+#[derive(Clone, Debug, Default)]
+pub struct MockCanValidateHeaders;
+
+impl CanValidateHeaders for MockCanValidateHeaders {
+    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
+        Ok(())
+    }
+}

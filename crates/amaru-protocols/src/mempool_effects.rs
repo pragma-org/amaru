@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, pin::Pin};
+use std::fmt::Debug;
 
 use amaru_kernel::Transaction;
 use amaru_ouroboros::ResourceMempool;
@@ -62,11 +62,6 @@ impl<T: SendData + Sync> TxSubmissionMempool<Transaction> for MemoryPool<T> {
     /// This effect retrieves a list of transaction ids from a given sequence number (inclusive), up to a given limit.
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         self.external_sync(TxIdsSince::new(from_seq, limit))
-    }
-
-    /// This effect waits until the mempool reaches at least the given sequence number.
-    fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        self.effects.external(WaitForAtLeast::new(seq_no))
     }
 
     /// This effect retrieves a list of transactions for the given ids.
@@ -166,32 +161,6 @@ impl ExternalEffectAPI for TxIdsSince {
 impl ExternalEffectSync for TxIdsSince {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct WaitForAtLeast {
-    seq_no: MempoolSeqNo,
-}
-
-impl WaitForAtLeast {
-    pub fn new(seq_no: MempoolSeqNo) -> Self {
-        Self { seq_no }
-    }
-}
-
-impl ExternalEffect for WaitForAtLeast {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
-            let mempool =
-                resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool").clone();
-            mempool.wait_for_at_least(self.seq_no).await
-        })
-    }
-}
-
-impl ExternalEffectAPI for WaitForAtLeast {
-    type Response = bool;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetTxsForIds {
     tx_ids: Vec<TxId>,
 }
@@ -239,8 +208,6 @@ impl ExternalEffectSync for LastSeqNo {}
 
 #[cfg(test)]
 mod tests {
-    use std::pin::Pin;
-
     use amaru_kernel::{Transaction, TransactionBody, WitnessSet};
     use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
@@ -270,10 +237,6 @@ mod tests {
 
         fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
             vec![(TxId::from(&self.tx), 100, MempoolSeqNo(1))]
-        }
-
-        fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-            Box::pin(async { true })
         }
 
         fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {

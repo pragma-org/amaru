@@ -17,11 +17,13 @@ use std::sync::Arc;
 use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
     fetch_blocks::{self, FetchBlocks, FetchBlocksMsg},
+    mempool::{self, MempoolStageState},
     select_chain::{self, SelectChain, SelectChainMsg},
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
 use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, Point, Tip};
+use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
@@ -48,13 +50,14 @@ pub fn build_stage_graph(
     ledger_tip: Tip,
     our_candidate: Option<(BlockHeader, Vec<HeaderHash>)>,
     stage_graph: &mut impl StageGraph,
-) -> StageRef<ManagerMessage> {
+) -> NodeStages {
     let manager = stage_graph.stage("manager", manager::stage);
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);
     let select_chain = stage_graph.stage("select_chain", select_chain::stage);
     let fetch_blocks = stage_graph.stage("fetch_blocks", fetch_blocks::stage);
     let validate_block = stage_graph.stage("validate_block", validate_block::stage);
     let adopt_chain = stage_graph.stage("adopt_chain", adopt_chain::stage);
+    let mempool_stage = stage_graph.stage("mempool", mempool::stage);
 
     let k = {
         #[expect(clippy::expect_used)]
@@ -93,7 +96,9 @@ pub fn build_stage_graph(
     );
     let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
 
-    stage_graph
+    let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
+
+    let manager_stage = stage_graph
         .wire_up(
             manager,
             Manager::new(
@@ -101,7 +106,27 @@ pub fn build_stage_graph(
                 ManagerConfig::default(),
                 Arc::new(era_history.clone()),
                 track_peers_input,
+                mempool_stage.clone(),
             ),
         )
-        .without_state()
+        .without_state();
+    NodeStages { manager_stage, mempool_stage }
+}
+
+/// This data types encapsulates stage references that we need to export in order to
+/// interact with some stages of the processing graph.
+#[derive(Debug, Clone)]
+pub struct NodeStages {
+    pub manager_stage: StageRef<ManagerMessage>,
+    pub mempool_stage: StageRef<MempoolMsg>,
+}
+
+impl NodeStages {
+    pub fn manager_stage(&self) -> StageRef<ManagerMessage> {
+        self.manager_stage.clone()
+    }
+
+    pub fn mempool_stage(&self) -> StageRef<MempoolMsg> {
+        self.mempool_stage.clone()
+    }
 }

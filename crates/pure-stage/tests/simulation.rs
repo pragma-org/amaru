@@ -410,6 +410,28 @@ fn call() {
 }
 
 #[test]
+fn call_external_sender_in_simulation() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = pure_stage::register_data_deserializer::<Msg3>();
+
+    let mut network = SimulationBuilder::default();
+    let callee = network.stage("callee", async |state, msg: Msg3, eff| {
+        eff.send(&msg.1, msg.0 * 2).await;
+        state
+    });
+    let callee = network.wire_up(callee, ());
+    let sender = network.input(callee.clone().without_state());
+
+    let mut sim = network.run();
+    let call = rt.spawn(async move { sender.call::<u32>(|cr| Msg3(3, cr), Duration::from_secs(1)).await });
+
+    rt.block_on(sim.await_external_input());
+    sim.run_until_blocked().assert_idle();
+
+    assert_eq!(rt.block_on(call).unwrap().unwrap(), 6);
+}
+
+#[test]
 fn call_timeout_terminates_graph() {
     let _guard = pure_stage::register_data_deserializer::<Msg3>();
     let trace_buffer = TraceBuffer::new_shared(1, 1000000);

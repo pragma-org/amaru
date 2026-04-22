@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, mem, pin::Pin};
+use std::{collections::BTreeSet, mem};
 
 use amaru_kernel::cbor;
 use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
@@ -49,10 +49,6 @@ impl<Tx: cbor::Encode<()> + Send + Sync + 'static> TxSubmissionMempool<Tx> for D
 
     fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
         vec![]
-    }
-
-    fn wait_for_at_least(&self, _seq_no: MempoolSeqNo) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        Box::pin(async move { true })
     }
 
     fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Tx> {
@@ -100,17 +96,17 @@ mod tests {
     #[test]
     fn add_then_take() {
         let mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1])).unwrap();
-        mempool.add(FakeTx::new("tx2", &[2])).unwrap();
+        mempool.insert(FakeTx::new("tx1", &[1]), TxOrigin::Local).unwrap();
+        mempool.insert(FakeTx::new("tx2", &[2]), TxOrigin::Local).unwrap();
         assert_eq!(mempool.take(), vec![FakeTx::new("tx1", &[1]), FakeTx::new("tx2", &[2])]);
     }
 
     #[test]
     fn invalidate_entries() {
         let mempool = DummyMempool::new();
-        mempool.add(FakeTx::new("tx1", &[1, 2])).unwrap();
-        mempool.add(FakeTx::new("tx2", &[3, 4])).unwrap();
-        mempool.add(FakeTx::new("tx3", &[5, 6])).unwrap();
+        mempool.insert(FakeTx::new("tx1", &[1, 2]), TxOrigin::Local).unwrap();
+        mempool.insert(FakeTx::new("tx2", &[3, 4]), TxOrigin::Local).unwrap();
+        mempool.insert(FakeTx::new("tx3", &[5, 6]), TxOrigin::Local).unwrap();
         mempool.acknowledge(&FakeTx::new("tx4", &[2, 5, 7]), FakeTx::keys);
         assert_eq!(mempool.take(), vec![FakeTx::new("tx2", &[3, 4])]);
     }

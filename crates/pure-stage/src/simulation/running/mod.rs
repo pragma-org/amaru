@@ -550,6 +550,7 @@ impl SimulationRunning {
                         self.runnable.push_back((name, response));
                     },
                     to.clone(),
+                    &mut None,
                 )
                 .expect("call is always runnable");
             }
@@ -557,7 +558,7 @@ impl SimulationRunning {
                 tracing::info!(stage = %from, "message send to blackhole dropped");
                 let data_from =
                     self.stages.get_mut(&from).log_termination(&from)?.assert_stage("which cannot emit send effects");
-                resume_send_internal(data_from, run, to.clone()).expect("call is always runnable");
+                resume_send_internal(data_from, run, to.clone(), &mut None).expect("call is always runnable");
             }
             Effect::Send { from, to, msg } => {
                 let is_call = self
@@ -579,13 +580,21 @@ impl SimulationRunning {
                         // then the response is simply dropped and the call may time out
                         .log_termination(&from)?
                         .assert_stage("which cannot receive send effects");
-                    let id = resume_send_internal(data_from, run, to.clone()).expect("call is always runnable");
+                    let mut msg = Some(msg);
+                    let id =
+                        resume_send_internal(data_from, run, to.clone(), &mut msg).expect("call is always runnable");
                     if let Some(id) = id {
                         self.scheduled.remove(&id);
+                        let data_to = self.stages.get_mut(&to).log_termination(&to)?.assert_stage("which cannot call");
+                        // call response races with other responses and timeout, so failure to resume is okay
+                        resume_call_internal(
+                            data_to,
+                            run,
+                            Some(id),
+                            msg.expect("scheduled call response must preserve payload"),
+                        )
+                        .ok();
                     }
-                    let data_to = self.stages.get_mut(&to).log_termination(&to)?.assert_stage("which cannot call");
-                    // call response races with other responses and timeout, so failure to resume is okay
-                    resume_call_internal(data_to, run, id, msg).ok();
                 } else {
                     let mb = self.mailbox_size;
                     let resume = match deliver_message(&mut self.stages, mb, to.clone(), msg) {
@@ -619,6 +628,7 @@ impl SimulationRunning {
                                 self.runnable.push_back((name, response));
                             },
                             to.clone(),
+                            &mut None,
                         )
                         .expect("call is always runnable");
                     }
@@ -816,7 +826,7 @@ impl SimulationRunning {
         let senders = std::mem::take(&mut data.senders);
         for (waiting, _) in senders {
             let data = self.stages.get_mut(&waiting).assert_stage("which cannot send");
-            if let Err(err) = resume_send_internal(data, run, at_stage.clone()) {
+            if let Err(err) = resume_send_internal(data, run, at_stage.clone(), &mut None) {
                 tracing::error!(from = %waiting, to = %at_stage, %err, "failed to resume send");
                 continue;
             };
@@ -912,6 +922,7 @@ impl SimulationRunning {
         }
 
         let data = self.stages.get_mut(from.as_ref().name()).assert_stage("which cannot send");
+        let mut msg = msg.map(|msg| Box::new(msg) as Box<dyn SendData>);
         let id = resume_send_internal(
             data,
             &mut |name, response| {
@@ -919,6 +930,7 @@ impl SimulationRunning {
                 self.runnable.push_back((name, response));
             },
             to.name().clone(),
+            &mut msg,
         )?;
 
         if let Some(id) = id
@@ -933,7 +945,7 @@ impl SimulationRunning {
                     self.runnable.push_back((name, response));
                 },
                 Some(id),
-                Box::new(msg),
+                msg,
             )?;
         }
 

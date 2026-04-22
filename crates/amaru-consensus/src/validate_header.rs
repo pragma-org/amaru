@@ -17,10 +17,7 @@ use std::{fmt, sync::Arc};
 use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
 use amaru_observability::trace_span;
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::{
-    ChainStore, HasStakeDistribution, Praos,
-    can_validate_blocks::{CanValidateHeaders, HeaderValidationError},
-};
+use amaru_ouroboros_traits::{CanValidateHeaders, ChainStore, HasStakeDistribution, HeaderValidationError, Praos};
 use anyhow::anyhow;
 
 use crate::{errors::ConsensusError, store::PraosChainStore};
