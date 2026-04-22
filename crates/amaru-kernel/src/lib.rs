@@ -71,6 +71,7 @@ pub use cardano::{
     header::Header,
     header_body::HeaderBody,
     int::Int,
+    language_view::LanguageView,
     language::Language,
     lovelace::Lovelace,
     memoized::{
