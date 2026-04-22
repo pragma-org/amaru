@@ -618,11 +618,13 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
                 });
             }
 
-            for kv in tx.iterator_opt(mode, opts) {
-                match kv {
-                    Ok((k, _v)) => tx.delete(k).map_err(|e| StoreError::WriteError { error: e.to_string() })?,
-                    Err(e) => return Err(StoreError::ReadError { error: e.to_string() }),
-                }
+            let keys_to_delete: Vec<_> = tx
+                .iterator_opt(mode, opts)
+                .map(|kv| kv.map(|(key, _)| key).map_err(|e| StoreError::ReadError { error: e.to_string() }))
+                .collect::<Result<_, _>>()?;
+
+            for key in keys_to_delete {
+                tx.delete(key).map_err(|e| StoreError::WriteError { error: e.to_string() })?;
             }
 
             for point in forward_points.iter() {
