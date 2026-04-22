@@ -251,6 +251,7 @@ pub struct TxSubmissionInitiator {
     /// Request sent to the mempool, to wait for new transactions to be available.
     pending_blocking_request: Option<PendingBlockingRequest>,
     mempool_stage: StageRef<MempoolMsg>,
+    wait_for_at_least_callback: StageRef<()>,
     muxer: StageRef<MuxMessage>,
 }
 
@@ -258,7 +259,14 @@ impl TxSubmissionInitiator {
     pub fn new(muxer: StageRef<MuxMessage>, mempool_stage: StageRef<MempoolMsg>) -> (State, Self) {
         (
             State::Init,
-            Self { window: VecDeque::new(), last_seq: None, pending_blocking_request: None, mempool_stage, muxer },
+            Self {
+                window: VecDeque::new(),
+                last_seq: None,
+                pending_blocking_request: None,
+                mempool_stage,
+                wait_for_at_least_callback: StageRef::blackhole(),
+                muxer,
+            },
         )
     }
 
@@ -275,12 +283,22 @@ impl TxSubmissionInitiator {
 
         // Ask the mempool to notify us when it has reached the expected sequence number,
         // so that we can reply to the peer with the requested tx ids.
-        let caller = eff
-            .contramap(eff.me_ref(), format!("tx_submission_wait_for_at_least_{}", expected_seq_no), |_: ()| {
-                Inputs::<InitiatorLocalIn>::Local(InitiatorLocalIn::WaitForAtLeastReached)
-            })
-            .await;
-        eff.send(&self.mempool_stage, MempoolMsg::WaitForAtLeast { seq_no: expected_seq_no, caller }).await;
+        // Note: on the first `request_tx_ids_blocking` request we receive, we instantiate the callback
+        // stage ref with a contramap to the mempool stage. If we were to create one contramapped
+        // stage for each call we would have a memory leak because those references are not garbage
+        // collected.
+        if self.wait_for_at_least_callback.is_blackhole() {
+            self.wait_for_at_least_callback = eff
+                .contramap(eff.me_ref(), "tx_submission_wait_for_at_least_callback", |_: ()| {
+                    Inputs::<InitiatorLocalIn>::Local(InitiatorLocalIn::WaitForAtLeastReached)
+                })
+                .await;
+        }
+        eff.send(
+            &self.mempool_stage,
+            MempoolMsg::WaitForAtLeast { seq_no: expected_seq_no, caller: self.wait_for_at_least_callback.clone() },
+        )
+        .await;
         Ok(None)
     }
 

@@ -165,4 +165,3 @@ impl From<anyhow::Error> for MempoolError {
         Self::new(error.to_string())
     }
 }
-
