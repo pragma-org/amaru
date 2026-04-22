@@ -112,7 +112,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         .await;
 
     // do not print every single block while catching up
-    let now = store.eff().clock().await;
+    let now = Instant::now();
     if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
         tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
         state.last_printed = now;

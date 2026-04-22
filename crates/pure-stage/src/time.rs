@@ -133,7 +133,7 @@ impl Instant {
         self.0
     }
 
-    pub(crate) fn now() -> Self {
+    pub fn now() -> Self {
         Self(tokio::time::Instant::now())
     }
 

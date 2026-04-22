@@ -114,6 +114,7 @@ fn test_extension_adopts_and_sends() {
 
     let mut expected = prep.state.clone();
     expected.current_best_tip = msg;
+    expected.suppressed = 1;
     assert_trace(
         &running,
         &[
@@ -158,6 +159,7 @@ fn test_fork_switch_adopts_and_sends() {
 
     let mut expected = prep.state.clone();
     expected.current_best_tip = msg;
+    expected.suppressed = 1;
     assert_trace(
         &running,
         &[
@@ -211,6 +213,7 @@ fn test_fork_switch_opcert_hacked() {
 
     let mut expected = prep.state.clone();
     expected.current_best_tip = msg;
+    expected.suppressed = 1;
     assert_trace(
         &running,
         &[
