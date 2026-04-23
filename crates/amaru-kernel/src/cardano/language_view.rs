@@ -45,7 +45,7 @@ use crate::{CostModels, Language, cbor};
 ///
 /// This means PlutusV2 (tag `0x01`, 1 byte) sorts before PlutusV1 (tag `0x41 0x00`, 2 bytes).
 ///
-/// Reference: https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/conway/impl/cddl/data/conway.cddl#L509
+/// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/conway/impl/cddl/data/conway.cddl#L509>
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LanguageView {
     pub language: Language,
@@ -94,7 +94,7 @@ impl LanguageView {
 /// [`LanguageView`] documentation for the version-specific encoding rules.
 ///
 /// Corresponds to the Haskell's `getLanguageView` + `encodeCostModel`:
-/// https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/PParams.hs
+/// <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/PParams.hs>
 impl<C> cbor::Encode<C> for LanguageView {
     fn encode<W: cbor::encode::Write>(
         &self,
