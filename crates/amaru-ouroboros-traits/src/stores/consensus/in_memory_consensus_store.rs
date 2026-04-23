@@ -132,11 +132,7 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     #[expect(clippy::unwrap_used)]
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
         let inner = self.inner.lock().unwrap();
-        let min_slot = point.slot_or_default();
-
-        let next: Vec<&Point> = inner.chain.iter().filter(move |p| p.slot_or_default() > min_slot).take(1).collect();
-
-        if next.is_empty() { None } else { Some(*next[0]) }
+        get_next_best_chain(&inner.chain, point)
     }
 }
 
@@ -286,7 +282,16 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        let min_slot = point.slot_or_default();
-        self.chain.iter().find(|p| p.slot_or_default() > min_slot).copied()
+        get_next_best_chain(&self.chain, point)
     }
+}
+
+fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {
+    chain
+        .iter()
+        .find(|p| match point {
+            Point::Origin => true,
+            Point::Specific(slot, _) => p.slot_or_default() > *slot,
+        })
+        .copied()
 }

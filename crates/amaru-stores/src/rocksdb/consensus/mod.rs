@@ -295,24 +295,7 @@ where
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        let mut readopts = self.read_options();
-        readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
-        let prefix = [&CHAIN_PREFIX[..], &(u64::from(point.slot_or_default()) + 1).to_be_bytes()].concat();
-        let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
-
-        if let Some(Ok((k, v))) = iter.next() {
-            #[expect(clippy::unwrap_used)]
-            let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
-            let slot = u64::from_be_bytes(slot_bytes);
-            if v.len() == HEADER {
-                let hash = <HeaderHash>::from(v.as_ref());
-                Some(Point::Specific(slot.into(), hash))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        get_next_best_chain_point(self.db, point, self.read_options())
     }
 }
 
@@ -409,24 +392,38 @@ where
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        let mut readopts = ReadOptions::default();
-        readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
-        let prefix = [&CHAIN_PREFIX[..], &(u64::from(point.slot_or_default()) + 1).to_be_bytes()].concat();
-        let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
+        get_next_best_chain_point(&self.db, point, ReadOptions::default())
+    }
+}
 
-        if let Some(Ok((k, v))) = iter.next() {
-            #[expect(clippy::unwrap_used)]
-            let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
-            let slot = u64::from_be_bytes(slot_bytes);
-            if v.len() == HEADER {
-                let hash = <HeaderHash>::from(v.as_ref());
-                Some(Point::Specific(slot.into(), hash))
-            } else {
-                None
-            }
+/// Return the next slot to look for when iterating over the best chain starting from the given point.
+/// If the point is Origin, the slot is 0 by definition.
+fn next_best_chain_start_slot(point: &Point) -> u64 {
+    match point {
+        Point::Specific(slot, _) => u64::from(*slot) + 1,
+        Point::Origin => 0,
+    }
+}
+
+/// Return the next point on the best chain if there is one
+fn get_next_best_chain_point<T: DbOps>(db: &T, point: &Point, mut readopts: ReadOptions) -> Option<Point> {
+    readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
+    let slot = next_best_chain_start_slot(point);
+    let prefix = [&CHAIN_PREFIX[..], &slot.to_be_bytes()].concat();
+    let mut iter = db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
+
+    if let Some(Ok((k, v))) = iter.next() {
+        #[expect(clippy::unwrap_used)]
+        let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
+        let slot = u64::from_be_bytes(slot_bytes);
+        if v.len() == HEADER {
+            let hash = <HeaderHash>::from(v.as_ref());
+            Some(Point::Specific(slot.into(), hash))
         } else {
             None
         }
+    } else {
+        None
     }
 }
 
@@ -1045,9 +1042,7 @@ pub mod test {
     fn next_best_chain_returns_successor_give_valid_point() {
         with_db(|store| {
             let chain = populate_db(store.clone());
-
             let result = store.next_best_chain(&chain[5].point()).expect("should find successor");
-
             assert_eq!(result, chain[6].point());
         });
     }
@@ -1056,6 +1051,18 @@ pub mod test {
     fn next_best_chain_returns_first_point_on_chain_given_origin() {
         with_db(|store| {
             let chain = populate_db(store.clone());
+            let result = store.next_best_chain(&Point::Origin).expect("should find successor");
+            assert_eq!(result, chain[0].point());
+        });
+    }
+
+    #[test]
+    fn next_best_chain_returns_slot_zero_point_given_origin() {
+        with_db(|store| {
+            let h0 = BlockHeader::from(make_header(1, 0, None));
+            let h1 = BlockHeader::from(make_header(2, 1, Some(h0.hash())));
+            let chain = vec![h0, h1];
+            append_best_chain(store.clone(), &chain);
 
             let result = store.next_best_chain(&Point::Origin).expect("should find successor");
 
@@ -1088,9 +1095,7 @@ pub mod test {
     fn next_best_chain_header_rolls_forward_from_best_chain_pointer() {
         with_db(|store| {
             let chain = populate_db(store.clone());
-
             let result = store.next_best_chain_header(&chain[5].point()).unwrap();
-
             assert_eq!(result, NextBestChainHeader::RollForward { point: chain[6].point(), header: chain[6].clone() });
         });
     }
@@ -1114,7 +1119,6 @@ pub mod test {
             }
 
             let result = store.next_best_chain_header(&headers.h3a.point()).unwrap();
-
             assert_eq!(result, NextBestChainHeader::NeedRollback);
         });
     }
@@ -1123,9 +1127,7 @@ pub mod test {
     fn next_best_chain_header_reports_at_tip() {
         with_db(|store| {
             let chain = populate_db(store.clone());
-
             let result = store.next_best_chain_header(&chain[9].point()).unwrap();
-
             assert_eq!(result, NextBestChainHeader::AtTip);
         });
     }
@@ -1499,6 +1501,29 @@ pub mod test {
                     assert_eq!(snapshot.next_best_chain(&Point::Origin), Some(chain[0].point()));
                     assert_eq!(snapshot.next_best_chain(&chain[5].point()), Some(chain[6].point()));
                     assert_eq!(snapshot.next_best_chain(&chain[9].point()), None);
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn read_snapshot_supports_best_chain_traversal_from_origin_to_slot_zero() {
+        let h0 = BlockHeader::from(make_header(1, 0, None));
+        let h1 = BlockHeader::from(make_header(2, 1, Some(h0.hash())));
+        let chain = vec![h0, h1];
+
+        with_read_db(
+            {
+                let chain = chain.clone();
+                move |store| {
+                    append_best_chain(store.clone(), &chain);
+                }
+            },
+            {
+                let chain = chain.clone();
+                move |_store, snapshot| {
+                    assert_eq!(snapshot.next_best_chain(&Point::Origin), Some(chain[0].point()));
+                    assert_eq!(snapshot.next_best_chain(&chain[0].point()), Some(chain[1].point()));
                 }
             },
         );
