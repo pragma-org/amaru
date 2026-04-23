@@ -132,14 +132,18 @@ mod tests {
         },
     };
 
-    use amaru_consensus::{effects::ResourceTxValidation, stages::mempool::MempoolStageState};
-    use amaru_kernel::{RawBlock, Transaction};
+    use amaru_consensus::{
+        effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation},
+        stages::mempool::MempoolStageState,
+    };
+    use amaru_kernel::{NetworkName, RawBlock, Slot, Transaction};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
-        MempoolError, MempoolSeqNo, MockCanValidateTxs, TransactionValidationError, TxId, TxInsertResult, TxOrigin,
-        TxSubmissionMempool,
+        MempoolError, MempoolSeqNo, MockCanValidateBlocks, MockCanValidateTxs, TransactionValidationError, TxId,
+        TxInsertResult, TxOrigin, TxSubmissionMempool,
     };
+    use amaru_protocols::store_effects::ResourceParameters;
     use axum::{
         body::{Bytes, to_bytes},
         extract::State,
@@ -358,6 +362,11 @@ mod tests {
         let mut stage_graph = TokioBuilder::default();
         let mempool_stage = stage_graph.stage("mempool", mempool::stage);
         let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default());
+        let era_history = <&amaru_kernel::EraHistory>::from(NetworkName::Preprod);
+        let global_parameters = <&amaru_kernel::GlobalParameters>::from(NetworkName::Preprod);
+        stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
+        stage_graph.resources().put::<ResourceEraHistory>(era_history.clone());
+        stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
         stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
         stage_graph.resources().put::<ResourceTxValidation>(validator);
         let sender = stage_graph.input(mempool_stage.without_state());
@@ -365,7 +374,7 @@ mod tests {
         (sender, running)
     }
 
-    fn reject_transactions(_tx: &Transaction) -> Result<(), TransactionValidationError> {
+    fn reject_transactions(_tx: &Transaction, _slot: Slot) -> Result<(), TransactionValidationError> {
         Err(anyhow::anyhow!("transaction rejected for testing").into())
     }
 

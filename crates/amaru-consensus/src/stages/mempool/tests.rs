@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Slot, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::{
     MempoolMsg, MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
@@ -73,7 +73,7 @@ pub fn make_insert_batch_example() -> TestPrep {
 }
 
 /// Return a transaction as invalid if its index is 1
-fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
+fn reject_tx_1(tx: &Transaction, _slot: Slot) -> Result<(), TransactionValidationError> {
     if tx.body.inputs.first().is_some_and(|input| input.index == 1) {
         Err(anyhow::anyhow!("transaction rejected for testing").into())
     } else {
