@@ -5,12 +5,14 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 ## Build, Lint, and Test Commands
 
 ### Core Cargo Aliases (from .cargo/config.toml)
+
 - `cargo check-amaru`: `check --workspace --all-targets`
 - `cargo clippy-amaru`: `clippy --workspace --all-targets -- -D warnings`
 - `cargo fmt-amaru`: `fmt --all -- --check`
 - Use nightly toolchain: `nightly-2026-04-17` (see rust-toolchain.toml)
 
 ### Makefile Targets (preferred for consistency)
+
 - `make build`: Build in release profile
 - `make start`: Build and run with defaults (uses AMARU_NETWORK=preprod)
 - `make all-ci-checks`: Runs fmt, clippy, tests, examples, coverage
@@ -19,6 +21,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - `make coverage-lconv`: LCOV for Codecov
 
 ### Testing Commands
+
 - Run all tests: `cargo test --workspace --all-targets`
 - Run tests for specific crate: `cargo test -p amaru-consensus`
 - Run single test function: `cargo test test_intersect_found --lib -p amaru-consensus`
@@ -31,6 +34,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - Single bench: `cargo bench --bench stage_msgs --features test-utils <bench_name>`
 
 ### Other
+
 - Format: `cargo fmt-amaru` or `make` targets
 - Pre-commit hooks: `./scripts/setup-hooks.sh` (runs clippy)
 - Full CI: See .github/workflows/continuous-integration.yml
@@ -42,6 +46,7 @@ Run `make help` for all targets.
 ## Code Style Guidelines
 
 ### General
+
 - Follow Rust conventions + project-specific rules from EDRs in engineering-decision-records/
 - Always check neighboring files, similar modules, and Cargo.toml for existing patterns, libs, imports, error types before adding new code
 - Mimic code style, naming, formatting exactly
@@ -54,6 +59,7 @@ Run `make help` for all targets.
 - main branch must always be working (compiles + tests pass)
 
 ### Formatting (rustfmt.toml)
+
 - unstable_features = true
 - imports_granularity = "Crate"
 - group_imports = "StdExternalCrate"
@@ -62,6 +68,7 @@ Run `make help` for all targets.
 - Imports order: std, external crates, workspace/project crates, self/super/crate
 
 ### Clippy and Lints (.cargo/clippy.toml)
+
 - allow-expect-in-tests, allow-panic-in-tests, allow-unwrap-in-tests = true
 - type-complexity-threshold = 600
 - enum-variant-size-threshold = 1024
@@ -70,6 +77,7 @@ Run `make help` for all targets.
 - Fix all warnings; CI enforces -D warnings
 
 ### Error Handling (EDR 013-error-handling-strategies.md)
+
 - Use Result<T, E> everywhere possible
 - Avoid panic! except for bugs/unreachable
 - Libs: thiserror::Error enums per crate, implement std::error::Error
@@ -81,6 +89,7 @@ Run `make help` for all targets.
 - Custom errors in crates/amaru-consensus/src/errors.rs etc.
 
 ### Types and Naming (EDR 009-avoid-primitive-obsession.md)
+
 - Avoid primitive obsession: use newtypes for domain concepts (Slot, Point, Tip, Peer, Hash, etc.)
 - Newtypes: #[derive(...)] #[repr(transparent)] pub struct Slot(u64); with private field
 - Implement: Debug, Clone, Copy (if applicable), PartialEq/Eq/Ord, Display, Serialize/Deserialize, CBOR Encode/Decode
@@ -90,6 +99,7 @@ Run `make help` for all targets.
 - No HashMap/HashSet in public APIs (use BTreeMap for determinism?)
 
 ### Imports and Modules
+
 - Group as per rustfmt: std > external > crate
 - Use self, super, crate:: as appropriate
 - Prefer specific imports over glob (*)
@@ -97,7 +107,9 @@ Run `make help` for all targets.
 - See crates/amaru-consensus/src/stages/ for examples
 
 ### Headers and Licensing
+
 - All .rs files start with:
+
   ```rust
   // Copyright 2026 PRAGMA
   //
@@ -113,9 +125,11 @@ Run `make help` for all targets.
   // See the License for the specific language governing permissions and
   // limitations under the License.
   ```
+
 - Use Apache 2.0 license
 
 ### Git and Commits (from CONTRIBUTING.md)
+
 - Conventional commits
 - GPG-signed commits
 - Sign-off with -s (--sign-off)
@@ -125,6 +139,7 @@ Run `make help` for all targets.
 - See EDRs for design docs
 
 ### Testing and Simulation
+
 - Unit + property (proptest) + conformance tests
 - Deterministic simulation with pure-stage for consensus/network (see EDR 011)
 - Prefer simulation tests for complex logic
@@ -133,6 +148,7 @@ Run `make help` for all targets.
 - For single test in sim: cargo test -p amaru-sim <name>
 
 ### Project Structure
+
 - crates/: amaru-kernel, amaru-consensus, amaru-ledger, amaru-protocols, amaru-ouroboros, etc.
 - simulation/amaru-sim: for DST
 - engineering-decision-records/: all major decisions (read before big changes)
@@ -140,15 +156,17 @@ Run `make help` for all targets.
 - Use pure_stage for effectful code to enable simulation
 
 ### AI/Agent Specific
+
 - Be proactive but only when asked; ask for clarification via question tool if ambiguous
 - Use tools extensively: glob/grep/read before editing
 - For edits: always Read first, then edit with exact string match
 - Verify with lint/test after changes
 - Do not create docs unless asked
 - When in doubt, mimic closest existing code (use grep/glob)
-- Report feedback to https://github.com/anomalyco/opencode/issues
+- Report feedback to <https://github.com/anomalyco/opencode/issues>
 
 ### Useful Commands Summary
+
 - Single test in crate: `cargo test <fn_name> -p <crate_name>`
 - Test with filter: `cargo test <filter>`
 - Bench specific: `cargo bench --bench <name> <filter> --features test-utils`

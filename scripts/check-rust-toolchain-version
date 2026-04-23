@@ -42,3 +42,19 @@ if [[ "$(printf '%s\n%s\n' "$rust_version" "$actual_version" | sort -V | tail -n
 fi
 
 echo "Rust toolchain is compatible: $channel -> $actual_version (rust-version: $rust_version)"
+
+agents_md=$(
+  sed -nE 's/.*(nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/p' "$ROOT_DIR/AGENTS.md"
+)
+
+if [[ -z "$agents_md" ]]; then
+  echo "Could not read nightly version from AGENTS.md" >&2
+  exit 1
+fi
+
+if [[ "$agents_md" != "$channel" ]]; then
+  echo "Nightly version in AGENTS.md does not match toolchain channel:" >&2
+  echo "  AGENTS.md: $agents_md" >&2
+  echo "  toolchain: $channel" >&2
+  exit 1
+fi
