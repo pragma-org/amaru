@@ -60,6 +60,12 @@ where
         self.load_header(hash).map(|h| h.tip())
     }
 
+    #[expect(clippy::expect_used)]
+    fn get_best_chain_tip(&self) -> Tip {
+        self.load_tip(&self.get_best_chain_hash())
+            .expect("best chain tip not found. There should always be a best chain tip")
+    }
+
     /// Return the hashes of the best chain fragment, starting from the anchor.
     fn retrieve_best_chain(&self) -> Vec<HeaderHash> {
         let anchor = self.get_anchor_hash();

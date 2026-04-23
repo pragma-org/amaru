@@ -54,6 +54,10 @@ impl Store {
         self.effects.external(GetBestChainHashEffect::new())
     }
 
+    pub fn get_best_chain_tip(&self) -> BoxFuture<'static, Tip> {
+        self.effects.external(GetBestChainTipEffect::new())
+    }
+
     pub fn load_block(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<Option<RawBlock>, StoreError>> {
         self.effects.external(LoadBlockEffect::new(*hash))
     }
@@ -177,6 +181,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<GetBestChainTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetNoncesEffect>().boxed(),
         pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
@@ -607,6 +612,31 @@ impl ExternalEffect for GetBestChainHashEffect {
 
 impl ExternalEffectAPI for GetBestChainHashEffect {
     type Response = HeaderHash;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GetBestChainTipEffect;
+
+impl GetBestChainTipEffect {
+    #[expect(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl ExternalEffect for GetBestChainTipEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("GetBestChainTipEffect requires a chain store").clone();
+            store.get_best_chain_tip()
+        })
+    }
+}
+
+impl ExternalEffectAPI for GetBestChainTipEffect {
+    type Response = Tip;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
