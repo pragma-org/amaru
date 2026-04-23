@@ -19,6 +19,7 @@ use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::{
     MempoolMsg, MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
 };
+use amaru_ouroboros_traits::TxSubmissionMempool;
 use pure_stage::StageRef;
 use tokio::runtime::Builder;
 use tracing::Level;
@@ -55,6 +56,28 @@ fn insert_batch_returns_one_result_per_transaction() {
         ],
     );
 
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn new_tip_invalidates_transactions_against_current_ledger_state() {
+    let tx_0 = create_transaction(0);
+    let tx_1 = create_transaction(1);
+    let tx_2 = create_transaction(2);
+    let mempool = Arc::new(InMemoryMempool::<Transaction>::default());
+    mempool.insert(tx_0.clone(), TxOrigin::Local).unwrap();
+    mempool.insert(tx_1.clone(), TxOrigin::Local).unwrap();
+    mempool.insert(tx_2.clone(), TxOrigin::Local).unwrap();
+    let prep = TestPrep {
+        msg: MempoolMsg::NewTip(amaru_kernel::Tip::origin()),
+        rt: Builder::new_current_thread().build().unwrap(),
+        mempool: mempool.clone(),
+        validator: Arc::new(reject_tx_1),
+    };
+
+    let (_running, _guards, mut logs) = setup(&prep);
+
+    assert_eq!(mempool.mempool_txs(), vec![tx_0, tx_2]);
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 

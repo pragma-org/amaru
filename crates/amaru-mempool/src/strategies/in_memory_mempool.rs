@@ -119,6 +119,22 @@ impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
         result.sort_by_key(|(_, entry)| entry.seq_no);
         result.into_iter().map(|(_, entry)| entry.tx.clone()).collect()
     }
+
+    fn mempool_txs(&self) -> Vec<Tx> {
+        self.entries_by_seq
+            .values()
+            .filter_map(|tx_id| self.entries_by_id.get(tx_id))
+            .map(|entry| entry.tx.clone())
+            .collect()
+    }
+
+    fn remove_txs(&mut self, ids: &[TxId]) {
+        for tx_id in ids {
+            if let Some(entry) = self.entries_by_id.remove(tx_id) {
+                self.entries_by_seq.remove(&entry.seq_no);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -163,6 +179,15 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<T
 
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
         self.inner.read().get_txs_for_ids(ids)
+    }
+
+    fn mempool_txs(&self) -> Vec<Tx> {
+        self.inner.read().mempool_txs()
+    }
+
+    fn remove_txs(&self, ids: &[TxId]) -> Result<(), amaru_ouroboros_traits::MempoolError> {
+        self.inner.write().remove_txs(ids);
+        Ok(())
     }
 
     fn last_seq_no(&self) -> MempoolSeqNo {

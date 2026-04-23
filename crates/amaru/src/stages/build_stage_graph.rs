@@ -65,7 +65,9 @@ pub fn build_stage_graph(
             .try_into()
             .expect("consensus security param will not be larger than u64::MAX")
     };
-    let adopt_chain = stage_graph.wire_up(adopt_chain, AdoptChain::new(manager.sender(), k, ledger_tip));
+    let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
+    let adopt_chain =
+        stage_graph.wire_up(adopt_chain, AdoptChain::new(manager.sender(), mempool_stage.clone(), k, ledger_tip));
 
     let validate_block = stage_graph.wire_up(
         validate_block,
@@ -94,8 +96,6 @@ pub fn build_stage_graph(
         TrackPeers::new(era_history.clone(), manager.sender(), select_chain_input, k, config.defer_req_next_poll_ms),
     );
     let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
-
-    let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
 
     let manager_stage = stage_graph
         .wire_up(

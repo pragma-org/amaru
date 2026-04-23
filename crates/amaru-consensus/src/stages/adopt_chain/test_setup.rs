@@ -15,19 +15,20 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, HeaderHash, NonEmptyVec, Point, Tip, make_header, make_header_with_op_cert_seq,
+    cardano::network_block::make_encoded_block, make_header, make_header_with_op_cert_seq, BlockHeader, BlockHeight,
+    HeaderHash, NonEmptyVec, Point, Tip, TESTNET_ERA_HISTORY,
 };
-use amaru_ouroboros::StoreError;
-use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros::{MempoolMsg, StoreError};
+use amaru_ouroboros_traits::{in_memory_consensus_store::InMemConsensusStore, ChainStore};
 use amaru_protocols::store_effects::{
     FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
     LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
     SetAnchorHashEffect, SwitchToForkEffect,
 };
 use pure_stage::{
-    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
+    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
 };
 use tokio::runtime::{Builder, Runtime};
 use tracing::Level;
@@ -109,6 +110,11 @@ impl TestPrep {
         }
     }
 
+    pub fn store_block(&self, header: &BlockHeader) {
+        let raw_block = make_encoded_block(header, &TESTNET_ERA_HISTORY);
+        self.store.store_block(&header.hash(), &raw_block).unwrap();
+    }
+
     pub fn set_anchor(&self, hash: HeaderHash) {
         self.store.set_anchor_hash(&hash).unwrap();
     }
@@ -128,6 +134,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<AdoptChain>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
+        pure_stage::register_data_deserializer::<MempoolMsg>().boxed(),
         pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<Option<BlockHeader>>().boxed(),
         pure_stage::register_data_deserializer::<Option<Point>>().boxed(),
@@ -149,8 +156,9 @@ pub fn register_guards() -> DeserializerGuards {
 
 pub fn test_prep(consensus_security_param: u64) -> TestPrep {
     let downstream = StageRef::named_for_tests("downstream");
+    let mempool = StageRef::named_for_tests("mempool");
     let headers = HeaderTree::new();
-    let state = AdoptChain::new(downstream, consensus_security_param, Tip::origin());
+    let state = AdoptChain::new(downstream, mempool, consensus_security_param, Tip::origin());
     TestPrep {
         state,
         rt: Builder::new_current_thread().build().unwrap(),
@@ -159,7 +167,7 @@ pub fn test_prep(consensus_security_param: u64) -> TestPrep {
     }
 }
 
-pub fn setup(prep: &TestPrep, msg: Tip) -> (SimulationRunning, DeserializerGuards, Logs) {
+pub fn setup(prep: &TestPrep, msg: AdoptChainMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
     let writer = BufferWriter::new();
     let mut logs = writer.clone();
 
@@ -177,7 +185,7 @@ pub fn setup(prep: &TestPrep, msg: Tip) -> (SimulationRunning, DeserializerGuard
 
     let ac = network.stage("ac", stage);
     let ac = network.wire_up(ac, prep.state.clone());
-    network.preload(&ac, [AdoptChainMsg::new(msg, BlockHeight::new(0))]).unwrap();
+    network.preload(&ac, [msg]).unwrap();
 
     let mut running = network.run();
     running.run_until_blocked_incl_effects(prep.rt.handle());

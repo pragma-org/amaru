@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Tip, Transaction};
 use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin};
 use pure_stage::StageRef;
 
@@ -25,6 +25,8 @@ use pure_stage::StageRef;
 ///
 /// The response to `InsertBatch` contains one `TxInsertResult` per input transaction,
 /// in the same order.
+///
+/// NewTip comes from the `adopt_chain` stage and informs the mempool that a new tip has been adopted.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMsg {
     WaitForAtLeast {
@@ -41,6 +43,7 @@ pub enum MempoolMsg {
         origin: TxOrigin,
         caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertError>>,
     },
+    NewTip(Tip),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

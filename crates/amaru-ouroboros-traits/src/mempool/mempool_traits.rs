@@ -60,6 +60,14 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Retrieve a list of transactions for the given ids.
     fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx>;
 
+    /// Retrieve all transactions currently active for relay.
+    fn mempool_txs(&self) -> Vec<Tx>;
+
+    /// Remove transactions from the active relay set.
+    fn remove_txs(&self, _ids: &[TxId]) -> Result<(), MempoolError> {
+        Ok(())
+    }
+
     /// Get the last assigned sequence number in the mempool.
     fn last_seq_no(&self) -> MempoolSeqNo;
 }

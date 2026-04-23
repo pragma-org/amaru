@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Tip, Transaction};
 use amaru_ouroboros::{
     MempoolError, MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason,
 };
@@ -72,6 +72,9 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             }
             eff.send(&caller, Ok(results)).await;
         }
+        MempoolMsg::NewTip(tip) => {
+            apply_new_tip(&ledger, &memory_pool, tip);
+        }
     }
     state
 }
@@ -89,6 +92,22 @@ async fn validate_and_insert(
         Ok(()) => memory_pool.insert(tx, origin.clone()).await,
         Err(error) => Ok(TxInsertResult::rejected(TxId::from(&tx), TxRejectReason::Invalid(error))),
     }
+}
+
+/// Revalidate all the mempool transactions when a new tip has been adopted
+fn apply_new_tip(ledger: &Ledger<MempoolMsg>, memory_pool: &MemoryPool<MempoolMsg>, tip: Tip) {
+    let invalid_txs =
+        memory_pool.mempool_txs().into_iter().filter(|tx| ledger.validate_tx(tx).is_err()).collect::<Vec<_>>();
+    let invalid_tx_ids = invalid_txs.iter().map(TxId::from).collect::<Vec<_>>();
+
+    if !invalid_tx_ids.is_empty()
+        && let Err(error) = memory_pool.remove_txs(&invalid_tx_ids)
+    {
+        tracing::error!(%error, %tip, "failed to remove invalid transactions after new tip");
+        return;
+    }
+
+    tracing::debug!(%tip, invalidated_txs = invalid_tx_ids.len(), "revalidated mempool after new tip");
 }
 
 /// Notify the waiters whose target sequence number has just been reached.
