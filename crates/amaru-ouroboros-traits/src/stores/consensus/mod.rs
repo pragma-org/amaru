@@ -263,7 +263,7 @@ where
     /// Return the next best-chain header from the given pointer using a single snapshot.
     fn next_best_chain_header(&self, pointer: &Point) -> Result<NextBestChainHeader<H>, StoreError> {
         let snapshot = self.snapshot();
-        if snapshot.load_from_best_chain(pointer).is_none() {
+        if *pointer != Point::Origin && snapshot.load_from_best_chain(pointer).is_none() {
             return Ok(NextBestChainHeader::NeedRollback);
         }
         let Some(point) = snapshot.next_best_chain(pointer) else {
@@ -403,8 +403,11 @@ where
         H: 'static,
     {
         let snapshot = self.snapshot();
+        let best_chain_is_non_empty = snapshot.get_best_chain_hash() != ORIGIN_HASH;
         points.sort_by_key(|p| Reverse(*p));
-        points.into_iter().find(|&point| snapshot.load_from_best_chain(&point).is_some())
+        points.into_iter().find(|&point| {
+            (point == Point::Origin && best_chain_is_non_empty) || snapshot.load_from_best_chain(&point).is_some()
+        })
     }
 
     /// Return a sparse sample of points from the best chain, starting at the tip, with

@@ -1096,6 +1096,15 @@ pub mod test {
     }
 
     #[test]
+    fn next_best_chain_header_rolls_forward_from_origin() {
+        with_db(|store| {
+            let chain = populate_db(store.clone());
+            let result = store.next_best_chain_header(&Point::Origin).unwrap();
+            assert_eq!(result, NextBestChainHeader::RollForward { point: chain[0].point(), header: chain[0].clone() });
+        });
+    }
+
+    #[test]
     fn next_best_chain_header_requests_rollback_for_non_best_chain_pointer() {
         with_db(|store| {
             let headers = make_forked_headers();
@@ -1480,6 +1489,15 @@ pub mod test {
                 }
             },
         );
+    }
+
+    #[test]
+    fn find_intersect_point_returns_origin_when_best_chain_is_non_empty() {
+        with_db(|store| {
+            let _chain = populate_db(store.clone());
+
+            assert_eq!(store.find_intersect_point(vec![Point::Origin]), Some(Point::Origin));
+        });
     }
 
     #[test]
