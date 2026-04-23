@@ -21,7 +21,8 @@ use std::{
 use amaru_kernel::{
     ExUnits, HasRedeemers, HasScriptHash, Hash, Hasher, Language, LanguageView, MemoizedDatum, PlutusScript,
     ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, cbor,
-    cbor::Encode, decode_plutus_script, script_purpose_to_string,
+    cbor::Encode,
+    decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
