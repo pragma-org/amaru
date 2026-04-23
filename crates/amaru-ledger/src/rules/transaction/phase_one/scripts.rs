@@ -19,8 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, ProtocolParameters, ProtocolVersion,
-    RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, decode_plutus_script, script_purpose_to_string,
+    ExUnits, HasRedeemers, HasScriptHash, Hash, Hasher, Language, LanguageView, MemoizedDatum, PlutusScript,
+    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, cbor,
+    cbor::Encode, decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
@@ -77,6 +78,9 @@ pub enum InvalidScripts {
 
     #[error("transaction execution units exceeded: provided {provided:?}, max {max:?}")]
     TooManyExUnits { provided: ExUnits, max: ExUnits },
+
+    #[error("script integrity hash mismatch: supplied {supplied:?}, expected {expected:?}")]
+    ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Hash<32>> },
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -84,6 +88,7 @@ pub fn execute<C>(
     context: &mut C,
     witness_set: &WitnessSet,
     protocol_parameters: &ProtocolParameters,
+    script_data_hash: Option<Hash<32>>,
 ) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
@@ -128,7 +133,25 @@ where
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
 
-    // FIXME: evaluate scripts (phase-2)
+    let languages: Vec<Language> = provided_scripts
+        .values()
+        .filter_map(|kind| match kind {
+            ScriptKind::PlutusV1 => Some(Language::PlutusV1),
+            ScriptKind::PlutusV2 => Some(Language::PlutusV2),
+            ScriptKind::PlutusV3 => Some(Language::PlutusV3),
+            ScriptKind::Native => None,
+        })
+        .collect();
+
+    // NOTE: Two conformance tests ("PlutusV3 Initialization/Updating CostModels ...") fail this
+    // check because they contain multi-epoch test vectors where governance actions update the cost
+    // models mid-test. The test harness loads protocol parameters once at the start and doesn't
+    // update them at epoch boundaries, so later transactions are validated against stale cost
+    // models, producing a different script integrity hash.
+    let expected = compute_script_integrity_hash(witness_set, protocol_parameters, &languages);
+    if script_data_hash != expected {
+        return Err(InvalidScripts::ScriptIntegrityHashMismatch { supplied: script_data_hash, expected });
+    }
 
     Ok(())
 }
@@ -456,6 +479,56 @@ fn collect_plutus_witness_scripts<const V: usize>(
     }
 }
 
+/// Computes the script integrity hash from the witness set, protocol parameters, and the set of
+/// Plutus languages used by the transaction. Returns `None` when there are no redeemers, datums,
+/// or language views (matching Haskell's `SNothing` case).
+///
+/// See [`LanguageView`] for the full specification of the hash computation.
+fn compute_script_integrity_hash(
+    witness_set: &WitnessSet,
+    protocol_parameters: &ProtocolParameters,
+    languages: &[Language],
+) -> Option<Hash<32>> {
+    let has_redeemers = witness_set.redeemer.is_some();
+    let has_datums = witness_set.plutus_data.is_some();
+    let has_languages = !languages.is_empty();
+
+    if !has_redeemers && !has_datums && !has_languages {
+        return None;
+    }
+
+    let mut buf = Vec::new();
+
+    if let Some(ref redeemers) = witness_set.redeemer {
+        buf.extend_from_slice(redeemers.original_bytes());
+    } else {
+        buf.push(0xa0);
+    }
+
+    if let Some(ref datums) = witness_set.plutus_data {
+        buf.extend_from_slice(datums.original_bytes());
+    }
+
+    let mut views: Vec<LanguageView> = languages
+        .iter()
+        .filter_map(|lang| LanguageView::from_cost_models(lang.clone(), &protocol_parameters.cost_models))
+        .collect();
+
+    views.sort();
+    views.dedup();
+
+    #[expect(clippy::expect_used)]
+    {
+        let mut e = cbor::Encoder::new(&mut buf);
+        e.map(views.len() as u64).expect("infallible: writing to Vec");
+        for view in &views {
+            view.encode(&mut e, &mut ()).expect("infallible: writing to Vec");
+        }
+    }
+
+    Some(Hasher::<256>::hash(&buf))
+}
+
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
@@ -537,7 +610,7 @@ mod tests {
     fn test_scripts(
         (mut ctx, witness_set, protocol_parameters): (AssertValidationContext, WitnessSet, ProtocolParameters),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, &protocol_parameters)
+        super::execute(&mut ctx, &witness_set, &protocol_parameters, None)
     }
 
     #[test]

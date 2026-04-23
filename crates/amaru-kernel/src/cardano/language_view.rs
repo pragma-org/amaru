@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cmp::Ordering;
+
 use crate::{CostModels, Language, cbor};
 
 /// A language-dependent view of protocol parameters used when computing the script integrity hash
@@ -44,10 +46,27 @@ use crate::{CostModels, Language, cbor};
 /// This means PlutusV2 (tag `0x01`, 1 byte) sorts before PlutusV1 (tag `0x41 0x00`, 2 bytes).
 ///
 /// Reference: https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/conway/impl/cddl/data/conway.cddl#L509
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LanguageView {
     pub language: Language,
     pub cost_model: Vec<i64>,
+}
+
+/// Ordering follows the canonical CBOR "shortLex" rule on the encoded language tag:
+/// shorter tags sort first, ties broken lexicographically. Concretely:
+/// PlutusV2 (tag `0x01`, 1 byte) < PlutusV3 (tag `0x02`, 1 byte) < PlutusV1 (tag `0x41 0x00`, 2 bytes)
+impl Ord for LanguageView {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let tag_a = self.encoded_tag();
+        let tag_b = other.encoded_tag();
+        tag_a.len().cmp(&tag_b.len()).then_with(|| tag_a.cmp(tag_b))
+    }
+}
+
+impl PartialOrd for LanguageView {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl LanguageView {
@@ -58,6 +77,14 @@ impl LanguageView {
             Language::PlutusV3 => cost_models.plutus_v3.clone()?,
         };
         Some(Self { language, cost_model })
+    }
+
+    fn encoded_tag(&self) -> &'static [u8] {
+        match self.language {
+            Language::PlutusV1 => &[0x41, 0x00],
+            Language::PlutusV2 => &[0x01],
+            Language::PlutusV3 => &[0x02],
+        }
     }
 }
 
@@ -74,28 +101,23 @@ impl<C> cbor::Encode<C> for LanguageView {
         e: &mut cbor::Encoder<W>,
         _ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self.language {
-            // PlutusV1 has a bytestring wrapping the CBOR encoding of 0.
-            // On the wire this is 0x41 0x00 (2 bytes).
-            Language::PlutusV1 => {
-                e.bytes(&[0x00])?;
-            }
-            Language::PlutusV2 => {
-                e.u8(1)?;
-            }
-            Language::PlutusV3 => {
-                e.u8(2)?;
-            }
-        };
+        e.writer_mut().write_all(self.encoded_tag()).map_err(cbor::encode::Error::write)?;
 
         match self.language {
-            // PlutusV1 uses an indefinite-lenght list (a historical encoding bug)
+            // PlutusV1: the cost model params are encoded as an indefinite-length list,
+            // then the result is wrapped in a CBOR bytestring.
+            #[expect(clippy::expect_used)]
             Language::PlutusV1 => {
-                e.begin_array()?;
-                for &param in &self.cost_model {
-                    e.i64(param)?;
+                let mut inner = Vec::new();
+                {
+                    let mut sub = cbor::Encoder::new(&mut inner);
+                    sub.begin_array().expect("infallible: writing to Vec");
+                    for &param in &self.cost_model {
+                        sub.i64(param).expect("infallible: writing to Vec");
+                    }
+                    sub.end().expect("infallible: writing to Vec");
                 }
-                e.end()?;
+                e.bytes(&inner)?;
             }
             Language::PlutusV2 | Language::PlutusV3 => {
                 e.array(self.cost_model.len() as u64)?;
