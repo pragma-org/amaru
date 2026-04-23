@@ -58,6 +58,9 @@ pub use scripts::InvalidScripts;
 
 pub mod native_scripts;
 
+pub mod validity_interval;
+pub use validity_interval::InvalidValidityInterval;
+
 pub mod mint;
 
 #[derive(Debug, Error)]
@@ -97,6 +100,9 @@ pub enum PhaseOneError {
 
     #[error("transaction too large: provided {provided} bytes, maximum {maximum} bytes")]
     TooLarge { provided: u64, maximum: u64 },
+
+    #[error("invalid transaction validity interval: {0}")]
+    ValidityInterval(#[from] InvalidValidityInterval),
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -123,6 +129,8 @@ where
     fail_on_network_mismatch(transaction_body.network_id, network)?;
 
     fail_on_tx_size_too_large(tx_size, protocol_parameters)?;
+
+    validity_interval::execute(&transaction_body, transaction_witness_set, era_history, pointer.slot)?;
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
