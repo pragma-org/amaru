@@ -82,6 +82,11 @@ pub struct OverridingChainStore<H> {
     overrides: Mutex<Overrides<H>>,
 }
 
+struct OverridingChainStoreSnapshot<'a, H> {
+    parent: &'a OverridingChainStore<H>,
+    inner: Box<dyn ReadOnlyChainStore<H> + 'a>,
+}
+
 impl<H: IsHeader + Send + Sync + 'static> OverridingChainStore<H> {
     /// Create a new builder for an overriding chain store wrapping the given store.
     pub fn builder(inner: Arc<dyn ChainStore<H>>) -> OverridingChainStoreBuilder<H> {
@@ -327,9 +332,91 @@ impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingCh
     }
 }
 
+impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingChainStoreSnapshot<'_, H> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.load_header {
+            Some(f) => f(self.parent.inner.as_ref(), hash),
+            None => self.inner.load_header(hash),
+        }
+    }
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.load_header_with_validity {
+            Some(f) => f(self.parent.inner.as_ref(), hash),
+            None => self.inner.load_header_with_validity(hash),
+        }
+    }
+
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.get_children {
+            Some(f) => f(self.parent.inner.as_ref(), hash),
+            None => self.inner.get_children(hash),
+        }
+    }
+
+    fn get_anchor_hash(&self) -> HeaderHash {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.get_anchor_hash {
+            Some(f) => f(self.parent.inner.as_ref()),
+            None => self.inner.get_anchor_hash(),
+        }
+    }
+
+    fn get_best_chain_hash(&self) -> HeaderHash {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.get_best_chain_hash {
+            Some(f) => f(self.parent.inner.as_ref()),
+            None => self.inner.get_best_chain_hash(),
+        }
+    }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.load_from_best_chain {
+            Some(f) => f(self.parent.inner.as_ref(), point),
+            None => self.inner.load_from_best_chain(point),
+        }
+    }
+
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.next_best_chain {
+            Some(f) => f(self.parent.inner.as_ref(), point),
+            None => self.inner.next_best_chain(point),
+        }
+    }
+
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.load_block {
+            Some(f) => f(self.parent.inner.as_ref(), hash),
+            None => self.inner.load_block(hash),
+        }
+    }
+
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.get_nonces {
+            Some(f) => f(self.parent.inner.as_ref(), header),
+            None => self.inner.get_nonces(header),
+        }
+    }
+
+    fn has_header(&self, hash: &HeaderHash) -> bool {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.has_header {
+            Some(f) => f(self.parent.inner.as_ref(), hash),
+            None => self.inner.has_header(hash),
+        }
+    }
+}
+
 impl<H: IsHeader + Send + Sync + 'static> ChainStore<H> for OverridingChainStore<H> {
     fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_> {
-        self.inner.snapshot()
+        Box::new(OverridingChainStoreSnapshot { parent: self, inner: self.inner.snapshot() })
     }
 
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
@@ -394,5 +481,46 @@ impl<H: IsHeader + Send + Sync + 'static> ChainStore<H> for OverridingChainStore
             Some(f) => f(self.inner.as_ref(), point),
             None => self.inner.roll_forward_chain(point),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use amaru_kernel::{BlockHeader, IsHeader, make_header};
+
+    use super::*;
+    use crate::in_memory_consensus_store::InMemConsensusStore;
+
+    #[test]
+    fn snapshot_respects_read_overrides_used_by_default_helpers() {
+        let inner: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
+        let chain = append_best_chain(inner.as_ref(), 3);
+        let hidden_point = chain[1].point();
+        let hidden_hash = chain[1].hash();
+        let store = OverridingChainStore::builder(inner)
+            .with_load_from_best_chain(
+                move |_store, point| {
+                    if point == &hidden_point { None } else { Some(point.hash()) }
+                },
+            )
+            .build();
+
+        let (fork_point, forward_points) = store.find_fork_point(hidden_hash).unwrap();
+        assert_eq!(fork_point, chain[0].point());
+        assert_eq!(forward_points.as_ref(), &[hidden_point]);
+    }
+
+    fn append_best_chain(store: &dyn ChainStore<BlockHeader>, len: usize) -> Vec<BlockHeader> {
+        let mut headers = Vec::with_capacity(len);
+        for i in 0..len {
+            let parent = headers.last().map(BlockHeader::hash);
+            let header = BlockHeader::from(make_header((i + 1) as u64, (i + 1) as u64, parent));
+            store.store_header(&header).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+            headers.push(header);
+        }
+        headers
     }
 }
