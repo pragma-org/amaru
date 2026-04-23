@@ -627,8 +627,8 @@ fn compute_script_integrity_hash(
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
-        TransactionBody, WitnessSet, include_cbor,
+        CostModels, ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
+        TransactionBody, WitnessSet, include_cbor, include_json,
     };
     use test_case::test_case;
 
@@ -639,13 +639,31 @@ mod tests {
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS.protocol_version
     }
 
+    fn protocol_parameters_with_cost_models(cost_models: CostModels) -> ProtocolParameters {
+        let mut pp = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
+        pp.cost_models = cost_models;
+        pp
+    }
+
     macro_rules! fixture {
         ($hash:literal) => {
             (
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, with_pp) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+                protocol_parameters_with_cost_models(include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/cost-models.json"
+                ))),
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -653,7 +671,29 @@ mod tests {
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $variant:literal, with_tx) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $variant:literal, with_pp) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                protocol_parameters_with_cost_models(include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/cost-models.json"
+                ))),
             )
         };
         ($hash:literal, $pp:expr) => {
@@ -678,15 +718,15 @@ mod tests {
         "happy path"
     )]
     #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output", with_tx);
         "supplemental datum output"
     )]
     #[test_case(
-        fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc");
+        fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc", with_pp);
         "reference script in inputs"
     )]
     #[test_case(
-        fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts");
+        fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts", with_pp);
         "proposal script"
     )]
     #[test_case(
@@ -745,7 +785,7 @@ mod tests {
             ProtocolParameters,
         ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, tx.validity_interval(), &protocol_parameters, None)
+        super::execute(&mut ctx, &witness_set, tx.validity_interval(), &protocol_parameters, tx.script_data_hash)
     }
 
     #[test]
