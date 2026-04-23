@@ -15,7 +15,9 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
-use amaru_ouroboros_traits::{ChainStore, MissingBlocks, NextBestChainHeader, Nonces, StoreError};
+use amaru_ouroboros_traits::{
+    ChainStore, MissingBlocks, NextBestChainHeader, Nonces, RollbackPointSearchResult, StoreError,
+};
 use pure_stage::{
     BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
 };
@@ -141,6 +143,14 @@ impl Store {
         self.effects.external(FindIntersectPointEffect::new(points))
     }
 
+    pub fn find_rollback_point(
+        &self,
+        parent_hash: HeaderHash,
+        ledger_tip: Point,
+    ) -> BoxFuture<'static, RollbackPointSearchResult> {
+        self.effects.external(FindRollbackPointEffect::new(parent_hash, ledger_tip))
+    }
+
     pub fn sample_ancestor_points(&self) -> BoxFuture<'static, Vec<Point>> {
         self.effects.external(SampleAncestorPointsEffect::new())
     }
@@ -191,6 +201,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindCommonAncestorEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindIntersectPointEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<FindRollbackPointEffect>().boxed(),
         pure_stage::register_effect_deserializer::<SampleAncestorPointsEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
     ]
@@ -881,6 +892,33 @@ impl ExternalEffect for FindIntersectPointEffect {
 
 impl ExternalEffectAPI for FindIntersectPointEffect {
     type Response = Option<Point>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FindRollbackPointEffect {
+    parent_hash: HeaderHash,
+    ledger_tip: Point,
+}
+
+impl FindRollbackPointEffect {
+    pub fn new(parent_hash: HeaderHash, ledger_tip: Point) -> Self {
+        Self { parent_hash, ledger_tip }
+    }
+}
+
+impl ExternalEffect for FindRollbackPointEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("FindRollbackPointEffect requires a chain store").clone();
+            store.find_rollback_point(self.parent_hash, self.ledger_tip)
+        })
+    }
+}
+
+impl ExternalEffectAPI for FindRollbackPointEffect {
+    type Response = RollbackPointSearchResult;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

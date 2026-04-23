@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros::BlockValidationError;
+use amaru_ouroboros_traits::RollbackPointSearchResult;
 use amaru_protocols::store_effects::Store;
 use pure_stage::{Effects, OrTerminateWith, StageRef};
 
@@ -192,52 +193,7 @@ async fn roll_back_to_ancestor(
 
 async fn find_rollback_point(ledger: &Ledger, store: &Store, parent: Point) -> RollbackPointSearchResult {
     let ledger_tip = ledger.tip().await;
-    let anchor_hash = store.get_anchor_hash().await;
-    let mut current_hash = parent.hash();
-    let mut forward_points = Vec::new();
-
-    loop {
-        let Some((ancestor, valid)) = store.load_header_with_validity(&current_hash).await else {
-            return RollbackPointSearchResult::NotFound;
-        };
-
-        if valid == Some(false) {
-            return RollbackPointSearchResult::DependsOnInvalid;
-        }
-
-        if ancestor.point() < ledger_tip.point() {
-            return RollbackPointSearchResult::BelowImmutable;
-        }
-
-        let chosen_because_contains =
-            ancestor.point() != ledger_tip.point() && ledger.contains_point(&ancestor.point()).await;
-        if ancestor.point() == ledger_tip.point() || chosen_because_contains {
-            forward_points.reverse();
-            return RollbackPointSearchResult::Found {
-                point: ancestor.point(),
-                forward_points,
-                chosen_because_contains,
-            };
-        }
-
-        forward_points.push(ancestor.point());
-        if current_hash == anchor_hash {
-            return RollbackPointSearchResult::NotFound;
-        }
-
-        let Some(parent_hash) = ancestor.parent_hash() else {
-            return RollbackPointSearchResult::NotFound;
-        };
-        current_hash = parent_hash;
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-enum RollbackPointSearchResult {
-    Found { point: Point, forward_points: Vec<Point>, chosen_because_contains: bool },
-    DependsOnInvalid,
-    BelowImmutable,
-    NotFound,
+    store.find_rollback_point(parent.hash(), ledger_tip.point()).await
 }
 
 #[cfg(test)]
