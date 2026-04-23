@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::VecDeque;
+
 use amaru_kernel::Point;
 
 /// List of ordered, consecutive points for which we haven't received any blocks yet.
@@ -19,12 +21,12 @@ use amaru_kernel::Point;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MissingBlocks {
     boundary: Point,
-    missing: Vec<Point>,
+    missing: VecDeque<Point>,
 }
 
 impl MissingBlocks {
     pub fn new(boundary: Point, missing: Vec<Point>) -> Self {
-        Self { boundary, missing }
+        Self { boundary, missing: VecDeque::from(missing) }
     }
 
     pub fn boundary(&self) -> Point {
@@ -32,11 +34,11 @@ impl MissingBlocks {
     }
 
     pub fn first(&self) -> Option<Point> {
-        self.missing.first().cloned()
+        self.missing.front().cloned()
     }
 
     pub fn last(&self) -> Option<Point> {
-        self.missing.last().cloned()
+        self.missing.back().cloned()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -44,7 +46,7 @@ impl MissingBlocks {
     }
 
     pub fn from_to(&self) -> Option<(&Point, &Point)> {
-        Some((self.missing.first()?, self.missing.last()?))
+        Some((self.missing.front()?, self.missing.back()?))
     }
 
     pub fn nb_missing_blocks(&self) -> usize {
@@ -54,6 +56,8 @@ impl MissingBlocks {
     /// This method is called when the first missing block has been fetched.
     /// It is then removed from the list of missing blocks and becomes the boundary.
     pub fn shift_one_block(&mut self) {
-        self.boundary = self.missing.remove(0);
+        if let Some(removed) = self.missing.pop_front() {
+            self.boundary = removed
+        }
     }
 }
