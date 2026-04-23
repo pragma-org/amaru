@@ -171,23 +171,7 @@ async fn next_header_rollback(pointer: &mut Point, store: &Store, tip: Tip) -> a
     Ok(Some(ResponderAction::RollBackward(fork_point, tip)))
 }
 
-/// Find the next action by searching backwards from the advertised tip.
-/// Used when next_best_chain would return a header whose parent doesn't match the pointer
-/// (e.g. because the store changed between load_from_best_chain and next_best_chain).
-async fn next_header_from_tip(pointer: &mut Point, store: &Store, tip: Tip) -> anyhow::Result<Option<ResponderAction>> {
-    let common = store
-        .find_common_ancestor(tip.point().hash(), pointer.hash())
-        .await
-        .ok_or_else(|| anyhow::anyhow!("no overlap found between client pointer chain and tip chain"))?;
-    *pointer = common;
-    Ok(Some(ResponderAction::RollBackward(common, tip)))
-}
-
-async fn intersect(
-    points: Vec<Point>,
-    store: &Store<Inputs<ResponderMessage>>,
-    tip: Tip,
-) -> anyhow::Result<ResponderAction> {
+async fn intersect(points: Vec<Point>, store: &Store, tip: Tip) -> anyhow::Result<ResponderAction> {
     Ok(match store.find_intersect_point(points).await {
         Some(point) => ResponderAction::IntersectFound(point, tip),
         None => ResponderAction::IntersectNotFound(tip),

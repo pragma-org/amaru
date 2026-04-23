@@ -80,7 +80,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 /// and insert it into the mempool if it is valid.
 ///
 async fn validate_and_insert(
-    ledger: &Ledger<MempoolMsg>,
+    ledger: &Ledger,
     memory_pool: &MemoryPool<MempoolMsg>,
     tx: Transaction,
     origin: &TxOrigin,

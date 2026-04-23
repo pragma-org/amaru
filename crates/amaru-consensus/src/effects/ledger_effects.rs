@@ -79,7 +79,7 @@ impl Ledger {
 
 impl LedgerOps for Ledger {
     fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>> {
-        self.0.external(ValidateTxEffect::new(tx))
+        self.effects.external(ValidateTxEffect::new(tx))
     }
 
     fn validate_header(

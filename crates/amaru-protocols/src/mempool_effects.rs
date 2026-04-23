@@ -115,27 +115,27 @@ impl<T: SendData + Sync + 'static> AsyncMempool for MemoryPool<T> {
 
 impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
     fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, Result<TxInsertResult, MempoolError>> {
-        Box::pin(async move { self.insert(tx, tx_origin) })
+        Box::pin(async move { TxSubmissionMempool::insert(self, tx, tx_origin) })
     }
 
     fn get_tx(&self, tx_id: TxId) -> BoxFuture<'_, Option<Transaction>> {
-        Box::pin(async move { self.get_tx(&tx_id) })
+        Box::pin(async move { TxSubmissionMempool::get_tx(self, &tx_id) })
     }
 
     fn contains(&self, tx_id: TxId) -> BoxFuture<'_, bool> {
-        Box::pin(async move { self.contains(&tx_id) })
+        Box::pin(async move { TxSubmissionMempool::contains(self, &tx_id) })
     }
 
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> BoxFuture<'_, Vec<(TxId, u32, MempoolSeqNo)>> {
-        Box::pin(async move { self.tx_ids_since(from_seq, limit) })
+        Box::pin(async move { TxSubmissionMempool::tx_ids_since(self, from_seq, limit) })
     }
 
     fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> BoxFuture<'_, bool> {
-        Box::pin(async move { self.wait_for_at_least(seq_no).await })
+        Box::pin(async move { TxSubmissionMempool::last_seq_no(self) >= seq_no })
     }
 
     fn get_txs_for_ids(&self, ids: Vec<TxId>) -> BoxFuture<'_, Vec<Transaction>> {
-        Box::pin(async move { self.get_txs_for_ids(&ids) })
+        Box::pin(async move { TxSubmissionMempool::get_txs_for_ids(self, &ids) })
     }
 }
 

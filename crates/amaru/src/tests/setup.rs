@@ -20,7 +20,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
 use amaru_ouroboros::{
-    ChainStore, ConnectionsResource, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
+    ConnectionsResource, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
 };
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use anyhow::anyhow;

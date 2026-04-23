@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{NonEmptyVec, ORIGIN_HASH};
+use amaru_kernel::{HeaderHash, NonEmptyVec};
 use pure_stage::trace_buffer::TerminationReason;
 use test_setup::{assert_trace, setup, te_find_fork_point, te_load_header, te_terminate, te_terminated, test_prep};
 use tracing::Level;
@@ -52,8 +52,10 @@ fn test_incoming_tip_not_in_store() {
 /// Current best not loadable (best_chain_hash points to missing header) -> terminate.
 #[test]
 fn test_current_best_not_loadable() {
-    let prep = test_prep(2);
+    let mut prep = test_prep(2);
     prep.store_headers(&prep.headers.main_chain());
+    let missing_current_best = Tip::new(Point::Specific(4u64.into(), HeaderHash::from([0u8; 32])), BlockHeight::new(4));
+    prep.state.current_best_tip = missing_current_best;
 
     let msg = prep.headers.h3.tip();
     let (running, _guards, mut logs) = setup(&prep, msg);
@@ -63,7 +65,7 @@ fn test_current_best_not_loadable() {
             te_state("ac-1", &prep.state),
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", ORIGIN_HASH),
+            te_load_header("ac-1", missing_current_best.hash()),
             te_terminate("ac-1"),
             te_terminated("ac-1", TerminationReason::Voluntary),
         ],

@@ -22,8 +22,7 @@ use amaru_consensus::{
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
-    BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point,
-    Transaction,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point, Transaction,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
@@ -129,7 +128,7 @@ pub fn build_node(
 
     let best_candidate = startup_best_candidate(chain_store.as_ref());
 
-    let tip = best_candidate.as_ref().map(|(h, _)| h.point()).unwrap_or(Point::Origin);
+    let tip = best_candidate.as_ref().map(|(h, _)| h.point()).unwrap_or(ledger_tip.point());
     tracing::info!(%tip, "build_chain");
 
     // Make resources
@@ -140,8 +139,6 @@ pub fn build_node(
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
 
     // Build the stage graph and return a reference to the manager stage
-    let best_candidate = best_candidate.map(|h| (h, best_missing));
-
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
     let node_stages =
         build_stage_graph(config, era_history, global_parameters, ledger_tip, best_candidate, stage_builder);
@@ -233,47 +230,32 @@ fn startup_best_candidate(
     chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
 ) -> Option<(BlockHeader, Vec<amaru_kernel::HeaderHash>)> {
     let best_chain_hash = chain_store.get_best_chain_hash();
-    let best_candidates = chain_store
+    let anchor = chain_store.get_anchor_hash();
+    chain_store
         .child_tips(&best_chain_hash)
         .filter(|tip| tip.hash() != best_chain_hash)
-        .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
-            if tip.block_height() > best_height {
-                hashes.clear();
-                hashes.push(tip.hash());
-                (tip.block_height(), hashes)
-            } else if tip.block_height() == best_height {
-                hashes.push(tip.hash());
-                (best_height, hashes)
+        .filter_map(|tip| {
+            let candidate = chain_store.load_header(&tip.hash())?;
+            let candidate_hash = candidate.hash();
+            let (hashes, valid) = chain_store.unvalidated_ancestor_hashes(candidate_hash);
+            if valid {
+                let missing = hashes.into_iter().filter(|h| *h != anchor).collect();
+                Some((candidate, missing))
             } else {
-                (best_height, hashes)
+                tracing::warn!(hash = %candidate_hash, "skipping startup best candidate with invalid ancestry");
+                None
             }
         })
-        .1;
-    let mut best_candidate = best_candidates
-        .into_iter()
-        .map(|h| chain_store.load_header(&h))
-        .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
-        .flatten();
-    let anchor = chain_store.get_anchor_hash();
-    let mut best_missing = vec![];
-    if let Some(candidate) = best_candidate.as_ref() {
-        let candidate_hash = candidate.hash();
-        let (hashes, valid) = chain_store.unvalidated_ancestor_hashes(candidate_hash);
-        if valid {
-            best_missing = hashes.into_iter().filter(|h| *h != anchor).collect();
-        } else {
-            tracing::warn!(hash = %candidate_hash, "skipping startup best candidate with invalid ancestry");
-            best_candidate = None;
-        }
-    }
-    best_candidate.map(|candidate| (candidate, best_missing))
+        .max_by(|(a, _), (b, _)| cmp_tip(Some(a), Some(b)))
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use amaru_kernel::{BlockHeader, IsHeader, any_headers_chain, utils::tests::run_strategy};
+    use amaru_kernel::{
+        BlockHeader, IsHeader, any_headers_chain, any_headers_chain_with_root, make_header, utils::tests::run_strategy,
+    };
     use amaru_ouroboros::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 
     use super::startup_best_candidate;
@@ -294,7 +276,6 @@ mod tests {
         store.set_block_valid(&c.hash(), false).unwrap();
 
         let candidate = startup_best_candidate(store.as_ref());
-
         assert_eq!(candidate, None);
     }
 
@@ -315,7 +296,33 @@ mod tests {
         let d_hash = d.hash();
 
         let candidate = startup_best_candidate(store.as_ref());
-
         assert_eq!(candidate, Some((d, vec![c.hash(), d_hash])));
+    }
+
+    #[test]
+    fn falls_back_to_valid_startup_candidate_when_best_candidate_has_invalid_ancestry() {
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+
+        // a -- b -- c (invalid) -- d
+        //       \
+        //        e
+        let chain = run_strategy(any_headers_chain(2));
+        let [a, b] = chain.try_into().unwrap();
+        let invalid_branch = run_strategy(any_headers_chain_with_root(2, b.point()));
+        let [c, d] = invalid_branch.try_into().unwrap();
+        let e = BlockHeader::from(make_header(3, c.slot().as_u64() + 10, Some(b.hash())));
+
+        for header in [&a, &b, &c, &d, &e] {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&a.hash()).unwrap();
+        for header in [&a, &b] {
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+        store.set_block_valid(&b.hash(), true).unwrap();
+        store.set_block_valid(&c.hash(), false).unwrap();
+
+        let candidate = startup_best_candidate(store.as_ref());
+        assert_eq!(candidate, Some((e.clone(), vec![e.hash()])));
     }
 }
