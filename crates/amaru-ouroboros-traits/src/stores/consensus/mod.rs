@@ -286,9 +286,6 @@ where
         let Some(header) = snapshot.load_header(&point.hash()) else {
             return Ok(NextBestChainHeader::MissingHeader { point });
         };
-        if header.parent().unwrap_or(ORIGIN_HASH) != pointer.hash() {
-            return Ok(NextBestChainHeader::NeedRollback);
-        }
         Ok(NextBestChainHeader::RollForward { point, header })
     }
 
