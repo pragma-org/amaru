@@ -259,6 +259,9 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ReadOnlyChainStore<H> + '_> 
 }
 
 /// A simple chain store interface that can store and retrieve headers indexed by their hash.
+///
+/// TODO: Stop treating the Origin point as a special case, where there's no corresponding header
+/// and return a "zero" header with no body, and a 0 hash, no parent.
 pub trait ChainStore<H>: ReadOnlyChainStore<H> + Send + Sync
 where
     H: IsHeader,
