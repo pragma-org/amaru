@@ -66,6 +66,7 @@ where
 
     #[expect(clippy::expect_used)]
     fn get_best_chain_tip(&self) -> Tip {
+        // TODO: store the tip directly in the database
         self.load_tip(&self.get_best_chain_hash())
             .expect("best chain tip not found. There should always be a best chain tip")
     }
