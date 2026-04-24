@@ -25,7 +25,11 @@ use std::{
 use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 use thiserror::Error;
 
-use crate::{Nonces, consensus::missing_blocks::MissingBlocks};
+use crate::{
+    MissingBlocksResult::{BoundaryNotFound, Found, StartHeaderNotFound},
+    Nonces,
+    consensus::missing_blocks::MissingBlocks,
+};
 
 pub trait ReadOnlyChainStore<H>
 where
@@ -549,19 +553,20 @@ where
     ///       present
     ///
     /// If blocks for `C`, `D`, and `E` are missing, returns
-    /// `Some(MissingBlocks { boundary: B, missing: [C, D, E] })`.
+    /// `Some(Found(MissingBlocks { boundary: B, missing: [C, D, E] }))`.
     ///
-    /// Return `None` if the last_hash header does not exist in the database.
+    /// Return `StartHeaderNotFound` if the start_hash header does not exist in the database.
+    /// Return `BoundaryNotFound` if we could not find an ancestor with a valid block
     ///
     /// Note: the anchor point is not returned because that will confuse block validation.
     ///
-    fn find_missing_blocks(&self, start_hash: HeaderHash, limit: usize) -> Result<Option<MissingBlocks>, StoreError>
+    fn find_missing_blocks(&self, start_hash: HeaderHash, limit: usize) -> Result<MissingBlocksResult, StoreError>
     where
         H: 'static,
     {
         let snapshot = self.snapshot();
         let Some(start) = snapshot.load_header(&start_hash) else {
-            return Ok(None);
+            return Ok(StartHeaderNotFound);
         };
         let anchor = snapshot.get_anchor_hash();
         let mut missing = Vec::new();
@@ -570,16 +575,17 @@ where
             if block.is_some() || header.hash() == anchor {
                 missing.reverse();
                 missing.truncate(limit);
-                return Ok(Some(MissingBlocks::new(header.point(), missing)));
+                return Ok(Found(MissingBlocks::new(header.point(), missing)));
             } else {
                 missing.push(header.point());
             }
         }
-        Ok(None)
+        Ok(BoundaryNotFound)
     }
 
     fn store_header(&self, header: &H) -> Result<(), StoreError>;
 
+    /// TODO: use a set_anchor_tip function instead
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
 
     fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
@@ -597,6 +603,13 @@ where
 
     /// Roll forward the best chain to the given point and set the best chain hash to that point.
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum MissingBlocksResult {
+    Found(MissingBlocks),
+    BoundaryNotFound,
+    StartHeaderNotFound,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

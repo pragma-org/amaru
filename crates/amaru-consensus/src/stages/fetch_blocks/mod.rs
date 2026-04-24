@@ -14,8 +14,8 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip, cardano::network_block::NetworkBlock};
-use amaru_ouroboros_traits::MissingBlocks;
+use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, ORIGIN_HASH, Point, Tip, cardano::network_block::NetworkBlock};
+use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef};
 
@@ -86,11 +86,15 @@ impl FetchBlocks {
         );
 
         match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_PER_BATCH).await {
-            Ok(None) => {
+            Ok(MissingBlocksResult::StartHeaderNotFound) => {
                 tracing::error!("failed to load initial header");
                 return eff.terminate().await;
             }
-            Ok(Some(missing_blocks)) => {
+            Ok(MissingBlocksResult::BoundaryNotFound) => {
+                tracing::debug!("no boundary for missing blocks found given the new tip");
+                self.missing = None;
+            }
+            Ok(MissingBlocksResult::Found(missing_blocks)) => {
                 self.missing = Some(missing_blocks);
             }
             Err(error) => {
@@ -98,18 +102,18 @@ impl FetchBlocks {
                 return eff.terminate().await;
             }
         }
-        let Some(missing_blocks) = self.missing.as_ref() else {
+        let Some(missing) = self.missing.as_ref() else {
             return;
         };
 
-        match missing_blocks.from_to() {
+        match missing.from_to() {
             None => {
                 self.missing = None;
                 tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
                 eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
             }
             Some((from, to)) => {
-                tracing::debug!(%from, %to, length = missing_blocks.nb_missing_blocks(), "requesting blocks");
+                tracing::debug!(%from, %to, length = missing.nb_missing_blocks(), "requesting blocks");
                 self.req_id += 1;
                 eff.send(
                     &self.manager,
@@ -145,16 +149,19 @@ impl FetchBlocks {
             tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
-        let Some(missing_blocks) = self.missing.as_ref() else {
+        let Some(missing) = self.missing.as_mut() else {
+            // TODO: eventually accept blocks that could arrive when we don't get them within the timeout
+            // provided that they are valid (parent block exists, no invalid parent).
             tracing::warn!("received block with no outstanding missing blocks");
             return;
         };
-        if header.parent_hash() != Some(missing_blocks.boundary().hash()) {
-            tracing::warn!(expected = ?Some(missing_blocks.boundary().hash()), actual = ?header.parent_hash(), "block parent hash mismatch");
+        if header.parent_hash() != Some(missing.boundary().hash()) {
+            tracing::warn!(expected = %missing.boundary().hash(), actual = %header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
             return;
         }
-        if Some(point) != missing_blocks.first() {
-            tracing::warn!(expected = ?missing_blocks.first(), actual = ?point, "block point mismatch");
+        if Some(point) != missing.first() {
+            let expected = missing.first().map(|p| p.to_string()).unwrap_or("none".to_string());
+            tracing::warn!(%expected, actual = ?point, "block point mismatch");
             return;
         }
 
@@ -165,15 +172,10 @@ impl FetchBlocks {
             })
             .await;
         let tip = Tip::new(point, block.header.header_body.block_number.into());
-        eff.send(&self.downstream, (tip, missing_blocks.boundary(), self.block_height)).await;
+        eff.send(&self.downstream, (tip, missing.boundary(), self.block_height)).await;
 
-        let done = {
-            #[expect(clippy::expect_used)]
-            let missing = self.missing.as_mut().expect("checked above that this exists");
-            missing.shift_one_block();
-            missing.is_empty()
-        };
-        if done {
+        missing.shift_one_block();
+        if missing.is_empty() {
             self.missing = None;
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;

@@ -34,11 +34,11 @@ impl MissingBlocks {
     }
 
     pub fn first(&self) -> Option<Point> {
-        self.missing.front().cloned()
+        self.missing.front().copied()
     }
 
     pub fn last(&self) -> Option<Point> {
-        self.missing.back().cloned()
+        self.missing.back().copied()
     }
 
     pub fn is_empty(&self) -> bool {

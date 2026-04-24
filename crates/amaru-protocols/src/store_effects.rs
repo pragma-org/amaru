@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
 use amaru_ouroboros_traits::{
-    ChainStore, MissingBlocks, NextBestChainHeader, Nonces, RollbackPointSearchResult, StoreError,
+    ChainStore, MissingBlocksResult, NextBestChainHeader, Nonces, RollbackPointSearchResult, StoreError,
 };
 use pure_stage::{
     BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
@@ -163,7 +163,7 @@ impl Store {
         &self,
         start: HeaderHash,
         limit: usize,
-    ) -> BoxFuture<'static, Result<Option<MissingBlocks>, StoreError>> {
+    ) -> BoxFuture<'static, Result<MissingBlocksResult, StoreError>> {
         self.effects.external(FindMissingBlocksEffect::new(start, limit))
     }
 }
@@ -972,5 +972,5 @@ impl ExternalEffect for FindMissingBlocksEffect {
 }
 
 impl ExternalEffectAPI for FindMissingBlocksEffect {
-    type Response = Result<Option<MissingBlocks>, StoreError>;
+    type Response = Result<MissingBlocksResult, StoreError>;
 }

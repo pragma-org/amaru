@@ -670,7 +670,7 @@ pub mod test {
         utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
-        ChainStore, DiagnosticChainStore, MissingBlocks, NextBestChainHeader, ReadOnlyChainStore,
+        ChainStore, DiagnosticChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, ReadOnlyChainStore,
         RollbackPointSearchResult, in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
@@ -1016,8 +1016,10 @@ pub mod test {
             store.store_block(&chain[0].hash(), &block).unwrap();
 
             for limit in 1..=9usize {
-                let result = store.find_missing_blocks(chain[9].hash(), limit).unwrap();
-                let range = result.expect("range exists when start header is in the store");
+                let MissingBlocksResult::Found(range) = store.find_missing_blocks(chain[9].hash(), limit).unwrap()
+                else {
+                    panic!("expected missing blocks");
+                };
                 let boundary = range.boundary();
                 let first_missing = range.first().expect("non-empty missing list with block gap present");
                 let first_missing_header =
@@ -1372,7 +1374,10 @@ pub mod test {
 
             assert_eq!(
                 result,
-                Some(MissingBlocks::new(chain[6].point(), vec![chain[7].point(), chain[8].point(), chain[9].point()],))
+                MissingBlocksResult::Found(MissingBlocks::new(
+                    chain[6].point(),
+                    vec![chain[7].point(), chain[8].point(), chain[9].point()],
+                ))
             );
         });
     }
@@ -1382,7 +1387,7 @@ pub mod test {
         with_db(|store| {
             let missing_tip = run_strategy(any_header_hash());
             let result = store.find_missing_blocks(missing_tip, 10).unwrap();
-            assert_eq!(result, None);
+            assert_eq!(result, MissingBlocksResult::StartHeaderNotFound);
         });
     }
 
@@ -1391,14 +1396,14 @@ pub mod test {
         with_db(|store| {
             // Best chain:
             // h0 -> h1 -> h2 -> h3 -> h4 -> h5 -> h6 -> h7 -> h8 -> h9 (tip)
-            //                                                   *
-            //                                               block present
+            //                                                 *
+            //                                              block present
             let chain = populate_db(store.clone());
             let block = RawBlock::from(&*vec![1; 64]);
             store.store_block(&chain[9].hash(), &block).unwrap();
 
             let result = store.find_missing_blocks(chain[9].hash(), 10).unwrap();
-            assert_eq!(result, Some(MissingBlocks::new(chain[9].point(), vec![])));
+            assert_eq!(result, MissingBlocksResult::Found(MissingBlocks::new(chain[9].point(), vec![])));
         });
     }
 
@@ -1647,12 +1652,15 @@ pub mod test {
 
                     assert_eq!(
                         store.find_missing_blocks(chain[9].hash(), 10).unwrap(),
-                        Some(MissingBlocks::new(
+                        MissingBlocksResult::Found(MissingBlocks::new(
                             chain[6].point(),
                             vec![chain[7].point(), chain[8].point(), chain[9].point()],
                         ))
                     );
-                    assert_eq!(store.find_missing_blocks(missing_tip, 10).unwrap(), None);
+                    assert_eq!(
+                        store.find_missing_blocks(missing_tip, 10).unwrap(),
+                        MissingBlocksResult::StartHeaderNotFound
+                    );
                 }
             },
         );
