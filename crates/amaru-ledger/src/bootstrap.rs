@@ -21,10 +21,11 @@ use std::{
 
 use amaru_kernel::{
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepRegistration,
-    DRepState, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, NetworkName,
-    PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalState, ProtocolParameters, RationalNumber, Reward, Set, Slot, StakeCredential, StrictMaybe,
-    TransactionInput, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
+    DRepState, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, NetworkName, Nullable,
+    PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal, ProposalId,
+    ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount, Set, Slot,
+    StakeCredential, StrictMaybe, TransactionInput, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
+    size,
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -47,6 +48,9 @@ static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> = LazyLock::new
 /// -> <https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345>
 ///
 /// We rely on data present in these to bootstrap Amaru's initial state.
+///
+/// Supports both the Ogmios CBOR snapshot format and the cardano-node UTxOHD format; the
+/// distinction is detected via CBOR probing and handled transparently.
 #[allow(clippy::too_many_arguments)]
 pub fn import_initial_snapshot(
     db: &impl Store,
@@ -122,56 +126,147 @@ pub fn import_initial_snapshot(
         Ok(governance_activity)
     })?;
 
-    let (pools, pools_updates, pools_retirements): (
+    let (pools, pools_updates, pools_retirements, consumed_pool_deposits): (
         BTreeMap<PoolId, PoolParams>,
         BTreeMap<PoolId, PoolParams>,
         BTreeMap<PoolId, Epoch>,
-    ) = decoder.with_decoder(|d| {
-        // Epoch State / Ledger State / Cert State / Pool State
-        d.array()?;
+        bool,
+    ) = decoder
+        .with_decoder(|d| {
+            // Epoch State / Ledger State / Cert State / Pool State
+            //
+            // Probe CBOR to distinguish node layout (deposits map first, then pool map keyed by bytes)
+            // from Ogmios layout (plain array of pools).
+            let node_layout = {
+                let mut probe = d.probe();
+                probe.array()?;
 
-        Ok((d.decode()?, d.decode()?, d.decode()?))
-    })?;
-    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)?;
+                let mut item0 = probe.probe();
+                let item0_type = item0.datatype()?;
+                let item0_len = if matches!(item0_type, cbor::data::Type::Map | cbor::data::Type::MapIndef) {
+                    item0.map()?
+                } else {
+                    None
+                };
 
-    // Deposits
-    decoder.skip()?;
+                probe.skip()?;
 
-    let accounts: BTreeMap<StakeCredential, Account> = decoder.with_decoder(|d| {
-        // Epoch State / Ledger State / Cert State / Delegation state
-        d.array()?;
+                let mut item1 = probe.probe();
+                let item1_type = item1.datatype()?;
 
-        // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
-        d.array()?;
+                matches!(item0_type, cbor::data::Type::Map | cbor::data::Type::MapIndef)
+                    && item0_len == Some(0)
+                    && matches!(item1_type, cbor::data::Type::Map | cbor::data::Type::MapIndef)
+                    && {
+                        item1.map()?;
+                        if !matches!(item1.datatype()?, cbor::data::Type::Bytes | cbor::data::Type::BytesIndef) {
+                            false
+                        } else {
+                            let _pool_id = item1.bytes()?;
+                            if !matches!(item1.datatype()?, cbor::data::Type::Array | cbor::data::Type::ArrayIndef) {
+                                false
+                            } else {
+                                item1.array()?;
+                                matches!(item1.datatype()?, cbor::data::Type::Bytes | cbor::data::Type::BytesIndef)
+                                    && item1.bytes()?.len() == size::VRF_KEY
+                            }
+                        }
+                    }
+            };
 
-        // credentials
-        let accounts = d.decode()?;
+            d.array()?;
 
-        // pointers
-        d.skip()?;
+            if node_layout {
+                let _pool_deposits: BTreeMap<PoolId, Lovelace> = d.decode()?;
+                let pools: BTreeMap<PoolId, NodePoolParams> = d.decode()?;
+                let pools_updates: BTreeMap<PoolId, NodePoolParams> = d.decode()?;
+                let pools_retirements: BTreeMap<PoolId, Epoch> = d.decode()?;
 
-        Ok(accounts)
-    })?;
+                Ok((
+                    pools.into_iter().map(|(id, params)| (id, params.into_pool_params(id))).collect(),
+                    pools_updates.into_iter().map(|(id, params)| (id, params.into_pool_params(id))).collect(),
+                    pools_retirements,
+                    true,
+                ))
+            } else {
+                Ok((d.decode()?, d.decode()?, d.decode()?, false))
+            }
+        })
+        .map_err(|err| format!("decode pool state: {err}"))?;
+    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
+        .map_err(|err| format!("import pool state: {err}"))?;
 
-    decoder.with_decoder(|d| {
-        // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
-        d.skip()?;
+    if !consumed_pool_deposits {
+        // Deposits
+        decoder.skip()?;
+    }
 
-        // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
-        d.skip()?;
+    let (accounts, is_node_snapshot): (BTreeMap<StakeCredential, Account>, bool) = decoder
+        .with_decoder(|d| {
+            // Epoch State / Ledger State / Cert State / Delegation state
+            d.array()?;
 
-        // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
-        d.skip()?;
+            if matches!(d.datatype()?, cbor::data::Type::Map | cbor::data::Type::MapIndef) {
+                // cardano-node snapshot: unified credentials map stored directly, followed by pointers.
+                let accounts: BTreeMap<StakeCredential, NodeAccount> = d.decode()?;
+                let mut pointers: BTreeMap<StakeCredential, Set<(u64, u64, u64)>> = d.decode()?;
+                Ok((
+                    accounts
+                        .into_iter()
+                        .map(|(credential, account)| {
+                            let pointers = pointers.remove(&credential).unwrap_or_else(|| Vec::new().into());
+                            (credential, account.into_account(pointers))
+                        })
+                        .collect(),
+                    true,
+                ))
+            } else {
+                // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
+                d.array()?;
 
-        Ok(())
-    })?;
+                // credentials
+                let accounts = d.decode()?;
 
-    import_utxo(&mut decoder, db, &with_progress, point, era_history, network)?;
+                // pointers
+                d.skip()?;
 
-    let fees: i64 = decoder.with_decoder(|d| {
-        let _deposited: u64 = d.decode()?;
-        Ok(d.decode()?)
-    })?;
+                Ok((accounts, false))
+            }
+        })
+        .map_err(|err| format!("decode accounts: {err}"))?;
+
+    decoder
+        .with_decoder(|d| {
+            if is_node_snapshot {
+                // cardano-node snapshot: remaining delegation state is two items.
+                d.skip()?;
+                d.skip()?;
+            } else {
+                // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
+                // NOTE: dsFutureGenDelegs, dsGenDelegs and dsIRewards are all maps, so we must NOT
+                // detect the format here — use the flag from the accounts decode instead.
+                d.skip()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
+                d.skip()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
+                d.skip()?;
+            }
+
+            Ok(())
+        })
+        .map_err(|err| format!("decode delegation extras: {err}"))?;
+
+    import_utxo(&mut decoder, db, &with_progress, point, era_history, network)
+        .map_err(|err| format!("import embedded utxo: {err}"))?;
+
+    let fees: i64 = decoder
+        .with_decoder(|d| {
+            let _deposited: u64 = d.decode()?;
+            Ok(d.decode()?)
+        })
+        .map_err(|err| format!("decode fees: {err}"))?;
 
     let (root_params, root_hard_fork, root_cc, root_constitution) = decoder.with_decoder(|d| {
         // Epoch State / Ledger State / UTxO State / utxosGovState
@@ -281,9 +376,54 @@ pub fn import_initial_snapshot(
             (fees - delta_fees) as u64,
         )?;
     } else {
-        decoder.skip()?;
-        decoder.skip()?;
-        decoder.skip()?;
+        // The node snapshot may still carry a complete rewards update in nesRU. If so, apply the
+        // deltas to get the real post-epoch treasury/reserves/fees, just like the has_rewards path.
+        // If nesRU is Nothing or an incomplete pulsing update (state≠1), skip it and use raw values.
+        let is_complete = decoder
+            .with_decoder(|d| {
+                // Probe to detect a complete rewards update.
+                // CBOR layout: outer_array { inner_array { uint(1), body_array { deltaT, deltaR, ... } } }
+                let mut probe = d.probe();
+                let is_complete = (|| -> Option<()> {
+                    probe.array().ok()?;
+                    probe.array().ok()?;
+                    (probe.u32().ok()? == 1).then_some(())
+                })()
+                .is_some();
+
+                if is_complete {
+                    d.array()?;
+                    d.array()?;
+                    d.u32()?;
+                    d.array()?;
+                }
+                Ok(is_complete)
+            })
+            .map_err(|e| format!("decode rewards update: {e}"))?;
+
+        let (delta_treasury, delta_reserves, mut rewards, delta_fees) = if is_complete {
+            let dt: i64 = decoder.decode()?;
+            let dr: i64 = decoder.decode()?;
+            let r: BTreeMap<StakeCredential, Set<Reward>> = decoder.decode()?;
+            let df: i64 = decoder.decode()?;
+            decoder.skip()?; // nonMyopic field of RewardUpdate
+            (dt, dr, r, df)
+        } else {
+            (0i64, 0i64, BTreeMap::new(), 0i64)
+        };
+
+        import_accounts(db, &with_progress, point, era_history, &protocol_parameters, accounts, &mut rewards)?;
+
+        let unclaimed_rewards = rewards
+            .into_iter()
+            .fold(0u64, |total, (_, rewards)| total + rewards.into_iter().fold(0, |inner, r| inner + r.amount));
+
+        import_pots(
+            db,
+            (treasury + delta_treasury) as u64 + unclaimed_rewards,
+            (reserves - delta_reserves) as u64,
+            (fees - delta_fees) as u64,
+        )?;
     }
 
     // NOTE(INITIAL_BOOTSTRAP):
@@ -1033,7 +1173,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
 
 // TODO: Move to Pallas
 #[derive(Debug)]
-enum ConstitutionalCommitteeAuthorization {
+pub(crate) enum ConstitutionalCommitteeAuthorization {
     DelegatedToHotCredential(StakeCredential),
     Resigned(#[expect(dead_code)] StrictMaybe<Anchor>),
 }
@@ -1058,9 +1198,9 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization
 
 // TODO: Move to Pallas
 #[derive(Debug)]
-struct ConstitutionalCommittee {
-    members: BTreeMap<StakeCredential, Epoch>,
-    threshold: RationalNumber,
+pub(crate) struct ConstitutionalCommittee {
+    pub(crate) members: BTreeMap<StakeCredential, Epoch>,
+    pub(crate) threshold: RationalNumber,
 }
 
 impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
@@ -1072,6 +1212,101 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
     }
 }
 
-fn default_governance_activity() -> GovernanceActivity {
+pub(crate) fn default_governance_activity() -> GovernanceActivity {
     GovernanceActivity { consecutive_dormant_epochs: 0 }
+}
+
+// ── Node-specific CBOR types ──────────────────────────────────────────────────
+
+#[derive(Debug)]
+pub(crate) struct NodePoolParams {
+    vrf: Hash<{ size::VRF_KEY }>,
+    pledge: Lovelace,
+    cost: Lovelace,
+    margin: RationalNumber,
+    reward_account: RewardAccount,
+    owners: Set<Hash<{ size::KEY }>>,
+    relays: Vec<Relay>,
+    metadata: StrictMaybe<PoolMetadata>,
+}
+
+impl NodePoolParams {
+    pub(crate) fn into_pool_params(self, id: PoolId) -> PoolParams {
+        PoolParams {
+            id,
+            vrf: self.vrf,
+            pledge: self.pledge,
+            cost: self.cost,
+            margin: self.margin,
+            reward_account: self.reward_account,
+            owners: self.owners,
+            relays: self.relays,
+            metadata: match self.metadata {
+                StrictMaybe::Nothing => Nullable::Null,
+                StrictMaybe::Just(metadata) => Nullable::Some(metadata),
+            },
+        }
+    }
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for NodePoolParams {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+
+        let params = NodePoolParams {
+            vrf: d.decode_with(ctx)?,
+            pledge: d.decode_with(ctx)?,
+            cost: d.decode_with(ctx)?,
+            margin: d.decode_with(ctx)?,
+            reward_account: d.decode_with(ctx)?,
+            owners: d.decode_with(ctx)?,
+            relays: d.decode_with(ctx)?,
+            metadata: d.decode_with(ctx)?,
+        };
+
+        let _deposit: Lovelace = d.decode_with(ctx)?;
+
+        Ok(params)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct NodeAccount {
+    rewards: Lovelace,
+    deposit: Lovelace,
+    pool: Nullable<PoolId>,
+    drep: Nullable<DRep>,
+}
+
+impl NodeAccount {
+    pub(crate) fn into_account(self, pointers: Set<(u64, u64, u64)>) -> Account {
+        Account {
+            rewards_and_deposit: if self.rewards == 0 && self.deposit == 0 {
+                StrictMaybe::Nothing
+            } else {
+                StrictMaybe::Just((self.rewards, self.deposit))
+            },
+            pointers,
+            pool: match self.pool {
+                Nullable::Some(pool) => StrictMaybe::Just(pool),
+                Nullable::Null | Nullable::Undefined => StrictMaybe::Nothing,
+            },
+            drep: match self.drep {
+                Nullable::Some(drep) => StrictMaybe::Just(drep),
+                Nullable::Null | Nullable::Undefined => StrictMaybe::Nothing,
+            },
+        }
+    }
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for NodeAccount {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        Ok(NodeAccount {
+            rewards: d.decode_with(ctx)?,
+            deposit: d.decode_with(ctx)?,
+            pool: d.decode_with(ctx)?,
+            drep: d.decode_with(ctx)?,
+        })
+    }
 }

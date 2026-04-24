@@ -2,6 +2,7 @@ export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 RUN_UNTIL_TARGET_EPOCH ?= 182
+NODE_SNAPSHOT_DIRS ?=
 HASKELL_NODE_CONFIG_REPOSITORY := https://raw.githubusercontent.com/input-output-hk/cardano-playground
 HASKELL_NODE_CONFIG_DIRECTORY := static/book.play.dev.cardano.org/environments
 CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
@@ -39,6 +40,13 @@ help:
 bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
 
+bootstrap-hd: ## &start Bootstrap Amaru from one or more cardano-node UTxOHD snapshot directories (NODE_SNAPSHOT_DIRS=<path>[,<path>...])
+	@if [ -z "$(NODE_SNAPSHOT_DIRS)" ]; then \
+		echo "NODE_SNAPSHOT_DIRS is required, e.g. NODE_SNAPSHOT_DIRS=data-tmp/db/ledger/119183041 make $@"; \
+		exit 1; \
+	fi
+	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap-hd --node-snapshot-dirs $(NODE_SNAPSHOT_DIRS) $(ARGS)
+
 import-headers: ## &start Import initial headers
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) import-headers $(ARGS)
 
@@ -47,14 +55,9 @@ import-nonces: ## &start Import initial nonces
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
-
-	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/alonzo-genesis.json"
-	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/byron-genesis.json"
-	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/config.json"
-	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/conway-genesis.json"
-	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/peer-snapshot.json"
-	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/shelley-genesis.json"
-	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/topology.json"
+	@for file in alonzo-genesis.json byron-genesis.json config.json conway-genesis.json peer-snapshot.json shelley-genesis.json topology.json; do \
+		curl -fsSL -o "$(HASKELL_NODE_CONFIG_DIR)/$$file" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/$$file"; \
+	done
 
 build: ## &build Compile for $BUILD_PROFILE
 	cargo build --profile $(BUILD_PROFILE) $(ARGS)

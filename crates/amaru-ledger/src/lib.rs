@@ -18,8 +18,10 @@
 
 pub mod block_validator;
 pub mod bootstrap;
+pub mod bootstrap_hd;
 pub mod context;
 pub mod governance;
+pub mod mempack;
 pub mod rules;
 pub mod state;
 pub mod store;

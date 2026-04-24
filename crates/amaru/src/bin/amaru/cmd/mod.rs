@@ -18,6 +18,7 @@ use amaru_kernel::NetworkName;
 use pallas_network::facades::PeerClient;
 
 pub(crate) mod bootstrap;
+pub(crate) mod bootstrap_hd;
 pub(crate) mod convert_ledger_state;
 pub(crate) mod dump_chain_db;
 pub(crate) mod dump_schemas;

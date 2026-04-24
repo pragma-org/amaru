@@ -57,6 +57,19 @@ enum Command {
     #[clap(verbatim_doc_comment)]
     Bootstrap(cmd::bootstrap::Args),
 
+    /// Bootstrap the node from a cardano-node UTxOHD ledger snapshot directory.
+    ///
+    /// Unlike `bootstrap`, this command reads a local cardano-node ledger snapshot directory
+    /// (e.g. `db/ledger/119183041`) and imports:
+    ///
+    ///   - The full ledger state (pools, accounts, DReps, governance, …) from `state`
+    ///   - The UTxO set from `tables/tvar`
+    ///
+    /// Nonces and chain headers must be imported separately with `import-nonces` and
+    /// `import-headers`.
+    #[clap(verbatim_doc_comment, name = "bootstrap-hd")]
+    BootstrapHd(cmd::bootstrap_hd::Args),
+
     /// Convert ledger state as produced by Haskell node into data suitable
     /// for amaru.
     ///
@@ -184,6 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
+        Command::BootstrapHd(args) => cmd::bootstrap_hd::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
