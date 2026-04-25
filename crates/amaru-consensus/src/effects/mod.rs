@@ -22,7 +22,8 @@ pub use base_effects::{Base, BaseOps};
 pub use consensus_effects::tests::*;
 pub use consensus_effects::{ConsensusEffects, ConsensusOps};
 pub use ledger_effects::{
-    ContainsPointEffect, Ledger, LedgerOps, ResourceBlockValidation, ResourceHeaderValidation, ResourceTxValidation,
-    RollbackBlockEffect, TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
+    ContainsPointEffect, Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation,
+    ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation, RollbackBlockEffect, TipEffect,
+    ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
 };
 pub use metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};

@@ -39,7 +39,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
 use crate::{
-    effects::{ResourceBlockValidation, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect, VolatileTipEffect},
+    effects::{
+        ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect,
+        VolatileTipEffect,
+    },
     stages::test_utils::{BufferWriter, Logs},
 };
 
@@ -159,7 +162,9 @@ pub fn setup_with_validation(
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
     network.resources().put::<ResourceHeaderStore>(store.clone());
     network.resources().put::<ResourceHeaderValidation>(validation);
-    network.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+    let block_validation = Arc::new(MockCanValidateBlocks);
+    network.resources().put::<ResourceBlockValidation>(block_validation.clone());
+    network.resources().put::<ResourceHasStakePools>(block_validation);
 
     let tp = network.stage("tp", stage);
     let tp = network.wire_up(tp, state);

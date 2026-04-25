@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, GlobalParameters, Point};
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros::{CanValidateBlocks, CanValidateTxs, HasStakeDistribution};
+use amaru_ouroboros::{CanValidateBlocks, CanValidateTxs, HasStakeDistribution, HasStakePools};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::{
     in_memory::MemoryStore,
@@ -91,6 +91,13 @@ impl Ledger {
 
     /// Return the ledger as a capability for validating blocks.
     pub fn get_block_validation(&self) -> Arc<dyn CanValidateBlocks + Send + Sync> {
+        match self {
+            Ledger::InMemLedger(stage) => Arc::new((*stage).clone()),
+            Ledger::OnDiskLedger(stage) => Arc::new((*stage).clone()),
+        }
+    }
+
+    pub fn get_stake_pools(&self) -> Arc<dyn HasStakePools + Send + Sync> {
         match self {
             Ledger::InMemLedger(stage) => Arc::new((*stage).clone()),
             Ledger::OnDiskLedger(stage) => Arc::new((*stage).clone()),

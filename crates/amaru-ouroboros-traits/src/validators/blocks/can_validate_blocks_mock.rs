@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeSet, net::SocketAddr};
+
 use amaru_kernel::{Block, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 
-use crate::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
+use crate::{CanValidateBlocks, HasStakePools, can_validate_blocks::BlockValidationError};
 
 /// A fake block validator that always returns the same height.
 #[derive(Clone, Debug, Default)]
@@ -45,5 +47,12 @@ impl CanValidateBlocks for MockCanValidateBlocks {
 
     fn volatile_tip(&self) -> Option<Tip> {
         None
+    }
+}
+
+#[async_trait::async_trait]
+impl HasStakePools for MockCanValidateBlocks {
+    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+        Ok(BTreeSet::new())
     }
 }

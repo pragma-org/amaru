@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
-    effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceTxValidation},
+    effects::{ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation},
     headers_tree::data_generation::Action,
 };
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, Tip, Transaction};
@@ -183,7 +183,9 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
 /// Add resources depending on the simulation configuration.
 /// For example this function can be used to set a different chain store for the initiator and the responder.
 fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<()> {
-    stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+    let block_validation = Arc::new(MockCanValidateBlocks);
+    stage_graph.resources().put::<ResourceBlockValidation>(block_validation.clone());
+    stage_graph.resources().put::<ResourceHasStakePools>(block_validation);
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
     stage_graph.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());

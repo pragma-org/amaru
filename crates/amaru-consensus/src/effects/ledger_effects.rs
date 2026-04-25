@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    collections::BTreeSet,
+    net::SocketAddr,
+    sync::Arc,
+};
 
 use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HeaderValidationError,
+    BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
     TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
@@ -56,6 +60,10 @@ pub trait LedgerOps: Send + Sync {
     fn tip(&self) -> Tip;
 
     fn volatile_tip(&self) -> Option<Tip>;
+
+    fn registered_relay_socket_addrs(
+        &self,
+    ) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>>;
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
@@ -113,6 +121,12 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
     fn volatile_tip(&self) -> Option<Tip> {
         self.0.external_sync(VolatileTipEffect)
     }
+
+    fn registered_relay_socket_addrs(
+        &self,
+    ) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
+        self.0.external(RegisteredRelaySocketAddrsEffect)
+    }
 }
 
 // EXTERNAL EFFECTS DEFINITIONS
@@ -121,6 +135,7 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
+pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
@@ -344,3 +359,23 @@ impl ExternalEffectAPI for VolatileTipEffect {
 }
 
 impl ExternalEffectSync for VolatileTipEffect {}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RegisteredRelaySocketAddrsEffect;
+
+impl ExternalEffect for RegisteredRelaySocketAddrsEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap(async move {
+            let stake_pools = resources
+                .get::<ResourceHasStakePools>()
+                .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasStakePools resource")
+                .clone();
+            stake_pools.registered_relay_socket_addrs().await
+        })
+    }
+}
+
+impl ExternalEffectAPI for RegisteredRelaySocketAddrsEffect {
+    type Response = Result<BTreeSet<SocketAddr>, BlockValidationError>;
+}

@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, fmt, sync::Arc};
+use std::{collections::BTreeSet, fmt, net::SocketAddr, sync::Arc};
 
 use amaru_kernel::{
     BlockHeader, HeaderHash, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, ChainStore, in_memory_consensus_store::InMemConsensusStore,
+    BlockValidationError, CanValidateBlocks, ChainStore, HasStakePools, in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, LoadBlockEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect, ResourceHeaderStore,
@@ -38,8 +38,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use super::*;
 use crate::{
     effects::{
-        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, RollbackBlockEffect, TipEffect,
-        ValidateBlockEffect,
+        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, RollbackBlockEffect,
+        TipEffect, ValidateBlockEffect,
     },
     stages::test_utils::{BufferWriter, Logs},
 };
@@ -206,6 +206,13 @@ impl CanValidateBlocks for MockBlockValidator {
     }
 }
 
+#[async_trait]
+impl HasStakePools for MockBlockValidator {
+    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+        Ok(BTreeSet::new())
+    }
+}
+
 /// Bundles state, runtime, store, ledger, and refs for validate_block2 tests.
 pub struct TestPrep {
     pub state: ValidateBlock,
@@ -308,6 +315,7 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
     network.resources().put::<ResourceHeaderStore>(prep.store.clone());
     network.resources().put::<ResourceBlockValidation>(prep.block_validator.clone());
+    network.resources().put::<ResourceHasStakePools>(prep.block_validator.clone());
 
     let vb = network.stage("vb", stage);
     let vb = network.wire_up(vb, prep.state.clone());

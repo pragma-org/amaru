@@ -15,7 +15,8 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
 };
@@ -244,6 +245,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Tip of the volatile (`VolatileDB`) sequence only, if non-empty.
     pub fn volatile_tip(&self) -> Option<Tip> {
         self.volatile.view_back().map(|st| st.anchor.0)
+    }
+
+    #[expect(clippy::unwrap_used)]
+    pub fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, StateError> {
+        let db = self.stable.lock().unwrap();
+        Ok(crate::registered_relay_addrs::collect_from_read_store(&*db)?)
     }
 
     #[expect(clippy::unwrap_used)]

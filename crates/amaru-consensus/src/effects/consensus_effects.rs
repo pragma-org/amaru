@@ -102,7 +102,12 @@ impl<T: SendData + Sync> ConsensusOps for ConsensusEffects<T> {
 /// This module provides mock implementations of ConsensusOps and its sub-traits for unit testing.
 #[cfg(test)]
 pub mod tests {
-    use std::{collections::BTreeMap, sync::Arc, time::Duration};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        net::SocketAddr,
+        sync::Arc,
+        time::Duration,
+    };
 
     use amaru_kernel::{Peer, Point, PoolId, Slot, Tip};
     use amaru_mempool::strategies::InMemoryMempool;
@@ -199,6 +204,12 @@ pub mod tests {
 
         fn volatile_tip(&self) -> Option<Tip> {
             None
+        }
+
+        fn registered_relay_socket_addrs(
+            &self,
+        ) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
+            Box::pin(async { Ok(BTreeSet::new()) })
         }
     }
 

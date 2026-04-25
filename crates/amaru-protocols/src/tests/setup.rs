@@ -26,8 +26,8 @@ use amaru_kernel::{BlockHeader, NonEmptyBytes, Peer, Transaction};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ChainStore, ConnectionId, ConnectionProvider,
-    ConnectionsResource, Mempool, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
-    ToSocketAddrs,
+    ConnectionsResource, HasStakePools, Mempool, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs,
+    ResourceMempool, ToSocketAddrs,
 };
 use pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -52,6 +52,7 @@ pub(super) fn ephemeral_localhost_addr() -> anyhow::Result<SocketAddr> {
 
 /// Resource type definitions
 pub(super) type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
+pub(super) type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 pub(super) type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub(super) type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 
@@ -74,7 +75,9 @@ pub(super) fn set_resources_with_connections(
     connections: ConnectionsResource,
 ) -> anyhow::Result<()> {
     network.resources().put::<ResourceHeaderStore>(chain_store);
-    network.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+    let block_validation = Arc::new(MockCanValidateBlocks);
+    network.resources().put::<ResourceBlockValidation>(block_validation.clone());
+    network.resources().put::<ResourceHasStakePools>(block_validation);
     network.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
     network.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     network.resources().put::<ConnectionsResource>(connections);

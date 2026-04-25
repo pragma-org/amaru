@@ -15,7 +15,9 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
-    effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation},
+    effects::{
+        ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation,
+    },
     stages::select_chain::cmp_tip,
     validate_header::ValidateHeader,
 };
@@ -110,6 +112,9 @@ pub fn build_node(
     // Make the ledger and get its tip
     let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone())
         .context("Failed to create ledger. Have you bootstrapped your node?")?;
+
+    let stake_pools = ledger.get_stake_pools();
+    Handle::current().spawn(async move { stake_pools.registered_relay_socket_addrs().await });
 
     let ledger_tip = ledger.get_tip();
     tracing::info!(
@@ -207,6 +212,7 @@ fn register_resources(
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
     stage_graph.resources().put::<ResourceBlockValidation>(ledger.get_block_validation());
+    stage_graph.resources().put::<ResourceHasStakePools>(ledger.get_stake_pools());
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(validate_header));
     stage_graph.resources().put::<ResourceTxValidation>(ledger.get_tx_validation());
     stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
