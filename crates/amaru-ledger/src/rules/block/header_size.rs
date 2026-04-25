@@ -47,7 +47,7 @@ mod tests {
         let (_, block): (u16, Block) = cbor::decode(bytes.as_slice()).expect("Failed to parse Conway3.block bytes");
 
         assert!(matches!(
-            block_header_size_valid(block.header_len(), &amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS),
+            block_header_size_valid(block.header_len(), &amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS),
             Ok(())
         ))
     }

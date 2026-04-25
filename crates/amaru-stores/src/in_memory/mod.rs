@@ -681,7 +681,7 @@ impl<'a, T> BorrowMut<T> for RefMutAdapterMut<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{EraHistory, NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS};
+    use amaru_kernel::{EraHistory, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS};
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
 
@@ -698,7 +698,7 @@ mod tests {
 
     pub fn setup_memory_store(runner: &mut TestRunner) -> Result<(MemoryStore, Fixture), StoreError> {
         let era_history: &EraHistory = NetworkName::Preprod.into();
-        let store = MemoryStore::new(era_history.clone(), PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone());
+        let store = MemoryStore::new(era_history.clone(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone());
         let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
     }

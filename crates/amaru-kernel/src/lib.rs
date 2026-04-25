@@ -100,9 +100,9 @@ pub use cardano::{
     proposal_pointer::ProposalPointer,
     proposal_state::ProposalState,
     protocol_parameters::{
-        ConsensusParameters, GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
-        PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS, PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
-        ProtocolParameters, TESTNET_GLOBAL_PARAMETERS,
+        ConsensusParameters, GlobalParameters, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, MAINNET_GLOBAL_PARAMETERS,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, PREVIEW_DEFAULT_PROTOCOL_PARAMETERS,
+        PREVIEW_GLOBAL_PARAMETERS, ProtocolParameters, TESTNET_GLOBAL_PARAMETERS,
     },
     protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
     protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, ProtocolVersion},

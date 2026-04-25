@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::{
-    EraHistory, GlobalParameters, MAINNET_ERA_HISTORY, MAINNET_GLOBAL_PARAMETERS, Network, NetworkMagic,
-    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY,
-    PREVIEW_GLOBAL_PARAMETERS, PREVIEW_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, Slot, TESTNET_ERA_HISTORY,
-    TESTNET_GLOBAL_PARAMETERS,
+    EraHistory, GlobalParameters, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, MAINNET_ERA_HISTORY, MAINNET_GLOBAL_PARAMETERS,
+    Network, NetworkMagic, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
+    PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY, PREVIEW_GLOBAL_PARAMETERS, ProtocolParameters, Slot,
+    TESTNET_ERA_HISTORY, TESTNET_GLOBAL_PARAMETERS,
 };
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -55,11 +55,10 @@ impl TryFrom<NetworkName> for &ProtocolParameters {
     /// TODO: define protocol parameters for all the networks
     fn try_from(value: NetworkName) -> Result<Self, String> {
         match value {
-            NetworkName::Preprod => Ok(&PREPROD_INITIAL_PROTOCOL_PARAMETERS),
-            NetworkName::Preview => Ok(&PREVIEW_INITIAL_PROTOCOL_PARAMETERS),
-            other @ NetworkName::Mainnet | other @ NetworkName::Testnet(_) => {
-                Err(format!("no initial protocol parameters for {other}"))
-            }
+            NetworkName::Mainnet => Ok(&MAINNET_DEFAULT_PROTOCOL_PARAMETERS),
+            NetworkName::Preprod => Ok(&PREPROD_DEFAULT_PROTOCOL_PARAMETERS),
+            NetworkName::Preview => Ok(&PREVIEW_DEFAULT_PROTOCOL_PARAMETERS),
+            other @ NetworkName::Testnet(_) => Err(format!("no default protocol parameters for {other}")),
         }
     }
 }

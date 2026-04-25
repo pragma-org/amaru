@@ -60,7 +60,7 @@ pub(crate) mod tests {
     use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
-        EraHistory, NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters,
+        EraHistory, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
         cardano::network_block::CONWAY_BLOCK, cbor,
     };
     use amaru_plutus::arena_pool::ArenaPool;
@@ -108,7 +108,7 @@ pub(crate) mod tests {
             &mut AssertValidationContext::from(ctx),
             &ARENA_POOL,
             &NetworkName::Preprod,
-            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
             <&EraHistory>::from(NetworkName::Preprod),
             &GovernanceActivity { consecutive_dormant_epochs: 0 },
             block,
@@ -124,7 +124,7 @@ pub(crate) mod tests {
 
     #[test]
     fn validate_block_header_size_too_big() {
-        let pp = ProtocolParameters { max_block_header_size: 1, ..PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone() };
+        let pp = ProtocolParameters { max_block_header_size: 1, ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone() };
 
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
 
