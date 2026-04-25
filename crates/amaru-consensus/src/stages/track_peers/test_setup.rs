@@ -93,10 +93,6 @@ pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
 }
 
-pub fn te_get_best_chain_hash(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetBestChainHashEffect)))
-}
-
 pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
 }

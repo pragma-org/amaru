@@ -106,7 +106,7 @@ impl FetchBlocks {
         }
         self.missing.reverse();
         // TODO make configurable
-        self.missing.truncate(10);
+        self.missing.truncate(25);
         // only the first parent is not enough
         if self.missing.len() < 2 {
             self.missing.clear();

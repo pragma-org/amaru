@@ -253,7 +253,10 @@ impl ProtocolState<Initiator> for InitiatorState {
             (Intersect, Message::IntersectFound(point, tip)) => (
                 // only for this first time do we sent two requests
                 // this initiates the desired pipelining behaviour
-                outcome().send(Message::RequestNext(2)).want_next().result(InitiatorResult::IntersectFound(point, tip)),
+                outcome()
+                    .send(Message::RequestNext(10))
+                    .want_next()
+                    .result(InitiatorResult::IntersectFound(point, tip)),
                 CanAwait(1),
             ),
             (Intersect, Message::IntersectNotFound(tip)) => {

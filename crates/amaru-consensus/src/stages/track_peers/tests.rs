@@ -14,7 +14,7 @@
 
 use std::{slice, sync::Arc};
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage::RequestNext},
     manager::ManagerMessage,
@@ -26,7 +26,7 @@ use crate::stages::track_peers::{
     TrackPeersMsg,
     test_setup::{
         FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
-        te_get_best_chain_hash, te_has_header, te_load_header, te_send, te_store_header, te_validate_header, test_prep,
+        te_has_header, te_load_header, te_send, te_store_header, te_validate_header, test_prep,
     },
 };
 
@@ -231,8 +231,6 @@ fn test_roll_forward_unknown_peer_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_get_best_chain_hash("tp-1"),
-            te_load_header("tp-1", ORIGIN_HASH),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(state)),
@@ -268,8 +266,6 @@ fn test_roll_forward_known_peer_header_already_stored() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_get_best_chain_hash("tp-1"),
-            te_load_header("tp-1", ORIGIN_HASH),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
@@ -308,8 +304,6 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_get_best_chain_hash("tp-1"),
-            te_load_header("tp-1", ORIGIN_HASH),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
@@ -412,8 +406,6 @@ fn test_roll_forward_invalid_parent_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_get_best_chain_hash("tp-1"),
-            te_load_header("tp-1", ORIGIN_HASH),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
@@ -446,8 +438,6 @@ fn test_roll_forward_invalid_height_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_get_best_chain_hash("tp-1"),
-            te_load_header("tp-1", ORIGIN_HASH),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
@@ -480,8 +470,6 @@ fn test_roll_forward_invalid_point_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_get_best_chain_hash("tp-1"),
-            te_load_header("tp-1", ORIGIN_HASH),
             te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
@@ -526,8 +514,6 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_get_best_chain_hash("tp-1"),
-            te_load_header("tp-1", ORIGIN_HASH),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),

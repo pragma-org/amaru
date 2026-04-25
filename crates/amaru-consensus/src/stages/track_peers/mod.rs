@@ -14,7 +14,7 @@
 
 mod defer_req_next;
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
@@ -27,7 +27,7 @@ use amaru_protocols::{
     store_effects::Store,
 };
 pub use defer_req_next::DeferReqNextMsg;
-use pure_stage::{Effects, SendData, StageRef};
+use pure_stage::{Effects, Instant, SendData, StageRef};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -59,6 +59,8 @@ pub struct TrackPeers {
     /// Lazily populated via [`Effects::stage`](pure_stage::Effects::stage) on first deferred `RequestNext`.
     defer_req_next: StageRef<DeferReqNextMsg>,
     defer_req_next_poll_ms: u64,
+    ledger_applied_block_height: BlockHeight,
+    ledger_last_checked_at: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -105,6 +107,8 @@ impl TrackPeers {
             consensus_security_parameter,
             defer_req_next: StageRef::blackhole(),
             defer_req_next_poll_ms,
+            ledger_applied_block_height: BlockHeight::from(0),
+            ledger_last_checked_at: Instant::at_offset(Duration::from_secs(0)),
         }
     }
 
@@ -312,17 +316,24 @@ impl TrackPeers {
                     }
                 };
 
-                let ledger_h = ledger_applied_block_height(&eff);
-                let limit = self.consensus_security_parameter;
-                let mode = if header.block_height() > ledger_h + limit {
+                let min_ledger_height = header.block_height() - self.consensus_security_parameter;
+                if min_ledger_height > self.ledger_applied_block_height
+                    && let now = eff.clock().await
+                    && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
+                        || self.ledger_applied_block_height == BlockHeight::from(0))
+                {
+                    self.ledger_last_checked_at = now;
+                    self.ledger_applied_block_height = ledger_applied_block_height(&eff);
+                }
+                let mode = if self.ledger_applied_block_height < min_ledger_height {
                     tracing::debug!(
                         %peer,
                         header_height = %header.block_height(),
-                        ledger_height = %ledger_h,
-                        limit,
+                        ledger_height = %self.ledger_applied_block_height,
+                        limit = %min_ledger_height,
                         "track_peers.defer_request_next",
                     );
-                    RollForwardMode::DeferTrailingRequestNext { min_ledger_height: header.block_height() - limit }
+                    RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
                 } else {
                     RollForwardMode::PipelineRequestNext
                 };
