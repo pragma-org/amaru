@@ -15,7 +15,7 @@
 use std::{error::Error, fmt::Display, path::PathBuf};
 
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
-use amaru_kernel::{BlockHeader, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
+use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point, to_cbor, utils::string::ListToString};
 use amaru_ouroboros::{DiagnosticChainStore, ReadOnlyChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
@@ -39,6 +39,24 @@ pub struct Args {
         default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
+
+    #[arg(short = 'H', long)]
+    headers: bool,
+
+    #[arg(short, long)]
+    parents_children: bool,
+
+    #[arg(short, long)]
+    nonces: bool,
+
+    #[arg(short = 'B', long)]
+    blocks: bool,
+
+    #[arg(short, long)]
+    best_chain: bool,
+
+    #[arg(short, long)]
+    ancestors: Option<Point>,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -53,17 +71,30 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 
-    print_iterator(
-        "headers",
-        db.load_headers().map(|header| (format!("\n{}", header.hash()), hex::encode(to_cbor(&header)))),
-    );
-    print_iterator(
-        "parent -> children relationships\n",
-        db.load_parents_children().map(|(parent, children)| (parent, children.list_to_string(", "))),
-    );
-    print_iterator("nonces\n", db.load_nonces().map(|(hash, nonces)| (hash, hex::encode(to_cbor(&nonces)))));
-    print_iterator("blocks\n", db.load_blocks().map(|(hash, block)| (hash, hex::encode(block.to_vec()))));
-    print_best_chain(&db);
+    if args.headers {
+        print_iterator(
+            "headers",
+            db.load_headers().map(|header| (format!("\n{}", header.hash()), hex::encode(to_cbor(&header)))),
+        );
+    }
+    if args.parents_children {
+        print_iterator(
+            "parent -> children relationships\n",
+            db.load_parents_children().map(|(parent, children)| (parent, children.list_to_string(", "))),
+        );
+    }
+    if args.nonces {
+        print_iterator("nonces\n", db.load_nonces().map(|(hash, nonces)| (hash, hex::encode(to_cbor(&nonces)))));
+    }
+    if args.blocks {
+        print_iterator("blocks\n", db.load_blocks().map(|(hash, block)| (hash, hex::encode(block.to_vec()))));
+    }
+    if args.best_chain {
+        print_best_chain(&db);
+    }
+    if let Some(ancestors) = args.ancestors {
+        print_ancestors(&db, ancestors);
+    }
     Ok(())
 }
 
@@ -91,4 +122,24 @@ pub fn print_iterator<K: Display, V: Display>(title: &str, iterator: impl Iterat
     let mut lower = title.to_lowercase().clone();
     lower.retain(|c| c != '\n');
     println!("=> Found {} {}", count, lower);
+}
+
+#[expect(clippy::print_stdout)]
+pub fn print_ancestors(db: &impl ReadOnlyChainStore<BlockHeader>, point: Point) {
+    println!();
+    let ancestors = db.ancestors_with_validity(point.hash());
+    println!("The ancestors of {} are:", point);
+    let mut count = 0;
+    println!();
+    for (ancestor, valid) in ancestors {
+        let valid_str = match valid {
+            Some(true) => "valid",
+            Some(false) => "invalid",
+            None => "-",
+        };
+        println!("{} {}", ancestor.point(), valid_str);
+        count += 1;
+    }
+    println!();
+    println!("The ancestors length is: {}", count);
 }

@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::{self, Debug, Display};
+use std::{
+    fmt::{self, Debug, Display},
+    str::FromStr,
+};
 
 use crate::{Hash, HeaderHash, ORIGIN_HASH, Slot, cbor, size::HEADER};
 
@@ -84,6 +87,14 @@ impl TryFrom<&str> for Point {
             .and_then(|s| s.parse::<HeaderHash>().map_err(|e| format!("failed to parse block header hash: {}", e)))?;
 
         Ok(Point::Specific(Slot::from(slot), block_header_hash))
+    }
+}
+
+impl FromStr for Point {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 
