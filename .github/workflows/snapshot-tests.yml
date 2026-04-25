@@ -88,10 +88,10 @@ jobs:
         network:
           - name: preprod
             magic: 1
-            target_epoch: 185
+            target_epoch: 181
           - name: preview
             magic: 2
-            target_epoch: 680
+            target_epoch: 673
             tests-may-fail: true
         cardano_node_version: [10.5.3]
     env:
