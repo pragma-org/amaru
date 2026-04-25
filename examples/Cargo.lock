@@ -77,7 +77,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
- "amaru-uplc-turbo",
+ "amaru-uplc",
  "anyhow",
  "async-trait",
  "hex",
@@ -141,7 +141,7 @@ name = "amaru-plutus"
 version = "0.1.2"
 dependencies = [
  "amaru-kernel",
- "amaru-uplc-turbo",
+ "amaru-uplc",
  "hex",
  "itertools 0.14.0",
  "num",
@@ -167,10 +167,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "amaru-uplc-turbo"
+name = "amaru-uplc"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e80bbaa184a54245cee2477d8da4833b505838e63160cd2d6fbf0c46c6dcdfdf"
+checksum = "b565727e99c072b9d29f7ddf9eafffd51ec69a653dad6589c36d4d1ca053603c"
 dependencies = [
  "append-only-vec",
  "blst",
@@ -187,6 +187,7 @@ dependencies = [
  "once_cell",
  "secp256k1",
  "thiserror 1.0.69",
+ "walkdir",
 ]
 
 [[package]]
@@ -1147,6 +1148,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
+name = "same-file"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1437,6 +1447,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "walkdir"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
+dependencies = [
+ "same-file",
+ "winapi-util",
+]
+
+[[package]]
 name = "wasi"
 version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1494,6 +1514,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbc538057e648b67f72a982e708d485b2efa771e1ac05fec311f9f63e5800db4"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "winapi-util"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
+dependencies = [
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

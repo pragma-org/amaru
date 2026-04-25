@@ -23,8 +23,7 @@ use amaru_plutus::{
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
     to_plutus_data::{PLUTUS_V1, PLUTUS_V2, PLUTUS_V3, PlutusDataError},
 };
-use thiserror::Error;
-use uplc_turbo::{
+use amaru_uplc::{
     binder::DeBruijn,
     constant::Constant,
     data::PlutusData,
@@ -32,6 +31,7 @@ use uplc_turbo::{
     machine::{ExBudget, MachineInfo, PlutusVersion},
     term::Term,
 };
+use thiserror::Error;
 
 use crate::context::UtxoSlice;
 
@@ -147,7 +147,7 @@ where
                         .plutus_v2
                         .as_deref()
                         .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V2))?,
-                    uplc_turbo::machine::PlutusVersion::V2,
+                    amaru_uplc::machine::PlutusVersion::V2,
                 ),
                 Script::PlutusV3(_) => (
                     script_context.to_script_args(PLUTUS_V3)?,
@@ -156,13 +156,19 @@ where
                         .plutus_v3
                         .as_deref()
                         .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V3))?,
-                    uplc_turbo::machine::PlutusVersion::V3,
+                    amaru_uplc::machine::PlutusVersion::V3,
                 ),
             };
 
             let script_bytes = script.to_bytes().map_err(PhaseTwoError::ScriptDeserializationError)?;
 
-            let mut program = flat::decode::<DeBruijn>(&arena, &script_bytes).map_err(PhaseTwoError::from)?;
+            let mut program = flat::decode::<DeBruijn>(
+                &arena,
+                &script_bytes,
+                plutus_version,
+                protocol_parameters.protocol_version.0 as u32,
+            )
+            .map_err(PhaseTwoError::from)?;
 
             // TODO: we should stop using Pallas' PlutusData
             // We are using Pallas' PlutusData in `amaru-plutus` and not the `PlutusData` from `uplc`

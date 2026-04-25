@@ -33,13 +33,13 @@ tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true
-amaru-observability.workspace = true
 amaru-kernel.workspace = true
 amaru-metrics.workspace = true
+amaru-observability.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-plutus.workspace = true
 amaru-progress-bar.workspace = true
-amaru-uplc-turbo.workspace = true
+amaru-uplc.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -61,6 +61,3 @@ num = { workspace = true, default-features = false, features = [
   "alloc",
   "libm",
 ] }
-
-[package.metadata.cargo-machete]
-ignored = ["amaru-uplc-turbo"]
