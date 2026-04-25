@@ -263,6 +263,54 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(crate::registered_relay_addrs::collect_from_read_store(&*db)?)
     }
 
+    /// Check whether the next state should cause an epoch transition. This is the case when it
+    /// corresponds to a block in a different (next) epoch, in which case, we must first transition
+    /// into the new epoch before the block can be validated.
+    fn try_epoch_transition(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
+        if let Some(tip) = self.volatile_tip() {
+            let tip_epoch = self
+                .era_history
+                .slot_to_epoch(tip.slot(), tip.slot())
+                .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from tip ({tip:?}): {e:?}"));
+
+            let next_state_slot = next_state.anchor.0.slot();
+
+            let next_state_epoch =
+                self.era_history.slot_to_epoch(next_state_slot, next_state_slot).unwrap_or_else(|e| {
+                    unreachable!("impossible; failed to compute epoch from next block ({next_state_slot:?}): {e:?}")
+                });
+
+            if next_state_epoch > tip_epoch {
+                let old_protocol_version = self.protocol_parameters.protocol_version;
+
+                let rewards_summary = self.rewards_summary.take();
+
+                // ## End Epoch
+                //
+                // ✓ Pay rewards to each "still-active" account
+                //                        ^-- annoying to compute, as it requires looping through
+                //                            the entire database. Might be easier to keep a
+                //                            delta of all accounts that unregistered each epoch.
+                //
+                // ✓ Adjust treasury and reserves
+                //
+                // ## Snapshot
+                //
+                // ## Begin Epoch
+                // ✓ Reset block counts and fees counters -> delayed until snapshots
+                // ✓ Tick pools (unregister old, register new, update params, ...) ->
+                //     accumulate pool updates in memory throughout the epoch; then flush once.
+                // ✓ Refund deposits to credentials
+                // ✓ Process governance proposals
+                //
+                let protocol_parameters =
+                    self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
+            }
+        }
+
+        Ok(())
+    }
+
     #[expect(clippy::unwrap_used)]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let _span = trace_span!(
