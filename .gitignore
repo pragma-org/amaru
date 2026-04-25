@@ -57,3 +57,5 @@ simulation/amaru-sim/test-data/
 
 # Relay demos data
 scripts/relay*/run/**
+
+/.opencode/

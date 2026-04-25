@@ -115,13 +115,13 @@ mod tests {
         ($hash:literal) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $variant:literal) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $pp:expr) => {
@@ -135,7 +135,7 @@ mod tests {
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
             ProtocolParameters {
                 lovelace_per_utxo_byte: 100_000_000_000,
-                ..amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+                ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
             }
         ) => matches Err(InvalidOutputs{invalid_outputs})
             if matches!(invalid_outputs[0], WithPosition {
@@ -147,7 +147,7 @@ mod tests {
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
             ProtocolParameters {
                 max_value_size: 1,
-                ..amaru_kernel::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+                ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
             }
         ) => matches Err(InvalidOutputs{invalid_outputs})
             if matches!(invalid_outputs[0], WithPosition {

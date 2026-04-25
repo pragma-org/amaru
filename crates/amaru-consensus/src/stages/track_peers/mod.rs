@@ -14,7 +14,7 @@
 
 mod defer_req_next;
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
@@ -27,7 +27,7 @@ use amaru_protocols::{
     store_effects::Store,
 };
 pub use defer_req_next::DeferReqNextMsg;
-use pure_stage::{Effects, StageRef};
+use pure_stage::{Effects, Instant, SendData, StageRef};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -37,9 +37,10 @@ use crate::{
 };
 
 /// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
-pub(super) fn ledger_applied_block_height(eff: &impl ConsensusOps) -> BlockHeight {
-    let ledger = eff.ledger();
-    ledger.volatile_tip().unwrap_or_else(|| ledger.tip()).block_height()
+fn ledger_applied_block_height<T: SendData>(eff: &Effects<T>) -> BlockHeight {
+    let store = Store::new(eff.clone());
+    let best = store.get_best_chain_hash();
+    store.load_header(&best).map(|h| h.block_height()).unwrap_or(BlockHeight::from(0))
 }
 
 /// This is the state of the [`stage`] that tracks peers from whom we are receiving headers.
@@ -58,6 +59,8 @@ pub struct TrackPeers {
     /// Lazily populated via [`Effects::stage`](pure_stage::Effects::stage) on first deferred `RequestNext`.
     defer_req_next: StageRef<DeferReqNextMsg>,
     defer_req_next_poll_ms: u64,
+    ledger_applied_block_height: BlockHeight,
+    ledger_last_checked_at: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -104,6 +107,8 @@ impl TrackPeers {
             consensus_security_parameter,
             defer_req_next: StageRef::blackhole(),
             defer_req_next_poll_ms,
+            ledger_applied_block_height: BlockHeight::from(0),
+            ledger_last_checked_at: Instant::at_offset(Duration::from_secs(0)),
         }
     }
 
@@ -265,11 +270,7 @@ impl TrackPeers {
 
         if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
             self.ensure_defer_req_next_stage(&eff).await;
-            eff.send(
-                &self.defer_req_next,
-                DeferReqNextMsg::Register { peer: peer.clone(), handler, min_ledger_height },
-            )
-            .await;
+            eff.send(&self.defer_req_next, DeferReqNextMsg::Register { handler, min_ledger_height }).await;
         }
     }
 
@@ -315,18 +316,24 @@ impl TrackPeers {
                     }
                 };
 
-                let consensus = ConsensusEffects::new(eff.clone());
-                let ledger_h = ledger_applied_block_height(&consensus);
-                let limit = self.consensus_security_parameter;
-                let mode = if header.block_height() > ledger_h + limit {
+                let min_ledger_height = header.block_height() - self.consensus_security_parameter;
+                if min_ledger_height > self.ledger_applied_block_height
+                    && let now = eff.clock().await
+                    && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
+                        || self.ledger_applied_block_height == BlockHeight::from(0))
+                {
+                    self.ledger_last_checked_at = now;
+                    self.ledger_applied_block_height = ledger_applied_block_height(&eff);
+                }
+                let mode = if self.ledger_applied_block_height < min_ledger_height {
                     tracing::debug!(
                         %peer,
                         header_height = %header.block_height(),
-                        ledger_height = %ledger_h,
-                        limit,
+                        ledger_height = %self.ledger_applied_block_height,
+                        limit = %min_ledger_height,
                         "track_peers.defer_request_next",
                     );
-                    RollForwardMode::DeferTrailingRequestNext { min_ledger_height: header.block_height() - limit }
+                    RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
                 } else {
                     RollForwardMode::PipelineRequestNext
                 };
@@ -335,9 +342,6 @@ impl TrackPeers {
             }
             RollBackward(current, tip) => {
                 tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
-                if !self.defer_req_next.is_blackhole() {
-                    eff.send(&self.defer_req_next, DeferReqNextMsg::Cancel { peer: peer.clone() }).await;
-                }
                 eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
 
                 if let Err(error) = self.roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone())).await {

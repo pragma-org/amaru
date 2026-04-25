@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, Condvar, Mutex},
 };
 
-use uplc_turbo::{arena::Arena, bumpalo::Bump};
+use amaru_uplc::{arena::Arena, bumpalo::Bump};
 
 pub type BumpPool = Mutex<VecDeque<Arena>>;
 

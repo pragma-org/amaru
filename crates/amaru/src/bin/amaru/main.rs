@@ -81,6 +81,9 @@ enum Command {
     ///
     DumpChainDB(cmd::dump_chain_db::Args),
 
+    /// Remove the validation status of the given blocks from the chain database.
+    RemoveValidationStatus(cmd::remove_validation_status::Args),
+
     /// Dump all registered trace schemas as JSON Schema.
     ///
     /// This command outputs all registered trace schemas in JSON Schema format.
@@ -187,6 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
+        Command::RemoveValidationStatus(args) => cmd::remove_validation_status::run(args).await,
         Command::DumpTracesSchema(args) => cmd::dump_schemas::run(args).await,
         Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
         Command::ResetToEpoch(args) => cmd::reset_to_epoch::run(args).await,

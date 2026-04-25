@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput, NetworkName, Point,
-    Tip, TransactionInput, Value, PREPROD_INITIAL_PROTOCOL_PARAMETERS, PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+    ProtocolParameters, Tip, TransactionInput, Value,
 };
 use amaru_ledger::{
     context,
@@ -44,11 +44,7 @@ pub fn forward_ledger(raw_block: &str) {
 
     let arena_pool = ArenaPool::new(10, 1_024_000);
 
-    let protocol_parameters = match network {
-        NetworkName::Preprod => &*PREPROD_INITIAL_PROTOCOL_PARAMETERS,
-        NetworkName::Preview => &*PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
-        NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
-    };
+    let protocol_parameters = <&ProtocolParameters>::try_from(network).expect("unsupported network");
 
     let store = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
 

@@ -20,7 +20,7 @@ pub mod rocksdb;
 pub mod tests {
     use amaru_kernel::{
         Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
-        NetworkName, PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Slot, StakeCredential,
+        NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Slot, StakeCredential,
         TransactionInput, any_certificate_pointer, any_hash28, any_pool_params, any_proposal_id, any_stake_credential,
     };
     use amaru_ledger::{
@@ -177,7 +177,7 @@ pub mod tests {
 
             context.save(
                 &era_history,
-                &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+                &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
                 &mut governance_activity,
                 &point,
                 Some(&slot_leader),
@@ -315,7 +315,7 @@ pub mod tests {
         let context = store.create_transaction();
         context.save(
             &era_history,
-            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
             &mut governance_activity,
             &point,
             None,
@@ -348,7 +348,7 @@ pub mod tests {
         let context = store.create_transaction();
         context.save(
             &era_history,
-            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
             &mut governance_activity,
             &point,
             None,
@@ -380,7 +380,7 @@ pub mod tests {
         let context = store.create_transaction();
         context.save(
             &era_history,
-            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
             &mut governance_activity,
             &point,
             None,
@@ -429,7 +429,7 @@ pub mod tests {
         let context = store.create_transaction();
         context.save(
             &era_history,
-            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
             &mut governance_activity,
             &point,
             None,

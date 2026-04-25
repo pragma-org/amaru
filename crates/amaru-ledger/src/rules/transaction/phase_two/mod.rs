@@ -23,8 +23,7 @@ use amaru_plutus::{
     script_context::{Script, TxInfo, TxInfoTranslationError, Utxos},
     to_plutus_data::{PLUTUS_V1, PLUTUS_V2, PLUTUS_V3, PlutusDataError},
 };
-use thiserror::Error;
-use uplc_turbo::{
+use amaru_uplc::{
     binder::DeBruijn,
     constant::Constant,
     data::PlutusData,
@@ -32,6 +31,7 @@ use uplc_turbo::{
     machine::{ExBudget, MachineInfo, PlutusVersion},
     term::Term,
 };
+use thiserror::Error;
 
 use crate::context::UtxoSlice;
 
@@ -147,7 +147,7 @@ where
                         .plutus_v2
                         .as_deref()
                         .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V2))?,
-                    uplc_turbo::machine::PlutusVersion::V2,
+                    amaru_uplc::machine::PlutusVersion::V2,
                 ),
                 Script::PlutusV3(_) => (
                     script_context.to_script_args(PLUTUS_V3)?,
@@ -156,13 +156,19 @@ where
                         .plutus_v3
                         .as_deref()
                         .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V3))?,
-                    uplc_turbo::machine::PlutusVersion::V3,
+                    amaru_uplc::machine::PlutusVersion::V3,
                 ),
             };
 
             let script_bytes = script.to_bytes().map_err(PhaseTwoError::ScriptDeserializationError)?;
 
-            let mut program = flat::decode::<DeBruijn>(&arena, &script_bytes).map_err(PhaseTwoError::from)?;
+            let mut program = flat::decode::<DeBruijn>(
+                &arena,
+                &script_bytes,
+                plutus_version,
+                protocol_parameters.protocol_version.0 as u32,
+            )
+            .map_err(PhaseTwoError::from)?;
 
             // TODO: we should stop using Pallas' PlutusData
             // We are using Pallas' PlutusData in `amaru-plutus` and not the `PlutusData` from `uplc`
@@ -239,5 +245,89 @@ where
             Ok(_) => Err(PhaseTwoError::ValidityStateError),
             Err(_) => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, sync::LazyLock};
+
+    use amaru_kernel::{
+        EraHistory, MemoizedTransactionOutput, NetworkName, ProtocolParameters, Transaction, TransactionPointer,
+        include_cbor,
+    };
+    use amaru_plutus::arena_pool::ArenaPool;
+    use anyhow::{Context, Result};
+
+    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
+
+    static ARENA_POOL: LazyLock<ArenaPool> = LazyLock::new(|| ArenaPool::new(1, 1_024_000));
+
+    macro_rules! fixture {
+        ($path:literal) => {
+            include_cbor!(concat!("phase-two/mainnet/74558bb6/", $path))
+        };
+    }
+
+    fn default_execute_phase_two(
+        network: NetworkName,
+        transaction: Transaction,
+        resolved_inputs: impl Iterator<Item = MemoizedTransactionOutput>,
+    ) -> Result<()> {
+        let utxo = transaction
+            .body
+            .inputs
+            .clone()
+            .to_vec()
+            .into_iter()
+            .chain(transaction.body.reference_inputs.clone().map(|inputs| inputs.to_vec()).unwrap_or_default())
+            .zip(resolved_inputs)
+            .fold(BTreeMap::new(), |mut utxo, (input, output)| {
+                utxo.insert(input, output);
+                utxo
+            });
+
+        let mut context = AssertValidationContext::from(AssertPreparationContext { utxo });
+
+        let protocol_parameters =
+            <&ProtocolParameters>::try_from(network).map_err(anyhow::Error::msg).context("missing network defaults")?;
+
+        super::execute(
+            &mut context,
+            &ARENA_POOL,
+            &network,
+            protocol_parameters,
+            <&EraHistory>::from(network),
+            default_pointer(&transaction),
+            transaction.is_expected_valid,
+            &transaction.body,
+            &transaction.witnesses,
+        )?;
+
+        Ok(())
+    }
+
+    fn default_pointer(transaction: &Transaction) -> TransactionPointer {
+        let slot = transaction
+            .body
+            .validity_interval_start
+            .unwrap_or_default()
+            .max(transaction.body.validity_interval_end.unwrap_or_default());
+
+        TransactionPointer { slot: slot.into(), transaction_index: 0 }
+    }
+
+    #[test]
+    fn golden_74558bb6() -> Result<()> {
+        let resolved_inputs: [MemoizedTransactionOutput; 6] = [
+            fixture!("resolved-input-0.cbor"),
+            fixture!("resolved-input-1.cbor"),
+            fixture!("resolved-input-2.cbor"),
+            fixture!("resolved-input-3.cbor"),
+            fixture!("resolved-input-4.cbor"),
+            fixture!("resolved-input-5.cbor"),
+        ];
+
+        default_execute_phase_two(NetworkName::Mainnet, fixture!("tx.cbor"), resolved_inputs.into_iter())
     }
 }

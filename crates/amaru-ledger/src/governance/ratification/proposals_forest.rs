@@ -739,7 +739,7 @@ mod tests {
 
     use amaru_kernel::{
         ComparableProposalId, Epoch, GovernanceAction, KeyValuePairs, Lovelace, Nullable,
-        PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProposalId, ProposalPointer, ProtocolParameters, RationalNumber, Set,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalId, ProposalPointer, ProtocolParameters, RationalNumber, Set,
         any_comparable_proposal_id, any_constitution, any_gov_action, any_proposal_pointer, any_protocol_params_update,
         any_protocol_version, any_reward_account,
     };
@@ -755,7 +755,7 @@ mod tests {
 
     static PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = LazyLock::new(|| ProtocolParameters {
         max_committee_term_length: (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH) / 2,
-        ..(*PREPROD_INITIAL_PROTOCOL_PARAMETERS).clone()
+        ..(*PREPROD_DEFAULT_PROTOCOL_PARAMETERS).clone()
     });
 
     fn check_invariants(forest: &ProposalsForest) -> usize {

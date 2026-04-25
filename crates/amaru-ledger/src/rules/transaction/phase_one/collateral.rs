@@ -240,7 +240,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{PREPROD_INITIAL_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor};
+    use amaru_kernel::{PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor};
     use test_case::test_case;
 
     use super::InvalidCollateral;
@@ -251,14 +251,14 @@ mod tests {
             (
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
     }

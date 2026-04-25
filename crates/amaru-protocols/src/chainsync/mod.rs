@@ -70,7 +70,7 @@ mod register {
                 protocol: PROTO_N2N_CHAIN_SYNC.erase(),
                 frame: Frame::OneCborItem,
                 handler: eff.contramap(&chainsync, "chainsync_bytes", Inputs::Network).await,
-                max_buffer: 5760,
+                max_buffer: 57600, // TODO: figure out how to scale this with pipelining depth
             },
         )
         .await;

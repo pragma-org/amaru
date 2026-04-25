@@ -506,7 +506,7 @@ pub use tests::*;
 mod tests {
     use proptest::{collection, option, prelude::*};
 
-    use super::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
+    use super::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
     #[cfg(not(target_os = "windows"))]
     use crate::prop_cbor_roundtrip;
     use crate::{
@@ -855,43 +855,43 @@ mod tests {
             drep_deposit in any::<Lovelace>(),
             drep_expiry in any::<u64>(),
         ) -> ProtocolParameters {
-        let default = &*PREPROD_INITIAL_PROTOCOL_PARAMETERS;
-        ProtocolParameters {
-            protocol_version,
-            max_block_body_size,
-            max_transaction_size,
-            max_block_header_size,
-            max_tx_ex_units,
-            max_block_ex_units,
-            max_value_size,
-            max_collateral_inputs,
-            min_fee_a,
-            min_fee_b,
-            stake_credential_deposit,
-            stake_pool_deposit,
-            monetary_expansion_rate,
-            treasury_expansion_rate,
-            min_pool_cost,
-            lovelace_per_utxo_byte,
-            prices,
-            min_fee_ref_script_lovelace_per_byte,
-            max_ref_script_size_per_tx: default.max_ref_script_size_per_tx,
-            max_ref_script_size_per_block: default.max_ref_script_size_per_block,
-            ref_script_cost_stride: default.ref_script_cost_stride,
-            ref_script_cost_multiplier: default.ref_script_cost_multiplier.clone(),
-            stake_pool_max_retirement_epoch,
-            optimal_stake_pools_count,
-            pledge_influence,
-            collateral_percentage,
-            cost_models,
-            pool_voting_thresholds,
-            drep_voting_thresholds,
-            min_committee_size,
-            max_committee_term_length,
-            gov_action_lifetime,
-            gov_action_deposit,
-            drep_deposit,
-            drep_expiry,
+            let default = &*PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
+            ProtocolParameters {
+                protocol_version,
+                max_block_body_size,
+                max_transaction_size,
+                max_block_header_size,
+                max_tx_ex_units,
+                max_block_ex_units,
+                max_value_size,
+                max_collateral_inputs,
+                min_fee_a,
+                min_fee_b,
+                stake_credential_deposit,
+                stake_pool_deposit,
+                monetary_expansion_rate,
+                treasury_expansion_rate,
+                min_pool_cost,
+                lovelace_per_utxo_byte,
+                prices,
+                min_fee_ref_script_lovelace_per_byte,
+                max_ref_script_size_per_tx: default.max_ref_script_size_per_tx,
+                max_ref_script_size_per_block: default.max_ref_script_size_per_block,
+                ref_script_cost_stride: default.ref_script_cost_stride,
+                ref_script_cost_multiplier: default.ref_script_cost_multiplier.clone(),
+                stake_pool_max_retirement_epoch,
+                optimal_stake_pools_count,
+                pledge_influence,
+                collateral_percentage,
+                cost_models,
+                pool_voting_thresholds,
+                drep_voting_thresholds,
+                min_committee_size,
+                max_committee_term_length,
+                gov_action_lifetime,
+                gov_action_deposit,
+                drep_deposit,
+                drep_expiry,
             }
         }
     }

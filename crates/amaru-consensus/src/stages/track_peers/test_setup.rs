@@ -22,7 +22,9 @@ use amaru_ouroboros_traits::{
 };
 use amaru_protocols::{
     chainsync::InitiatorMessage,
-    store_effects::{HasHeaderEffect, LoadHeaderEffect, ResourceHeaderStore, StoreHeaderEffect},
+    store_effects::{
+        GetBestChainHashEffect, HasHeaderEffect, LoadHeaderEffect, ResourceHeaderStore, StoreHeaderEffect,
+    },
 };
 use anyhow::anyhow;
 use opentelemetry::Context;
@@ -91,14 +93,6 @@ pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
 }
 
-pub fn te_volatile_tip(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(VolatileTipEffect)))
-}
-
-pub fn te_tip(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(TipEffect)))
-}
-
 pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
 }
@@ -128,6 +122,7 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
     ]
 }

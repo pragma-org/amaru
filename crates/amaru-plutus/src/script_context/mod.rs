@@ -138,6 +138,7 @@ impl<'a> ScriptContext<'a> {
 ///
 /// Notably, it is not an exact mapping of the transaction on the ledger.
 /// For example, bootstrap addresses are skipped in the inputs, reference inputs, and outputs.
+#[derive(Debug)]
 pub struct TxInfo<'a> {
     inputs: Vec<OutputRef<'a>>,
     reference_inputs: Vec<OutputRef<'a>>,
@@ -349,7 +350,7 @@ impl<'a> TxInfo<'a> {
 pub type ScriptPurpose<'a> = ScriptInfo<'a, ()>;
 
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ScriptInfo<'a, T: Clone> {
     Minting(Hash<CREDENTIAL>),
     Spending(&'a TransactionInput, T),
@@ -467,6 +468,7 @@ impl<'a> ScriptPurpose<'a> {
 
 /// A resolved input which includes the output it references.
 #[doc(hidden)]
+#[derive(Debug)]
 pub struct OutputRef<'a> {
     pub input: &'a TransactionInput,
     pub output: TransactionOutput<'a>,
@@ -513,6 +515,7 @@ impl From<BTreeMap<TransactionInput, MemoizedTransactionOutput>> for Utxos {
 /// One wrinkle that this causes is that while Ouroboros uses slots to handle time, Plutus uses POSIX time.
 /// See [`TimeRange::new`] for more information on converting from a validity interval from Ouroboros to a Plutus TimeRange.
 #[doc(hidden)]
+#[derive(Debug)]
 pub struct TimeRange {
     pub(crate) lower_bound: Option<SystemTime>,
     pub(crate) upper_bound: Option<SystemTime>,
@@ -571,7 +574,7 @@ impl From<Hash<CREDENTIAL>> for CurrencySymbol {
 /// The ledger's `Value` contains both a `Coin` and, optionally, a `Multiasset`.
 /// In Plutus, this is simply a single map, with an empty bytestring representing lovelace
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Value<'a>(pub BTreeMap<CurrencySymbol, BTreeMap<Cow<'a, AssetName>, u64>>);
 
 impl<'a> From<&'a amaru_kernel::Value> for Value<'a> {
@@ -647,7 +650,7 @@ impl Value<'_> {
 }
 
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Script<'a> {
     Native(&'a NativeScript),
     PlutusV1(&'a PlutusScript<1>),
@@ -693,7 +696,7 @@ impl<'a> HasScriptHash for Script<'a> {
 }
 
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum DatumOption<'a> {
     None,
     Hash(&'a Hash<DATUM>),
@@ -720,7 +723,7 @@ impl<'a> From<Option<&'a Hash<DATUM>>> for DatumOption<'a> {
 }
 
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TransactionOutput<'a> {
     pub is_legacy: bool,
     pub address: Cow<'a, Address>,
@@ -769,7 +772,7 @@ impl<'a> From<&'a amaru_kernel::NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmpty
 }
 
 #[doc(hidden)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct RequiredSigners(pub BTreeSet<Hash<KEY>>);
 
 impl<'a> From<&'a NonEmptySet<Hash<KEY>>> for RequiredSigners {
@@ -779,11 +782,11 @@ impl<'a> From<&'a NonEmptySet<Hash<KEY>>> for RequiredSigners {
 }
 
 #[doc(hidden)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Withdrawals(pub BTreeMap<StakeAddress, Lovelace>);
 
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Certificate<'a> {
     // There is a bug in conway protocol 9 that means we have to change our serialization logic depending on the protocol version
     protocol_version: ProtocolVersion,
@@ -878,7 +881,7 @@ impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for Withdraw
 }
 
 #[doc(hidden)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Datums<'a>(pub BTreeMap<Hash<DATUM>, &'a PlutusData>);
 
 impl<'a> From<&'a NonEmptyVec<MemoizedPlutusData>> for Datums<'a> {
@@ -888,6 +891,7 @@ impl<'a> From<&'a NonEmptyVec<MemoizedPlutusData>> for Datums<'a> {
 }
 
 #[doc(hidden)]
+#[derive(Debug)]
 pub struct Redeemers<'a>(BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>);
 
 impl<'a> Redeemers<'a> {
@@ -942,7 +946,7 @@ impl Redeemers<'_> {
 }
 
 #[doc(hidden)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Votes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ComparableProposalId, &'a Vote>>);
 
 impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>> for Votes<'a> {

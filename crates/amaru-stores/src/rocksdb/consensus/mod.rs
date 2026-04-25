@@ -159,6 +159,12 @@ impl RocksDBStore<OptimisticTransactionDB> {
             Err(err) => Err(err),
         }
     }
+
+    pub fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        self.db
+            .delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat())
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
+    }
 }
 
 impl RocksDBStore<DB> {

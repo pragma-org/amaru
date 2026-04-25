@@ -220,7 +220,7 @@ dependencies = [
  "amaru-plutus",
  "amaru-progress-bar",
  "amaru-tracing-json",
- "amaru-uplc-turbo",
+ "amaru-uplc",
  "anyhow",
  "async-trait",
  "hex",
@@ -357,7 +357,7 @@ name = "amaru-plutus"
 version = "0.1.2"
 dependencies = [
  "amaru-kernel",
- "amaru-uplc-turbo",
+ "amaru-uplc",
  "hex",
  "itertools 0.14.0",
  "num",
@@ -461,10 +461,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "amaru-uplc-turbo"
+name = "amaru-uplc"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e80bbaa184a54245cee2477d8da4833b505838e63160cd2d6fbf0c46c6dcdfdf"
+checksum = "b565727e99c072b9d29f7ddf9eafffd51ec69a653dad6589c36d4d1ca053603c"
 dependencies = [
  "append-only-vec",
  "blst",
@@ -481,6 +481,7 @@ dependencies = [
  "once_cell",
  "secp256k1",
  "thiserror 1.0.69",
+ "walkdir",
 ]
 
 [[package]]

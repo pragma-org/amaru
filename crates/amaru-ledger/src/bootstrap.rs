@@ -22,7 +22,7 @@ use std::{
 use amaru_kernel::{
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepRegistration,
     DRepState, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, NetworkName,
-    PREPROD_INITIAL_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
     ProposalState, ProtocolParameters, RationalNumber, Reward, Set, Slot, StakeCredential, StrictMaybe,
     TransactionInput, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
 };
@@ -366,7 +366,7 @@ fn import_block_issuers(
             transaction.save(
                 era_history,
                 // TODO: Unused when storing block issuers; require API change.
-                &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+                &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
                 &mut default_governance_activity(),
                 &Point::Specific(fake_slot.into(), Hash::new([0; 32])),
                 Some(&pool),
@@ -471,7 +471,7 @@ fn import_utxo(
             transaction.save(
                 era_history,
                 // TODO: Unused when storing block issuers; require API change.
-                &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+                &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
                 &mut default_governance_activity(),
                 point,
                 None,
@@ -672,7 +672,7 @@ fn import_stake_pools(
     transaction.save(
         era_history,
         // TODO: Unused when storing block issuers; require API change.
-        &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         &mut default_governance_activity(),
         point,
         None,
