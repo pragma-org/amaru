@@ -38,70 +38,85 @@ pub mod util;
 
 pub use migration::*;
 
-pub trait DbOps: rocksdb::DBAccess + Sized {
-    fn get_pinned(&self, key: &[u8], opts: &ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError>;
-    fn multi_get(&self, keys: &[&[u8]], opts: &ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>>;
-    fn prefix_iterator(&self, prefix: &[u8]) -> DBIteratorWithThreadMode<'_, Self>;
-    fn iterator_opt(&self, mode: IteratorMode<'_>, opts: ReadOptions) -> DBIteratorWithThreadMode<'_, Self>;
+pub trait DbOps: Sized {
+    type Iter<'a>: Iterator<Item = Result<(Box<[u8]>, Box<[u8]>), rocksdb::Error>>
+    where
+        Self: 'a;
+
+    fn get_pinned(&self, key: &[u8], opts: ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError>;
+    fn multi_get(&self, keys: &[&[u8]], opts: ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>>;
+    fn iterator_opt<'a>(&'a self, mode: IteratorMode<'_>, opts: ReadOptions) -> Self::Iter<'a>;
 }
+
 impl DbOps for OptimisticTransactionDB {
-    fn get_pinned(&self, key: &[u8], opts: &ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
-        DBCommon::get_pinned_opt(self, key, opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
+    type Iter<'a>
+        = DBIteratorWithThreadMode<'a, Self>
+    where
+        Self: 'a;
+
+    fn get_pinned(&self, key: &[u8], opts: ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
+        DBCommon::get_pinned_opt(self, key, &opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
     }
 
-    fn multi_get(&self, keys: &[&[u8]], opts: &ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
-        DBCommon::multi_get_opt(self, keys, opts)
+    fn multi_get(&self, keys: &[&[u8]], opts: ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
+        DBCommon::multi_get_opt(self, keys, &opts)
             .into_iter()
             .map(|result| result.map_err(|e| StoreError::ReadError { error: e.to_string() }))
             .collect()
     }
 
-    fn prefix_iterator(&self, prefix: &[u8]) -> DBIteratorWithThreadMode<'_, Self> {
-        DBCommon::prefix_iterator(self, prefix)
-    }
-
-    fn iterator_opt(&self, mode: IteratorMode<'_>, opts: ReadOptions) -> DBIteratorWithThreadMode<'_, Self> {
+    fn iterator_opt<'a>(&'a self, mode: IteratorMode<'_>, opts: ReadOptions) -> Self::Iter<'a> {
         DBCommon::iterator_opt(self, mode, opts)
     }
 }
+
 impl DbOps for DB {
-    fn get_pinned(&self, key: &[u8], opts: &ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
-        DBCommon::get_pinned_opt(self, key, opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
+    type Iter<'a>
+        = DBIteratorWithThreadMode<'a, Self>
+    where
+        Self: 'a;
+
+    fn get_pinned(&self, key: &[u8], opts: ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
+        DBCommon::get_pinned_opt(self, key, &opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
     }
 
-    fn multi_get(&self, keys: &[&[u8]], opts: &ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
-        DBCommon::multi_get_opt(self, keys, opts)
+    fn multi_get(&self, keys: &[&[u8]], opts: ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
+        DBCommon::multi_get_opt(self, keys, &opts)
             .into_iter()
             .map(|result| result.map_err(|e| StoreError::ReadError { error: e.to_string() }))
             .collect()
     }
 
-    fn prefix_iterator(&self, prefix: &[u8]) -> DBIteratorWithThreadMode<'_, Self> {
-        DBCommon::prefix_iterator(self, prefix)
+    fn iterator_opt<'a>(&'a self, mode: IteratorMode<'_>, opts: ReadOptions) -> Self::Iter<'a> {
+        DBCommon::iterator_opt(self, mode, opts)
+    }
+}
+
+impl DbOps for SnapshotWithThreadMode<'_, OptimisticTransactionDB> {
+    type Iter<'a>
+        = DBIteratorWithThreadMode<'a, OptimisticTransactionDB>
+    where
+        Self: 'a;
+
+    fn get_pinned(&self, key: &[u8], opts: ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
+        self.get_pinned_opt(key, opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
     }
 
-    fn iterator_opt(&self, mode: IteratorMode<'_>, opts: ReadOptions) -> DBIteratorWithThreadMode<'_, Self> {
-        DBCommon::iterator_opt(self, mode, opts)
+    fn multi_get(&self, keys: &[&[u8]], opts: ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
+        self.multi_get_opt(keys, opts)
+            .into_iter()
+            .map(|result| result.map_err(|e| StoreError::ReadError { error: e.to_string() }))
+            .collect()
+    }
+
+    fn iterator_opt<'a>(&'a self, mode: IteratorMode<'_>, opts: ReadOptions) -> Self::Iter<'a> {
+        SnapshotWithThreadMode::iterator_opt(self, mode, opts)
     }
 }
 
 pub struct RocksDBStore<T: DbOps = OptimisticTransactionDB> {
     pub basedir: PathBuf,
     pub db: T,
-}
-
-/// Read-only view of the chain store backed by a RocksDB snapshot so related reads stay consistent.
-struct RocksDBSnapshot<'a> {
-    db: &'a OptimisticTransactionDB,
-    snapshot: SnapshotWithThreadMode<'a, OptimisticTransactionDB>,
-}
-
-impl RocksDBSnapshot<'_> {
-    fn read_options(&self) -> ReadOptions {
-        let mut opts = ReadOptions::default();
-        opts.set_snapshot(&self.snapshot);
-        opts
-    }
 }
 
 impl RocksDBStore<OptimisticTransactionDB> {
@@ -198,120 +213,19 @@ pub(crate) fn store_chain_point(db: &OptimisticTransactionDB, point: &Point) -> 
         .map_err(|e| StoreError::WriteError { error: e.to_string() })
 }
 
-impl<H> ReadOnlyChainStore<H> for RocksDBSnapshot<'_>
-where
-    H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>,
-{
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
-        let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-        let opts = self.read_options();
-        DbOps::get_pinned(self.db, &prefix, &opts).ok().flatten().and_then(|bytes| from_cbor(bytes.as_ref()))
-    }
-
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
-        let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
-        let head_len = prefix.len() - 1;
-        let opts = self.read_options();
-        let mut results = DbOps::multi_get(self.db, &[&prefix[..head_len], &prefix], &opts).into_iter();
-        let header = results.next().and_then(|bytes| from_cbor(bytes.ok()??.as_ref()));
-        let validity = results.next().and_then(|bytes| {
-            let bytes = bytes.ok()??;
-            if bytes.len() == 1 { Some(bytes[0] == 1) } else { None }
-        });
-        header.map(|h| (h, validity))
-    }
-
-    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
-        let mut result = Vec::new();
-        let mut opts = self.read_options();
-        opts.set_iterate_range(PrefixRange([&CHILD_PREFIX[..], &hash[..]].concat()));
-
-        for res in self.db.iterator_opt(IteratorMode::Start, opts) {
-            // FIXME: RocksDB iterator errors (transient I/O, corruption) panic the node here.
-            // Propagating as StoreError requires changing the `get_children` trait signature
-            // across ReadOnlyChainStore and all impls/callers. Tracked as follow-up.
-            #[expect(clippy::expect_used)]
-            let (key, _value) = res.expect("error iterating over children");
-            let mut arr = [0u8; HEADER];
-            arr.copy_from_slice(&key[(CONSENSUS_PREFIX_LEN + HEADER)..]);
-            result.push(Hash::from(arr));
-        }
-        result
-    }
-
-    fn get_anchor_hash(&self) -> HeaderHash {
-        let opts = self.read_options();
-        self.db
-            .get_pinned_opt(ANCHOR_PREFIX, &opts)
-            .ok()
-            .flatten()
-            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
-            .unwrap_or(ORIGIN_HASH)
-    }
-
-    fn get_best_chain_hash(&self) -> HeaderHash {
-        let opts = self.read_options();
-        self.db
-            .get_pinned_opt(BEST_CHAIN_PREFIX, &opts)
-            .ok()
-            .flatten()
-            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
-            .unwrap_or(ORIGIN_HASH)
-    }
-
-    fn has_header(&self, hash: &HeaderHash) -> bool {
-        let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-        let opts = self.read_options();
-        DbOps::get_pinned(self.db, &prefix, &opts).map(|opt| opt.is_some()).unwrap_or(false)
-    }
-
-    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
-        let opts = self.read_options();
-        self.db
-            .get_pinned_opt([&NONCES_PREFIX[..], &header[..]].concat(), &opts)
-            .ok()
-            .flatten()
-            .as_deref()
-            .and_then(from_cbor)
-    }
-
-    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
-        let opts = self.read_options();
-        Ok(DbOps::get_pinned(self.db, &[&BLOCK_PREFIX[..], &hash[..]].concat(), &opts)?
-            .map(|bytes| bytes.as_ref().into()))
-    }
-
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        let slot = u64::from(point.slot_or_default()).to_be_bytes();
-        let opts = self.read_options();
-        DbOps::get_pinned(self.db, &[&CHAIN_PREFIX[..], &slot[..]].concat(), &opts).ok().flatten().and_then(|bytes| {
-            if bytes.len() == HEADER {
-                let hash = Hash::from(bytes.as_ref());
-                if *hash == *point.hash() { Some(hash) } else { None }
-            } else {
-                None
-            }
-        })
-    }
-
-    fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        get_next_best_chain_point(self.db, point, self.read_options())
-    }
-}
-
 impl<H, T: DbOps> ReadOnlyChainStore<H> for RocksDBStore<T>
 where
     H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>,
 {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-        self.db.get_pinned_opt(prefix, &ReadOptions::default()).ok().and_then(|bytes| from_cbor(bytes?.as_ref()))
+        self.db.get_pinned(&prefix, ReadOptions::default()).ok().flatten().and_then(|bytes| from_cbor(bytes.as_ref()))
     }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
         let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
         let head_len = prefix.len() - 1;
-        let mut results = self.db.multi_get_opt([&prefix[..head_len], &prefix], &ReadOptions::default()).into_iter();
+        let mut results = self.db.multi_get(&[&prefix[..head_len], &prefix], ReadOptions::default()).into_iter();
         let header = results.next().and_then(|bytes| from_cbor(bytes.ok()??.as_ref()));
         let validity = results.next().and_then(|bytes| {
             let bytes = bytes.ok()??;
@@ -340,7 +254,7 @@ where
 
     fn get_anchor_hash(&self) -> HeaderHash {
         self.db
-            .get_pinned(&ANCHOR_PREFIX, &ReadOptions::default())
+            .get_pinned(&ANCHOR_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
             .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
@@ -349,7 +263,7 @@ where
 
     fn get_best_chain_hash(&self) -> HeaderHash {
         self.db
-            .get_pinned(&BEST_CHAIN_PREFIX, &ReadOptions::default())
+            .get_pinned(&BEST_CHAIN_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
             .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
@@ -358,12 +272,12 @@ where
 
     fn has_header(&self, hash: &HeaderHash) -> bool {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-        self.db.get_pinned(&prefix, &ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
+        self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
     }
 
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         self.db
-            .get_pinned(&[&NONCES_PREFIX[..], &header[..]].concat(), &ReadOptions::default())
+            .get_pinned(&[&NONCES_PREFIX[..], &header[..]].concat(), ReadOptions::default())
             .ok()
             .flatten()
             .as_deref()
@@ -373,13 +287,13 @@ where
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         Ok(self
             .db
-            .get_pinned(&[&BLOCK_PREFIX[..], &hash[..]].concat(), &ReadOptions::default())?
+            .get_pinned(&[&BLOCK_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
             .map(|bytes| bytes.as_ref().into()))
     }
 
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
         let slot = u64::from(point.slot_or_default()).to_be_bytes();
-        self.db.get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), &ReadOptions::default()).ok().flatten().and_then(
+        self.db.get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), ReadOptions::default()).ok().flatten().and_then(
             |bytes| {
                 if bytes.len() == HEADER {
                     let hash = Hash::from(bytes.as_ref());
@@ -515,7 +429,7 @@ impl DiagnosticChainStore for RocksDBStore<DB> {
 use std::fmt::Debug;
 impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_> {
-        Box::new(RocksDBSnapshot { db: &self.db, snapshot: self.db.snapshot() })
+        Box::new(RocksDBStore { basedir: self.basedir.clone(), db: self.db.snapshot() })
     }
 
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
