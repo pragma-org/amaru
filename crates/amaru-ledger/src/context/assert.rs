@@ -54,7 +54,6 @@ impl From<AssertPreparationContext> for AssertValidationContext {
             known_datums: BTreeMap::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_roots: BTreeSet::default(),
-            produced_scripts: Vec::default(),
         }
     }
 }
@@ -106,8 +105,6 @@ pub struct AssertValidationContext {
     required_supplemental_datums: BTreeSet<Hash<DATUM>>,
     #[serde(default)]
     required_bootstrap_roots: BTreeSet<Hash<28>>,
-    #[serde(default)]
-    produced_scripts: Vec<MemoizedScript>,
 }
 
 impl ValidationContext for AssertValidationContext {
@@ -318,13 +315,5 @@ impl WitnessSlice for AssertValidationContext {
     fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
-    }
-
-    fn produce_script(&mut self, script: MemoizedScript) {
-        self.produced_scripts.push(script);
-    }
-
-    fn produced_scripts(&mut self) -> Vec<MemoizedScript> {
-        mem::take(&mut self.produced_scripts)
     }
 }

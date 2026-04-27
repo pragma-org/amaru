@@ -44,7 +44,6 @@ pub struct DefaultValidationContext {
     required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<DATUM>>,
     required_bootstrap_roots: BTreeSet<Hash<28>>,
-    produced_scripts: Vec<MemoizedScript>,
 }
 
 impl DefaultValidationContext {
@@ -58,7 +57,6 @@ impl DefaultValidationContext {
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_roots: BTreeSet::default(),
-            produced_scripts: Vec::default(),
         }
     }
 }
@@ -336,13 +334,5 @@ impl WitnessSlice for DefaultValidationContext {
     fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
-    }
-
-    fn produce_script(&mut self, script: MemoizedScript) {
-        self.produced_scripts.push(script);
-    }
-
-    fn produced_scripts(&mut self) -> Vec<MemoizedScript> {
-        mem::take(&mut self.produced_scripts)
     }
 }

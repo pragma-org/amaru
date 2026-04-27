@@ -13,14 +13,15 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AsIndex, HasNetwork, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network, ProtocolParameters,
-    TransactionInput, utils::string::display_collection,
+    AsIndex, HasNetwork, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput,
+    Network, ProtocolParameters, ProtocolVersion, TransactionInput, size::SCRIPT, utils::string::display_collection,
 };
+use amaru_uplc::{arena::Arena, machine::PlutusVersion};
 use thiserror::Error;
 
 use crate::{
     context::{UtxoSlice, WitnessSlice},
-    rules::WithPosition,
+    rules::{WithPosition, transaction::phase_one::scripts::validate_plutus_script},
 };
 
 mod inherent_value;
@@ -40,6 +41,13 @@ pub enum InvalidOutput {
 
     #[error("address has the wrong network ID: expected: {expected}, actual: {actual}")]
     WrongNetwork { expected: u8, actual: u8 },
+
+    #[error("malformed reference script: {0}")]
+    MalformedReferenceScript(Hash<SCRIPT>),
+
+    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
+    #[error("uncategorized error: {0}")]
+    UncategorizedError(String),
 }
 
 /// Enum that is used to determine whether or not to allow a datum as supplemental in the context.
@@ -61,6 +69,9 @@ where
     C: WitnessSlice + UtxoSlice,
 {
     let mut invalid_outputs = Vec::new();
+    // TODO: we should not be allocating a new arena here, instead using a shared pool, such as the one we use for phase 2 validation.
+    let mut arena = Arena::new();
+
     for (position, output) in outputs.into_iter().enumerate() {
         inherent_value::execute(protocol_parameters, &output)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
@@ -74,9 +85,9 @@ where
             context.allow_supplemental_datum(*hash);
         }
 
-        // TODO: avoid cloning here; requires changing produce() to not take ownership
-        if let Some(ref script) = output.script {
-            context.produce_script(script.clone());
+        if let Some(script) = output.script.as_ref() {
+            validate_reference_script(script, protocol_parameters.protocol_version, &mut arena)
+                .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
         }
 
         if let Some(input) = construct_utxo(position as u64) {
@@ -99,6 +110,20 @@ fn validate_network(output: &MemoizedTransactionOutput, expected_network: &Netwo
     } else {
         Ok(())
     }
+}
+
+fn validate_reference_script(
+    script: &MemoizedScript,
+    protocol_version: ProtocolVersion,
+    arena: &mut Arena,
+) -> Result<(), InvalidOutput> {
+    let result = match script {
+        MemoizedScript::PlutusV1Script(s) => validate_plutus_script(s, PlutusVersion::V1, protocol_version, arena),
+        MemoizedScript::PlutusV2Script(s) => validate_plutus_script(s, PlutusVersion::V2, protocol_version, arena),
+        MemoizedScript::PlutusV3Script(s) => validate_plutus_script(s, PlutusVersion::V3, protocol_version, arena),
+        MemoizedScript::NativeScript(_) => return Ok(()),
+    };
+    result.map_err(|_| InvalidOutput::MalformedReferenceScript(script.script_hash()))
 }
 
 #[cfg(test)]

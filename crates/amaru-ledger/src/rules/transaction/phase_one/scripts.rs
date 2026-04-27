@@ -19,9 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AuxiliaryData, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, PlutusScript, PlutusScriptExt,
-    ProtocolVersion, ProtocolVersionExt, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet,
-    script_purpose_to_string,
+    HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, PlutusScriptExt, ProtocolVersion,
+    ProtocolVersionExt, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
@@ -73,8 +72,6 @@ pub enum InvalidScripts {
     MissingRedeemers(Vec<RedeemerKey>),
     #[error("malformed script witnesses: [{}]", display_collection(.0))]
     MalformedScriptWitnesses(BTreeSet<Hash<SCRIPT>>),
-    #[error("malformed reference scripts: [{}]", display_collection(.0))]
-    MalformedReferenceScripts(BTreeSet<Hash<SCRIPT>>),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -86,7 +83,7 @@ pub fn execute<C>(
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
-    fail_on_malformed_scripts(witness_set, protocol_version, context.produced_scripts())?;
+    fail_on_malformed_scripts(witness_set, protocol_version)?;
 
     let required_scripts = context.required_scripts();
 
@@ -337,26 +334,20 @@ pub(crate) fn validate_plutus_script<const V: usize>(
     script: &PlutusScript<V>,
     plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
+    arena: &mut Arena,
 ) -> Result<(), FlatDecodeError> {
     let flat_bytes = script.flat_bytes().map_err(|e| FlatDecodeError::Message(format!("{e}")))?;
-    let arena = Arena::new();
     let pv_major = protocol_version.major();
-    match plutus_version {
-        PlutusVersion::V3 => flat::decode_strict::<DeBruijn>(&arena, flat_bytes, plutus_version, pv_major).map(|_| ()),
+    let result = match plutus_version {
+        PlutusVersion::V3 => flat::decode_strict::<DeBruijn>(arena, flat_bytes, plutus_version, pv_major).map(|_| ()),
         PlutusVersion::V1 | PlutusVersion::V2 => {
-            flat::decode::<DeBruijn>(&arena, flat_bytes, plutus_version, pv_major).map(|_| ())
+            flat::decode::<DeBruijn>(arena, flat_bytes, plutus_version, pv_major).map(|_| ())
         }
-    }
-}
+    };
 
-pub(crate) fn validate_auxiliary_data_scripts(
-    data: &AuxiliaryData,
-    protocol_version: ProtocolVersion,
-) -> Result<(), FlatDecodeError> {
-    data.plutus_v1_scripts().iter().try_for_each(|s| validate_plutus_script(s, PlutusVersion::V1, protocol_version))?;
-    data.plutus_v2_scripts().iter().try_for_each(|s| validate_plutus_script(s, PlutusVersion::V2, protocol_version))?;
-    data.plutus_v3_scripts().iter().try_for_each(|s| validate_plutus_script(s, PlutusVersion::V3, protocol_version))?;
-    Ok(())
+    arena.reset();
+
+    result
 }
 
 fn collect_malformed<const V: usize>(
@@ -365,10 +356,11 @@ fn collect_malformed<const V: usize>(
     protocol_version: ProtocolVersion,
     malformed: &mut BTreeSet<Hash<SCRIPT>>,
 ) {
+    let mut arena = Arena::new();
     malformed.extend(
         scripts
             .iter()
-            .filter(|s| validate_plutus_script(s, plutus_version, protocol_version).is_err())
+            .filter(|s| validate_plutus_script(s, plutus_version, protocol_version, &mut arena).is_err())
             .map(|s| s.script_hash()),
     );
 }
@@ -390,37 +382,10 @@ fn get_malformed_witness_scripts(
     malformed
 }
 
-fn get_malformed_reference_scripts(
-    produced_scripts: Vec<MemoizedScript>,
-    protocol_version: ProtocolVersion,
-) -> BTreeSet<Hash<SCRIPT>> {
-    produced_scripts
-        .iter()
-        .filter_map(|script| {
-            let result = match script {
-                MemoizedScript::PlutusV1Script(s) => validate_plutus_script(s, PlutusVersion::V1, protocol_version),
-                MemoizedScript::PlutusV2Script(s) => validate_plutus_script(s, PlutusVersion::V2, protocol_version),
-                MemoizedScript::PlutusV3Script(s) => validate_plutus_script(s, PlutusVersion::V3, protocol_version),
-                MemoizedScript::NativeScript(_) => return None,
-            };
-            result.err().map(|_| script.script_hash())
-        })
-        .collect()
-}
-
-fn fail_on_malformed_scripts(
-    witness_set: &WitnessSet,
-    protocol_version: ProtocolVersion,
-    produced_scripts: Vec<MemoizedScript>,
-) -> Result<(), InvalidScripts> {
+fn fail_on_malformed_scripts(witness_set: &WitnessSet, protocol_version: ProtocolVersion) -> Result<(), InvalidScripts> {
     let malformed_witnesses = get_malformed_witness_scripts(witness_set, protocol_version);
     if !malformed_witnesses.is_empty() {
         return Err(InvalidScripts::MalformedScriptWitnesses(malformed_witnesses));
-    }
-
-    let malformed_refs = get_malformed_reference_scripts(produced_scripts, protocol_version);
-    if !malformed_refs.is_empty() {
-        return Err(InvalidScripts::MalformedReferenceScripts(malformed_refs));
     }
 
     Ok(())
@@ -493,13 +458,15 @@ mod tests {
     #[test]
     fn malformed_script_rejected() {
         let script: PlutusScript<3> = PlutusScript(vec![0xDE, 0xAD].into());
-        assert!(super::validate_plutus_script(&script, PlutusVersion::V3, preprod_pv()).is_err());
+        let mut arena = amaru_uplc::arena::Arena::new();
+        assert!(super::validate_plutus_script(&script, PlutusVersion::V3, preprod_pv(), &mut arena).is_err());
     }
 
     #[test]
     fn empty_script_rejected() {
         let script: PlutusScript<3> = PlutusScript(vec![].into());
-        assert!(super::validate_plutus_script(&script, PlutusVersion::V3, preprod_pv()).is_err());
+        let mut arena = amaru_uplc::arena::Arena::new();
+        assert!(super::validate_plutus_script(&script, PlutusVersion::V3, preprod_pv(), &mut arena).is_err());
     }
 
     #[test]
