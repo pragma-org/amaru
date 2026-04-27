@@ -144,6 +144,9 @@ where
         }
     }
 
+    /// Starting from the given header hash, walk all descendant chains and
+    /// return all the the tips, that are not invalid (could be valid or unknown) and
+    /// whose parents are not invalid.
     fn child_tips<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = Tip> + 'a>
     where
         H: 'a,
