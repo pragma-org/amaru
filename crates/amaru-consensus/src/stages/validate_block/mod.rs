@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros::BlockValidationError;
-use amaru_ouroboros_traits::RollbackPointSearchResult;
 use amaru_protocols::store_effects::Store;
 use pure_stage::{Effects, OrTerminateWith, StageRef};
 
@@ -159,41 +158,79 @@ async fn roll_back_to_ancestor(
         };
     }
 
-    match find_rollback_point(ledger, store, parent).await {
-        RollbackPointSearchResult::Found { point, forward_points, chosen_because_contains } => {
-            match ledger.rollback(&Peer::new("unknown"), &point, opentelemetry::Context::current()).await {
-                Ok(()) => Ok((point, forward_points)),
-                Err(vf) if chosen_because_contains => Err(validation_failed_when_contains_claimed_rollback(point, vf)),
-                Err(vf) => Err(vf),
-            }
-        }
-        RollbackPointSearchResult::DependsOnInvalid => Err(ValidationFailed::new(
-            &Peer::new("unknown"),
-            ConsensusError::RollbackBlockFailed(
-                parent,
-                anyhow::anyhow!("rollback point depends on invalid block").into(),
-            ),
-        )),
-        RollbackPointSearchResult::BelowImmutable => Err(ValidationFailed::new(
-            &Peer::new("unknown"),
-            ConsensusError::RollbackBlockFailed(
-                parent,
-                anyhow::anyhow!("cannot rollback into the immutable db").into(),
-            ),
-        )),
-        RollbackPointSearchResult::NotFound => Err(ValidationFailed::new(
-            &Peer::new("unknown"),
-            ConsensusError::RollbackBlockFailed(
-                parent,
-                anyhow::anyhow!("rollback point not found in volatile db").into(),
-            ),
-        )),
-    }
-}
-
-async fn find_rollback_point(ledger: &Ledger, store: &Store, parent: Point) -> RollbackPointSearchResult {
+    let anchor_hash = store.get_anchor_hash().await;
     let ledger_tip = ledger.tip().await;
-    store.find_rollback_point(parent.hash(), ledger_tip.point()).await
+    let mut current_hash = parent.hash();
+    let mut forward_points = Vec::new();
+
+    loop {
+        let Some((ancestor, valid)) = store.load_header_with_validity(&current_hash).await else {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point not found in volatile db").into(),
+                ),
+            ));
+        };
+        let ancestor_point = ancestor.point();
+
+        if valid == Some(false) {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point depends on invalid block").into(),
+                ),
+            ));
+        }
+
+        if ledger.contains_point(&ancestor_point).await {
+            forward_points.reverse();
+            return match ledger
+                .rollback(&Peer::new("unknown"), &ancestor_point, opentelemetry::Context::current())
+                .await
+            {
+                Ok(()) => Ok((ancestor_point, forward_points)),
+                Err(vf) if ancestor_point != ledger_tip.point() => {
+                    Err(validation_failed_when_contains_claimed_rollback(ancestor_point, vf))
+                }
+                Err(vf) => Err(vf),
+            };
+        }
+
+        if store.load_from_best_chain(&ancestor_point).await.is_some() {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("cannot rollback into the immutable db").into(),
+                ),
+            ));
+        }
+
+        forward_points.push(ancestor_point);
+        if current_hash == anchor_hash {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point not found in volatile db").into(),
+                ),
+            ));
+        }
+
+        let Some(parent_hash) = ancestor.parent() else {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point not found in volatile db").into(),
+                ),
+            ));
+        };
+        current_hash = parent_hash;
+    }
 }
 
 #[cfg(test)]

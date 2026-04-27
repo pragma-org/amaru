@@ -394,59 +394,6 @@ where
         points.into_iter().find(|&point| point == Point::Origin || snapshot.load_from_best_chain(&point).is_some())
     }
 
-    /// Find the closest rollback point when walking ancestors from `parent_hash`.
-    ///
-    /// The search runs against a single store snapshot. It returns the ledger tip
-    /// itself if encountered, otherwise it returns the closest ancestor that is both
-    /// on the best chain and marked valid. Invalid ancestors stop the search, and
-    /// ancestors below `ledger_tip` are rejected as below the rollback boundary.
-    fn find_rollback_point(&self, parent_hash: HeaderHash, ledger_tip: Point) -> RollbackPointSearchResult
-    where
-        H: 'static,
-    {
-        let snapshot = self.snapshot();
-        let anchor_hash = snapshot.get_anchor_hash();
-        let mut current_hash = parent_hash;
-        let mut forward_points = Vec::new();
-
-        loop {
-            let Some((ancestor, valid)) = snapshot.load_header_with_validity(&current_hash) else {
-                return RollbackPointSearchResult::NotFound;
-            };
-            let ancestor_point = ancestor.point();
-
-            if valid == Some(false) {
-                return RollbackPointSearchResult::DependsOnInvalid;
-            }
-
-            if ancestor_point < ledger_tip {
-                return RollbackPointSearchResult::BelowImmutable;
-            }
-
-            let chosen_because_contains = ancestor_point != ledger_tip
-                && valid == Some(true)
-                && snapshot.load_from_best_chain(&ancestor_point).is_some();
-            if ancestor_point == ledger_tip || chosen_because_contains {
-                forward_points.reverse();
-                return RollbackPointSearchResult::Found {
-                    point: ancestor_point,
-                    forward_points,
-                    chosen_because_contains,
-                };
-            }
-
-            forward_points.push(ancestor_point);
-            if current_hash == anchor_hash {
-                return RollbackPointSearchResult::NotFound;
-            }
-
-            let Some(parent_hash) = ancestor.parent() else {
-                return RollbackPointSearchResult::NotFound;
-            };
-            current_hash = parent_hash;
-        }
-    }
-
     /// Return a sparse sample of points from the best chain, starting at the tip, with
     /// exponentially increasing spacing, always ending with the oldest reachable point.
     ///
@@ -581,14 +528,6 @@ pub enum MissingBlocksResult {
     Found(MissingBlocks),
     BoundaryNotFound,
     StartHeaderNotFound,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum RollbackPointSearchResult {
-    Found { point: Point, forward_points: Vec<Point>, chosen_because_contains: bool },
-    DependsOnInvalid,
-    BelowImmutable,
-    NotFound,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]

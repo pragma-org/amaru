@@ -585,8 +585,8 @@ pub mod test {
     };
     use amaru_ouroboros_traits::{
         ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
-        MissingBlocksResult, NextBestChainHeader, ReadOnlyChainStore, RollbackPointSearchResult,
-        SampleAncestorPointsResult, in_memory_consensus_store::InMemConsensusStore,
+        MissingBlocksResult, NextBestChainHeader, ReadOnlyChainStore, SampleAncestorPointsResult,
+        in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
 
@@ -1173,54 +1173,6 @@ pub mod test {
 
             let result = store.find_ancestor_on_best_chain(headers.h3.hash()).unwrap();
             assert_eq!(result, FindAncestorOnBestChainResult::NotFound);
-        });
-    }
-
-    #[test]
-    fn find_rollback_point_returns_closest_valid_best_chain_ancestor() {
-        with_db(|store| {
-            let headers = make_forked_headers();
-            append_best_chain(store.clone(), headers.main());
-            store.set_anchor_hash(&headers.h0.hash()).unwrap();
-            store.set_block_valid(&headers.h1.hash(), true).unwrap();
-            for header in [&headers.h2a, &headers.h3a] {
-                store.store_header(header).unwrap();
-            }
-
-            let result = store.find_rollback_point(headers.h3a.hash(), headers.h0.point());
-
-            assert_eq!(
-                result,
-                RollbackPointSearchResult::Found {
-                    point: headers.h1.point(),
-                    forward_points: vec![headers.h2a.point(), headers.h3a.point()],
-                    chosen_because_contains: true,
-                }
-            );
-        });
-    }
-
-    #[test]
-    fn find_rollback_point_does_not_use_best_chain_ancestor_with_unknown_validity() {
-        with_db(|store| {
-            let headers = make_forked_headers();
-            append_best_chain(store.clone(), headers.main());
-            store.set_anchor_hash(&headers.h0.hash()).unwrap();
-            store.set_block_valid(&headers.h0.hash(), true).unwrap();
-            for header in [&headers.h2a, &headers.h3a] {
-                store.store_header(header).unwrap();
-            }
-
-            let result = store.find_rollback_point(headers.h3a.hash(), Point::Origin);
-
-            assert_eq!(
-                result,
-                RollbackPointSearchResult::Found {
-                    point: headers.h0.point(),
-                    forward_points: vec![headers.h1.point(), headers.h2a.point(), headers.h3a.point()],
-                    chosen_because_contains: true,
-                }
-            );
         });
     }
 
