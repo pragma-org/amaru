@@ -26,7 +26,7 @@ use amaru_protocols::{
     store_effects::Store,
 };
 pub use defer_req_next::DeferReqNextMsg;
-use pure_stage::{Effects, Instant, SendData, StageRef};
+use pure_stage::{Effects, Instant, StageRef};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -326,7 +326,7 @@ impl TrackPeers {
                         || self.ledger_applied_block_height == BlockHeight::from(0))
                 {
                     self.ledger_last_checked_at = now;
-                    self.ledger_applied_block_height = ledger_applied_block_height(&eff);
+                    self.ledger_applied_block_height = ledger_applied_block_height(&eff).await;
                 }
                 let mode = if self.ledger_applied_block_height < min_ledger_height {
                     tracing::debug!(

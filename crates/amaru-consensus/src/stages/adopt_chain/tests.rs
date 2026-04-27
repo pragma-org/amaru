@@ -22,7 +22,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_find_anchor_at_height, te_roll_forward_chain, te_send, te_set_anchor_hash, te_switch_to_fork,
+        te_clock, te_find_anchor_at_height, te_roll_forward_chain, te_send, te_set_anchor_hash, te_switch_to_fork,
     },
     test_utils::{te_input, te_state},
 };
@@ -214,6 +214,7 @@ fn test_fork_switch_opcert_hacked() {
             te_find_ancestor_on_best_chain("ac-1", msg.hash()),
             te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
+            te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
             te_state("ac-1", &expected),
         ],

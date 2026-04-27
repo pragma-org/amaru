@@ -26,7 +26,7 @@ use crate::stages::track_peers::{
     TrackPeersMsg,
     test_setup::{
         FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
-        te_has_header, te_load_tip, te_send, te_store_header, te_tip, te_validate_header, te_volatile_tip, test_prep,
+        te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
     },
 };
 

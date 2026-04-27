@@ -94,14 +94,6 @@ pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
 }
 
-pub fn te_volatile_tip(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(VolatileTipEffect)))
-}
-
-pub fn te_tip(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(TipEffect)))
-}
-
 pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
 }
@@ -122,7 +114,7 @@ fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
         pure_stage::register_data_deserializer::<TrackPeersMsg>().boxed(),
-        pure_stage::register_data_deserializer::<chainsync::InitiatorMessage>().boxed(),
+        pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
@@ -132,7 +124,6 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
     ]
 }

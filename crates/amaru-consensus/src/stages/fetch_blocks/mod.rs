@@ -22,7 +22,7 @@ use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef};
 use crate::stages::select_chain::SelectChainMsg;
 
 // TODO make configurable
-const MAX_MISSING_BLOCKS_PER_BATCH: usize = 10;
+const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchBlocks {
