@@ -56,6 +56,8 @@ pub use withdrawals::InvalidWithdrawals;
 pub mod scripts;
 pub use scripts::InvalidScripts;
 
+pub mod native_scripts;
+
 pub mod mint;
 
 #[derive(Debug, Error)]
@@ -213,7 +215,13 @@ where
         transaction_witness_set.vkeywitness.as_deref(),
     )?;
 
-    scripts::execute(context, transaction_witness_set, protocol_parameters)?;
+    scripts::execute(
+        context,
+        transaction_witness_set,
+        transaction_body.validity_interval_start,
+        transaction_body.validity_interval_end,
+        protocol_parameters,
+    )?;
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {
