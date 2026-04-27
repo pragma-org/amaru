@@ -672,7 +672,7 @@ pub mod test {
     use amaru_ouroboros_traits::{
         ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
         MissingBlocksResult, NextBestChainHeader, ReadOnlyChainStore, RollbackPointSearchResult,
-        in_memory_consensus_store::InMemConsensusStore,
+        SampleAncestorPointsResult, in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
 
@@ -1336,18 +1336,18 @@ pub mod test {
             // h9, h8, h7, h5, h1, h0
             let chain = populate_db(store.clone());
 
-            let result = store.sample_ancestor_points();
+            let result = store.sample_ancestor_points().unwrap();
 
             assert_eq!(
                 result,
-                vec![
+                SampleAncestorPointsResult::Found(vec![
                     chain[9].point(),
                     chain[8].point(),
                     chain[7].point(),
                     chain[5].point(),
                     chain[1].point(),
                     chain[0].point(),
-                ]
+                ])
             );
         });
     }
@@ -1363,7 +1363,9 @@ pub mod test {
                 parent = Some(header.hash());
             }
 
-            let result = store.sample_ancestor_points();
+            let SampleAncestorPointsResult::Found(result) = store.sample_ancestor_points().unwrap() else {
+                panic!("no ancestor point could be sampled");
+            };
             let slots = result.iter().map(|point| u64::from(point.slot_or_default())).collect::<Vec<_>>();
 
             assert_eq!(slots, vec![100, 99, 98, 96, 92, 84, 68, 36, 0]);
@@ -1631,15 +1633,15 @@ pub mod test {
                         FindCommonAncestorResult::Found(headers.h1.point())
                     );
                     assert_eq!(
-                        store.sample_ancestor_points(),
-                        vec![
+                        store.sample_ancestor_points().unwrap(),
+                        SampleAncestorPointsResult::Found(vec![
                             chain[9].point(),
                             chain[8].point(),
                             chain[7].point(),
                             chain[5].point(),
                             chain[1].point(),
                             chain[0].point(),
-                        ]
+                        ])
                     );
                 }
             },

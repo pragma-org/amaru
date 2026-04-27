@@ -406,6 +406,7 @@ where
     }
 
     /// Find the first point, in the list of points, that intersects with the best chain.
+    /// The origin point is always considered to be an intersection point.
     ///
     /// Return None if none of the points is on the best chain
     fn find_intersect_point(&self, mut points: Vec<Point>) -> Option<Point>
@@ -477,19 +478,19 @@ where
     /// O--A--B--C--D--E--F--G  tip
     ///
     /// Returns `[G, F, D, O]`.
-    fn sample_ancestor_points(&self) -> Vec<Point>
+    fn sample_ancestor_points(&self) -> Result<SampleAncestorPointsResult, StoreError>
     where
         H: 'static,
     {
         let snapshot = self.snapshot();
         let best = snapshot.get_best_chain_hash();
         if best == ORIGIN_HASH {
-            return vec![Point::Origin];
+            return Ok(SampleAncestorPointsResult::Found(vec![Point::Origin]));
         }
         let Some(best) = snapshot.load_header(&best) else {
-            return vec![Point::Origin];
+            return Ok(SampleAncestorPointsResult::BestChainTipNotFound);
         };
-        let best_point = best.tip().point();
+        let best_point = best.point();
         let mut points = vec![best_point];
         let mut spacing = 1;
         let mut last = best_point;
@@ -503,7 +504,7 @@ where
         if points.last() != Some(&last) {
             points.push(last);
         }
-        points
+        Ok(SampleAncestorPointsResult::Found(points))
     }
 
     /// Walk forward on the best chain from the current anchor and return the hash of the first
@@ -626,6 +627,12 @@ pub enum FindCommonAncestorResult {
     HeaderNotFound(HeaderHash),
     NotFound,
     Found(Point),
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum SampleAncestorPointsResult {
+    BestChainTipNotFound,
+    Found(Vec<Point>),
 }
 
 #[derive(Error, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]

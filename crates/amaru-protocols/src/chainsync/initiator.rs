@@ -15,6 +15,7 @@
 use amaru_kernel::{Peer, Point, Tip};
 use amaru_observability::trace_span;
 use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros_traits::SampleAncestorPointsResult;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -131,7 +132,12 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
             let action = match &input {
                 InitiatorResult::Initialize => {
                     self.me = eff.contramap(eff.me(), format!("{}-handler", eff.me().name()), Inputs::Local).await;
-                    Some(Intersect(intersect_points(&Store::new(eff.clone())).await))
+                    match intersect_points(&Store::new(eff.clone())).await? {
+                        SampleAncestorPointsResult::BestChainTipNotFound => {
+                            return Err(anyhow::anyhow!("no best chain tip found"));
+                        }
+                        SampleAncestorPointsResult::Found(points) => Some(Intersect(points)),
+                    }
                 }
                 InitiatorResult::IntersectFound(_, tip)
                 | InitiatorResult::IntersectNotFound(tip)
@@ -166,10 +172,10 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
-async fn intersect_points(store: &Store) -> Vec<Point> {
-    let points = store.sample_ancestor_points().await;
+async fn intersect_points(store: &Store) -> anyhow::Result<SampleAncestorPointsResult> {
+    let points = store.sample_ancestor_points().await?;
     tracing::info!(?points, "intersect points");
-    points
+    Ok(points)
 }
 
 #[derive(Debug)]

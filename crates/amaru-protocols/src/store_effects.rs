@@ -17,7 +17,7 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
-    Nonces, RollbackPointSearchResult, StoreError,
+    Nonces, RollbackPointSearchResult, SampleAncestorPointsResult, StoreError,
 };
 use pure_stage::{
     BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
@@ -159,7 +159,7 @@ impl Store {
         self.effects.external(FindRollbackPointEffect::new(parent_hash, ledger_tip))
     }
 
-    pub fn sample_ancestor_points(&self) -> BoxFuture<'static, Vec<Point>> {
+    pub fn sample_ancestor_points(&self) -> BoxFuture<'static, Result<SampleAncestorPointsResult, StoreError>> {
         self.effects.external(SampleAncestorPointsEffect::new())
     }
 
@@ -955,7 +955,7 @@ impl ExternalEffect for SampleAncestorPointsEffect {
 }
 
 impl ExternalEffectAPI for SampleAncestorPointsEffect {
-    type Response = Vec<Point>;
+    type Response = Result<SampleAncestorPointsResult, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
