@@ -670,8 +670,8 @@ pub mod test {
         utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
-        ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, MissingBlocks, MissingBlocksResult,
-        NextBestChainHeader, ReadOnlyChainStore, RollbackPointSearchResult,
+        ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
+        MissingBlocksResult, NextBestChainHeader, ReadOnlyChainStore, RollbackPointSearchResult,
         in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
@@ -1322,8 +1322,8 @@ pub mod test {
                 store.store_header(header).unwrap();
             }
 
-            let result = store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash());
-            assert_eq!(result, Some(headers.h1.point()));
+            let result = store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash()).unwrap();
+            assert_eq!(result, FindCommonAncestorResult::Found(headers.h1.point()));
         });
     }
 
@@ -1627,8 +1627,8 @@ pub mod test {
                         }
                     );
                     assert_eq!(
-                        store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash()),
-                        Some(headers.h1.point())
+                        store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash()).unwrap(),
+                        FindCommonAncestorResult::Found(headers.h1.point())
                     );
                     assert_eq!(
                         store.sample_ancestor_points(),

@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
 use amaru_ouroboros_traits::{
-    ChainStore, FindAncestorOnBestChainResult, MissingBlocksResult, NextBestChainHeader, Nonces,
-    RollbackPointSearchResult, StoreError,
+    ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
+    Nonces, RollbackPointSearchResult, StoreError,
 };
 use pure_stage::{
     BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
@@ -139,7 +139,11 @@ impl Store {
         self.effects.external(FindAncestorOnBestChainEffect::new(start))
     }
 
-    pub fn find_common_ancestor(&self, hash_a: HeaderHash, hash_b: HeaderHash) -> BoxFuture<'static, Option<Point>> {
+    pub fn find_common_ancestor(
+        &self,
+        hash_a: HeaderHash,
+        hash_b: HeaderHash,
+    ) -> BoxFuture<'static, Result<FindCommonAncestorResult, StoreError>> {
         self.effects.external(FindCommonAncestorEffect::new(hash_a, hash_b))
     }
 
@@ -869,7 +873,7 @@ impl ExternalEffect for FindCommonAncestorEffect {
 }
 
 impl ExternalEffectAPI for FindCommonAncestorEffect {
-    type Response = Option<Point>;
+    type Response = Result<FindCommonAncestorResult, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

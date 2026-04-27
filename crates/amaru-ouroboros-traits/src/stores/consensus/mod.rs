@@ -378,31 +378,31 @@ where
     ///        E--F--G
     ///
     /// `find_common_ancestor(D, G)` returns `Some(B)`.
-    fn find_common_ancestor(&self, hash1: HeaderHash, hash2: HeaderHash) -> Option<Point>
+    fn find_common_ancestor(&self, hash1: HeaderHash, hash2: HeaderHash) -> Result<FindCommonAncestorResult, StoreError>
     where
         H: 'static,
     {
         let snapshot = self.snapshot();
-        let header1 = snapshot.load_header(&hash1)?;
-        let header2 = snapshot.load_header(&hash2)?;
+        let Some(header1) = snapshot.load_header(&hash1) else {
+            return Ok(FindCommonAncestorResult::HeaderNotFound(hash1));
+        };
+        let Some(header2) = snapshot.load_header(&hash2) else {
+            return Ok(FindCommonAncestorResult::HeaderNotFound(hash2));
+        };
         let mut chain1 = snapshot.ancestors(header1).map(|h| h.point()).peekable();
-        for point in snapshot.ancestors(header2).map(|h| h.point()) {
+        'outer: for point in snapshot.ancestors(header2).map(|h| h.point()) {
             while let Some(a_point) = chain1.peek() {
-                if a_point.slot_or_default() > point.slot_or_default() {
+                if *a_point > point {
                     chain1.next();
+                } else if *a_point == point {
+                    return Ok(FindCommonAncestorResult::Found(point));
                 } else {
-                    break;
+                    continue 'outer;
                 }
             }
-            if let Some(a_point) = chain1.peek() {
-                if *a_point == point {
-                    return Some(point);
-                }
-            } else {
-                break;
-            }
+            break;
         }
-        None
+        Ok(FindCommonAncestorResult::NotFound)
     }
 
     /// Find the first point, in the list of points, that intersects with the best chain.
@@ -622,6 +622,13 @@ pub enum FindAncestorOnBestChainResult {
     StartHeaderNotFound,
     NotFound,
     Found { fork_point: Point, forward_points: NonEmptyVec<Point> },
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum FindCommonAncestorResult {
+    HeaderNotFound(HeaderHash),
+    NotFound,
+    Found(Point),
 }
 
 #[derive(Error, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
