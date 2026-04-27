@@ -413,11 +413,8 @@ where
         H: 'static,
     {
         let snapshot = self.snapshot();
-        let best_chain_is_non_empty = snapshot.get_best_chain_hash() != ORIGIN_HASH;
         points.sort_by_key(|p| Reverse(*p));
-        points.into_iter().find(|&point| {
-            (point == Point::Origin && best_chain_is_non_empty) || snapshot.load_from_best_chain(&point).is_some()
-        })
+        points.into_iter().find(|&point| point == Point::Origin || snapshot.load_from_best_chain(&point).is_some())
     }
 
     /// Find the closest rollback point when walking ancestors from `parent_hash`.
