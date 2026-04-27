@@ -1,7 +1,12 @@
 ---
 type: process
-status: accepted
+status: obsolete
+superseded-by: ./022-treasury-management-acceptance-process.md
 ---
+
+> [!CAUTION]
+>
+> This EDR is now `obsolete` and has been replaced with [EDR-022: Treasury Management & Acceptance Process](./022-treasury-management-acceptance-process.md).
 
 # Treasury management & Acceptance process
 
