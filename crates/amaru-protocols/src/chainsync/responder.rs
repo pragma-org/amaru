@@ -15,7 +15,7 @@
 use amaru_kernel::{EraName, Peer, Point, Tip};
 use amaru_observability::trace_span;
 use amaru_ouroboros::ConnectionId;
-use amaru_ouroboros_traits::NextBestChainHeader;
+use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use anyhow::{Context, anyhow, ensure};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
@@ -163,12 +163,16 @@ async fn next_header(
 
 /// Rollback when the client pointer is on a different fork from our best chain.
 async fn next_header_rollback(pointer: &mut Point, store: &Store, tip: Tip) -> anyhow::Result<Option<ResponderAction>> {
-    let (fork_point, _) = store
-        .find_fork_point(pointer.hash())
-        .await
-        .ok_or_else(|| anyhow::anyhow!("no overlap found between client pointer chain and stored best chain"))?;
-    *pointer = fork_point;
-    Ok(Some(ResponderAction::RollBackward(fork_point, tip)))
+    match store.find_ancestor_on_best_chain(pointer.hash()).await? {
+        FindAncestorOnBestChainResult::StartHeaderNotFound => Err(anyhow!("header not found {}", pointer.hash())),
+        FindAncestorOnBestChainResult::NotFound => {
+            Err(anyhow!("no overlap found between client pointer chain and stored best chain"))
+        }
+        FindAncestorOnBestChainResult::Found { fork_point, .. } => {
+            *pointer = fork_point;
+            Ok(Some(ResponderAction::RollBackward(fork_point, tip)))
+        }
+    }
 }
 
 async fn intersect(points: Vec<Point>, store: &Store, tip: Tip) -> anyhow::Result<ResponderAction> {

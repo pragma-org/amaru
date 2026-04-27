@@ -14,7 +14,9 @@
 
 use amaru_kernel::{HeaderHash, NonEmptyVec};
 use pure_stage::trace_buffer::TerminationReason;
-use test_setup::{assert_trace, setup, te_find_fork_point, te_load_header, te_terminate, te_terminated, test_prep};
+use test_setup::{
+    assert_trace, setup, te_find_ancestor_on_best_chain, te_load_header, te_terminate, te_terminated, test_prep,
+};
 use tracing::Level;
 
 use super::*;
@@ -164,7 +166,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
-            te_find_fork_point("ac-1", msg.hash()),
+            te_find_ancestor_on_best_chain("ac-1", msg.hash()),
             te_switch_to_fork(
                 "ac-1",
                 prep.headers.h1.point(),
@@ -209,7 +211,7 @@ fn test_fork_switch_opcert_hacked() {
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_find_fork_point("ac-1", msg.hash()),
+            te_find_ancestor_on_best_chain("ac-1", msg.hash()),
             te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),

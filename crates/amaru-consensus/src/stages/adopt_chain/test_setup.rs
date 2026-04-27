@@ -20,7 +20,7 @@ use amaru_kernel::{
 use amaru_ouroboros::StoreError;
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
-    FindAnchorAtHeightEffect, FindForkPointEffect, GetAnchorHashEffect, GetBestChainHashEffect,
+    FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
     LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
     SetAnchorHashEffect, SwitchToForkEffect,
 };
@@ -140,7 +140,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<FindForkPointEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         pure_stage::register_data_deserializer::<Option<(Point, NonEmptyVec<Point>)>>().boxed(),
         pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
@@ -201,8 +201,8 @@ pub fn te_roll_forward_chain(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(RollForwardChainEffect::new(point))))
 }
 
-pub fn te_find_fork_point(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindForkPointEffect::new(hash))))
+pub fn te_find_ancestor_on_best_chain(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindAncestorOnBestChainEffect::new(hash))))
 }
 
 pub fn te_find_anchor_at_height(at_stage: &str, target_height: BlockHeight) -> TraceEntry {

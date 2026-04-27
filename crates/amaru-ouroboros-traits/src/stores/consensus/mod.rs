@@ -346,29 +346,28 @@ where
     /// Returns `(C, [F, G])`.
     ///
     /// Returns None if the start point is already on the best chain.
-    fn find_fork_point(&self, start: HeaderHash) -> Option<(Point, NonEmptyVec<Point>)>
+    fn find_ancestor_on_best_chain(&self, start: HeaderHash) -> Result<FindAncestorOnBestChainResult, StoreError>
     where
         H: 'static,
     {
         let snapshot = self.snapshot();
-        let header = snapshot.load_header(&start)?;
-        let mut forward_points = None;
+        let Some(header) = snapshot.load_header(&start) else {
+            return Ok(FindAncestorOnBestChainResult::StartHeaderNotFound);
+        };
+        let mut forward_points = Vec::new();
         for ancestor in snapshot.ancestors(header) {
             let point = ancestor.point();
             if snapshot.load_from_best_chain(&point).is_some() {
-                // Both `?` here implement the "start was already on best chain" case from the
-                // contract: if the first ancestor we visit is already on the best chain, we
-                // never populated `forward_points` (outer `?`), or we only pushed `start`
-                // itself and then popped it (inner `?` leaves nothing behind). Either way we
-                // return `None`.
-                let mut forward_points: Vec<Point> = forward_points?;
-                let first = forward_points.pop()?;
                 forward_points.reverse();
-                return Some((point, NonEmptyVec::new(first, forward_points)));
+                if let Ok(forward_points) = NonEmptyVec::try_from(forward_points) {
+                    return Ok(FindAncestorOnBestChainResult::Found { fork_point: point, forward_points });
+                } else {
+                    break;
+                }
             }
-            forward_points.get_or_insert_with(Vec::new).push(point);
+            forward_points.push(point);
         }
-        None
+        Ok(FindAncestorOnBestChainResult::NotFound)
     }
 
     /// Return the most recent point shared by both chains if it exists.
@@ -603,19 +602,26 @@ where
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MissingBlocksResult {
     Found(MissingBlocks),
     BoundaryNotFound,
     StartHeaderNotFound,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RollbackPointSearchResult {
     Found { point: Point, forward_points: Vec<Point>, chosen_because_contains: bool },
     DependsOnInvalid,
     BelowImmutable,
     NotFound,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum FindAncestorOnBestChainResult {
+    StartHeaderNotFound,
+    NotFound,
+    Found { fork_point: Point, forward_points: NonEmptyVec<Point> },
 }
 
 #[derive(Error, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -670,8 +670,9 @@ pub mod test {
         utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
-        ChainStore, DiagnosticChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, ReadOnlyChainStore,
-        RollbackPointSearchResult, in_memory_consensus_store::InMemConsensusStore,
+        ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, MissingBlocks, MissingBlocksResult,
+        NextBestChainHeader, ReadOnlyChainStore, RollbackPointSearchResult,
+        in_memory_consensus_store::InMemConsensusStore,
     };
     use rocksdb::Direction;
 
@@ -979,19 +980,22 @@ pub mod test {
     }
 
     #[test]
-    fn find_fork_point_returns_none_when_start_header_is_not_in_store() {
+    fn find_ancestor_on_best_chain_returns_none_when_start_header_is_not_in_store() {
         with_db(|store| {
             let headers = make_forked_headers();
             append_best_chain(store.clone(), headers.main());
             store.set_anchor_hash(&headers.h0.hash()).unwrap();
 
             let absent = run_strategy(any_header_hash());
-            assert_eq!(store.find_fork_point(absent), None);
+            assert_eq!(
+                store.find_ancestor_on_best_chain(absent).unwrap(),
+                FindAncestorOnBestChainResult::StartHeaderNotFound
+            );
         });
     }
 
     #[test]
-    fn find_fork_point_handles_one_block_fork_off_non_tip() {
+    fn find_ancestor_on_best_chain_handles_one_block_fork_off_non_tip() {
         // Best chain: h0 -> h1 -> h2 -> h3
         //                   \
         //                    -> h2a (start, single-block fork off h1)
@@ -1001,8 +1005,14 @@ pub mod test {
             store.set_anchor_hash(&headers.h0.hash()).unwrap();
             store.store_header(&headers.h2a).unwrap();
 
-            let result = store.find_fork_point(headers.h2a.hash());
-            assert_eq!(result, Some((headers.h1.point(), NonEmptyVec::singleton(headers.h2a.point()))));
+            let result = store.find_ancestor_on_best_chain(headers.h2a.hash()).unwrap();
+            assert_eq!(
+                result,
+                FindAncestorOnBestChainResult::Found {
+                    fork_point: headers.h1.point(),
+                    forward_points: NonEmptyVec::singleton(headers.h2a.point())
+                }
+            );
         });
     }
 
@@ -1217,7 +1227,7 @@ pub mod test {
     }
 
     #[test]
-    fn find_fork_point_returns_best_chain_intersection_and_forward_path() {
+    fn find_ancestor_on_best_chain_returns_best_chain_intersection_and_forward_path() {
         with_db(|store| {
             // Best chain: h0 -> h1 -> h2 -> h3
             //                   \
@@ -1229,23 +1239,26 @@ pub mod test {
                 store.store_header(header).unwrap();
             }
 
-            let result = store.find_fork_point(headers.h3a.hash());
+            let result = store.find_ancestor_on_best_chain(headers.h3a.hash()).unwrap();
             assert_eq!(
                 result,
-                Some((headers.h1.point(), NonEmptyVec::new(headers.h2a.point(), vec![headers.h3a.point()])))
+                FindAncestorOnBestChainResult::Found {
+                    fork_point: headers.h1.point(),
+                    forward_points: NonEmptyVec::new(headers.h2a.point(), vec![headers.h3a.point()])
+                }
             );
         });
     }
 
     #[test]
-    fn find_fork_point_returns_none_when_start_is_already_on_best_chain() {
+    fn find_ancestor_on_best_chain_returns_none_when_start_is_already_on_best_chain() {
         with_db(|store| {
             let headers = make_forked_headers();
             append_best_chain(store.clone(), headers.main());
             store.set_anchor_hash(&headers.h0.hash()).unwrap();
 
-            let result = store.find_fork_point(headers.h3.hash());
-            assert_eq!(result, None);
+            let result = store.find_ancestor_on_best_chain(headers.h3.hash()).unwrap();
+            assert_eq!(result, FindAncestorOnBestChainResult::NotFound);
         });
     }
 
@@ -1607,8 +1620,11 @@ pub mod test {
                         (vec![headers.h2.hash(), headers.h3.hash()], true)
                     );
                     assert_eq!(
-                        store.find_fork_point(headers.h3a.hash()),
-                        Some((headers.h1.point(), NonEmptyVec::new(headers.h2a.point(), vec![headers.h3a.point()])))
+                        store.find_ancestor_on_best_chain(headers.h3a.hash()).unwrap(),
+                        FindAncestorOnBestChainResult::Found {
+                            fork_point: headers.h1.point(),
+                            forward_points: NonEmptyVec::new(headers.h2a.point(), vec![headers.h3a.point()])
+                        }
                     );
                     assert_eq!(
                         store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash()),

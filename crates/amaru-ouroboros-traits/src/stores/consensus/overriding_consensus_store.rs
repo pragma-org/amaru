@@ -491,7 +491,7 @@ mod tests {
     use amaru_kernel::{BlockHeader, IsHeader, make_header};
 
     use super::*;
-    use crate::in_memory_consensus_store::InMemConsensusStore;
+    use crate::{FindAncestorOnBestChainResult, in_memory_consensus_store::InMemConsensusStore};
 
     #[test]
     fn snapshot_respects_read_overrides_used_by_default_helpers() {
@@ -507,7 +507,11 @@ mod tests {
             )
             .build();
 
-        let (fork_point, forward_points) = store.find_fork_point(hidden_hash).unwrap();
+        let Ok(FindAncestorOnBestChainResult::Found { fork_point, forward_points }) =
+            store.find_ancestor_on_best_chain(hidden_hash)
+        else {
+            panic!("the fork point must be found")
+        };
         assert_eq!(fork_point, chain[0].point());
         assert_eq!(forward_points.as_ref(), &[hidden_point]);
     }

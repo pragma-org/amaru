@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
 use amaru_ouroboros_traits::{
-    ChainStore, MissingBlocksResult, NextBestChainHeader, Nonces, RollbackPointSearchResult, StoreError,
+    ChainStore, FindAncestorOnBestChainResult, MissingBlocksResult, NextBestChainHeader, Nonces,
+    RollbackPointSearchResult, StoreError,
 };
 use pure_stage::{
     BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
@@ -131,8 +132,11 @@ impl Store {
         self.effects.external(UnvalidatedAncestorHashesEffect::new(start))
     }
 
-    pub fn find_fork_point(&self, start: HeaderHash) -> BoxFuture<'static, Option<(Point, NonEmptyVec<Point>)>> {
-        self.effects.external(FindForkPointEffect::new(start))
+    pub fn find_ancestor_on_best_chain(
+        &self,
+        start: HeaderHash,
+    ) -> BoxFuture<'static, Result<FindAncestorOnBestChainResult, StoreError>> {
+        self.effects.external(FindAncestorOnBestChainEffect::new(start))
     }
 
     pub fn find_common_ancestor(&self, hash_a: HeaderHash, hash_b: HeaderHash) -> BoxFuture<'static, Option<Point>> {
@@ -197,7 +201,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         pure_stage::register_effect_deserializer::<RollForwardChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<FindForkPointEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindCommonAncestorEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindIntersectPointEffect>().boxed(),
@@ -784,29 +788,31 @@ impl ExternalEffectAPI for UnvalidatedAncestorHashesEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FindForkPointEffect {
+pub struct FindAncestorOnBestChainEffect {
     start: HeaderHash,
 }
 
-impl FindForkPointEffect {
+impl FindAncestorOnBestChainEffect {
     pub fn new(start: HeaderHash) -> Self {
         Self { start }
     }
 }
 
-impl ExternalEffect for FindForkPointEffect {
+impl ExternalEffect for FindAncestorOnBestChainEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store =
-                resources.get::<ResourceHeaderStore>().expect("FindForkPointEffect requires a chain store").clone();
-            store.find_fork_point(self.start)
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("FindAncestorOnBestChainEffect requires a chain store")
+                .clone();
+            store.find_ancestor_on_best_chain(self.start)
         })
     }
 }
 
-impl ExternalEffectAPI for FindForkPointEffect {
-    type Response = Option<(Point, NonEmptyVec<Point>)>;
+impl ExternalEffectAPI for FindAncestorOnBestChainEffect {
+    type Response = Result<FindAncestorOnBestChainResult, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

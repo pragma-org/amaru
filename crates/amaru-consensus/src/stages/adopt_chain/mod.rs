@@ -15,7 +15,7 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
-use amaru_ouroboros_traits::StoreError;
+use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 
@@ -141,17 +141,31 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
 }
 
 /// Adopt the tip: update the best chain fragment and best chain hash in a single store transaction.
-async fn adopt_tip(store: &Store, incoming_header: &BlockHeader, current_best: &BlockHeader) -> Result<(), StoreError> {
+async fn adopt_tip(
+    store: &Store,
+    incoming_header: &BlockHeader,
+    current_best: &BlockHeader,
+) -> Result<AdoptTipResult, StoreError> {
     if incoming_header.parent() == Some(current_best.hash()) {
-        return store.roll_forward_chain(&incoming_header.point()).await;
+        store.roll_forward_chain(&incoming_header.point()).await?;
+        return Ok(AdoptTipResult::BestChainRolledForward);
     }
 
-    let Some((fork_point, forward_points)) = store.find_fork_point(incoming_header.hash()).await else {
-        return Err(StoreError::ReadError {
-            error: "rollback point not found: new tip has no ancestor on best chain".to_string(),
-        });
-    };
-    store.switch_to_fork(&fork_point, &forward_points).await
+    match store.find_ancestor_on_best_chain(incoming_header.hash()).await? {
+        FindAncestorOnBestChainResult::StartHeaderNotFound => Ok(AdoptTipResult::HeaderNotFound),
+        FindAncestorOnBestChainResult::NotFound => Ok(AdoptTipResult::AncestorOnBestChainNotFound),
+        FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
+            store.switch_to_fork(&fork_point, &forward_points).await?;
+            Ok(AdoptTipResult::BestChainSwitched)
+        }
+    }
+}
+
+enum AdoptTipResult {
+    HeaderNotFound,
+    AncestorOnBestChainNotFound,
+    BestChainRolledForward,
+    BestChainSwitched,
 }
 
 /// Drag the store anchor forward so it is at most `consensus_security_param`
