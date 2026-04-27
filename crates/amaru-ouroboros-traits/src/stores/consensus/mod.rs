@@ -16,11 +16,7 @@ pub mod in_memory_consensus_store;
 pub mod overriding_consensus_store;
 
 pub mod missing_blocks;
-use std::{
-    cmp::Reverse,
-    fmt::Display,
-    iter::{self, successors},
-};
+use std::{cmp::Reverse, fmt::Display, iter::successors};
 
 use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 use thiserror::Error;
@@ -142,29 +138,6 @@ where
         } else {
             Box::new(vec![*hash].into_iter())
         }
-    }
-
-    /// Starting from the given header hash, walk all descendant chains and
-    /// return all the the tips, that are not invalid (could be valid or unknown) and
-    /// whose parents are not invalid.
-    fn child_tips<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = Tip> + 'a>
-    where
-        H: 'a,
-    {
-        let mut to_visit = if hash == &ORIGIN_HASH { self.get_children(hash) } else { vec![*hash] };
-        Box::new(iter::from_fn(move || {
-            loop {
-                let hash = to_visit.pop()?;
-                tracing::debug!(hash = %hash, "visiting child");
-                let (header, validity) = self.load_header_with_validity(&hash)?;
-                if validity == Some(false) {
-                    continue;
-                }
-                let children = self.get_children(&hash);
-                to_visit.extend(children);
-                return Some(header.tip());
-            }
-        }))
     }
 }
 
