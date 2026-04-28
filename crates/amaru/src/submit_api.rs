@@ -136,7 +136,7 @@ mod tests {
         effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation},
         stages::mempool::MempoolStageState,
     };
-    use amaru_kernel::{NetworkName, RawBlock, Slot, Transaction};
+    use amaru_kernel::{NetworkName, RawBlock, Slot, Transaction, to_cbor};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
@@ -225,12 +225,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_full() -> anyhow::Result<()> {
-        let mempool: Arc<dyn TxSubmissionMempool<Transaction>> =
-            Arc::new(InMemoryMempool::<Transaction>::new(MempoolConfig::default().with_max_txs(1)));
-        let (addr, _shutdown) = start_test_server_with_mempool(mempool).await?;
-
         let first = create_transaction(0);
         let second = create_transaction(1);
+
+        let max_bytes = to_cbor(&first).len() as u64;
+        let mempool: Arc<dyn TxSubmissionMempool<Transaction>> =
+            Arc::new(InMemoryMempool::<Transaction>::new(MempoolConfig::default().with_max_bytes(max_bytes)));
+        let (addr, _shutdown) = start_test_server_with_mempool(mempool).await?;
 
         let resp = submit_tx(addr, amaru_kernel::to_cbor(&first)).await?;
         assert_eq!(resp.status(), 202);

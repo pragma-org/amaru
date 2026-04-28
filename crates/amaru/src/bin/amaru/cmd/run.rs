@@ -27,6 +27,7 @@ use amaru::{
     },
 };
 use amaru_kernel::NetworkName;
+use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::MempoolMsg;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
@@ -165,6 +166,14 @@ pub struct Args {
         env = amaru::env_vars::DUMP_TRACE_BUFFER,
     )]
     dump_trace_buffer: Option<PathBuf>,
+
+    /// Mempool capacity in total CBOR bytes. Transactions beyond this are rejected.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::MEMPOOL_MAX_BYTES,
+    )]
+    mempool_max_bytes: Option<u64>,
 }
 
 impl Args {
@@ -285,6 +294,11 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
 
     let trace_dump_path = args.dump_trace_buffer;
 
+    let mut mempool = MempoolConfig::default();
+    if let Some(v) = args.mempool_max_bytes {
+        mempool = mempool.with_max_bytes(v);
+    };
+
     info!(
         _command = "run",
         chain_dir = %chain_dir.to_string_lossy(),
@@ -300,6 +314,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_min_entries,
         trace_buffer_max_size,
         trace_dump_path = %trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
+        mempool_max_bytes = ?mempool.max_bytes,
         "running"
     );
 
@@ -317,6 +332,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_min_entries,
         trace_buffer_max_size,
         trace_dump_path,
+        mempool,
         ..Config::default()
     })
 }

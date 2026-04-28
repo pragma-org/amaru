@@ -144,6 +144,9 @@ pub mod env_vars {
     /// --max-extra-ledger-snapshots
     pub const MAX_EXTRA_LEDGER_SNAPSHOTS: &str = "AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS";
 
+    /// --mempool-max-bytes
+    pub const MEMPOOL_MAX_BYTES: &str = "AMARU_MEMPOOL_MAX_BYTES";
+
     /// --migrate-chain-db
     pub const MIGRATE_CHAIN_DB: &str = "AMARU_MIGRATE_CHAIN_DB";
 

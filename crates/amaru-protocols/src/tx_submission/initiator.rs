@@ -809,8 +809,8 @@ mod tests {
         InitiatorResult::RequestTxIds { ack, req, blocking }
     }
 
-    fn new_mempool(capacity: usize) -> Arc<InMemoryMempool<Transaction>> {
-        Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_txs(capacity)))
+    fn new_mempool(txs_nb: u64) -> Arc<InMemoryMempool<Transaction>> {
+        Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_bytes(txs_nb * 16)))
     }
 
     fn request_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorResult {
