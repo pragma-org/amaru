@@ -37,15 +37,15 @@ pub fn collect_from_read_store(db: &impl ReadStore) -> Result<BTreeSet<SocketAdd
 fn relay_to_socket_addrs(relay: &Relay, set: &mut BTreeSet<SocketAddr>) {
     match relay {
         Relay::SingleHostAddr(port, ipv4, ipv6) => {
-            let Some(port) = null_to_port(port) else {
+            let Some(port) = nullable_to_port(port) else {
                 return;
             };
-            if let Some(ip) = null_ipv4_to_ip(ipv4)
+            if let Some(ip) = nullable_ipv4_to_ip(ipv4)
                 && !is_excluded_relay_ip(ip)
             {
                 set.insert(SocketAddr::new(ip, port));
             }
-            if let Some(ip) = null_ipv6_to_ip(ipv6)
+            if let Some(ip) = nullable_ipv6_to_ip(ipv6)
                 && !is_excluded_relay_ip(ip)
             {
                 set.insert(SocketAddr::new(ip, port));
@@ -57,14 +57,14 @@ fn relay_to_socket_addrs(relay: &Relay, set: &mut BTreeSet<SocketAddr>) {
     }
 }
 
-fn null_to_port(port: &Nullable<u32>) -> Option<u16> {
+fn nullable_to_port(port: &Nullable<u32>) -> Option<u16> {
     match port {
         Nullable::Some(p) => u16::try_from(*p).ok(),
         Nullable::Null | Nullable::Undefined => None,
     }
 }
 
-fn null_ipv4_to_ip(null: &Nullable<Bytes>) -> Option<IpAddr> {
+fn nullable_ipv4_to_ip(null: &Nullable<Bytes>) -> Option<IpAddr> {
     let bytes = match null {
         Nullable::Some(b) => <[u8; 4]>::try_from(b).ok()?,
         Nullable::Null | Nullable::Undefined => return None,
@@ -72,7 +72,7 @@ fn null_ipv4_to_ip(null: &Nullable<Bytes>) -> Option<IpAddr> {
     Some(IpAddr::V4(Ipv4Addr::from_octets(bytes)))
 }
 
-fn null_ipv6_to_ip(null: &Nullable<Bytes>) -> Option<IpAddr> {
+fn nullable_ipv6_to_ip(null: &Nullable<Bytes>) -> Option<IpAddr> {
     let mut bytes = match null {
         Nullable::Some(b) => <[u8; 16]>::try_from(b).ok()?,
         Nullable::Null | Nullable::Undefined => return None,

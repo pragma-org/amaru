@@ -18,9 +18,9 @@
 
 pub mod block_validator;
 pub mod bootstrap;
-pub mod registered_relay_addrs;
 pub mod context;
 pub mod governance;
+pub mod registered_relay_addrs;
 pub mod rules;
 pub mod state;
 pub mod store;

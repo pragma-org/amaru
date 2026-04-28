@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeSet,
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
 use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
@@ -61,9 +57,12 @@ pub trait LedgerOps: Send + Sync {
 
     fn volatile_tip(&self) -> Option<Tip>;
 
-    fn registered_relay_socket_addrs(
-        &self,
-    ) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>>;
+    /// Get the registered relay socket addresses from the stable store.
+    ///
+    /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
+    /// 2025), so it should be called with care. Please cache the result, it
+    /// only changes meaningfully once per epoch.
+    fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>>;
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
@@ -122,9 +121,7 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         self.0.external_sync(VolatileTipEffect)
     }
 
-    fn registered_relay_socket_addrs(
-        &self,
-    ) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
+    fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
         self.0.external(RegisteredRelaySocketAddrsEffect)
     }
 }

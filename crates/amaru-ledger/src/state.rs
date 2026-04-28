@@ -247,6 +247,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         self.volatile.view_back().map(|st| st.anchor.0)
     }
 
+    /// Get the registered relay socket addresses from the stable store.
+    ///
+    /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
+    /// 2025), so it should be called with care. Please cache the result, it
+    /// only changes meaningfully once per epoch.
     #[expect(clippy::unwrap_used)]
     pub fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, StateError> {
         let db = self.stable.lock().unwrap();

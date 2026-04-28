@@ -21,7 +21,8 @@ use std::{
 use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, HasStakePools, TransactionValidationError, can_validate_blocks::BlockValidationError,
+    CanValidateBlocks, CanValidateTxs, HasStakePools, TransactionValidationError,
+    can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;

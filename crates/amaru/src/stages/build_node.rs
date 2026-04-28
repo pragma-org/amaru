@@ -113,9 +113,6 @@ pub fn build_node(
     let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone())
         .context("Failed to create ledger. Have you bootstrapped your node?")?;
 
-    let stake_pools = ledger.get_stake_pools();
-    Handle::current().spawn(async move { stake_pools.registered_relay_socket_addrs().await });
-
     let ledger_tip = ledger.get_tip();
     tracing::info!(
         tip.hash = %ledger_tip.hash(),

@@ -206,9 +206,7 @@ pub mod tests {
             None
         }
 
-        fn registered_relay_socket_addrs(
-            &self,
-        ) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
+        fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
             Box::pin(async { Ok(BTreeSet::new()) })
         }
     }
