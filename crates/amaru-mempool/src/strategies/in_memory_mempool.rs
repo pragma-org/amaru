@@ -211,6 +211,11 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<T
     fn last_seq_no(&self) -> MempoolSeqNo {
         MempoolSeqNo(self.inner.read().next_seq - 1)
     }
+
+    fn is_near_capacity(&self, additional_bytes: u64) -> bool {
+        let current = self.inner.read().current_bytes;
+        current.saturating_add(additional_bytes) > self.config.max_bytes
+    }
 }
 
 impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {

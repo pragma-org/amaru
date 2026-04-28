@@ -70,4 +70,8 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
 
     /// Get the last assigned sequence number in the mempool.
     fn last_seq_no(&self) -> MempoolSeqNo;
+
+    /// Returns `true` if accepting `additional_bytes` would push the
+    /// mempool past its configured maximum byte size.
+    fn is_near_capacity(&self, additional_bytes: u64) -> bool;
 }

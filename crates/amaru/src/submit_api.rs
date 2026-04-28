@@ -454,5 +454,9 @@ mod tests {
         fn last_seq_no(&self) -> MempoolSeqNo {
             MempoolSeqNo(0)
         }
+
+        fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
+            false
+        }
     }
 }

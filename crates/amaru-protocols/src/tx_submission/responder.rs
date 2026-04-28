@@ -21,9 +21,11 @@ use std::{
 use ProtocolError::*;
 use amaru_kernel::Transaction;
 use amaru_observability::trace_span;
-use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo};
+use amaru_ouroboros::{
+    MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
+};
+use pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
-use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
@@ -37,6 +39,9 @@ use crate::{
 
 pub const MEMPOOL_INSERT_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How long to wait between mempool capacity rechecks while back-pressured.
+pub const BACK_PRESSURE_RECHECK_INTERVAL: Duration = Duration::from_millis(500);
+
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed(),
@@ -49,15 +54,22 @@ pub fn responder() -> Miniprotocol<State, TxSubmissionResponder, Responder> {
 }
 
 impl StageState<State, Responder> for TxSubmissionResponder {
-    type LocalIn = Void;
+    type LocalIn = CheckMempoolSize;
 
     async fn local(
-        self,
+        mut self,
         _proto: &State,
         input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        match input {}
+        let action = match input {
+            CheckMempoolSize => {
+                let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+                self.back_pressure_scheduled = false;
+                self.recheck_back_pressure(mempool, eff).await
+            }
+        };
+        Ok((action, self))
     }
 
     async fn network(
@@ -76,7 +88,13 @@ impl StageState<State, Responder> for TxSubmissionResponder {
                     tracing::trace!("received Init");
                     self.initialize_state(&mempool).await
                 }
-                ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(&mempool, tx_ids).await?,
+                ResponderResult::ReplyTxIds(tx_ids) => match self.process_tx_ids_reply(mempool, tx_ids).await? {
+                    FetchOutcome::Action(a) => Some(a),
+                    FetchOutcome::AwaitingCapacity => {
+                        self.schedule_back_pressure_recheck(eff).await;
+                        None
+                    }
+                },
                 ResponderResult::ReplyTxs(txs) => self.insert_txs(txs, eff).await?,
                 ResponderResult::Done => None,
             };
@@ -141,6 +159,24 @@ impl ProtocolState<Responder> for State {
     }
 }
 
+/// Triggered after `BACK_PRESSURE_RECHECK_INTERVAL` while the mempool was too full to accept the
+/// next pending tx. On firing, the responder re-attempts to drain `pending_fetch` and resumes
+/// the protocol if there is new mempool capacity.
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CheckMempoolSize;
+
+/// Result of `process_tx_ids_reply`. The synchronous decision separates "what to send to the peer"
+/// from "should we schedule a back-pressure recheck", so test harnesses don't need an `Effects`
+/// instance to drive the protocol.
+#[derive(Debug)]
+pub enum FetchOutcome {
+    /// Send the carried action to the peer.
+    Action(ResponderAction),
+    /// Mempool is full and we have unfetched pending entries; caller should call
+    /// `schedule_back_pressure_recheck` and stay quiet until the recheck fires.
+    AwaitingCapacity,
+}
+
 /// Result from protocol state when network message is received
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderResult {
@@ -188,6 +224,8 @@ pub struct TxSubmissionResponder {
     /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
     /// we pop it from the front of the queue and remove it from the set.
     inflight_fetch_set: BTreeSet<TxId>,
+    /// Used to avoid scheduling multiple back-pressure rechecks concurrently.
+    back_pressure_scheduled: bool,
     /// The origin of the transactions we are fetching.
     origin: TxOrigin,
     muxer: StageRef<MuxMessage>,
@@ -210,6 +248,7 @@ impl TxSubmissionResponder {
                 processed_fetch_set: BTreeSet::new(),
                 pending_fetch: VecDeque::new(),
                 inflight_fetch_set: BTreeSet::new(),
+                back_pressure_scheduled: false,
                 origin,
                 muxer,
                 mempool_stage,
@@ -226,9 +265,9 @@ impl TxSubmissionResponder {
         &mut self,
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<(TxId, u32)>,
-    ) -> anyhow::Result<Option<ResponderAction>> {
+    ) -> anyhow::Result<FetchOutcome> {
         if self.window.len() + tx_ids.len() > self.params.max_window.into() {
-            return protocol_error(TooManyTxIdsReceived(
+            return protocol_error_outcome(TooManyTxIdsReceived(
                 tx_ids.len(),
                 self.window.len(),
                 self.params.max_window.into(),
@@ -237,12 +276,20 @@ impl TxSubmissionResponder {
         self.received_tx_ids(mempool, tx_ids).await;
 
         let txs = self.txs_to_request();
-        if txs.is_empty() {
-            let (ack, req, blocking) = self.request_tx_ids(mempool).await;
-            Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
-        } else {
-            Ok(Some(ResponderAction::SendRequestTxs(txs)))
+        if !txs.is_empty() {
+            return Ok(FetchOutcome::Action(ResponderAction::SendRequestTxs(txs)));
         }
+
+        // No fetchable txs right now. If we still have entries in pending_fetch we couldn't drain,
+        // it must be because each remaining advertised tx_id has a size that would push the mempool
+        // over its configured maximum byte size.
+        // In that case, we schedule a back-pressure recheck.
+        if !self.pending_fetch.is_empty() {
+            return Ok(FetchOutcome::AwaitingCapacity);
+        }
+
+        let (ack, req, blocking) = self.request_tx_ids(mempool).await;
+        Ok(FetchOutcome::Action(ResponderAction::SendRequestTxIds { ack, req, blocking }))
     }
 
     #[cfg(test)]
@@ -324,17 +371,26 @@ impl TxSubmissionResponder {
         }
     }
 
-    /// Prepare a batch of tx ids for the txs to request.
-    fn txs_to_request(&mut self) -> Vec<TxId> {
+    /// Prepare a batch of tx ids to fetch. Skips entries whose advertised size would push the
+    /// mempool past its byte cap, so we never fetch a tx we know we can't insert. Stops early
+    /// when no further pending tx fits; the remaining `pending_fetch` entries are revisited once
+    /// mempool capacity returns (driven by `schedule_back_pressure_recheck`).
+    fn txs_to_request(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Vec<TxId> {
         let mut tx_ids = Vec::new();
+        let mut reserved: u64 = 0;
 
         while tx_ids.len() < self.params.fetch_batch.into() {
-            if let Some(id) = self.pending_fetch.pop_front() {
-                self.inflight_fetch_set.insert(id);
-                tx_ids.push(id);
-            } else {
+            let Some(&next_id) = self.pending_fetch.front() else {
+                break;
+            };
+            let tx_size = self.window.iter().find(|(id, _)| *id == next_id).map(|(_, sz)| *sz as u64).unwrap_or(0);
+            if mempool.is_near_capacity(reserved.saturating_add(tx_size)) {
                 break;
             }
+            self.pending_fetch.pop_front();
+            self.inflight_fetch_set.insert(next_id);
+            tx_ids.push(next_id);
+            reserved = reserved.saturating_add(tx_size);
         }
 
         tx_ids
@@ -347,7 +403,7 @@ impl TxSubmissionResponder {
     async fn insert_txs(
         &mut self,
         txs: Vec<Transaction>,
-        eff: &Effects<Inputs<Void>>,
+        eff: &Effects<Inputs<CheckMempoolSize>>,
     ) -> anyhow::Result<Option<ResponderAction>> {
         if let Some(action) = self.validate_received_txs(&txs)? {
             return Ok(Some(action));
@@ -435,6 +491,40 @@ impl TxSubmissionResponder {
     fn record_processed_results(&mut self, results: &[TxInsertResult]) {
         self.processed_fetch_set.extend(results.iter().map(TxInsertResult::tx_id).cloned());
     }
+
+    /// Schedule a `CheckMempoolSize` self-message after a short delay if one isn't already
+    /// pending. Called when we'd otherwise spin on req=0 round-trips because the mempool is full.
+    async fn schedule_back_pressure_recheck(&mut self, eff: &Effects<Inputs<CheckMempoolSize>>) {
+        if !self.back_pressure_scheduled {
+            self.back_pressure_scheduled = true;
+            eff.schedule_after(Inputs::Local(CheckMempoolSize), BACK_PRESSURE_RECHECK_INTERVAL).await;
+        }
+    }
+
+    /// Re-attempt to drain `pending_fetch` after a back-pressure recheck fired.
+    /// Resumes the protocol with a `RequestTxs` if mempool now has available capacity, otherwise schedules
+    /// another recheck.
+    async fn recheck_back_pressure(
+        &mut self,
+        mempool: &dyn TxSubmissionMempool<Transaction>,
+        eff: &Effects<Inputs<CheckMempoolSize>>,
+    ) -> Option<ResponderAction> {
+        let txs = self.txs_to_request(mempool);
+        if !txs.is_empty() {
+            return Some(ResponderAction::SendRequestTxs(txs));
+        }
+
+        // Still nothing fetchable: re-schedule the check while pending_fetch has entries.
+        if !self.pending_fetch.is_empty() {
+            self.schedule_back_pressure_recheck(eff).await;
+            return None;
+        }
+
+        // pending_fetch drained naturally (e.g. txs landed in mempool via another peer) — re-engage
+        // the peer with a normal RequestTxIds.
+        let (ack, req, blocking) = self.request_tx_ids(mempool);
+        Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
+    }
 }
 
 fn log_insert_result(result: &TxInsertResult) {
@@ -457,6 +547,11 @@ fn log_insert_result(result: &TxInsertResult) {
 fn protocol_error(error: ProtocolError) -> anyhow::Result<Option<ResponderAction>> {
     tracing::warn!("protocol error: {error}");
     Ok(Some(ResponderAction::Error(error)))
+}
+
+fn protocol_error_outcome(error: ProtocolError) -> anyhow::Result<FetchOutcome> {
+    tracing::warn!("protocol error: {error}");
+    Ok(FetchOutcome::Action(ResponderAction::Error(error)))
 }
 
 impl AsRef<StageRef<MuxMessage>> for TxSubmissionResponder {
@@ -664,6 +759,44 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn process_tx_ids_reply_signals_back_pressure_when_mempool_full() {
+        let txs = create_transactions(2);
+        let muxer = StageRef::<MuxMessage>::blackhole();
+        let mempool_stage = StageRef::<MempoolMsg>::blackhole();
+        let (_state, mut responder) =
+            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+
+        // Mempool reports zero capacity left, so any pending fetch should yield AwaitingCapacity.
+        let mempool: Arc<dyn TxSubmissionMempool<Transaction>> = Arc::new(FullMempool);
+
+        let tx_ids = vec![(TxId::from(&txs[0]), 100), (TxId::from(&txs[1]), 100)];
+        let outcome = responder.process_tx_ids_reply(mempool.as_ref(), tx_ids).expect("no protocol error");
+
+        assert!(matches!(outcome, FetchOutcome::AwaitingCapacity), "expected AwaitingCapacity, got {outcome:?}");
+        // pending_fetch retained for retry once capacity returns.
+        assert_eq!(responder.pending_fetch.len(), 2, "pending_fetch should still hold both tx_ids");
+    }
+
+    #[test]
+    fn process_tx_ids_reply_drains_after_recovery() {
+        let txs = create_transactions(2);
+        let muxer = StageRef::<MuxMessage>::blackhole();
+        let mempool_stage = StageRef::<MempoolMsg>::blackhole();
+        let (_state, mut responder) =
+            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+
+        // First the mempool is full.
+        let tx_ids = vec![(TxId::from(&txs[0]), 100), (TxId::from(&txs[1]), 100)];
+        let outcome = responder.process_tx_ids_reply(&FullMempool, tx_ids).expect("no protocol error");
+        assert!(matches!(outcome, FetchOutcome::AwaitingCapacity));
+
+        // Then the mempool drains and we can fetch transactions
+        let mempool: Arc<dyn TxSubmissionMempool<Transaction>> = Arc::new(InMemoryMempool::default());
+        let txs_to_fetch = responder.txs_to_request(mempool.as_ref());
+        assert_eq!(txs_to_fetch.len(), 2, "both pending tx_ids should now be fetched");
+    }
+
+    #[test]
     fn test_responder_protocol() {
         crate::tx_submission::spec::<Responder>().check(State::Init, |msg| match msg {
             Message::RequestTxIdsBlocking(ack, req) => {
@@ -714,7 +847,13 @@ mod tests {
         for r in results {
             let action = match r {
                 ResponderResult::Init => responder.initialize_state(mempool).await,
-                ResponderResult::ReplyTxIds(tx_ids) => responder.process_tx_ids_reply(mempool, tx_ids).await?,
+                ResponderResult::ReplyTxIds(tx_ids) => {
+                    match responder.process_tx_ids_reply(mempool, tx_ids).await? {
+                        FetchOutcome::Action(a) => Some(a),
+                        // Tests use unbounded mempools, so this branch is unreachable here.
+                        FetchOutcome::AwaitingCapacity => None,
+                    }
+                }
                 ResponderResult::ReplyTxs(txs) => {
                     if let Some(action) = responder.validate_received_txs(&txs)? {
                         Some(action)
@@ -794,6 +933,10 @@ mod tests {
         fn last_seq_no(&self) -> MempoolSeqNo {
             MempoolSeqNo(0)
         }
+
+        fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
+            false
+        }
     }
 
     struct MockMempool {
@@ -842,6 +985,37 @@ mod tests {
 
         fn last_seq_no(&self) -> MempoolSeqNo {
             MempoolSeqNo(0)
+        }
+
+        fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
+            false
+        }
+    }
+
+    /// Mempool implementation that always reports being at capacity.
+    struct FullMempool;
+
+    impl TxSubmissionMempool<Transaction> for FullMempool {
+        fn insert(&self, _tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
+            unreachable!("not used in back-pressure test")
+        }
+        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
+            None
+        }
+        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+            vec![]
+        }
+        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
+            vec![]
+        }
+        fn mempool_txs(&self) -> Vec<Transaction> {
+            vec![]
+        }
+        fn last_seq_no(&self) -> MempoolSeqNo {
+            MempoolSeqNo(0)
+        }
+        fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
+            true
         }
     }
 }
