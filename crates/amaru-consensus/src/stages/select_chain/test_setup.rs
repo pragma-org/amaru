@@ -30,7 +30,8 @@ use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
-use crate::stages::test_utils::{BufferWriter, Logs};
+use crate::stages::test_utils::{BufferWriter, Logs, TraceMatch};
+pub use crate::stages::test_utils::{tm_terminate, tm_terminated};
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
     BlockHeader::from(make_header(block_number, slot, parent))
@@ -171,7 +172,7 @@ pub fn setup(prep: &TestPrep, msg: SelectChainMsg) -> (SimulationRunning, Deseri
     (running, guards, logs.logs())
 }
 
-pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> TraceEntry {
+pub fn tm_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(
         at_stage,
         if with_validity {
@@ -180,43 +181,17 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> 
             Box::new(LoadHeaderEffect::new(hash))
         },
     ))
+    .into()
 }
 
-pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
+pub fn tm_has_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash)))).into()
 }
 
-pub fn te_set_block_valid(at_stage: &str, hash: HeaderHash, valid: bool) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(SetBlockValidEffect::new(hash, valid))))
+pub fn tm_set_block_valid(at_stage: &str, hash: HeaderHash, valid: bool) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(SetBlockValidEffect::new(hash, valid)))).into()
 }
 
-pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new())))
-}
-
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
-    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
-}
-
-pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
-    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
-}
-
-pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
-    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
-}
-
-pub fn te_get_best_chain_hash(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetBestChainHashEffect::new())))
+pub fn tm_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new()))).into()
 }

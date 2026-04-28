@@ -27,7 +27,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use super::*;
 use crate::{
     effects::{ResourceTxValidation, ValidateTxEffect},
-    stages::test_utils::{BufferWriter, Logs},
+    stages::test_utils::{BufferWriter, Logs, TraceMatch},
 };
 
 pub struct TestPrep {
@@ -79,26 +79,26 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     (running, guards, logs.logs())
 }
 
-pub fn te_validate_tx(at_stage: &str, tx: &Transaction) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateTxEffect::new(tx))))
+pub fn tm_validate_tx(at_stage: &str, tx: &Transaction) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateTxEffect::new(tx)))).into()
 }
 
-pub fn te_insert(at_stage: &str, tx: &Transaction, tx_origin: TxOrigin) -> TraceEntry {
+pub fn tm_insert(at_stage: &str, tx: &Transaction, tx_origin: TxOrigin) -> TraceMatch<'static> {
     let payload = InsertEffectPayload { tx: tx.clone(), tx_origin };
     let value = SendDataValue::from_json("payload", &payload).cast::<SendDataValue>().unwrap().value;
     let effect: Box<dyn ExternalEffect> = Box::new(UnknownExternalEffect::new(SendDataValue {
         typetag: "amaru_protocols::mempool_effects::Insert".to_string(),
         value,
     }));
-    TraceEntry::suspend(Effect::external(at_stage, effect))
+    TraceEntry::suspend(Effect::external(at_stage, effect)).into()
 }
 
-pub fn te_send(
+pub fn tm_send(
     from: impl AsRef<str>,
     to: impl AsRef<str>,
     msg: Result<Vec<TxInsertResult>, MempoolInsertError>,
-) -> TraceEntry {
-    TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
+) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::send(from, to, Box::new(msg))).into()
 }
 
 pub fn create_transaction(input_index: usize) -> Transaction {

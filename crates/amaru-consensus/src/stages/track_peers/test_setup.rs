@@ -29,7 +29,7 @@ use amaru_protocols::{
 use anyhow::anyhow;
 use opentelemetry::Context;
 use pure_stage::{
-    DeserializerGuards, Effect, SendData, StageGraph, StageRef,
+    DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
@@ -43,7 +43,7 @@ use crate::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect,
         VolatileTipEffect,
     },
-    stages::test_utils::{BufferWriter, Logs},
+    stages::test_utils::{BufferWriter, Logs, TraceMatch},
 };
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
@@ -92,24 +92,20 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
     BlockHeader::from(make_header(block_number, slot, parent))
 }
 
-pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
+pub fn tm_validate_header(at_stage: &str, header: BlockHeader) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new())))).into()
 }
 
-pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
+pub fn tm_load_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash)))).into()
 }
 
-pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
+pub fn tm_has_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash)))).into()
 }
 
-pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
-}
-
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl SendData) -> TraceEntry {
-    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
+pub fn tm_store_header(at_stage: &str, header: BlockHeader) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header)))).into()
 }
 
 fn register_guards() -> DeserializerGuards {
@@ -182,15 +178,4 @@ impl CanValidateHeaders for FailingHeaderValidation {
     fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
         Err(HeaderValidationError::new(anyhow!("header validation failed: booyah!")))
     }
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
 }

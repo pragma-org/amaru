@@ -135,29 +135,68 @@ impl io::Write for BufferWriter {
     }
 }
 
-pub fn te_state<T: SendData + Clone>(stage: impl AsRef<str>, state: &T) -> TraceEntry {
-    TraceEntry::State { stage: Name::from(stage.as_ref()), state: Box::new(state.clone()) }
+pub enum TraceMatch<'a> {
+    Literal(TraceEntry),
+    Property(Box<dyn Fn(&TraceEntry) -> bool + 'a>, String),
+}
+impl From<TraceEntry> for TraceMatch<'static> {
+    fn from(entry: TraceEntry) -> Self {
+        TraceMatch::Literal(entry)
+    }
+}
+impl<'a> PartialEq<TraceEntry> for TraceMatch<'a> {
+    fn eq(&self, other: &TraceEntry) -> bool {
+        match self {
+            TraceMatch::Literal(literal) => literal == other,
+            TraceMatch::Property(predicate, _) => predicate(other),
+        }
+    }
+}
+impl<'a> PartialEq<TraceMatch<'a>> for TraceEntry {
+    fn eq(&self, other: &TraceMatch<'a>) -> bool {
+        match other {
+            TraceMatch::Literal(literal) => self == literal,
+            TraceMatch::Property(predicate, _) => predicate(self),
+        }
+    }
+}
+impl<'a> fmt::Debug for TraceMatch<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TraceMatch::Literal(literal) => fmt::Debug::fmt(literal, f),
+            TraceMatch::Property(_predicate, description) => f.write_str(description),
+        }
+    }
 }
 
-pub fn te_input<T: SendData + Clone>(stage: impl AsRef<str>, msg: &T) -> TraceEntry {
-    TraceEntry::Input { stage: Name::from(stage.as_ref()), input: Box::new(msg.clone()) }
+pub fn tm_state<T: SendData + Clone>(stage: impl AsRef<str>, state: &T) -> TraceMatch<'static> {
+    TraceEntry::State { stage: Name::from(stage.as_ref()), state: Box::new(state.clone()) }.into()
 }
 
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
-    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
+pub fn tm_input<T: SendData + Clone>(stage: impl AsRef<str>, msg: &T) -> TraceMatch<'static> {
+    TraceEntry::Input { stage: Name::from(stage.as_ref()), input: Box::new(msg.clone()) }.into()
 }
 
-pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
-    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
+pub fn tm_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceMatch<'static> {
+    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg))).into()
 }
 
-pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
-    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
+pub fn tm_terminate(at_stage: impl AsRef<str>) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) }).into()
+}
+
+pub fn tm_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceMatch<'static> {
+    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }.into()
 }
 
 #[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
+pub fn assert_trace<'a>(running: &SimulationRunning, expected: &[TraceMatch<'a>]) {
     let mut tb = running.trace_buffer().lock();
+    for e in tb.iter_entries() {
+        if let TraceEntry::InvalidBytes(bytes, value) = e.1 {
+            panic!("invalid bytes: {bytes:?}\n\nvalue: {value:?}");
+        }
+    }
     let trace = tb
         .iter_entries()
         .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))

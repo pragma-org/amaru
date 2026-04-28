@@ -26,9 +26,9 @@ use tracing::Level;
 use crate::stages::{
     mempool::{
         MempoolStageState,
-        test_setup::{TestPrep, create_transaction, setup, te_insert, te_send, te_validate_tx},
+        test_setup::{TestPrep, create_transaction, setup, tm_insert, tm_send, tm_validate_tx},
     },
-    test_utils::{assert_trace, te_input, te_state},
+    test_utils::{assert_trace, tm_input, tm_state},
 };
 
 #[test]
@@ -41,17 +41,17 @@ fn insert_batch_returns_one_result_per_transaction() {
     assert_trace(
         &running,
         &[
-            te_state("mempool-1", &MempoolStageState::default()),
-            te_input("mempool-1", &expected_msg),
-            te_validate_tx("mempool-1", &txs[0]),
-            te_insert("mempool-1", &txs[0], TxOrigin::Local),
-            te_validate_tx("mempool-1", &txs[1]),
-            te_validate_tx("mempool-1", &txs[2]),
+            tm_state("mempool-1", &MempoolStageState::default()),
+            tm_input("mempool-1", &expected_msg),
+            tm_validate_tx("mempool-1", &txs[0]),
+            tm_insert("mempool-1", &txs[0], TxOrigin::Local),
+            tm_validate_tx("mempool-1", &txs[1]),
+            tm_validate_tx("mempool-1", &txs[2]),
             // Note that the de-duplication check is performed by the mempool when the insertion
             // is attempted
-            te_insert("mempool-1", &txs[2], TxOrigin::Local),
-            te_send("mempool-1", "caller", Ok(expected_results(&txs))),
-            te_state("mempool-1", &MempoolStageState::default()),
+            tm_insert("mempool-1", &txs[2], TxOrigin::Local),
+            tm_send("mempool-1", "caller", Ok(expected_results(&txs))),
+            tm_state("mempool-1", &MempoolStageState::default()),
         ],
     );
 

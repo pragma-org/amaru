@@ -22,11 +22,24 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        te_terminate, te_terminated, test_prep,
-        setup, te_get_anchor_hash, te_get_best_chain_hash, te_has_header, te_load_header, te_set_block_valid, test_prep,
+        setup, test_prep, tm_get_anchor_hash, tm_has_header, tm_load_header, tm_set_block_valid, tm_terminate,
+        tm_terminated,
     },
-    test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
+    test_utils::{TraceMatch, assert_trace, tm_input, tm_send, tm_state},
 };
+
+#[track_caller]
+fn assert_trace_entry(entry: Option<&pure_stage::trace_buffer::TraceEntry>, expected: TraceMatch<'_>) {
+    match entry {
+        Some(entry) => pretty_assertions::assert_eq!(entry, &expected),
+        None => panic!("missing trace entry; expected {expected:?}"),
+    }
+}
+
+#[track_caller]
+fn assert_trace_contains(trace: &[pure_stage::trace_buffer::TraceEntry], expected: TraceMatch<'_>) {
+    assert!(trace.iter().any(|entry| expected == *entry), "missing trace entry: {expected:?}");
+}
 
 #[test]
 fn test_tip_not_found() {
@@ -43,11 +56,11 @@ fn test_tip_not_found() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_terminate("sc-1"),
-            te_terminated("sc-1", TerminationReason::Voluntary),
+            tm_state("sc-1", &state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_terminate("sc-1"),
+            tm_terminated("sc-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["tip not found"])
@@ -68,11 +81,11 @@ fn test_tip_already_validated() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_terminate("sc-1"),
-            te_terminated("sc-1", TerminationReason::Voluntary),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_terminate("sc-1"),
+            tm_terminated("sc-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["got tip from upstream that was already validated"])
@@ -99,11 +112,11 @@ fn test_tip_extends_from_origin() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_send("sc-1", "downstream", (tip, parent)),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
@@ -135,15 +148,15 @@ fn test_tip_extends_from_h1() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", ORIGIN_HASH, false),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_get_anchor_hash("sc-1"),
+            tm_load_header("sc-1", ORIGIN_HASH, false),
+            tm_load_header("sc-1", prep.headers.h1.hash(), true),
+            tm_load_header("sc-1", prep.headers.h0.hash(), true),
+            tm_send("sc-1", "downstream", (tip, parent)),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
@@ -172,14 +185,14 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h2.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_get_anchor_hash("sc-1"),
+            tm_load_header("sc-1", prep.headers.h2.hash(), false),
+            tm_load_header("sc-1", prep.headers.h2.hash(), true),
+            tm_send("sc-1", "downstream", (tip, parent)),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
@@ -217,16 +230,16 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_get_anchor_hash("sc-1"),
+            tm_load_header("sc-1", prep.headers.h0.hash(), false),
+            tm_load_header("sc-1", prep.headers.h2.hash(), true),
+            tm_load_header("sc-1", prep.headers.h1.hash(), true),
+            tm_load_header("sc-1", prep.headers.h0.hash(), true),
+            tm_send("sc-1", "downstream", (tip, parent)),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
@@ -260,15 +273,15 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_load_header("sc-1", prep.headers.h2a.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_get_anchor_hash("sc-1"),
+            tm_load_header("sc-1", prep.headers.h0.hash(), false),
+            tm_load_header("sc-1", prep.headers.h2a.hash(), true),
+            tm_load_header("sc-1", prep.headers.h1.hash(), true),
+            tm_load_header("sc-1", prep.headers.h0.hash(), true),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
@@ -302,15 +315,15 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h1.hash(), false),
-            te_load_header("sc-1", prep.headers.h2a.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_get_anchor_hash("sc-1"),
+            tm_load_header("sc-1", prep.headers.h1.hash(), false),
+            tm_load_header("sc-1", prep.headers.h2a.hash(), true),
+            tm_load_header("sc-1", prep.headers.h1.hash(), true),
+            tm_send("sc-1", "downstream", (tip, parent)),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
@@ -336,15 +349,15 @@ fn test_upstream_tip_depends_on_invalid_block() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", tip.hash(), true),
-            te_get_anchor_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h0.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h0.hash(), true),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", tip.hash(), true),
+            tm_get_anchor_hash("sc-1"),
+            tm_load_header("sc-1", prep.headers.h0.hash(), false),
+            tm_load_header("sc-1", prep.headers.h2.hash(), true),
+            tm_load_header("sc-1", prep.headers.h1.hash(), true),
+            tm_load_header("sc-1", prep.headers.h0.hash(), true),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
@@ -370,11 +383,11 @@ fn test_block_validation_result_valid() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_has_header("sc-1", tip.hash()),
-            te_set_block_valid("sc-1", tip.hash(), true),
-            te_state("sc-1", &expected),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_has_header("sc-1", tip.hash()),
+            tm_set_block_valid("sc-1", tip.hash(), true),
+            tm_state("sc-1", &expected),
         ],
     );
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -407,12 +420,12 @@ fn test_invalid_best_tip_falls_back_to_persisted_best_chain() {
         tb.clear();
         trace
     };
-    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
-    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
-    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
-    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
-    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h0.tip(), Point::Origin))));
-    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
+    assert_trace_entry(trace.first(), tm_state("sc-1", &prep.state));
+    assert_trace_entry(trace.get(1), tm_input("sc-1", &msg));
+    assert_trace_contains(&trace, tm_has_header("sc-1", tip.hash()));
+    assert_trace_contains(&trace, tm_set_block_valid("sc-1", tip.hash(), false));
+    assert_trace_contains(&trace, tm_send("sc-1", "downstream", (prep.headers.h0.tip(), Point::Origin)));
+    assert_trace_entry(trace.last(), tm_state("sc-1", &expected));
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
         .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -445,12 +458,12 @@ fn test_invalid_best_tip_skips_invalid_ancestor_and_falls_back_higher() {
         tb.clear();
         trace
     };
-    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
-    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
-    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
-    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
-    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point()))));
-    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
+    assert_trace_entry(trace.first(), tm_state("sc-1", &prep.state));
+    assert_trace_entry(trace.get(1), tm_input("sc-1", &msg));
+    assert_trace_contains(&trace, tm_has_header("sc-1", tip.hash()));
+    assert_trace_contains(&trace, tm_set_block_valid("sc-1", tip.hash(), false));
+    assert_trace_contains(&trace, tm_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point())));
+    assert_trace_entry(trace.last(), tm_state("sc-1", &expected));
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
         .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -483,12 +496,12 @@ fn test_invalid_best_tip_falls_back_to_nearest_valid_ancestor() {
         tb.clear();
         trace
     };
-    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
-    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
-    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
-    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
-    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point()))));
-    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
+    assert_trace_entry(trace.first(), tm_state("sc-1", &prep.state));
+    assert_trace_entry(trace.get(1), tm_input("sc-1", &msg));
+    assert_trace_contains(&trace, tm_has_header("sc-1", tip.hash()));
+    assert_trace_contains(&trace, tm_set_block_valid("sc-1", tip.hash(), false));
+    assert_trace_contains(&trace, tm_send("sc-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point())));
+    assert_trace_entry(trace.last(), tm_state("sc-1", &expected));
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
         .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -528,12 +541,12 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
         tb.clear();
         trace
     };
-    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
-    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
-    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
-    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
-    assert!(trace.contains(&te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point()))));
-    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
+    assert_trace_entry(trace.first(), tm_state("sc-1", &prep.state));
+    assert_trace_entry(trace.get(1), tm_input("sc-1", &msg));
+    assert_trace_contains(&trace, tm_has_header("sc-1", tip.hash()));
+    assert_trace_contains(&trace, tm_set_block_valid("sc-1", tip.hash(), false));
+    assert_trace_contains(&trace, tm_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point())));
+    assert_trace_entry(trace.last(), tm_state("sc-1", &expected));
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
         .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -569,11 +582,11 @@ fn test_block_validation_result_invalid_removes_tips() {
         tb.clear();
         trace
     };
-    assert_eq!(trace.first(), Some(&te_state("sc-1", &prep.state)));
-    assert_eq!(trace.get(1), Some(&te_input("sc-1", &msg)));
-    assert!(trace.contains(&te_has_header("sc-1", tip.hash())));
-    assert!(trace.contains(&te_set_block_valid("sc-1", tip.hash(), false)));
-    assert_eq!(trace.last(), Some(&te_state("sc-1", &expected)));
+    assert_trace_entry(trace.first(), tm_state("sc-1", &prep.state));
+    assert_trace_entry(trace.get(1), tm_input("sc-1", &msg));
+    assert_trace_contains(&trace, tm_has_header("sc-1", tip.hash()));
+    assert_trace_contains(&trace, tm_set_block_valid("sc-1", tip.hash(), false));
+    assert_trace_entry(trace.last(), tm_state("sc-1", &expected));
     logs.assert_and_remove(Level::WARN, &["chain fork(s) removed due to invalid block"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
@@ -594,11 +607,11 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_has_header("sc-1", unknown_hash),
-            te_terminate("sc-1"),
-            te_terminated("sc-1", TerminationReason::Voluntary),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_has_header("sc-1", unknown_hash),
+            tm_terminate("sc-1"),
+            tm_terminated("sc-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["header not found"])
@@ -627,12 +640,12 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_has_header("sc-1", tip.hash()),
-            te_set_block_valid("sc-1", tip.hash(), true),
-            te_terminate("sc-1"),
-            te_terminated("sc-1", TerminationReason::Voluntary),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_has_header("sc-1", tip.hash()),
+            tm_set_block_valid("sc-1", tip.hash(), true),
+            tm_terminate("sc-1"),
+            tm_terminated("sc-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["failed to store block validation result", "injected fault"])
@@ -652,12 +665,12 @@ fn test_startup_with_non_empty_store() {
     assert_trace(
         &running,
         &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_load_header("sc-1", prep.headers.h3.hash(), false),
-            te_load_header("sc-1", prep.headers.h2.hash(), false),
-            te_send("sc-1", "downstream", (prep.headers.h3.tip(), prep.headers.h2.point())),
-            te_state("sc-1", &prep.state),
+            tm_state("sc-1", &prep.state),
+            tm_input("sc-1", &msg),
+            tm_load_header("sc-1", prep.headers.h3.hash(), false),
+            tm_load_header("sc-1", prep.headers.h2.hash(), false),
+            tm_send("sc-1", "downstream", (prep.headers.h3.tip(), prep.headers.h2.point())),
+            tm_state("sc-1", &prep.state),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["resuming block fetching"]).assert_no_remaining_at([

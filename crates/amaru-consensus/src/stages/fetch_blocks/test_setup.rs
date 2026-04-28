@@ -23,7 +23,7 @@ use amaru_protocols::store_effects::{
     GetAnchorHashEffect, LoadBlockEffect, LoadHeaderEffect, ResourceHeaderStore, StoreBlockEffect,
 };
 use pure_stage::{
-    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef, TerminationReason,
+    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
@@ -32,9 +32,10 @@ use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
+pub use crate::stages::test_utils::{assert_trace, tm_send, tm_terminate, tm_terminated};
 use crate::stages::{
     select_chain::SelectChainMsg,
-    test_utils::{BufferWriter, Logs},
+    test_utils::{BufferWriter, Logs, TraceMatch},
 };
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -171,57 +172,39 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
     (running, guards, logs.logs())
 }
 
-pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
+pub fn tm_load_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash)))).into()
 }
 
-pub fn te_load_block(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadBlockEffect::new(hash))))
+pub fn tm_load_block(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadBlockEffect::new(hash)))).into()
 }
 
-pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new())))
+pub fn tm_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new()))).into()
 }
 
-pub fn te_store_block(at_stage: &str, hash: HeaderHash, block: amaru_kernel::RawBlock) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreBlockEffect::new(&hash, block))))
+pub fn tm_store_block(at_stage: &str, hash: HeaderHash, block: amaru_kernel::RawBlock) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreBlockEffect::new(&hash, block)))).into()
 }
 
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
-    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
-}
-
-pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
-    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
-}
-
-pub fn te_schedule(at_stage: impl AsRef<str>, msg: impl pure_stage::SendData, schedule_id: ScheduleId) -> TraceEntry {
+pub fn tm_schedule(
+    at_stage: impl AsRef<str>,
+    msg: impl pure_stage::SendData,
+    schedule_id: ScheduleId,
+) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::Schedule {
         at_stage: Name::from(at_stage.as_ref()),
         msg: Box::new(msg),
         id: schedule_id,
     })
+    .into()
 }
 
-pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) -> TraceEntry {
-    TraceEntry::suspend(Effect::CancelSchedule { at_stage: Name::from(at_stage.as_ref()), id: schedule_id })
+pub fn tm_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::CancelSchedule { at_stage: Name::from(at_stage.as_ref()), id: schedule_id }).into()
 }
 
-pub fn te_clock(instant: Instant) -> TraceEntry {
-    TraceEntry::Clock(instant)
-}
-
-pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
-    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
+pub fn tm_clock(instant: Instant) -> TraceMatch<'static> {
+    TraceEntry::Clock(instant).into()
 }

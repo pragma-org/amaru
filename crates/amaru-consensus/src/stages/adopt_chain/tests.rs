@@ -14,16 +14,16 @@
 
 use amaru_kernel::ORIGIN_HASH;
 use pure_stage::trace_buffer::TerminationReason;
-use test_setup::{assert_trace, setup, te_load_header, te_terminate, te_terminated, test_prep};
+use test_setup::{assert_trace, setup, test_prep, tm_load_header, tm_terminate, tm_terminated};
 use tracing::Level;
 
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_get_anchor_hash, te_load_from_best_chain, te_next_best_chain, te_roll_forward_chain,
-        te_rollback_chain, te_send, te_set_anchor_hash, te_set_best_chain_hash,
+        tm_clock, tm_get_anchor_hash, tm_load_from_best_chain, tm_next_best_chain, tm_roll_forward_chain,
+        tm_rollback_chain, tm_send, tm_set_anchor_hash, tm_set_best_chain_hash,
     },
-    test_utils::{te_input, te_state},
+    test_utils::{tm_input, tm_state},
 };
 
 /// Incoming tip not in store -> terminate.
@@ -38,11 +38,11 @@ fn test_incoming_tip_not_in_store() {
     assert_trace(
         &running,
         &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_terminate("ac-1"),
-            te_terminated("ac-1", TerminationReason::Voluntary),
+            tm_state("ac-1", &prep.state),
+            tm_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            tm_load_header("ac-1", msg.hash()),
+            tm_terminate("ac-1"),
+            tm_terminated("ac-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::WARN, &["failed to load incoming tip"])
@@ -61,12 +61,12 @@ fn test_current_best_not_loadable() {
     assert_trace(
         &running,
         &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", ORIGIN_HASH),
-            te_terminate("ac-1"),
-            te_terminated("ac-1", TerminationReason::Voluntary),
+            tm_state("ac-1", &prep.state),
+            tm_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            tm_load_header("ac-1", msg.hash()),
+            tm_load_header("ac-1", ORIGIN_HASH),
+            tm_terminate("ac-1"),
+            tm_terminated("ac-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::WARN, &["failed to load current best"])
@@ -87,11 +87,11 @@ fn test_incoming_not_better_than_current_best() {
     assert_trace(
         &running,
         &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", prep.headers.h3.hash()),
-            te_state("ac-1", &prep.state),
+            tm_state("ac-1", &prep.state),
+            tm_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            tm_load_header("ac-1", msg.hash()),
+            tm_load_header("ac-1", prep.headers.h3.hash()),
+            tm_state("ac-1", &prep.state),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["incoming tip not better than current best"]).assert_no_remaining_at([
@@ -118,20 +118,20 @@ fn test_extension_adopts_and_sends() {
     assert_trace(
         &running,
         &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", prep.headers.h2.hash()),
-            te_roll_forward_chain("ac-1", msg.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_next_best_chain("ac-1", prep.headers.h0.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
-            te_clock("ac-1"),
-            te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
-            te_state("ac-1", &expected),
+            tm_state("ac-1", &prep.state),
+            tm_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            tm_load_header("ac-1", msg.hash()),
+            tm_load_header("ac-1", prep.headers.h2.hash()),
+            tm_roll_forward_chain("ac-1", msg.point()),
+            tm_set_best_chain_hash("ac-1", msg.hash()),
+            tm_get_anchor_hash("ac-1"),
+            tm_load_header("ac-1", prep.headers.h0.hash()),
+            tm_next_best_chain("ac-1", prep.headers.h0.point()),
+            tm_load_header("ac-1", prep.headers.h1.hash()),
+            tm_set_anchor_hash("ac-1", prep.headers.h1.hash()),
+            tm_clock("ac-1"),
+            tm_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
+            tm_state("ac-1", &expected),
         ],
     );
 
@@ -163,30 +163,30 @@ fn test_fork_switch_adopts_and_sends() {
     assert_trace(
         &running,
         &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", prep.headers.h2.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h3a.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h2a.point()),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h1.point()),
-            te_rollback_chain("ac-1", prep.headers.h1.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h2a.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h3a.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_next_best_chain("ac-1", prep.headers.h0.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
-            te_clock("ac-1"),
-            te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
-            te_state("ac-1", &expected),
+            tm_state("ac-1", &prep.state),
+            tm_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            tm_load_header("ac-1", msg.hash()),
+            tm_load_header("ac-1", prep.headers.h2.hash()),
+            tm_get_anchor_hash("ac-1"),
+            tm_load_header("ac-1", prep.headers.h0.hash()),
+            tm_load_header("ac-1", prep.headers.h2a.hash()),
+            tm_load_from_best_chain("ac-1", prep.headers.h3a.point()),
+            tm_load_header("ac-1", prep.headers.h1.hash()),
+            tm_load_from_best_chain("ac-1", prep.headers.h2a.point()),
+            tm_load_header("ac-1", prep.headers.h0.hash()),
+            tm_load_from_best_chain("ac-1", prep.headers.h1.point()),
+            tm_rollback_chain("ac-1", prep.headers.h1.point()),
+            tm_roll_forward_chain("ac-1", prep.headers.h2a.point()),
+            tm_roll_forward_chain("ac-1", prep.headers.h3a.point()),
+            tm_set_best_chain_hash("ac-1", msg.hash()),
+            tm_get_anchor_hash("ac-1"),
+            tm_load_header("ac-1", prep.headers.h0.hash()),
+            tm_next_best_chain("ac-1", prep.headers.h0.point()),
+            tm_load_header("ac-1", prep.headers.h1.hash()),
+            tm_set_anchor_hash("ac-1", prep.headers.h1.hash()),
+            tm_clock("ac-1"),
+            tm_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
+            tm_state("ac-1", &expected),
         ],
     );
 
@@ -217,24 +217,24 @@ fn test_fork_switch_opcert_hacked() {
     assert_trace(
         &running,
         &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h2.point()),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h1.point()),
-            te_rollback_chain("ac-1", prep.headers.h1.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h2.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_clock("ac-1"),
-            te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
-            te_state("ac-1", &expected),
+            tm_state("ac-1", &prep.state),
+            tm_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            tm_load_header("ac-1", msg.hash()),
+            tm_load_header("ac-1", prep.headers.h2a.hash()),
+            tm_get_anchor_hash("ac-1"),
+            tm_load_header("ac-1", prep.headers.h0.hash()),
+            tm_load_header("ac-1", prep.headers.h1.hash()),
+            tm_load_from_best_chain("ac-1", prep.headers.h2.point()),
+            tm_load_header("ac-1", prep.headers.h0.hash()),
+            tm_load_from_best_chain("ac-1", prep.headers.h1.point()),
+            tm_rollback_chain("ac-1", prep.headers.h1.point()),
+            tm_roll_forward_chain("ac-1", prep.headers.h2.point()),
+            tm_set_best_chain_hash("ac-1", msg.hash()),
+            tm_get_anchor_hash("ac-1"),
+            tm_load_header("ac-1", prep.headers.h0.hash()),
+            tm_clock("ac-1"),
+            tm_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
+            tm_state("ac-1", &expected),
         ],
     );
 
@@ -262,11 +262,11 @@ fn test_fork_not_better_no_switch() {
     assert_trace(
         &running,
         &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", prep.headers.h2.hash()),
-            te_state("ac-1", &prep.state),
+            tm_state("ac-1", &prep.state),
+            tm_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            tm_load_header("ac-1", msg.hash()),
+            tm_load_header("ac-1", prep.headers.h2.hash()),
+            tm_state("ac-1", &prep.state),
         ],
     );
 

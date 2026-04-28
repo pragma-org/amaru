@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, fmt, net::SocketAddr, sync::Arc};
+use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
 use amaru_kernel::{
     BlockHeader, HeaderHash, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
@@ -27,7 +27,7 @@ use amaru_protocols::store_effects::{
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use pure_stage::{
-    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
+    DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
@@ -41,7 +41,7 @@ use crate::{
         ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, RollbackBlockEffect,
         TipEffect, ValidateBlockEffect,
     },
-    stages::test_utils::{BufferWriter, Logs},
+    stages::test_utils::{BufferWriter, Logs, TraceMatch},
 };
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -327,24 +327,24 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
     (running, guards, logs.logs())
 }
 
-pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+pub fn tm_load_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash)))).into()
 }
 
-pub fn te_load_header_with_validity(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+pub fn tm_load_header_with_validity(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderWithValidityEffect::new(hash)))).into()
 }
 
-pub fn te_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
+pub fn tm_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new()))).into()
 }
 
-pub fn te_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceMatch<'static> {
+pub fn tm_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceMatch<'static> {
     let ctx = opentelemetry::Context::current();
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point, ctx)))).into()
 }
 
-pub fn te_record_metrics(at_stage: &str) -> TraceMatch<'_> {
+pub fn tm_record_metrics(at_stage: &str) -> TraceMatch<'_> {
     TraceMatch::Property(
         Box::new(move |e| {
             if let TraceEntry::Suspend(Effect::External { at_stage: at, effect }) = e {
@@ -357,80 +357,18 @@ pub fn te_record_metrics(at_stage: &str) -> TraceMatch<'_> {
     )
 }
 
-pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceMatch<'static> {
+pub fn tm_ledger_contains(at_stage: &str, point: &Point) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ContainsPointEffect::new(point)))).into()
 }
 
-pub fn te_ledger_tip(at_stage: &str) -> TraceMatch<'static> {
+pub fn tm_ledger_tip(at_stage: &str) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(TipEffect))).into()
 }
 
-pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceMatch<'static> {
+pub fn tm_rollback_ledger(at_stage: &str, point: &Point) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(RollbackBlockEffect::new(&Peer::new("unknown"), point, opentelemetry::Context::current())),
     ))
     .into()
-}
-
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceMatch<'static> {
-    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg))).into()
-}
-
-pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceMatch<'static> {
-    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) }).into()
-}
-
-pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceMatch<'static> {
-    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }.into()
-}
-
-pub enum TraceMatch<'a> {
-    Literal(TraceEntry),
-    Property(Box<dyn Fn(&TraceEntry) -> bool + 'a>, String),
-}
-impl From<TraceEntry> for TraceMatch<'static> {
-    fn from(entry: TraceEntry) -> Self {
-        TraceMatch::Literal(entry)
-    }
-}
-impl<'a> PartialEq<TraceEntry> for TraceMatch<'a> {
-    fn eq(&self, other: &TraceEntry) -> bool {
-        match self {
-            TraceMatch::Literal(literal) => literal == other,
-            TraceMatch::Property(predicate, _) => predicate(other),
-        }
-    }
-}
-impl<'a> PartialEq<TraceMatch<'a>> for TraceEntry {
-    fn eq(&self, other: &TraceMatch<'a>) -> bool {
-        match other {
-            TraceMatch::Literal(literal) => self == literal,
-            TraceMatch::Property(predicate, _) => predicate(self),
-        }
-    }
-}
-impl<'a> fmt::Debug for TraceMatch<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TraceMatch::Literal(literal) => fmt::Debug::fmt(literal, f),
-            TraceMatch::Property(_predicate, description) => f.write_str(description),
-        }
-    }
-}
-
-#[track_caller]
-pub fn assert_trace<'a>(running: &SimulationRunning, expected: &[TraceMatch<'a>]) {
-    let mut tb = running.trace_buffer().lock();
-    for e in tb.iter_entries() {
-        if let TraceEntry::InvalidBytes(bytes, value) = e.1 {
-            panic!("invalid bytes: {bytes:?}\n\nvalue: {value:?}");
-        }
-    }
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
 }

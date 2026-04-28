@@ -20,10 +20,10 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     fetch_blocks::test_setup::{
-        TestPrep, assert_trace, setup, te_cancel_schedule, te_clock, te_get_anchor_hash, te_load_block, te_load_header,
-        te_schedule, te_send, te_store_block, te_terminate, te_terminated, test_prep,
+        TestPrep, assert_trace, setup, test_prep, tm_cancel_schedule, tm_clock, tm_get_anchor_hash, tm_load_block,
+        tm_load_header, tm_schedule, tm_send, tm_store_block, tm_terminate, tm_terminated,
     },
-    test_utils::{te_input, te_state},
+    test_utils::{tm_input, tm_state},
 };
 
 #[test]
@@ -38,11 +38,11 @@ fn test_new_tip_load_header_fails() {
     assert_trace(
         &running,
         &[
-            te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
-            te_load_header("fb-1", tip.hash()),
-            te_terminate("fb-1"),
-            te_terminated("fb-1", TerminationReason::Voluntary),
+            tm_state("fb-1", &prep.state),
+            tm_input("fb-1", &msg),
+            tm_load_header("fb-1", tip.hash()),
+            tm_terminate("fb-1"),
+            tm_terminated("fb-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["failed to load initial header"])
@@ -67,16 +67,16 @@ fn test_new_tip_no_blocks_to_fetch() {
     assert_trace(
         &running,
         &[
-            te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
-            te_load_header("fb-1", tip.hash()),
-            te_get_anchor_hash("fb-1"),
-            te_get_anchor_hash("fb-1"),
-            te_load_header("fb-1", prep.headers.h0.hash()),
-            te_load_header("fb-1", prep.headers.h1.hash()),
-            te_load_block("fb-1", prep.headers.h2.hash()),
-            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(tip.point())),
-            te_state("fb-1", &prep.state_with_block_height(3)),
+            tm_state("fb-1", &prep.state),
+            tm_input("fb-1", &msg),
+            tm_load_header("fb-1", tip.hash()),
+            tm_get_anchor_hash("fb-1"),
+            tm_get_anchor_hash("fb-1"),
+            tm_load_header("fb-1", prep.headers.h0.hash()),
+            tm_load_header("fb-1", prep.headers.h1.hash()),
+            tm_load_block("fb-1", prep.headers.h2.hash()),
+            tm_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(tip.point())),
+            tm_state("fb-1", &prep.state_with_block_height(3)),
         ],
     );
     logs.assert_and_remove(Level::INFO, &["no blocks to fetch"]).assert_no_remaining_at([
@@ -115,18 +115,18 @@ fn test_new_tip_blocks_to_fetch() {
     assert_trace(
         &running,
         &[
-            te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
-            te_load_header("fb-1", tip.hash()),
-            te_get_anchor_hash("fb-1"),
-            te_get_anchor_hash("fb-1"),
-            te_load_header("fb-1", prep.headers.h0.hash()),
-            te_load_header("fb-1", prep.headers.h1.hash()),
-            te_load_block("fb-1", prep.headers.h2.hash()),
-            te_load_header("fb-1", prep.headers.h0.hash()),
-            te_load_block("fb-1", prep.headers.h1.hash()),
-            te_load_block("fb-1", prep.headers.h0.hash()),
-            te_send(
+            tm_state("fb-1", &prep.state),
+            tm_input("fb-1", &msg),
+            tm_load_header("fb-1", tip.hash()),
+            tm_get_anchor_hash("fb-1"),
+            tm_get_anchor_hash("fb-1"),
+            tm_load_header("fb-1", prep.headers.h0.hash()),
+            tm_load_header("fb-1", prep.headers.h1.hash()),
+            tm_load_block("fb-1", prep.headers.h2.hash()),
+            tm_load_header("fb-1", prep.headers.h0.hash()),
+            tm_load_block("fb-1", prep.headers.h1.hash()),
+            tm_load_block("fb-1", prep.headers.h0.hash()),
+            tm_send(
                 "fb-1",
                 "manager",
                 ManagerMessage::FetchBlocks2 {
@@ -136,12 +136,12 @@ fn test_new_tip_blocks_to_fetch() {
                     cr: prep.cleanup_replies.clone(),
                 },
             ),
-            te_schedule("fb-1", FetchBlocksMsg::Timeout(1), schedule_id),
-            te_state("fb-1", &state_with_timeout),
-            te_clock(timeout_at),
-            te_input("fb-1", &FetchBlocksMsg::Timeout(1)),
-            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h0.point())),
-            te_state("fb-1", &state_after_timeout),
+            tm_schedule("fb-1", FetchBlocksMsg::Timeout(1), schedule_id),
+            tm_state("fb-1", &state_with_timeout),
+            tm_clock(timeout_at),
+            tm_input("fb-1", &FetchBlocksMsg::Timeout(1)),
+            tm_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h0.point())),
+            tm_state("fb-1", &state_after_timeout),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
@@ -171,11 +171,11 @@ fn test_block_received() {
     assert_trace(
         &running,
         &[
-            te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
-            te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
-            te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(0))),
-            te_state("fb-1", &expected),
+            tm_state("fb-1", &prep.state),
+            tm_input("fb-1", &msg),
+            tm_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
+            tm_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(0))),
+            tm_state("fb-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["received block"]).assert_no_remaining_at([
@@ -205,13 +205,13 @@ fn test_block2_received() {
     assert_trace(
         &running,
         &[
-            te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
-            te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
-            te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(0))),
-            te_cancel_schedule("fb-1", schedule_id),
-            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h2.point())),
-            te_state("fb-1", &expected),
+            tm_state("fb-1", &prep.state),
+            tm_input("fb-1", &msg),
+            tm_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
+            tm_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(0))),
+            tm_cancel_schedule("fb-1", schedule_id),
+            tm_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h2.point())),
+            tm_state("fb-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["received block"]).assert_no_remaining_at([
