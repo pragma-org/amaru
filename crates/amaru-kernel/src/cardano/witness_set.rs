@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    BootstrapWitness, MemoizedNativeScript, MemoizedPlutusData, NonEmptyVec, PlutusScript, Redeemers, VKeyWitness,
-    cbor,
+    BootstrapWitness, MemoizedNativeScript, MemoizedPlutusData, NonEmptyVec, PlutusScript, Redeemers, VKeyWitness, cbor,
 };
 
 /// FIXME: Accidentally not a set
@@ -62,4 +61,3 @@ pub struct WitnessSet {
     #[n(7)]
     pub plutus_v3_script: Option<NonEmptyVec<PlutusScript<3>>>,
 }
-
