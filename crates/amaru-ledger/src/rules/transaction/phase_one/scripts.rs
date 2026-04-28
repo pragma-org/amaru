@@ -83,14 +83,12 @@ pub fn execute<C>(
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
-    fail_on_malformed_scripts(witness_set, protocol_version)?;
-
     let required_scripts = context.required_scripts();
 
     let required_script_hashes: BTreeSet<&Hash<SCRIPT>> =
         required_scripts.iter().map(|RequiredScript { hash, .. }| hash).collect();
 
-    let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set);
+    let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set, protocol_version)?;
 
     let required_scripts = fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
 
@@ -202,19 +200,23 @@ fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
     required: &BTreeSet<&Hash<SCRIPT>>,
     witness_set: &'a WitnessSet,
-) -> BTreeMap<Hash<SCRIPT>, ScriptKind>
+    protocol_version: ProtocolVersion,
+) -> Result<BTreeMap<Hash<SCRIPT>, ScriptKind>, InvalidScripts>
 where
     C: WitnessSlice,
 {
-    let referenced = context
-        .known_scripts()
-        .into_iter()
-        // We only consider script references required by the transaction
-        .filter_map(|(script_hash, script_ref)| {
-            if required.contains(&script_hash) { Some((script_hash, ScriptKind::from(script_ref))) } else { None }
-        });
+    let mut provided = validate_witness_scripts(witness_set, protocol_version)?;
 
-    witness_set.get_provided_scripts().into_iter().chain(referenced).collect()
+    // Reference-input scripts are not validated here — they were validated when the producing
+    // transaction's outputs went through the output rule. We only include those required by
+    // the transaction.
+    for (script_hash, script_ref) in context.known_scripts() {
+        if required.contains(&script_hash) {
+            provided.insert(script_hash, ScriptKind::from(script_ref));
+        }
+    }
+
+    Ok(provided)
 }
 
 /// Ensures that the required and provided scripts match exactly (i.e. check that they're included
@@ -330,6 +332,15 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
     Ok(())
 }
 
+/// Attempts to flat decode the script bytes to validate they are well formed.
+/// Takes an arena to decode the script into, and then resets it.
+// FIXME:
+// Currently, all callsites here create new arenas.
+// The allocation arenas should never be created on the fly but created ahead of time and re-used.
+// Otherwise, we're removing nearly all benefits of Arenas.
+// FIXME:
+// We decode the script bytes here and, if they're well-formed, again during phase 2 validation.
+// We should decode the script bytes once, and then pass them to phase 2 validation for execution.
 pub(crate) fn validate_plutus_script<const V: usize>(
     script: &PlutusScript<V>,
     plutus_version: PlutusVersion,
@@ -350,45 +361,82 @@ pub(crate) fn validate_plutus_script<const V: usize>(
     result
 }
 
-fn collect_malformed<const V: usize>(
-    scripts: &[PlutusScript<V>],
-    plutus_version: PlutusVersion,
-    protocol_version: ProtocolVersion,
-    malformed: &mut BTreeSet<Hash<SCRIPT>>,
-) {
-    let mut arena = Arena::new();
-    malformed.extend(
-        scripts
-            .iter()
-            .filter(|s| validate_plutus_script(s, plutus_version, protocol_version, &mut arena).is_err())
-            .map(|s| s.script_hash()),
-    );
-}
-
-fn get_malformed_witness_scripts(
+/// Validate every Plutus script in the witness set and return the witness set's scripts keyed
+/// by hash (native scripts are included as-is; Plutus scripts are included after their bytes
+/// successfully decode under the given protocol version). Fails with
+/// `MalformedScriptWitnesses` if any Plutus script's flat encoding doesn't decode.
+fn validate_witness_scripts(
     witness_set: &WitnessSet,
     protocol_version: ProtocolVersion,
-) -> BTreeSet<Hash<SCRIPT>> {
+) -> Result<BTreeMap<Hash<SCRIPT>, ScriptKind>, InvalidScripts> {
+    let mut provided = BTreeMap::new();
     let mut malformed = BTreeSet::new();
-    if let Some(scripts) = witness_set.plutus_v1_script.as_deref() {
-        collect_malformed(scripts, PlutusVersion::V1, protocol_version, &mut malformed);
+    let mut arena = Arena::new();
+
+    if let Some(scripts) = witness_set.native_script.as_deref() {
+        for script in scripts {
+            provided.insert(script.script_hash(), ScriptKind::Native);
+        }
     }
-    if let Some(scripts) = witness_set.plutus_v2_script.as_deref() {
-        collect_malformed(scripts, PlutusVersion::V2, protocol_version, &mut malformed);
+
+    collect_plutus_witness_scripts(
+        witness_set.plutus_v1_script.as_deref(),
+        PlutusVersion::V1,
+        protocol_version,
+        &mut arena,
+        &mut provided,
+        &mut malformed,
+    );
+
+    collect_plutus_witness_scripts(
+        witness_set.plutus_v2_script.as_deref(),
+        PlutusVersion::V2,
+        protocol_version,
+        &mut arena,
+        &mut provided,
+        &mut malformed,
+    );
+
+    collect_plutus_witness_scripts(
+        witness_set.plutus_v3_script.as_deref(),
+        PlutusVersion::V3,
+        protocol_version,
+        &mut arena,
+        &mut provided,
+        &mut malformed,
+    );
+
+    if !malformed.is_empty() {
+        return Err(InvalidScripts::MalformedScriptWitnesses(malformed));
     }
-    if let Some(scripts) = witness_set.plutus_v3_script.as_deref() {
-        collect_malformed(scripts, PlutusVersion::V3, protocol_version, &mut malformed);
-    }
-    malformed
+
+    Ok(provided)
 }
 
-fn fail_on_malformed_scripts(witness_set: &WitnessSet, protocol_version: ProtocolVersion) -> Result<(), InvalidScripts> {
-    let malformed_witnesses = get_malformed_witness_scripts(witness_set, protocol_version);
-    if !malformed_witnesses.is_empty() {
-        return Err(InvalidScripts::MalformedScriptWitnesses(malformed_witnesses));
-    }
+fn collect_plutus_witness_scripts<const V: usize>(
+    scripts: Option<&[PlutusScript<V>]>,
+    plutus_version: PlutusVersion,
+    protocol_version: ProtocolVersion,
+    arena: &mut Arena,
+    provided: &mut BTreeMap<Hash<SCRIPT>, ScriptKind>,
+    malformed: &mut BTreeSet<Hash<SCRIPT>>,
+) {
+    let Some(scripts) = scripts else { return };
+    // TODO: ScriptKind should implement `From`, instead of having this inline here.
+    // This is not immediately easy, as ScriptKind is defined in the kernel, which does not depend on `uplc_turbo`.
+    let kind = match plutus_version {
+        PlutusVersion::V1 => ScriptKind::PlutusV1,
+        PlutusVersion::V2 => ScriptKind::PlutusV2,
+        PlutusVersion::V3 => ScriptKind::PlutusV3,
+    };
 
-    Ok(())
+    for script in scripts {
+        let hash = script.script_hash();
+        provided.insert(hash, kind);
+        if validate_plutus_script(script, plutus_version, protocol_version, arena).is_err() {
+            malformed.insert(hash);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -478,14 +526,17 @@ mod tests {
             ..WitnessSet::default()
         };
 
-        let malformed = super::get_malformed_witness_scripts(&witness_set, preprod_pv());
-        assert_eq!(malformed.len(), 1);
+        assert!(matches!(
+            super::validate_witness_scripts(&witness_set, preprod_pv()),
+            Err(InvalidScripts::MalformedScriptWitnesses(ref hashes)) if hashes.len() == 1
+        ));
     }
 
     #[test]
     fn no_scripts_no_malformed() {
         let witness_set = WitnessSet::default();
-        let malformed = super::get_malformed_witness_scripts(&witness_set, preprod_pv());
-        assert!(malformed.is_empty());
+        let provided = super::validate_witness_scripts(&witness_set, preprod_pv())
+            .expect("empty witness set should not produce malformed scripts");
+        assert!(provided.is_empty());
     }
 }

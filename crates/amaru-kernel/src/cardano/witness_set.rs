@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-
 use crate::{
-    BootstrapWitness, HasScriptHash, Hash, MemoizedNativeScript, MemoizedPlutusData, NonEmptyVec, PlutusScript,
-    Redeemers, ScriptKind, VKeyWitness, cbor, size::SCRIPT,
+    BootstrapWitness, MemoizedNativeScript, MemoizedPlutusData, NonEmptyVec, PlutusScript, Redeemers, VKeyWitness,
+    cbor,
 };
 
 /// FIXME: Accidentally not a set
@@ -65,37 +63,3 @@ pub struct WitnessSet {
     pub plutus_v3_script: Option<NonEmptyVec<PlutusScript<3>>>,
 }
 
-impl WitnessSet {
-    /// Collect provided scripts and compute each ScriptHash in a witness set
-    pub fn get_provided_scripts(&self) -> BTreeMap<Hash<SCRIPT>, ScriptKind> {
-        let mut provided_scripts = BTreeMap::new();
-
-        if let Some(native_scripts) = self.native_script.as_ref() {
-            provided_scripts
-                .extend(native_scripts.iter().map(|native_script| (native_script.script_hash(), ScriptKind::Native)))
-        };
-
-        collect_plutus_scripts(&mut provided_scripts, self.plutus_v1_script.as_ref(), ScriptKind::PlutusV1);
-
-        collect_plutus_scripts(&mut provided_scripts, self.plutus_v2_script.as_ref(), ScriptKind::PlutusV2);
-
-        collect_plutus_scripts(&mut provided_scripts, self.plutus_v3_script.as_ref(), ScriptKind::PlutusV3);
-
-        provided_scripts
-    }
-}
-
-// ----------------------------------------------------------------------------
-// Internals
-// ----------------------------------------------------------------------------
-
-/// A helper function, generic in the script VERSION, for collecting scripts from witnesses.
-fn collect_plutus_scripts<const VERSION: usize>(
-    accum: &mut BTreeMap<Hash<SCRIPT>, ScriptKind>,
-    scripts: Option<&NonEmptyVec<PlutusScript<VERSION>>>,
-    kind: ScriptKind,
-) {
-    if let Some(plutus_scripts) = scripts {
-        accum.extend(plutus_scripts.iter().map(|script| (script.script_hash(), kind)))
-    }
-}
