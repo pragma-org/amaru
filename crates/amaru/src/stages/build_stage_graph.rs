@@ -54,15 +54,13 @@ pub fn build_stage_graph(
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
     let manager = stage_graph.stage("manager", manager::stage);
-    let peer_selection_stage = stage_graph.stage("peer_selection", peer_selection::stage);
+    let peer_selection = stage_graph.stage("peer_selection", peer_selection::stage);
+    let peer_selection_ref = peer_selection.sender();
 
-    let static_peers: BTreeSet<Peer> = config.upstream_peers.iter().map(|s| Peer::new(s.as_str())).collect();
-    let peer_selection = stage_graph.wire_up(
-        peer_selection_stage,
-        PeerSelection::new(manager.sender(), static_peers, config.peer_removal_cooldown_secs),
-    );
+    let static_peers: BTreeSet<Peer> = config.upstream_peers.iter().map(|s| Peer::new(s)).collect();
+    let peer_selection = stage_graph
+        .wire_up(peer_selection, PeerSelection::new(manager.sender(), static_peers, config.peer_removal_cooldown_secs));
 
-    let peer_selection_ref = peer_selection.as_ref().clone();
     let peer_selection_notify =
         stage_graph.contramap(&peer_selection_ref, "peer_selection_notify", |n: PeerSelectionNotify| match n {
             PeerSelectionNotify::DownstreamConnected(p) => PeerSelectionMsg::DownstreamConnected(p),

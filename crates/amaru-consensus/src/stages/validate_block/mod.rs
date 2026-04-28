@@ -80,6 +80,8 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 // step 2: roll forward to the parent point if needed
                 // (none of the ancestors is already known to be invalid, as ensured above)
                 tracing::info!(parent = %msg.parent, current = %state.current, points = %forward_points.len(), "rolling forward ledger to reach parent");
+                let to_do = forward_points.len();
+                let mut done = 0;
                 for point in forward_points {
                     tracing::debug!(point = %point, "validating block (roll forward)");
                     match validate(point, &ledger).await {
@@ -93,6 +95,10 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                             eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point }).await;
                             return state;
                         }
+                    }
+                    done += 1;
+                    if done % 100 == 0 {
+                        tracing::info!(%done, %to_do, "rolling forward ledger to reach parent");
                     }
                 }
             }

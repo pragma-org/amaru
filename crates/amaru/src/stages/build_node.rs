@@ -28,7 +28,9 @@ use amaru_kernel::{
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, MempoolMsg, ResourceMempool};
+use amaru_ouroboros::{
+    ChainStore, ChildTipsMode, ConnectionsResource, HasStakeDistribution, MempoolMsg, ResourceMempool,
+};
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
@@ -128,7 +130,7 @@ pub fn build_node(
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
     let best_candidates = chain_store
-        .child_tips(&chain_store.get_best_chain_hash())
+        .child_tips(&chain_store.get_best_chain_hash(), ChildTipsMode::SkipInvalid)
         .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
             if tip.block_height() > best_height {
                 hashes.clear();

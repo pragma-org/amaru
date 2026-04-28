@@ -131,7 +131,7 @@ where
         }
     }
 
-    fn child_tips<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = Tip> + 'a>
+    fn child_tips<'a>(&'a self, hash: &HeaderHash, mode: ChildTipsMode) -> Box<dyn Iterator<Item = Tip> + 'a>
     where
         H: 'a,
     {
@@ -141,7 +141,7 @@ where
                 let hash = to_visit.pop()?;
                 tracing::debug!(hash = %hash, "visiting child");
                 let (header, validity) = self.load_header_with_validity(&hash)?;
-                if validity == Some(false) {
+                if mode == ChildTipsMode::SkipInvalid && validity == Some(false) {
                     continue;
                 }
                 let children = self.get_children(&hash);
@@ -150,6 +150,12 @@ where
             }
         }))
     }
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ChildTipsMode {
+    All,
+    SkipInvalid,
 }
 
 /// A chain store interface that exposes diagnostic methods to load raw data.

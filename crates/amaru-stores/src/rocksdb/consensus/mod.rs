@@ -165,6 +165,31 @@ impl RocksDBStore<OptimisticTransactionDB> {
             .delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat())
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
+
+    pub fn remove_block(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        self.db
+            .delete([&BLOCK_PREFIX[..], &hash[..]].concat())
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        self.remove_block_valid(hash)?;
+        Ok(())
+    }
+
+    pub fn remove_header<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>>(
+        &self,
+        hash: &HeaderHash,
+    ) -> Result<(), StoreError> {
+        let parent = self.load_header(hash).and_then(|h: H| h.parent());
+        if let Some(parent) = parent {
+            self.db
+                .delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat())
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        }
+        self.db
+            .delete([&HEADER_PREFIX[..], &hash[..]].concat())
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        self.remove_block(hash)?;
+        Ok(())
+    }
 }
 
 impl RocksDBStore<DB> {
