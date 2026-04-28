@@ -41,7 +41,7 @@ fn test_new_tip_load_header_fails() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_find_missing_blocks("fb-1", tip.hash(), 10),
+            te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_terminate("fb-1"),
             te_terminated("fb-1", TerminationReason::Voluntary),
         ],
@@ -70,7 +70,7 @@ fn test_new_tip_no_blocks_to_fetch() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_find_missing_blocks("fb-1", tip.hash(), 10),
+            te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(tip.point())),
             te_state("fb-1", &prep.state_with_block_height(3)),
         ],
@@ -113,7 +113,7 @@ fn test_new_tip_blocks_to_fetch() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_find_missing_blocks("fb-1", tip.hash(), 10),
+            te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_send(
                 "fb-1",
                 "manager",

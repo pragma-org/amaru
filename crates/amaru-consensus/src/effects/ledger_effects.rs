@@ -121,7 +121,7 @@ impl LedgerOps for Ledger {
     }
 
     fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
-        self.0.external(RegisteredRelaySocketAddrsEffect)
+        self.effects.external(RegisteredRelaySocketAddrsEffect)
     }
 }
 
@@ -315,7 +315,10 @@ impl ExternalEffect for TipEffect {
                 .expect("TipEffect requires a ResourceHeaderStore resource")
                 .clone();
             let point = ledger.tip();
-            store.load_tip(&point.hash()).expect("cannot load header for ledger tip")
+            store.load_tip(&point.hash()).unwrap_or_else(|| {
+                tracing::error!(?point, "ledger tip header not found in chain store, falling back to origin");
+                Tip::origin()
+            })
         })
     }
 }
