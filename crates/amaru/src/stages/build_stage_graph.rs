@@ -12,21 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
     fetch_blocks::{self, FetchBlocks, FetchBlocksMsg},
     mempool::{self, MempoolStageState},
+    peer_selection::{self, PeerSelection, PeerSelectionMsg},
     select_chain::{self, SelectChain, SelectChainMsg},
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, Point, Tip};
+use amaru_kernel::{BlockHeader, EraHistory, GlobalParameters, HeaderHash, Peer, Point, Tip};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
-    manager::{Manager, ManagerConfig, ManagerMessage},
+    manager::{Manager, ManagerConfig, ManagerMessage, PeerSelectionNotify},
 };
 use pure_stage::{StageGraph, StageRef};
 
@@ -52,6 +53,17 @@ pub fn build_stage_graph(
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
     let manager = stage_graph.stage("manager", manager::stage);
+    let peer_selection_stage = stage_graph.stage("peer_selection", peer_selection::stage);
+    let static_peers: BTreeSet<Peer> = config.upstream_peers.iter().map(|s| Peer::new(s.as_str())).collect();
+    let peer_selection = stage_graph.wire_up(
+        peer_selection_stage,
+        PeerSelection::new(manager.sender(), static_peers, config.peer_removal_cooldown_secs),
+    );
+    let peer_selection_ref = peer_selection.as_ref().clone();
+    let peer_selection_notify =
+        stage_graph.contramap(&peer_selection_ref, "peer_selection_notify", |n: PeerSelectionNotify| match n {
+            PeerSelectionNotify::DownstreamConnected(p) => PeerSelectionMsg::DownstreamConnected(p),
+        });
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);
     let select_chain = stage_graph.stage("select_chain", select_chain::stage);
     let fetch_blocks = stage_graph.stage("fetch_blocks", fetch_blocks::stage);
@@ -92,9 +104,20 @@ pub fn build_stage_graph(
 
     let track_peers = stage_graph.wire_up(
         track_peers,
-        TrackPeers::new(era_history.clone(), manager.sender(), select_chain_input, k, config.defer_req_next_poll_ms),
+        TrackPeers::new(
+            era_history.clone(),
+            peer_selection_ref.clone(),
+            select_chain_input,
+            k,
+            config.defer_req_next_poll_ms,
+        ),
     );
     let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
+
+    #[expect(clippy::expect_used)]
+    stage_graph
+        .preload(&peer_selection, [PeerSelectionMsg::ConnectInitial])
+        .expect("initialization message must be preloaded");
 
     let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
 
@@ -107,6 +130,7 @@ pub fn build_stage_graph(
                 Arc::new(era_history.clone()),
                 track_peers_input,
                 mempool_stage.clone(),
+                peer_selection_notify,
             ),
         )
         .without_state();

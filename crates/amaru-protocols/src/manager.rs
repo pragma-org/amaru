@@ -30,6 +30,13 @@ use crate::{
     protocol::Role,
 };
 
+/// Messages the [`Manager`] sends to the consensus `peer_selection` stage (via [`StageRef`]).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum PeerSelectionNotify {
+    /// A downstream peer completed accept and the responder connection is starting.
+    DownstreamConnected(Peer),
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
     AddPeer(Peer),
@@ -83,6 +90,7 @@ pub struct Manager {
     era_history: Arc<EraHistory>,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
     mempool: StageRef<MempoolMsg>,
+    peer_selection: StageRef<PeerSelectionNotify>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -100,8 +108,9 @@ impl Manager {
         era_history: Arc<EraHistory>,
         chain_sync: StageRef<ChainSyncInitiatorMsg>,
         mempool: StageRef<MempoolMsg>,
+        peer_selection: StageRef<PeerSelectionNotify>,
     ) -> Self {
-        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync, mempool }
+        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync, mempool, peer_selection }
     }
 
     pub fn config(&self) -> ManagerConfig {
@@ -227,7 +236,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     }
                     None => {}
                 };
-                start_connection_stage(&mut manager, &eff, peer, conn_id, Role::Responder).await;
+                start_connection_stage(&mut manager, &eff, peer.clone(), conn_id, Role::Responder).await;
+                eff.send(&manager.peer_selection, PeerSelectionNotify::DownstreamConnected(peer)).await;
             }
             ManagerMessage::RemovePeer(peer) => {
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::REMOVE_PEER, peer = peer.to_string());
@@ -373,5 +383,9 @@ async fn start_connection_stage(
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![register_data_deserializer::<Manager>().boxed(), register_data_deserializer::<ManagerMessage>().boxed()]
+    vec![
+        register_data_deserializer::<Manager>().boxed(),
+        register_data_deserializer::<ManagerMessage>().boxed(),
+        register_data_deserializer::<PeerSelectionNotify>().boxed(),
+    ]
 }

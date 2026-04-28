@@ -44,6 +44,9 @@ pub struct Config {
     /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
     pub defer_req_next_poll_ms: u64,
 
+    /// After a misbehaving upstream peer is removed, do not allow it to be re-added for this many seconds.
+    pub peer_removal_cooldown_secs: u64,
+
     /// Minimum number of trace entries retained when the stage graph trace buffer is full.
     pub trace_buffer_min_entries: usize,
 
@@ -82,6 +85,7 @@ impl Default for Config {
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
             defer_req_next_poll_ms: 200,
+            peer_removal_cooldown_secs: 600,
             trace_buffer_min_entries: 0,
             trace_buffer_max_size: 0,
             trace_dump_path: None,

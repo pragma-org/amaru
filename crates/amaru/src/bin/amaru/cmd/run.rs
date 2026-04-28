@@ -138,6 +138,15 @@ pub struct Args {
     )]
     peer_address: Vec<String>,
 
+    /// After removing a misbehaving upstream peer, wait this many seconds before allowing it to be re-added.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
+        default_value_t = 600
+    )]
+    peer_removal_cooldown_secs: u64,
+
     /// Path to the PID file managed by Amaru.
     #[arg(
         long,
@@ -300,6 +309,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_min_entries,
         trace_buffer_max_size,
         trace_dump_path = %trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
+        peer_removal_cooldown_secs = args.peer_removal_cooldown_secs,
         "running"
     );
 
@@ -317,6 +327,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_min_entries,
         trace_buffer_max_size,
         trace_dump_path,
+        peer_removal_cooldown_secs: args.peer_removal_cooldown_secs,
         ..Config::default()
     })
 }

@@ -43,7 +43,10 @@ use crate::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect,
         VolatileTipEffect,
     },
-    stages::test_utils::{BufferWriter, Logs},
+    stages::{
+        peer_selection::PeerSelectionMsg,
+        test_utils::{BufferWriter, Logs},
+    },
 };
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
@@ -74,7 +77,7 @@ impl TestPrep {
 pub fn test_prep() -> TestPrep {
     let state = TrackPeers::new(
         TESTNET_ERA_HISTORY.clone(),
-        StageRef::named_for_tests("manager"),
+        StageRef::named_for_tests("peer_selection"),
         StageRef::named_for_tests("downstream"),
         10_000_000,
         200,
@@ -117,7 +120,7 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
         pure_stage::register_data_deserializer::<TrackPeersMsg>().boxed(),
         pure_stage::register_data_deserializer::<chainsync::InitiatorMessage>().boxed(),
-        pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
+        pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),

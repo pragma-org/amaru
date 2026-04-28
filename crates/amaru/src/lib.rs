@@ -159,6 +159,9 @@ pub mod env_vars {
     /// --peer-address
     pub const PEER_ADDRESS: &str = "AMARU_PEER_ADDRESS";
 
+    /// --peer-removal-cooldown-secs
+    pub const PEER_REMOVAL_COOLDOWN_SECS: &str = "AMARU_PEER_REMOVAL_COOLDOWN_SECS";
+
     /// --pid-file
     pub const PID_FILE: &str = "AMARU_PID_FILE";
 
