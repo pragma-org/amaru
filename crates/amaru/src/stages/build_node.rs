@@ -18,7 +18,7 @@ use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation,
     },
-    stages::select_chain::{best_tip_candidate_from_store, cmp_tip},
+    stages::select_chain::best_tip_candidate_from_store,
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
@@ -137,9 +137,6 @@ pub fn build_node(
 
     // Register resources
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
-
-    // Build the stage graph and return a reference to the manager stage
-    let best_candidate = best_candidate.map(|h| (h, best_missing));
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
     let node_stages =
