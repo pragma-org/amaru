@@ -12,14 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, cmp::Ordering, ops::Deref};
+use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap, ops::Deref};
 
 use crate::{AsIndex, Redeemer};
 
 /// A type that provides Ord and PartialOrd instance on redeemers, to allow storing them in binary
 /// trees in a controlled order (that matches Haskell's implementation).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct OrderedRedeemer<'a>(Cow<'a, Redeemer>);
+
+impl PartialEq for OrderedRedeemer<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for OrderedRedeemer<'_> {}
 
 impl Ord for OrderedRedeemer<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -62,6 +70,45 @@ impl<'a> From<&'a Redeemer> for OrderedRedeemer<'a> {
     }
 }
 
+pub struct UpsertMap<K: Ord, V>(BTreeMap<K, V>);
+
+impl<K: Ord, V> UpsertMap<K, V> {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    pub fn upsert(&mut self, key: K, value: V) {
+        self.0.remove(&key);
+        self.0.insert(key, value);
+    }
+
+    pub fn from_iter_last_in(iter: impl IntoIterator<Item = (K, V)>) -> Self {
+        let mut map = Self::new();
+        for (k, v) in iter {
+            map.upsert(k, v);
+        }
+        map
+    }
+
+    pub fn into_inner(self) -> BTreeMap<K, V> {
+        self.0
+    }
+}
+
+impl<K: Ord, V> Default for UpsertMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<K: Ord, V> Deref for UpsertMap<K, V> {
+    type Target = BTreeMap<K, V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -79,7 +126,31 @@ mod tests {
     }
 
     #[test]
-    fn btreemap_insert_keeps_old_key() {
+    fn eq_consistent_with_ord_same_tag_index_different_ex_units() {
+        let a = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
+        let b = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 999, 888));
+        assert_eq!(a.cmp(&b), Ordering::Equal);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn eq_consistent_with_ord_different_tag() {
+        let a = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
+        let b = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Mint, 0, 100, 200));
+        assert_ne!(a.cmp(&b), Ordering::Equal);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn eq_consistent_with_ord_different_index() {
+        let a = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
+        let b = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 1, 100, 200));
+        assert_ne!(a.cmp(&b), Ordering::Equal);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn btreemap_insert_keeps_first_key() {
         let r1 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
         let r2 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 999, 888));
 
@@ -94,14 +165,24 @@ mod tests {
     }
 
     #[test]
-    fn btreemap_remove_then_insert_replaces_key() {
+    fn ordering_by_tag_then_index() {
+        let spend_0 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 1, 1));
+        let spend_1 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 1, 1, 1));
+        let mint_0 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Mint, 0, 1, 1));
+
+        assert!(spend_0 < spend_1);
+        assert!(spend_0 < mint_0);
+        assert!(spend_1 < mint_0);
+    }
+
+    #[test]
+    fn upsert_map_replaces_key_and_value() {
         let r1 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 100, 200));
         let r2 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 999, 888));
 
-        let mut map = BTreeMap::new();
-        map.insert(r1, "first");
-        map.remove(&r2);
-        map.insert(r2, "second");
+        let mut map = UpsertMap::new();
+        map.upsert(r1, "first");
+        map.upsert(r2, "second");
 
         assert_eq!(map.len(), 1);
         let (key, value) = map.iter().next().unwrap();

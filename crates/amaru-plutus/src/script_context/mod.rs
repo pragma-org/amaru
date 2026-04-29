@@ -27,7 +27,7 @@ use amaru_kernel::{
     NonEmptyKeyValuePairs, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
     Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion, Redeemer,
     Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload,
-    TransactionBody, TransactionId, TransactionInput, Vote, Voter, VotingProcedure, WitnessSet, cbor,
+    TransactionBody, TransactionId, TransactionInput, UpsertMap, Vote, Voter, VotingProcedure, WitnessSet, cbor,
     size::{CREDENTIAL, DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
@@ -259,36 +259,37 @@ impl<'a> TxInfo<'a> {
             });
         }
 
-        let mut script_table: BTreeMap<OrderedRedeemer<'a>, Script<'a>> = BTreeMap::new();
+        let redeemer_results = witness_set
+            .redeemer
+            .as_ref()
+            .map(|redeemers| {
+                Redeemers::iter_from(redeemers)
+                    .enumerate()
+                    .map(|(ix, redeemer)| {
+                        let (purpose, script) = ScriptPurpose::builder(
+                            &redeemer,
+                            &inputs[..],
+                            &mint,
+                            &withdrawals,
+                            &certificates,
+                            &proposal_procedures,
+                            &votes,
+                            &scripts,
+                        )
+                        .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
 
-        let redeemers = Redeemers::new(
-            witness_set
-                .redeemer
-                .as_ref()
-                .map(|redeemers| {
-                    Redeemers::iter_from(redeemers)
-                        .enumerate()
-                        .map(|(ix, redeemer)| {
-                            let purpose = ScriptPurpose::builder(
-                                &redeemer,
-                                &inputs[..],
-                                &mint,
-                                &withdrawals,
-                                &certificates,
-                                &proposal_procedures,
-                                &votes,
-                                &scripts,
-                                &mut script_table,
-                            )
-                            .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
+                        Ok((redeemer, purpose, script))
+                    })
+                    .collect::<Result<Vec<_>, TxInfoTranslationError>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
 
-                            Ok((redeemer, purpose))
-                        })
-                        .collect::<Result<BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>, TxInfoTranslationError>>()
-                })
-                .transpose()?
-                .unwrap_or_default(),
-        );
+        let (redeemer_pairs, script_pairs): (Vec<_>, Vec<_>) =
+            redeemer_results.into_iter().map(|(r, p, s)| ((r.clone(), p), (r, s))).unzip();
+
+        let redeemers = Redeemers::new(UpsertMap::from_iter_last_in(redeemer_pairs).into_inner());
+        let script_table = UpsertMap::from_iter_last_in(script_pairs).into_inner();
 
         let datums = witness_set.plutus_data.as_ref().map(Datums::from).unwrap_or_default();
 
@@ -371,62 +372,40 @@ impl<'a> ScriptPurpose<'a> {
         proposal_procedures: &[&'a Proposal],
         votes: &Votes<'a>,
         scripts: &BTreeMap<Hash<SCRIPT>, Script<'a>>,
-        script_table: &mut BTreeMap<OrderedRedeemer<'a>, Script<'a>>,
-    ) -> Option<Self> {
+    ) -> Option<(Self, Script<'a>)> {
         let index = redeemer.index as usize;
         match redeemer.tag {
             RedeemerTag::Spend => inputs.get(index).and_then(|OutputRef { input, output }| {
                 if let Some(StakeCredential::ScriptHash(hash)) = output.address.as_shelley().map(|addr| addr.owner()) {
-                    let script = scripts.get(&hash);
-                    script.map(|script| {
-                        script_table.remove(redeemer);
-                        script_table.insert(redeemer.clone(), script.clone());
-                        ScriptPurpose::Spending(input, ())
-                    })
+                    scripts.get(&hash).map(|script| (ScriptPurpose::Spending(input, ()), script.clone()))
                 } else {
                     None
                 }
             }),
             RedeemerTag::Mint => mint.0.keys().nth(index).copied().and_then(|policy_id| {
-                let script = scripts.get(&policy_id);
-                script.map(|script| {
-                    script_table.remove(redeemer);
-                    script_table.insert(redeemer.clone(), script.clone());
-                    ScriptPurpose::Minting(policy_id)
-                })
+                scripts.get(&policy_id).map(|script| (ScriptPurpose::Minting(policy_id), script.clone()))
             }),
             RedeemerTag::Reward => withdrawals.0.keys().nth(index).and_then(|stake| {
                 if let StakePayload::Script(hash) = stake.0.payload() {
-                    let script = scripts.get(hash);
-                    script.map(|script| {
-                        script_table.remove(redeemer);
-                        script_table.insert(redeemer.clone(), script.clone());
-                        ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash))
-                    })
+                    scripts
+                        .get(hash)
+                        .map(|script| (ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash)), script.clone()))
                 } else {
                     None
                 }
             }),
             RedeemerTag::Cert => certs.get(index).and_then(|certificate| {
                 if let StakeCredential::ScriptHash(hash) = certificate.owner() {
-                    let script = scripts.get(&hash);
-                    script.map(|script| {
-                        script_table.remove(redeemer);
-                        script_table.insert(redeemer.clone(), script.clone());
-                        ScriptPurpose::Certifying(index, certificate.clone())
-                    })
+                    scripts
+                        .get(&hash)
+                        .map(|script| (ScriptPurpose::Certifying(index, certificate.clone()), script.clone()))
                 } else {
                     None
                 }
             }),
             RedeemerTag::Vote => votes.0.keys().nth(index).and_then(|voter| {
                 if let StakeCredential::ScriptHash(hash) = voter.owner() {
-                    let script = scripts.get(&hash);
-                    script.map(|script| {
-                        script_table.remove(redeemer);
-                        script_table.insert(redeemer.clone(), script.clone());
-                        ScriptPurpose::Voting(voter)
-                    })
+                    scripts.get(&hash).map(|script| (ScriptPurpose::Voting(voter), script.clone()))
                 } else {
                     None
                 }
@@ -446,16 +425,9 @@ impl<'a> ScriptPurpose<'a> {
                     | Information => None,
                 };
 
-                if let Some(hash) = script_hash {
-                    let script = scripts.get(&hash);
-                    script.map(|script| {
-                        script_table.remove(redeemer);
-                        script_table.insert(redeemer.clone(), script.clone());
-                        ScriptPurpose::Proposing(index, proposal)
-                    })
-                } else {
-                    None
-                }
+                script_hash.and_then(|hash| {
+                    scripts.get(&hash).map(|script| (ScriptPurpose::Proposing(index, proposal), script.clone()))
+                })
             }),
         }
     }
