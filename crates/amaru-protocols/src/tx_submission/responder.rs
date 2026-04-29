@@ -42,6 +42,10 @@ pub const MEMPOOL_INSERT_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long to wait between mempool capacity rechecks while back-pressured.
 pub const BACK_PRESSURE_RECHECK_INTERVAL: Duration = Duration::from_millis(500);
 
+/// How long to wait for a peer to deliver `ReplyTxs` after we sent `RequestTxs`. On expiry the
+/// responder treats the peer as misbehaving and terminates the connection.
+pub const INFLIGHT_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed(),
@@ -54,20 +58,21 @@ pub fn responder() -> Miniprotocol<State, TxSubmissionResponder, Responder> {
 }
 
 impl StageState<State, Responder> for TxSubmissionResponder {
-    type LocalIn = CheckMempoolSize;
+    type LocalIn = ResponderLocalIn;
 
     async fn local(
         mut self,
-        _proto: &State,
+        proto: &State,
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         let action = match input {
-            CheckMempoolSize => {
+            ResponderLocalIn::CheckMempoolSize => {
                 let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
                 self.back_pressure_scheduled = false;
                 self.recheck_back_pressure(mempool, eff).await
             }
+            ResponderLocalIn::InflightTimeout(fetch_id) => self.handle_inflight_timeout(fetch_id, proto),
         };
         Ok((action, self))
     }
@@ -89,7 +94,10 @@ impl StageState<State, Responder> for TxSubmissionResponder {
                     self.initialize_state(&mempool).await
                 }
                 ResponderResult::ReplyTxIds(tx_ids) => match self.process_tx_ids_reply(mempool, tx_ids).await? {
-                    FetchOutcome::Action(a) => Some(a),
+                    FetchOutcome::Action(action) => {
+                        self.schedule_inflight_timeout(&action, eff).await;
+                        Some(action)
+                    }
                     FetchOutcome::AwaitingCapacity => {
                         self.schedule_back_pressure_recheck(eff).await;
                         None
@@ -159,11 +167,20 @@ impl ProtocolState<Responder> for State {
     }
 }
 
-/// Triggered after `BACK_PRESSURE_RECHECK_INTERVAL` while the mempool was too full to accept the
-/// next pending tx. On firing, the responder re-attempts to drain `pending_fetch` and resumes
-/// the protocol if there is new mempool capacity.
+/// Self-message variants delivered to the responder via `eff.schedule_after`.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct CheckMempoolSize;
+pub enum ResponderLocalIn {
+    /// Triggered after `BACK_PRESSURE_RECHECK_INTERVAL` while the mempool was too full to accept
+    /// the next pending tx. On firing, the responder re-attempts to drain `pending_fetch` and
+    /// resumes the protocol if there is new mempool capacity.
+    CheckMempoolSize,
+    /// Triggered `INFLIGHT_FETCH_TIMEOUT` after a `RequestTxs` was sent. The carried `u64` is the
+    /// `fetch_generation` value at the time the timer was scheduled; on fire we ignore any timer
+    /// whose generation no longer matches `fetch_generation` (a `ReplyTxs` has since been
+    /// received and a new batch may already be in flight). One timer per `RequestTxs` round,
+    /// not per tx_id — this matches Cardano Haskell's per-state codec time limit.
+    InflightTimeout(u64),
+}
 
 /// Result of `process_tx_ids_reply`. The synchronous decision separates "what to send to the peer"
 /// from "should we schedule a back-pressure recheck", so test harnesses don't need an `Effects`
@@ -224,6 +241,10 @@ pub struct TxSubmissionResponder {
     /// `ReplyTxIds`. Used to verify on `ReplyTxs` that the body's CBOR size matches what was
     /// advertised.
     inflight_fetch: BTreeMap<TxId, u32>,
+    /// Fetch counter incremented each time we send `RequestTxs`. It is use to schedule `InflightTimeout`
+    /// messages, that will terminate the connection if no transactions have been received for the current
+    /// fetch_id.
+    fetch_id: u64,
     /// Used to avoid scheduling multiple back-pressure rechecks concurrently.
     back_pressure_scheduled: bool,
     /// The origin of the transactions we are fetching.
@@ -248,6 +269,7 @@ impl TxSubmissionResponder {
                 processed_fetch_set: BTreeSet::new(),
                 pending_fetch: VecDeque::new(),
                 inflight_fetch: BTreeMap::new(),
+                fetch_id: 0,
                 back_pressure_scheduled: false,
                 origin,
                 muxer,
@@ -403,7 +425,7 @@ impl TxSubmissionResponder {
     async fn insert_txs(
         &mut self,
         txs: Vec<Transaction>,
-        eff: &Effects<Inputs<CheckMempoolSize>>,
+        eff: &Effects<Inputs<ResponderLocalIn>>,
     ) -> anyhow::Result<Option<ResponderAction>> {
         if let Some(action) = self.validate_received_txs(&txs)? {
             return Ok(Some(action));
@@ -505,10 +527,30 @@ impl TxSubmissionResponder {
 
     /// Schedule a `CheckMempoolSize` self-message after a short delay if one isn't already
     /// pending. Called when we'd otherwise spin on req=0 round-trips because the mempool is full.
-    async fn schedule_back_pressure_recheck(&mut self, eff: &Effects<Inputs<CheckMempoolSize>>) {
+    async fn schedule_back_pressure_recheck(&mut self, eff: &Effects<Inputs<ResponderLocalIn>>) {
         if !self.back_pressure_scheduled {
             self.back_pressure_scheduled = true;
-            eff.schedule_after(Inputs::Local(CheckMempoolSize), BACK_PRESSURE_RECHECK_INTERVAL).await;
+            eff.schedule_after(Inputs::Local(ResponderLocalIn::CheckMempoolSize), BACK_PRESSURE_RECHECK_INTERVAL).await;
+        }
+    }
+
+    /// Process an `InflightTimeout`. If the timeout `fetch_id` still matches `self.fetch_id`
+    /// (i.e. no newer batch has been sent in the meantime) and we are still waiting for transactions
+    /// we terminate the connection. Stale timeouts are simply ignored (we don't try to cancel them).
+    fn handle_inflight_timeout(&self, fetch_id: u64, proto: &State) -> Option<ResponderAction> {
+        if fetch_id == self.fetch_id && *proto == State::Txs {
+            Some(ResponderAction::Error(TxFetchTimeout))
+        } else {
+            None
+        }
+    }
+
+    /// Bump the fetch id and schedule a single `InflightTimeout` for the new batch.
+    async fn schedule_inflight_timeout(&mut self, action: &ResponderAction, eff: &Effects<Inputs<ResponderLocalIn>>) {
+        if matches!(action, ResponderAction::SendRequestTxs(_)) {
+            self.fetch_id = self.fetch_id.wrapping_add(1);
+            eff.schedule_after(Inputs::Local(ResponderLocalIn::InflightTimeout(self.fetch_id)), INFLIGHT_FETCH_TIMEOUT)
+                .await;
         }
     }
 
@@ -518,11 +560,13 @@ impl TxSubmissionResponder {
     async fn recheck_back_pressure(
         &mut self,
         mempool: &dyn TxSubmissionMempool<Transaction>,
-        eff: &Effects<Inputs<CheckMempoolSize>>,
+        eff: &Effects<Inputs<ResponderLocalIn>>,
     ) -> Option<ResponderAction> {
         let txs = self.txs_to_request(mempool);
         if !txs.is_empty() {
-            return Some(ResponderAction::SendRequestTxs(txs));
+            let action = ResponderAction::SendRequestTxs(txs);
+            self.schedule_inflight_timeout(&action, eff).await;
+            return Some(action);
         }
 
         // Still nothing fetchable: re-schedule the check while pending_fetch has entries.
@@ -789,6 +833,43 @@ mod tests {
             ],
         );
         Ok(())
+    }
+
+    #[test]
+    fn inflight_timeout_for_current_batch_in_txs_state_terminates_protocol() {
+        let muxer = StageRef::<MuxMessage>::blackhole();
+        let mempool_stage = StageRef::<MempoolMsg>::blackhole();
+        let (_state, mut responder) =
+            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+
+        responder.fetch_id = 5;
+        let action = responder.handle_inflight_timeout(5, &State::Txs);
+        assert_eq!(action, Some(ResponderAction::Error(TxFetchTimeout)));
+    }
+
+    #[test]
+    fn inflight_timeout_with_stale_fetch_id_is_ignored() {
+        // A timer scheduled for an earlier batch should not fire if a newer batch is now in flight.
+        let muxer = StageRef::<MuxMessage>::blackhole();
+        let mempool_stage = StageRef::<MempoolMsg>::blackhole();
+        let (_state, mut responder) =
+            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+
+        responder.fetch_id = 7;
+        // Older timeout (fetch_id == 3) fires while we're already on fetch_id 7 — ignore.
+        assert!(responder.handle_inflight_timeout(3, &State::Txs).is_none());
+    }
+
+    #[test]
+    fn inflight_timeout_after_reply_received_is_ignored() {
+        // ReplyTxs has been received, ignore the now stale timeout.
+        let muxer = StageRef::<MuxMessage>::blackhole();
+        let mempool_stage = StageRef::<MempoolMsg>::blackhole();
+        let (_state, mut responder) =
+            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+
+        responder.fetch_id = 5;
+        assert!(responder.handle_inflight_timeout(5, &State::Idle).is_none());
     }
 
     #[test]

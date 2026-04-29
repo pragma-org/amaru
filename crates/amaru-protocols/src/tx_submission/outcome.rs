@@ -49,6 +49,10 @@ pub enum ProtocolError {
         advertised: u32,
         actual: u32,
     },
+    /// The peer did not deliver `ReplyTxs` within `INFLIGHT_FETCH_TIMEOUT` after we sent
+    /// `RequestTxs`. Mirrors the Cardano Haskell node's `ExceededTimeLimit StTxs` driver-level
+    /// error.
+    TxFetchTimeout,
     MempoolInsertFailed(TxId, MempoolError),
     MempoolBatchInsertFailedTimedout,
 }
@@ -96,6 +100,9 @@ impl Display for ProtocolError {
             }
             ProtocolError::TxSizeMismatch { tx_id, advertised, actual } => {
                 write!(f, "tx {tx_id} body size {actual} does not match advertised size {advertised}")
+            }
+            ProtocolError::TxFetchTimeout => {
+                write!(f, "peer did not deliver ReplyTxs within timeout")
             }
             ProtocolError::DuplicateTxIds(tx_ids) => {
                 write!(f, "duplicate transaction ids were found in the request: {tx_ids:?}")
