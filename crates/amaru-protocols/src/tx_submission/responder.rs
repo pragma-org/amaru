@@ -607,6 +607,7 @@ mod tests {
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::{
+        mempool::overriding_mempool::OverridingMempool,
         MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
         TxSubmissionMempool,
     };
@@ -723,7 +724,7 @@ mod tests {
     #[tokio::test]
     async fn fatal_mempool_errors_terminate_the_protocol() -> anyhow::Result<()> {
         let txs = create_transactions(2);
-        let mempool = Arc::new(FailingInsertMempool::new("database unavailable"));
+        let mempool = failing_insert_mempool("database unavailable");
 
         let actions = run_stage(mempool, vec![init(), reply_tx_ids(&txs, &[0, 1]), reply_txs(&txs, &[0, 1])]).await?;
 
@@ -741,13 +742,13 @@ mod tests {
     #[tokio::test]
     async fn rejected_transactions_at_the_front_of_the_window_are_acknowledged() -> anyhow::Result<()> {
         let txs = create_transactions(3);
-        let mempool = Arc::new(MockMempool::new(vec![
+        let mempool = mock_insert_mempool(vec![
             TxInsertResult::rejected(
                 TxId::from(&txs[0]),
                 TxRejectReason::Invalid(TransactionValidationError::from(anyhow::anyhow!("invalid for test"))),
             ),
             TxInsertResult::accepted(TxId::from(&txs[1]), MempoolSeqNo(1)),
-        ]));
+        ]);
 
         let actions =
             run_stage(mempool, vec![init(), reply_tx_ids(&txs, &[0, 1, 2]), reply_txs(&txs, &[0, 1])]).await?;
@@ -767,7 +768,7 @@ mod tests {
             TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
 
         // Mempool reports zero capacity left, so any pending fetch should yield AwaitingCapacity.
-        let mempool: Arc<dyn TxSubmissionMempool<Transaction>> = Arc::new(FullMempool);
+        let mempool = full_mempool();
 
         let tx_ids = vec![(TxId::from(&txs[0]), 100), (TxId::from(&txs[1]), 100)];
         let outcome = responder.process_tx_ids_reply(mempool.as_ref(), tx_ids).expect("no protocol error");
@@ -786,8 +787,9 @@ mod tests {
             TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
 
         // First the mempool is full.
+        let full = full_mempool();
         let tx_ids = vec![(TxId::from(&txs[0]), 100), (TxId::from(&txs[1]), 100)];
-        let outcome = responder.process_tx_ids_reply(&FullMempool, tx_ids).expect("no protocol error");
+        let outcome = responder.process_tx_ids_reply(full.as_ref(), tx_ids).expect("no protocol error");
         assert!(matches!(outcome, FetchOutcome::AwaitingCapacity));
 
         // Then the mempool drains and we can fetch transactions
@@ -898,124 +900,38 @@ mod tests {
         ResponderAction::Error(error)
     }
 
-    ///  A mempool that is completely failing to insert anything
-    struct FailingInsertMempool {
-        message: &'static str,
+    /// A mempool that fails every `insert` with the given error message
+    fn failing_insert_mempool(message: &'static str) -> Arc<dyn TxSubmissionMempool<Transaction>> {
+        Arc::new(
+            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
+                .with_insert(move |_inner, _tx, _origin| Err(MempoolError::new(message)))
+                .build(),
+        )
     }
 
-    impl FailingInsertMempool {
-        fn new(message: &'static str) -> Self {
-            Self { message }
-        }
+    /// A mempool whose `insert` returns predetermined results keyed by `TxId`.
+    /// Each result is consumed on first match.
+    fn mock_insert_mempool(results: Vec<TxInsertResult>) -> Arc<dyn TxSubmissionMempool<Transaction>> {
+        let mut by_id: BTreeMap<TxId, TxInsertResult> =
+            results.into_iter().map(|result| (*result.tx_id(), result)).collect();
+        Arc::new(
+            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
+                .with_insert(move |_inner, tx, _origin| {
+                    let tx_id = TxId::from(&tx);
+                    Ok(by_id.remove(&tx_id).expect("missing insert result for mock mempool test"))
+                })
+                // never report contained txs to force the responder to fetch them.
+                .with_contains(|_inner, _tx_id| false)
+                .build(),
+        )
     }
 
-    impl TxSubmissionMempool<Transaction> for FailingInsertMempool {
-        fn insert(&self, _tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
-            Err(MempoolError::new(self.message))
-        }
-
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
-            None
-        }
-
-        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
-            vec![]
-        }
-
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
-            vec![]
-        }
-
-        fn mempool_txs(&self) -> Vec<Transaction> {
-            vec![]
-        }
-
-        fn last_seq_no(&self) -> MempoolSeqNo {
-            MempoolSeqNo(0)
-        }
-
-        fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
-            false
-        }
-    }
-
-    struct MockMempool {
-        results: std::sync::Mutex<BTreeMap<TxId, TxInsertResult>>,
-    }
-
-    impl MockMempool {
-        fn new(results: Vec<TxInsertResult>) -> Self {
-            Self {
-                results: std::sync::Mutex::new(results.into_iter().map(|result| (*result.tx_id(), result)).collect()),
-            }
-        }
-    }
-
-    impl TxSubmissionMempool<Transaction> for MockMempool {
-        fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
-            let tx_id = TxId::from(&tx);
-            Ok(self
-                .results
-                .lock()
-                .expect("mock mempool results mutex poisoned")
-                .remove(&tx_id)
-                .expect("missing insert result for mock mempool test"))
-        }
-
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
-            None
-        }
-
-        fn contains(&self, tx_id: &TxId) -> bool {
-            let _ = tx_id;
-            false
-        }
-
-        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
-            vec![]
-        }
-
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
-            vec![]
-        }
-
-        fn mempool_txs(&self) -> Vec<Transaction> {
-            vec![]
-        }
-
-        fn last_seq_no(&self) -> MempoolSeqNo {
-            MempoolSeqNo(0)
-        }
-
-        fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
-            false
-        }
-    }
-
-    /// Mempool implementation that always reports being at capacity.
-    struct FullMempool;
-
-    impl TxSubmissionMempool<Transaction> for FullMempool {
-        fn insert(&self, _tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
-            unreachable!("not used in back-pressure test")
-        }
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
-            None
-        }
-        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
-            vec![]
-        }
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
-            vec![]
-        }
-        fn mempool_txs(&self) -> Vec<Transaction> {
-            vec![]
-        }
-        fn last_seq_no(&self) -> MempoolSeqNo {
-            MempoolSeqNo(0)
-        }
-        fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
-            true
-        }
+    /// A mempool that always reports being at capacity, used to drive back-pressure tests.
+    fn full_mempool() -> Arc<dyn TxSubmissionMempool<Transaction>> {
+        Arc::new(
+            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
+                .with_is_near_capacity(|_inner, _additional| true)
+                .build(),
+        )
     }
 }
