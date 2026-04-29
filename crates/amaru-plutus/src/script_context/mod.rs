@@ -25,9 +25,9 @@ use amaru_kernel::{
     ComputeHash, EraHistory, EraHistoryError, ExUnits, GlobalParameters, HasOwnership, HasScriptHash, Hash, Lovelace,
     MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, NativeScript, Network, NetworkName,
     NonEmptyKeyValuePairs, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, NonEmptySet, NonEmptyVec, NonZeroInt,
-    Nullable, OrderedRedeemer, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion, Redeemer,
+    Nullable, PlutusData, PlutusScript, Proposal, ProposalId, ProtocolVersion, RedeemerKey,
     Redeemers as PallasRedeemers, RewardAccount, ScriptPurpose as RedeemerTag, Slot, StakeCredential, StakePayload,
-    TransactionBody, TransactionId, TransactionInput, UpsertMap, Vote, Voter, VotingProcedure, WitnessSet, cbor,
+    TransactionBody, TransactionId, TransactionInput, Vote, Voter, VotingProcedure, WitnessSet, cbor,
     size::{CREDENTIAL, DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
@@ -54,22 +54,22 @@ use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData};
 /// The serialized representation of `ScriptContext` may be different for each `PlutusVersion`,
 /// so it is important to specify the correct `PlutusVersion` when serializing.
 pub struct ScriptContext<'a> {
-    tx_info: &'a TxInfo<'a>,
-    // TODO: this should not be exposed, this is just for testing purposes atm
-    pub redeemer: &'a Redeemer,
-    datum: Option<&'a PlutusData>,
-    script_purpose: &'a ScriptPurpose<'a>,
+    pub(super) tx_info: &'a TxInfo<'a>,
+    pub(super) redeemer_data: &'a PlutusData,
+    pub(super) redeemer_ex_units: ExUnits,
+    pub(super) datum: Option<&'a PlutusData>,
+    pub(super) script_purpose: &'a ScriptPurpose<'a>,
 }
 
 impl<'a> ScriptContext<'a> {
-    /// Construct a new [`ScriptContext`] for a specific script execution (specified by the `Redeemer`).
+    /// Construct a new [`ScriptContext`] for a specific script execution (identified by its [`RedeemerKey`]).
     ///
-    /// Returns `None` if the provided `Redeemer` does not exist in the `TxInfo`
-    pub fn new(tx_info: &'a TxInfo<'a>, redeemer: &'a Redeemer) -> Option<Self> {
-        let purpose = tx_info.redeemers.get(&OrderedRedeemer::from(redeemer));
+    /// Returns `None` if no entry exists in `tx_info.redeemers` for the given key.
+    pub fn new(tx_info: &'a TxInfo<'a>, redeemer_key: &RedeemerKey) -> Option<Self> {
+        let entry = tx_info.redeemers.get(redeemer_key)?;
 
-        let datum = if amaru_kernel::ScriptPurpose::Spend == redeemer.tag {
-            tx_info.inputs.get(redeemer.index as usize).and_then(|output_ref| match output_ref.output.datum {
+        let datum = if redeemer_key.tag == RedeemerTag::Spend {
+            tx_info.inputs.get(redeemer_key.index as usize).and_then(|output_ref| match output_ref.output.datum {
                 DatumOption::None => None,
                 DatumOption::Hash(hash) => tx_info.data.0.get(hash).copied(),
                 DatumOption::Inline(plutus_data) => Some(plutus_data),
@@ -78,7 +78,13 @@ impl<'a> ScriptContext<'a> {
             None
         };
 
-        purpose.map(|script_purpose| ScriptContext { tx_info, redeemer, datum, script_purpose })
+        Some(ScriptContext {
+            tx_info,
+            redeemer_data: entry.data,
+            redeemer_ex_units: entry.ex_units,
+            datum,
+            script_purpose: &entry.purpose,
+        })
     }
 
     /// Serialize `ScriptContext` to a list of arguments to be passed to a Plutus validator.
@@ -101,7 +107,7 @@ impl<'a> ScriptContext<'a> {
     }
 
     pub fn budget(&self) -> &ExUnits {
-        &self.redeemer.ex_units
+        &self.redeemer_ex_units
     }
 
     fn v1_script_args(&self) -> Result<Vec<PlutusData>, PlutusDataError> {
@@ -110,7 +116,7 @@ impl<'a> ScriptContext<'a> {
             args.push(datum.clone());
         }
 
-        args.push(self.redeemer.data.clone());
+        args.push(self.redeemer_data.clone());
         args.push(<Self as ToPlutusData<1>>::to_plutus_data(self)?);
 
         Ok(args)
@@ -121,7 +127,7 @@ impl<'a> ScriptContext<'a> {
         if let Some(datum) = self.datum {
             args.push(datum.clone());
         }
-        args.push(self.redeemer.data.clone());
+        args.push(self.redeemer_data.clone());
         args.push(<Self as ToPlutusData<2>>::to_plutus_data(self)?);
 
         Ok(args)
@@ -149,14 +155,13 @@ pub struct TxInfo<'a> {
     withdrawals: Withdrawals,
     valid_range: TimeRange,
     signatories: RequiredSigners,
-    redeemers: Redeemers<'a>,
+    pub(super) redeemers: Redeemers<'a>,
     data: Datums<'a>,
     id: TransactionId,
     votes: Votes<'a>,
     proposal_procedures: Vec<&'a Proposal>,
     current_treasury_amount: Option<Lovelace>,
     treasury_donation: Option<Lovelace>,
-    script_table: BTreeMap<OrderedRedeemer<'a>, Script<'a>>,
 }
 
 #[derive(Debug, Error)]
@@ -259,39 +264,27 @@ impl<'a> TxInfo<'a> {
             });
         }
 
-        let redeemer_results = witness_set
-            .redeemer
-            .as_ref()
-            .map(|redeemers| {
-                Redeemers::iter_from(redeemers)
-                    .enumerate()
-                    .map(|(ix, redeemer)| {
-                        let (purpose, script) = ScriptPurpose::builder(
-                            &redeemer,
-                            &inputs[..],
-                            &mint,
-                            &withdrawals,
-                            &certificates,
-                            &proposal_procedures,
-                            &votes,
-                            &scripts,
-                        )
-                        .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
+        let mut redeemers_map: BTreeMap<RedeemerKey, RedeemerEntry<'a>> = BTreeMap::new();
+        if let Some(redeemers) = witness_set.redeemer.as_ref() {
+            for (ix, (key, data, ex_units)) in Redeemers::iter_from(redeemers).enumerate() {
+                let (purpose, script) = ScriptPurpose::builder(
+                    &key,
+                    &inputs[..],
+                    &mint,
+                    &withdrawals,
+                    &certificates,
+                    &proposal_procedures,
+                    &votes,
+                    &scripts,
+                )
+                .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
 
-                        Ok((redeemer, purpose, script))
-                    })
-                    .collect::<Result<Vec<_>, TxInfoTranslationError>>()
-            })
-            .transpose()?
-            .unwrap_or_default();
-
-        let (redeemer_pairs, script_pairs): (Vec<_>, Vec<_>) = redeemer_results
-            .into_iter()
-            .map(|(redeemer, script_info, script)| ((redeemer.clone(), script_info), (redeemer, script)))
-            .unzip();
-
-        let redeemers = Redeemers::new(UpsertMap::from_iter_last_in(redeemer_pairs).into_inner());
-        let script_table = UpsertMap::from_iter_last_in(script_pairs).into_inner();
+                // Plain insert is correct: RedeemerKey is primitive, so duplicate keys
+                // collide on identity; the new value (carrying the new data/ex_units/script)
+                // replaces the old. Matches Haskell `Map.fromList` last-wins semantics.
+                redeemers_map.insert(key, RedeemerEntry { purpose, data, ex_units, script });
+            }
+        }
 
         let datums = witness_set.plutus_data.as_ref().map(Datums::from).unwrap_or_default();
 
@@ -305,24 +298,23 @@ impl<'a> TxInfo<'a> {
             withdrawals,
             valid_range,
             signatories,
-            redeemers,
+            redeemers: Redeemers::new(redeemers_map),
             data: datums,
             id: tx_id,
             votes,
             proposal_procedures,
             current_treasury_amount: tx.treasury_value,
             treasury_donation: tx.donation.map(|donation| donation.into()),
-            script_table,
         })
     }
 
     /// Construct all script contexts for this TxInfo
     pub fn to_script_contexts(&self) -> Vec<(ScriptContext<'_>, &Script<'_>)> {
-        self.script_table
+        self.redeemers
             .iter()
-            .filter_map(|(redeemer, script)| {
-                let script_context = ScriptContext::new(self, redeemer)?;
-                Some((script_context, script))
+            .filter_map(|(key, entry)| {
+                let script_context = ScriptContext::new(self, key)?;
+                Some((script_context, &entry.script))
             })
             .collect()
     }
@@ -366,7 +358,7 @@ pub enum ScriptInfo<'a, T: Clone> {
 impl<'a> ScriptPurpose<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn builder(
-        redeemer: &OrderedRedeemer<'a>,
+        key: &RedeemerKey,
         inputs: &[OutputRef<'a>],
         mint: &Mint<'a>,
         withdrawals: &Withdrawals,
@@ -375,8 +367,8 @@ impl<'a> ScriptPurpose<'a> {
         votes: &Votes<'a>,
         scripts: &BTreeMap<Hash<SCRIPT>, Script<'a>>,
     ) -> Option<(Self, Script<'a>)> {
-        let index = redeemer.index as usize;
-        match redeemer.tag {
+        let index = key.index as usize;
+        match key.tag {
             RedeemerTag::Spend => inputs.get(index).and_then(|OutputRef { input, output }| {
                 if let Some(StakeCredential::ScriptHash(hash)) = output.address.as_shelley().map(|addr| addr.owner()) {
                     scripts.get(&hash).map(|script| (ScriptPurpose::Spending(input, ()), script.clone()))
@@ -872,16 +864,25 @@ impl<'a> From<&'a NonEmptyVec<MemoizedPlutusData>> for Datums<'a> {
 
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct Redeemers<'a>(BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>);
+pub struct RedeemerEntry<'a> {
+    pub purpose: ScriptPurpose<'a>,
+    pub data: &'a PlutusData,
+    pub ex_units: ExUnits,
+    pub script: Script<'a>,
+}
+
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct Redeemers<'a>(BTreeMap<RedeemerKey, RedeemerEntry<'a>>);
 
 impl<'a> Redeemers<'a> {
-    pub fn new(inner: BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>) -> Self {
+    pub fn new(inner: BTreeMap<RedeemerKey, RedeemerEntry<'a>>) -> Self {
         Self(inner)
     }
 }
 
 impl<'a> Deref for Redeemers<'a> {
-    type Target = BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>;
+    type Target = BTreeMap<RedeemerKey, RedeemerEntry<'a>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -891,17 +892,13 @@ impl<'a> Deref for Redeemers<'a> {
 impl<'a, const V: u8> ToPlutusData<V> for Redeemers<'a>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
-    Redeemer: ToPlutusData<V>,
     ScriptPurpose<'a>: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         let converted: Result<Vec<_>, _> = self
-            .iter()
-            .map(|(redeemer, purpose)| {
-                Ok((
-                    <ScriptPurpose<'_> as ToPlutusData<V>>::to_plutus_data(purpose)?,
-                    <Redeemer as ToPlutusData<V>>::to_plutus_data(redeemer.deref())?,
-                ))
+            .values()
+            .map(|entry| {
+                Ok((<ScriptPurpose<'_> as ToPlutusData<V>>::to_plutus_data(&entry.purpose)?, entry.data.clone()))
             })
             .collect();
 
@@ -910,17 +907,16 @@ where
 }
 
 impl Redeemers<'_> {
-    pub fn iter_from<'a>(redeemers: &'a PallasRedeemers) -> Box<dyn Iterator<Item = OrderedRedeemer<'a>> + 'a> {
+    pub(super) fn iter_from<'a>(
+        redeemers: &'a PallasRedeemers,
+    ) -> Box<dyn Iterator<Item = (RedeemerKey, &'a PlutusData, ExUnits)> + 'a> {
         match redeemers {
-            PallasRedeemers::List(list) => Box::new(list.iter().map(OrderedRedeemer::from)),
-            PallasRedeemers::Map(map) => Box::new(map.iter().map(|(tag, value)| {
-                OrderedRedeemer::from(Redeemer {
-                    tag: tag.tag,
-                    index: tag.index,
-                    data: value.data.clone(),
-                    ex_units: value.ex_units,
-                })
-            })),
+            PallasRedeemers::List(list) => {
+                Box::new(list.iter().map(|r| (RedeemerKey { tag: r.tag, index: r.index }, &r.data, r.ex_units)))
+            }
+            PallasRedeemers::Map(map) => {
+                Box::new(map.iter().map(|(key, value)| (key.clone(), &value.data, value.ex_units)))
+            }
         }
     }
 }
@@ -1170,6 +1166,38 @@ mod tests {
 
             StakeAddress(new_stake_address(network, delegation))
         })
+    }
+
+    #[test]
+    fn iter_from_into_btreemap_keeps_last_for_duplicate_redeemers() {
+        // Pins the property the bug fix is for: when two redeemers share (tag, index) but
+        // carry different data/ex_units, the last occurrence wins — matching Haskell's
+        // Map.fromList. The property holds because RedeemerKey is primitive: BTreeMap::insert
+        // on Ord-equal keys replaces the value, and the value carries everything that varies.
+        use amaru_kernel::{MaybeIndefArray, Redeemer};
+
+        let make_redeemer = |mem: u64, steps: u64, payload: u8| Redeemer {
+            tag: RedeemerTag::Spend,
+            index: 0,
+            data: PlutusData::BoundedBytes(vec![payload].into()),
+            ex_units: ExUnits { mem, steps },
+        };
+
+        let r1 = make_redeemer(100, 200, 0xAA);
+        let r2 = make_redeemer(999, 888, 0xBB);
+
+        let pallas_redeemers = PallasRedeemers::List(MaybeIndefArray::Indef(vec![r1, r2.clone()]));
+
+        let map: BTreeMap<RedeemerKey, (&PlutusData, ExUnits)> =
+            Redeemers::iter_from(&pallas_redeemers).map(|(k, data, ex_units)| (k, (data, ex_units))).collect();
+
+        assert_eq!(map.len(), 1, "duplicate (tag, index) should collapse to one entry");
+
+        let (key, (data, ex_units)) = map.iter().next().unwrap();
+        assert_eq!(key.tag, RedeemerTag::Spend);
+        assert_eq!(key.index, 0);
+        assert_eq!(*ex_units, r2.ex_units, "last redeemer's ex_units must win");
+        assert_eq!(**data, r2.data, "last redeemer's data must win");
     }
 
     #[test]

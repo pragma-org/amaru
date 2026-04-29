@@ -266,8 +266,6 @@ impl ToPlutusData<1> for Datums<'_> {
 // This test logic is basically 100% duplicated with v3. Should be able to simplify.
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
-
     use amaru_kernel::{NetworkName, PROTOCOL_VERSION_10, Transaction, cbor, to_cbor};
     use test_case::test_case;
 
@@ -275,7 +273,6 @@ mod tests {
         super::test_vectors::{self, TestVector},
         *,
     };
-    use crate::script_context::Redeemers;
 
     const PLUTUS_VERSION: u8 = 1;
 
@@ -297,24 +294,24 @@ mod tests {
 
         let transaction: Transaction = cbor::decode(&test_vector.input.transaction_bytes).unwrap();
 
-        let redeemers = Redeemers::iter_from(transaction.witnesses.redeemer.as_ref().expect("no redeemers provided"));
+        let utxos = test_vector.input.utxo.clone().into();
+        let tx_info = TxInfo::new(
+            &transaction.body,
+            &transaction.witnesses,
+            transaction.body.id(),
+            &utxos,
+            &0.into(),
+            network,
+            network.into(),
+            PROTOCOL_VERSION_10,
+        )
+        .unwrap();
 
-        let produced_contexts = redeemers
-            .map(|redeemer| {
-                let utxos = test_vector.input.utxo.clone().into();
-                let tx_info = TxInfo::new(
-                    &transaction.body,
-                    &transaction.witnesses,
-                    transaction.body.id(),
-                    &utxos,
-                    &0.into(),
-                    network,
-                    network.into(),
-                    PROTOCOL_VERSION_10,
-                )
-                .unwrap();
-
-                let script_context = ScriptContext::new(&tx_info, redeemer.deref()).unwrap();
+        let produced_contexts = tx_info
+            .redeemers
+            .keys()
+            .map(|key| {
+                let script_context = ScriptContext::new(&tx_info, key).unwrap();
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<1>>::to_plutus_data(&script_context)
                         .expect("failed to ScriptContext convert to PlutusData"),
