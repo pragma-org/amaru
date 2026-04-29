@@ -15,7 +15,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::Display,
-    time::Duration,
 };
 
 use amaru_kernel::{to_cbor, Transaction};
@@ -36,15 +35,6 @@ use crate::{
     },
     tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
 };
-
-pub const MEMPOOL_INSERT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// How long to wait between mempool capacity rechecks while back-pressured.
-pub const BACK_PRESSURE_RECHECK_INTERVAL: Duration = Duration::from_millis(500);
-
-/// How long to wait for a peer to deliver `ReplyTxs` after we sent `RequestTxs`. On expiry the
-/// responder treats the peer as misbehaving and terminates the connection.
-pub const INFLIGHT_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -170,11 +160,11 @@ impl ProtocolState<Responder> for State {
 /// Self-message variants delivered to the responder via `eff.schedule_after`.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderLocalIn {
-    /// Triggered after `BACK_PRESSURE_RECHECK_INTERVAL` while the mempool was too full to accept
-    /// the next pending tx. On firing, the responder re-attempts to drain `pending_fetch` and
-    /// resumes the protocol if there is new mempool capacity.
+    /// Triggered after `params.back_pressure_recheck_interval` while the mempool was too full to
+    /// accept the next pending tx. On firing, the responder re-attempts to drain `pending_fetch`
+    /// and resumes the protocol if there is new mempool capacity.
     CheckMempoolSize,
-    /// Triggered `INFLIGHT_FETCH_TIMEOUT` after a `RequestTxs` was sent. The carried `u64` is the
+    /// Triggered `params.inflight_fetch_timeout` after a `RequestTxs` was sent. The carried `u64` is the
     /// `fetch_generation` value at the time the timer was scheduled; on fire we ignore any timer
     /// whose generation no longer matches `fetch_generation` (a `ReplyTxs` has since been
     /// received and a new batch may already be in flight). One timer per `RequestTxs` round,
@@ -448,7 +438,7 @@ impl TxSubmissionResponder {
 
         let origin = self.origin.clone();
         match eff
-            .call(&self.mempool_stage, MEMPOOL_INSERT_TIMEOUT, move |caller| MempoolMsg::InsertBatch {
+            .call(&self.mempool_stage, self.params.mempool_insert_timeout, move |caller| MempoolMsg::InsertBatch {
                 txs,
                 origin: origin.clone(),
                 caller,
@@ -538,7 +528,11 @@ impl TxSubmissionResponder {
     async fn schedule_back_pressure_recheck(&mut self, eff: &Effects<Inputs<ResponderLocalIn>>) {
         if !self.back_pressure_scheduled {
             self.back_pressure_scheduled = true;
-            eff.schedule_after(Inputs::Local(ResponderLocalIn::CheckMempoolSize), BACK_PRESSURE_RECHECK_INTERVAL).await;
+            eff.schedule_after(
+                Inputs::Local(ResponderLocalIn::CheckMempoolSize),
+                self.params.back_pressure_recheck_interval,
+            )
+            .await;
         }
     }
 
@@ -557,8 +551,11 @@ impl TxSubmissionResponder {
     async fn schedule_inflight_timeout(&mut self, action: &ResponderAction, eff: &Effects<Inputs<ResponderLocalIn>>) {
         if matches!(action, ResponderAction::SendRequestTxs(_)) {
             self.fetch_id = self.fetch_id.wrapping_add(1);
-            eff.schedule_after(Inputs::Local(ResponderLocalIn::InflightTimeout(self.fetch_id)), INFLIGHT_FETCH_TIMEOUT)
-                .await;
+            eff.schedule_after(
+                Inputs::Local(ResponderLocalIn::InflightTimeout(self.fetch_id)),
+                self.params.inflight_fetch_timeout,
+            )
+            .await;
         }
     }
 

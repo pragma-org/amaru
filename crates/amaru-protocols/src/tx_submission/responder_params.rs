@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use amaru_kernel::cbor;
 
 /// Parameters used to control the behavior of the transaction submission responder.
@@ -19,30 +21,63 @@ use amaru_kernel::cbor;
 pub struct ResponderParams {
     /// How many tx ids we can keep unacknowledged at any moment.
     pub max_window: u16,
-    /// Per-`RequestTxs` byte budget for the cumulative advertised size of tx bodies fetched in
-    /// a single round. Greedy: the responder stops adding tx_ids to the request once including
-    /// the next one would exceed this budget (always serving at least one to avoid starving on
-    /// an unusually large advertisement).
+    /// Per-`RequestTxs` byte budget for the cumulative size of tx bodies fetched in a single round.
     pub fetch_batch_bytes: u64,
+    /// How long to wait for a peer to deliver `ReplyTxs` after we sent `RequestTxs`. On expiry
+    /// the responder treats the peer as misbehaving and terminates the connection.
+    pub inflight_fetch_timeout: Duration,
+    /// How long to wait between mempool capacity rechecks while back-pressured.
+    pub back_pressure_recheck_interval: Duration,
+    /// How long to wait for the mempool stage to respond to a batch insert.
+    pub mempool_insert_timeout: Duration,
 }
 
 /// Default outstanding tx-id window, i.e. how many tx ids we can keep unacknowledged at any moment.
 pub const DEFAULT_MAX_OUTSTANDING_TX_IDS: u16 = 10;
 
-/// Default per-`RequestTxs` byte budget. Matches Haskell V2's `txsSizeInflightPerPeer`
-/// (`6 × max_TX_SIZE = 6 × 65_540 = 393_240`) in
-/// `ouroboros-network/lib/Ouroboros/Network/TxSubmission/Inbound/V2/Policy.hs`.
+/// Default per-`RequestTxs` byte budget.
+/// This value is `6 × max_TX_SIZE = 6 × 65_540 = 393_240`
 pub const DEFAULT_FETCH_BATCH_BYTES: u64 = 393_240;
+
+/// Default in-flight body fetch timeout.
+pub const DEFAULT_INFLIGHT_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Default back-pressure recheck interval.
+pub const DEFAULT_BACK_PRESSURE_RECHECK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Default timeout for the mempool stage to respond to a batch insert call.
+pub const DEFAULT_MEMPOOL_INSERT_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl Default for ResponderParams {
     fn default() -> Self {
-        Self { max_window: DEFAULT_MAX_OUTSTANDING_TX_IDS, fetch_batch_bytes: DEFAULT_FETCH_BATCH_BYTES }
+        Self {
+            max_window: DEFAULT_MAX_OUTSTANDING_TX_IDS,
+            fetch_batch_bytes: DEFAULT_FETCH_BATCH_BYTES,
+            inflight_fetch_timeout: DEFAULT_INFLIGHT_FETCH_TIMEOUT,
+            back_pressure_recheck_interval: DEFAULT_BACK_PRESSURE_RECHECK_INTERVAL,
+            mempool_insert_timeout: DEFAULT_MEMPOOL_INSERT_TIMEOUT,
+        }
     }
 }
 
 impl ResponderParams {
     pub fn new(max_window: u16, fetch_batch_bytes: u64) -> Self {
-        Self { max_window, fetch_batch_bytes }
+        Self { max_window, fetch_batch_bytes, ..Self::default() }
+    }
+
+    pub fn with_inflight_fetch_timeout(mut self, d: Duration) -> Self {
+        self.inflight_fetch_timeout = d;
+        self
+    }
+
+    pub fn with_back_pressure_recheck_interval(mut self, d: Duration) -> Self {
+        self.back_pressure_recheck_interval = d;
+        self
+    }
+
+    pub fn with_mempool_insert_timeout(mut self, d: Duration) -> Self {
+        self.mempool_insert_timeout = d;
+        self
     }
 }
 

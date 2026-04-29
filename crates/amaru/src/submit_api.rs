@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 
 use amaru_kernel::Transaction;
 use amaru_ouroboros::{MempoolMsg, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_protocols::tx_submission::MEMPOOL_INSERT_TIMEOUT;
+use amaru_protocols::tx_submission::DEFAULT_MEMPOOL_INSERT_TIMEOUT;
 use anyhow::Context;
 use axum::{
     Json, Router,
@@ -82,7 +82,10 @@ async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: Header
     };
 
     match mempool_sender
-        .call(|caller| MempoolMsg::Insert { tx: Box::new(tx), origin: TxOrigin::Local, caller }, MEMPOOL_INSERT_TIMEOUT)
+        .call(
+            |caller| MempoolMsg::Insert { tx: Box::new(tx), origin: TxOrigin::Local, caller },
+            DEFAULT_MEMPOOL_INSERT_TIMEOUT,
+        )
         .await
     {
         Ok(Ok(TxInsertResult::Accepted { tx_id, .. })) => json_response(StatusCode::ACCEPTED, tx_id.to_string()),

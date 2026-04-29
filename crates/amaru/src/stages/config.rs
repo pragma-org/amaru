@@ -17,6 +17,7 @@ use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
 use amaru_kernel::{BlockHeader, NetworkMagic, NetworkName};
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::ChainStore;
+use amaru_protocols::tx_submission::ResponderParams;
 use amaru_stores::{in_memory::MemoryStore, rocksdb::RocksDbConfig};
 use anyhow::Context;
 
@@ -54,8 +55,11 @@ pub struct Config {
     /// If set, raw trace buffer bytes are written here during node shutdown.
     pub trace_dump_path: Option<PathBuf>,
 
-    /// Mempool parameters (count, total bytes, per-tx size).
+    /// Mempool configuration (max size for now).
     pub mempool: MempoolConfig,
+
+    /// Tx-submission responder parameters (max outstanding tx-id window, fetch batch size, etc...).
+    pub tx_submission_responder_params: ResponderParams,
 }
 
 impl Config {
@@ -90,6 +94,7 @@ impl Default for Config {
             trace_buffer_max_size: 0,
             trace_dump_path: None,
             mempool: MempoolConfig::default(),
+            tx_submission_responder_params: ResponderParams::default(),
         }
     }
 }

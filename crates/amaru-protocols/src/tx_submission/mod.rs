@@ -30,7 +30,7 @@ mod tests;
 use amaru_ouroboros::{MempoolMsg, TxOrigin};
 pub use initiator::initiator;
 use pure_stage::{Effects, StageRef};
-pub use responder::{MEMPOOL_INSERT_TIMEOUT, ResponderLocalIn, ResponderResult, TxSubmissionMsg, responder};
+pub use responder::{ResponderLocalIn, ResponderResult, TxSubmissionMsg, responder};
 #[cfg(test)]
 pub use tests::*;
 

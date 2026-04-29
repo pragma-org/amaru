@@ -29,6 +29,7 @@ use amaru::{
 use amaru_kernel::NetworkName;
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::MempoolMsg;
+use amaru_protocols::tx_submission::ResponderParams;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -174,6 +175,48 @@ pub struct Args {
         env = amaru::env_vars::MEMPOOL_MAX_BYTES,
     )]
     mempool_max_bytes: Option<u64>,
+
+    /// Tx-submission max outstanding tx-id window. How many tx ids we received and
+    /// for which we haven't received any corresponding transaction bodies yet.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::TX_SUBMISSION_MAX_WINDOW,
+    )]
+    tx_submission_max_window: Option<u16>,
+
+    /// Tx-submission per-`RequestTxs` maximum byte size.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::TX_SUBMISSION_FETCH_BATCH_BYTES,
+    )]
+    tx_submission_fetch_batch_bytes: Option<u64>,
+
+    /// Tx-submission inflight-fetch timeout in milliseconds.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::TX_SUBMISSION_INFLIGHT_TIMEOUT_MS,
+    )]
+    tx_submission_inflight_timeout_ms: Option<u64>,
+
+    /// Tx-submission back-pressure recheck interval in milliseconds. How often to retry
+    /// fetching once the mempool is full.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::TX_SUBMISSION_RECHECK_INTERVAL_MS,
+    )]
+    tx_submission_recheck_interval_ms: Option<u64>,
+
+    /// Tx-submission mempool-insert timeout in milliseconds.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::TX_SUBMISSION_INSERT_TIMEOUT_MS,
+    )]
+    tx_submission_insert_timeout_ms: Option<u64>,
 }
 
 impl Args {
@@ -299,6 +342,23 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         mempool = mempool.with_max_bytes(v);
     };
 
+    let mut tx_submission_params = ResponderParams::default();
+    if let Some(v) = args.tx_submission_max_window {
+        tx_submission_params.max_window = v;
+    }
+    if let Some(v) = args.tx_submission_fetch_batch_bytes {
+        tx_submission_params.fetch_batch_bytes = v;
+    }
+    if let Some(v) = args.tx_submission_inflight_timeout_ms {
+        tx_submission_params.inflight_fetch_timeout = std::time::Duration::from_millis(v);
+    }
+    if let Some(v) = args.tx_submission_recheck_interval_ms {
+        tx_submission_params.back_pressure_recheck_interval = std::time::Duration::from_millis(v);
+    }
+    if let Some(v) = args.tx_submission_insert_timeout_ms {
+        tx_submission_params.mempool_insert_timeout = std::time::Duration::from_millis(v);
+    }
+
     info!(
         _command = "run",
         chain_dir = %chain_dir.to_string_lossy(),
@@ -315,6 +375,11 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_max_size,
         trace_dump_path = %trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
         mempool_max_bytes = ?mempool.max_bytes,
+        tx_submission_max_window = tx_submission_params.max_window,
+        tx_submission_fetch_batch_bytes = tx_submission_params.fetch_batch_bytes,
+        tx_submission_inflight_timeout_ms = tx_submission_params.inflight_fetch_timeout.as_millis() as u64,
+        tx_submission_recheck_interval_ms = tx_submission_params.back_pressure_recheck_interval.as_millis() as u64,
+        tx_submission_insert_timeout_ms = tx_submission_params.mempool_insert_timeout.as_millis() as u64,
         "running"
     );
 
@@ -333,6 +398,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_max_size,
         trace_dump_path,
         mempool,
+        tx_submission_responder_params: tx_submission_params,
         ..Config::default()
     })
 }

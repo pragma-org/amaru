@@ -102,7 +102,7 @@ pub fn build_stage_graph(
             manager,
             Manager::new(
                 config.network_magic,
-                ManagerConfig::default(),
+                ManagerConfig::default().with_tx_submission_params(config.tx_submission_responder_params),
                 Arc::new(era_history.clone()),
                 track_peers_input,
                 mempool_stage.clone(),
