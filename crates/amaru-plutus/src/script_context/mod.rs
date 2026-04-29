@@ -285,8 +285,10 @@ impl<'a> TxInfo<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let (redeemer_pairs, script_pairs): (Vec<_>, Vec<_>) =
-            redeemer_results.into_iter().map(|(r, p, s)| ((r.clone(), p), (r, s))).unzip();
+        let (redeemer_pairs, script_pairs): (Vec<_>, Vec<_>) = redeemer_results
+            .into_iter()
+            .map(|(redeemer, script_info, script)| ((redeemer.clone(), script_info), (redeemer, script)))
+            .unzip();
 
         let redeemers = Redeemers::new(UpsertMap::from_iter_last_in(redeemer_pairs).into_inner());
         let script_table = UpsertMap::from_iter_last_in(script_pairs).into_inner();
