@@ -22,8 +22,8 @@ use amaru_consensus::{
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
-    BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, Peer, Point, Transaction,
-    ORIGIN_HASH,
+    BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point,
+    Transaction,
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::METRICS_METER_NAME;
@@ -34,19 +34,19 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use pure_stage::{
+    BoxFuture, Sender, StageGraph, StageGraphRunning,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
-    BoxFuture, Sender, StageGraph, StageGraphRunning,
 };
 use tokio::runtime::Handle;
 
 use crate::stages::{
-    build_stage_graph::{build_stage_graph, NodeStages},
+    build_stage_graph::{NodeStages, build_stage_graph},
     config::{Config, StoreType},
     ledger::Ledger,
 };
