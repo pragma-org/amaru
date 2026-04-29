@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeSet,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, TransactionValidationError, can_validate_blocks::BlockValidationError,
+    CanValidateBlocks, CanValidateTxs, HasStakePools, TransactionValidationError,
+    can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
@@ -124,5 +129,20 @@ where
     fn volatile_tip(&self) -> Option<Tip> {
         let state = self.state.lock().unwrap();
         state.volatile_tip()
+    }
+}
+
+#[async_trait::async_trait]
+impl<S, HS> HasStakePools for BlockValidator<S, HS>
+where
+    S: Store + Send,
+    HS: HistoricalStores + Send,
+{
+    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+        #[expect(clippy::unwrap_used)]
+        {
+            let state = self.state.lock().unwrap();
+            state.registered_relay_socket_addrs().map_err(|e| BlockValidationError::new(anyhow!(e)))
+        }
     }
 }
