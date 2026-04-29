@@ -54,11 +54,11 @@ use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData};
 /// The serialized representation of `ScriptContext` may be different for each `PlutusVersion`,
 /// so it is important to specify the correct `PlutusVersion` when serializing.
 pub struct ScriptContext<'a> {
-    pub(super) tx_info: &'a TxInfo<'a>,
-    pub(super) redeemer_data: &'a PlutusData,
-    pub(super) redeemer_ex_units: ExUnits,
-    pub(super) datum: Option<&'a PlutusData>,
-    pub(super) script_purpose: &'a ScriptPurpose<'a>,
+    tx_info: &'a TxInfo<'a>,
+    redeemer_data: &'a PlutusData,
+    redeemer_ex_units: ExUnits,
+    datum: Option<&'a PlutusData>,
+    script_purpose: &'a ScriptPurpose<'a>,
 }
 
 impl<'a> ScriptContext<'a> {
@@ -155,7 +155,7 @@ pub struct TxInfo<'a> {
     withdrawals: Withdrawals,
     valid_range: TimeRange,
     signatories: RequiredSigners,
-    pub(super) redeemers: Redeemers<'a>,
+    redeemers: Redeemers<'a>,
     data: Datums<'a>,
     id: TransactionId,
     votes: Votes<'a>,
