@@ -13,26 +13,26 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::Display,
     time::Duration,
 };
 
-use ProtocolError::*;
-use amaru_kernel::Transaction;
+use amaru_kernel::{to_cbor, Transaction};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{
     MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
 };
-use pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 use tracing::Instrument;
+use ProtocolError::*;
 
 use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
     protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, miniprotocol, outcome,
+        miniprotocol, outcome, Inputs, Miniprotocol, Outcome, ProtocolState, Responder, StageState, PROTO_N2N_TX_SUB,
     },
     tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
 };
@@ -220,10 +220,10 @@ pub struct TxSubmissionResponder {
     processed_fetch_set: BTreeSet<TxId>,
     /// Tx ids we want to fetch but haven't yet requested.
     pending_fetch: VecDeque<TxId>,
-    /// Then as a set for quick lookup when processing received ids.
-    /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
-    /// we pop it from the front of the queue and remove it from the set.
-    inflight_fetch_set: BTreeSet<TxId>,
+    /// Tx ids we have requested bodies for, mapped to the size advertised by the peer in
+    /// `ReplyTxIds`. Used to verify on `ReplyTxs` that the body's CBOR size matches what was
+    /// advertised.
+    inflight_fetch: BTreeMap<TxId, u32>,
     /// Used to avoid scheduling multiple back-pressure rechecks concurrently.
     back_pressure_scheduled: bool,
     /// The origin of the transactions we are fetching.
@@ -247,7 +247,7 @@ impl TxSubmissionResponder {
                 window: VecDeque::new(),
                 processed_fetch_set: BTreeSet::new(),
                 pending_fetch: VecDeque::new(),
-                inflight_fetch_set: BTreeSet::new(),
+                inflight_fetch: BTreeMap::new(),
                 back_pressure_scheduled: false,
                 origin,
                 muxer,
@@ -383,14 +383,14 @@ impl TxSubmissionResponder {
             let Some(&next_id) = self.pending_fetch.front() else {
                 break;
             };
-            let tx_size = self.window.iter().find(|(id, _)| *id == next_id).map(|(_, sz)| *sz as u64).unwrap_or(0);
-            if mempool.is_near_capacity(reserved.saturating_add(tx_size)) {
+            let advertised_size = self.window.iter().find(|(id, _)| *id == next_id).map(|(_, sz)| *sz).unwrap_or(0);
+            if mempool.is_near_capacity(reserved.saturating_add(advertised_size as u64)) {
                 break;
             }
             self.pending_fetch.pop_front();
-            self.inflight_fetch_set.insert(next_id);
+            self.inflight_fetch.insert(next_id, advertised_size);
             tx_ids.push(next_id);
-            reserved = reserved.saturating_add(tx_size);
+            reserved = reserved.saturating_add(advertised_size as u64);
         }
 
         tx_ids
@@ -411,7 +411,7 @@ impl TxSubmissionResponder {
 
         let tx_ids: Vec<TxId> = txs.iter().map(TxId::from).collect();
         for tx_id in &tx_ids {
-            self.inflight_fetch_set.remove(tx_id);
+            self.inflight_fetch.remove(tx_id);
         }
 
         let origin = self.origin.clone();
@@ -480,9 +480,20 @@ impl TxSubmissionResponder {
         }
 
         let not_in_flight =
-            tx_ids_set.iter().filter(|tx_id| !self.inflight_fetch_set.contains(*tx_id)).cloned().collect::<Vec<_>>();
+            tx_ids_set.iter().filter(|tx_id| !self.inflight_fetch.contains_key(*tx_id)).cloned().collect::<Vec<_>>();
         if !not_in_flight.is_empty() {
             return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
+        }
+
+        // Verify that each body's CBOR size matches what the peer advertised in `ReplyTxIds`.
+        // A mismatch is a protocol violation so we treat it as a fatal error and disconnect.
+        for tx in txs {
+            let tx_id = TxId::from(tx);
+            let advertised = self.inflight_fetch.get(&tx_id).copied().unwrap_or(0);
+            let actual = to_cbor(tx).len() as u32;
+            if actual != advertised {
+                return protocol_error(TxSizeMismatch { tx_id, advertised, actual });
+            }
         }
 
         Ok(None)
@@ -607,9 +618,8 @@ mod tests {
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::{
-        mempool::overriding_mempool::OverridingMempool,
-        MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
-        TxSubmissionMempool,
+        mempool::overriding_mempool::OverridingMempool, MempoolError, MempoolSeqNo, TransactionValidationError,
+        TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
     };
 
     use super::*;
@@ -759,6 +769,28 @@ mod tests {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn body_with_mismatched_size_terminates_protocol() -> anyhow::Result<()> {
+        let txs = create_transactions(2);
+        let mempool = Arc::new(InMemoryMempool::default());
+
+        // Advertise a deliberately wrong size for tx[0]
+        let bad_advertisement = ResponderResult::ReplyTxIds(vec![(TxId::from(&txs[0]), 1), (TxId::from(&txs[1]), 1)]);
+        let actions = run_stage(mempool, vec![init(), bad_advertisement, reply_txs(&txs, &[0])]).await?;
+
+        let actual = to_cbor(&txs[0]).len() as u32;
+        assert_actions_eq(
+            &actions,
+            &[
+                request_tx_ids(0, 10, Blocking::Yes),
+                request_txs(&txs, &[0, 1]),
+                error_action(TxSizeMismatch { tx_id: TxId::from(&txs[0]), advertised: 1, actual }),
+            ],
+        );
+        Ok(())
+    }
+
     #[test]
     fn process_tx_ids_reply_signals_back_pressure_when_mempool_full() {
         let txs = create_transactions(2);
@@ -860,7 +892,27 @@ mod tests {
                     if let Some(action) = responder.validate_received_txs(&txs)? {
                         Some(action)
                     } else {
-                        responder.process_txs_reply(mempool, txs, responder.origin.clone()).await?
+                        let origin = responder.origin.clone();
+                        let mut processed_results = Vec::with_capacity(txs.len());
+                        let mut error = None;
+                        for tx in txs {
+                            let requested_id = TxId::from(&tx);
+                            responder.inflight_fetch.remove(&requested_id);
+                            match mempool.insert(tx, origin.clone()).await {
+                                Ok(result) => processed_results.push(result),
+                                Err(e) => {
+                                    error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
+                                    break;
+                                }
+                            }
+                        }
+                        if let Some(error) = error {
+                            error
+                        } else {
+                            responder.record_processed_results(&processed_results);
+                            let (ack, req, blocking) = responder.request_tx_ids(mempool).await;
+                            Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
+                        }
                     }
                 }
                 ResponderResult::Done => None,
@@ -881,7 +933,9 @@ mod tests {
     }
 
     fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> ResponderResult {
-        ResponderResult::ReplyTxIds(ids.iter().map(|id| (TxId::from(&txs[*id]), 50)).collect())
+        ResponderResult::ReplyTxIds(
+            ids.iter().map(|id| (TxId::from(&txs[*id]), to_cbor(&txs[*id]).len() as u32)).collect(),
+        )
     }
 
     fn reply_txs(txs: &[Transaction], ids: &[usize]) -> ResponderResult {

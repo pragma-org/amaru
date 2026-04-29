@@ -43,6 +43,12 @@ pub enum ProtocolError {
     TooManyTxIdsReceived(usize, usize, usize),
     ReceivedTxsExceedsBatchSize(usize, usize),
     SomeReceivedTxsNotInFlight(Vec<TxId>),
+    /// The CBOR size of a received tx body did not match the size advertised in `ReplyTxIds`.
+    TxSizeMismatch {
+        tx_id: TxId,
+        advertised: u32,
+        actual: u32,
+    },
     MempoolInsertFailed(TxId, MempoolError),
     MempoolBatchInsertFailedTimedout,
 }
@@ -87,6 +93,9 @@ impl Display for ProtocolError {
             }
             ProtocolError::SomeReceivedTxsNotInFlight(tx_ids) => {
                 write!(f, "some received transactions were not requested: {tx_ids:?}")
+            }
+            ProtocolError::TxSizeMismatch { tx_id, advertised, actual } => {
+                write!(f, "tx {tx_id} body size {actual} does not match advertised size {advertised}")
             }
             ProtocolError::DuplicateTxIds(tx_ids) => {
                 write!(f, "duplicate transaction ids were found in the request: {tx_ids:?}")
