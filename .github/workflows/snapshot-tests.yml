@@ -88,7 +88,7 @@ jobs:
         network:
           - name: preprod
             magic: 1
-            target_epoch: 181
+            target_epoch: 179
           - name: preview
             magic: 2
             target_epoch: 673
