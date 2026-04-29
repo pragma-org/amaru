@@ -38,10 +38,8 @@ pub enum ProtocolError {
     UnadvertisedTransactionIdsRequested(Vec<TxId>),
     UnknownTxsRequested(Vec<TxId>),
     DuplicateTxIds(Vec<TxId>),
-    MaxOutstandingTxIdsRequested(u16, u16),
     TooManyAcknowledgedTxs(u16, u16),
     TooManyTxIdsReceived(usize, usize, usize),
-    ReceivedTxsExceedsBatchSize(usize, usize),
     SomeReceivedTxsNotInFlight(Vec<TxId>),
     /// The CBOR size of a received tx body did not match the size advertised in `ReplyTxIds`.
     TxSizeMismatch {
@@ -77,9 +75,6 @@ impl Display for ProtocolError {
             ProtocolError::UnknownTxsRequested(tx_ids) => {
                 write!(f, "unknown transactions requested: {:?}", tx_ids)
             }
-            ProtocolError::MaxOutstandingTxIdsRequested(req, limit) => {
-                write!(f, "the number of requested transaction ids exceeds the protocol limit: {req} > {limit}")
-            }
             ProtocolError::TooManyAcknowledgedTxs(ack, window_len) => {
                 write!(
                     f,
@@ -91,9 +86,6 @@ impl Display for ProtocolError {
                     f,
                     "the number of received transaction ids exceeds the max window size: {received} + {current_window_len} > {max_window_len}"
                 )
-            }
-            ProtocolError::ReceivedTxsExceedsBatchSize(received, max) => {
-                write!(f, "the number of received transactions exceeds the configured batch size: {received} > {max}")
             }
             ProtocolError::SomeReceivedTxsNotInFlight(tx_ids) => {
                 write!(f, "some received transactions were not requested: {tx_ids:?}")

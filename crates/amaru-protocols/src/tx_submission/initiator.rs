@@ -67,8 +67,6 @@ use crate::{
     tx_submission::{Blocking, Message, ProtocolError, State},
 };
 
-const MAX_REQUESTED_TX_IDS: u16 = 10;
-
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<InitiatorLocalIn>().boxed(),
@@ -381,10 +379,8 @@ impl TxSubmissionInitiator {
     }
 
     /// Check that the ack and req values are valid for a request whether it is blocking or non blocking.
-    fn check_ack_req(&mut self, ack: u16, req: u16) -> Option<ProtocolError> {
-        if req > MAX_REQUESTED_TX_IDS {
-            Some(MaxOutstandingTxIdsRequested(req, MAX_REQUESTED_TX_IDS))
-        } else if ack as usize > self.window.len() {
+    fn check_ack_req(&mut self, ack: u16, _req: u16) -> Option<ProtocolError> {
+        if ack as usize > self.window.len() {
             Some(TooManyAcknowledgedTxs(ack, self.window.len() as u16))
         } else {
             None
@@ -599,26 +595,6 @@ mod tests {
         let results = vec![request_tx_ids(0, 0, Blocking::No)];
         let actions = run_stage(mempool, results).await?;
         assert_actions_eq(&actions, &[error_action(NoAckOrReqTxIdsRequested)]);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn blocking_requested_nb_must_be_less_than_protocol_limit() -> anyhow::Result<()> {
-        let mempool = new_mempool();
-
-        let results = vec![request_tx_ids(0, 12, Blocking::Yes)];
-        let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(&actions, &[error_action(MaxOutstandingTxIdsRequested(12, MAX_REQUESTED_TX_IDS))]);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn non_blocking_requested_nb_must_be_less_than_protocol_limit() -> anyhow::Result<()> {
-        let mempool = new_mempool();
-
-        let results = vec![request_tx_ids(0, 12, Blocking::No)];
-        let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(&actions, &[error_action(MaxOutstandingTxIdsRequested(12, MAX_REQUESTED_TX_IDS))]);
         Ok(())
     }
 

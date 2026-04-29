@@ -393,26 +393,36 @@ impl TxSubmissionResponder {
         }
     }
 
-    /// Prepare a batch of tx ids to fetch. Skips entries whose advertised size would push the
-    /// mempool past its byte cap, so we never fetch a tx we know we can't insert. Stops early
-    /// when no further pending tx fits; the remaining `pending_fetch` entries are revisited once
-    /// mempool capacity returns (driven by `schedule_back_pressure_recheck`).
+    /// Prepare a batch of tx ids to fetch. Greedy under two byte limits:
+    /// - the mempool's `is_near_capacity` (back-pressure on insertion);
+    /// - `params.fetch_batch_bytes` (per-`RequestTxs` byte budget, mirrors Haskell V2's
+    ///   `txsSizeInflightPerPeer`).
+    ///
+    /// Always serves at least one tx so that an unusually large advertisement doesn't starve
+    /// the queue. Remaining `pending_fetch` entries are revisited once capacity returns.
     fn txs_to_request(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Vec<TxId> {
         let mut tx_ids = Vec::new();
         let mut reserved: u64 = 0;
+        let budget = self.params.fetch_batch_bytes;
 
-        while tx_ids.len() < self.params.fetch_batch.into() {
-            let Some(&next_id) = self.pending_fetch.front() else {
-                break;
-            };
+        while let Some(&next_id) = self.pending_fetch.front() {
             let advertised_size = self.window.iter().find(|(id, _)| *id == next_id).map(|(_, sz)| *sz).unwrap_or(0);
-            if mempool.is_near_capacity(reserved.saturating_add(advertised_size as u64)) {
+            let next_total = reserved.saturating_add(advertised_size as u64);
+
+            // Stop if the mempool can't accept this tx — back-pressure.
+            if mempool.is_near_capacity(next_total) {
                 break;
             }
+            // Stop if including this tx would exceed the per-batch byte budget — but always
+            // serve at least one to avoid starving on a single oversized advertisement.
+            if !tx_ids.is_empty() && next_total > budget {
+                break;
+            }
+
             self.pending_fetch.pop_front();
             self.inflight_fetch.insert(next_id, advertised_size);
             tx_ids.push(next_id);
-            reserved = reserved.saturating_add(advertised_size as u64);
+            reserved = next_total;
         }
 
         tx_ids
@@ -486,15 +496,13 @@ impl TxSubmissionResponder {
     }
 
     /// Check:
-    ///  - That the number of received transactions does not exceed the batch size
-    ///  - That there are no duplicate transactions
-    ///  - That the received transactions correspond to requested transactions
+    ///  - That there are no duplicate transactions in the batch
+    ///  - That every received tx body corresponds to a tx_id we requested (`inflight_fetch`)
+    ///  - That each body's CBOR size matches what the peer advertised
     ///
+    /// Over-response (peer sends more bodies than we asked for) is caught implicitly: the extra
+    /// body's tx_id won't be in `inflight_fetch`, and `SomeReceivedTxsNotInFlight` fires.
     fn validate_received_txs(&self, txs: &[Transaction]) -> anyhow::Result<Option<ResponderAction>> {
-        if txs.len() > self.params.fetch_batch.into() {
-            return protocol_error(ReceivedTxsExceedsBatchSize(txs.len(), self.params.fetch_batch.into()));
-        }
-
         let tx_ids_set = txs.iter().map(TxId::from).collect::<BTreeSet<_>>();
         if tx_ids_set.len() != txs.len() {
             let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
@@ -722,33 +730,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_returned_txs_should_respect_the_batch_size() -> anyhow::Result<()> {
-        let txs = create_transactions(6);
-        let mempool = Arc::new(InMemoryMempool::default());
-
-        let results = vec![
-            init(),
-            reply_tx_ids(&txs, &[0, 1, 2]),
-            reply_txs(&txs, &[0]),
-            reply_tx_ids(&txs, &[]),
-            reply_txs(&txs, &[1, 2, 3]),
-        ];
-
-        let outcomes = run_stage(mempool.clone(), results).await?;
-        assert_actions_eq(
-            &outcomes,
-            &[
-                request_tx_ids(0, 10, Blocking::Yes),
-                request_txs(&txs, &[0, 1]),
-                request_tx_ids(1, 8, Blocking::No),
-                request_txs(&txs, &[2]),
-                error_action(ReceivedTxsExceedsBatchSize(3, 2)),
-            ],
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn the_returned_txs_be_a_subset_of_the_inflight_txs() -> anyhow::Result<()> {
         let txs = create_transactions(6);
         let mempool = Arc::new(InMemoryMempool::default());
@@ -839,8 +820,7 @@ mod tests {
     fn inflight_timeout_for_current_batch_in_txs_state_terminates_protocol() {
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+        let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         responder.fetch_id = 5;
         let action = responder.handle_inflight_timeout(5, &State::Txs);
@@ -852,8 +832,7 @@ mod tests {
         // A timer scheduled for an earlier batch should not fire if a newer batch is now in flight.
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+        let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         responder.fetch_id = 7;
         // Older timeout (fetch_id == 3) fires while we're already on fetch_id 7 — ignore.
@@ -865,8 +844,7 @@ mod tests {
         // ReplyTxs has been received, ignore the now stale timeout.
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+        let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         responder.fetch_id = 5;
         assert!(responder.handle_inflight_timeout(5, &State::Idle).is_none());
@@ -877,13 +855,12 @@ mod tests {
         let txs = create_transactions(2);
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+        let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         // Mempool reports zero capacity left, so any pending fetch should yield AwaitingCapacity.
         let mempool = full_mempool();
 
-        let tx_ids = vec![(TxId::from(&txs[0]), 100), (TxId::from(&txs[1]), 100)];
+        let tx_ids = advertised(&txs, &[0, 1]);
         let outcome = responder.process_tx_ids_reply(mempool.as_ref(), tx_ids).expect("no protocol error");
 
         assert!(matches!(outcome, FetchOutcome::AwaitingCapacity), "expected AwaitingCapacity, got {outcome:?}");
@@ -896,12 +873,11 @@ mod tests {
         let txs = create_transactions(2);
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, ResponderParams::new(10, 2), TxOrigin::Local, mempool_stage);
+        let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         // First the mempool is full.
         let full = full_mempool();
-        let tx_ids = vec![(TxId::from(&txs[0]), 100), (TxId::from(&txs[1]), 100)];
+        let tx_ids = advertised(&txs, &[0, 1]);
         let outcome = responder.process_tx_ids_reply(full.as_ref(), tx_ids).expect("no protocol error");
         assert!(matches!(outcome, FetchOutcome::AwaitingCapacity));
 
@@ -909,6 +885,12 @@ mod tests {
         let mempool: Arc<dyn TxSubmissionMempool<Transaction>> = Arc::new(InMemoryMempool::default());
         let txs_to_fetch = responder.txs_to_request(mempool.as_ref());
         assert_eq!(txs_to_fetch.len(), 2, "both pending tx_ids should now be fetched");
+    }
+
+    /// Build a `(TxId, advertised_size)` list for the given transactions, with sizes computed
+    /// from the actual CBOR encoding (so the byte-budget logic in `txs_to_request` is realistic).
+    fn advertised(txs: &[Transaction], indexes: &[usize]) -> Vec<(TxId, u32)> {
+        indexes.iter().map(|i| (TxId::from(&txs[*i]), to_cbor(&txs[*i]).len() as u32)).collect()
     }
 
     #[test]
@@ -934,14 +916,25 @@ mod tests {
         Ok(run_stage_and_return_state(mempool, results).await?.0)
     }
 
-    async fn run_stage_and_return_state<M: AsyncMempool>(
-        mempool: Arc<M>,
+    /// Build `ResponderParams` sized for the protocol-trace tests: window of 10, byte budget that
+    /// fits exactly two synthetic test transactions per `RequestTxs` round (the previous count
+    /// equivalent of `fetch_batch=2`). Computed at call time so it stays correct if the synthetic
+    /// tx encoding changes. Production defaults (`393_240` bytes) are exercised via `Config`.
+    fn test_params() -> ResponderParams {
+        let sample_size = to_cbor(&crate::tx_submission::tests::create_transaction(0)).len() as u64;
+        ResponderParams::new(10, 2 * sample_size)
+    }
+
+    /// Run the responder stage, given a list of ResponderResults as inputs, and return the list of
+    /// ResponderActions produced as output, plus the responder itself.
+    async fn run_stage_and_return_state(
+        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         run_stage_and_return_state_with(
             TxSubmissionResponder::new(
                 StageRef::named_for_tests("muxer"),
-                ResponderParams::default(),
+                test_params(),
                 TxOrigin::Local,
                 StageRef::blackhole(),
             )

@@ -15,24 +15,34 @@
 use amaru_kernel::cbor;
 
 /// Parameters used to control the behavior of the transaction submission responder.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponderParams {
-    pub max_window: u16,  // how many tx ids we keep in “window”
-    pub fetch_batch: u16, // how many txs we request per round
+    /// How many tx ids we can keep unacknowledged at any moment.
+    pub max_window: u16,
+    /// Per-`RequestTxs` byte budget for the cumulative advertised size of tx bodies fetched in
+    /// a single round. Greedy: the responder stops adding tx_ids to the request once including
+    /// the next one would exceed this budget (always serving at least one to avoid starving on
+    /// an unusually large advertisement).
+    pub fetch_batch_bytes: u64,
 }
 
-const MAX_OUTSTANDING_TX_IDS: u16 = 10;
-const MAX_OUTSTANDING_TXS: u16 = 2;
+/// Default outstanding tx-id window, i.e. how many tx ids we can keep unacknowledged at any moment.
+pub const DEFAULT_MAX_OUTSTANDING_TX_IDS: u16 = 10;
+
+/// Default per-`RequestTxs` byte budget. Matches Haskell V2's `txsSizeInflightPerPeer`
+/// (`6 × max_TX_SIZE = 6 × 65_540 = 393_240`) in
+/// `ouroboros-network/lib/Ouroboros/Network/TxSubmission/Inbound/V2/Policy.hs`.
+pub const DEFAULT_FETCH_BATCH_BYTES: u64 = 393_240;
 
 impl Default for ResponderParams {
     fn default() -> Self {
-        Self { max_window: MAX_OUTSTANDING_TX_IDS, fetch_batch: MAX_OUTSTANDING_TXS }
+        Self { max_window: DEFAULT_MAX_OUTSTANDING_TX_IDS, fetch_batch_bytes: DEFAULT_FETCH_BATCH_BYTES }
     }
 }
 
 impl ResponderParams {
-    pub fn new(max_window: u16, fetch_batch: u16) -> Self {
-        Self { max_window, fetch_batch }
+    pub fn new(max_window: u16, fetch_batch_bytes: u64) -> Self {
+        Self { max_window, fetch_batch_bytes }
     }
 }
 
