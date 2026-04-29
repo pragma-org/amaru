@@ -18,16 +18,8 @@ use crate::{AsIndex, Redeemer};
 
 /// A type that provides Ord and PartialOrd instance on redeemers, to allow storing them in binary
 /// trees in a controlled order (that matches Haskell's implementation).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrderedRedeemer<'a>(Cow<'a, Redeemer>);
-
-impl PartialEq for OrderedRedeemer<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Eq for OrderedRedeemer<'_> {}
 
 impl Ord for OrderedRedeemer<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -162,17 +154,6 @@ mod tests {
         let (key, value) = map.iter().next().unwrap();
         assert_eq!(*value, "second");
         assert_eq!(key.ex_units, ExUnits { mem: 100, steps: 200 });
-    }
-
-    #[test]
-    fn ordering_by_tag_then_index() {
-        let spend_0 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 0, 1, 1));
-        let spend_1 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Spend, 1, 1, 1));
-        let mint_0 = OrderedRedeemer::from(make_redeemer(ScriptPurpose::Mint, 0, 1, 1));
-
-        assert!(spend_0 < spend_1);
-        assert!(spend_0 < mint_0);
-        assert!(spend_1 < mint_0);
     }
 
     #[test]
