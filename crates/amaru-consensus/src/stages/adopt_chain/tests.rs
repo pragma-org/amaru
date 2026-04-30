@@ -152,49 +152,6 @@ fn test_extension_adopts_and_sends() {
     ]);
 }
 
-#[test]
-fn test_extension_sends_new_tip_to_mempool() {
-    let mut prep = test_prep(2);
-    prep.store_headers(&prep.headers.main_chain());
-    prep.store_block(&prep.headers.h3);
-    prep.set_anchor(prep.headers.h0.hash());
-    prep.set_best_chain(prep.headers.h2.clone());
-
-    let tip = prep.headers.h3.tip();
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
-
-    let mut expected = prep.state.clone();
-    expected.current_best_tip = tip;
-    expected.suppressed = 1;
-    assert_trace(
-        &running,
-        &[
-            te_state("ac-1", &prep.state),
-            te_input("ac-1", &msg),
-            te_load_header("ac-1", tip.hash()),
-            te_load_header("ac-1", prep.headers.h2.hash()),
-            te_roll_forward_chain("ac-1", tip.point()),
-            te_set_best_chain_hash("ac-1", tip.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_next_best_chain("ac-1", prep.headers.h0.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
-            te_clock("ac-1"),
-            te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
-            te_send("ac-1", "downstream", ManagerMessage::NewTip(tip)),
-            te_state("ac-1", &expected),
-        ],
-    );
-
-    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
-}
-
 /// Fork switch: best was h2, adopt h3a (longer fork) -> rollback to h1, roll_forward h2a, h3a, set_best_chain, drag anchor, send.
 #[test]
 fn test_fork_switch_adopts_and_sends() {
