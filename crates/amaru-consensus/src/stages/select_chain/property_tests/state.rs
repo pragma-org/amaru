@@ -385,11 +385,11 @@ fn find_intermediate_fallback_execution(seed: u64) -> bool {
     false
 }
 
-fn are_on_different_forks(store: &impl ChainStore<BlockHeader>, left: HeaderHash, right: HeaderHash) -> bool {
+fn are_on_different_forks(store: &dyn ChainStore<BlockHeader>, left: HeaderHash, right: HeaderHash) -> bool {
     left != right && !is_strict_ancestor(store, left, right) && !is_strict_ancestor(store, right, left)
 }
 
-fn is_strict_ancestor(store: &impl ChainStore<BlockHeader>, ancestor: HeaderHash, hash: HeaderHash) -> bool {
+fn is_strict_ancestor(store: &dyn ChainStore<BlockHeader>, ancestor: HeaderHash, hash: HeaderHash) -> bool {
     let mut current = store.load_header(&hash).and_then(|header| header.parent());
 
     while let Some(hash) = current {

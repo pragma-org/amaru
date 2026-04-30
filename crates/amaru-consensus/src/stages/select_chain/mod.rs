@@ -234,9 +234,7 @@ impl SelectChain {
 /// - Take the best one using the cmp function.
 /// - Also return the list of still non-validated block hashes for that tip.
 ///
-pub fn best_tip_candidate_from_store(
-    store: &(impl ChainStore<BlockHeader> + ?Sized),
-) -> Option<(BlockHeader, Vec<HeaderHash>)> {
+pub fn best_tip_candidate_from_store(store: &dyn ChainStore<BlockHeader>) -> Option<(BlockHeader, Vec<HeaderHash>)> {
     store
         .child_tips(&store.get_anchor_hash())
         .filter_map(|tip| best_non_invalidated_candidate_from_leaf(store, tip.hash()))
@@ -269,7 +267,7 @@ pub fn best_tip_candidate_from_store(
 ///
 /// returns `(ancestor, [ancestor])`
 fn best_non_invalidated_candidate_from_leaf(
-    chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
+    chain_store: &dyn ChainStore<BlockHeader>,
     leaf_hash: HeaderHash,
 ) -> Option<(BlockHeader, Vec<HeaderHash>)> {
     let mut current = Some(leaf_hash);
@@ -313,7 +311,7 @@ fn best_non_invalidated_candidate_from_leaf(
 ///
 /// Return `None` if an invalid block is encountered before reaching one.
 fn pending_non_invalidated_fragment(
-    chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
+    chain_store: &dyn ChainStore<BlockHeader>,
     hash: HeaderHash,
 ) -> Option<Vec<HeaderHash>> {
     let mut valid = true;
@@ -334,7 +332,7 @@ fn pending_non_invalidated_fragment(
 }
 
 /// Return whether `hash` lies on a chain suffix whose ancestry includes `ancestor`.
-fn depends_on_hash(store: &(impl ChainStore<BlockHeader> + ?Sized), hash: HeaderHash, ancestor: HeaderHash) -> bool {
+fn depends_on_hash(store: &dyn ChainStore<BlockHeader>, hash: HeaderHash, ancestor: HeaderHash) -> bool {
     let mut current = Some(hash);
 
     while let Some(hash) = current {
