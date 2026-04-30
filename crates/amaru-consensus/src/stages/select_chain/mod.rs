@@ -160,21 +160,7 @@ impl SelectChain {
                 match best_fallback_tip_candidate_from_store(&store) {
                     Ok(Some((new_best_tip, to_validate))) => {
                         tracing::debug!(%new_best_tip, "new best tip candidate");
-                        let parent = if let Some(parent) = new_best_tip.parent() {
-                            store
-                                .load_tip(&parent)
-                                .or_terminate(store.eff(), async |_| {
-                                    tracing::warn!(
-                                        "failed to load parent {:?} of best tip candidate {:?}",
-                                        parent,
-                                        new_best_tip
-                                    );
-                                })
-                                .await
-                                .point()
-                        } else {
-                            Point::Origin
-                        };
+                        let parent = load_parent_point(store, &new_best_tip).await;
                         if self.may_fetch_blocks {
                             self.may_fetch_blocks = false;
                             eff.send(&self.downstream, (new_best_tip.tip(), parent)).await;
@@ -230,6 +216,22 @@ impl SelectChain {
             self.may_fetch_blocks = true;
         }
         self
+    }
+}
+
+/// Return the point of the parent of `header`, or `Point::Origin` if it has no parent.
+/// The parent header must be present in the store otherwise the stage is terminated.
+async fn load_parent_point(store: Store<SelectChainMsg>, header: &BlockHeader) -> Point {
+    if let Some(parent) = header.parent() {
+        store
+            .load_tip(&parent)
+            .or_terminate(store.eff(), async |_| {
+                tracing::warn!("failed to load parent {:?} of {:?}", parent, header);
+            })
+            .await
+            .point()
+    } else {
+        Point::Origin
     }
 }
 
