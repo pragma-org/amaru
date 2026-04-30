@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
-    fmt::Display,
-};
+use std::{collections::BTreeSet, fmt::Display};
 
 use amaru_kernel::{to_cbor, Transaction};
 use amaru_observability::trace_span;
@@ -23,6 +20,7 @@ use amaru_ouroboros::{
     MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
 };
 use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use indexmap::IndexMap;
 use pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 use tracing::Instrument;
 use ProtocolError::*;
@@ -58,11 +56,17 @@ impl StageState<State, Responder> for TxSubmissionResponder {
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         let action = match input {
             ResponderLocalIn::CheckMempoolSize => {
-                let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+                // Back-pressure rechecks must only act while we are between requests because it
+                // potentially produces a new request while we are still not finished with the previous one.
                 self.back_pressure_scheduled = false;
-                self.recheck_back_pressure(mempool, eff).await
+                if *proto == State::Idle {
+                    let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+                    self.recheck_back_pressure(mempool, eff).await
+                } else {
+                    None
+                }
             }
-            ResponderLocalIn::InflightTimeout(fetch_id) => self.handle_inflight_timeout(fetch_id, proto),
+            ResponderLocalIn::InflightTimeout(fetch_id) => self.handle_inflight_timeout(fetch_id),
         };
         Ok((action, self))
     }
@@ -165,10 +169,10 @@ pub enum ResponderLocalIn {
     /// and resumes the protocol if there is new mempool capacity.
     CheckMempoolSize,
     /// Triggered `params.inflight_fetch_timeout` after a `RequestTxs` was sent. The carried `u64` is the
-    /// `fetch_generation` value at the time the timer was scheduled; on fire we ignore any timer
-    /// whose generation no longer matches `fetch_generation` (a `ReplyTxs` has since been
-    /// received and a new batch may already be in flight). One timer per `RequestTxs` round,
-    /// not per tx_id — this matches Cardano Haskell's per-state codec time limit.
+    /// `fetch_id` value at the time the timer was scheduled; on fire we ignore any timer
+    /// whose `fetch_id` no longer matches `self.fetch_id` (a `ReplyTxs` has since been
+    /// received and a new batch may already be in flight). There is one timer per `RequestTxs` round,
+    /// not per tx_id.
     InflightTimeout(u64),
 }
 
@@ -221,16 +225,12 @@ impl Display for ResponderResult {
 pub struct TxSubmissionResponder {
     /// Responder parameters: batch sizes, window sizes, etc.
     params: ResponderParams,
-    /// All tx_ids advertised but not yet acked (and their size).
-    window: VecDeque<(TxId, u32)>,
-    /// Fetched tx ids that were fully processed, even if they were rejected.
-    processed_fetch_set: BTreeSet<TxId>,
-    /// Tx ids we want to fetch but haven't yet requested.
-    pending_fetch: VecDeque<TxId>,
-    /// Tx ids we have requested bodies for, mapped to the size advertised by the peer in
-    /// `ReplyTxIds`. Used to verify on `ReplyTxs` that the body's CBOR size matches what was
-    /// advertised.
-    inflight_fetch: BTreeMap<TxId, u32>,
+    /// Insertion-ordered map of every tx_id the peer has advertised that we haven't yet acked,
+    /// each tagged with its `TxStatus`. Combines what used to be four parallel collections
+    /// (unacked FIFO, pending fetch queue, inflight set, processed marker) into one source of
+    /// truth. Iteration is in advertisement order; `IndexMap` gives O(1) lookup by tx_id for
+    /// status mutation and validation.
+    unacked_ids: IndexMap<TxId, TxStatus>,
     /// Fetch counter incremented each time we send `RequestTxs`. It is use to schedule `InflightTimeout`
     /// messages, that will terminate the connection if no transactions have been received for the current
     /// fetch_id.
@@ -255,10 +255,7 @@ impl TxSubmissionResponder {
             State::Init,
             Self {
                 params,
-                window: VecDeque::new(),
-                processed_fetch_set: BTreeSet::new(),
-                pending_fetch: VecDeque::new(),
-                inflight_fetch: BTreeMap::new(),
+                unacked_ids: IndexMap::new(),
                 fetch_id: 0,
                 back_pressure_scheduled: false,
                 origin,
@@ -273,146 +270,107 @@ impl TxSubmissionResponder {
         Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
     }
 
-    async fn process_tx_ids_reply(
+    /// When receiving tx_ids and their sizes:
+    ///
+    ///  - Check if we did not receive too many
+    ///  - Store them in unacked ids
+    ///  - Then request tx bodies of the txs we don't already have
+    fn process_tx_ids_reply(
         &mut self,
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<FetchOutcome> {
-        if self.window.len() + tx_ids.len() > self.params.max_window.get().into() {
+        if self.unacked_ids.len() + tx_ids.len() > self.params.max_window.get().into() {
             return protocol_error_outcome(TooManyTxIdsReceived(
                 tx_ids.len(),
-                self.window.len(),
+                self.unacked_ids.len(),
                 self.params.max_window.get().into(),
             ));
         }
-        self.received_tx_ids(mempool, tx_ids).await;
 
-        let txs = self.txs_to_request();
+        // Store the tx_ids and their current status
+        for (tx_id, size) in tx_ids {
+            let status = if mempool.contains(&tx_id) { TxStatus::Done } else { TxStatus::Pending(size) };
+            self.unacked_ids.insert(tx_id, status);
+        }
+
+        // Prepare a request for tx bodies
+        let txs = self.txs_to_request(mempool);
         if !txs.is_empty() {
             return Ok(FetchOutcome::Action(ResponderAction::SendRequestTxs(txs)));
         }
 
-        // No fetchable txs right now. If we still have entries in pending_fetch we couldn't drain,
-        // it must be because each remaining advertised tx_id has a size that would push the mempool
-        // over its configured maximum byte size.
-        // In that case, we schedule a back-pressure recheck.
-        if !self.pending_fetch.is_empty() {
+        // No fetchable txs right now. If there are still Pending entries we couldn't drain, it
+        // must be because each one would push the mempool over its configured maximum byte size.
+        // Schedule a back-pressure recheck.
+        if self.has_pending() {
             return Ok(FetchOutcome::AwaitingCapacity);
         }
 
-        let (ack, req, blocking) = self.request_tx_ids(mempool).await;
+        // If there are no tx bodies to fetch, request new tx ids
+        let (ack, req, blocking) = self.request_tx_ids(mempool);
         Ok(FetchOutcome::Action(ResponderAction::SendRequestTxIds { ack, req, blocking }))
     }
 
-    #[cfg(test)]
-    async fn process_txs_reply(
-        &mut self,
-        mempool: &dyn AsyncMempool,
-        txs: Vec<Transaction>,
-        origin: TxOrigin,
-    ) -> anyhow::Result<Option<ResponderAction>> {
-        if txs.len() > self.params.fetch_batch.into() {
-            return protocol_error(ReceivedTxsExceedsBatchSize(txs.len(), self.params.fetch_batch.into()));
-        }
-
-        // check for duplicate tx ids
-        let tx_ids = txs.iter().map(TxId::from).collect::<BTreeSet<_>>();
-        if tx_ids.len() != txs.len() {
-            // return the full list of tx ids including duplicates
-            let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
-            return protocol_error(DuplicateTxIds(tx_ids));
-        }
-
-        // check that all received tx ids were in-flight
-        let not_in_flight =
-            tx_ids.iter().filter(|tx_id| !self.inflight_fetch_set.contains(tx_id)).cloned().collect::<Vec<_>>();
-        if !not_in_flight.is_empty() {
-            return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
-        }
-
-        if let Some(action) = self.received_txs(mempool, txs, origin).await? {
-            return Ok(Some(action));
-        }
-        let (ack, req, blocking) = self.request_tx_ids(mempool).await;
-        Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
-    }
-
-    /// Prepare a request for tx ids, acknowledging already processed ones
-    /// and requesting as many as fit in the window.
+    /// Prepare a request for tx ids, acknowledging already processed ones (Done at the front)
+    /// and requesting as many as possible given the `max_window` parameter.
     #[allow(clippy::expect_used)]
-    async fn request_tx_ids(&mut self, mempool: &dyn AsyncMempool) -> (u16, u16, Blocking) {
-        // Acknowledge everything we’ve already processed.
+    fn request_tx_ids(&mut self, _mempool: &dyn TxSubmissionMempool<Transaction>) -> (u16, u16, Blocking) {
         let mut ack = 0_u16;
 
-        while let Some((tx_id, _size)) = self.window.front() {
-            let already_processed = self.processed_fetch_set.remove(tx_id);
-            let already_in_mempool = mempool.contains(*tx_id).await;
-            if already_processed || already_in_mempool {
-                // pop from window and ack it
-                if self.window.pop_front().is_some() {
-                    ack = ack.checked_add(1).expect("ack overflow: protocol invariant violated");
-                }
+        // Pop Done entries from the front. `ack` counts the number of tx_ids coming from the peer
+        // that we have processed.
+        while let Some((_, status)) = self.unacked_ids.first() {
+            if status.is_done() {
+                self.unacked_ids.shift_remove_index(0);
+                ack = ack.checked_add(1).expect("ack overflow: protocol invariant violated");
             } else {
                 break;
             }
         }
 
-        // Request as many as we can fit in the window.
         let req = self
             .params
             .max_window
             .get()
-            .checked_sub(self.window.len() as u16)
+            .checked_sub(self.unacked_ids.len() as u16)
             .expect("req underflow: protocol invariant violated");
 
-        // We need to block if there are no more outstanding tx ids.
-        let blocking = if self.window.is_empty() { Blocking::Yes } else { Blocking::No };
+        let blocking = if self.unacked_ids.is_empty() { Blocking::Yes } else { Blocking::No };
         (ack, req, blocking)
     }
 
-    /// Register received tx ids, adding them to the window and to the pending fetch list
-    /// if they are not already in the mempool.
-    async fn received_tx_ids(&mut self, mempool: &dyn AsyncMempool, tx_ids: Vec<(TxId, u32)>) {
-        for (tx_id, size) in tx_ids {
-            // We add the tx id to the window to acknowledge it on the next round.
-            self.window.push_back((tx_id, size));
-
-            // We only add to pending fetch if we haven't received it yet in the mempool.
-            if !mempool.contains(tx_id).await {
-                self.pending_fetch.push_back(tx_id);
-            }
-        }
-    }
-
-    /// Prepare a batch of tx ids to fetch. Greedy under two byte limits:
-    /// - the mempool's `is_near_capacity` (back-pressure on insertion);
-    /// - `params.fetch_batch_bytes` (per-`RequestTxs` byte budget, mirrors Haskell V2's
-    ///   `txsSizeInflightPerPeer`).
+    /// Prepare a batch of txs to fetch selecting their tx ids from unacked_ids, and
+    /// making sure we don't go over those 2 limits:
     ///
-    /// Always serves at least one tx so that an unusually large advertisement doesn't starve
-    /// the queue. Remaining `pending_fetch` entries are revisited once capacity returns.
+    /// - the mempool's `is_near_capacity` (otherwise we won't be able to insert them in the mempool)
+    /// - the size of transaction batch
+    ///
+    /// Always serves at least one tx so an unusually large advertisement doesn't starve the
+    /// queue. Remaining `Pending` entries are revisited once capacity returns.
     fn txs_to_request(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Vec<TxId> {
         let mut tx_ids = Vec::new();
         let mut reserved: u64 = 0;
         let budget = self.params.fetch_batch_bytes.get();
 
-        while let Some(&next_id) = self.pending_fetch.front() {
-            let advertised_size = self.window.iter().find(|(id, _)| *id == next_id).map(|(_, sz)| *sz).unwrap_or(0);
-            let next_total = reserved.saturating_add(advertised_size as u64);
+        for (tx_id, status) in self.unacked_ids.iter_mut() {
+            let TxStatus::Pending(size) = *status else {
+                continue;
+            };
+            let next_total = reserved.saturating_add(size as u64);
 
-            // Stop if the mempool can't accept this tx — back-pressure.
+            // Stop if the mempool won't be able accept this tx
             if mempool.is_near_capacity(next_total) {
                 break;
             }
-            // Stop if including this tx would exceed the per-batch byte budget — but always
-            // serve at least one to avoid starving on a single oversized advertisement.
+            // Stop if including this tx would exceed the per-batch byte budget unless this
+            // only transaction is over the budget size. In that case we still request it.
             if !tx_ids.is_empty() && next_total > budget {
                 break;
             }
 
-            self.pending_fetch.pop_front();
-            self.inflight_fetch.insert(next_id, advertised_size);
-            tx_ids.push(next_id);
+            *status = TxStatus::Inflight(size);
+            tx_ids.push(*tx_id);
             reserved = next_total;
         }
 
@@ -432,9 +390,13 @@ impl TxSubmissionResponder {
             return Ok(Some(action));
         }
 
-        let tx_ids: Vec<TxId> = txs.iter().map(TxId::from).collect();
-        for tx_id in &tx_ids {
-            self.inflight_fetch.remove(tx_id);
+        // ReplyTxs is the peer's complete answer to the preceding RequestTxs. Every Inflight
+        // entry is now resolved, whether the body arrived or not — set them all to Done so the
+        // ack loop can free the slots.
+        for status in self.unacked_ids.values_mut() {
+            if status.is_inflight() {
+                *status = TxStatus::Done;
+            }
         }
 
         let origin = self.origin.clone();
@@ -447,9 +409,8 @@ impl TxSubmissionResponder {
             None => return protocol_error(MempoolBatchInsertFailedTimedout),
             Some(Err(error)) => return protocol_error(MempoolInsertFailed(error.tx_id, error.error)),
             Some(Ok(results)) => {
-                self.record_processed_results(&results);
-                for result in &results {
-                    log_insert_result(result);
+                for result in results {
+                    log_insert_result(&result);
                 }
             }
         }
@@ -498,8 +459,11 @@ impl TxSubmissionResponder {
             return protocol_error(DuplicateTxIds(tx_ids));
         }
 
-        let not_in_flight =
-            tx_ids_set.iter().filter(|tx_id| !self.inflight_fetch.contains_key(*tx_id)).cloned().collect::<Vec<_>>();
+        let not_in_flight = tx_ids_set
+            .iter()
+            .filter(|tx_id| !self.unacked_ids.get(*tx_id).is_some_and(|s| s.is_inflight()))
+            .cloned()
+            .collect::<Vec<_>>();
         if !not_in_flight.is_empty() {
             return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
         }
@@ -508,7 +472,10 @@ impl TxSubmissionResponder {
         // A mismatch is a protocol violation so we treat it as a fatal error and disconnect.
         for tx in txs {
             let tx_id = TxId::from(tx);
-            let advertised = self.inflight_fetch.get(&tx_id).copied().unwrap_or(0);
+            let advertised = match self.unacked_ids.get(&tx_id) {
+                Some(TxStatus::Inflight(size)) => *size,
+                _ => 0,
+            };
             let actual = to_cbor(tx).len() as u32;
             if actual != advertised {
                 return protocol_error(TxSizeMismatch { tx_id, advertised, actual });
@@ -516,10 +483,6 @@ impl TxSubmissionResponder {
         }
 
         Ok(None)
-    }
-
-    fn record_processed_results(&mut self, results: &[TxInsertResult]) {
-        self.processed_fetch_set.extend(results.iter().map(TxInsertResult::tx_id).cloned());
     }
 
     /// Schedule a `CheckMempoolSize` self-message after a short delay if one isn't already
@@ -536,10 +499,10 @@ impl TxSubmissionResponder {
     }
 
     /// Process an `InflightTimeout`. If the timeout `fetch_id` still matches `self.fetch_id`
-    /// (i.e. no newer batch has been sent in the meantime) and we are still waiting for transactions
-    /// we terminate the connection. Stale timeouts are simply ignored (we don't try to cancel them).
-    fn handle_inflight_timeout(&self, fetch_id: u64, proto: &State) -> Option<ResponderAction> {
-        if fetch_id == self.fetch_id && *proto == State::Txs {
+    /// (i.e. no newer batch has been requested in the meantime) and any tx_id is still `Inflight`,
+    /// terminate the connection. Stale timeouts are simply ignored (we don't try to cancel them).
+    fn handle_inflight_timeout(&self, fetch_id: u64) -> Option<ResponderAction> {
+        if fetch_id == self.fetch_id && self.has_inflight() {
             Some(ResponderAction::Error(TxFetchTimeout))
         } else {
             None
@@ -558,9 +521,9 @@ impl TxSubmissionResponder {
         }
     }
 
-    /// Re-attempt to drain `pending_fetch` after a back-pressure recheck fired.
-    /// Resumes the protocol with a `RequestTxs` if mempool now has available capacity, otherwise schedules
-    /// another recheck.
+    /// Re-attempt to drain Pending entries after a back-pressure recheck fired.
+    /// Resumes the protocol with a `RequestTxs` if mempool now has available capacity, otherwise
+    /// schedules another recheck.
     async fn recheck_back_pressure(
         &mut self,
         mempool: &dyn TxSubmissionMempool<Transaction>,
@@ -573,16 +536,53 @@ impl TxSubmissionResponder {
             return Some(action);
         }
 
-        // Still nothing fetchable: re-schedule the check while pending_fetch has entries.
-        if !self.pending_fetch.is_empty() {
+        // Still nothing fetchable: re-schedule while Pending entries remain.
+        if self.has_pending() {
             self.schedule_back_pressure_recheck(eff).await;
             return None;
         }
 
-        // pending_fetch drained naturally (e.g. txs landed in mempool via another peer) — re-engage
-        // the peer with a normal RequestTxIds.
+        // No Pending entries left (e.g. txs landed in mempool via another peer) — re-engage the
+        // peer with a normal RequestTxIds.
         let (ack, req, blocking) = self.request_tx_ids(mempool);
         Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
+    }
+
+    fn has_inflight(&self) -> bool {
+        self.unacked_ids.values().any(|s| s.is_inflight())
+    }
+
+    fn has_pending(&self) -> bool {
+        self.unacked_ids.values().any(|s| s.is_pending())
+    }
+}
+
+/// Per-tx-id state in the responder's outstanding-ids queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TxStatus {
+    /// Peer advertised this tx_id and we still need to fetch its body. The `u32` is the size the
+    /// peer advertised; used by `txs_to_request` for the per-batch byte budget.
+    Pending(u32),
+    /// We've sent `RequestTxs` for this tx_id and are awaiting the body. The `u32` is the
+    /// advertised size; used by `validate_received_txs` to enforce the size-mismatch check.
+    Inflight(u32),
+    /// We're done with this tx_id (received-and-inserted, received-and-rejected, peer dropped it
+    /// from a partial `ReplyTxs`, or it was already in our mempool when advertised). It will be
+    /// acked out of the FIFO front by the next `request_tx_ids` call.
+    Done,
+}
+
+impl TxStatus {
+    fn is_done(&self) -> bool {
+        self == &TxStatus::Done
+    }
+
+    fn is_inflight(&self) -> bool {
+        matches!(self, &TxStatus::Inflight(_))
+    }
+
+    fn is_pending(&self) -> bool {
+        matches!(self, &TxStatus::Pending(_))
     }
 }
 
@@ -726,7 +726,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_returned_txs_be_a_subset_of_the_inflight_txs() -> anyhow::Result<()> {
+    async fn the_returned_txs_should_be_a_subset_of_the_inflight_txs() -> anyhow::Result<()> {
         let txs = create_transactions(6);
         let mempool = Arc::new(InMemoryMempool::default());
 
@@ -739,14 +739,18 @@ mod tests {
         ];
 
         let actions = run_stage(mempool.clone(), results).await?;
+        // After the partial reply_txs(&[0]), id 1 is treated as resolved (peer didn't return a
+        // body), so it is acked alongside id 0 and the window slot is freed. The follow-up
+        // reply_txs(&[1, 3]) therefore reports both ids as not-in-flight: 1 because it was
+        // already acked, 3 because it was never inflight.
         assert_actions_eq(
             &actions,
             &[
                 request_tx_ids(0, 10, Blocking::Yes),
                 request_txs(&txs, &[0, 1]),
-                request_tx_ids(1, 8, Blocking::No),
+                request_tx_ids(2, 9, Blocking::No),
                 request_txs(&txs, &[2]),
-                error_action(SomeReceivedTxsNotInFlight(vec![TxId::from(&txs[3])])),
+                error_action(SomeReceivedTxsNotInFlight(vec![TxId::from(&txs[1]), TxId::from(&txs[3])])),
             ],
         );
         Ok(())
@@ -813,37 +817,59 @@ mod tests {
     }
 
     #[test]
-    fn inflight_timeout_for_current_batch_in_txs_state_terminates_protocol() {
+    fn inflight_timeout_with_pending_ids_terminates_protocol() {
+        let txs = create_transactions(1);
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         responder.fetch_id = 5;
-        let action = responder.handle_inflight_timeout(5, &State::Txs);
+        responder.unacked_ids.insert(TxId::from(&txs[0]), TxStatus::Inflight(to_cbor(&txs[0]).len() as u32));
+
+        let action = responder.handle_inflight_timeout(5);
         assert_eq!(action, Some(ResponderAction::Error(TxFetchTimeout)));
     }
 
     #[test]
     fn inflight_timeout_with_stale_fetch_id_is_ignored() {
         // A timer scheduled for an earlier batch should not fire if a newer batch is now in flight.
+        let txs = create_transactions(1);
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         responder.fetch_id = 7;
+        responder.unacked_ids.insert(TxId::from(&txs[0]), TxStatus::Inflight(to_cbor(&txs[0]).len() as u32));
         // Older timeout (fetch_id == 3) fires while we're already on fetch_id 7 — ignore.
-        assert!(responder.handle_inflight_timeout(3, &State::Txs).is_none());
+        assert!(responder.handle_inflight_timeout(3).is_none());
     }
 
     #[test]
-    fn inflight_timeout_after_reply_received_is_ignored() {
-        // ReplyTxs has been received, ignore the now stale timeout.
+    fn inflight_timeout_with_no_inflight_ids_is_ignored() {
+        // No tx_id is currently Inflight; ignore the stale timeout.
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
 
         responder.fetch_id = 5;
-        assert!(responder.handle_inflight_timeout(5, &State::Idle).is_none());
+        assert!(responder.handle_inflight_timeout(5).is_none());
+    }
+
+    #[test]
+    fn inflight_timeout_with_partial_reply_leftovers_terminates_protocol() {
+        // After a partial ReplyTxs the protocol returns to Idle / TxIdsNonBlocking, but ids that
+        // were not returned can still be Inflight. The timer for that batch must still terminate
+        // the connection so a peer cannot stall by dribbling one body and then going silent.
+        let txs = create_transactions(2);
+        let muxer = StageRef::<MuxMessage>::blackhole();
+        let mempool_stage = StageRef::<MempoolMsg>::blackhole();
+        let (_state, mut responder) = TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage);
+
+        responder.fetch_id = 5;
+        responder.unacked_ids.insert(TxId::from(&txs[0]), TxStatus::Inflight(to_cbor(&txs[0]).len() as u32));
+
+        let action = responder.handle_inflight_timeout(5);
+        assert_eq!(action, Some(ResponderAction::Error(TxFetchTimeout)));
     }
 
     #[test]
@@ -860,8 +886,9 @@ mod tests {
         let outcome = responder.process_tx_ids_reply(mempool.as_ref(), tx_ids).expect("no protocol error");
 
         assert!(matches!(outcome, FetchOutcome::AwaitingCapacity), "expected AwaitingCapacity, got {outcome:?}");
-        // pending_fetch retained for retry once capacity returns.
-        assert_eq!(responder.pending_fetch.len(), 2, "pending_fetch should still hold both tx_ids");
+        // Both tx_ids retained as Pending for retry once capacity returns.
+        let pending = responder.unacked_ids.values().filter(|s| s.is_pending()).count();
+        assert_eq!(pending, 2, "both tx_ids should still be Pending");
     }
 
     #[test]
@@ -965,25 +992,25 @@ mod tests {
                     if let Some(action) = responder.validate_received_txs(&txs)? {
                         Some(action)
                     } else {
+                        for status in responder.unacked_ids.values_mut() {
+                            if status.is_inflight() {
+                                *status = TxStatus::Done;
+                            }
+                        }
+
                         let origin = responder.origin.clone();
-                        let mut processed_results = Vec::with_capacity(txs.len());
                         let mut error = None;
                         for tx in txs {
                             let requested_id = TxId::from(&tx);
-                            responder.inflight_fetch.remove(&requested_id);
-                            match mempool.insert(tx, origin.clone()).await {
-                                Ok(result) => processed_results.push(result),
-                                Err(e) => {
-                                    error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
-                                    break;
-                                }
+                            if let Err(e) = mempool.insert(tx, origin.clone()) {
+                                error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
+                                break;
                             }
                         }
                         if let Some(error) = error {
                             error
                         } else {
-                            responder.record_processed_results(&processed_results);
-                            let (ack, req, blocking) = responder.request_tx_ids(mempool).await;
+                            let (ack, req, blocking) = responder.request_tx_ids(mempool.as_ref());
                             Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
                         }
                     }

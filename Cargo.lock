@@ -391,6 +391,7 @@ dependencies = [
  "cbor-data",
  "futures-util",
  "hex",
+ "indexmap 2.12.1",
  "minicbor",
  "pallas-primitives",
  "pallas-traverse",
