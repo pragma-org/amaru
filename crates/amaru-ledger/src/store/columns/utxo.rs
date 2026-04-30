@@ -25,8 +25,8 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{
-        Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData, MemoizedScript, PlutusData,
-        PlutusScript, any_shelley_address,
+        Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedValue,
+        PlutusData, PlutusScript, any_shelley_address,
     };
     use proptest::{option, prelude::*};
 
@@ -88,6 +88,9 @@ pub mod tests {
                 let datum = datum_opt.unwrap_or(MemoizedDatum::None);
 
                 let is_legacy = matches!(datum, MemoizedDatum::None) && script.is_none();
+
+                #[expect(clippy::expect_used)]
+                let value = MemoizedValue::new(value).expect("Value encoding should never fail");
 
                 MemoizedTransactionOutput { is_legacy, address, value, datum, script }
             })

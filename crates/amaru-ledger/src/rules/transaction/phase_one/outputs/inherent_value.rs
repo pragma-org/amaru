@@ -30,8 +30,7 @@ pub fn execute(
     }
 
     let max_value_size = protocol_parameters.max_value_size;
-    // FIXME: Memoize original value size, and avoid re-serializing.
-    let given_val_size = to_cbor(&output.value).len();
+    let given_val_size = output.value.original_bytes().len();
 
     // This conversion is safe because max_value_size will never be big enough to cause a problem
     if given_val_size > max_value_size as usize {

@@ -15,7 +15,7 @@
 use pallas_primitives::conway::Multiasset;
 
 use crate::{
-    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, PositiveCoin,
+    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, PositiveCoin,
     ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script, encode_script, serialize_memoized_script,
     size::CREDENTIAL,
 };
@@ -31,7 +31,7 @@ pub struct MemoizedTransactionOutput {
 
     #[serde(serialize_with = "serialize_value")]
     #[serde(deserialize_with = "deserialize_value")]
-    pub value: Value,
+    pub value: MemoizedValue,
 
     pub datum: MemoizedDatum,
 
@@ -196,14 +196,14 @@ fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(deserializer: D) ->
 }
 
 // FIXME: Eventually allow serializing complete values, not just coins.
-fn serialize_value<S: serde::ser::Serializer>(value: &Value, serializer: S) -> Result<S::Ok, S::Error> {
-    match value {
+fn serialize_value<S: serde::ser::Serializer>(value: &MemoizedValue, serializer: S) -> Result<S::Ok, S::Error> {
+    match value.as_ref() {
         Value::Coin(coin) => serializer.serialize_u64(*coin),
         Value::Multiasset(coin, _) => serializer.serialize_u64(*coin),
     }
 }
 
-fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Value, D::Error> {
+fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<MemoizedValue, D::Error> {
     #[derive(serde::Deserialize)]
     enum ValueHelper {
         Coin(u64),
@@ -212,8 +212,8 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
 
     let helper: ValueHelper = serde::Deserialize::deserialize(deserializer)?;
 
-    match helper {
-        ValueHelper::Coin(coin) => Ok(Value::Coin(coin)),
+    let value = match helper {
+        ValueHelper::Coin(coin) => Value::Coin(coin),
         ValueHelper::Multiasset(coin, multiasset_data) => {
             let mut converted_multiasset = Vec::new();
 
@@ -245,9 +245,11 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
 
             let multiasset: Multiasset<PositiveCoin> =
                 Multiasset::from_vec(converted_multiasset).ok_or(serde::de::Error::custom("empty multiasset"))?;
-            Ok(Value::Multiasset(coin, multiasset))
+            Value::Multiasset(coin, multiasset)
         }
-    }
+    };
+
+    MemoizedValue::new(value).map_err(serde::de::Error::custom)
 }
 
 pub fn serialize_script<S: serde::ser::Serializer>(
@@ -287,7 +289,7 @@ mod tests {
         let original = MemoizedTransactionOutput {
             is_legacy: false,
             address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            value: Value::Coin(1500000),
+            value: MemoizedValue::new(Value::Coin(1500000)).unwrap(),
             datum,
             script: None,
         };
@@ -313,7 +315,7 @@ mod tests {
         let original = MemoizedTransactionOutput {
             is_legacy: true,
             address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            value: Value::Coin(1500000),
+            value: MemoizedValue::new(Value::Coin(1500000)).unwrap(),
             datum,
             script: None,
         };
@@ -334,7 +336,7 @@ mod tests {
         let original = MemoizedTransactionOutput {
             is_legacy: false,
             address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            value: Value::Coin(1500000),
+            value: MemoizedValue::new(Value::Coin(1500000)).unwrap(),
             datum: MemoizedDatum::None,
             script: None,
         };

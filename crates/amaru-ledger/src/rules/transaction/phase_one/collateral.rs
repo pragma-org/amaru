@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AddrType, Address, HasOwnership, Hash, MemoizedTransactionOutput, ProtocolParameters, StakeCredential,
-    TransactionInput, Value, is_locked_by_script, transaction_input_to_string,
+    AddrType, Address, HasOwnership, Hash, MemoizedTransactionOutput, MemoizedValue, ProtocolParameters,
+    StakeCredential, TransactionInput, Value, is_locked_by_script, transaction_input_to_string,
 };
 use thiserror::Error;
 
@@ -99,9 +99,9 @@ impl From<Option<&MemoizedTransactionOutput>> for CollateralBalance {
     }
 }
 
-impl From<&Value> for CollateralBalance {
-    fn from(value: &Value) -> Self {
-        match value {
+impl From<&MemoizedValue> for CollateralBalance {
+    fn from(value: &MemoizedValue) -> Self {
+        match value.as_ref() {
             Value::Multiasset(coin, multiasset) => {
                 let map = multiasset
                     .iter()
