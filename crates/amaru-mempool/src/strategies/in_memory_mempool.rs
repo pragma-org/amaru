@@ -74,14 +74,14 @@ impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
         tx_origin: TxOrigin,
     ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
         let tx_size = to_cbor(&tx).len() as u32;
+        let tx_id = TxId::from(&tx);
+
+        if self.entries_by_id.contains_key(&tx_id) {
+            return Err(TxRejectReason::Duplicate);
+        }
 
         if self.current_bytes.saturating_add(tx_size as u64) > config.max_bytes {
             return Err(TxRejectReason::MempoolFull);
-        }
-
-        let tx_id = TxId::from(&tx);
-        if self.entries_by_id.contains_key(&tx_id) {
-            return Err(TxRejectReason::Duplicate);
         }
 
         let seq_no = MempoolSeqNo(self.next_seq);
@@ -292,6 +292,20 @@ mod tests {
             panic!("transaction should be rejected as full");
         };
         assert!(matches!(reason, TxRejectReason::MempoolFull), "unexpected reason: {reason:?}");
+    }
+
+    #[test]
+    fn duplicate_on_full_mempool_reports_duplicate_not_full() {
+        let first = Tx::from_str("a").unwrap();
+        let max_bytes = to_cbor(&first).len() as u64;
+        let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes));
+
+        assert!(matches!(mempool.insert(first.clone(), TxOrigin::Local).unwrap(), TxInsertResult::Accepted { .. }));
+
+        let TxInsertResult::Rejected { reason, .. } = mempool.insert(first, TxOrigin::Local).unwrap() else {
+            panic!("transaction should be rejected");
+        };
+        assert!(matches!(reason, TxRejectReason::Duplicate), "unexpected reason: {reason:?}");
     }
 
     #[test]
