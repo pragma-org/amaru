@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AddrType, Address, HasOwnership, Hash, MemoizedTransactionOutput, MemoizedValue, ProtocolParameters,
-    StakeCredential, TransactionInput, Value, is_locked_by_script, transaction_input_to_string,
+    AddrType, Address, AddressError, HasOwnership, Hash, MemoizedTransactionOutput, MemoizedValue, ProtocolParameters,
+    StakeCredential, TransactionInput, Value, cbor, is_locked_by_script, transaction_input_to_string,
 };
 use thiserror::Error;
 
@@ -144,9 +144,8 @@ pub enum InvalidCollateral {
     NoCollateral,
     #[error("collateral has non-zero delta: {0}")]
     ValueNotConserved(CollateralBalance),
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("uncategorized error: {0}")]
-    UncategorizedError(String),
+    #[error("invalid Byron address payload at collateral input {}: {error}", transaction_input_to_string(input))]
+    InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
 }
 
 /*
@@ -188,9 +187,14 @@ where
             },
             Address::Byron(byron_address) => {
                 let payload = byron_address.decode().map_err(|e| {
-                    InvalidCollateral::UncategorizedError(format!(
-                        "Invalid byron address payload. (error {e:?}) address: {byron_address:?})",
-                    ))
+                    #[allow(clippy::wildcard_enum_match_arm)]
+                    match e {
+                        AddressError::InvalidByronCbor(error) => InvalidCollateral::InvalidByronAddressPayload {
+                            input: collateral.clone(),
+                            error: Box::new(error),
+                        },
+                        _ => unreachable!("byron_address.decode() only returns InvalidByronCbor"),
+                    }
                 })?;
 
                 #[allow(clippy::wildcard_enum_match_arm)]

@@ -40,10 +40,6 @@ pub enum InvalidOutput {
 
     #[error("address has the wrong network ID: expected: {expected}, actual: {actual}")]
     WrongNetwork { expected: u8, actual: u8 },
-
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("uncategorized error: {0}")]
-    UncategorizedError(String),
 }
 
 pub fn execute<C>(
