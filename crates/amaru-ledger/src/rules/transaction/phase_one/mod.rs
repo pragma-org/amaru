@@ -142,6 +142,7 @@ where
         protocol_parameters,
         &(*network).into(),
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
+        false,
         |_index| {
             if is_valid {
                 return None;
@@ -162,6 +163,7 @@ where
         protocol_parameters,
         &(*network).into(),
         mem::take(&mut transaction_body.outputs),
+        true,
         |index| {
             if !is_valid {
                 return None;

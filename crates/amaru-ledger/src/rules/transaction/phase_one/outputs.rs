@@ -51,6 +51,7 @@ pub fn execute<C>(
     protocol_parameters: &ProtocolParameters,
     network: &Network,
     outputs: Vec<MemoizedTransactionOutput>,
+    allow_supplemental_datum: bool,
     construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
@@ -64,15 +65,7 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        // FIXME: This line is wrong. According to the Haskell source code, we should only count
-        // supplemental datums for outputs (regardless of whether transaction fails or not).
-        //
-        // In particular, any datum present in a collateral return does NOT count towards the
-        // allowed supplemental datums.
-        //
-        // However, I am not fixing this now, because we have no test covering the case whatsoever.
-        // At the moment, that line can actually be fully removed without making any test fail.
-        if let MemoizedDatum::Hash(hash) = &output.datum {
+        if allow_supplemental_datum && let MemoizedDatum::Hash(hash) = &output.datum {
             context.allow_supplemental_datum(*hash);
         }
 
@@ -114,16 +107,7 @@ mod tests {
         rules::WithPosition,
     };
 
-    #[derive(Debug)]
-    struct Outcome {
-        result: Result<(), InvalidOutputs>,
-        supplemental_datums: BTreeSet<Hash<DATUM>>,
-    }
-
-    enum Slice {
-        Outputs,
-        CollateralReturn,
-    }
+    type Outcome = (Result<(), InvalidOutputs>, BTreeSet<Hash<DATUM>>);
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -143,8 +127,8 @@ mod tests {
         };
     }
 
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"), Slice::Outputs
-        => matches Outcome { result: Ok(()), .. };
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2")
+        => matches (Ok(()), _);
         "valid")]
     #[test_case(
         fixture!(
@@ -153,7 +137,7 @@ mod tests {
                 lovelace_per_utxo_byte: 100_000_000_000,
                 ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
             }
-        ), Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
+        ) => matches (Err(InvalidOutputs{invalid_outputs}), _)
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::TooSmall { .. }
@@ -165,49 +149,52 @@ mod tests {
                 max_value_size: 1,
                 ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
             }
-        ), Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
+        ) => matches (Err(InvalidOutputs{invalid_outputs}), _)
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::ValueTooLarge {..}
             });
         "value too large"
     )]
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-shelley"),
-        Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-shelley")
+        => matches (Err(InvalidOutputs{invalid_outputs}), _)
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::WrongNetwork { expected: 0, actual: 1 }
             });
         "wrong network shelley"
     )]
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-byron"),
-        Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-byron")
+        => matches (Err(InvalidOutputs{invalid_outputs}), _)
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::WrongNetwork { expected: 0, actual: 1 }
             });
         "wrong network byron"
     )]
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"),
-        Slice::Outputs => matches Outcome { result: Ok(()), .. };
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron")
+        => matches (Ok(()), _);
         "valid byron")]
-    #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"),
-        Slice::Outputs => matches Outcome { result: Ok(()), supplemental_datums }
-            if !supplemental_datums.is_empty();
-        "normal output with datum hash contributes supplemental datum"
+    #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6")
+        => matches (Ok(()), datums) if !datums.is_empty();
+        "output with datum hash contributes supplemental datum"
     )]
-    #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6", "collateral-return-datum-hash"),
-        Slice::CollateralReturn => matches Outcome { result: Ok(()), supplemental_datums }
-            if supplemental_datums.is_empty();
-        "collateral_return with datum hash does not contribute supplemental datum"
-    )]
-    fn outputs((tx, protocol_parameters): (TransactionBody, ProtocolParameters), slice: Slice) -> Outcome {
+    fn outputs((tx, protocol_parameters): (TransactionBody, ProtocolParameters)) -> Outcome {
         let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
-        let outputs = match slice {
-            Slice::Outputs => tx.outputs,
-            Slice::CollateralReturn => tx.collateral_return.into_iter().collect(),
-        };
-        let result = super::execute(&mut context, &protocol_parameters, &Network::Testnet, outputs, |_| None);
-        Outcome { result, supplemental_datums: context.allowed_supplemental_datums() }
+        let result = super::execute(&mut context, &protocol_parameters, &Network::Testnet, tx.outputs, true, |_| None);
+        (result, context.allowed_supplemental_datums())
+    }
+
+    #[test_case(fixture!(
+        "578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6",
+        "collateral-return-datum-hash"
+    ) => matches (Ok(()), datums) if datums.is_empty();
+        "collateral return with datum hash does not contribute supplemental datum"
+    )]
+    fn collateral_return((tx, protocol_parameters): (TransactionBody, ProtocolParameters)) -> Outcome {
+        let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
+        let outputs = tx.collateral_return.map(|output| vec![output]).expect("fixture must have a collateral_return");
+        let result = super::execute(&mut context, &protocol_parameters, &Network::Testnet, outputs, false, |_| None);
+        (result, context.allowed_supplemental_datums())
     }
 }
