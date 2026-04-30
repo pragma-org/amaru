@@ -100,16 +100,30 @@ fn validate_network(output: &MemoizedTransactionOutput, expected_network: &Netwo
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
-    use amaru_kernel::{Network, ProtocolParameters, TransactionBody, include_cbor};
+    use amaru_kernel::{Hash, Network, ProtocolParameters, TransactionBody, include_cbor, size::DATUM};
     use test_case::test_case;
 
     use super::{InvalidOutput, InvalidOutputs};
     use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
+        context::{
+            WitnessSlice,
+            assert::{AssertPreparationContext, AssertValidationContext},
+        },
         rules::WithPosition,
     };
+
+    #[derive(Debug)]
+    struct Outcome {
+        result: Result<(), InvalidOutputs>,
+        supplemental_datums: BTreeSet<Hash<DATUM>>,
+    }
+
+    enum Slice {
+        Outputs,
+        CollateralReturn,
+    }
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -129,7 +143,9 @@ mod tests {
         };
     }
 
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"); "valid")]
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"), Slice::Outputs
+        => matches Outcome { result: Ok(()), .. };
+        "valid")]
     #[test_case(
         fixture!(
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
@@ -137,7 +153,7 @@ mod tests {
                 lovelace_per_utxo_byte: 100_000_000_000,
                 ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
             }
-        ) => matches Err(InvalidOutputs{invalid_outputs})
+        ), Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::TooSmall { .. }
@@ -149,32 +165,49 @@ mod tests {
                 max_value_size: 1,
                 ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
             }
-        ) => matches Err(InvalidOutputs{invalid_outputs})
+        ), Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::ValueTooLarge {..}
             });
         "value too large"
     )]
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-shelley") =>
-        matches Err(InvalidOutputs{invalid_outputs})
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-shelley"),
+        Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::WrongNetwork { expected: 0, actual: 1 }
             });
         "wrong network shelley"
     )]
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-byron") =>
-        matches Err(InvalidOutputs{invalid_outputs})
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-byron"),
+        Slice::Outputs => matches Outcome { result: Err(InvalidOutputs{invalid_outputs}), .. }
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::WrongNetwork { expected: 0, actual: 1 }
             });
         "wrong network byron"
     )]
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"); "valid byron")]
-    fn outputs((tx, protocol_parameters): (TransactionBody, ProtocolParameters)) -> Result<(), InvalidOutputs> {
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"),
+        Slice::Outputs => matches Outcome { result: Ok(()), .. };
+        "valid byron")]
+    #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"),
+        Slice::Outputs => matches Outcome { result: Ok(()), supplemental_datums }
+            if !supplemental_datums.is_empty();
+        "normal output with datum hash contributes supplemental datum"
+    )]
+    #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6", "collateral-return-datum-hash"),
+        Slice::CollateralReturn => matches Outcome { result: Ok(()), supplemental_datums }
+            if supplemental_datums.is_empty();
+        "collateral_return with datum hash does not contribute supplemental datum"
+    )]
+    fn outputs((tx, protocol_parameters): (TransactionBody, ProtocolParameters), slice: Slice) -> Outcome {
         let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
-        super::execute(&mut context, &protocol_parameters, &Network::Testnet, tx.outputs, |_| None)
+        let outputs = match slice {
+            Slice::Outputs => tx.outputs,
+            Slice::CollateralReturn => tx.collateral_return.into_iter().collect(),
+        };
+        let result = super::execute(&mut context, &protocol_parameters, &Network::Testnet, outputs, |_| None);
+        Outcome { result, supplemental_datums: context.allowed_supplemental_datums() }
     }
 }
