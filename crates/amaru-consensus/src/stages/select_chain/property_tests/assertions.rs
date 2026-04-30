@@ -21,22 +21,21 @@ use super::state::{AssertionFailure, StepAction, TestState};
 use crate::stages::select_chain;
 
 impl TestState {
-    /// Assert that the current non-invalidated output tip is among the best non-invalidated sent tips.
+    /// Assert that the latest non-invalidated tip emitted downstream by `select_chain`
+    /// is among the best non-invalidated tips sent from upstream.
+    ///
+    /// (a non-invalidated tip is a tip whose chain does not contain an invalidated block)
     pub fn assert_best_known_tip(&self, outputs: &[(Tip, Point)]) -> Option<AssertionFailure> {
-        if !matches!(self.last_action(), Some(StepAction::Restart)) {
-            return None;
-        }
+        let latest_tip = self.latest_non_invalidated_tip_sent_downstream(outputs);
 
-        let current_output_tip = self.current_non_invalidated_tip(outputs);
-        let best_sent_tips = self.best_non_invalidated_sent_tips();
+        // Some tips might be ex-aequo, this is why we have a Vec of tips here.
+        let best_generated_tips = self.best_non_invalidated_generated_tips();
 
-        let ok = match (&current_output_tip, best_sent_tips.is_empty()) {
-            (None, true) => true,
-            (Some(current_tip), false) => best_sent_tips.iter().any(|tip| tip.hash() == current_tip.hash()),
-            _ => false,
-        };
+        // The latest tip sent downstream must be in that best tips list
+        let ok = best_generated_tips.is_empty() && latest_tip.is_none()
+            || latest_tip.as_ref().is_some_and(|tip| best_generated_tips.contains(tip));
 
-        self.make_assertion_failure(!ok, outputs, current_output_tip, best_sent_tips)
+        self.make_assertion_failure(!ok, outputs, latest_tip, best_generated_tips)
     }
 
     fn make_assertion_failure(
@@ -61,7 +60,7 @@ impl TestState {
     }
 
     /// Return the latest advertised downstream tip whose ancestry does not include a known invalid block.
-    fn current_non_invalidated_tip(&self, outputs: &[(Tip, Point)]) -> Option<Tip> {
+    fn latest_non_invalidated_tip_sent_downstream(&self, outputs: &[(Tip, Point)]) -> Option<Tip> {
         let mut validity_cache = BTreeSet::new();
         let invalid_blocks = self.invalid_blocks();
         let store = self.store();
@@ -71,7 +70,7 @@ impl TestState {
     }
 
     /// Return all non-invalidated sent headers that tie for best under the current chain-selection rules.
-    fn best_non_invalidated_sent_tips(&self) -> Vec<Tip> {
+    fn best_non_invalidated_generated_tips(&self) -> Vec<Tip> {
         let mut validity_cache = BTreeSet::new();
         let invalid_blocks = self.invalid_blocks();
         let store = self.store();
