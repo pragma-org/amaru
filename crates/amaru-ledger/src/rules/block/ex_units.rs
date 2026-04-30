@@ -16,12 +16,10 @@ use amaru_kernel::{ExUnits, ProtocolParameters, sum_ex_units};
 
 use super::InvalidBlockDetails;
 
-pub fn block_ex_units_valid(
-    ex_units: Vec<&ExUnits>,
+pub fn block_ex_units_valid<'a>(
+    ex_units: impl IntoIterator<Item = &'a ExUnits>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails> {
-    // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
-
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
     let ex_units = ex_units.into_iter().fold(ExUnits { mem: 0, steps: 0 }, sum_ex_units);
 
