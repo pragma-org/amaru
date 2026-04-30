@@ -27,10 +27,10 @@ use amaru::{
         config::{Config, MaxExtraLedgerSnapshots, StoreType},
     },
 };
-use amaru_kernel::NetworkName;
+use amaru_kernel::{NetworkName, NonZeroDuration};
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::MempoolMsg;
-use amaru_protocols::tx_submission::{NonZeroDuration, ResponderParams};
+use amaru_protocols::tx_submission::ResponderParams;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;

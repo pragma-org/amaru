@@ -203,6 +203,7 @@ pub use data_structures::{
     non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
     non_empty_set::{IntoNonEmptySetError, NonEmptySet},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
+    non_zero_duration::{NonZeroDuration, ZeroDurationError},
     nullable::Nullable,
     set::Set,
     strict_maybe::StrictMaybe,

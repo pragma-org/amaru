@@ -13,69 +13,11 @@
 // limitations under the License.
 
 use std::{
-    fmt,
     num::{NonZeroU16, NonZeroU64},
     time::Duration,
 };
 
-use amaru_kernel::cbor;
-
-#[derive(Debug)]
-pub struct ZeroDurationError;
-
-impl fmt::Display for ZeroDurationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("duration must be non-zero")
-    }
-}
-
-impl std::error::Error for ZeroDurationError {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(try_from = "Duration", into = "Duration")]
-pub struct NonZeroDuration(Duration);
-
-impl NonZeroDuration {
-    pub const fn try_new(d: Duration) -> Option<Self> {
-        if d.is_zero() { None } else { Some(Self(d)) }
-    }
-
-    pub const fn from_millis(ms: u64) -> Option<Self> {
-        Self::try_new(Duration::from_millis(ms))
-    }
-
-    pub const fn from_secs(s: u64) -> Option<Self> {
-        Self::try_new(Duration::from_secs(s))
-    }
-
-    pub const fn from_nonzero_millis(ms: NonZeroU64) -> Self {
-        Self(Duration::from_millis(ms.get()))
-    }
-
-    pub const fn as_duration(self) -> Duration {
-        self.0
-    }
-}
-
-impl TryFrom<Duration> for NonZeroDuration {
-    type Error = ZeroDurationError;
-
-    fn try_from(value: Duration) -> Result<Self, Self::Error> {
-        Self::try_new(value).ok_or(ZeroDurationError)
-    }
-}
-
-impl From<NonZeroDuration> for Duration {
-    fn from(value: NonZeroDuration) -> Self {
-        value.0
-    }
-}
-
-impl fmt::Display for NonZeroDuration {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
+use amaru_kernel::{NonZeroDuration, cbor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponderParams {
@@ -135,6 +77,7 @@ impl ResponderParams {
     }
 }
 
+/// Whether the transaction submission initiator should block until it can fulfill a server request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Blocking {
     Yes,
