@@ -308,7 +308,7 @@ impl TxSubmissionInitiator {
         if req == 0 {
             return Err(NoTxIdsRequested);
         };
-        if let Some(value) = self.check_ack_req(ack, req) {
+        if let Some(value) = self.check_ack(ack) {
             return Err(value);
         }
         if (ack as usize) < self.window.len() {
@@ -346,7 +346,7 @@ impl TxSubmissionInitiator {
         if ack == 0 && req == 0 {
             return protocol_error(NoAckOrReqTxIdsRequested);
         }
-        if let Some(error) = self.check_ack_req(ack, req) {
+        if let Some(error) = self.check_ack(ack) {
             return protocol_error(error);
         }
         if ack as usize == self.window.len() {
@@ -378,8 +378,8 @@ impl TxSubmissionInitiator {
         }
     }
 
-    /// Check that the ack and req values are valid for a request whether it is blocking or non blocking.
-    fn check_ack_req(&mut self, ack: u16, _req: u16) -> Option<ProtocolError> {
+    /// Check that the `ack` count is valid for the current outstanding window.
+    fn check_ack(&mut self, ack: u16) -> Option<ProtocolError> {
         if ack as usize > self.window.len() {
             Some(TooManyAcknowledgedTxs(ack, self.window.len() as u16))
         } else {
