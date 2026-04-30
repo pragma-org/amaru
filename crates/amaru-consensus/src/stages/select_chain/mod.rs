@@ -14,9 +14,10 @@
 
 use std::{cmp::Ordering, collections::BTreeMap};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, Tip};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tip};
 use amaru_ouroboros::{ChainStore, ReadOnlyChainStore};
 use amaru_protocols::store_effects::Store;
+use anyhow::anyhow;
 use pure_stage::{Effects, StageRef, TryInStage};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -156,8 +157,8 @@ impl SelectChain {
                 // Need to pick new best tip
                 tracing::info!(%removed, "best tip candidate invalidated");
 
-                match best_tip_candidate_from_store(&store) {
-                    Some((new_best_tip, to_validate)) => {
+                match best_fallback_tip_candidate_from_store(&store) {
+                    Ok(Some((new_best_tip, to_validate))) => {
                         tracing::debug!(%new_best_tip, "new best tip candidate");
                         let parent = if let Some(parent) = new_best_tip.parent() {
                             store
@@ -181,9 +182,13 @@ impl SelectChain {
                         self.tips.insert(new_best_tip.hash(), to_validate);
                         self.best_tip = Some(new_best_tip);
                     }
-                    None => {
+                    Ok(None) => {
                         self.best_tip = None;
                         tracing::warn!("falling back to origin");
+                    }
+                    Err(e) => {
+                        tracing::error!("{e:?}");
+                        return eff.terminate().await;
                     }
                 }
             } else if removed > 0 {
@@ -228,82 +233,84 @@ impl SelectChain {
     }
 }
 
-/// Return the best non-invalidated tip from the chain store by taking descendants of the anchor and:
-///
-/// - Filter out tips that have invalid blocks.
-/// - Take the best one using the cmp function.
-/// - Also return the list of still non-validated block hashes for that tip.
-///
-pub fn best_tip_candidate_from_store(store: &dyn ChainStore<BlockHeader>) -> Option<(BlockHeader, Vec<HeaderHash>)> {
-    store
-        .child_tips(&store.get_anchor_hash())
-        .filter_map(|tip| best_non_invalidated_candidate_from_leaf(store, tip.hash()))
-        .max_by(|left, right| cmp_tip(Some(&left.0), Some(&right.0)))
+pub fn best_startup_tip_candidate_from_store(
+    store: &dyn ChainStore<BlockHeader>,
+) -> anyhow::Result<Option<(BlockHeader, Vec<HeaderHash>)>> {
+    best_tip_candidate_from_store(store, TipCandidateMode::Startup)
 }
 
-/// Return the best candidate reachable on this leaf path together with the
-/// still-pending fragment below the nearest validated ancestor.
-///
-/// The candidate is usually the leaf itself:
-///
-/// leaf (None)
-///  |
-/// parent (None)
-///  |
-/// validated (Some(true))
-///
-/// returns `(leaf, [parent, leaf])`
-///
-/// If the leaf suffix crosses an invalid block, the candidate collapses to the
-/// best ancestor above that invalid segment:
-///
-/// leaf (None)
-///  |
-/// invalid (Some(false))
-///  |
-/// ancestor (None)
-///  |
-/// validated (Some(true))
-///
-/// returns `(ancestor, [ancestor])`
-fn best_non_invalidated_candidate_from_leaf(
-    chain_store: &dyn ChainStore<BlockHeader>,
-    leaf_hash: HeaderHash,
-) -> Option<(BlockHeader, Vec<HeaderHash>)> {
-    let mut current = Some(leaf_hash);
-    let mut pending_from_leaf = Vec::new();
-    let mut candidate_header = None;
-    let mut seen_valid_ancestor = false;
+fn best_fallback_tip_candidate_from_store(
+    store: &dyn ChainStore<BlockHeader>,
+) -> anyhow::Result<Option<(BlockHeader, Vec<HeaderHash>)>> {
+    best_tip_candidate_from_store(store, TipCandidateMode::Fallback)
+}
 
-    while let Some(hash) = current {
-        let (header, validity) = chain_store.load_header_with_validity(&hash)?;
+#[derive(Clone, Copy)]
+enum TipCandidateMode {
+    Startup,
+    Fallback,
+}
 
-        match validity {
-            Some(false) => {
-                pending_from_leaf.clear();
-                candidate_header = None;
-                seen_valid_ancestor = false;
-            }
-            Some(true) => {
-                seen_valid_ancestor = true;
-                candidate_header.get_or_insert(header.clone());
-            }
-            None => {
-                if !seen_valid_ancestor {
-                    pending_from_leaf.push(header.hash());
-                }
-                candidate_header.get_or_insert(header.clone());
-            }
-        }
-
-        current = header.parent_hash();
+/// Visit nodes starting from the best chain and return the best candidate according to `cmp_tip`.
+///
+/// This traversal is used with two selection policies:
+///
+/// - On startup, only leaf headers with at least one pending block are candidates.
+///   This resumes block fetching/validation work without re-advertising an already
+///   fully validated chain point.
+///
+/// - During fallback after invalidating the best tip candidate, every non-invalid
+///   visited header is a candidate. This allows selecting either a better pending
+///   tip or an already-valid ancestor with no pending blocks, so downstream can
+///   move away from the invalidated chain.
+///
+fn best_tip_candidate_from_store(
+    store: &dyn ChainStore<BlockHeader>,
+    mode: TipCandidateMode,
+) -> anyhow::Result<Option<(BlockHeader, Vec<HeaderHash>)>> {
+    let best_chain = store.get_best_chain_hash();
+    if best_chain != ORIGIN_HASH && store.load_header_with_validity(&best_chain).is_none() {
+        return Err(anyhow!("best chain hash {best_chain} does not resolve to a stored header"));
     }
 
-    candidate_header.map(|header| {
-        let mut pending = pending_from_leaf;
-        pending.reverse();
-        (header, pending)
-    })
+    // ORIGIN_HASH cannot have a block, so we start from its direct children
+    let mut to_visit = if best_chain == ORIGIN_HASH {
+        store.get_children(&best_chain).into_iter().map(|hash| (hash, vec![])).collect()
+    } else {
+        vec![(best_chain, vec![])]
+    };
+    let mut best_candidate = None;
+
+    while let Some((hash, pending)) = to_visit.pop() {
+        let (header, validity) = store
+            .load_header_with_validity(&hash)
+            .ok_or_else(|| anyhow!("reachable child hash {hash} does not resolve to a stored header"))?;
+
+        let next_pending = match validity {
+            Some(false) => continue,
+            Some(true) => vec![],
+            None => {
+                let mut next_pending = pending;
+                next_pending.push(hash);
+                next_pending
+            }
+        };
+
+        let children = store.get_children(&hash);
+        let eligible = match mode {
+            TipCandidateMode::Startup => children.is_empty() && !next_pending.is_empty(),
+            TipCandidateMode::Fallback => true,
+        };
+
+        if eligible && best_candidate.as_ref().is_none_or(|(current, _)| cmp_tip(Some(&header), Some(current)).is_gt())
+        {
+            best_candidate = Some((header.clone(), next_pending.clone()));
+        }
+
+        to_visit.extend(children.into_iter().map(|child| (child, next_pending.clone())));
+    }
+
+    Ok(best_candidate)
 }
 
 /// Return the not-yet-validated fragment on the path from `hash` upward to the
@@ -339,10 +346,8 @@ fn depends_on_hash(store: &dyn ChainStore<BlockHeader>, hash: HeaderHash, ancest
         if hash == ancestor {
             return true;
         }
-
         current = store.load_header(&hash).and_then(|header| header.parent_hash());
     }
-
     false
 }
 

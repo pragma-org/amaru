@@ -21,7 +21,7 @@ use pure_stage::{
 use tokio::runtime::{Builder, Runtime};
 
 use super::state::{StepAction, TestState};
-use crate::stages::select_chain::{SelectChain, SelectChainMsg, best_tip_candidate_from_store};
+use crate::stages::select_chain::{SelectChain, SelectChainMsg, best_startup_tip_candidate_from_store};
 
 /// The Harness is responsible for instantiating and running the select_chain stage.
 /// It returns all the downstream outputs emitted by the stage in response to messages.
@@ -105,7 +105,7 @@ fn build_stage(store: ResourceHeaderStore) -> (SimulationRunning, StageRef<Selec
     simulation.resources().put::<ResourceHeaderStore>(store.clone());
 
     let (downstream, output_rx) = simulation.output::<(Tip, Point)>("downstream", 1_000_000);
-    let best_candidate = best_tip_candidate_from_store(store.as_ref());
+    let best_candidate = best_startup_tip_candidate_from_store(store.as_ref()).unwrap();
     let select_chain = SelectChain::new(downstream, best_candidate);
     let select_chain_stage = simulation.stage("select_chain", crate::stages::select_chain::stage);
     let select_chain_stage = simulation.wire_up(select_chain_stage, select_chain);

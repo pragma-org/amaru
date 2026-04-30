@@ -18,7 +18,7 @@ use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation,
     },
-    stages::select_chain::best_tip_candidate_from_store,
+    stages::select_chain::best_startup_tip_candidate_from_store,
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
@@ -126,7 +126,7 @@ pub fn build_node(
     let chain_store = initialize_chain_store(config, ledger_tip)?;
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
-    let best_candidate = best_tip_candidate_from_store(&*chain_store);
+    let best_candidate = best_startup_tip_candidate_from_store(&*chain_store)?;
 
     let tip = best_candidate.as_ref().map(|(h, _)| h.point()).unwrap_or(Point::Origin);
     tracing::info!(%tip, "build_chain");

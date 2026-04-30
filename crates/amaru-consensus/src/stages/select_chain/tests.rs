@@ -14,8 +14,13 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use amaru_kernel::{BlockHeight, HeaderHash, ORIGIN_HASH, Point, Slot};
-use amaru_ouroboros_traits::{StoreError, overriding_consensus_store::OverridingChainStore};
+use amaru_kernel::{
+    BlockHeight, HeaderHash, ORIGIN_HASH, Point, Slot, any_headers_chain, any_headers_chain_with_root, make_header,
+    utils::tests::run_strategy,
+};
+use amaru_ouroboros_traits::{
+    StoreError, in_memory_consensus_store::InMemConsensusStore, overriding_consensus_store::OverridingChainStore,
+};
 use pure_stage::trace_buffer::TerminationReason;
 use tracing::Level;
 
@@ -681,56 +686,85 @@ fn test_startup_with_non_empty_store() {
 }
 
 #[test]
-fn test_best_non_invalidated_candidate_from_leaf_returns_leaf_and_pending_fragment() {
-    // h3 (None)
-    //  |
-    // h2 (None)
-    //  |
-    // h1 (Some(true))
-    //  |
-    // h0
-    let prep = test_prep();
-    prep.store_headers(&prep.headers.main());
-    prep.set_validity(prep.headers.h1.hash(), true);
+fn rejects_startup_candidate_with_invalid_ancestry() {
+    let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+    let chain = run_strategy(any_headers_chain(4));
+    let [a, b, c, d] = chain.try_into().unwrap();
 
-    let candidate = best_non_invalidated_candidate_from_leaf(prep.store.as_ref(), prep.headers.h3.hash());
+    for header in [&a, &b, &c, &d] {
+        store.store_header(header).unwrap();
+    }
+    store.set_anchor_hash(&a.hash()).unwrap();
+    for header in [&a, &b] {
+        store.roll_forward_chain(&header.point()).unwrap();
+    }
+    store.set_block_valid(&c.hash(), false).unwrap();
 
-    assert_eq!(candidate, Some((prep.headers.h3.clone(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])));
+    let candidate = best_startup_tip_candidate_from_store(store.as_ref()).unwrap();
+    assert_eq!(candidate, None);
 }
 
 #[test]
-fn test_best_non_invalidated_candidate_from_leaf_returns_validated_leaf_with_empty_fragment() {
-    // h3 (Some(true))
-    //  |
-    // h2
-    //  |
-    // h1
-    //  |
-    // h0
-    let prep = test_prep();
-    prep.store_headers(&prep.headers.main());
-    prep.set_validity(prep.headers.h3.hash(), true);
+fn best_startup_tip_candidate_from_store_keeps_candidate_with_valid_ancestry() {
+    let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+    let chain = run_strategy(any_headers_chain(4));
+    let [a, b, c, d] = chain.try_into().unwrap();
 
-    let candidate = best_non_invalidated_candidate_from_leaf(prep.store.as_ref(), prep.headers.h3.hash());
+    for header in [&a, &b, &c, &d] {
+        store.store_header(header).unwrap();
+    }
+    store.set_anchor_hash(&a.hash()).unwrap();
+    for header in [&a, &b] {
+        store.roll_forward_chain(&header.point()).unwrap();
+    }
+    store.set_block_valid(&b.hash(), true).unwrap();
+    let d_hash = d.hash();
 
-    assert_eq!(candidate, Some((prep.headers.h3.clone(), vec![])));
+    let candidate = best_startup_tip_candidate_from_store(store.as_ref()).unwrap();
+    assert_eq!(candidate, Some((d, vec![c.hash(), d_hash])));
 }
 
 #[test]
-fn test_best_non_invalidated_candidate_from_leaf_collapses_above_invalid_suffix() {
-    // h3 (None)
-    //  |
-    // h2 (Some(false))
-    //  |
-    // h1 (None)
-    //  |
-    // h0 (Some(true))
-    let prep = test_prep();
-    prep.store_headers(&prep.headers.main());
-    prep.set_validity(prep.headers.h0.hash(), true);
-    prep.set_validity(prep.headers.h2.hash(), false);
+fn best_startup_tip_candidate_from_store_keeps_pending_candidate_when_other_branch_has_invalid_ancestry() {
+    let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
 
-    let candidate = best_non_invalidated_candidate_from_leaf(prep.store.as_ref(), prep.headers.h3.hash());
+    // a -- b -- c (invalid) -- d
+    //       \
+    //        e
+    let chain = run_strategy(any_headers_chain(2));
+    let [a, b] = chain.try_into().unwrap();
+    let invalid_branch = run_strategy(any_headers_chain_with_root(2, b.point()));
+    let [c, d] = invalid_branch.try_into().unwrap();
+    let e = BlockHeader::from(make_header(3, c.slot().as_u64() + 10, Some(b.hash())));
 
-    assert_eq!(candidate, Some((prep.headers.h1.clone(), vec![prep.headers.h1.hash()])));
+    for header in [&a, &b, &c, &d, &e] {
+        store.store_header(header).unwrap();
+    }
+    store.set_anchor_hash(&a.hash()).unwrap();
+    for header in [&a, &b] {
+        store.roll_forward_chain(&header.point()).unwrap();
+    }
+    store.set_block_valid(&b.hash(), true).unwrap();
+    store.set_block_valid(&c.hash(), false).unwrap();
+
+    let candidate = best_startup_tip_candidate_from_store(store.as_ref()).unwrap();
+    assert_eq!(candidate, Some((e.clone(), vec![e.hash()])));
+}
+
+#[test]
+fn best_startup_tip_candidate_from_store_returns_none_when_best_chain_has_no_descendants() {
+    let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+    let chain = run_strategy(any_headers_chain(2));
+    let [a, b] = chain.try_into().unwrap();
+
+    for header in [&a, &b] {
+        store.store_header(header).unwrap();
+        store.roll_forward_chain(&header.point()).unwrap();
+    }
+    store.set_anchor_hash(&a.hash()).unwrap();
+    store.set_block_valid(&a.hash(), true).unwrap();
+    store.set_block_valid(&b.hash(), true).unwrap();
+
+    let candidate = best_startup_tip_candidate_from_store(store.as_ref()).unwrap();
+    assert_eq!(candidate, None);
 }
