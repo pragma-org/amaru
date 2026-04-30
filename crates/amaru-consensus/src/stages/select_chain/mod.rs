@@ -148,7 +148,7 @@ impl SelectChain {
             // remove all tips depending on the invalid block
             // (if a peer sends further headers on this chain, we will ignore them)
             let prev_tips = self.tips.len();
-            self.tips.retain(|tip_hash, v| !v.contains(&tip.hash()) && !depends_on_hash(&store, *tip_hash, tip.hash()));
+            self.tips.retain(|_k, v| v.first() != Some(&tip.hash()));
             let removed = prev_tips - self.tips.len();
 
             if let Some(best_tip) = &self.best_tip
@@ -336,19 +336,6 @@ fn pending_non_invalidated_fragment(
         .collect::<Vec<_>>();
 
     valid.then_some(ancestors)
-}
-
-/// Return whether `hash` lies on a chain suffix whose ancestry includes `ancestor`.
-fn depends_on_hash(store: &dyn ChainStore<BlockHeader>, hash: HeaderHash, ancestor: HeaderHash) -> bool {
-    let mut current = Some(hash);
-
-    while let Some(hash) = current {
-        if hash == ancestor {
-            return true;
-        }
-        current = store.load_header(&hash).and_then(|header| header.parent_hash());
-    }
-    false
 }
 
 /// Compare tip headers according to the rules for selecting the better chain.
