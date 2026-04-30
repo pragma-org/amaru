@@ -278,11 +278,11 @@ impl TxSubmissionResponder {
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<FetchOutcome> {
-        if self.window.len() + tx_ids.len() > self.params.max_window.into() {
+        if self.window.len() + tx_ids.len() > self.params.max_window.get().into() {
             return protocol_error_outcome(TooManyTxIdsReceived(
                 tx_ids.len(),
                 self.window.len(),
-                self.params.max_window.into(),
+                self.params.max_window.get().into(),
             ));
         }
         self.received_tx_ids(mempool, tx_ids).await;
@@ -361,6 +361,7 @@ impl TxSubmissionResponder {
         let req = self
             .params
             .max_window
+            .get()
             .checked_sub(self.window.len() as u16)
             .expect("req underflow: protocol invariant violated");
 
@@ -393,7 +394,7 @@ impl TxSubmissionResponder {
     fn txs_to_request(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Vec<TxId> {
         let mut tx_ids = Vec::new();
         let mut reserved: u64 = 0;
-        let budget = self.params.fetch_batch_bytes;
+        let budget = self.params.fetch_batch_bytes.get();
 
         while let Some(&next_id) = self.pending_fetch.front() {
             let advertised_size = self.window.iter().find(|(id, _)| *id == next_id).map(|(_, sz)| *sz).unwrap_or(0);
@@ -438,10 +439,8 @@ impl TxSubmissionResponder {
 
         let origin = self.origin.clone();
         match eff
-            .call(&self.mempool_stage, self.params.mempool_insert_timeout, move |caller| MempoolMsg::InsertBatch {
-                txs,
-                origin: origin.clone(),
-                caller,
+            .call(&self.mempool_stage, self.params.mempool_insert_timeout.as_duration(), move |caller| {
+                MempoolMsg::InsertBatch { txs, origin: origin.clone(), caller }
             })
             .await
         {
@@ -530,7 +529,7 @@ impl TxSubmissionResponder {
             self.back_pressure_scheduled = true;
             eff.schedule_after(
                 Inputs::Local(ResponderLocalIn::CheckMempoolSize),
-                self.params.back_pressure_recheck_interval,
+                self.params.back_pressure_recheck_interval.as_duration(),
             )
             .await;
         }
@@ -553,7 +552,7 @@ impl TxSubmissionResponder {
             self.fetch_id = self.fetch_id.wrapping_add(1);
             eff.schedule_after(
                 Inputs::Local(ResponderLocalIn::InflightTimeout(self.fetch_id)),
-                self.params.inflight_fetch_timeout,
+                self.params.inflight_fetch_timeout.as_duration(),
             )
             .await;
         }
@@ -919,7 +918,10 @@ mod tests {
     /// tx encoding changes. Production defaults (`393_240` bytes) are exercised via `Config`.
     fn test_params() -> ResponderParams {
         let sample_size = to_cbor(&crate::tx_submission::tests::create_transaction(0)).len() as u64;
-        ResponderParams::new(10, 2 * sample_size)
+        let max_window = std::num::NonZeroU16::new(10).expect("test max_window must be non-zero");
+        let fetch_batch_bytes =
+            std::num::NonZeroU64::new(2 * sample_size).expect("test fetch_batch_bytes must be non-zero");
+        ResponderParams::new(max_window, fetch_batch_bytes)
     }
 
     /// Run the responder stage, given a list of ResponderResults as inputs, and return the list of

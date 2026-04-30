@@ -84,7 +84,7 @@ async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: Header
     match mempool_sender
         .call(
             |caller| MempoolMsg::Insert { tx: Box::new(tx), origin: TxOrigin::Local, caller },
-            DEFAULT_MEMPOOL_INSERT_TIMEOUT,
+            DEFAULT_MEMPOOL_INSERT_TIMEOUT.as_duration(),
         )
         .await
     {

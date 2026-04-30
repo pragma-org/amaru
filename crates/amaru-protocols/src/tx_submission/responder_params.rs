@@ -12,41 +12,95 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{
+    fmt,
+    num::{NonZeroU16, NonZeroU64},
+    time::Duration,
+};
 
 use amaru_kernel::cbor;
 
-/// Parameters used to control the behavior of the transaction submission responder.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ResponderParams {
-    /// How many tx ids we can keep unacknowledged at any moment.
-    pub max_window: u16,
-    /// Per-`RequestTxs` byte budget for the cumulative size of tx bodies fetched in a single round.
-    pub fetch_batch_bytes: u64,
-    /// How long to wait for a peer to deliver `ReplyTxs` after we sent `RequestTxs`. On expiry
-    /// the responder treats the peer as misbehaving and terminates the connection.
-    pub inflight_fetch_timeout: Duration,
-    /// How long to wait between mempool capacity rechecks while back-pressured.
-    pub back_pressure_recheck_interval: Duration,
-    /// How long to wait for the mempool stage to respond to a batch insert.
-    pub mempool_insert_timeout: Duration,
+#[derive(Debug)]
+pub struct ZeroDurationError;
+
+impl fmt::Display for ZeroDurationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("duration must be non-zero")
+    }
 }
 
-/// Default outstanding tx-id window, i.e. how many tx ids we can keep unacknowledged at any moment.
-pub const DEFAULT_MAX_OUTSTANDING_TX_IDS: u16 = 10;
+impl std::error::Error for ZeroDurationError {}
 
-/// Default per-`RequestTxs` byte budget.
-/// This value is `6 × max_TX_SIZE = 6 × 65_540 = 393_240`
-pub const DEFAULT_FETCH_BATCH_BYTES: u64 = 393_240;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "Duration", into = "Duration")]
+pub struct NonZeroDuration(Duration);
 
-/// Default in-flight body fetch timeout.
-pub const DEFAULT_INFLIGHT_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+impl NonZeroDuration {
+    pub const fn try_new(d: Duration) -> Option<Self> {
+        if d.is_zero() { None } else { Some(Self(d)) }
+    }
 
-/// Default back-pressure recheck interval.
-pub const DEFAULT_BACK_PRESSURE_RECHECK_INTERVAL: Duration = Duration::from_millis(500);
+    pub const fn from_millis(ms: u64) -> Option<Self> {
+        Self::try_new(Duration::from_millis(ms))
+    }
 
-/// Default timeout for the mempool stage to respond to a batch insert call.
-pub const DEFAULT_MEMPOOL_INSERT_TIMEOUT: Duration = Duration::from_secs(5);
+    pub const fn from_secs(s: u64) -> Option<Self> {
+        Self::try_new(Duration::from_secs(s))
+    }
+
+    pub const fn from_nonzero_millis(ms: NonZeroU64) -> Self {
+        Self(Duration::from_millis(ms.get()))
+    }
+
+    pub const fn as_duration(self) -> Duration {
+        self.0
+    }
+}
+
+impl TryFrom<Duration> for NonZeroDuration {
+    type Error = ZeroDurationError;
+
+    fn try_from(value: Duration) -> Result<Self, Self::Error> {
+        Self::try_new(value).ok_or(ZeroDurationError)
+    }
+}
+
+impl From<NonZeroDuration> for Duration {
+    fn from(value: NonZeroDuration) -> Self {
+        value.0
+    }
+}
+
+impl fmt::Display for NonZeroDuration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ResponderParams {
+    pub max_window: NonZeroU16,
+    pub fetch_batch_bytes: NonZeroU64,
+    pub inflight_fetch_timeout: NonZeroDuration,
+    pub back_pressure_recheck_interval: NonZeroDuration,
+    pub mempool_insert_timeout: NonZeroDuration,
+}
+
+pub const DEFAULT_MAX_OUTSTANDING_TX_IDS: NonZeroU16 =
+    NonZeroU16::new(10).expect("DEFAULT_MAX_OUTSTANDING_TX_IDS must be non-zero");
+
+pub const DEFAULT_FETCH_BATCH_BYTES: NonZeroU64 =
+    NonZeroU64::new(393_240).expect("DEFAULT_FETCH_BATCH_BYTES must be non-zero");
+
+pub const DEFAULT_INFLIGHT_FETCH_TIMEOUT: NonZeroDuration =
+    NonZeroDuration::try_new(Duration::from_secs(10)).expect("DEFAULT_INFLIGHT_FETCH_TIMEOUT must be non-zero");
+
+pub const DEFAULT_BACK_PRESSURE_RECHECK_INTERVAL: NonZeroDuration =
+    NonZeroDuration::try_new(Duration::from_millis(500))
+        .expect("DEFAULT_BACK_PRESSURE_RECHECK_INTERVAL must be non-zero");
+
+pub const DEFAULT_MEMPOOL_INSERT_TIMEOUT: NonZeroDuration =
+    NonZeroDuration::try_new(Duration::from_secs(5)).expect("DEFAULT_MEMPOOL_INSERT_TIMEOUT must be non-zero");
 
 impl Default for ResponderParams {
     fn default() -> Self {
@@ -61,27 +115,26 @@ impl Default for ResponderParams {
 }
 
 impl ResponderParams {
-    pub fn new(max_window: u16, fetch_batch_bytes: u64) -> Self {
+    pub fn new(max_window: NonZeroU16, fetch_batch_bytes: NonZeroU64) -> Self {
         Self { max_window, fetch_batch_bytes, ..Self::default() }
     }
 
-    pub fn with_inflight_fetch_timeout(mut self, d: Duration) -> Self {
+    pub fn with_inflight_fetch_timeout(mut self, d: NonZeroDuration) -> Self {
         self.inflight_fetch_timeout = d;
         self
     }
 
-    pub fn with_back_pressure_recheck_interval(mut self, d: Duration) -> Self {
+    pub fn with_back_pressure_recheck_interval(mut self, d: NonZeroDuration) -> Self {
         self.back_pressure_recheck_interval = d;
         self
     }
 
-    pub fn with_mempool_insert_timeout(mut self, d: Duration) -> Self {
+    pub fn with_mempool_insert_timeout(mut self, d: NonZeroDuration) -> Self {
         self.mempool_insert_timeout = d;
         self
     }
 }
 
-/// Whether the transaction submission initiator should block until it can fulfill a server request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Blocking {
     Yes,
