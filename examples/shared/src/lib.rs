@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput, NetworkName, Point,
-    ProtocolParameters, Tip, TransactionInput, Value,
+    cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput, MemoizedValue,
+    NetworkName, Point, ProtocolParameters, Tip, TransactionInput, Value,
 };
 use amaru_ledger::{
     context,
@@ -62,13 +62,13 @@ pub fn forward_ledger(raw_block: &str) {
     }
 
     fn create_output(address: &str) -> MemoizedTransactionOutput {
-        MemoizedTransactionOutput {
-            is_legacy: false,
-            address: Address::from_hex(address).expect("Invalid hex address"),
-            value: Value::Coin(0),
-            datum: amaru_kernel::MemoizedDatum::None,
-            script: None,
-        }
+        MemoizedTransactionOutput::new(
+            false,
+            Address::from_hex(address).expect("Invalid hex address"),
+            MemoizedValue::new(Value::Coin(0)).expect("Value encoding should never fail"),
+            amaru_kernel::MemoizedDatum::None,
+            None,
+        )
     }
 
     let inputs = BTreeMap::from([

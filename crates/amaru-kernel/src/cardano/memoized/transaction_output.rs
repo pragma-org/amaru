@@ -17,30 +17,69 @@ use pallas_primitives::conway::Multiasset;
 use crate::{
     Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, PositiveCoin,
     ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script, encode_script, serialize_memoized_script,
-    size::CREDENTIAL,
+    size::CREDENTIAL, to_cbor,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "MemoizedTransactionOutputDe")]
 pub struct MemoizedTransactionOutput {
+    #[serde(skip)]
+    original_size: usize,
+
     #[serde(skip)]
     pub is_legacy: bool,
 
     #[serde(serialize_with = "serialize_address")]
-    #[serde(deserialize_with = "deserialize_address")]
     pub address: Address,
 
     #[serde(serialize_with = "serialize_value")]
-    #[serde(deserialize_with = "deserialize_value")]
     pub value: MemoizedValue,
 
     pub datum: MemoizedDatum,
 
     #[serde(serialize_with = "serialize_script")]
-    #[serde(deserialize_with = "deserialize_script")]
     pub script: Option<MemoizedScript>,
 }
 
+#[derive(serde::Deserialize)]
+struct MemoizedTransactionOutputDe {
+    #[serde(deserialize_with = "deserialize_address")]
+    address: Address,
+
+    #[serde(deserialize_with = "deserialize_value")]
+    value: MemoizedValue,
+
+    datum: MemoizedDatum,
+
+    #[serde(deserialize_with = "deserialize_script")]
+    script: Option<MemoizedScript>,
+}
+
+impl From<MemoizedTransactionOutputDe> for MemoizedTransactionOutput {
+    fn from(de: MemoizedTransactionOutputDe) -> Self {
+        Self::new(false, de.address, de.value, de.datum, de.script)
+    }
+}
+
 impl MemoizedTransactionOutput {
+    /// In-memory construction, used for tests. Re-encodes once to compute the on-wire size.
+    /// Decoded values populate `original_size` directly from the input position, avoiding the re-encode.
+    pub fn new(
+        is_legacy: bool,
+        address: Address,
+        value: MemoizedValue,
+        datum: MemoizedDatum,
+        script: Option<MemoizedScript>,
+    ) -> Self {
+        let mut output = Self { original_size: 0, is_legacy, address, value, datum, script };
+        output.original_size = to_cbor(&output).len();
+        output
+    }
+
+    pub fn original_size(&self) -> usize {
+        self.original_size
+    }
+
     pub fn delegate(&self) -> Option<StakeCredential> {
         match &self.address {
             Address::Shelley(shelley) => match shelley.delegation() {
@@ -57,14 +96,18 @@ impl MemoizedTransactionOutput {
 impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let data_type = d.datatype()?;
+        let start_pos = d.position();
 
-        if matches!(data_type, cbor::Type::MapIndef | cbor::Type::Map) {
-            decode_modern_output(d, ctx)
+        let mut output = if matches!(data_type, cbor::Type::MapIndef | cbor::Type::Map) {
+            decode_modern_output(d, ctx)?
         } else if matches!(data_type, cbor::Type::ArrayIndef | cbor::Type::Array) {
-            decode_legacy_output(d, ctx)
+            decode_legacy_output(d, ctx)?
         } else {
-            Err(cbor::decode::Error::type_mismatch(data_type))
-        }
+            return Err(cbor::decode::Error::type_mismatch(data_type));
+        };
+
+        output.original_size = d.position() - start_pos;
+        Ok(output)
     }
 }
 
@@ -75,6 +118,7 @@ fn decode_legacy_output<C>(
     let len = d.array()?;
 
     Ok(MemoizedTransactionOutput {
+        original_size: 0,
         is_legacy: true,
         address: decode_address(d.bytes()?)?,
         value: d.decode_with(ctx)?,
@@ -125,6 +169,7 @@ fn decode_modern_output<C>(
     )?;
 
     Ok(MemoizedTransactionOutput {
+        original_size: 0,
         is_legacy: false,
         address: address.ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Address>(0))?,
         value: value.ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Value>(1))?,
@@ -273,11 +318,34 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
 
 #[cfg(test)]
 mod tests {
+    use proptest::{option, prelude::*};
+
     use super::*;
     use crate::{
-        Hash,
+        Hash, any_hash32, any_shelley_address,
         cbor::{self, Encode},
     };
+
+    fn any_value() -> impl Strategy<Value = MemoizedValue> {
+        any::<u64>().prop_map(|coin| MemoizedValue::new(Value::Coin(coin)).expect("Value encoding should never fail"))
+    }
+
+    fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
+        prop_oneof![Just(MemoizedDatum::None), any_hash32().prop_map(MemoizedDatum::Hash)]
+    }
+
+    fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
+        (any_shelley_address(), any_value(), any_datum())
+            .prop_map(|(address, value, datum)| MemoizedTransactionOutput::new(false, address, value, datum, None))
+    }
+
+    fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
+        (any_shelley_address(), any_value(), option::of(any_hash32().prop_map(MemoizedDatum::Hash))).prop_map(
+            |(address, value, datum_opt)| {
+                MemoizedTransactionOutput::new(true, address, value, datum_opt.unwrap_or(MemoizedDatum::None), None)
+            },
+        )
+    }
 
     #[test]
     fn test_encode_decode_output_with_datum_hash() {
@@ -286,13 +354,13 @@ mod tests {
 
         let datum = MemoizedDatum::Hash(datum_hash);
 
-        let original = MemoizedTransactionOutput {
-            is_legacy: false,
-            address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            value: MemoizedValue::new(Value::Coin(1500000)).unwrap(),
+        let original = MemoizedTransactionOutput::new(
+            false,
+            Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
+            MemoizedValue::new(Value::Coin(1500000)).unwrap(),
             datum,
-            script: None,
-        };
+            None,
+        );
 
         let mut encoder = cbor::Encoder::new(Vec::new());
         let mut ctx = ();
@@ -312,13 +380,13 @@ mod tests {
 
         let datum = MemoizedDatum::Hash(datum_hash);
 
-        let original = MemoizedTransactionOutput {
-            is_legacy: true,
-            address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            value: MemoizedValue::new(Value::Coin(1500000)).unwrap(),
+        let original = MemoizedTransactionOutput::new(
+            true,
+            Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
+            MemoizedValue::new(Value::Coin(1500000)).unwrap(),
             datum,
-            script: None,
-        };
+            None,
+        );
 
         let mut encoder = cbor::Encoder::new(Vec::new());
         let mut ctx = ();
@@ -333,13 +401,13 @@ mod tests {
 
     #[test]
     fn test_encode_decode_output_no_datum_no_script() {
-        let original = MemoizedTransactionOutput {
-            is_legacy: false,
-            address: Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            value: MemoizedValue::new(Value::Coin(1500000)).unwrap(),
-            datum: MemoizedDatum::None,
-            script: None,
-        };
+        let original = MemoizedTransactionOutput::new(
+            false,
+            Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
+            MemoizedValue::new(Value::Coin(1500000)).unwrap(),
+            MemoizedDatum::None,
+            None,
+        );
 
         let mut encoder = cbor::Encoder::new(Vec::new());
         let mut ctx = ();
@@ -350,5 +418,23 @@ mod tests {
         let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
 
         assert_eq!(original, decoded);
+    }
+
+    proptest! {
+        #[test]
+        fn decoded_size_matches_re_encoded_len_modern(output in any_modern_output()) {
+            let bytes = to_cbor(&output);
+            let decoded: MemoizedTransactionOutput = crate::from_cbor(&bytes).unwrap();
+            prop_assert_eq!(decoded.original_size(), bytes.len());
+            prop_assert_eq!(decoded.original_size(), output.original_size());
+        }
+
+        #[test]
+        fn decoded_size_matches_re_encoded_len_legacy(output in any_legacy_output()) {
+            let bytes = to_cbor(&output);
+            let decoded: MemoizedTransactionOutput = crate::from_cbor(&bytes).unwrap();
+            prop_assert_eq!(decoded.original_size(), bytes.len());
+            prop_assert_eq!(decoded.original_size(), output.original_size());
+        }
     }
 }

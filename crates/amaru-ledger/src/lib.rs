@@ -35,12 +35,12 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn fake_output(address: &str) -> MemoizedTransactionOutput {
-        MemoizedTransactionOutput {
-            is_legacy: false,
-            address: Address::from_hex(address).expect("Invalid hex address"),
-            value: MemoizedValue::new(Value::Coin(0)).expect("Value encoding should never fail"),
-            datum: amaru_kernel::MemoizedDatum::None,
-            script: None,
-        }
+        MemoizedTransactionOutput::new(
+            false,
+            Address::from_hex(address).expect("Invalid hex address"),
+            MemoizedValue::new(Value::Coin(0)).expect("Value encoding should never fail"),
+            amaru_kernel::MemoizedDatum::None,
+            None,
+        )
     }
 }

@@ -1137,13 +1137,13 @@ pub mod test_vectors {
                     let value = value.ok_or_else(|| serde::de::Error::missing_field("value"))?;
                     let value = MemoizedValue::new(value).map_err(serde::de::Error::custom)?;
 
-                    Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput {
-                        is_legacy: false,
-                        address: address.ok_or_else(|| serde::de::Error::missing_field("address"))?,
+                    Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput::new(
+                        false,
+                        address.ok_or_else(|| serde::de::Error::missing_field("address"))?,
                         value,
                         datum,
                         script,
-                    }))
+                    )))
                 }
             }
 

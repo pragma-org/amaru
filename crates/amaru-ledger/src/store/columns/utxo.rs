@@ -92,7 +92,7 @@ pub mod tests {
                 #[expect(clippy::expect_used)]
                 let value = MemoizedValue::new(value).expect("Value encoding should never fail");
 
-                MemoizedTransactionOutput { is_legacy, address, value, datum, script }
+                MemoizedTransactionOutput::new(is_legacy, address, value, datum, script)
             })
     }
 }
