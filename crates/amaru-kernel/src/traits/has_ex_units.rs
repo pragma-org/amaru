@@ -15,16 +15,14 @@
 use crate::{Block, ExUnits, HasRedeemers};
 
 pub trait HasExUnits {
-    fn ex_units(&self) -> Vec<&ExUnits>;
+    fn ex_units(&self) -> impl Iterator<Item = &ExUnits>;
 }
 
 impl HasExUnits for Block {
-    fn ex_units(&self) -> Vec<&ExUnits> {
-        self.transaction_witnesses.iter().fold(Vec::new(), |mut acc: Vec<&ExUnits>, witness_set| {
-            if let Some(witnesses) = &witness_set.redeemer {
-                acc.extend(witnesses.redeemers().values().map(|(ex_units, _)| ex_units));
-            }
-            acc
-        })
+    fn ex_units(&self) -> impl Iterator<Item = &ExUnits> {
+        self.transaction_witnesses
+            .iter()
+            .filter_map(|witness_set| witness_set.redeemer.as_ref())
+            .flat_map(|redeemers| redeemers.iter_unique().map(|(_, ex_units, _)| ex_units))
     }
 }

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrType, Address, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose, TransactionInput,
-    transaction_input_to_string,
+    AddrType, Address, AddressError, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose, TransactionInput,
+    cbor, transaction_input_to_string,
 };
 use thiserror::Error;
 
@@ -35,9 +35,8 @@ pub enum InvalidInputs {
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
     #[error("input set empty")]
     EmptyInputSet,
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("uncategorized error: {0}")]
-    UncategorizedError(String),
+    #[error("invalid Byron address payload at input {}: {error}", transaction_input_to_string(input))]
+    InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
 }
 
 pub fn execute<C>(
@@ -108,10 +107,13 @@ where
         match &output.address {
             Address::Byron(byron_address) => {
                 let payload = byron_address.decode().map_err(|e| {
-                    InvalidInputs::UncategorizedError(format!(
-                        "Invalid byron address payload. (error {:?}) address: {:?}",
-                        e, byron_address
-                    ))
+                    #[allow(clippy::wildcard_enum_match_arm)]
+                    match e {
+                        AddressError::InvalidByronCbor(error) => {
+                            InvalidInputs::InvalidByronAddressPayload { input: input.clone(), error: Box::new(error) }
+                        }
+                        _ => unreachable!("byron_address.decode() only returns InvalidByronCbor"),
+                    }
                 })?;
 
                 if let AddrType::PubKey = payload.addrtype {
@@ -190,8 +192,7 @@ mod tests {
         "unknown input"
     )]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-byron-address") =>
-        matches Err(InvalidInputs::UncategorizedError(e))
-        if e.contains("InvalidByronCbor");
+        matches Err(InvalidInputs::InvalidByronAddressPayload { .. });
         "invalid byron payload"
     )]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "empty-input-set") =>

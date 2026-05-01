@@ -75,7 +75,7 @@ pub use cardano::{
     lovelace::Lovelace,
     memoized::{
         MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
-        decode_script, deserialize_script, encode_script, from_minted_script, script_original_bytes,
+        MemoizedValue, decode_script, deserialize_script, encode_script, from_minted_script, script_original_bytes,
         serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,

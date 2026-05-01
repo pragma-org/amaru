@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HasLovelace, MemoizedTransactionOutput, ProtocolParameters, to_cbor};
+use amaru_kernel::{HasLovelace, MemoizedTransactionOutput, ProtocolParameters};
 
 use super::InvalidOutput;
 
@@ -21,8 +21,7 @@ pub fn execute(
     output: &MemoizedTransactionOutput,
 ) -> Result<(), InvalidOutput> {
     // This conversion is safe with no loss of information
-    // FIXME: do not re-serialize here
-    let minimum_value = to_cbor(output).len() as u64 * protocol_parameters.lovelace_per_utxo_byte;
+    let minimum_value = output.original_size() as u64 * protocol_parameters.lovelace_per_utxo_byte;
     let given_value = output.lovelace();
 
     if given_value < minimum_value {
@@ -30,8 +29,7 @@ pub fn execute(
     }
 
     let max_value_size = protocol_parameters.max_value_size;
-    // FIXME: Memoize original value size, and avoid re-serializing.
-    let given_val_size = to_cbor(&output.value).len();
+    let given_val_size = output.value.original_bytes().len();
 
     // This conversion is safe because max_value_size will never be big enough to cause a problem
     if given_val_size > max_value_size as usize {
