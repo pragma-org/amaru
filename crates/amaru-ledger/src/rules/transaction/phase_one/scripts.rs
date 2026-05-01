@@ -135,7 +135,7 @@ pub enum InvalidScripts {
 pub fn execute<C>(
     context: &mut C,
     witness_set: &WitnessSet,
-    validity_interval: &ValidityInterval,
+    validity_interval: ValidityInterval,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidScripts>
 where
@@ -537,7 +537,7 @@ fn collect_plutus_witness_scripts<const V: usize>(
 mod tests {
     use amaru_kernel::{
         ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
-        TransactionBody, ValidityInterval, WitnessSet, include_cbor,
+        TransactionBody, WitnessSet, include_cbor,
     };
     use test_case::test_case;
 
@@ -654,12 +654,7 @@ mod tests {
             ProtocolParameters,
         ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(
-            &mut ctx,
-            &witness_set,
-            &ValidityInterval::new(tx.validity_interval_start, tx.validity_interval_end),
-            &protocol_parameters,
-        )
+        super::execute(&mut ctx, &witness_set, tx.validity_interval(), &protocol_parameters)
     }
 
     #[test]
