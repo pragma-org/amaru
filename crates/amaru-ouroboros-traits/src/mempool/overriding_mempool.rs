@@ -17,7 +17,7 @@ use std::sync::Arc;
 use amaru_kernel::TransactionId;
 use parking_lot::Mutex;
 
-use crate::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use crate::{MempoolError, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
 /// Optional method overrides for [`OverridingMempool`].
 /// Each override receives a reference to the underlying mempool and the method arguments.
@@ -41,6 +41,7 @@ struct Overrides<Tx: Send + Sync + 'static> {
         Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) -> Result<(), MempoolError> + Send>>,
     last_seq_no: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolSeqNo + Send>>,
     is_near_capacity: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, u64) -> bool + Send>>,
+    state: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolState + Send>>,
 }
 
 impl<Tx: Send + Sync + 'static> Default for Overrides<Tx> {
@@ -55,6 +56,7 @@ impl<Tx: Send + Sync + 'static> Default for Overrides<Tx> {
             remove_txs: None,
             last_seq_no: None,
             is_near_capacity: None,
+            state: None,
         }
     }
 }
@@ -158,6 +160,14 @@ impl<Tx: Send + Sync + 'static> OverridingMempoolBuilder<Tx> {
         self
     }
 
+    pub fn with_state<F>(mut self, f: F) -> Self
+    where
+        F: FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolState + Send + 'static,
+    {
+        self.overrides.state = Some(Box::new(f));
+        self
+    }
+
     pub fn build(self) -> OverridingMempool<Tx> {
         OverridingMempool { inner: self.inner, overrides: Mutex::new(self.overrides) }
     }
@@ -233,6 +243,14 @@ impl<Tx: Send + Sync + 'static> TxSubmissionMempool<Tx> for OverridingMempool<Tx
         match &mut overrides.is_near_capacity {
             Some(f) => f(self.inner.as_ref(), additional_bytes),
             None => self.inner.is_near_capacity(additional_bytes),
+        }
+    }
+
+    fn state(&self) -> MempoolState {
+        let mut overrides = self.overrides.lock();
+        match &mut overrides.state {
+            Some(f) => f(self.inner.as_ref()),
+            None => self.inner.state(),
         }
     }
 }
