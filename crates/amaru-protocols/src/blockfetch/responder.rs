@@ -289,8 +289,7 @@ pub mod tests {
         utils::tests::run_strategy,
     };
     use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
-    use pure_stage::{Effects, StageGraph, trace_buffer::TraceBuffer};
-    use tokio::runtime::Builder;
+    use pure_stage::simulation::simulation_builder::run_test;
 
     use super::*;
     use crate::{protocol::Responder, store_effects::ResourceHeaderStore};
@@ -529,20 +528,24 @@ pub mod tests {
         store: Arc<InMemConsensusStore<BlockHeader>>,
         msg: PointsRangeTestMsg,
     ) -> PointsRangeTestResult {
-        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
-        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
-        let _guard = TraceBuffer::drop_guard(&trace_buffer);
-        let mut network = pure_stage::simulation::SimulationBuilder::default().with_trace_buffer(trace_buffer);
-        network.resources().put::<ResourceHeaderStore>(store as Arc<dyn ChainStore<BlockHeader>>);
-
-        let stage = network.stage("points_range_test", points_range_test_stage);
-        let stage = network.wire_up(stage, PointsRangeTestState::default());
-        network.preload(&stage, [msg]).unwrap();
-
-        let mut running = network.run();
-        running.run_until_blocked_incl_effects(runtime.handle()).assert_idle();
-
-        running.get_state(&stage).unwrap().result.clone().unwrap()
+        let store: Arc<dyn ChainStore<BlockHeader>> = store.clone();
+        run_test(
+            |resources| {
+                resources.put::<ResourceHeaderStore>(store.clone());
+            },
+            msg,
+            |_state, msg, eff| async move {
+                match msg {
+                    PointsRangeTestMsg::RequestRange { from, through } => Some(PointsRangeTestResult::RequestRange(
+                        PointsRange::request_range(&Store::new(eff.clone()), from, through).await.unwrap(),
+                    )),
+                    PointsRangeTestMsg::NextBlock { range } => Some(PointsRangeTestResult::NextBlock(
+                        range.next_block(&Store::new(eff.clone())).await.unwrap(),
+                    )),
+                }
+            },
+        )
+        .unwrap()
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -555,31 +558,5 @@ pub mod tests {
     enum PointsRangeTestResult {
         RequestRange(Option<PointsRange>),
         NextBlock((RawBlock, Option<PointsRange>)),
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-    struct PointsRangeTestState {
-        result: Option<PointsRangeTestResult>,
-    }
-
-    /// Create a stage to exercise the PointsRange methods
-    async fn points_range_test_stage(
-        mut state: PointsRangeTestState,
-        msg: PointsRangeTestMsg,
-        eff: Effects<PointsRangeTestMsg>,
-    ) -> PointsRangeTestState {
-        match msg {
-            PointsRangeTestMsg::RequestRange { from, through } => {
-                state.result = Some(PointsRangeTestResult::RequestRange(
-                    PointsRange::request_range(&Store::new(eff.clone()), from, through).await.unwrap(),
-                ));
-                state
-            }
-            PointsRangeTestMsg::NextBlock { range } => {
-                state.result =
-                    Some(PointsRangeTestResult::NextBlock(range.next_block(&Store::new(eff.clone())).await.unwrap()));
-                state
-            }
-        }
     }
 }

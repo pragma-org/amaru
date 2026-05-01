@@ -18,11 +18,10 @@ use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation,
     },
-    stages::select_chain::cmp_tip,
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point, Transaction,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Peer, Point, Transaction,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
@@ -126,14 +125,6 @@ pub fn build_node(
     let chain_store = initialize_chain_store(config, ledger_tip)?;
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
-    let best_candidate = startup_best_candidate(chain_store.as_ref())?;
-    let tip = best_candidate
-        .as_ref()
-        .map(|(h, _)| h.point())
-        .or_else(|| chain_store.load_tip(&chain_store.get_best_chain_hash()).map(|tip| tip.point()))
-        .unwrap_or(Point::Origin);
-    tracing::info!(%tip, "build_chain");
-
     // Make resources
     let validate_header =
         make_validate_header(global_parameters, era_history, chain_store.clone(), ledger.get_stake_distribution()?);
@@ -142,8 +133,7 @@ pub fn build_node(
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
-    let node_stages =
-        build_stage_graph(config, era_history, global_parameters, ledger_tip, best_candidate, stage_builder);
+    let node_stages = build_stage_graph(config, era_history, global_parameters, ledger_tip, stage_builder);
 
     // Open a port to listen for downstream peers
     stage_builder
@@ -220,176 +210,4 @@ fn make_validate_header(
         Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
 
     ValidateHeader::new(consensus_parameters, chain_store, stake_distribution)
-}
-
-/// Return the highest startup candidate that extends the current best chain, together with
-/// the unknown suffix after the last validated ancestor.
-///
-/// Example:
-///
-/// O--A(valid)--B(valid)  best_chain_hash
-///                     \
-///                      C(?)--D(?)         candidate 1
-///                      \
-///                       E(?)--F(invalid)--G(?)  candidate 2, rejected
-///                       \
-///                       H(?)                candidate 3
-///
-/// The candidates are the reachable leaves below `best_chain_hash`: `D`, `G`, and `H`.
-/// The branch ending at `G` is rejected because it contains `F(invalid)`.
-/// Between `D` and `H`, the highest tip wins according to `cmp_tip`.
-///
-/// If `D` wins, this returns:
-/// `(D, [C, D])` since `C` and `D` have not-yet-validated blocks.
-///
-/// If `best_chain_hash` has no descendants and is itself a leaf, this returns `None` because
-/// there is no resumable startup work for `SelectChain`.
-fn startup_best_candidate(
-    chain_store: &(impl ChainStore<BlockHeader> + ?Sized),
-) -> anyhow::Result<Option<(BlockHeader, Vec<amaru_kernel::HeaderHash>)>> {
-    let best_chain_hash = chain_store.get_best_chain_hash();
-    if best_chain_hash != ORIGIN_HASH && chain_store.load_header_with_validity(&best_chain_hash).is_none() {
-        return Err(anyhow!("best chain hash {best_chain_hash} does not resolve to a stored header"));
-    }
-
-    // ORIGIN_HASH cannot have a block, so we start from its direct children
-    let mut to_visit = if best_chain_hash == ORIGIN_HASH {
-        chain_store.get_children(&best_chain_hash).into_iter().map(|hash| (hash, vec![])).collect()
-    } else {
-        vec![(best_chain_hash, vec![])]
-    };
-    let mut best_candidate = None;
-
-    while let Some((hash, missing)) = to_visit.pop() {
-        // Visit one reachable header.
-        // `missing` is the unknown suffix after the last validated ancestor, excluding `hash`:
-        // it ends at the parent of `hash`.
-        tracing::debug!(hash = %hash, "visiting startup candidate");
-        let (header, validity) = chain_store
-            .load_header_with_validity(&hash)
-            .ok_or_else(|| anyhow!("reachable child hash {hash} does not resolve to a stored header"))?;
-        // Prune invalid branches, reset the suffix after a validated header, or extend it with
-        // the current unknown header.
-        let next_missing = match validity {
-            Some(true) => vec![],
-            None => {
-                let mut next_missing = missing;
-                next_missing.push(hash);
-                next_missing
-            }
-            Some(false) => continue,
-        };
-        // Continue the traversal with all direct descendants of the current header.
-        let children = chain_store.get_children(&hash);
-
-        if children.is_empty() {
-            // Only leaf headers are startup candidates, and only if they still have resumable work.
-            if !next_missing.is_empty()
-                && best_candidate.as_ref().is_none_or(|(current, _)| cmp_tip(Some(&header), Some(current)).is_gt())
-            {
-                best_candidate = Some((header.clone(), next_missing.clone()));
-            }
-        } else {
-            // Propagate the updated suffix state to each child branch.
-            to_visit.extend(children.into_iter().map(|child| (child, next_missing.clone())));
-        }
-    }
-
-    Ok(best_candidate)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use amaru_kernel::{
-        BlockHeader, IsHeader, any_headers_chain, any_headers_chain_with_root, make_header, utils::tests::run_strategy,
-    };
-    use amaru_ouroboros::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
-
-    use super::startup_best_candidate;
-
-    #[test]
-    fn rejects_startup_candidate_with_invalid_ancestry() {
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
-        let chain = run_strategy(any_headers_chain(4));
-        let [a, b, c, d] = chain.try_into().unwrap();
-
-        for header in [&a, &b, &c, &d] {
-            store.store_header(header).unwrap();
-        }
-        store.set_anchor_hash(&a.hash()).unwrap();
-        for header in [&a, &b] {
-            store.roll_forward_chain(&header.point()).unwrap();
-        }
-        store.set_block_valid(&c.hash(), false).unwrap();
-
-        let candidate = startup_best_candidate(store.as_ref()).unwrap();
-        assert_eq!(candidate, None);
-    }
-
-    #[test]
-    fn keeps_startup_candidate_with_valid_ancestry() {
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
-        let chain = run_strategy(any_headers_chain(4));
-        let [a, b, c, d] = chain.try_into().unwrap();
-
-        for header in [&a, &b, &c, &d] {
-            store.store_header(header).unwrap();
-        }
-        store.set_anchor_hash(&a.hash()).unwrap();
-        for header in [&a, &b] {
-            store.roll_forward_chain(&header.point()).unwrap();
-        }
-        store.set_block_valid(&b.hash(), true).unwrap();
-        let d_hash = d.hash();
-
-        let candidate = startup_best_candidate(store.as_ref()).unwrap();
-        assert_eq!(candidate, Some((d, vec![c.hash(), d_hash])));
-    }
-
-    #[test]
-    fn falls_back_to_valid_startup_candidate_when_best_candidate_has_invalid_ancestry() {
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
-
-        // a -- b -- c (invalid) -- d
-        //       \
-        //        e
-        let chain = run_strategy(any_headers_chain(2));
-        let [a, b] = chain.try_into().unwrap();
-        let invalid_branch = run_strategy(any_headers_chain_with_root(2, b.point()));
-        let [c, d] = invalid_branch.try_into().unwrap();
-        let e = BlockHeader::from(make_header(3, c.slot().as_u64() + 10, Some(b.hash())));
-
-        for header in [&a, &b, &c, &d, &e] {
-            store.store_header(header).unwrap();
-        }
-        store.set_anchor_hash(&a.hash()).unwrap();
-        for header in [&a, &b] {
-            store.roll_forward_chain(&header.point()).unwrap();
-        }
-        store.set_block_valid(&b.hash(), true).unwrap();
-        store.set_block_valid(&c.hash(), false).unwrap();
-
-        let candidate = startup_best_candidate(store.as_ref()).unwrap();
-        assert_eq!(candidate, Some((e.clone(), vec![e.hash()])));
-    }
-
-    #[test]
-    fn returns_none_when_best_chain_has_no_descendants() {
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
-        let chain = run_strategy(any_headers_chain(2));
-        let [a, b] = chain.try_into().unwrap();
-
-        for header in [&a, &b] {
-            store.store_header(header).unwrap();
-            store.roll_forward_chain(&header.point()).unwrap();
-        }
-        store.set_anchor_hash(&a.hash()).unwrap();
-        store.set_block_valid(&a.hash(), true).unwrap();
-        store.set_block_valid(&b.hash(), true).unwrap();
-
-        let candidate = startup_best_candidate(store.as_ref()).unwrap();
-        assert_eq!(candidate, None);
-    }
 }

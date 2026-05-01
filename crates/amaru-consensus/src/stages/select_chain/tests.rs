@@ -22,7 +22,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        setup, te_get_best_chain_hash, te_has_header, te_load_header, te_load_tip, te_set_block_valid,
+        setup, te_get_best_chain_hash, te_get_children, te_has_header, te_load_header, te_load_tip, te_set_block_valid,
         te_unvalidated_ancestor_hashes, test_prep,
     },
     test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
@@ -314,7 +314,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
     let msg = SelectChainMsg::TipFromUpstream(tip, parent);
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
-    let mut expected = SelectChain::new(prep.downstream.clone(), None);
+    let mut expected = SelectChain::new(prep.downstream.clone());
     expected.may_fetch_blocks = true;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -374,7 +374,12 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
     let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
     // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
-    let expected = SelectChain::new(prep.downstream.clone(), Some((prep.headers.h1.clone(), vec![])));
+    let expected = SelectChain {
+        best_tip: Some(prep.headers.h1.clone()),
+        tips: BTreeMap::from_iter([(prep.headers.h1.hash(), vec![])]),
+        may_fetch_blocks: false,
+        ..prep.state.clone()
+    };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
@@ -384,7 +389,12 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_has_header("sc-1", tip.hash()),
             te_set_block_valid("sc-1", tip.hash(), false),
             te_get_best_chain_hash("sc-1"),
+            te_load_header("sc-1", prep.headers.h1.hash(), true),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
+            te_load_header("sc-1", prep.headers.h1.hash(), true),
+            te_get_children("sc-1", prep.headers.h1.hash()),
+            te_load_header("sc-1", prep.headers.h2.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
             te_load_tip("sc-1", prep.headers.h0.hash()),
             te_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point())),
             te_state("sc-1", &expected),
@@ -425,7 +435,17 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_input("sc-1", &msg),
             te_has_header("sc-1", tip.hash()),
             te_set_block_valid("sc-1", tip.hash(), false),
-            te_load_header("sc-1", prep.headers.h3a.hash(), false),
+            te_get_best_chain_hash("sc-1"),
+            te_load_header("sc-1", prep.headers.h1.hash(), true),
+            te_load_header("sc-1", prep.headers.h1.hash(), false),
+            te_load_header("sc-1", prep.headers.h1.hash(), true),
+            te_get_children("sc-1", prep.headers.h1.hash()),
+            te_load_header("sc-1", prep.headers.h2a.hash(), true),
+            te_get_children("sc-1", prep.headers.h2a.hash()),
+            te_load_header("sc-1", prep.headers.h3a.hash(), true),
+            te_get_children("sc-1", prep.headers.h3a.hash()),
+            te_load_header("sc-1", prep.headers.h2.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
             te_load_tip("sc-1", prep.headers.h2a.hash()),
             te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point())),
             te_state("sc-1", &expected),
@@ -556,4 +576,110 @@ fn test_startup_with_non_empty_store() {
         Level::WARN,
         Level::ERROR,
     ]);
+}
+
+#[cfg(test)]
+mod best_tip_from_store_tests {
+    use std::sync::Arc;
+
+    use amaru_kernel::{
+        BlockHeader, HeaderHash, IsHeader, any_headers_chain, any_headers_chain_with_root, make_header,
+        utils::tests::run_strategy,
+    };
+    use amaru_ouroboros::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use amaru_protocols::store_effects::Store;
+    use pure_stage::simulation::simulation_builder::run_function_with_resource;
+
+    use crate::stages::select_chain::best_tip_from_store;
+
+    #[test]
+    fn falls_back_to_best_chain_when_descendant_has_invalid_ancestry() {
+        let chain = run_strategy(any_headers_chain(4));
+        let [a, b, c, d] = chain.try_into().unwrap();
+
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        for header in [&a, &b, &c, &d] {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&a.hash()).unwrap();
+        for header in [&a, &b] {
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+        store.set_block_valid(&b.hash(), true).unwrap();
+        store.set_block_valid(&c.hash(), false).unwrap();
+
+        let candidate = run_best_tip_from_store(store.clone());
+        assert_eq!(candidate, Some((b, vec![])));
+    }
+
+    #[test]
+    fn keeps_candidate_with_valid_ancestry() {
+        let chain = run_strategy(any_headers_chain(4));
+        let [a, b, c, d] = chain.try_into().unwrap();
+
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        for header in [&a, &b, &c, &d] {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&a.hash()).unwrap();
+        for header in [&a, &b] {
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+        store.set_block_valid(&b.hash(), true).unwrap();
+        let d_hash = d.hash();
+
+        let candidate = run_best_tip_from_store(store.clone());
+        assert_eq!(candidate, Some((d, vec![c.hash(), d_hash])));
+    }
+
+    #[test]
+    fn falls_back_to_valid_candidate_when_best_candidate_has_invalid_ancestry() {
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+
+        // a -- b -- c (invalid) -- d
+        //       \
+        //        e
+        let chain = run_strategy(any_headers_chain(2));
+        let [a, b] = chain.try_into().unwrap();
+        let invalid_branch = run_strategy(any_headers_chain_with_root(2, b.point()));
+        let [c, d] = invalid_branch.try_into().unwrap();
+        let e = BlockHeader::from(make_header(3, c.slot().as_u64() + 10, Some(b.hash())));
+
+        for header in [&a, &b, &c, &d, &e] {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&a.hash()).unwrap();
+        for header in [&a, &b] {
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+        store.set_block_valid(&b.hash(), true).unwrap();
+        store.set_block_valid(&c.hash(), false).unwrap();
+
+        let candidate = run_best_tip_from_store(store.clone());
+        assert_eq!(candidate, Some((e.clone(), vec![e.hash()])));
+    }
+
+    #[test]
+    fn returns_the_best_chain_tip_when_it_has_no_descendants() {
+        let chain = run_strategy(any_headers_chain(2));
+        let [a, b] = chain.clone().try_into().unwrap();
+
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        for header in [&a, &b] {
+            store.store_header(header).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_block_valid(&a.hash(), true).unwrap();
+        store.set_block_valid(&b.hash(), true).unwrap();
+
+        let candidate = run_best_tip_from_store(store.clone());
+        assert_eq!(candidate, Some((b, vec![])));
+    }
+
+    // HELPERS
+
+    fn run_best_tip_from_store(store: Arc<dyn ChainStore<BlockHeader>>) -> Option<(BlockHeader, Vec<HeaderHash>)> {
+        run_function_with_resource(store.clone(), |eff| async { best_tip_from_store(&Store::new(eff)).await.unwrap() })
+    }
 }

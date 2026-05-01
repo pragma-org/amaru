@@ -752,8 +752,6 @@ impl ExternalEffectAPI for RollForwardChainEffect {
     type Response = Result<(), StoreError>;
 }
 
-// TARGETED QUERY EFFECTS (single atomic operations replacing iterator-based patterns)
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UnvalidatedAncestorHashesEffect {
     start: HeaderHash,

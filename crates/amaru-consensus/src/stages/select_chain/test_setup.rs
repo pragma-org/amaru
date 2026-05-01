@@ -17,8 +17,9 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, GetBestChainHashEffect, HasHeaderEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
-    LoadTipEffect, ResourceHeaderStore, SetBlockValidEffect, UnvalidatedAncestorHashesEffect,
+    GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
+    LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, SetBlockValidEffect,
+    UnvalidatedAncestorHashesEffect,
 };
 use pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
@@ -124,6 +125,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<SetBlockValidEffect>().boxed(),
@@ -136,7 +138,7 @@ pub fn register_guards() -> DeserializerGuards {
 /// Creates test prep with Tip::origin() as best_tip and empty tips (just origin).
 pub fn test_prep() -> TestPrep {
     let downstream = StageRef::named_for_tests("downstream");
-    let mut state = SelectChain::new(downstream.clone(), None);
+    let mut state = SelectChain::new(downstream.clone());
     state.may_fetch_blocks = true;
     TestPrep {
         state,
@@ -202,4 +204,8 @@ pub fn te_unvalidated_ancestor_hashes(at_stage: &str, start: HeaderHash) -> Trac
 
 pub fn te_get_best_chain_hash(at_stage: &str) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetBestChainHashEffect::new())))
+}
+
+pub fn te_get_children(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetChildrenEffect::new(hash))))
 }
