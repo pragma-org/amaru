@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 
 use amaru::{DEFAULT_NETWORK, bootstrap::import_nonces, default_chain_dir, default_initial_nonces};
-use amaru_kernel::NetworkName;
+use amaru_kernel::{EraHistory, NetworkName};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use tracing::info;
@@ -75,5 +75,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // files in import_ledger_state.
     let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
 
-    import_nonces(args.network.into(), &chain_db, initial_nonces).await
+    let era_history: &EraHistory = args.network.into();
+    let epoch = {
+        let slot = initial_nonces.at.slot_or_default();
+        // NOTE: The slot definitely exists and is within one of the known eras.
+        era_history.slot_to_epoch_unchecked_horizon(slot)?
+    };
+
+    import_nonces(epoch, &chain_db, initial_nonces).await
 }

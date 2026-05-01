@@ -18,7 +18,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor};
+use amaru_kernel::{BlockHeader, Epoch, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -39,10 +39,10 @@ use tracing::info;
 use crate::{default_initial_nonces, default_snapshots_dir, get_bootstrap_file, get_bootstrap_headers};
 
 /// Configuration for a single ledger state's snapshot to be imported.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct Snapshot {
     /// The snapshot's epoch.
-    epoch: u64,
+    epoch: Epoch,
 
     /// The snapshot's point, in the form `<slot>.<header hash>`.
     ///
@@ -81,8 +81,8 @@ fn snapshot_target_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
     snapshots_dir.join(format!("{}.cbor", snapshot.point))
 }
 
-fn snapshots_to_download(snapshots: Vec<Snapshot>, snapshots_dir: &Path) -> Vec<Snapshot> {
-    snapshots.into_iter().filter(|snapshot| !snapshot_target_path(snapshots_dir, snapshot).exists()).collect()
+fn snapshots_to_download(snapshots: &[Snapshot], snapshots_dir: &Path) -> Vec<Snapshot> {
+    snapshots.iter().filter(|snapshot| !snapshot_target_path(snapshots_dir, snapshot).exists()).cloned().collect()
 }
 
 async fn download_snapshots(snapshots: &[Snapshot], snapshots_dir: &Path) -> Result<(), BootstrapError> {
@@ -141,8 +141,13 @@ pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: Pat
 
     let snapshots: Vec<Snapshot> =
         serde_json::from_slice(&snapshots_file).map_err(BootstrapError::MalformedSnapshotsFile)?;
-    let pending_snapshots = snapshots_to_download(snapshots, &snapshots_dir);
 
+    let snapshot_count = snapshots.len();
+    if snapshot_count < 3 {
+        return Err("Expected at least 3 snapshots in the configuration file".into());
+    }
+
+    let pending_snapshots = snapshots_to_download(&snapshots, &snapshots_dir);
     if !pending_snapshots.is_empty() {
         info!(count = pending_snapshots.len(), snapshots_dir=%snapshots_dir.display(), "Snapshots to download");
 
@@ -152,11 +157,17 @@ pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: Pat
         download_snapshots(&pending_snapshots, &snapshots_dir).await?;
     }
 
-    import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
+    let first_snapshot = &snapshots[snapshot_count - 3];
+    let second_snapshot = &snapshots[snapshot_count - 2];
+    let third_snapshot = &snapshots[snapshot_count - 1];
+
+    import_snapshot(network, &snapshot_target_path(&snapshots_dir, first_snapshot), &ledger_dir).await?;
+    import_snapshot(network, &snapshot_target_path(&snapshots_dir, second_snapshot), &ledger_dir).await?;
+    import_snapshot(network, &snapshot_target_path(&snapshots_dir, third_snapshot), &ledger_dir).await?;
+
     let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
-    let era_history = network.into();
-    import_nonces(era_history, &chain_db, default_initial_nonces(network)?).await?;
-    import_headers_for_network(&chain_db, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
+    import_nonces(second_snapshot.epoch, &chain_db, default_initial_nonces(network)?).await?;
+    import_headers(&chain_db, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
 
     Ok(())
 }
@@ -184,19 +195,13 @@ pub struct InitialNonces {
 }
 
 pub async fn import_nonces(
-    era_history: &EraHistory,
+    epoch: Epoch,
     db: &dyn ChainStore<BlockHeader>,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
     let header_hash = Hash::from(&initial_nonce.at);
 
     info!(point.id = %header_hash, point.slot = %initial_nonce.at.slot_or_default(), "importing nonces");
-
-    let epoch = {
-        let slot = initial_nonce.at.slot_or_default();
-        // NOTE: The slot definitely exists and is within one of the known eras.
-        era_history.slot_to_epoch_unchecked_horizon(slot)?
-    };
 
     let nonces = Nonces {
         epoch,
@@ -212,7 +217,7 @@ pub async fn import_nonces(
 }
 
 #[allow(clippy::unwrap_used)]
-pub async fn import_headers_for_network(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).unwrap();
         let hash = block_header.hash();
