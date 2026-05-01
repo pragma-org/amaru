@@ -77,33 +77,25 @@ pub enum BootstrapError {
     DownloadInvalidStatusCode(String, reqwest::StatusCode),
 }
 
-async fn download_snapshots(snapshots_content: Vec<u8>, snapshots_dir: &PathBuf) -> Result<(), BootstrapError> {
-    // Create the target directory if it doesn't exist
-    fs::create_dir_all(snapshots_dir)
-        .await
-        .map_err(|e| BootstrapError::CreateSnapshotsDir(snapshots_dir.clone(), e))?;
+fn snapshot_target_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
+    snapshots_dir.join(format!("{}.cbor", snapshot.point))
+}
 
-    let snapshots: Vec<Snapshot> =
-        serde_json::from_slice(&snapshots_content).map_err(BootstrapError::MalformedSnapshotsFile)?;
+fn snapshots_to_download(snapshots: Vec<Snapshot>, snapshots_dir: &Path) -> Vec<Snapshot> {
+    snapshots.into_iter().filter(|snapshot| !snapshot_target_path(snapshots_dir, snapshot).exists()).collect()
+}
 
+async fn download_snapshots(snapshots: &[Snapshot], snapshots_dir: &Path) -> Result<(), BootstrapError> {
     // Create a reqwest client
     let client = reqwest::Client::new();
 
     // Download each snapshot
-    for snapshot in &snapshots {
+    for snapshot in snapshots {
         info!(epoch=%snapshot.epoch, point=%snapshot.point,
             "Downloading snapshot",
         );
 
-        // Extract filename from the point
-        let filename = format!("{}.cbor", snapshot.point);
-        let target_path = snapshots_dir.join(&filename);
-
-        // Skip if file already exists
-        if target_path.exists() {
-            info!(filename=%filename, "Snapshot already exists, skipping");
-            continue;
-        }
+        let target_path = snapshot_target_path(snapshots_dir, snapshot);
 
         // Download the file
         let response = client
@@ -146,7 +138,20 @@ pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: Pat
     let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
     let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
         .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
-    download_snapshots(snapshots_file, &snapshots_dir).await?;
+
+    let snapshots: Vec<Snapshot> =
+        serde_json::from_slice(&snapshots_file).map_err(BootstrapError::MalformedSnapshotsFile)?;
+    let pending_snapshots = snapshots_to_download(snapshots, &snapshots_dir);
+
+    if !pending_snapshots.is_empty() {
+        info!(count = pending_snapshots.len(), snapshots_dir=%snapshots_dir.display(), "Snapshots to download");
+
+        fs::create_dir_all(&snapshots_dir)
+            .await
+            .map_err(|e| BootstrapError::CreateSnapshotsDir(snapshots_dir.clone(), e))?;
+        download_snapshots(&pending_snapshots, &snapshots_dir).await?;
+    }
+
     import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
     let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
     let era_history = network.into();
