@@ -20,7 +20,7 @@ use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrig
 use amaru_ouroboros::{
     MempoolMsg, MempoolSeqNo, MempoolState, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
 };
-use amaru_ouroboros_traits::TxSubmissionMempool;
+use amaru_ouroboros_traits::{MempoolError, TxSubmissionMempool};
 use pure_stage::StageRef;
 use tokio::runtime::Builder;
 use tracing::Level;
@@ -64,12 +64,14 @@ fn insert_batch_returns_one_result_per_transaction() {
             te_insert("mempool-1", &txs[2], TxOrigin::Local),
             te_mempool_state("mempool-1"),
             te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::RejectedDuplicate)),
-            te_send("mempool-1", "caller", Ok(expected_results(&txs))),
+            te_send("mempool-1", "caller", expected_results(&txs)),
             te_state("mempool-1", &MempoolStageState::default()),
         ],
     );
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["transaction rejected by mempool", "transaction rejected for testing"])
+        .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "Transaction is a duplicate"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -125,13 +127,13 @@ fn insertion_metric(state: MempoolState, result: TxInsertionResult) -> MempoolMe
     }
 }
 
-fn expected_results(txs: &[Transaction]) -> Vec<TxInsertResult> {
-    vec![
+fn expected_results(txs: &[Transaction]) -> Result<Vec<TxInsertResult>, MempoolError> {
+    Ok(vec![
         TxInsertResult::accepted(TxId::from(&txs[0]), MempoolSeqNo(1)),
         TxInsertResult::rejected(
             TxId::from(&txs[1]),
             TxRejectReason::Invalid(anyhow::anyhow!("transaction rejected for testing").into()),
         ),
         TxInsertResult::rejected(TxId::from(&txs[2]), TxRejectReason::Duplicate),
-    ]
+    ])
 }

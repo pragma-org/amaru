@@ -15,11 +15,9 @@
 use std::time::Instant;
 
 use amaru_kernel::{Tip, Transaction};
-use amaru_ouroboros::{
-    MempoolError, MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason,
-};
+use amaru_ouroboros::{MempoolError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::mempool_effects::MemoryPool;
-use pure_stage::{Effects, StageRef};
+use pure_stage::{Effects, StageRef, Void};
 
 use crate::{
     effects::{Ledger, LedgerOps, Metrics},
@@ -50,14 +48,19 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             match validate_and_insert(&ledger, &memory_pool, tx, &origin).await {
                 Ok(result) => {
                     record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
-                    if let TxInsertResult::Accepted { seq_no, .. } = result {
-                        notify_ready_waiters(&mut state, &eff, seq_no).await;
+                    match result {
+                        TxInsertResult::Accepted { seq_no, .. } => {
+                            notify_ready_waiters(&mut state, &eff, seq_no).await;
+                        }
+                        TxInsertResult::Rejected { tx_id, ref reason } => {
+                            tracing::info!(%tx_id, %reason, "transaction rejected by mempool");
+                        }
                     }
                     eff.send(&caller, Ok(result)).await;
                 }
-                Err(error) => {
-                    tracing::error!(%error, %tx_id, "failed to insert transaction into mempool");
-                    eff.send(&caller, Err(MempoolInsertError { tx_id, error })).await;
+                Err(e) => {
+                    tracing::error!(%e, %tx_id, "cannot insert transaction into the mempool");
+                    eff.send(&caller, Err(e)).await;
                 }
             };
         }
@@ -69,24 +72,34 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
                 match validate_and_insert(&ledger, &memory_pool, tx, &origin).await {
                     Ok(result) => {
                         record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
-                        if let TxInsertResult::Accepted { seq_no, .. } = result {
-                            notify_ready_waiters(&mut state, &eff, seq_no).await;
+                        match result {
+                            TxInsertResult::Accepted { seq_no, .. } => {
+                                notify_ready_waiters(&mut state, &eff, seq_no).await;
+                            }
+                            TxInsertResult::Rejected { tx_id, ref reason } => {
+                                tracing::info!(%tx_id, %reason, "transaction rejected by mempool");
+                            }
                         }
                         results.push(result);
                     }
-                    Err(error) => {
-                        tracing::error!(%error, %tx_id, "failed to insert transaction into mempool");
-                        eff.send(&caller, Err(MempoolInsertError { tx_id, error })).await;
+                    Err(e) => {
+                        tracing::error!(%e, %tx_id, "cannot insert transaction into the mempool");
+                        eff.send(&caller, Err(e)).await;
                         return state;
                     }
                 }
             }
             eff.send(&caller, Ok(results)).await;
         }
-        MempoolMsg::NewTip(tip) => {
-            let outcome = apply_new_tip(&ledger, &memory_pool, tip).await;
-            record_revalidation(memory_pool.state().await, &metrics_ops, &outcome).await;
-        }
+        MempoolMsg::NewTip(tip) => match apply_new_tip(&ledger, &memory_pool, tip).await {
+            Ok(outcome) => {
+                record_revalidation(memory_pool.state().await, &metrics_ops, &outcome).await;
+            }
+            Err(e) => {
+                tracing::error!(%e, "failed to apply new tip to the mempool");
+                eff.terminate::<Void>().await;
+            }
+        },
     }
     state
 }
@@ -107,7 +120,11 @@ async fn validate_and_insert(
 }
 
 /// Revalidate all the mempool transactions when a new tip has been adopted
-async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Tip) -> RevalidationOutcome {
+async fn apply_new_tip(
+    ledger: &Ledger,
+    memory_pool: &MemoryPool,
+    tip: Tip,
+) -> Result<RevalidationOutcome, MempoolError> {
     let started = Instant::now();
     let txs = memory_pool.mempool_txs().await;
     let total_before = txs.len() as u64;
@@ -119,21 +136,16 @@ async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Tip) -> R
         }
     }
 
-    let mut remove_failed = false;
-    if !invalid_tx_ids.is_empty()
-        && let Err(error) = memory_pool.remove_txs(&invalid_tx_ids).await
-    {
-        tracing::error!(%error, %tip, "failed to remove invalid transactions after new tip");
-        remove_failed = true;
+    if !invalid_tx_ids.is_empty() {
+        memory_pool.remove_txs(&invalid_tx_ids).await?;
     }
 
-    RevalidationOutcome {
+    Ok(RevalidationOutcome {
         tip_slot: u64::from(tip.slot()),
         total_before,
-        evicted_tx_ids: if remove_failed { Vec::new() } else { invalid_tx_ids },
+        evicted_tx_ids: invalid_tx_ids,
         duration_micros: started.elapsed().as_micros() as u64,
-        remove_failed,
-    }
+    })
 }
 
 /// Notify the waiters whose target sequence number has just been reached.

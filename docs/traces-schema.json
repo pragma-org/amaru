@@ -759,7 +759,7 @@
       "name": "tx_evicted",
       "level": "TRACE",
       "target": "amaru::mempool",
-      "description": "Transaction removed from the mempool. Reason ∈ {invalid_after_tip}.",
+      "description": "Transaction removed from the mempool. Reason ∈ {invalid_after_tip}. TODO: split the reason into invalid after tip + present in applied block",
       "public": true
     },
     "amaru::mempool::TX_RECEIVED": {

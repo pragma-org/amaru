@@ -21,6 +21,7 @@ use amaru_ouroboros_traits::{MempoolState, TxId, TxInsertResult, TxOrigin, TxRej
 
 use crate::effects::{Metrics, MetricsOps};
 
+/// Add traces for a transaction that is candidate for mempool insertion.
 pub(super) fn emit_tx_received(tx_id: &TxId, origin: &TxOrigin) {
     trace_record!(
         amaru_observability::amaru::mempool::TX_RECEIVED,
@@ -36,6 +37,8 @@ pub(super) fn emit_tx_received(tx_id: &TxId, origin: &TxOrigin) {
     }
 }
 
+/// Add a trace to register the result of a mempool insertion (successful or not).
+/// Emit the corresponding metric.
 pub(super) async fn record_insert(
     mempool_state: MempoolState,
     metrics: &Metrics<'_, MempoolMsg>,
@@ -81,28 +84,31 @@ pub(super) async fn record_insert(
     .await;
 }
 
+/// When a new tip is adopted, add a trace recording the result of the transactions revalidations,
+/// and emit metrics
 pub(super) async fn record_revalidation(
     mempool_state: MempoolState,
     metrics: &Metrics<'_, MempoolMsg>,
     outcome: &RevalidationOutcome,
 ) {
-    if !outcome.remove_failed {
-        for tx_id in &outcome.evicted_tx_ids {
-            trace_record!(
-                amaru_observability::amaru::mempool::TX_EVICTED,
-                tx_id = tx_id.to_string(),
-                reason = "invalid_after_tip".to_string()
-            );
-            emit_metrics(
-                mempool_state,
-                metrics,
-                MempoolMetricEvent::TxEvicted { reason: TxEvictedReason::InvalidAfterTip },
-            )
-            .await;
-        }
+    let evicted_count = outcome.evicted_tx_ids.len() as u64;
+
+    for tx_id in &outcome.evicted_tx_ids {
+        trace_record!(
+            amaru_observability::amaru::mempool::TX_EVICTED,
+            tx_id = tx_id.to_string(),
+            reason = "invalid_after_tip".to_string()
+        );
+    }
+    if evicted_count > 0 {
+        emit_metrics(
+            mempool_state,
+            metrics,
+            MempoolMetricEvent::TxEvicted { reason: TxEvictedReason::InvalidAfterTip, count: evicted_count },
+        )
+        .await;
     }
 
-    let evicted_count = if outcome.remove_failed { 0 } else { outcome.evicted_tx_ids.len() as u64 };
     trace_record!(
         amaru_observability::amaru::mempool::REVALIDATION_DETAIL,
         tip_slot = outcome.tip_slot,
@@ -119,7 +125,6 @@ pub(super) struct RevalidationOutcome {
     pub(super) total_before: u64,
     pub(super) evicted_tx_ids: Vec<TxId>,
     pub(super) duration_micros: u64,
-    pub(super) remove_failed: bool,
 }
 
 async fn emit_metrics(mempool_state: MempoolState, metrics: &Metrics<'_, MempoolMsg>, event: MempoolMetricEvent) {

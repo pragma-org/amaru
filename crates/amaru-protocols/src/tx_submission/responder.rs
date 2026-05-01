@@ -17,7 +17,7 @@ use std::{collections::BTreeSet, fmt::Display};
 use ProtocolError::*;
 use amaru_kernel::{Transaction, to_cbor};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason};
 use indexmap::IndexMap;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
@@ -404,7 +404,7 @@ impl TxSubmissionResponder {
             .await
         {
             None => return protocol_error(MempoolBatchInsertFailedTimedout),
-            Some(Err(error)) => return protocol_error(MempoolInsertFailed(error.tx_id, error.error)),
+            Some(Err(error)) => return protocol_error(MempoolInsertFailed(error)),
             Some(Ok(results)) => {
                 for result in results {
                     log_insert_result(&result);
@@ -622,12 +622,12 @@ pub enum TxSubmissionMsg {
     Insert {
         tx: Box<Transaction>,
         origin: TxOrigin,
-        caller: StageRef<Result<TxInsertResult, MempoolInsertError>>,
+        caller: StageRef<Result<TxInsertResult, MempoolInsertResult>>,
     },
     InsertBatch {
         txs: Vec<Transaction>,
         origin: TxOrigin,
-        caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertError>>,
+        caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertResult>>,
     },
 }
 
@@ -741,7 +741,7 @@ mod tests {
             &[
                 request_tx_ids(0, 10, Blocking::Yes),
                 request_txs(&txs, &[0, 1]),
-                error_action(MempoolInsertFailed(TxId::from(&txs[0]), MempoolError::new("database unavailable"))),
+                error_action(MempoolInsertFailed(MempoolError::new("database unavailable"))),
             ],
         );
         Ok(())
@@ -993,9 +993,8 @@ mod tests {
                         let origin = responder.origin.clone();
                         let mut error = None;
                         for tx in txs {
-                            let requested_id = TxId::from(&tx);
                             if let Err(e) = mempool.insert(tx, origin.clone()).await {
-                                error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
+                                error = Some(protocol_error(MempoolInsertFailed(e))?);
                                 break;
                             }
                         }

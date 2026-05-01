@@ -22,6 +22,8 @@ use opentelemetry::KeyValue;
 use crate::{Counter, Gauge};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
+// EVENTS
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TxInsertionOrigin {
     Local,
@@ -69,16 +71,22 @@ impl TxEvictedReason {
     }
 }
 
-/// One mempool event for the OpenTelemetry meter. Each emission refreshes
-/// the gauges to the supplied snapshot and increments the counter matching
-/// the variant.
+/// Mempool metric events for the OpenTelemetry:
+///
+///  - TxInsertion is emitted for each insertion attempt.
+///  - TxEvicted is emitted when transactions are removed from the mempool after a revalidation.
+///  - Revalidated marks a revalidation of the mempool when there's a new tip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMetricEvent {
     TxInsertion { origin: TxInsertionOrigin, result: TxInsertionResult },
-    TxEvicted { reason: TxEvictedReason },
+    TxEvicted { reason: TxEvictedReason, count: u64 },
     Revalidated,
 }
 
+// METRICS
+
+/// Mempool metrics aggregate a mempool metric event + the mempool state at the time of the event
+/// emission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MempoolMetrics {
     pub size_bytes: u64,
@@ -146,8 +154,10 @@ impl MetricRecorder for MempoolMetrics {
                 tx_insertions
                     .add(1, &[KeyValue::new("origin", origin.as_label()), KeyValue::new("result", result.as_label())]);
             }
-            MempoolMetricEvent::TxEvicted { reason } => {
-                tx_evicted.add(1, &[KeyValue::new("reason", reason.as_label())]);
+            MempoolMetricEvent::TxEvicted { reason, count } => {
+                if count > 0 {
+                    tx_evicted.add(count, &[KeyValue::new("reason", reason.as_label())]);
+                }
             }
             MempoolMetricEvent::Revalidated => {
                 revalidations.add(1, &[]);

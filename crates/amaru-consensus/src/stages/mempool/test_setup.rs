@@ -16,9 +16,8 @@ use amaru_kernel::{
     Hash, NetworkName, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY,
 };
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
-use amaru_ouroboros::{
-    MempoolInsertError, MempoolMsg, MockCanValidateBlocks, ResourceMempool, TxInsertResult, TxOrigin,
-};
+use amaru_ouroboros::{MempoolMsg, MockCanValidateBlocks, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_ouroboros_traits::MempoolError;
 use amaru_protocols::store_effects::ResourceParameters;
 use pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
@@ -55,7 +54,7 @@ pub fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<MempoolStageState>().boxed(),
         pure_stage::register_data_deserializer::<MempoolMsg>().boxed(),
-        pure_stage::register_data_deserializer::<Result<Vec<TxInsertResult>, MempoolInsertError>>().boxed(),
+        pure_stage::register_data_deserializer::<Result<Vec<TxInsertResult>, MempoolError>>().boxed(),
         pure_stage::register_effect_deserializer::<ValidateTxEffect>().boxed(),
         pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed(),
     ]
@@ -110,7 +109,7 @@ pub fn te_insert(at_stage: &str, tx: &Transaction, tx_origin: TxOrigin) -> Trace
 pub fn te_send(
     from: impl AsRef<str>,
     to: impl AsRef<str>,
-    msg: Result<Vec<TxInsertResult>, MempoolInsertError>,
+    msg: Result<Vec<TxInsertResult>, MempoolError>,
 ) -> TraceEntry {
     TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
 }

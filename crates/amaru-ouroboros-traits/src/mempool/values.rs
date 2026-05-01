@@ -100,9 +100,7 @@ impl Display for MempoolSeqNo {
     }
 }
 
-/// Aggregate snapshot of the mempool's bookkeeping counters, used for
-/// observability gauges. Single-pass read so that callers don't need to
-/// take separate locks for size and count.
+/// Snapshot of the mempool's internal counters, used for observability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MempoolState {
     pub tx_count: u64,
@@ -132,7 +130,7 @@ impl TxInsertResult {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum TxRejectReason {
     #[error("Mempool is full")]
     MempoolFull,
@@ -142,7 +140,7 @@ pub enum TxRejectReason {
     Invalid(#[from] TransactionValidationError),
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub struct TransactionValidationError(String);
 
 impl Display for TransactionValidationError {

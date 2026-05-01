@@ -601,6 +601,7 @@ define_schemas! {
         }
 
         /// Transaction removed from the mempool. Reason ∈ {invalid_after_tip}.
+        /// TODO: split the reason into invalid after tip + present in applied block
         public TX_EVICTED {
             required tx_id: String
             required reason: String
