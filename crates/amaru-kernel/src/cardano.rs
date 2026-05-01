@@ -100,6 +100,7 @@ pub mod transaction;
 pub mod transaction_body;
 pub mod transaction_input;
 pub mod transaction_pointer;
+pub mod validity_interval;
 pub mod value;
 pub mod vkey_witness;
 pub mod vote;
