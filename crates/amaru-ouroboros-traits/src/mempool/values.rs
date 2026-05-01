@@ -100,6 +100,15 @@ impl Display for MempoolSeqNo {
     }
 }
 
+/// Aggregate snapshot of the mempool's bookkeeping counters, used for
+/// observability gauges. Single-pass read so that callers don't need to
+/// take separate locks for size and count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MempoolState {
+    pub tx_count: u64,
+    pub size_bytes: u64,
+}
+
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxInsertResult {
     Accepted { tx_id: TxId, seq_no: MempoolSeqNo },

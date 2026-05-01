@@ -143,8 +143,8 @@ mod tests {
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
-        MempoolError, MempoolSeqNo, MockCanValidateBlocks, MockCanValidateTxs, TransactionValidationError, TxId,
-        TxInsertResult, TxOrigin, TxSubmissionMempool,
+        MempoolError, MempoolSeqNo, MempoolState, MockCanValidateBlocks, MockCanValidateTxs,
+        TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool,
     };
     use amaru_protocols::store_effects::ResourceParameters;
     use axum::{
@@ -464,6 +464,10 @@ mod tests {
 
         fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
             false
+        }
+
+        fn state(&self) -> MempoolState {
+            MempoolState { tx_count: 0, size_bytes: 0 }
         }
     }
 }

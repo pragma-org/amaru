@@ -579,6 +579,48 @@ define_schemas! {
         }
     }
 
+    mempool {
+        /// Transaction received by the mempool stage, before validation.
+        public TX_RECEIVED {
+            required tx_id: String
+            required origin: String
+        }
+
+        /// Transaction validated and inserted into the mempool.
+        public TX_ACCEPTED {
+            required tx_id: String
+            required seq_no: u64
+            required origin: String
+        }
+
+        /// Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.
+        public TX_REJECTED {
+            required tx_id: String
+            required reason: String
+            optional validation_error: String
+        }
+
+        /// Transaction removed from the mempool. Reason ∈ {invalid_after_tip}.
+        public TX_EVICTED {
+            required tx_id: String
+            required reason: String
+        }
+
+        /// Detail trace carrying upstream peer attribution for a received tx.
+        TX_RECEIVED_DETAIL {
+            required tx_id: String
+            required peer: String
+        }
+
+        /// Detail trace for a tip-driven revalidation pass.
+        REVALIDATION_DETAIL {
+            required tip_slot: u64
+            required total_before: u64
+            required evicted_count: u64
+            required duration_micros: u64
+        }
+    }
+
     protocols {
         connection {
             /// Handle connection stage messages
