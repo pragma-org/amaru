@@ -14,11 +14,7 @@
 
 use std::path::PathBuf;
 
-use amaru::{
-    DEFAULT_NETWORK,
-    bootstrap::{ImportError, import_snapshots, import_snapshots_from_directory},
-    default_ledger_dir,
-};
+use amaru::{DEFAULT_NETWORK, bootstrap::import_snapshots_from_directory, default_ledger_dir};
 use amaru_kernel::NetworkName;
 use clap::Parser;
 use tracing::info;
@@ -42,27 +38,6 @@ pub struct Args {
     )]
     network: NetworkName,
 
-    /// Path to a CBOR snapshot. Can be repeated for importing multiple snapshot files.
-    ///
-    /// Snapshot can be obtained from the Haskell cardano-node, using the `DebugEpochState`
-    /// command, serialised as CBOR.
-    ///
-    /// The snapshot must be named after the point on-chain it is reflecting, as
-    ///
-    ///   `{SLOT}.{BLOCK_HEADER_HASH}.cbor`
-    ///
-    /// For example:
-    ///
-    ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
-    #[arg(
-        long,
-        value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::SNAPSHOT,
-        num_args(0..),
-        verbatim_doc_comment,
-    )]
-    snapshot: Vec<PathBuf>,
-
     /// Path to a directory containing multiple CBOR snapshots to import.
     ///
     /// When omitted, defaults to a per-network snapshots directory based on the network name.
@@ -72,7 +47,7 @@ pub struct Args {
         env = amaru::env_vars::SNAPSHOTS_DIR,
         conflicts_with = "snapshot",
     )]
-    snapshot_dir: Option<PathBuf>,
+    snapshot_dir: PathBuf,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -82,19 +57,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         _command = "import-ledger-state",
         ledger_dir = %ledger_dir.to_string_lossy(),
         network = %args.network,
-        snapshot = ?args.snapshot,
         snapshot_dir = %args.snapshot_dir
-            .clone()
-            .unwrap_or_default()
             .to_string_lossy(),
         "running",
     );
 
-    if !args.snapshot.is_empty() {
-        import_snapshots(args.network, &args.snapshot, &ledger_dir).await
-    } else if let Some(snapshot_dir) = args.snapshot_dir {
-        import_snapshots_from_directory(args.network, &ledger_dir, &snapshot_dir).await
-    } else {
-        Err(ImportError::IncorrectUsage.into())
-    }
+    import_snapshots_from_directory(args.network, &ledger_dir, &args.snapshot_dir).await
 }

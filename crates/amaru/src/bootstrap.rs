@@ -268,10 +268,6 @@ pub enum ImportError {
     MalformedDate(String),
     #[error("invalid snapshot file: {0}")]
     InvalidSnapshotFile(PathBuf),
-    #[error(
-        "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
-    )]
-    IncorrectUsage,
 }
 
 #[expect(clippy::unwrap_used)]
