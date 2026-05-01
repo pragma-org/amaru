@@ -156,66 +156,43 @@ impl Schema {
 /// Returns a vector of tokens in parsing order, or an error if brackets are found.
 fn tokenize(input: &str) -> Result<Vec<String>, String> {
     let mut tokens = Vec::new();
-    let mut chars = input.chars().peekable();
+    let mut chars: Box<dyn Iterator<Item = (usize, char)>> = Box::new(input.char_indices());
     let mut current = String::new();
+    let mut line_number = 1;
 
-    while let Some(ch) = chars.next() {
+    while let Some((idx, ch)) = chars.next() {
         match ch {
             // Reject bracket syntax
             '[' | ']' => {
+                let following = chars.take(300).map(|(_, c)| c).collect::<String>();
                 return Err(format!(
-                    "Unsupported syntax: brackets `[` and `]` are not allowed. Use curly braces `{{}}` for field lists instead. Found `{}` at position in input",
-                    ch
+                    "Unsupported syntax: brackets `[` and `]` are not allowed. Use curly braces `{{}}` for field lists instead. Found `{}` at line {} in input: {}",
+                    ch, line_number, following
                 ));
             }
             // Check for doc comment start
-            '/' if chars.peek() == Some(&'/') => {
-                // Flush current token
+            '/' if input[idx + 1..].starts_with("//") => {
                 if !current.is_empty() {
                     tokens.push(std::mem::take(&mut current));
                 }
-
-                // Consume the second '/'
-                chars.next();
-
-                // Check for third '/' (doc comment)
-                if chars.peek() == Some(&'/') {
-                    chars.next();
-
-                    // Collect the rest of the doc comment until end of line or next '/'
-                    let mut comment = String::from("///");
-
-                    // Skip leading whitespace after ///
-                    while chars.peek() == Some(&' ') {
-                        chars.next();
-                    }
-
-                    // Collect comment text until we hit something that ends it
-                    while let Some(&c) = chars.peek() {
-                        // Stop at newlines, or at identifiers/braces that indicate end of comment
-                        if c == '\n' {
-                            chars.next();
-                            break;
-                        }
-                        // Also stop if we see start of next token (uppercase letter after whitespace)
-                        comment.push(c);
-                        chars.next();
-                    }
-
-                    let trimmed_comment = comment.trim().to_string();
-                    if trimmed_comment.len() > 3 {
-                        // More than just "///"
-                        tokens.push(trimmed_comment);
-                    }
-                } else {
-                    // Regular comment (//), skip until newline
-                    while let Some(&c) = chars.peek() {
-                        if c == '\n' {
-                            break;
-                        }
-                        chars.next();
-                    }
+                grab_comment(input, idx, &mut tokens, &mut chars);
+            }
+            '/' if input[idx + 1..].starts_with("/") => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
                 }
+                let end = input[idx..].find('\n').unwrap_or(input.len());
+                chars = Box::new(input[end..].char_indices().map(move |(i, c)| (i + end, c)));
+            }
+            // rust-analyzer delivers doc comments as # [doc = "..."], so we need to parse that and reformat it to ///...
+            '#' if input[idx + 1..].starts_with(" [") => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+                grab_comment(input, idx, &mut tokens, &mut chars);
+            }
+            '#' => {
+                panic!("Found #: {:?}", &input[idx..]);
             }
             '{' | '}' | ',' | ':' => {
                 if !current.is_empty() {
@@ -224,6 +201,9 @@ fn tokenize(input: &str) -> Result<Vec<String>, String> {
                 tokens.push(ch.to_string());
             }
             c if c.is_whitespace() => {
+                if c == '\n' {
+                    line_number += 1;
+                }
                 if !current.is_empty() {
                     tokens.push(std::mem::take(&mut current));
                 }
@@ -240,6 +220,28 @@ fn tokenize(input: &str) -> Result<Vec<String>, String> {
     }
 
     Ok(tokens)
+}
+
+fn grab_comment<'a>(
+    input: &'a str,
+    idx: usize,
+    tokens: &mut Vec<String>,
+    chars: &mut Box<dyn Iterator<Item = (usize, char)> + 'a>,
+) {
+    let comment = if input[idx..].starts_with("///") {
+        let end = input[idx..].find('\n').map(|i| i + idx).unwrap_or(input.len());
+        *chars = Box::new(input[end..].char_indices().map(move |(i, c)| (i + end, c)));
+        input[idx..end].trim_start_matches("///").trim()
+    } else {
+        // need to parse #[doc = "..."] comment
+        let begin = input[idx..].find('"').expect("doc comment must be enclosed in quotes") + 1 + idx;
+        let end = input[begin..].find("\"]").expect("doc comment must be enclosed in quotes") + begin;
+        *chars = Box::new(input[end + 2..].char_indices().map(move |(i, c)| (i + end + 2, c)));
+        input[begin..end].trim()
+    };
+    if !comment.is_empty() {
+        tokens.push(format!("///{}", comment));
+    }
 }
 
 // =============================================================================
