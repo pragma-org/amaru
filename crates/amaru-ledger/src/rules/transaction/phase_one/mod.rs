@@ -16,7 +16,7 @@ use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
     AuxiliaryData, EraHistory, Network, NetworkId, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
-    TransactionPointer, ValidityInterval, WitnessSet,
+    TransactionPointer, WitnessSet,
 };
 use thiserror::Error;
 
@@ -130,7 +130,12 @@ where
 
     fail_on_tx_size_too_large(tx_size, protocol_parameters)?;
 
-    validity_interval::execute(&transaction_body, transaction_witness_set, era_history, pointer.slot)?;
+    validity_interval::execute(
+        transaction_body.validity_interval(),
+        transaction_witness_set.redeemer.is_some(),
+        era_history,
+        pointer.slot,
+    )?;
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
@@ -223,12 +228,7 @@ where
         transaction_witness_set.vkeywitness.as_deref(),
     )?;
 
-    scripts::execute(
-        context,
-        transaction_witness_set,
-        &ValidityInterval::new(transaction_body.validity_interval_start, transaction_body.validity_interval_end),
-        protocol_parameters,
-    )?;
+    scripts::execute(context, transaction_witness_set, transaction_body.validity_interval(), protocol_parameters)?;
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {

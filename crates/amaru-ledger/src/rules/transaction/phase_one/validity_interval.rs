@@ -12,52 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistory, Slot, TransactionBody, WitnessSet};
+use amaru_kernel::{EraHistory, Slot, ValidityInterval};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidValidityInterval {
-    #[error(
-        "current slot {slot} not within transaction validity interval [{}, {})",
-        invalid_before.map(|s| s.to_string()).unwrap_or_else(|| "-inf".into()),
-        invalid_after.map(|s| s.to_string()).unwrap_or_else(|| "inf".into())
-    )]
-    OutsideValidityInterval { slot: Slot, invalid_before: Option<u64>, invalid_after: Option<u64> },
+    #[error("current slot {slot} not within transaction validity interval {validity_interval}")]
+    OutsideValidityInterval { slot: Slot, validity_interval: ValidityInterval },
 
     #[error("upper validity bound {0} is past the forecast horizon")]
     OutsideForecast(u64),
 }
 
 pub fn execute(
-    transaction_body: &TransactionBody,
-    transaction_witness_set: &WitnessSet,
+    validity_interval: ValidityInterval,
+    enforce_forecast_horizon: bool,
     era_history: &EraHistory,
     current_slot: Slot,
 ) -> Result<(), InvalidValidityInterval> {
-    let invalid_before = transaction_body.validity_interval_start;
-    let invalid_after = transaction_body.validity_interval_end;
-
-    let slot_u64 = u64::from(current_slot);
-    let in_interval = match (invalid_before, invalid_after) {
-        (None, None) => true,
-        (None, Some(ia)) => slot_u64 < ia,
-        (Some(ib), None) => slot_u64 >= ib,
-        (Some(ib), Some(ia)) => slot_u64 >= ib && slot_u64 < ia,
-    };
-    if !in_interval {
-        return Err(InvalidValidityInterval::OutsideValidityInterval {
-            slot: current_slot,
-            invalid_before,
-            invalid_after,
-        });
+    if !validity_interval.includes(current_slot) {
+        return Err(InvalidValidityInterval::OutsideValidityInterval { slot: current_slot, validity_interval });
     }
 
-    if transaction_witness_set.redeemer.is_some()
-        && let Some(ia) = invalid_after
-    {
+    if enforce_forecast_horizon && let Some(upper_bound) = validity_interval.upper_bound() {
         era_history
-            .slot_to_relative_time(Slot::from(ia), current_slot)
-            .map_err(|_| InvalidValidityInterval::OutsideForecast(ia))?;
+            .slot_to_relative_time(Slot::from(*upper_bound), current_slot)
+            .map_err(|_| InvalidValidityInterval::OutsideForecast(*upper_bound))?;
     }
 
     Ok(())
@@ -108,6 +88,11 @@ mod tests {
     fn test_validity_interval(
         (transaction_body, witness_set, current_slot): (TransactionBody, WitnessSet, Slot),
     ) -> Result<(), InvalidValidityInterval> {
-        execute(&transaction_body, &witness_set, &PREPROD_ERA_HISTORY, current_slot)
+        execute(
+            transaction_body.validity_interval(),
+            witness_set.redeemer.is_some(),
+            &PREPROD_ERA_HISTORY,
+            current_slot,
+        )
     }
 }

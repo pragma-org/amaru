@@ -22,11 +22,7 @@ use amaru_kernel::{
 use super::scripts::{InvalidScripts, ProvidedScript};
 
 /// Evaluate a native script against a set of required signer key hashes and a transaction validity interval.
-pub fn evaluate(
-    script: &NativeScript,
-    vkey_hashes: &BTreeSet<Hash<KEY>>,
-    validity_interval: &ValidityInterval,
-) -> bool {
+pub fn evaluate(script: &NativeScript, vkey_hashes: &BTreeSet<Hash<KEY>>, validity_interval: ValidityInterval) -> bool {
     match script {
         NativeScript::ScriptPubkey(key) => vkey_hashes.contains(key),
         NativeScript::ScriptAll(scripts) => scripts.iter().all(|s| evaluate(s, vkey_hashes, validity_interval)),
@@ -61,7 +57,7 @@ pub(super) fn execute(
     provided_scripts: &BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>,
     required_script_hashes: &BTreeSet<&Hash<SCRIPT>>,
     witness_set: &WitnessSet,
-    validity_interval: &ValidityInterval,
+    validity_interval: ValidityInterval,
 ) -> Result<(), InvalidScripts> {
     let required_natives: Vec<(&Hash<SCRIPT>, &NativeScript)> = required_script_hashes
         .iter()
@@ -139,55 +135,55 @@ mod tests {
     #[test]
     fn script_pubkey_present() {
         let script = NativeScript::ScriptPubkey(k(1));
-        assert!(evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_pubkey_absent() {
         let script = NativeScript::ScriptPubkey(k(3));
-        assert!(!evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_all_all_pass() {
         let script = NativeScript::ScriptAll(vec![NativeScript::ScriptPubkey(k(1)), NativeScript::ScriptPubkey(k(2))]);
-        assert!(evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_all_one_fails() {
         let script = NativeScript::ScriptAll(vec![NativeScript::ScriptPubkey(k(1)), NativeScript::ScriptPubkey(k(3))]);
-        assert!(!evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_all_empty_is_true() {
         let script = NativeScript::ScriptAll(vec![]);
-        assert!(evaluate(&script, &keys(&[]), &ValidityInterval::default()));
+        assert!(evaluate(&script, &keys(&[]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_any_one_passes() {
         let script = NativeScript::ScriptAny(vec![NativeScript::ScriptPubkey(k(3)), NativeScript::ScriptPubkey(k(1))]);
-        assert!(evaluate(&script, &keys(&[1]), &ValidityInterval::default()));
+        assert!(evaluate(&script, &keys(&[1]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_any_all_fail() {
         let script = NativeScript::ScriptAny(vec![NativeScript::ScriptPubkey(k(3)), NativeScript::ScriptPubkey(k(4))]);
-        assert!(!evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_any_empty_is_false() {
         let script = NativeScript::ScriptAny(vec![]);
-        assert!(!evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_n_of_k_zero_always_passes() {
         let script = NativeScript::ScriptNOfK(0, vec![NativeScript::ScriptPubkey(k(9))]);
-        assert!(evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
@@ -196,7 +192,7 @@ mod tests {
             2,
             vec![NativeScript::ScriptPubkey(k(1)), NativeScript::ScriptPubkey(k(2)), NativeScript::ScriptPubkey(k(9))],
         );
-        assert!(evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
@@ -205,52 +201,52 @@ mod tests {
             2,
             vec![NativeScript::ScriptPubkey(k(1)), NativeScript::ScriptPubkey(k(8)), NativeScript::ScriptPubkey(k(9))],
         );
-        assert!(!evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn script_n_of_k_more_than_available() {
         let script =
             NativeScript::ScriptNOfK(3, vec![NativeScript::ScriptPubkey(k(1)), NativeScript::ScriptPubkey(k(2))]);
-        assert!(!evaluate(&script, &keys(&[1, 2]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[1, 2]), ValidityInterval::default()));
     }
 
     #[test]
     fn invalid_before_with_tx_start_ge_lock() {
         let script = NativeScript::InvalidBefore(100);
-        assert!(evaluate(&script, &keys(&[]), &ValidityInterval::new(Some(100), None)));
-        assert!(evaluate(&script, &keys(&[]), &ValidityInterval::new(Some(101), None)));
+        assert!(evaluate(&script, &keys(&[]), ValidityInterval::new(Some(100), None)));
+        assert!(evaluate(&script, &keys(&[]), ValidityInterval::new(Some(101), None)));
     }
 
     #[test]
     fn invalid_before_with_tx_start_below_lock() {
         let script = NativeScript::InvalidBefore(100);
-        assert!(!evaluate(&script, &keys(&[]), &ValidityInterval::new(Some(99), None)));
+        assert!(!evaluate(&script, &keys(&[]), ValidityInterval::new(Some(99), None)));
     }
 
     #[test]
     fn invalid_before_without_tx_start() {
         let script = NativeScript::InvalidBefore(100);
-        assert!(!evaluate(&script, &keys(&[]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[]), ValidityInterval::default()));
     }
 
     #[test]
     fn invalid_hereafter_with_tx_expire_le_lock() {
         let script = NativeScript::InvalidHereafter(100);
-        assert!(evaluate(&script, &keys(&[]), &ValidityInterval::new(None, Some(100))));
-        assert!(evaluate(&script, &keys(&[]), &ValidityInterval::new(None, Some(50))));
+        assert!(evaluate(&script, &keys(&[]), ValidityInterval::new(None, Some(100))));
+        assert!(evaluate(&script, &keys(&[]), ValidityInterval::new(None, Some(50))));
     }
 
     #[test]
     fn invalid_hereafter_with_tx_expire_above_lock() {
         let script = NativeScript::InvalidHereafter(100);
-        assert!(!evaluate(&script, &keys(&[]), &ValidityInterval::new(None, Some(101))));
+        assert!(!evaluate(&script, &keys(&[]), ValidityInterval::new(None, Some(101))));
     }
 
     #[test]
     fn invalid_hereafter_without_tx_expire() {
         let script = NativeScript::InvalidHereafter(100);
-        assert!(!evaluate(&script, &keys(&[]), &ValidityInterval::default()));
+        assert!(!evaluate(&script, &keys(&[]), ValidityInterval::default()));
     }
 
     #[test]
@@ -260,9 +256,9 @@ mod tests {
             NativeScript::InvalidBefore(100),
             NativeScript::InvalidHereafter(200),
         ]);
-        assert!(evaluate(&script, &keys(&[1]), &ValidityInterval::new(Some(150), Some(199))));
-        assert!(!evaluate(&script, &keys(&[1]), &ValidityInterval::new(Some(99), Some(199))));
-        assert!(!evaluate(&script, &keys(&[1]), &ValidityInterval::new(Some(150), Some(201))));
-        assert!(!evaluate(&script, &keys(&[9]), &ValidityInterval::new(Some(150), Some(199))));
+        assert!(evaluate(&script, &keys(&[1]), ValidityInterval::new(Some(150), Some(199))));
+        assert!(!evaluate(&script, &keys(&[1]), ValidityInterval::new(Some(99), Some(199))));
+        assert!(!evaluate(&script, &keys(&[1]), ValidityInterval::new(Some(150), Some(201))));
+        assert!(!evaluate(&script, &keys(&[9]), ValidityInterval::new(Some(150), Some(199))));
     }
 }
