@@ -20,7 +20,8 @@ use std::{
 
 use amaru_kernel::{
     HasRedeemers, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript, ProtocolVersion,
-    RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, decode_plutus_script, script_purpose_to_string,
+    RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, ValidityInterval, WitnessSet, decode_plutus_script,
+    script_purpose_to_string,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
@@ -110,8 +111,7 @@ pub fn execute<C>(
     context: &mut C,
     witness_set: &WitnessSet,
     protocol_version: ProtocolVersion,
-    validity_interval_start: Option<u64>,
-    validity_interval_end: Option<u64>,
+    validity_interval: &ValidityInterval,
 ) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
@@ -123,13 +123,7 @@ where
 
     let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set, protocol_version)?;
 
-    super::native_scripts::execute(
-        &provided_scripts,
-        &required_script_hashes,
-        witness_set,
-        validity_interval_start,
-        validity_interval_end,
-    )?;
+    super::native_scripts::execute(&provided_scripts, &required_script_hashes, witness_set, validity_interval)?;
 
     let required_scripts = fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
 
@@ -477,7 +471,8 @@ fn collect_plutus_witness_scripts<'a, const V: usize>(
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolVersion, TransactionBody, WitnessSet, include_cbor,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolVersion, TransactionBody, ValidityInterval,
+        WitnessSet, include_cbor,
     };
     use test_case::test_case;
 
@@ -548,7 +543,12 @@ mod tests {
     fn test_scripts(
         (mut ctx, tx, witness_set): (AssertValidationContext, TransactionBody, WitnessSet),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, preprod_pv(), tx.validity_interval_start, tx.validity_interval_end)
+        super::execute(
+            &mut ctx,
+            &witness_set,
+            preprod_pv(),
+            &ValidityInterval::new(tx.validity_interval_start, tx.validity_interval_end),
+        )
     }
 
     #[test]
