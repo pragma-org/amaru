@@ -148,8 +148,10 @@ pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: Pat
         .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
     download_snapshots(snapshots_file, &snapshots_dir).await?;
     import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
-    import_nonces(network.into(), &chain_dir, default_initial_nonces(network)?).await?;
-    import_headers_for_network(&chain_dir, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
+    let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
+    let era_history = network.into();
+    import_nonces(era_history, &chain_db, default_initial_nonces(network)?).await?;
+    import_headers_for_network(&chain_db, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
 
     Ok(())
 }
@@ -178,12 +180,9 @@ pub struct InitialNonces {
 
 pub async fn import_nonces(
     era_history: &EraHistory,
-    chain_db_path: &PathBuf,
+    db: &dyn ChainStore<BlockHeader>,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
-    let db = Box::new(RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_db_path.into()))?)
-        as Box<dyn ChainStore<BlockHeader>>;
-
     let header_hash = Hash::from(&initial_nonce.at);
 
     info!(point.id = %header_hash, point.slot = %initial_nonce.at.slot_or_default(), "importing nonces");
@@ -208,9 +207,7 @@ pub async fn import_nonces(
 }
 
 #[allow(clippy::unwrap_used)]
-pub async fn import_headers_for_network(chain_dir: &PathBuf, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
-    let db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.into()))?;
-
+pub async fn import_headers_for_network(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).unwrap();
         let hash = block_header.hash();
@@ -271,7 +268,7 @@ pub enum ImportError {
 }
 
 #[expect(clippy::unwrap_used)]
-pub async fn import_snapshot(
+async fn import_snapshot(
     network: NetworkName,
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,

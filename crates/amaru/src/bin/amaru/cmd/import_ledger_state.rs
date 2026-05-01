@@ -39,13 +39,10 @@ pub struct Args {
     network: NetworkName,
 
     /// Path to a directory containing multiple CBOR snapshots to import.
-    ///
-    /// When omitted, defaults to a per-network snapshots directory based on the network name.
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
         env = amaru::env_vars::SNAPSHOTS_DIR,
-        conflicts_with = "snapshot",
     )]
     snapshot_dir: PathBuf,
 }

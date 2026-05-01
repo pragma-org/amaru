@@ -16,6 +16,7 @@ use std::path::PathBuf;
 
 use amaru::{DEFAULT_NETWORK, bootstrap::import_nonces, default_chain_dir, default_initial_nonces};
 use amaru_kernel::NetworkName;
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use tracing::info;
 
@@ -72,5 +73,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // construct from NetworkName. In the case of testnets this can be
     // problematic hence why we have started writing and reading such
     // files in import_ledger_state.
-    import_nonces(args.network.into(), &chain_dir, initial_nonces).await
+    let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
+
+    import_nonces(args.network.into(), &chain_db, initial_nonces).await
 }
