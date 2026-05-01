@@ -655,7 +655,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         arena_pool: &ArenaPool,
     ) -> Result<(), rules::block::TransactionValidationFailed> {
         let mut context = self.create_transaction_validation_context(transaction).map_err(|error| {
-            rules::block::TransactionValidationFailed::Preparation { transaction_hash: transaction.tx_id(), error }
+            rules::block::TransactionValidationFailed::Preparation { transaction_id: transaction.tx_id(), error }
         })?;
         let tx_size = to_cbor(transaction).len() as u64;
         rules::block::validate_transaction(

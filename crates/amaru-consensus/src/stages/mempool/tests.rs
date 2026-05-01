@@ -14,10 +14,13 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Transaction, to_cbor};
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_ouroboros_traits::TxSubmissionMempool;
+use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrigin, TxInsertionResult};
+use amaru_ouroboros::{
+    MempoolMsg, MempoolSeqNo, MempoolState, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+};
+use amaru_ouroboros_traits::{MempoolError, TxSubmissionMempool};
 use pure_stage::StageRef;
 use tokio::runtime::Builder;
 use tracing::Level;
@@ -25,7 +28,10 @@ use tracing::Level;
 use crate::stages::{
     mempool::{
         MempoolStageState,
-        test_setup::{TestPrep, create_transaction, setup, te_insert, te_send, te_validate_tx},
+        test_setup::{
+            TestPrep, create_transaction, setup, te_insert, te_mempool_state, te_record_metrics, te_send,
+            te_validate_tx,
+        },
     },
     test_utils::{assert_trace, te_input, te_state},
 };
@@ -37,6 +43,9 @@ fn insert_batch_returns_one_result_per_transaction() {
     let (running, _guards, mut logs) = setup(&batch_example);
 
     let MempoolMsg::InsertBatch { txs, .. } = batch_example.msg else { unreachable!() };
+    // After tx[0] is accepted the mempool holds exactly one transaction; tx[1] is rejected by the
+    // validator and tx[2] is a duplicate of tx[0], so neither changes the state.
+    let state = MempoolState { size_bytes: to_cbor(&txs[0]).len() as u64, tx_count: 1 };
     assert_trace(
         &running,
         &[
@@ -44,17 +53,25 @@ fn insert_batch_returns_one_result_per_transaction() {
             te_input("mempool-1", &expected_msg),
             te_validate_tx("mempool-1", &txs[0]),
             te_insert("mempool-1", &txs[0], TxOrigin::Local),
+            te_mempool_state("mempool-1"),
+            te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::Accepted)),
             te_validate_tx("mempool-1", &txs[1]),
+            te_mempool_state("mempool-1"),
+            te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::RejectedInvalid)),
             te_validate_tx("mempool-1", &txs[2]),
             // Note that the de-duplication check is performed by the mempool when the insertion
             // is attempted
             te_insert("mempool-1", &txs[2], TxOrigin::Local),
-            te_send("mempool-1", "caller", Ok(expected_results(&txs))),
+            te_mempool_state("mempool-1"),
+            te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::RejectedDuplicate)),
+            te_send("mempool-1", "caller", expected_results(&txs)),
             te_state("mempool-1", &MempoolStageState::default()),
         ],
     );
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["transaction rejected by mempool", "transaction rejected for testing"])
+        .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "Transaction is a duplicate"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -102,13 +119,21 @@ fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
     }
 }
 
-fn expected_results(txs: &[Transaction]) -> Vec<TxInsertResult> {
-    vec![
+fn insertion_metric(state: MempoolState, result: TxInsertionResult) -> MempoolMetrics {
+    MempoolMetrics {
+        size_bytes: state.size_bytes,
+        tx_count: state.tx_count,
+        event: MempoolMetricEvent::TxInsertion { origin: TxInsertionOrigin::Local, result },
+    }
+}
+
+fn expected_results(txs: &[Transaction]) -> Result<Vec<TxInsertResult>, MempoolError> {
+    Ok(vec![
         TxInsertResult::accepted(txs[0].tx_id(), MempoolSeqNo(1)),
         TxInsertResult::rejected(
             txs[1].tx_id(),
             TxRejectReason::Invalid(anyhow::anyhow!("transaction rejected for testing").into()),
         ),
         TxInsertResult::rejected(txs[2].tx_id(), TxRejectReason::Duplicate),
-    ]
+    ])
 }

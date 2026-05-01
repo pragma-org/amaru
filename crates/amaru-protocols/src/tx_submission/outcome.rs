@@ -15,6 +15,7 @@
 use std::fmt::{Display, Formatter};
 
 use amaru_kernel::TransactionId;
+use amaru_ouroboros_traits::MempoolError;
 use serde::{Deserialize, Serialize};
 
 use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};
@@ -38,8 +39,10 @@ pub enum TerminationCause {
     /// The peer did not deliver `ReplyTxs` within the inflight timeout.
     /// This should be modelled at the protocol level.
     TxFetchTimeout,
-    /// Local mempool stage failed or did not respond.
-    MempoolStageUnavailable,
+    /// Local mempool stage did not respond in time.
+    MempoolBatchInsertFailedTimedout,
+    /// Insertion into the mempool failed.
+    MempoolInsertFailed(MempoolError),
 }
 
 /// Peer-misbehavior protocol errors.
@@ -106,7 +109,8 @@ impl Display for TerminationCause {
         match self {
             TerminationCause::Protocol(err) => write!(f, "{err}"),
             TerminationCause::TxFetchTimeout => write!(f, "peer did not deliver ReplyTxs within timeout"),
-            TerminationCause::MempoolStageUnavailable => write!(f, "mempool stage unavailable"),
+            TerminationCause::MempoolBatchInsertFailedTimedout => write!(f, "mempool stage unavailable"),
+            TerminationCause::MempoolInsertFailed(e) => write!(f, "insertion into mempool failed: {e}"),
         }
     }
 }
