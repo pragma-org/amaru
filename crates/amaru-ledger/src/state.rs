@@ -210,7 +210,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
+    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use < S, HS > {
         StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
     }
 
@@ -378,7 +378,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 // the ledger if we don't.
                 rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
             )
-            .map_err(StateError::Storage)?;
+                .map_err(StateError::Storage)?;
         }
         batch.commit()?;
 
@@ -516,7 +516,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn resolve_inputs<'a>(
         &'_ self,
         ongoing_state: &VolatileState,
-        inputs: impl Iterator<Item = &'a TransactionInput>,
+        inputs: impl Iterator<Item=&'a TransactionInput>,
     ) -> Result<Vec<(TransactionInput, Option<MemoizedTransactionOutput>)>, StoreError> {
         let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_INPUTS);
         let _guard = _span.enter();
@@ -659,7 +659,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         arena_pool: &ArenaPool,
     ) -> Result<(), rules::block::TransactionValidationFailed> {
         let mut context = self.create_transaction_validation_context(transaction).map_err(|error| {
-            rules::block::TransactionValidationFailed::Preparation { transaction_hash: transaction.tx_id(), error }
+            rules::block::TransactionValidationFailed::Preparation { transaction_id: transaction.tx_id(), error }
         })?;
         let tx_size = to_cbor(transaction).len() as u64;
         rules::block::validate_transaction(
@@ -696,7 +696,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let block_height = block.header.header_body.block_number;
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let prev_hash = block.header.header_body.prev_hash;
-        let txs_processed = block.transaction_bodies.len() as u64;
+        let tx_count = block.transaction_bodies.len() as u64;
+        trace_block_transactions(point, block_height, &block);
 
         match rules::validate_block(
             &mut context,
@@ -710,18 +711,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             BlockValidation::Err(err) => BlockValidation::Err(err),
             BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
             BlockValidation::Valid(()) => {
+                trace!(target: EVENT_TARGET, %point, block_height, tx_count, "block transactions validated");
+
                 let state: VolatileState = context.into();
                 let slot = point.slot_or_default();
                 let epoch = match self.era_history().slot_to_epoch(slot, slot) {
                     Ok(epoch) => epoch,
                     Err(_) => 0.into(),
                 }
-                .into();
+                    .into();
                 let slot_in_epoch = match self.era_history().slot_in_epoch(slot, slot) {
                     Ok(slot) => slot,
                     Err(_) => 0.into(),
                 }
-                .into();
+                    .into();
 
                 let slot: u64 = slot.into();
 
@@ -982,7 +985,7 @@ pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Res
 /// Return deposits back to reward accounts.
 pub fn refund_many<'store>(
     db: &impl TransactionalContext<'store>,
-    mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+    mut refunds: impl Iterator<Item=(StakeCredential, Lovelace)>,
 ) -> Result<(), StateError> {
     let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
         debug!(
@@ -1226,10 +1229,12 @@ impl HasStakeDistribution for StakeDistributionObserver {
 pub enum BackwardError {
     /// The ledger has been instructed to rollback to an unknown point. This should be impossible
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
-    #[error("error rolling back to unknown point at {rollback_point}; current ledger tip is at {tip}")]
+    #[error("error rolling back to unknown point at {rollback_point}; current ledger tip is at {tip}"
+    )]
     UnknownRollbackPoint { rollback_point: Point, tip: Point },
 
-    #[error("cannot roll back to a point {rollback_point} in the future of the current ledger tip {tip}")]
+    #[error("cannot roll back to a point {rollback_point} in the future of the current ledger tip {tip}"
+    )]
     RollbackPointInFuture { rollback_point: Point, tip: Point },
 }
 

@@ -16,13 +16,12 @@
 use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Gauge};
+use crate::Gauge;
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LedgerMetrics {
     pub block_height: u64,
-    pub txs_processed: u64,
     pub slot: u64,
     pub slot_in_epoch: u64,
     pub epoch: u64,
@@ -38,7 +37,6 @@ impl Default for LedgerMetrics {
     fn default() -> Self {
         Self {
             block_height: 1,
-            txs_processed: Default::default(),
             slot: Default::default(),
             slot_in_epoch: Default::default(),
             epoch: Default::default(),
@@ -64,7 +62,6 @@ impl MetricRecorder for LedgerMetrics {
 impl MetricRecorder for LedgerMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static BLOCK_HEIGHT: OnceLock<Gauge<u64>> = OnceLock::new();
-        static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
         static SLOT_NUM: OnceLock<Gauge<u64>> = OnceLock::new();
         static SLOT_IN_EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
         static EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
@@ -76,13 +73,6 @@ impl MetricRecorder for LedgerMetrics {
             meter
                 .u64_gauge("cardano_node_metrics_blockNum_int")
                 .with_description("block height of latest processed block")
-                .with_unit("int")
-                .build()
-        });
-        let txs_processed = TXS_PROCESSED.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_metrics_txsProcessedNum_int")
-                .with_description("total transactions processed")
                 .with_unit("int")
                 .build()
         });
@@ -130,7 +120,6 @@ impl MetricRecorder for LedgerMetrics {
         });
 
         block_height.record(self.block_height, &[]);
-        txs_processed.add(self.txs_processed, &[]);
         slot_num.record(self.slot, &[]);
         epoch.record(self.epoch, &[]);
         slot_in_epoch.record(self.slot_in_epoch, &[]);
