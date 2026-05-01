@@ -16,7 +16,7 @@ use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
     AuxiliaryData, EraHistory, Network, NetworkId, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
-    TransactionPointer, WitnessSet,
+    TransactionPointer, ValidityInterval, WitnessSet,
 };
 use thiserror::Error;
 
@@ -218,8 +218,7 @@ where
     scripts::execute(
         context,
         transaction_witness_set,
-        transaction_body.validity_interval_start,
-        transaction_body.validity_interval_end,
+        &ValidityInterval::new(transaction_body.validity_interval_start, transaction_body.validity_interval_end),
         protocol_parameters,
     )?;
 

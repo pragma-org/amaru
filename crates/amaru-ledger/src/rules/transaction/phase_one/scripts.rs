@@ -20,8 +20,8 @@ use std::{
 
 use amaru_kernel::{
     ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
-    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet,
-    decode_plutus_script, script_purpose_to_string,
+    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, ValidityInterval,
+    WitnessSet, decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
@@ -135,8 +135,7 @@ pub enum InvalidScripts {
 pub fn execute<C>(
     context: &mut C,
     witness_set: &WitnessSet,
-    validity_interval_start: Option<u64>,
-    validity_interval_end: Option<u64>,
+    validity_interval: &ValidityInterval,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidScripts>
 where
@@ -152,13 +151,7 @@ where
     let provided_scripts =
         collect_provided_scripts(context, &required_script_hashes, witness_set, protocol_parameters.protocol_version)?;
 
-    super::native_scripts::execute(
-        &provided_scripts,
-        &required_script_hashes,
-        witness_set,
-        validity_interval_start,
-        validity_interval_end,
-    )?;
+    super::native_scripts::execute(&provided_scripts, &required_script_hashes, witness_set, validity_interval)?;
 
     let required_scripts = fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
 
@@ -544,7 +537,7 @@ fn collect_plutus_witness_scripts<const V: usize>(
 mod tests {
     use amaru_kernel::{
         ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
-        TransactionBody, WitnessSet, include_cbor,
+        TransactionBody, ValidityInterval, WitnessSet, include_cbor,
     };
     use test_case::test_case;
 
@@ -664,8 +657,7 @@ mod tests {
         super::execute(
             &mut ctx,
             &witness_set,
-            tx.validity_interval_start,
-            tx.validity_interval_end,
+            &ValidityInterval::new(tx.validity_interval_start, tx.validity_interval_end),
             &protocol_parameters,
         )
     }
