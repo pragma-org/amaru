@@ -42,12 +42,19 @@ pub enum InvalidOutput {
     WrongNetwork { expected: u8, actual: u8 },
 }
 
+/// Enum that is used to determine whether or not to allow a datum as supplemental in the context.
+/// In the case of a collateral return output, datums should not be allowed as supplemental.
+pub enum SupplementalDatumPolicy {
+    Allow,
+    Disallow,
+}
+
 pub fn execute<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
     network: &Network,
     outputs: Vec<MemoizedTransactionOutput>,
-    allow_supplemental_datum: bool,
+    supplemental_datum_policy: SupplementalDatumPolicy,
     construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
@@ -61,7 +68,9 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        if allow_supplemental_datum && let MemoizedDatum::Hash(hash) = &output.datum {
+        if matches!(supplemental_datum_policy, SupplementalDatumPolicy::Allow)
+            && let MemoizedDatum::Hash(hash) = &output.datum
+        {
             context.allow_supplemental_datum(*hash);
         }
 
@@ -94,7 +103,7 @@ mod tests {
     use amaru_kernel::{Hash, Network, ProtocolParameters, TransactionBody, include_cbor, size::DATUM};
     use test_case::test_case;
 
-    use super::{InvalidOutput, InvalidOutputs};
+    use super::{InvalidOutput, InvalidOutputs, SupplementalDatumPolicy};
     use crate::{
         context::{
             WitnessSlice,
@@ -177,7 +186,14 @@ mod tests {
     )]
     fn outputs((tx, protocol_parameters): (TransactionBody, ProtocolParameters)) -> Outcome {
         let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
-        let result = super::execute(&mut context, &protocol_parameters, &Network::Testnet, tx.outputs, true, |_| None);
+        let result = super::execute(
+            &mut context,
+            &protocol_parameters,
+            &Network::Testnet,
+            tx.outputs,
+            SupplementalDatumPolicy::Allow,
+            |_| None,
+        );
         (result, context.allowed_supplemental_datums())
     }
 
@@ -190,7 +206,14 @@ mod tests {
     fn collateral_return((tx, protocol_parameters): (TransactionBody, ProtocolParameters)) -> Outcome {
         let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
         let outputs = tx.collateral_return.map(|output| vec![output]).expect("fixture must have a collateral_return");
-        let result = super::execute(&mut context, &protocol_parameters, &Network::Testnet, outputs, false, |_| None);
+        let result = super::execute(
+            &mut context,
+            &protocol_parameters,
+            &Network::Testnet,
+            outputs,
+            SupplementalDatumPolicy::Disallow,
+            |_| None,
+        );
         (result, context.allowed_supplemental_datums())
     }
 }

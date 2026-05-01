@@ -20,7 +20,10 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::{context::ValidationContext, store::GovernanceActivity};
+use crate::{
+    context::ValidationContext, rules::transaction::phase_one::outputs::SupplementalDatumPolicy,
+    store::GovernanceActivity,
+};
 
 pub mod certificates;
 pub use certificates::InvalidCertificates;
@@ -142,7 +145,7 @@ where
         protocol_parameters,
         &(*network).into(),
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
-        false,
+        SupplementalDatumPolicy::Disallow,
         |_index| {
             if is_valid {
                 return None;
@@ -163,7 +166,7 @@ where
         protocol_parameters,
         &(*network).into(),
         mem::take(&mut transaction_body.outputs),
-        true,
+        SupplementalDatumPolicy::Allow,
         |index| {
             if !is_valid {
                 return None;
