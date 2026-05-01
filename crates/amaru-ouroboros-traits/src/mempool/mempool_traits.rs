@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::TransactionId;
 
-use crate::mempool::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin};
+use crate::mempool::{MempoolError, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
 
 /// An simple mempool interface to:
 ///
@@ -74,4 +74,9 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Returns `true` if accepting `additional_bytes` would push the
     /// mempool past its configured maximum byte size.
     fn is_near_capacity(&self, additional_bytes: u64) -> bool;
+
+    /// Snapshot of the mempool's tx count and cumulative CBOR size, used
+    /// to refresh observability gauges. Returned together so observers can
+    /// avoid taking the underlying lock twice.
+    fn state(&self) -> MempoolState;
 }

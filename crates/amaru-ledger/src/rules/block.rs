@@ -58,10 +58,10 @@ pub enum InvalidBlockDetails {
 
 #[derive(Debug, Error)]
 pub enum TransactionValidationFailed {
-    #[error("transaction {transaction_hash} is invalid: {violation}")]
-    Transaction { transaction_hash: TransactionId, violation: TransactionInvalid },
-    #[error("failed to prepare transaction {transaction_hash} for validation: {error}")]
-    Preparation { transaction_hash: TransactionId, error: ValidationContextError },
+    #[error("transaction {transaction_id} is invalid: {violation}")]
+    Transaction { transaction_id: TransactionId, violation: TransactionInvalid },
+    #[error("failed to prepare transaction {transaction_id} for validation: {error}")]
+    Preparation { transaction_id: TransactionId, error: ValidationContextError },
 }
 
 #[derive(Debug)]
@@ -278,10 +278,7 @@ where
         transaction.auxiliary_data.as_ref(),
         tx_size,
     )
-    .map_err(|err| TransactionValidationFailed::Transaction {
-        transaction_hash: transaction_id,
-        violation: err.into(),
-    })?;
+    .map_err(|err| TransactionValidationFailed::Transaction { transaction_id, violation: err.into() })?;
 
     transaction::phase_two::execute(
         context,
@@ -294,10 +291,7 @@ where
         &transaction.body,
         &transaction.witnesses,
     )
-    .map_err(|err| TransactionValidationFailed::Transaction {
-        transaction_hash: transaction_id,
-        violation: err.into(),
-    })?;
+    .map_err(|err| TransactionValidationFailed::Transaction { transaction_id, violation: err.into() })?;
 
     consumed_inputs.into_iter().for_each(|input| context.consume(input));
     Ok(())
