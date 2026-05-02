@@ -36,12 +36,12 @@ pub fn evaluate(script: &NativeScript, vkey_hashes: &BTreeSet<Hash<KEY>>, validi
         // `lteNegInfty`: a lock requiring `lock_start <= ValidityInterval::lower_bound()` can only be satisfied when
         // `tx_start` is given. A missing lower bound is treated as -inf and always fails.
         NativeScript::InvalidBefore(lock_start) => {
-            matches!(validity_interval.lower_bound(), Some(t) if lock_start <= t)
+            matches!(validity_interval.lower_bound(), Some(t) if lock_start <= &t.as_u64())
         }
         // `ltePosInfty`: a lock requiring `ValidityInterval::upper_bound() <= lock_expire` can only be satisfied when
         // `tx_expire` is given. A missing upper bound is treated as +inf and always fails.
         NativeScript::InvalidHereafter(lock_expire) => {
-            matches!(validity_interval.upper_bound(), Some(t) if t <= lock_expire)
+            matches!(validity_interval.upper_bound(), Some(t) if &t.as_u64() <= lock_expire)
         }
     }
 }
