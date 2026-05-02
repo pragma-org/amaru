@@ -24,19 +24,19 @@ use crate::Slot;
 /// If `None`, the `upper_bound is inf.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ValidityInterval {
-    lower_bound: Option<u64>,
-    upper_bound: Option<u64>,
+    lower_bound: Option<Slot>,
+    upper_bound: Option<Slot>,
 }
 
 impl ValidityInterval {
     pub fn new(lower_bound: Option<u64>, upper_bound: Option<u64>) -> Self {
-        Self { lower_bound, upper_bound }
+        Self { lower_bound: lower_bound.map(Slot::from), upper_bound: upper_bound.map(Slot::from) }
     }
-    pub fn lower_bound(&self) -> &Option<u64> {
+    pub fn lower_bound(&self) -> &Option<Slot> {
         &self.lower_bound
     }
 
-    pub fn upper_bound(&self) -> &Option<u64> {
+    pub fn upper_bound(&self) -> &Option<Slot> {
         &self.upper_bound
     }
 
@@ -44,9 +44,9 @@ impl ValidityInterval {
     pub fn includes(&self, slot: Slot) -> bool {
         match (self.lower_bound, self.upper_bound) {
             (None, None) => true,
-            (None, Some(upper_bound)) => slot.as_u64() < upper_bound,
-            (Some(lower_bound), None) => slot.as_u64() >= lower_bound,
-            (Some(lower_bound), Some(upper_bound)) => slot.as_u64() >= lower_bound && slot.as_u64() < upper_bound,
+            (None, Some(upper_bound)) => slot < upper_bound,
+            (Some(lower_bound), None) => slot >= lower_bound,
+            (Some(lower_bound), Some(upper_bound)) => slot >= lower_bound && slot < upper_bound,
         }
     }
 }
