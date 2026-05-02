@@ -21,7 +21,7 @@ pub trait HasRedeemers {
 
     /// Stream the deduplicated redeemers without forcing the caller to materialize the full
     /// [`BTreeMap`]. Dedup semantics match [`HasRedeemers::redeemers`] (Haskell `Map.fromList`,
-    /// last value wins for [`Redeemers::List`]).
+    /// last value wins for [`PallasRedeemers::List`]).
     fn iter_unique(&self) -> impl Iterator<Item = (Cow<'_, RedeemerKey>, &ExUnits, &PlutusData)> {
         self.redeemers().into_iter().map(|(k, (ex, data))| (k, ex, data))
     }
