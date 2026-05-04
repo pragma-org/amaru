@@ -45,7 +45,14 @@ pub fn forward_ledger(raw_block: &str) {
 
     let arena_pool = ArenaPool::new(10, 1_024_000);
 
-    let protocol_parameters = <&ProtocolParameters>::try_from(network).expect("unsupported network");
+    // NOTE: modified protocol parameters
+    //
+    // From what I can tell, conway3.block is a synthetic test block from Pallas, not a real on-chain block.
+    // It happens to include a proposal with a 50,000 ADA deposit while our default parameters have a
+    // 100,000 ADA `gov_action_deposit.
+    // In order to avoiding modifying the test block, we are overriding the gov_action_deposit, to allow a 50k deposit.
+    let mut protocol_parameters = <&ProtocolParameters>::try_from(network).expect("unsupported network").clone();
+    protocol_parameters.gov_action_deposit = 50_000_000_000;
 
     let store = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
 
