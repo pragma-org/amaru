@@ -1,4 +1,4 @@
-"eras/conway/impl/dump/Conway/Imp/AllegraImpSpec/UTXOW/InvalidMetadata" = "Expected failure, got success"
+"eras/conway/impl/dump/Conway/Imp/AllegraImpSpec/UTXOW/InvalidMetadata" = "decode error: text exceeds 64 bytes: got 669"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOS/PlutusV1/Invalid transaction marked as valid" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOS/PlutusV1/No cost model" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/AlonzoImpSpec/UTXOS/PlutusV1/Valid transaction marked as invalid" = "Expected failure, got success"
