@@ -43,6 +43,7 @@ thiserror.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-minicbor-extra.workspace = true
+amaru-uplc.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

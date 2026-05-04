@@ -89,7 +89,8 @@ pub use cardano::{
     ordered_redeemer::OrderedRedeemer,
     peer::Peer,
     plutus_data::PlutusData,
-    plutus_script::PlutusScript,
+    plutus_script::{PlutusScript, decode_plutus_script},
+    plutus_version::{IsKnownPlutusVersion, KnownPlutusVersion, PlutusVersion, reify_plutus_version},
     point::Point,
     pool_metadata::PoolMetadata,
     pool_params::PoolParams,
@@ -212,9 +213,9 @@ pub mod macros;
 
 mod traits;
 pub use traits::{
-    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasNetwork, HasOwnership, HasRedeemers, HasScriptHash,
-    IsHeader, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_network, has_ownership, has_redeemers,
-    has_script_hash, is_header,
+    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasNetwork, HasOwnership, HasRedeemers,
+    HasScriptHash, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_major_version,
+    has_network, has_ownership, has_redeemers, has_script_hash, is_header, to_bytes,
 };
 
 pub mod utils;

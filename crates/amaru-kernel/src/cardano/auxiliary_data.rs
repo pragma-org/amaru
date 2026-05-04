@@ -44,6 +44,26 @@ impl AuxiliaryData {
     pub fn hash(&self) -> Hash<{ Self::HASH_SIZE }> {
         self.hash
     }
+
+    /// Obtain the transaction metadata key-value pairs.
+    pub fn metadata(&self) -> &KeyValuePairs<u64, Metadatum> {
+        &self.metadata
+    }
+
+    /// Obtain the Plutus V1 scripts embedded in the auxiliary data.
+    pub fn plutus_v1_scripts(&self) -> &[PlutusScript<1>] {
+        &self.plutus_v1_scripts
+    }
+
+    /// Obtain the Plutus V2 scripts embedded in the auxiliary data.
+    pub fn plutus_v2_scripts(&self) -> &[PlutusScript<2>] {
+        &self.plutus_v2_scripts
+    }
+
+    /// Obtain the Plutus V3 scripts embedded in the auxiliary data.
+    pub fn plutus_v3_scripts(&self) -> &[PlutusScript<3>] {
+        &self.plutus_v3_scripts
+    }
 }
 
 impl Default for AuxiliaryData {

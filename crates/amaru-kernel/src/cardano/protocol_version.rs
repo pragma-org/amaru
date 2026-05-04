@@ -14,6 +14,14 @@
 
 pub use pallas_primitives::conway::ProtocolVersion;
 
+use crate::HasMajorVersion;
+
 pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
 
 pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
+
+impl HasMajorVersion for ProtocolVersion {
+    fn major(&self) -> u32 {
+        self.0 as u32
+    }
+}

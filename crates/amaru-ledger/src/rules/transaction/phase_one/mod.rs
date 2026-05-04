@@ -106,7 +106,7 @@ where
 {
     let transaction_id = transaction_body.id();
 
-    metadata::execute(&transaction_body, transaction_auxiliary_data)?;
+    metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
     certificates::execute(
         context,
@@ -193,7 +193,7 @@ where
         transaction_witness_set.vkeywitness.as_deref(),
     )?;
 
-    scripts::execute(context, transaction_witness_set)?;
+    scripts::execute(context, transaction_witness_set, protocol_parameters.protocol_version)?;
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {

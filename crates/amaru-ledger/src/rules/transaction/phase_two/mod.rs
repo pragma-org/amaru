@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, fmt};
 
 use amaru_kernel::{
     EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
-    cbor, to_cbor, transaction_input_to_string,
+    cbor, decode_plutus_script, to_cbor, transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
@@ -24,10 +24,9 @@ use amaru_plutus::{
     to_plutus_data::{PLUTUS_V1, PLUTUS_V2, PLUTUS_V3, PlutusDataError},
 };
 use amaru_uplc::{
-    binder::DeBruijn,
     constant::Constant,
     data::PlutusData,
-    flat::{self, FlatDecodeError},
+    flat::FlatDecodeError,
     machine::{ExBudget, MachineInfo, PlutusVersion},
     term::Term,
 };
@@ -127,48 +126,58 @@ where
         .into_iter()
         .map(|(script_context, script)| {
             let arena = arena_pool.acquire();
-            let (args, cost_model, plutus_version) = match script {
+
+            // TODO: The following code screams for traits.
+            let (mut program, plutus_version, args, cost_model) = match script {
                 Script::Native(_) => {
                     unreachable!("cannot have a redeemer point to a native_script")
                 }
-                Script::PlutusV1(_) => (
-                    script_context.to_script_args(PLUTUS_V1)?,
-                    protocol_parameters
+                Script::PlutusV1(plutus_script) => {
+                    let (program, plutus_version) =
+                        decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
+                            .map_err(PhaseTwoError::from)?;
+
+                    let args = script_context.to_script_args(PLUTUS_V1)?;
+
+                    let cost_model = protocol_parameters
                         .cost_models
                         .plutus_v1
                         .as_deref()
-                        .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V1))?,
-                    PlutusVersion::V1,
-                ),
-                Script::PlutusV2(_) => (
-                    script_context.to_script_args(PLUTUS_V2)?,
-                    protocol_parameters
+                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+
+                    (program, plutus_version, args, cost_model)
+                }
+                Script::PlutusV2(plutus_script) => {
+                    let (program, plutus_version) =
+                        decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
+                            .map_err(PhaseTwoError::from)?;
+
+                    let args = script_context.to_script_args(PLUTUS_V2)?;
+
+                    let cost_model = protocol_parameters
                         .cost_models
                         .plutus_v2
                         .as_deref()
-                        .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V2))?,
-                    amaru_uplc::machine::PlutusVersion::V2,
-                ),
-                Script::PlutusV3(_) => (
-                    script_context.to_script_args(PLUTUS_V3)?,
-                    protocol_parameters
+                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+
+                    (program, plutus_version, args, cost_model)
+                }
+                Script::PlutusV3(plutus_script) => {
+                    let (program, plutus_version) =
+                        decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
+                            .map_err(PhaseTwoError::from)?;
+
+                    let args = script_context.to_script_args(PLUTUS_V3)?;
+
+                    let cost_model = protocol_parameters
                         .cost_models
                         .plutus_v3
                         .as_deref()
-                        .ok_or(PhaseTwoError::MissingCostModel(PlutusVersion::V3))?,
-                    amaru_uplc::machine::PlutusVersion::V3,
-                ),
+                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+
+                    (program, plutus_version, args, cost_model)
+                }
             };
-
-            let script_bytes = script.to_bytes().map_err(PhaseTwoError::ScriptDeserializationError)?;
-
-            let mut program = flat::decode::<DeBruijn>(
-                &arena,
-                &script_bytes,
-                plutus_version,
-                protocol_parameters.protocol_version.0 as u32,
-            )
-            .map_err(PhaseTwoError::from)?;
 
             // TODO: we should stop using Pallas' PlutusData
             // We are using Pallas' PlutusData in `amaru-plutus` and not the `PlutusData` from `uplc`
