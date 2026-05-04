@@ -19,12 +19,12 @@ use std::{
 };
 
 use amaru_kernel::{
-    HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, PlutusScriptExt, ProtocolVersion,
-    ProtocolVersionExt, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, script_purpose_to_string,
+    HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, ProtocolVersion, RedeemerKey, RequiredScript,
+    ScriptKind, ScriptPurpose, WitnessSet, decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
-use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, flat::FlatDecodeError, machine::PlutusVersion};
+use amaru_uplc::{arena::Arena, flat::FlatDecodeError, machine::PlutusVersion};
 use thiserror::Error;
 
 use crate::context::{UtxoSlice, WitnessSlice};
@@ -334,10 +334,7 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
 
 /// Attempts to flat decode the script bytes to validate they are well formed.
 /// Takes an arena to decode the script into, and then resets it.
-// FIXME:
-// Currently, all callsites here create new arenas.
-// The allocation arenas should never be created on the fly but created ahead of time and re-used.
-// Otherwise, we're removing nearly all benefits of Arenas.
+//
 // FIXME:
 // We decode the script bytes here and, if they're well-formed, again during phase 2 validation.
 // We should decode the script bytes once, and then pass them to phase 2 validation for execution.
@@ -347,18 +344,18 @@ pub(crate) fn validate_plutus_script<const V: usize>(
     protocol_version: ProtocolVersion,
     arena: &mut Arena,
 ) -> Result<(), FlatDecodeError> {
-    let flat_bytes = script.flat_bytes().map_err(|e| FlatDecodeError::Message(format!("{e}")))?;
-    let pv_major = protocol_version.major();
-    let result = match plutus_version {
-        PlutusVersion::V3 => flat::decode_strict::<DeBruijn>(arena, flat_bytes, plutus_version, pv_major).map(|_| ()),
-        PlutusVersion::V1 | PlutusVersion::V2 => {
-            flat::decode::<DeBruijn>(arena, flat_bytes, plutus_version, pv_major).map(|_| ())
-        }
-    };
-
     arena.reset();
 
-    result
+    let (_program, decoded_version) = decode_plutus_script(script, protocol_version, arena)?;
+
+    if plutus_version != decoded_version {
+        // TODO: Should not be a FlatDecodeError here, but something higher level.
+        return Err(FlatDecodeError::Message(format!(
+            "mismatch in Plutus version: declared={plutus_version:?}, found={decoded_version:?}"
+        )));
+    }
+
+    Ok(())
 }
 
 /// Validate every Plutus script in the witness set and return the witness set's scripts keyed
@@ -422,17 +419,9 @@ fn collect_plutus_witness_scripts<const V: usize>(
     malformed: &mut BTreeSet<Hash<SCRIPT>>,
 ) {
     let Some(scripts) = scripts else { return };
-    // TODO: ScriptKind should implement `From`, instead of having this inline here.
-    // This is not immediately easy, as ScriptKind is defined in the kernel, which does not depend on `uplc_turbo`.
-    let kind = match plutus_version {
-        PlutusVersion::V1 => ScriptKind::PlutusV1,
-        PlutusVersion::V2 => ScriptKind::PlutusV2,
-        PlutusVersion::V3 => ScriptKind::PlutusV3,
-    };
-
     for script in scripts {
         let hash = script.script_hash();
-        provided.insert(hash, kind);
+        provided.insert(hash, ScriptKind::from(plutus_version));
         if validate_plutus_script(script, plutus_version, protocol_version, arena).is_err() {
             malformed.insert(hash);
         }
