@@ -13,20 +13,64 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Hash, MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptPurpose, TransactionId,
-    TransactionPointer, size::SCRIPT,
+    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal,
+    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RequiredScript,
+    ScriptPurpose, TransactionId, TransactionPointer, size::SCRIPT,
 };
+use thiserror::Error;
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 
+#[derive(Debug, Error)]
+pub enum InvalidProposals {
+    #[error("incorrect proposal deposit: provided {provided}, expected {expected}")]
+    IncorrectDeposit { provided: Lovelace, expected: Lovelace },
+
+    #[error("proposal return address has wrong network: expected {expected:?}, actual {actual:?}")]
+    ReturnAddressWrongNetwork { expected: Network, actual: Network },
+
+    #[error("proposal return address is malformed")]
+    MalformedReturnAddress,
+
+    #[error("treasury withdrawals total is zero")]
+    ZeroTreasuryWithdrawals,
+
+    #[error("treasury withdrawal address has wrong network: expected {expected:?}, actual {actual:?}")]
+    TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
+
+    #[error("conflicting committee update: members appear in both add and remove sets")]
+    ConflictingCommitteeUpdate,
+
+    #[error("disallowed proposal during bootstrap phase")]
+    DisallowedDuringBootstrap,
+
+    #[error("hardfork version {new:?} cannot follow current version {current:?}")]
+    HardforkCantFollow { current: ProtocolVersion, new: ProtocolVersion },
+
+    #[error("malformed parameter change proposal: {reason}")]
+    MalformedProposal { reason: String },
+
+    #[error("committee member expiration epoch {expiry} is not greater than current epoch {current}")]
+    ExpirationEpochTooSmall { expiry: Epoch, current: Epoch },
+
+    #[error("era history error: {0}")]
+    EraHistory(#[from] amaru_kernel::EraHistoryError),
+}
+
 pub(crate) fn execute<C>(
     context: &mut C,
+    network: Network,
+    protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
     transaction: (TransactionId, TransactionPointer),
     proposals: Option<Vec<Proposal>>,
-) where
+) -> Result<(), InvalidProposals>
+where
     C: ProposalsSlice + WitnessSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
+        validate_proposal(&proposal, network, protocol_parameters, era_history, transaction.1)?;
+
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
                 hash: script_hash,
@@ -40,6 +84,167 @@ pub(crate) fn execute<C>(
         let id = ProposalId { transaction_id: transaction.0, action_index: proposal_index as u32 };
         context.acknowledge(id, pointer, proposal)
     }
+
+    Ok(())
+}
+
+fn validate_proposal(
+    proposal: &Proposal,
+    network: Network,
+    protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
+    pointer: TransactionPointer,
+) -> Result<(), InvalidProposals> {
+    if proposal.deposit != protocol_parameters.gov_action_deposit {
+        return Err(InvalidProposals::IncorrectDeposit {
+            provided: proposal.deposit,
+            expected: protocol_parameters.gov_action_deposit,
+        });
+    }
+
+    match Address::from_bytes(&proposal.reward_account[..]) {
+        Ok(Address::Stake(addr)) => {
+            let actual = addr.network();
+            if actual != network {
+                return Err(InvalidProposals::ReturnAddressWrongNetwork { expected: network, actual });
+            }
+        }
+        _ => return Err(InvalidProposals::MalformedReturnAddress),
+    }
+
+    let is_bootstrap = protocol_parameters.protocol_version.0 == 9;
+
+    match &proposal.gov_action {
+        GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
+            if is_bootstrap {
+                return Err(InvalidProposals::DisallowedDuringBootstrap);
+            }
+            for (account, _) in wdrls.iter() {
+                match Address::from_bytes(&account[..]) {
+                    Ok(Address::Stake(addr)) => {
+                        let actual = addr.network();
+                        if actual != network {
+                            return Err(InvalidProposals::TreasuryWithdrawalWrongNetwork { expected: network, actual });
+                        }
+                    }
+                    _ => return Err(InvalidProposals::MalformedReturnAddress),
+                }
+            }
+            if !wdrls.iter().any(|(_, coin)| *coin > 0) {
+                return Err(InvalidProposals::ZeroTreasuryWithdrawals);
+            }
+        }
+
+        GovernanceAction::UpdateCommittee(_, removed, added, _) => {
+            if is_bootstrap {
+                return Err(InvalidProposals::DisallowedDuringBootstrap);
+            }
+            let added_keys: std::collections::BTreeSet<_> = added.iter().map(|(k, _)| k).collect();
+            let removed_keys: std::collections::BTreeSet<_> = removed.iter().collect();
+            if !added_keys.is_disjoint(&removed_keys) {
+                return Err(InvalidProposals::ConflictingCommitteeUpdate);
+            }
+
+            // NOTE: conformance tests are brittle on this check due to era_history mismatch.
+            // (see certificates.rs PoolRetirement comment for details)
+            let current = era_history.slot_to_epoch(pointer.slot, pointer.slot)?;
+            for (_, expiry) in added.iter() {
+                if Epoch::from(*expiry) <= current {
+                    return Err(InvalidProposals::ExpirationEpochTooSmall { expiry: Epoch::from(*expiry), current });
+                }
+            }
+        }
+
+        GovernanceAction::NoConfidence(_) | GovernanceAction::NewConstitution(..) => {
+            if is_bootstrap {
+                return Err(InvalidProposals::DisallowedDuringBootstrap);
+            }
+        }
+
+        GovernanceAction::HardForkInitiation(_, new_version) => {
+            if !pv_can_follow(protocol_parameters.protocol_version, *new_version) {
+                return Err(InvalidProposals::HardforkCantFollow {
+                    current: protocol_parameters.protocol_version,
+                    new: *new_version,
+                });
+            }
+        }
+
+        GovernanceAction::ParameterChange(_, ppu, _) => {
+            ppu_well_formed(protocol_parameters.protocol_version, ppu)?;
+        }
+
+        GovernanceAction::Information => {}
+    }
+
+    Ok(())
+}
+
+fn pv_can_follow(current: ProtocolVersion, new: ProtocolVersion) -> bool {
+    let (cur_major, cur_minor) = current;
+    let (new_major, new_minor) = new;
+    (new_major == cur_major + 1 && new_minor == 0) || (new_major == cur_major && new_minor == cur_minor + 1)
+}
+
+fn ppu_well_formed(pv: ProtocolVersion, ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {
+    fn reject_zero(field: Option<u64>, field_name: &str) -> Result<(), InvalidProposals> {
+        if field == Some(0) {
+            return Err(InvalidProposals::MalformedProposal { reason: format!("{field_name} cannot be 0") });
+        }
+        Ok(())
+    }
+
+    reject_zero(ppu.max_block_body_size, "max_block_body_size")?;
+    reject_zero(ppu.max_transaction_size, "max_transaction_size")?;
+    reject_zero(ppu.max_block_header_size, "max_block_header_size")?;
+    reject_zero(ppu.max_value_size, "max_value_size")?;
+    reject_zero(ppu.collateral_percentage, "collateral_percentage")?;
+    reject_zero(ppu.committee_term_limit, "committee_term_limit")?;
+    reject_zero(ppu.governance_action_validity_period, "governance_action_validity_period")?;
+    reject_zero(ppu.pool_deposit, "pool_deposit")?;
+    reject_zero(ppu.governance_action_deposit, "governance_action_deposit")?;
+    reject_zero(ppu.drep_deposit, "drep_deposit")?;
+
+    if pv.0 != 9 {
+        reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
+    }
+
+    let is_empty = ppu.minfee_a.is_none()
+        && ppu.minfee_b.is_none()
+        && ppu.max_block_body_size.is_none()
+        && ppu.max_transaction_size.is_none()
+        && ppu.max_block_header_size.is_none()
+        && ppu.key_deposit.is_none()
+        && ppu.pool_deposit.is_none()
+        && ppu.maximum_epoch.is_none()
+        && ppu.desired_number_of_stake_pools.is_none()
+        && ppu.pool_pledge_influence.is_none()
+        && ppu.expansion_rate.is_none()
+        && ppu.treasury_growth_rate.is_none()
+        && ppu.min_pool_cost.is_none()
+        && ppu.ada_per_utxo_byte.is_none()
+        && ppu.cost_models_for_script_languages.is_none()
+        && ppu.execution_costs.is_none()
+        && ppu.max_tx_ex_units.is_none()
+        && ppu.max_block_ex_units.is_none()
+        && ppu.max_value_size.is_none()
+        && ppu.collateral_percentage.is_none()
+        && ppu.max_collateral_inputs.is_none()
+        && ppu.pool_voting_thresholds.is_none()
+        && ppu.drep_voting_thresholds.is_none()
+        && ppu.min_committee_size.is_none()
+        && ppu.committee_term_limit.is_none()
+        && ppu.governance_action_validity_period.is_none()
+        && ppu.governance_action_deposit.is_none()
+        && ppu.drep_deposit.is_none()
+        && ppu.drep_inactivity_period.is_none()
+        && ppu.minfee_refscript_cost_per_byte.is_none();
+
+    if is_empty {
+        return Err(InvalidProposals::MalformedProposal { reason: "parameter update cannot be empty".into() });
+    }
+
+    Ok(())
 }
 
 fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
@@ -62,7 +267,9 @@ fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
 mod tests {
     use std::mem;
 
-    use amaru_kernel::{Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json};
+    use amaru_kernel::{
+        EraHistory, NetworkName, Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json,
+    };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -101,7 +308,17 @@ mod tests {
         ),
     ) {
         assert_trace(
-            || super::execute(&mut ctx, (tx.id(), tx_pointer), mem::take(&mut tx.proposals).map(|xs| xs.to_vec())),
+            || {
+                super::execute(
+                    &mut ctx,
+                    amaru_kernel::Network::Testnet,
+                    &amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+                    <&EraHistory>::from(NetworkName::Preprod),
+                    (tx.id(), tx_pointer),
+                    mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
+                )
+                .expect("validation should not fail for this fixture")
+            },
             expected_traces,
         )
     }

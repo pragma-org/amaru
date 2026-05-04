@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Certificate, CertificatePointer, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, Hash, MemoizedDatum,
-    NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, ProtocolParameters, RequiredScript, ScriptPurpose,
-    StakeCredential, TransactionPointer, size::SCRIPT,
+    Certificate, CertificatePointer, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, Hash, Lovelace,
+    MemoizedDatum, Network, NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, ProtocolParameters, RequiredScript,
+    ScriptPurpose, StakeCredential, TransactionPointer, parse_reward_account, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -52,10 +52,29 @@ pub enum InvalidCertificates {
 
     #[error("impossible slot arithmetic: {0}")]
     ImpossibleSlotArithmetic(#[from] EraHistoryError),
+
+    #[error("pool reward account has wrong network: expected {expected:?}, actual {actual:?}")]
+    PoolWrongNetwork { expected: Network, actual: Network },
+
+    #[error("pool reward account is malformed")]
+    PoolMalformedRewardAccount,
+
+    #[error("pool cost too low: provided {provided}, minimum {minimum}")]
+    PoolCostTooLow { provided: Lovelace, minimum: Lovelace },
+
+    #[error("pool retirement epoch out of range: epoch {epoch}, must satisfy {current_epoch} < epoch <= {max_epoch}")]
+    PoolRetirementWrongEpoch { epoch: Epoch, current_epoch: Epoch, max_epoch: Epoch },
+
+    #[error("incorrect stake registration deposit: provided {provided}, expected {expected}")]
+    IncorrectStakeDeposit { provided: Lovelace, expected: Lovelace },
+
+    #[error("incorrect drep registration deposit: provided {provided}, expected {expected}")]
+    IncorrectDRepDeposit { provided: Lovelace, expected: Lovelace },
 }
 
 pub(crate) fn execute<C>(
     context: &mut C,
+    network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
@@ -69,6 +88,7 @@ where
         |(certificate_index, certificate)| {
             execute_one(
                 context,
+                network,
                 protocol_parameters,
                 era_history,
                 governance_activity,
@@ -82,6 +102,7 @@ where
 // FIXME: Perform all necessary rules validations down here.
 fn execute_one<C>(
     context: &mut C,
+    network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
@@ -121,6 +142,23 @@ where
             for owner in owners.iter() {
                 context.require_vkey_witness(*owner);
             }
+
+            let reward_account_network =
+                parse_reward_account(&reward_account).ok_or(InvalidCertificates::PoolMalformedRewardAccount)?.1;
+            if reward_account_network != network {
+                return Err(InvalidCertificates::PoolWrongNetwork {
+                    expected: network,
+                    actual: reward_account_network,
+                });
+            }
+
+            if cost < protocol_parameters.min_pool_cost {
+                return Err(InvalidCertificates::PoolCostTooLow {
+                    provided: cost,
+                    minimum: protocol_parameters.min_pool_cost,
+                });
+            }
+
             let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
             PoolsSlice::register(context, params, pointer);
             Ok(())
@@ -128,6 +166,22 @@ where
 
         Certificate::PoolRetirement(id, epoch) => {
             context.require_vkey_witness(id);
+
+            // NOTE: Some conformance tests fail this check because the Haskell imp tests run on
+            // a synthetic test chain whose epoch/slot mapping differs from our era_history. Our
+            // slot_to_epoch computes a different current epoch, making the range check reject
+            // transactions that the Haskell node accepts.
+            let current_epoch = era_history.slot_to_epoch_unchecked_horizon(pointer.slot())?;
+            let retirement_epoch = Epoch::from(epoch);
+            let max_epoch = current_epoch + protocol_parameters.stake_pool_max_retirement_epoch;
+            if retirement_epoch <= current_epoch || retirement_epoch > max_epoch {
+                return Err(InvalidCertificates::PoolRetirementWrongEpoch {
+                    epoch: retirement_epoch,
+                    current_epoch,
+                    max_epoch,
+                });
+            }
+
             PoolsSlice::retire(context, id, Epoch::from(epoch));
             Ok(())
         }
@@ -152,6 +206,11 @@ where
                     StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                     StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 };
+            }
+
+            let expected = protocol_parameters.stake_credential_deposit;
+            if deposit != expected {
+                return Err(InvalidCertificates::IncorrectStakeDeposit { provided: deposit, expected });
             }
 
             AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None })?;
@@ -182,10 +241,15 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
+            let expected = protocol_parameters.drep_deposit;
+            if deposit != expected {
+                return Err(InvalidCertificates::IncorrectDRepDeposit { provided: deposit, expected });
+            }
+
             let valid_until = if protocol_parameters.protocol_version <= PROTOCOL_VERSION_9 {
-                era_history.slot_to_epoch(pointer.slot(), pointer.slot())? + protocol_parameters.drep_expiry
+                era_history.slot_to_epoch_unchecked_horizon(pointer.slot())? + protocol_parameters.drep_expiry
             } else {
-                era_history.slot_to_epoch(pointer.slot(), pointer.slot())? + protocol_parameters.drep_expiry
+                era_history.slot_to_epoch_unchecked_horizon(pointer.slot())? + protocol_parameters.drep_expiry
                     - governance_activity.consecutive_dormant_epochs as u64
             };
 
@@ -245,32 +309,32 @@ where
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, reg)?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, reg)?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, reg)?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(context, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
         }
     }
 }

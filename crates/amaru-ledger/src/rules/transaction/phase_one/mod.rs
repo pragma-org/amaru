@@ -15,8 +15,8 @@
 use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer,
-    WitnessSet,
+    AuxiliaryData, EraHistory, Network, NetworkId, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
+    TransactionPointer, WitnessSet,
 };
 use thiserror::Error;
 
@@ -84,14 +84,23 @@ pub enum PhaseOneError {
     #[error("invalid collateral: {0}")]
     Collateral(#[from] InvalidCollateral),
 
+    #[error("invalid proposals: {0}")]
+    Proposals(#[from] proposals::InvalidProposals),
+
     #[error("invalid transaction metadata: {0}")]
     Metadata(#[from] InvalidTransactionMetadata),
+
+    #[error("invalid network ID in transaction body: expected {expected:?} provided {provided:?}")]
+    InvalidNetworkID { expected: Network, provided: Network },
+
+    #[error("transaction too large: provided {provided} bytes, maximum {maximum} bytes")]
+    TooLarge { provided: u64, maximum: u64 },
 }
 
 #[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
-    network: &NetworkName,
+    network_name: &NetworkName,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
@@ -100,16 +109,24 @@ pub fn execute<C>(
     mut transaction_body: TransactionBody,
     transaction_witness_set: &WitnessSet,
     transaction_auxiliary_data: Option<&AuxiliaryData>,
+    tx_size: u64,
 ) -> Result<Vec<TransactionInput>, PhaseOneError>
 where
     C: ValidationContext + fmt::Debug,
 {
     let transaction_id = transaction_body.id();
 
+    let network: Network = (*network_name).into();
+
+    fail_on_network_mismatch(transaction_body.network_id, network)?;
+
+    fail_on_tx_size_too_large(tx_size, protocol_parameters)?;
+
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
     certificates::execute(
         context,
+        network,
         protocol_parameters,
         era_history,
         governance_activity,
@@ -143,7 +160,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        &(*network).into(),
+        network,
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
         SupplementalDatumPolicy::Disallow,
         |_index| {
@@ -164,7 +181,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        &(*network).into(),
+        network,
         mem::take(&mut transaction_body.outputs),
         SupplementalDatumPolicy::Allow,
         |index| {
@@ -176,13 +193,16 @@ where
         },
     )?;
 
-    withdrawals::execute(context, mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()))?;
+    withdrawals::execute(context, mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()), network)?;
 
     proposals::execute(
         context,
+        network,
+        protocol_parameters,
+        era_history,
         (transaction_id, pointer),
         mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-    );
+    )?;
 
     voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
 
@@ -193,7 +213,7 @@ where
         transaction_witness_set.vkeywitness.as_deref(),
     )?;
 
-    scripts::execute(context, transaction_witness_set, protocol_parameters.protocol_version)?;
+    scripts::execute(context, transaction_witness_set, protocol_parameters)?;
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {
@@ -203,4 +223,23 @@ where
     };
 
     Ok(consumed_inputs)
+}
+
+fn fail_on_tx_size_too_large(provided: u64, protocol_parameters: &ProtocolParameters) -> Result<(), PhaseOneError> {
+    let maximum = protocol_parameters.max_transaction_size;
+    if provided > maximum {
+        return Err(PhaseOneError::TooLarge { provided, maximum });
+    }
+    Ok(())
+}
+
+fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Result<(), PhaseOneError> {
+    if let Some(network_id) = provided {
+        let provided: Network = u8::from(network_id).into();
+        if network != provided {
+            return Err(PhaseOneError::InvalidNetworkID { expected: network, provided });
+        }
+    }
+
+    Ok(())
 }

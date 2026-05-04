@@ -22,7 +22,7 @@ impl HasExUnits for Block {
     fn ex_units(&self) -> impl Iterator<Item = &ExUnits> {
         self.transaction_witnesses
             .iter()
-            .filter_map(|witness_set| witness_set.redeemer.as_ref())
+            .filter_map(|witness_set| witness_set.as_ref().redeemer.as_ref())
             .flat_map(|redeemers| redeemers.iter_unique().map(|(_, ex_units, _)| ex_units))
     }
 }

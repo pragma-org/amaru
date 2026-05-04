@@ -18,6 +18,9 @@ use crate::{Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_H
 #[cbor(map)]
 pub struct AuxiliaryData {
     #[cbor(skip)]
+    original_size: u64,
+
+    #[cbor(skip)]
     hash: Hash<{ AuxiliaryData::HASH_SIZE }>,
 
     #[n(0)]
@@ -45,6 +48,12 @@ impl AuxiliaryData {
         self.hash
     }
 
+    #[allow(clippy::len_without_is_empty)]
+    /// Original size of the serialised bytes
+    pub fn len(&self) -> u64 {
+        self.original_size
+    }
+
     /// Obtain the transaction metadata key-value pairs.
     pub fn metadata(&self) -> &KeyValuePairs<u64, Metadatum> {
         &self.metadata
@@ -70,6 +79,7 @@ impl Default for AuxiliaryData {
     fn default() -> Self {
         Self {
             hash: NULL_HASH32,
+            original_size: 0,
             metadata: KeyValuePairs::default(),
             native_scripts: Vec::default(),
             plutus_v1_scripts: Vec::default(),
@@ -127,7 +137,11 @@ impl<'b, C> cbor::Decode<'b, C> for AuxiliaryData {
 
         let end_position = d.position();
 
-        Ok(Self { hash: Hasher::<256>::hash(&original_bytes[start_position..end_position]), ..aux_data })
+        Ok(Self {
+            hash: Hasher::<256>::hash(&original_bytes[start_position..end_position]),
+            original_size: (end_position - start_position) as u64,
+            ..aux_data
+        })
     }
 }
 

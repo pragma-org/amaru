@@ -120,7 +120,7 @@ pub use cardano::{
     script_kind::ScriptKind,
     script_purpose::{ScriptPurpose, script_purpose_to_string},
     slot::{Slot, SlotArithmeticError},
-    stake_credential::{BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account},
+    stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
     tip::Tip,
     transaction::Transaction,
@@ -178,7 +178,7 @@ pub use cardano::{
 
 pub mod cbor {
     pub use amaru_minicbor_extra::{
-        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, collect_array_item_bytes,
+        TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
         collect_map_value_bytes, decode_break, expect_tag, from_cbor, from_cbor_no_leftovers,
         from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee, to_cbor,
         unexpected_field,

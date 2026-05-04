@@ -68,10 +68,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::{
-            self,
-            block::{BlockValidation, InvalidBlockDetails},
-        },
+        rules::block::{BlockValidation, InvalidBlockDetails},
         store::GovernanceActivity,
         tests::{fake_input, fake_output},
     };
@@ -104,11 +101,14 @@ pub(crate) mod tests {
 
         prepare_block(&mut ctx, &block);
 
-        let results = rules::block::execute(
+        let protocol_parameters =
+            ProtocolParameters { gov_action_deposit: 50_000_000_000, ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone() };
+
+        let results = block::execute(
             &mut AssertValidationContext::from(ctx),
             &ARENA_POOL,
             &NetworkName::Preprod,
-            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+            &protocol_parameters,
             <&EraHistory>::from(NetworkName::Preprod),
             &GovernanceActivity { consecutive_dormant_epochs: 0 },
             block,

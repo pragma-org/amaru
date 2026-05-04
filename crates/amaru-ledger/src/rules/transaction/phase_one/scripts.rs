@@ -19,9 +19,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, ProtocolVersion, RedeemerKey, RequiredScript,
-    ScriptKind, ScriptPurpose, WitnessSet, decode_plutus_script, script_purpose_to_string,
+    ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, ProtocolParameters, ProtocolVersion,
+    RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
+    sum_ex_units,
     utils::string::display_collection,
 };
 use amaru_uplc::{arena::Arena, flat::FlatDecodeError, machine::PlutusVersion};
@@ -70,25 +71,32 @@ pub enum InvalidScripts {
         )).collect::<Vec<_>>().join(", ")
     )]
     MissingRedeemers(Vec<RedeemerKey>),
+
     #[error("malformed script witnesses: [{}]", display_collection(.0))]
     MalformedScriptWitnesses(BTreeSet<Hash<SCRIPT>>),
+
+    #[error("transaction execution units exceeded: provided {provided:?}, max {max:?}")]
+    TooManyExUnits { provided: ExUnits, max: ExUnits },
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(
     context: &mut C,
     witness_set: &WitnessSet,
-    protocol_version: ProtocolVersion,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
+    fail_on_too_many_ex_units(witness_set, protocol_parameters)?;
+
     let required_scripts = context.required_scripts();
 
     let required_script_hashes: BTreeSet<&Hash<SCRIPT>> =
         required_scripts.iter().map(|RequiredScript { hash, .. }| hash).collect();
 
-    let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set, protocol_version)?;
+    let provided_scripts =
+        collect_provided_scripts(context, &required_script_hashes, witness_set, protocol_parameters.protocol_version)?;
 
     let required_scripts = fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
 
@@ -118,6 +126,26 @@ where
 
     if !extra_redeemers.is_empty() {
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
+    }
+
+    // FIXME: evaluate scripts (phase-2)
+
+    Ok(())
+}
+
+fn fail_on_too_many_ex_units(
+    witness_set: &WitnessSet,
+    protocol_parameters: &ProtocolParameters,
+) -> Result<(), InvalidScripts> {
+    let max = protocol_parameters.max_tx_ex_units;
+    let provided = witness_set
+        .redeemer
+        .as_ref()
+        .map(|r| r.redeemers().values().map(|(ex_units, _)| *ex_units).fold(ExUnits { mem: 0, steps: 0 }, sum_ex_units))
+        .unwrap_or(ExUnits { mem: 0, steps: 0 });
+
+    if provided.mem > max.mem || provided.steps > max.steps {
+        return Err(InvalidScripts::TooManyExUnits { provided, max });
     }
 
     Ok(())
@@ -430,7 +458,10 @@ fn collect_plutus_witness_scripts<const V: usize>(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolVersion, WitnessSet, include_cbor};
+    use amaru_kernel::{
+        ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion, WitnessSet,
+        include_cbor,
+    };
     use test_case::test_case;
 
     use super::{InvalidScripts, PlutusVersion};
@@ -442,13 +473,21 @@ mod tests {
 
     macro_rules! fixture {
         ($hash:literal) => {
-            (fixture_context!($hash), include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")))
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
         };
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
+        };
+        ($hash:literal, $pp:expr) => {
+            (fixture_context!($hash), include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")), $pp)
         };
     }
     #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
@@ -488,8 +527,17 @@ mod tests {
         "extraneous redeemer"
     )]
     #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
-    fn test_scripts((mut ctx, witness_set): (AssertValidationContext, WitnessSet)) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, preprod_pv())
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", ProtocolParameters {
+        max_tx_ex_units: ExUnits { mem: 1, steps: 1 },
+        ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
+        }) =>
+        matches Err(InvalidScripts::TooManyExUnits{..});
+        "too many ex units"
+    )]
+    fn test_scripts(
+        (mut ctx, witness_set, protocol_parameters): (AssertValidationContext, WitnessSet, ProtocolParameters),
+    ) -> Result<(), InvalidScripts> {
+        super::execute(&mut ctx, &witness_set, &protocol_parameters)
     }
 
     #[test]
