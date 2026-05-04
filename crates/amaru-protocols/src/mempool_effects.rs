@@ -419,7 +419,6 @@ impl ExternalEffectAPI for State {
     type Response = MempoolState;
 }
 
-
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{Transaction, TransactionBody, WitnessSet};

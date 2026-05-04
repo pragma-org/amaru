@@ -117,7 +117,8 @@ pub(super) async fn record_revalidation(
         duration_micros = outcome.duration_micros
     );
 
-    emit_metrics(mempool_state, metrics, MempoolMetricEvent::Revalidated).await;
+    emit_metrics(mempool_state, metrics, MempoolMetricEvent::Revalidated { duration_micros: outcome.duration_micros })
+        .await;
 }
 
 pub(super) struct RevalidationOutcome {

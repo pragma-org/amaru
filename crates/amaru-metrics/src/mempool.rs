@@ -75,12 +75,12 @@ impl TxEvictedReason {
 ///
 ///  - TxInsertion is emitted for each insertion attempt.
 ///  - TxEvicted is emitted when transactions are removed from the mempool after a revalidation.
-///  - Revalidated marks a revalidation of the mempool when there's a new tip.
+///  - Revalidated marks a revalidation of the mempool when there's a new tip and records its duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMetricEvent {
     TxInsertion { origin: TxInsertionOrigin, result: TxInsertionResult },
     TxEvicted { reason: TxEvictedReason, count: u64 },
-    Revalidated,
+    Revalidated { duration_micros: u64 },
 }
 
 // METRICS
@@ -106,42 +106,60 @@ impl MetricRecorder for MempoolMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static SIZE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static TX_COUNT: OnceLock<Gauge<u64>> = OnceLock::new();
+        static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
+        static TXS_SYNC_DURATION: OnceLock<Gauge<u64>> = OnceLock::new();
+        static TXS_SYNC_DURATION_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
         static TX_INSERTIONS: OnceLock<Counter<u64>> = OnceLock::new();
-        static TX_EVICTED: OnceLock<Counter<u64>> = OnceLock::new();
-        static REVALIDATIONS: OnceLock<Counter<u64>> = OnceLock::new();
+
+        // Metrics common to amaru and cardano-node
 
         let size_bytes = SIZE_BYTES.get_or_init(|| {
             meter
-                .u64_gauge("cardano_node_mempool_size_bytes")
+                .u64_gauge("cardano_node_metrics_mempoolBytes_int")
                 .with_description("current cumulative CBOR size of transactions held in the mempool")
-                .with_unit("bytes")
+                .with_unit("int")
                 .build()
         });
+
         let tx_count = TX_COUNT.get_or_init(|| {
             meter
-                .u64_gauge("cardano_node_mempool_tx_count")
+                .u64_gauge("cardano_node_metrics_txsInMempool_int")
                 .with_description("current number of transactions held in the mempool")
                 .with_unit("int")
                 .build()
         });
+
+        let txs_processed = TXS_PROCESSED.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_txsProcessedNum_int")
+                .with_description("total transactions moved out of the mempool after revalidation")
+                .with_unit("int")
+                .build()
+        });
+
+        let txs_sync_duration = TXS_SYNC_DURATION.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_txsSyncDuration_int")
+                .with_description("latest time to sync the mempool in ms after block adoption")
+                .with_unit("int")
+                .build()
+        });
+
+        // cumulative mempool sync duration.
+        let txs_sync_duration_total = TXS_SYNC_DURATION_TOTAL.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_txsSyncDurationTotal_int")
+                .with_description("cumulative time spent syncing the mempool in ms after block adoption")
+                .with_unit("int")
+                .build()
+        });
+
+        // Amaru-specific metrics
+
         let tx_insertions = TX_INSERTIONS.get_or_init(|| {
             meter
-                .u64_counter("cardano_node_mempool_tx_insertions_total")
+                .u64_counter("cardano_node_metrics_mempoolTxInsertionsNum_int")
                 .with_description("transaction insertion attempts, labelled by origin and result")
-                .with_unit("int")
-                .build()
-        });
-        let tx_evicted = TX_EVICTED.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_mempool_tx_evicted_total")
-                .with_description("transactions removed from the mempool, labelled by reason")
-                .with_unit("int")
-                .build()
-        });
-        let revalidations = REVALIDATIONS.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_mempool_revalidations_total")
-                .with_description("revalidation passes triggered by tip changes")
                 .with_unit("int")
                 .build()
         });
@@ -151,16 +169,19 @@ impl MetricRecorder for MempoolMetrics {
 
         match self.event {
             MempoolMetricEvent::TxInsertion { origin, result } => {
-                tx_insertions
-                    .add(1, &[KeyValue::new("origin", origin.as_label()), KeyValue::new("result", result.as_label())]);
+                let attributes =
+                    &[KeyValue::new("origin", origin.as_label()), KeyValue::new("result", result.as_label())];
+                tx_insertions.add(1, attributes);
             }
-            MempoolMetricEvent::TxEvicted { reason, count } => {
+            MempoolMetricEvent::TxEvicted { reason: _, count } => {
                 if count > 0 {
-                    tx_evicted.add(count, &[KeyValue::new("reason", reason.as_label())]);
+                    txs_processed.add(count, &[]);
                 }
             }
-            MempoolMetricEvent::Revalidated => {
-                revalidations.add(1, &[]);
+            MempoolMetricEvent::Revalidated { duration_micros } => {
+                let duration_ms = (duration_micros + 500) / 1_000;
+                txs_sync_duration.record(duration_ms, &[]);
+                txs_sync_duration_total.add(duration_ms, &[]);
             }
         }
     }
