@@ -15,8 +15,8 @@
 use std::{collections::BTreeMap, fmt};
 
 use amaru_kernel::{
-    EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
-    TransactionPointer, WitnessSet, cbor, decode_plutus_script, to_cbor, transaction_input_to_string,
+    EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
+    cbor, decode_plutus_script, to_cbor, transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
@@ -263,6 +263,7 @@ mod tests {
 
     use amaru_kernel::{
         EraHistory, MemoizedTransactionOutput, NetworkName, ProtocolParameters, Transaction, TransactionPointer,
+        include_cbor,
     };
     use amaru_plutus::arena_pool::ArenaPool;
     use anyhow::{Context, Result};
