@@ -89,7 +89,7 @@ pub struct Manager {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ConnectionState {
     Scheduled,
-    Connected(ConnectionId, StageRef<ConnectionMessage>),
+    Connected(ConnectionId, Role, StageRef<ConnectionMessage>),
     // Does not contain the connection ID because that will be received in the ConnectionDied message.
     Disconnecting,
 }
@@ -245,7 +245,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     return manager;
                 };
                 match entry {
-                    ConnectionState::Connected(_conn_id, connection) => {
+                    ConnectionState::Connected(_conn_id, _, connection) => {
                         eff.send(connection, ConnectionMessage::Disconnect).await;
                         *entry = ConnectionState::Disconnecting;
                     }
@@ -288,11 +288,18 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::FetchBlocks { peer, from, through, cr } => {
                 tracing::trace!(?from, ?through, %peer, "fetching blocks");
-                if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
-                    eff.send(connection, ConnectionMessage::FetchBlocks { from, through, cr }).await;
-                } else {
-                    tracing::error!(%peer, "peer not found");
-                    eff.send(&cr, Blocks::default()).await;
+                match manager.peers.get(&peer) {
+                    Some(ConnectionState::Connected(_, Role::Initiator, connection)) => {
+                        eff.send(connection, ConnectionMessage::FetchBlocks { from, through, cr }).await;
+                    }
+                    Some(ConnectionState::Connected(_, Role::Responder, _)) => {
+                        tracing::warn!(%peer, "cannot fetch blocks over local responder connection");
+                        eff.send(&cr, Blocks::default()).await;
+                    }
+                    _ => {
+                        tracing::error!(%peer, "peer not found");
+                        eff.send(&cr, Blocks::default()).await;
+                    }
                 }
             }
             ManagerMessage::Listen(listen_addr) => {
@@ -315,26 +322,27 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::NewTip(tip) => {
                 for conn in manager.peers.values() {
-                    if let ConnectionState::Connected(_, connection) = conn {
+                    if let ConnectionState::Connected(_, _, connection) = conn {
                         eff.send(connection, ConnectionMessage::NewTip(tip)).await;
                     }
                 }
             }
             ManagerMessage::FetchBlocks2 { from, through, cr, id } => {
-            if manager.peers.is_empty() {
-                tracing::warn!("no peers to fetch blocks");
-                eff.send(&cr, Blocks2::NoBlocks(id)).await;
-                return manager;
-            }
-            tracing::debug!(?from, ?through, "fetching blocks");
-            for state in manager.peers.values() {
-                let ConnectionState::Connected(_conn_id, connection) = state else {
-                    continue;
-                };
-                eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+                tracing::debug!(?from, ?through, "fetching blocks");
+                let mut sent = false;
+                for state in manager.peers.values() {
+                    let ConnectionState::Connected(_conn_id, Role::Initiator, connection) = state else {
+                        continue;
+                    };
+                    sent = true;
+                    eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+                }
+                if !sent {
+                    tracing::warn!("no local blockfetch initiator connections to fetch blocks");
+                    eff.send(&cr, Blocks2::NoBlocks(id)).await;
+                }
             }
         }
-    }
         manager
     }
     .instrument(trace_span!(
@@ -377,9 +385,87 @@ async fn start_connection_stage(
         )
         .await;
     eff.send(&connection, ConnectionMessage::Initialize).await;
-    manager.peers.insert(peer, ConnectionState::Connected(conn_id, connection));
+    manager.peers.insert(peer, ConnectionState::Connected(conn_id, role, connection));
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![register_data_deserializer::<Manager>().boxed(), register_data_deserializer::<ManagerMessage>().boxed()]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use amaru_kernel::{NetworkName, Point};
+    use amaru_ouroboros::ConnectionId;
+    use pure_stage::{Effect, StageGraph, StageRef, simulation::SimulationBuilder};
+
+    use super::*;
+
+    #[test]
+    fn fetch_blocks2_only_sends_to_local_initiator_connections() {
+        let mut network = SimulationBuilder::default();
+        let manager_stage = network.stage("manager", stage);
+        let (initiator, _initiator_rx) = network.output::<ConnectionMessage>("initiator", 10);
+        let (responder, _responder_rx) = network.output::<ConnectionMessage>("responder", 10);
+        let (blocks, _blocks_rx) = network.output::<Blocks2>("blocks", 10);
+        let manager = test_manager([
+            ("responder-peer", Role::Responder, responder),
+            ("initiator-peer", Role::Initiator, initiator.clone()),
+        ]);
+        let manager_stage = network.wire_up(manager_stage, manager);
+        let msg =
+            ManagerMessage::FetchBlocks2 { from: Point::Origin, through: Point::Origin, cr: blocks.clone(), id: 14 };
+        network.preload(&manager_stage, [msg]).unwrap();
+
+        let mut running = network.run();
+        running.breakpoint("send", |eff| matches!(eff, Effect::Send { .. }));
+
+        let effect = running.run_until_blocked().assert_breakpoint("send");
+        effect.assert_send(
+            &manager_stage,
+            &initiator,
+            ConnectionMessage::FetchBlocks2 { from: Point::Origin, through: Point::Origin, cr: blocks, id: 14 },
+        );
+        running.handle_effect(effect);
+        running.run_until_blocked().assert_busy([&initiator]);
+    }
+
+    #[test]
+    fn fetch_blocks2_returns_no_blocks_without_local_initiator_connections() {
+        let mut network = SimulationBuilder::default();
+        let manager_stage = network.stage("manager", stage);
+        let (responder, _responder_rx) = network.output::<ConnectionMessage>("responder", 10);
+        let (blocks, _blocks_rx) = network.output::<Blocks2>("blocks", 10);
+        let manager = test_manager([("responder-peer", Role::Responder, responder)]);
+        let manager_stage = network.wire_up(manager_stage, manager);
+        let msg =
+            ManagerMessage::FetchBlocks2 { from: Point::Origin, through: Point::Origin, cr: blocks.clone(), id: 14 };
+        network.preload(&manager_stage, [msg]).unwrap();
+
+        let mut running = network.run();
+        running.breakpoint("send", |eff| matches!(eff, Effect::Send { .. }));
+
+        let effect = running.run_until_blocked().assert_breakpoint("send");
+        effect.assert_send(&manager_stage, &blocks, Blocks2::NoBlocks(14));
+        running.handle_effect(effect);
+        running.run_until_blocked().assert_busy([&blocks]);
+    }
+
+    fn test_manager<const N: usize>(peers: [(&str, Role, StageRef<ConnectionMessage>); N]) -> Manager {
+        let era_history: &EraHistory = NetworkName::Preprod.into();
+        let mut manager = Manager::new(
+            NetworkMagic::PREPROD,
+            ManagerConfig::default(),
+            Arc::new(era_history.clone()),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+        );
+        for (peer, role, connection) in peers {
+            manager
+                .peers
+                .insert(Peer::new(peer), ConnectionState::Connected(ConnectionId::initial(), role, connection));
+        }
+        manager
+    }
 }
