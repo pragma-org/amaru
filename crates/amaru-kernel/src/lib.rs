@@ -72,7 +72,7 @@ pub use cardano::{
     header_body::HeaderBody,
     int::Int,
     language::Language,
-    language_view::{LanguageView, compute_script_integrity_hash},
+    language_view::LanguageView,
     lovelace::Lovelace,
     memoized::{
         MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
@@ -118,6 +118,7 @@ pub use cardano::{
     reward::Reward,
     reward_account::{RewardAccount, expect_stake_credential, new_stake_address, reward_account_to_stake_credential},
     reward_kind::RewardKind,
+    script_integrity_data::{ScriptIntegrityData, compute_script_integrity_hash},
     script_kind::{ScriptKind, ScriptKindError},
     script_purpose::{ScriptPurpose, script_purpose_to_string},
     slot::{Slot, SlotArithmeticError},

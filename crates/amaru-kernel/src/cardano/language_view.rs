@@ -14,7 +14,7 @@
 
 use std::cmp::Ordering;
 
-use crate::{CostModels, Hash, Hasher, Language, ProtocolParameters, WitnessSet, cbor, cbor::Encode};
+use crate::{CostModels, Language, cbor};
 
 /// A language-dependent view of protocol parameters used when computing the script integrity hash
 /// (`script_data_hash` field on the transaction body).
@@ -22,6 +22,28 @@ use crate::{CostModels, Hash, Hasher, Language, ProtocolParameters, WitnessSet, 
 /// Each Plutus language version used by a transaction contributes one `LanguageView`, which pairs
 /// the language with its cost model parameters from the protocol parameters. These views are
 /// CBOR-encoded and included in the script integrity hash.
+///
+/// The encoding has important version-specific quirks preserved for backward compatibility:
+///
+/// **PlutusV1 (language id 0):**
+/// - The cost model parameters are encoded as an **indefinite-length** CBOR list, then wrapped
+///   in a CBOR bytestring. This was a bug in the original implementation that is now part of the
+///   specification.
+/// - The language id tag is **double-encoded**: first as a CBOR uint (0x00), then that encoding
+///   is wrapped in a CBOR bytestring, producing `0x41 0x00`.
+///
+/// **PlutusV2 (language id 1) and PlutusV3 (language id 2):**
+/// - The cost model parameters are encoded as a **definite-length** CBOR list.
+/// - The language id tag is encoded normally as a single CBOR uint.
+///
+/// The language views map must be encoded canonically per RFC 7049 section 3.9:
+/// - Definite-length encoding for maps, strings, and bytestrings
+/// - Minimal integer encoding
+/// - Keys sorted by length first (shorter before longer), then lexicographically
+///
+/// This means PlutusV2 (tag `0x01`, 1 byte) sorts before PlutusV1 (tag `0x41 0x00`, 2 bytes).
+///
+/// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/conway/impl/cddl/data/conway.cddl#L509>
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LanguageView {
     pub language: Language,
@@ -124,122 +146,11 @@ impl<C> cbor::Encode<C> for LanguageView {
     }
 }
 
-/// Computes the script integrity hash from the witness set, protocol parameters, and the set of
-/// Plutus languages used by the transaction. Returns `None` when there are no redeemers, datums,
-/// or language views (matching Haskell's `SNothing` case).
-///
-/// The script integrity hash includes a canonical CBOR map of `{language_id => cost_model_params }`.
-/// The encoding of this map has important version-specific quirks preserved for backward
-/// compatibility:
-///
-/// **PlutusV1 (language id 0):**
-/// - The cost model parameters are encoded as an **indefinite-length** CBOR list, then wrapped
-///   in a CBOR bytestring. This was a bug in the original implementation that is now part of the
-///   specification.
-/// - The language id tag is **double-encoded**: first as a CBOR uint (0x00), then that encoding
-///   is wrapped in a CBOR bytestring, producing `0x41 0x00`.
-///
-/// **PlutusV2 (language id 1) and PlutusV3 (language id 2):**
-/// - The cost model parameters are encoded as a **definite-length** CBOR list.
-/// - The language id tag is encoded normally as a single CBOR uint.
-///
-/// The language views map must be encoded canonically per RFC 7049 section 3.9:
-/// - Definite-length encoding for maps, strings, and bytestrings
-/// - Minimal integer encoding
-/// - Keys sorted by length first (shorter before longer), then lexicographically
-///
-/// This means PlutusV2 (tag `0x01`, 1 byte) sorts before PlutusV1 (tag `0x41 0x00`, 2 bytes).
-///
-/// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/conway/impl/cddl/data/conway.cddl#L509>
-pub fn compute_script_integrity_hash(
-    witness_set: &WitnessSet,
-    protocol_parameters: &ProtocolParameters,
-    languages: &[Language],
-) -> Option<Hash<32>> {
-    let has_redeemers = witness_set.redeemer.is_some();
-    let has_datums = witness_set.plutus_data.is_some();
-    let has_languages = !languages.is_empty();
-
-    if !has_redeemers && !has_datums && !has_languages {
-        return None;
-    }
-
-    let mut buf = Vec::new();
-
-    if let Some(ref redeemers) = witness_set.redeemer {
-        buf.extend_from_slice(redeemers.original_bytes());
-    } else {
-        buf.push(0xa0);
-    }
-
-    if let Some(ref datums) = witness_set.plutus_data {
-        buf.extend_from_slice(datums.original_bytes());
-    }
-
-    let mut views: Vec<LanguageView> = languages
-        .iter()
-        .map(|lang| LanguageView::from_cost_models(lang.clone(), &protocol_parameters.cost_models))
-        .collect();
-
-    views.sort();
-    views.dedup();
-
-    #[expect(clippy::expect_used)]
-    {
-        let mut e = cbor::Encoder::new(&mut buf);
-        e.map(views.len() as u64).expect("infallible: writing to Vec");
-        for view in &views {
-            view.encode(&mut e, &mut ()).expect("infallible: writing to Vec");
-        }
-    }
-
-    Some(Hasher::<256>::hash(&buf))
-}
-
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
-
-    /// Selects which Plutus cost models are present in the protocol parameters used by a test.
-    #[derive(Clone, Copy)]
-    enum Pp {
-        AllCostModels,
-        NoV1,
-        NoV2,
-        NoV3,
-    }
-
-    impl Pp {
-        fn build(self) -> ProtocolParameters {
-            let mut pp = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
-            match self {
-                Pp::AllCostModels => {}
-                Pp::NoV1 => pp.cost_models.plutus_v1 = None,
-                Pp::NoV2 => pp.cost_models.plutus_v2 = None,
-                Pp::NoV3 => pp.cost_models.plutus_v3 = None,
-            }
-            pp
-        }
-    }
-
-    #[test_case(Pp::AllCostModels, &[], None ; "no inputs returns None")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV1], Some("d278610b21b4804243125c49fa820a691fa3dd79cf4109ade08090068f466750") ; "v1 only")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV2], Some("2a6094c211d2bfca5c6ae0c4f8ae3556db95345d94a53a309a2eabc8b8083843") ; "v2 only")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV3], Some("870bd0633099c971d633098389a3479c85328f1f36e97ab8ee99638019034707") ; "v3 only")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV1, Language::PlutusV2], Some("c570a138a1c2a043e1ef7091f4942458ca13ad19372189f877eb110a118dcac1") ; "v1 + v2")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV2, Language::PlutusV1], Some("c570a138a1c2a043e1ef7091f4942458ca13ad19372189f877eb110a118dcac1") ; "v2 + v1 sorts to v1 + v2")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV1, Language::PlutusV1], Some("d278610b21b4804243125c49fa820a691fa3dd79cf4109ade08090068f466750") ; "v1 + v1 dedups to v1")]
-    #[test_case(Pp::NoV1, &[Language::PlutusV1], Some("ac871208ce24bcee5ca68ab58c321750fa80f73bfb4e5d9a6acc2b1e3817dcc4") ; "v1 only with no v1 cost model")]
-    #[test_case(Pp::NoV2, &[Language::PlutusV2], Some("b96a45ab8016ded02c3fbf1939c695e86155a961c83fc695aba5316086ec47e3") ; "v2 only with no v2 cost model")]
-    #[test_case(Pp::NoV3, &[Language::PlutusV3], Some("302569f5de0c5cd3d1816ff8b95a9117398227639a0425915ee4f68b590382a1") ; "v3 only with no v3 cost model")]
-    fn integrity_hash(pp: Pp, languages: &[Language], expected: Option<&str>) {
-        let actual = compute_script_integrity_hash(&WitnessSet::default(), &pp.build(), languages);
-        let actual_hex = actual.map(|h| hex::encode(h.as_ref()));
-        assert_eq!(actual_hex.as_deref(), expected);
-    }
 
     #[test_case(Language::PlutusV1, &[0x41, 0x00, 0x41, 0xf6] ; "v1 null params")]
     #[test_case(Language::PlutusV2, &[0x01, 0xf6] ; "v2 null params")]

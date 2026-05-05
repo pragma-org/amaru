@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{
     ExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, PlutusScript, ProtocolParameters,
-    ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, compute_script_integrity_hash,
+    ProtocolVersion, RedeemerKey, RequiredScript, ScriptIntegrityData, ScriptKind, ScriptPurpose, WitnessSet,
     decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
@@ -79,8 +79,11 @@ pub enum InvalidScripts {
     #[error("transaction execution units exceeded: provided {provided:?}, max {max:?}")]
     TooManyExUnits { provided: ExUnits, max: ExUnits },
 
-    #[error("script integrity hash mismatch: supplied {supplied:?}, expected {expected:?}")]
-    ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Hash<32>> },
+    #[error(
+        "script integrity hash mismatch: supplied {supplied:?}, expected {}",
+        format_expected_integrity(.expected.as_deref())
+    )]
+    ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Box<ScriptIntegrityData>> },
 
     #[error("no cost model in protocol parameters for language used by transaction: {0:?}")]
     MissingCostModel(Language),
@@ -155,12 +158,23 @@ where
     // models mid-test. The test harness loads protocol parameters once at the start and doesn't
     // update them at epoch boundaries, so later transactions are validated against stale cost
     // models, producing a different script integrity hash.
-    let expected = compute_script_integrity_hash(witness_set, protocol_parameters, &languages);
-    if script_data_hash != expected {
-        return Err(InvalidScripts::ScriptIntegrityHashMismatch { supplied: script_data_hash, expected });
+    let expected = ScriptIntegrityData::from_witness_set(witness_set, protocol_parameters, &languages);
+    let expected_hash = expected.as_ref().map(ScriptIntegrityData::hash);
+    if script_data_hash != expected_hash {
+        return Err(InvalidScripts::ScriptIntegrityHashMismatch {
+            supplied: script_data_hash,
+            expected: expected.map(Box::new),
+        });
     }
 
     Ok(())
+}
+
+fn format_expected_integrity(expected: Option<&ScriptIntegrityData>) -> String {
+    match expected {
+        Some(data) => format!("{} (computed from: {data})", data.hash()),
+        None => "none".to_string(),
+    }
 }
 
 fn fail_on_too_many_ex_units(
