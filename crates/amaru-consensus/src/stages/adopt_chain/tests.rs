@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ORIGIN_HASH, HeaderHash, NonEmptyVec};
+use amaru_kernel::{HeaderHash, NonEmptyVec, ORIGIN_HASH};
 use amaru_ouroboros::MempoolMsg;
 use pure_stage::trace_buffer::TerminationReason;
 use test_setup::{
@@ -68,9 +68,9 @@ fn test_current_best_not_loadable() {
         &running,
         &[
             te_state("ac-1", &prep.state),
-            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
-            te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", missing_current_best.hash()),
+            te_input("ac-1", &msg),
+            te_load_header("ac-1", tip.hash()),
+            te_load_header("ac-1", ORIGIN_HASH),
             te_terminate("ac-1"),
             te_terminated("ac-1", TerminationReason::Voluntary),
         ],
@@ -131,7 +131,7 @@ fn test_extension_adopts_and_sends() {
             te_input("ac-1", &msg),
             te_load_header("ac-1", tip.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
-            te_roll_forward_chain("ac-1", msg.point()),
+            te_roll_forward_chain("ac-1", tip.point()),
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
@@ -176,7 +176,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_input("ac-1", &msg),
             te_load_header("ac-1", tip.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
-            te_find_ancestor_on_best_chain("ac-1", msg.hash()),
+            te_find_ancestor_on_best_chain("ac-1", tip.hash()),
             te_switch_to_fork(
                 "ac-1",
                 prep.headers.h1.point(),
@@ -224,7 +224,7 @@ fn test_fork_switch_opcert_hacked() {
             te_input("ac-1", &msg),
             te_load_header("ac-1", tip.hash()),
             te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_find_ancestor_on_best_chain("ac-1", msg.hash()),
+            te_find_ancestor_on_best_chain("ac-1", tip.hash()),
             te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_clock("ac-1"),

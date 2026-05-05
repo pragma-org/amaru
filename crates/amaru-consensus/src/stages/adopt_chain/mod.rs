@@ -143,9 +143,8 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
         state.suppressed += 1;
     }
-
     eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
-    effe.send(&state.downstream, ManagerMessage::NewTip(msg)).await;
+    eff.send(&state.downstream, ManagerMessage::NewTip(msg)).await;
     state.current_best_tip = msg;
     state
 }

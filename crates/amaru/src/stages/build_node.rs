@@ -22,8 +22,7 @@ use amaru_consensus::{
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
-    BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Peer, Point,
-    Transaction,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Peer, Point, Transaction,
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::METRICS_METER_NAME;

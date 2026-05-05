@@ -73,7 +73,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             eff.send(&caller, Ok(results)).await;
         }
         MempoolMsg::NewTip(tip) => {
-            apply_new_tip(&ledger, &memory_pool, tip);
+            apply_new_tip(&ledger, &memory_pool, tip).await;
         }
     }
     state
@@ -84,7 +84,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 ///
 async fn validate_and_insert(
     ledger: &Ledger,
-    memory_pool: &MemoryPool<MempoolMsg>,
+    memory_pool: &MemoryPool,
     tx: Transaction,
     origin: &TxOrigin,
 ) -> Result<TxInsertResult, MempoolError> {
@@ -95,13 +95,16 @@ async fn validate_and_insert(
 }
 
 /// Revalidate all the mempool transactions when a new tip has been adopted
-fn apply_new_tip(ledger: &Ledger<MempoolMsg>, memory_pool: &MemoryPool<MempoolMsg>, tip: Tip) {
-    let invalid_txs =
-        memory_pool.mempool_txs().into_iter().filter(|tx| ledger.validate_tx(tx).is_err()).collect::<Vec<_>>();
-    let invalid_tx_ids = invalid_txs.iter().map(TxId::from).collect::<Vec<_>>();
+async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Tip) {
+    let mut invalid_tx_ids = vec![];
+    for tx in memory_pool.mempool_txs().await {
+        if ledger.validate_tx(&tx).await.is_err() {
+            invalid_tx_ids.push(TxId::from(&tx));
+        }
+    }
 
     if !invalid_tx_ids.is_empty()
-        && let Err(error) = memory_pool.remove_txs(&invalid_tx_ids)
+        && let Err(error) = memory_pool.remove_txs(&invalid_tx_ids).await
     {
         tracing::error!(%error, %tip, "failed to remove invalid transactions after new tip");
         return;

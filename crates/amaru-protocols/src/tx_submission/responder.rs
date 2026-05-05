@@ -14,22 +14,19 @@
 
 use std::{collections::BTreeSet, fmt::Display};
 
-use amaru_kernel::{to_cbor, Transaction};
-use amaru_observability::trace_span;
-use amaru_ouroboros::{
-    MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
-};
-use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
-use indexmap::IndexMap;
-use pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
-use tracing::Instrument;
 use ProtocolError::*;
+use amaru_kernel::{Transaction, to_cbor};
+use amaru_observability::trace_span;
+use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use indexmap::IndexMap;
+use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::Instrument;
 
 use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
     protocol::{
-        miniprotocol, outcome, Inputs, Miniprotocol, Outcome, ProtocolState, Responder, StageState, PROTO_N2N_TX_SUB,
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, miniprotocol, outcome,
     },
     tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
 };
@@ -65,7 +62,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
                 // potentially produces a new request while we are still not finished with the previous one.
                 self.back_pressure_scheduled = false;
                 if *proto == State::Idle {
-                    let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+                    let mempool: &dyn AsyncMempool = &MemoryPool::new(eff.clone());
                     self.recheck_back_pressure(mempool, eff).await
                 } else {
                     None
@@ -92,7 +89,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
                     tracing::trace!("received Init");
                     self.initialize_state(&mempool).await
                 }
-                ResponderResult::ReplyTxIds(tx_ids) => match self.process_tx_ids_reply(mempool, tx_ids).await? {
+                ResponderResult::ReplyTxIds(tx_ids) => match self.process_tx_ids_reply(&mempool, tx_ids).await? {
                     FetchOutcome::Action(action) => {
                         self.schedule_inflight_timeout(&action, eff).await;
                         Some(action)
@@ -280,7 +277,7 @@ impl TxSubmissionResponder {
     ///  - Check if we did not receive too many
     ///  - Store them in unacked ids
     ///  - Then request tx bodies of the txs we don't already have
-    fn process_tx_ids_reply(
+    async fn process_tx_ids_reply(
         &mut self,
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<(TxId, u32)>,
@@ -295,12 +292,12 @@ impl TxSubmissionResponder {
 
         // Store the tx_ids and their current status
         for (tx_id, size) in tx_ids {
-            let status = if mempool.contains(&tx_id) { TxStatus::Done } else { TxStatus::Pending(size) };
+            let status = if mempool.contains(&tx_id).await { TxStatus::Done } else { TxStatus::Pending(size) };
             self.unacked_ids.insert(tx_id, status);
         }
 
         // Prepare a request for tx bodies
-        let txs = self.txs_to_request(mempool);
+        let txs = self.txs_to_request(mempool).await;
         if !txs.is_empty() {
             return Ok(FetchOutcome::Action(ResponderAction::SendRequestTxs(txs)));
         }
@@ -313,14 +310,14 @@ impl TxSubmissionResponder {
         }
 
         // If there are no tx bodies to fetch, request new tx ids
-        let (ack, req, blocking) = self.request_tx_ids(mempool);
+        let (ack, req, blocking) = self.request_tx_ids(mempool).await;
         Ok(FetchOutcome::Action(ResponderAction::SendRequestTxIds { ack, req, blocking }))
     }
 
     /// Prepare a request for tx ids, acknowledging already processed ones (Done at the front)
     /// and requesting as many as possible given the `max_window` parameter.
     #[allow(clippy::expect_used)]
-    fn request_tx_ids(&mut self, _mempool: &dyn TxSubmissionMempool<Transaction>) -> (u16, u16, Blocking) {
+    async fn request_tx_ids(&mut self, _mempool: &dyn AsyncMempool) -> (u16, u16, Blocking) {
         let mut ack = 0_u16;
 
         // Pop Done entries from the front. `ack` counts the number of tx_ids coming from the peer
@@ -354,7 +351,7 @@ impl TxSubmissionResponder {
     /// Both limits are larger than the protocol-enforced `max_transaction_size`, so under valid
     /// Cardano parameters a single Pending tx always fits and remaining entries are revisited
     /// once capacity returns.
-    fn txs_to_request(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Vec<TxId> {
+    async fn txs_to_request(&mut self, mempool: &dyn AsyncMempool) -> Vec<TxId> {
         let mut tx_ids = Vec::new();
         let mut reserved: u64 = 0;
         let budget = self.params.fetch_batch_bytes.get();
@@ -365,7 +362,7 @@ impl TxSubmissionResponder {
             };
             let next_total = reserved.saturating_add(size as u64);
 
-            if mempool.is_near_capacity(next_total) || next_total > budget {
+            if mempool.is_near_capacity(next_total).await || next_total > budget {
                 break;
             }
 
@@ -418,31 +415,6 @@ impl TxSubmissionResponder {
         let mempool = MemoryPool::new(eff.clone());
         let (ack, req, blocking) = self.request_tx_ids(&mempool).await;
         Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
-    }
-
-    /// Process received txs, validating and inserting them into the mempool.
-    #[cfg(test)]
-    async fn received_txs(
-        &mut self,
-        mempool: &dyn AsyncMempool,
-        txs: Vec<Transaction>,
-        origin: TxOrigin,
-    ) -> anyhow::Result<Option<ResponderAction>> {
-        let mut results = Vec::with_capacity(txs.len());
-        for tx in txs {
-            let requested_id = TxId::from(&tx);
-            self.inflight_fetch_set.remove(&requested_id);
-            match mempool.insert(tx, origin.clone()).await {
-                Ok(result) => {
-                    log_insert_result(&result);
-                    results.push(result);
-                }
-                Err(error) => return protocol_error(MempoolInsertFailed(requested_id, error)),
-            }
-        }
-
-        self.record_processed_results(&results);
-        Ok(None)
     }
 
     /// Check:
@@ -527,10 +499,10 @@ impl TxSubmissionResponder {
     /// schedules another recheck.
     async fn recheck_back_pressure(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
+        mempool: &dyn AsyncMempool,
         eff: &Effects<Inputs<ResponderLocalIn>>,
     ) -> Option<ResponderAction> {
-        let txs = self.txs_to_request(mempool);
+        let txs = self.txs_to_request(mempool).await;
         if !txs.is_empty() {
             let action = ResponderAction::SendRequestTxs(txs);
             self.schedule_inflight_timeout(&action, eff).await;
@@ -545,7 +517,7 @@ impl TxSubmissionResponder {
 
         // No Pending entries left (e.g. txs landed in mempool via another peer) — re-engage the
         // peer with a normal RequestTxIds.
-        let (ack, req, blocking) = self.request_tx_ids(mempool);
+        let (ack, req, blocking) = self.request_tx_ids(mempool).await;
         Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
     }
 
@@ -667,8 +639,8 @@ mod tests {
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::{
-        mempool::overriding_mempool::OverridingMempool, MempoolError, MempoolSeqNo, TransactionValidationError,
-        TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
+        MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+        mempool::overriding_mempool::OverridingMempool,
     };
 
     use super::*;
@@ -892,8 +864,8 @@ mod tests {
         assert_eq!(action, Some(ResponderAction::Error(TxFetchTimeout)));
     }
 
-    #[test]
-    fn process_tx_ids_reply_signals_back_pressure_when_mempool_full() {
+    #[tokio::test]
+    async fn process_tx_ids_reply_signals_back_pressure_when_mempool_full() {
         let txs = create_transactions(2);
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
@@ -903,7 +875,7 @@ mod tests {
         let mempool = full_mempool();
 
         let tx_ids = advertised(&txs, &[0, 1]);
-        let outcome = responder.process_tx_ids_reply(mempool.as_ref(), tx_ids).expect("no protocol error");
+        let outcome = responder.process_tx_ids_reply(mempool.as_ref(), tx_ids).await.expect("no protocol error");
 
         assert!(matches!(outcome, FetchOutcome::AwaitingCapacity), "expected AwaitingCapacity, got {outcome:?}");
         // Both tx_ids retained as Pending for retry once capacity returns.
@@ -911,8 +883,8 @@ mod tests {
         assert_eq!(pending, 2, "both tx_ids should still be Pending");
     }
 
-    #[test]
-    fn process_tx_ids_reply_drains_after_recovery() {
+    #[tokio::test]
+    async fn process_tx_ids_reply_drains_after_recovery() {
         let txs = create_transactions(2);
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
@@ -921,12 +893,12 @@ mod tests {
         // First the mempool is full.
         let full = full_mempool();
         let tx_ids = advertised(&txs, &[0, 1]);
-        let outcome = responder.process_tx_ids_reply(full.as_ref(), tx_ids).expect("no protocol error");
+        let outcome = responder.process_tx_ids_reply(full.as_ref(), tx_ids).await.expect("no protocol error");
         assert!(matches!(outcome, FetchOutcome::AwaitingCapacity));
 
         // Then the mempool drains and we can fetch transactions
-        let mempool: Arc<dyn TxSubmissionMempool<Transaction>> = Arc::new(InMemoryMempool::default());
-        let txs_to_fetch = responder.txs_to_request(mempool.as_ref());
+        let mempool: Arc<dyn AsyncMempool> = Arc::new(InMemoryMempool::default());
+        let txs_to_fetch = responder.txs_to_request(mempool.as_ref()).await;
         assert_eq!(txs_to_fetch.len(), 2, "both pending tx_ids should now be fetched");
     }
 
@@ -952,8 +924,8 @@ mod tests {
 
     // HELPERS
 
-    async fn run_stage<M: AsyncMempool>(
-        mempool: Arc<M>,
+    async fn run_stage(
+        mempool: Arc<dyn AsyncMempool>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<Vec<ResponderAction>> {
         Ok(run_stage_and_return_state(mempool, results).await?.0)
@@ -974,7 +946,7 @@ mod tests {
     /// Run the responder stage, given a list of ResponderResults as inputs, and return the list of
     /// ResponderActions produced as output, plus the responder itself.
     async fn run_stage_and_return_state(
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+        mempool: Arc<dyn AsyncMempool>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         run_stage_and_return_state_with(
@@ -991,9 +963,9 @@ mod tests {
         .await
     }
 
-    async fn run_stage_and_return_state_with<M: AsyncMempool>(
+    async fn run_stage_and_return_state_with(
         mut responder: TxSubmissionResponder,
-        mempool: Arc<M>,
+        mempool: Arc<dyn AsyncMempool>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         let mut actions = vec![];
@@ -1022,7 +994,7 @@ mod tests {
                         let mut error = None;
                         for tx in txs {
                             let requested_id = TxId::from(&tx);
-                            if let Err(e) = mempool.insert(tx, origin.clone()) {
+                            if let Err(e) = mempool.insert(tx, origin.clone()).await {
                                 error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
                                 break;
                             }
@@ -1030,7 +1002,7 @@ mod tests {
                         if let Some(error) = error {
                             error
                         } else {
-                            let (ack, req, blocking) = responder.request_tx_ids(mempool.as_ref());
+                            let (ack, req, blocking) = responder.request_tx_ids(mempool).await;
                             Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
                         }
                     }
@@ -1075,7 +1047,7 @@ mod tests {
     }
 
     /// A mempool that fails every `insert` with the given error message
-    fn failing_insert_mempool(message: &'static str) -> Arc<dyn TxSubmissionMempool<Transaction>> {
+    fn failing_insert_mempool(message: &'static str) -> Arc<dyn AsyncMempool> {
         Arc::new(
             OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
                 .with_insert(move |_inner, _tx, _origin| Err(MempoolError::new(message)))
@@ -1085,7 +1057,7 @@ mod tests {
 
     /// A mempool whose `insert` returns predetermined results keyed by `TxId`.
     /// Each result is consumed on first match.
-    fn mock_insert_mempool(results: Vec<TxInsertResult>) -> Arc<dyn TxSubmissionMempool<Transaction>> {
+    fn mock_insert_mempool(results: Vec<TxInsertResult>) -> Arc<dyn AsyncMempool> {
         let mut by_id: BTreeMap<TxId, TxInsertResult> =
             results.into_iter().map(|result| (*result.tx_id(), result)).collect();
         Arc::new(
@@ -1101,7 +1073,7 @@ mod tests {
     }
 
     /// A mempool that always reports being at capacity, used to drive back-pressure tests.
-    fn full_mempool() -> Arc<dyn TxSubmissionMempool<Transaction>> {
+    fn full_mempool() -> Arc<dyn AsyncMempool> {
         Arc::new(
             OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
                 .with_is_near_capacity(|_inner, _additional| true)

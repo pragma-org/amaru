@@ -454,6 +454,10 @@ mod tests {
             vec![]
         }
 
+        fn remove_txs(&self, _ids: &[TxId]) -> Result<(), MempoolError> {
+            Ok(())
+        }
+
         fn last_seq_no(&self) -> MempoolSeqNo {
             MempoolSeqNo(0)
         }

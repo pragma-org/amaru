@@ -50,19 +50,19 @@
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 
-use amaru_kernel::{utils::string::display_collection, Transaction};
+use ProtocolError::*;
+use amaru_kernel::{Transaction, utils::string::display_collection};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
-use ProtocolError::*;
 
 use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
     protocol::{
-        miniprotocol, outcome, Initiator, Inputs, Miniprotocol, Outcome, ProtocolState, StageState, PROTO_N2N_TX_SUB,
+        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
     },
     tx_submission::{Blocking, Message, ProtocolError, State},
 };
@@ -370,7 +370,7 @@ impl TxSubmissionInitiator {
         if tx_ids.iter().any(|id| !self.window.iter().any(|(wid, _)| wid == id)) {
             return protocol_error(UnadvertisedTransactionIdsRequested(tx_ids));
         }
-        let txs = mempool.get_txs_for_ids(tx_ids.clone()).await;
+        let txs = mempool.get_txs_for_ids(&tx_ids).await;
         if txs.is_empty() {
             protocol_error(UnknownTxsRequested(tx_ids))
         } else {
@@ -448,7 +448,7 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 mod tests {
     use std::sync::Arc;
 
-    use amaru_mempool::{InMemoryMempool, MempoolConfig};
+    use amaru_mempool::InMemoryMempool;
     use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
 
     use super::*;
@@ -549,10 +549,10 @@ mod tests {
 
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
-        assert!(mempool.last_seq_no() < seq_no);
-        mempool.insert(txs[0].clone(), TxOrigin::Local)?;
-        assert!(mempool.last_seq_no() >= seq_no);
-        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref())?, Some(reply_tx_ids(&txs, &[0])));
+        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) < seq_no);
+        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local)?;
+        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
+        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, Some(reply_tx_ids(&txs, &[0])));
 
         Ok(())
     }
@@ -771,7 +771,7 @@ mod tests {
         let action = match input {
             InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
                 match initiator.begin_request_tx_ids_blocking(ack, req) {
-                    Ok(seq_no) if mempool.wait_for_at_least(seq_no).await => {
+                    Ok(seq_no) if mempool.last_seq_no().await >= seq_no => {
                         initiator.complete_request_tx_ids_blocking(mempool).await?
                     }
                     Ok(_) => None,

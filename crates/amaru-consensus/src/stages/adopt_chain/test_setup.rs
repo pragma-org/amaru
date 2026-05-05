@@ -15,20 +15,20 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    cardano::network_block::make_encoded_block, make_header, make_header_with_op_cert_seq, BlockHeader, BlockHeight,
-    HeaderHash, NonEmptyVec, Point, Tip, TESTNET_ERA_HISTORY,
+    BlockHeader, BlockHeight, HeaderHash, NonEmptyVec, Point, TESTNET_ERA_HISTORY, Tip,
+    cardano::network_block::make_encoded_block, make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
-use amaru_ouroboros_traits::{in_memory_consensus_store::InMemConsensusStore, ChainStore};
+use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
     FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
     LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
     SetAnchorHashEffect, SwitchToForkEffect,
 };
 use pure_stage::{
+    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
-    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
 };
 use tokio::runtime::{Builder, Runtime};
 use tracing::Level;
