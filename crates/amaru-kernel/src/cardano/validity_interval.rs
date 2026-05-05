@@ -21,7 +21,7 @@ use crate::Slot;
 /// A ValidityInterval is inclusive at the lower bound, but exclusive at the upper bound.
 ///
 /// If `None`, the `lower_bound` is -inf.
-/// If `None`, the `upper_bound is inf.
+/// If `None`, the `upper_bound is +inf.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ValidityInterval {
     lower_bound: Option<Slot>,
@@ -32,15 +32,21 @@ impl ValidityInterval {
     pub fn new(lower_bound: Option<u64>, upper_bound: Option<u64>) -> Self {
         Self { lower_bound: lower_bound.map(Slot::from), upper_bound: upper_bound.map(Slot::from) }
     }
-    pub fn lower_bound(&self) -> &Option<Slot> {
-        &self.lower_bound
+
+    pub fn lower_bound(&self) -> Option<Slot> {
+        self.lower_bound
     }
 
-    pub fn upper_bound(&self) -> &Option<Slot> {
-        &self.upper_bound
+    pub fn upper_bound(&self) -> Option<Slot> {
+        self.upper_bound
     }
 
     /// Determine if this [`ValidityInterval`] includes a given [`Slot`]
+    ///
+    // NOTE: about validity interval bounds
+    //
+    // - The lower bound is inclusive
+    // - The upper bound is exclusive (starting from protocol v9, inclusive before that)
     pub fn includes(&self, slot: Slot) -> bool {
         match (self.lower_bound, self.upper_bound) {
             (None, None) => true,
@@ -53,8 +59,8 @@ impl ValidityInterval {
 
 impl fmt::Display for ValidityInterval {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let lower = self.lower_bound.map(|s| s.to_string()).unwrap_or_else(|| "-inf".into());
-        let upper = self.upper_bound.map(|s| s.to_string()).unwrap_or_else(|| "inf".into());
+        let lower = self.lower_bound.map(|s| s.to_string()).unwrap_or_else(|| "-∞".to_string());
+        let upper = self.upper_bound.map(|s| s.to_string()).unwrap_or_else(|| "+∞".to_string());
         write!(f, "[{lower}, {upper})")
     }
 }

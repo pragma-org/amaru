@@ -36,7 +36,7 @@ pub fn execute(
 
     if enforce_forecast_horizon && let Some(upper_bound) = validity_interval.upper_bound() {
         era_history
-            .slot_to_relative_time(*upper_bound, current_slot)
+            .slot_to_relative_time(upper_bound, current_slot)
             .map_err(|_| InvalidValidityInterval::OutsideForecast(upper_bound.as_u64()))?;
     }
 
