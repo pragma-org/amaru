@@ -34,6 +34,11 @@ use crate::{
     tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
 };
 
+/// Tolerance applied when comparing a received tx body's CBOR size against the size advertised
+/// in `ReplyTxIds`. Matches the Cardano Haskell node's `const_MAX_TX_SIZE_DISCREPANCY`, which
+/// allows for minor encoding differences between implementations.
+const MAX_TX_SIZE_DISCREPANCY: u32 = 32;
+
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<TxSubmissionResponder>().boxed(),
@@ -463,8 +468,9 @@ impl TxSubmissionResponder {
             return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
         }
 
-        // Verify that each body's CBOR size matches what the peer advertised in `ReplyTxIds`.
-        // A mismatch is a protocol violation so we treat it as a fatal error and disconnect.
+        // Verify that each body's CBOR size matches what the peer advertised in `ReplyTxIds`,
+        // tolerating up to `MAX_TX_SIZE_DISCREPANCY` bytes of difference. A larger discrepancy is
+        // a protocol violation so we treat it as a fatal error and disconnect.
         for tx in txs {
             let tx_id = TxId::from(tx);
             let advertised = match self.unacked_ids.get(&tx_id) {
@@ -472,7 +478,7 @@ impl TxSubmissionResponder {
                 _ => 0,
             };
             let actual = to_cbor(tx).len() as u32;
-            if actual != advertised {
+            if actual.abs_diff(advertised) > MAX_TX_SIZE_DISCREPANCY {
                 return protocol_error(TxSizeMismatch { tx_id, advertised, actual });
             }
         }
@@ -807,6 +813,25 @@ mod tests {
                 request_txs(&txs, &[0, 1]),
                 error_action(TxSizeMismatch { tx_id: TxId::from(&txs[0]), advertised: 1, actual }),
             ],
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn body_size_within_tolerance_is_accepted() -> anyhow::Result<()> {
+        // Advertised size is off by `MAX_TX_SIZE_DISCREPANCY` bytes — within tolerance, so the
+        // protocol accepts the body and proceeds (matches the Cardano Haskell node's behavior).
+        let txs = create_transactions(1);
+        let mempool = Arc::new(InMemoryMempool::default());
+
+        let actual = to_cbor(&txs[0]).len() as u32;
+        let advertised = actual + MAX_TX_SIZE_DISCREPANCY;
+        let bad_advertisement = ResponderResult::ReplyTxIds(vec![(TxId::from(&txs[0]), advertised)]);
+        let actions = run_stage(mempool, vec![init(), bad_advertisement, reply_txs(&txs, &[0])]).await?;
+
+        assert_actions_eq(
+            &actions,
+            &[request_tx_ids(0, 10, Blocking::Yes), request_txs(&txs, &[0]), request_tx_ids(1, 10, Blocking::Yes)],
         );
         Ok(())
     }
