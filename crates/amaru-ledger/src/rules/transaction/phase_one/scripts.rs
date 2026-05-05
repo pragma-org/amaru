@@ -19,9 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasRedeemers, HasScriptHash, Hash, Hasher, Language, LanguageView, MemoizedDatum, PlutusScript,
-    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, cbor,
-    cbor::Encode,
+    ExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, PlutusScript, ProtocolParameters,
+    ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, compute_script_integrity_hash,
     decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
@@ -82,6 +81,9 @@ pub enum InvalidScripts {
 
     #[error("script integrity hash mismatch: supplied {supplied:?}, expected {expected:?}")]
     ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Hash<32>> },
+
+    #[error("no cost model in protocol parameters for language used by transaction: {0:?}")]
+    MissingCostModel(Language),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -134,15 +136,19 @@ where
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
 
-    let languages: Vec<Language> = provided_scripts
-        .values()
-        .filter_map(|kind| match kind {
-            ScriptKind::PlutusV1 => Some(Language::PlutusV1),
-            ScriptKind::PlutusV2 => Some(Language::PlutusV2),
-            ScriptKind::PlutusV3 => Some(Language::PlutusV3),
-            ScriptKind::Native => None,
-        })
-        .collect();
+    let languages: Vec<Language> =
+        provided_scripts.values().copied().filter_map(|kind| Language::try_from(kind).ok()).collect();
+
+    for lang in &languages {
+        let has_cost_model = match lang {
+            Language::PlutusV1 => protocol_parameters.cost_models.plutus_v1.is_some(),
+            Language::PlutusV2 => protocol_parameters.cost_models.plutus_v2.is_some(),
+            Language::PlutusV3 => protocol_parameters.cost_models.plutus_v3.is_some(),
+        };
+        if !has_cost_model {
+            return Err(InvalidScripts::MissingCostModel(lang.clone()));
+        }
+    }
 
     // NOTE: Two conformance tests ("PlutusV3 Initialization/Updating CostModels ...") fail this
     // check because they contain multi-epoch test vectors where governance actions update the cost
@@ -478,56 +484,6 @@ fn collect_plutus_witness_scripts<const V: usize>(
             malformed.insert(hash);
         }
     }
-}
-
-/// Computes the script integrity hash from the witness set, protocol parameters, and the set of
-/// Plutus languages used by the transaction. Returns `None` when there are no redeemers, datums,
-/// or language views (matching Haskell's `SNothing` case).
-///
-/// See [`LanguageView`] for the full specification of the hash computation.
-fn compute_script_integrity_hash(
-    witness_set: &WitnessSet,
-    protocol_parameters: &ProtocolParameters,
-    languages: &[Language],
-) -> Option<Hash<32>> {
-    let has_redeemers = witness_set.redeemer.is_some();
-    let has_datums = witness_set.plutus_data.is_some();
-    let has_languages = !languages.is_empty();
-
-    if !has_redeemers && !has_datums && !has_languages {
-        return None;
-    }
-
-    let mut buf = Vec::new();
-
-    if let Some(ref redeemers) = witness_set.redeemer {
-        buf.extend_from_slice(redeemers.original_bytes());
-    } else {
-        buf.push(0xa0);
-    }
-
-    if let Some(ref datums) = witness_set.plutus_data {
-        buf.extend_from_slice(datums.original_bytes());
-    }
-
-    let mut views: Vec<LanguageView> = languages
-        .iter()
-        .filter_map(|lang| LanguageView::from_cost_models(lang.clone(), &protocol_parameters.cost_models))
-        .collect();
-
-    views.sort();
-    views.dedup();
-
-    #[expect(clippy::expect_used)]
-    {
-        let mut e = cbor::Encoder::new(&mut buf);
-        e.map(views.len() as u64).expect("infallible: writing to Vec");
-        for view in &views {
-            view.encode(&mut e, &mut ()).expect("infallible: writing to Vec");
-        }
-    }
-
-    Some(Hasher::<256>::hash(&buf))
 }
 
 #[cfg(test)]

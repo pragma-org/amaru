@@ -43,7 +43,7 @@ impl HasRedeemers for Redeemers {
     ///
     /// <https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert>
     fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)> {
-        match &**self {
+        match self.as_ref() {
             PallasRedeemers::List(list) => list
                 .iter()
                 .map(|redeemer| {

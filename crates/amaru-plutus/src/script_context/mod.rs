@@ -937,7 +937,7 @@ where
 
 impl Redeemers<'_> {
     pub fn iter_from<'a>(redeemers: &'a KernelRedeemers) -> Box<dyn Iterator<Item = OrderedRedeemer<'a>> + 'a> {
-        match &**redeemers {
+        match redeemers.as_ref() {
             PallasRedeemers::List(list) => Box::new(list.iter().map(OrderedRedeemer::from)),
             PallasRedeemers::Map(map) => Box::new(map.iter().map(|(tag, value)| {
                 OrderedRedeemer::from(Redeemer {
