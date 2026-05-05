@@ -118,9 +118,6 @@ impl TransactionBody {
         self.original_size
     }
 
-    // FIXME (maybe?):
-    // Perhaps it would be nicer to avoid creating a `ValidityInterval` on every call
-    // But this is pretty cheap and it sure beats the manual encode implementation that would come from having a `ValidityInterval` field on `TransactionBody`
     pub fn validity_interval(&self) -> ValidityInterval {
         ValidityInterval::new(self.validity_interval_start, self.validity_interval_end)
     }
