@@ -315,9 +315,9 @@ impl TxSubmissionInitiator {
             return Err(BlockingRequestMadeWhenTxsStillUnacknowledged);
         }
 
-        // update the window by discarding acknowledged tx ids and update the last_seq
+        // update the window by discarding acknowledged tx ids and wait for any new tx id to become available.
         self.discard(ack);
-        let seq_no = self.last_seq.unwrap_or_default().add(req as u64);
+        let seq_no = self.last_seq.unwrap_or_default().next();
         self.pending_blocking_request = Some(PendingBlockingRequest { req });
         Ok(seq_no)
     }
@@ -538,6 +538,22 @@ mod tests {
                 reply_txs(&txs, &[4, 5]),
             ],
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn blocking_request_waits_for_one_new_tx_id() -> anyhow::Result<()> {
+        let mempool = new_mempool();
+        let txs = create_transactions(1);
+        let (_, mut initiator) = TxSubmissionInitiator::new(StageRef::blackhole(), StageRef::blackhole());
+
+        let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
+
+        assert!(mempool.last_seq_no() < seq_no);
+        mempool.insert(txs[0].clone(), TxOrigin::Local)?;
+        assert!(mempool.last_seq_no() >= seq_no);
+        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref())?, Some(reply_tx_ids(&txs, &[0])));
+
         Ok(())
     }
 
