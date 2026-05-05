@@ -22,10 +22,9 @@ use std::{
 
 use amaru_kernel::{
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepRegistration,
-    DRepState, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, NetworkName,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalState, ProtocolParameters, RationalNumber, Reward, Set, Slot, StakeCredential, StrictMaybe,
-    TransactionInput, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
+    DRepState, Epoch, EraHistory, Hash, Lovelace, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Reward, Set,
+    Slot, StakeCredential, StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -189,8 +188,7 @@ pub fn import_initial_snapshot(
         .with_decoder(|d| Ok(skip_fields(d, delegation_state_tail_skips)?))
         .map_err(|err| format!("skip delegation state tail: {err}"))?;
 
-    import_utxo(&mut decoder, db, &with_progress, point, era_history, network)
-        .map_err(|err| format!("import embedded utxo: {err}"))?;
+    skip_embedded_utxo(&mut decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
 
     let fees: i64 = decoder
         .with_decoder(|d| {
@@ -458,108 +456,12 @@ fn import_block_issuers(
     transaction.commit().map_err(Into::into)
 }
 
-fn import_utxo(
-    decoder: &mut LazyDecoder<'_>,
-    db: &impl Store,
-    with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-    point: &Point,
-    era_history: &EraHistory,
-    network: NetworkName,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if db.iter_utxos()?.next().is_some() {
-        warn!("given storage is not empty: it contains UTxO; overwriting");
-    }
-
-    let size: Option<usize> = decoder.with_decoder(|d| {
+fn skip_embedded_utxo(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    decoder.with_decoder(|d| {
         d.array()?;
-        let size = d.map()?;
-        Ok(size.map(|entry_count| entry_count as usize))
-    })?;
-
-    let estimated_size = size.unwrap_or(match network {
-        NetworkName::Mainnet => 11_000_000,
-        NetworkName::Preview => 1_500_000,
-        NetworkName::Preprod => 1_500_000,
-        NetworkName::Testnet(..) => 1,
-    });
-
-    let progress = with_progress(estimated_size, "  UTxO entries {bar:70} {pos:>7}/{len:7}");
-
-    let mut actual_size = 0_usize;
-    loop {
-        let (done, utxo) = decoder.with_decoder(|d| {
-            let mut done = false;
-            let mut utxo = BTreeMap::new();
-            let mut chunk_size = 0;
-
-            loop {
-                if d.datatype()? == cbor::data::Type::Break {
-                    d.skip()?;
-                    done = true;
-                    break;
-                }
-
-                if size.is_some_and(|entry_count| actual_size + chunk_size >= entry_count) {
-                    done = true;
-                    break;
-                }
-
-                let mut probe = d.probe();
-                let io = probe
-                    .decode::<TransactionInput>()
-                    .and_then(|input| probe.decode::<MemoizedTransactionOutput>().map(|output| (input, output)));
-
-                if let Ok((input, output)) = io {
-                    chunk_size += 1;
-                    d.skip()?;
-                    d.skip()?;
-                    utxo.insert(input, output);
-                } else if utxo.is_empty() {
-                    Err(cbor::decode::Error::end_of_input())?;
-                } else {
-                    break;
-                }
-            }
-
-            Ok((done, utxo))
-        })?;
-
-        let size = utxo.len();
-        progress.tick(size);
-        actual_size += size;
-
-        if !utxo.is_empty() {
-            let transaction = db.create_transaction();
-            transaction.save(
-                era_history,
-                &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                &mut default_governance_activity(),
-                point,
-                None,
-                store::Columns {
-                    utxo: utxo.into_iter(),
-                    pools: iter::empty(),
-                    accounts: iter::empty(),
-                    dreps: iter::empty(),
-                    cc_members: iter::empty(),
-                    proposals: iter::empty(),
-                    votes: iter::empty(),
-                },
-                Default::default(),
-                iter::empty(),
-            )?;
-            transaction.commit()?;
-        }
-
-        if done {
-            break;
-        }
-    }
-
-    info!(size = actual_size, "utxo");
-    progress.clear();
-
-    Ok(())
+        d.skip()?;
+        Ok(())
+    })
 }
 
 fn import_dreps(
@@ -1138,11 +1040,11 @@ pub fn default_governance_activity() -> GovernanceActivity {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, io::Cursor};
 
     use amaru_kernel::{Epoch, cbor, to_cbor};
 
-    use super::decode_initial_snapshot_prefix;
+    use super::{LazyDecoder, decode_initial_snapshot_prefix, skip_embedded_utxo};
 
     #[test]
     fn accepts_new_epoch_state_prefix() {
