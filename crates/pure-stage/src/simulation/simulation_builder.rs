@@ -388,7 +388,7 @@ where
     S: SendData + PartialEq + serde::de::DeserializeOwned + serde::Serialize + 'static + Clone,
     R: Send + Sync + 'static + Clone,
 {
-    run_function(|resources| resources.put::<R>(r.clone()), function)
+    run_function(|resources| resources.put::<R>(r), function)
 }
 
 /// Run a function inside a stage and get back the result as the stage state.
@@ -396,7 +396,7 @@ where
 /// modify the state (initially set to `None`) to get a value back.
 pub fn run_function<S, FS, F, Fut>(set_resources: FS, mut function: F) -> S
 where
-    FS: Fn(&Resources),
+    FS: FnOnce(&Resources),
     F: FnMut(Effects<()>) -> Fut + 'static + Send,
     Fut: Future<Output = S> + 'static + Send,
     S: SendData + PartialEq + serde::de::DeserializeOwned + serde::Serialize + 'static + Clone,
@@ -413,7 +413,7 @@ where
 /// modify the state (initially set to `None`) to get a value back.
 pub fn run_test<S, T, FS, F, Fut>(set_resources: FS, msg: T, test_stage: F) -> Option<S>
 where
-    FS: Fn(&Resources),
+    FS: FnOnce(&Resources),
     F: FnMut(Option<S>, T, Effects<T>) -> Fut + 'static + Send,
     Fut: Future<Output = Option<S>> + 'static + Send,
     T: SendData + serde::de::DeserializeOwned,

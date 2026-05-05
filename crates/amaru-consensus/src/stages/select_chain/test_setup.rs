@@ -202,8 +202,8 @@ pub fn te_unvalidated_ancestor_hashes(at_stage: &str, start: HeaderHash) -> Trac
     TraceEntry::suspend(Effect::external(at_stage, Box::new(UnvalidatedAncestorHashesEffect::new(start))))
 }
 
-pub fn te_get_best_chain_hash(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetBestChainHashEffect::new())))
+pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new())))
 }
 
 pub fn te_get_children(at_stage: &str, hash: HeaderHash) -> TraceEntry {

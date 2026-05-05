@@ -22,7 +22,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        setup, te_get_best_chain_hash, te_get_children, te_has_header, te_load_header, te_load_tip, te_set_block_valid,
+        setup, te_get_anchor_hash, te_get_children, te_has_header, te_load_header, te_load_tip, te_set_block_valid,
         te_unvalidated_ancestor_hashes, test_prep,
     },
     test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
@@ -367,13 +367,14 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
     prep.state.tips =
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.store_headers(&prep.headers.main());
+    prep.set_anchor(prep.headers.h0.parent_hash().unwrap_or(ORIGIN_HASH));
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.tip();
     let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
-    // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
+    // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
         best_tip: Some(prep.headers.h1.clone()),
         tips: BTreeMap::from_iter([(prep.headers.h1.hash(), vec![])]),
@@ -388,9 +389,10 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_input("sc-1", &msg),
             te_has_header("sc-1", tip.hash()),
             te_set_block_valid("sc-1", tip.hash(), false),
-            te_get_best_chain_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), false),
+            te_get_anchor_hash("sc-1"),
+            te_get_children("sc-1", ORIGIN_HASH),
+            te_load_header("sc-1", prep.headers.h0.hash(), true),
+            te_get_children("sc-1", prep.headers.h0.hash()),
             te_load_header("sc-1", prep.headers.h1.hash(), true),
             te_get_children("sc-1", prep.headers.h1.hash()),
             te_load_header("sc-1", prep.headers.h2.hash(), true),
@@ -414,13 +416,14 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
         (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
     ]);
     prep.store_headers(&prep.headers.all());
+    prep.set_anchor(prep.headers.h0.parent_hash().unwrap_or(ORIGIN_HASH));
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.tip();
     let msg = SelectChainMsg::BlockValidationResult(tip, false);
 
-    // Fallback uses get_best_chain_hash; we set best_tip but tips stays empty (we don't reconstruct).
+    // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
         best_tip: Some(prep.headers.h3a.clone()),
         tips: BTreeMap::from_iter([(prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()])]),
@@ -435,9 +438,10 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_input("sc-1", &msg),
             te_has_header("sc-1", tip.hash()),
             te_set_block_valid("sc-1", tip.hash(), false),
-            te_get_best_chain_hash("sc-1"),
-            te_load_header("sc-1", prep.headers.h1.hash(), true),
-            te_load_header("sc-1", prep.headers.h1.hash(), false),
+            te_get_anchor_hash("sc-1"),
+            te_get_children("sc-1", ORIGIN_HASH),
+            te_load_header("sc-1", prep.headers.h0.hash(), true),
+            te_get_children("sc-1", prep.headers.h0.hash()),
             te_load_header("sc-1", prep.headers.h1.hash(), true),
             te_get_children("sc-1", prep.headers.h1.hash()),
             te_load_header("sc-1", prep.headers.h2a.hash(), true),

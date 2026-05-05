@@ -528,7 +528,6 @@ pub mod tests {
         store: Arc<InMemConsensusStore<BlockHeader>>,
         msg: PointsRangeTestMsg,
     ) -> PointsRangeTestResult {
-        let store: Arc<dyn ChainStore<BlockHeader>> = store.clone();
         run_test(
             |resources| {
                 resources.put::<ResourceHeaderStore>(store.clone());

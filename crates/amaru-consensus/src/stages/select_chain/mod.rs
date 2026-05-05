@@ -222,40 +222,40 @@ impl SelectChain {
     }
 }
 
-/// Return the highest tip candidate that extends the current best chain, together with
+/// Return the highest tip candidate that extends the current anchor, together with
 /// the unknown suffix after the last validated ancestor.
 ///
 /// Example:
 ///
-/// O--A(valid)--B(valid)  best_chain_hash
+/// O--A(valid)--B(valid)  anchor_hash
 ///                     \
-///                      C(?)--D(?)         candidate 1
+///                      C(valid)--D(?)--E(?) candidate 1
 ///                      \
-///                       E(?)--F(invalid)--G(?)  candidate 2, rejected
+///                       H(valid)--I(valid)--J(invalid)  candidate 2, rejected
 ///                       \
-///                       H(?)                candidate 3
+///                       K(?)--L(?) candidate 3
 ///
-/// The candidates are the reachable leaves below `best_chain_hash`: `D`, `G`, and `H`.
-/// The branch ending at `G` is rejected because it contains `F(invalid)`.
-/// Between `D` and `H`, the highest tip wins according to `cmp_tip`.
+/// The candidates are the reachable leaves below `anchor_hash`: `E`, `J`, and `L`.
+/// The branch ending at `J` is rejected because it is `invalid`.
+/// Between `E` and `L`, the highest tip wins according to `cmp_tip`.
 ///
-/// If `D` wins, this returns:
-/// `(D, [C, D])` since `C` and `D` have not-yet-validated blocks.
+/// If `L` wins, this returns:
+/// `(L, [K, L])` since `K` and `L` have not-yet-validated blocks.
 pub async fn best_tip_from_store(store: &Store) -> anyhow::Result<Option<(BlockHeader, Vec<HeaderHash>)>> {
-    let best_chain_hash = store.get_best_chain_hash().await;
-    if best_chain_hash != ORIGIN_HASH && store.load_header_with_validity(&best_chain_hash).await.is_none() {
-        return Err(anyhow!("best chain hash {best_chain_hash} does not resolve to a stored header"));
-    }
+    let anchor_hash = store.get_anchor_hash().await;
 
     let mut best_candidate = None;
 
     // ORIGIN_HASH cannot have a block, so we start from its direct children
-    let mut to_visit = if best_chain_hash == ORIGIN_HASH {
-        store.get_children(&best_chain_hash).await.into_iter().collect()
+    let mut to_visit = if anchor_hash == ORIGIN_HASH {
+        store.get_children(&anchor_hash).await.into_iter().collect()
     } else {
-        // If the best chain hash is not origin, we have a first best candidate.
-        best_candidate = store.load_header(&best_chain_hash).await;
-        vec![best_chain_hash]
+        // If the anchor hash is not origin, we have a first best candidate.
+        best_candidate = store.load_header(&anchor_hash).await;
+        if best_candidate.is_none() {
+            return Err(anyhow!("anchor hash {anchor_hash} does not resolve to a stored header"));
+        }
+        vec![anchor_hash]
     };
 
     while let Some(hash) = to_visit.pop() {
@@ -274,21 +274,18 @@ pub async fn best_tip_from_store(store: &Store) -> anyhow::Result<Option<(BlockH
         // Continue the traversal with all direct descendants of the current header.
         let children = store.get_children(&hash).await;
 
-        if children.is_empty()
-            && best_candidate.as_ref().is_none_or(|current| cmp_tip(Some(&header), Some(current)).is_gt())
-        {
+        if cmp_tip(Some(&header), best_candidate.as_ref()).is_gt() {
             best_candidate = Some(header);
-        } else {
-            // Propagate the updated suffix state to each child branch.
-            to_visit.extend(children);
         }
+        to_visit.extend(children);
     }
 
     if let Some(best_candidate) = best_candidate {
-        let (best_missing, is_valid) = store.unvalidated_ancestor_hashes(best_candidate.hash()).await;
-        return if is_valid { Ok(Some((best_candidate, best_missing))) } else { Ok(None) };
+        let (best_missing, _) = store.unvalidated_ancestor_hashes(best_candidate.hash()).await;
+        Ok(Some((best_candidate, best_missing)))
+    } else {
+        Ok(None)
     }
-    Ok(None)
 }
 
 /// Return the point of the parent of `header`, or `Point::Origin` if it has no parent.

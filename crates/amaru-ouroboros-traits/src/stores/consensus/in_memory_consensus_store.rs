@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, NonEmptyVec, Point, RawBlock};
+use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, NonEmptyVec, ORIGIN_HASH, Point, RawBlock};
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 
@@ -157,12 +157,11 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
         let hash = header.hash();
         let mut inner = self.inner.lock().unwrap();
         inner.headers.insert(hash, header.clone());
-        if let Some(parent) = header.parent() {
-            let children = inner.parent_child_relationship.entry(parent).or_default();
-            if !children.contains(&hash) {
-                children.push(hash);
-            }
-        }
+        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+        let children = inner.parent_child_relationship.entry(parent_hash).or_default();
+        if !children.contains(&hash) {
+            children.push(hash);
+        };
         Ok(())
     }
 

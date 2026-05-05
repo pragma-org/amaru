@@ -444,10 +444,9 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
 
         let hash = header.hash();
         let tx = self.db.transaction();
-        if let Some(parent) = header.parent() {
-            tx.put([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat(), [])
-                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-        };
+        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+        tx.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), [])
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
         tx.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header))
             .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
         tx.commit().map_err(|e| StoreError::WriteError { error: e.to_string() })
@@ -683,6 +682,19 @@ pub mod test {
             children.sort();
             let mut expected = vec![chain[2].hash(), h3.hash()];
             expected.sort();
+            assert_eq!(children, expected);
+        })
+    }
+
+    #[test]
+    fn store_parent_children_relationship_for_first_header() {
+        with_db(|db| {
+            // ORIGIN_HASH -> h0
+            let chain = run_strategy(any_headers_chain(1));
+            db.store_header(&chain[0]).unwrap();
+
+            let children = db.get_children(&ORIGIN_HASH);
+            let expected = vec![chain[0].hash()];
             assert_eq!(children, expected);
         })
     }
