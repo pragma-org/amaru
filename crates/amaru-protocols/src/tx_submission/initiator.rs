@@ -90,7 +90,20 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         let mempool = MemoryPool::new(eff.clone());
         let action = match input {
-            InitiatorLocalIn::WaitForAtLeastReached => self.complete_request_tx_ids_blocking(&mempool).await?,
+            InitiatorLocalIn::WaitForAtLeastReached => {
+                let action = self.complete_request_tx_ids_blocking(&mempool).await?;
+                if action.is_none() {
+                    // Mempool reached the expected seq_no but the tx was removed before we could read it
+                    // Send a new wait message with the last_seq_no next value
+                    let seq_no = mempool.last_seq_no().await.next();
+                    eff.send(
+                        &self.mempool_stage,
+                        MempoolMsg::WaitForAtLeast { seq_no, caller: self.wait_for_at_least_callback.clone() },
+                    )
+                    .await;
+                }
+                action
+            }
         };
         Ok((action, self))
     }
@@ -322,16 +335,23 @@ impl TxSubmissionInitiator {
         Ok(seq_no)
     }
 
-    /// Drop the internal pending request and return the new transaction ids
+    /// Drop the internal pending request and return the new transaction ids.
+    /// Returns `Ok(None)` when no ids are available (the awaited tx was removed before we read
+    /// it); the pending request is left in place so the caller can re-arm the wait.
     async fn complete_request_tx_ids_blocking(
         &mut self,
         mempool: &dyn AsyncMempool,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        let Some(PendingBlockingRequest { req }) = self.pending_blocking_request.take() else {
+        let Some(PendingBlockingRequest { req }) = self.pending_blocking_request.as_ref() else {
             anyhow::bail!("missing pending blocking request")
         };
+        let req = *req;
 
         let tx_ids = self.get_next_tx_ids(mempool, req).await?;
+        if tx_ids.is_empty() {
+            return Ok(None);
+        }
+        self.pending_blocking_request = None;
         Ok(Some(InitiatorAction::SendReplyTxIds(tx_ids)))
     }
 
@@ -553,6 +573,30 @@ mod tests {
         TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local)?;
         assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
         assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, Some(reply_tx_ids(&txs, &[0])));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn blocking_request_keeps_pending_when_tx_was_removed() -> anyhow::Result<()> {
+        let mempool = new_mempool();
+        let txs = create_transactions(1);
+        let (_, mut initiator) = TxSubmissionInitiator::new(StageRef::blackhole(), StageRef::blackhole());
+
+        let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
+
+        let tx_id = TxId::from(&txs[0]);
+        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local)?;
+        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[tx_id])?;
+        // the last seq_no is greater than the requested seq_no
+        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
+
+        // yet we don't complete the request because the mempool is empty
+        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, None);
+        assert!(
+            initiator.pending_blocking_request.is_some(),
+            "the request is still pending because no tx can satisfy it"
+        );
 
         Ok(())
     }
