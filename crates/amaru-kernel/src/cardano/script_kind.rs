@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{MemoizedScript, PlutusVersion};
+use crate::{Language, MemoizedScript, PlutusVersion};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ScriptKind {
@@ -26,6 +26,12 @@ impl ScriptKind {
     pub fn is_native_script(&self) -> bool {
         matches!(self, Self::Native)
     }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ScriptKindError {
+    #[error("native scripts have no associated Plutus language")]
+    NotAPlutusLanguage,
 }
 
 impl From<PlutusVersion> for ScriptKind {
@@ -45,6 +51,19 @@ impl From<&MemoizedScript> for ScriptKind {
             MemoizedScript::PlutusV1Script(..) => ScriptKind::PlutusV1,
             MemoizedScript::PlutusV2Script(..) => ScriptKind::PlutusV2,
             MemoizedScript::PlutusV3Script(..) => ScriptKind::PlutusV3,
+        }
+    }
+}
+
+impl TryFrom<ScriptKind> for Language {
+    type Error = ScriptKindError;
+
+    fn try_from(kind: ScriptKind) -> Result<Self, Self::Error> {
+        match kind {
+            ScriptKind::PlutusV1 => Ok(Language::PlutusV1),
+            ScriptKind::PlutusV2 => Ok(Language::PlutusV2),
+            ScriptKind::PlutusV3 => Ok(Language::PlutusV3),
+            ScriptKind::Native => Err(ScriptKindError::NotAPlutusLanguage),
         }
     }
 }

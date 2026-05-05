@@ -19,8 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, ProtocolParameters, ProtocolVersion,
-    RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, decode_plutus_script, script_purpose_to_string,
+    ExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, PlutusScript, ProtocolParameters,
+    ProtocolVersion, RedeemerKey, RequiredScript, ScriptIntegrityData, ScriptKind, ScriptPurpose, WitnessSet,
+    decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
@@ -77,6 +78,15 @@ pub enum InvalidScripts {
 
     #[error("transaction execution units exceeded: provided {provided:?}, max {max:?}")]
     TooManyExUnits { provided: ExUnits, max: ExUnits },
+
+    #[error(
+        "script integrity hash mismatch: supplied {supplied:?}, expected {}",
+        format_expected_integrity(.expected.as_deref())
+    )]
+    ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Box<ScriptIntegrityData>> },
+
+    #[error("no cost model in protocol parameters for language used by transaction: {0:?}")]
+    MissingCostModel(Language),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -84,6 +94,7 @@ pub fn execute<C>(
     context: &mut C,
     witness_set: &WitnessSet,
     protocol_parameters: &ProtocolParameters,
+    script_data_hash: Option<Hash<32>>,
 ) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
@@ -128,9 +139,42 @@ where
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
 
-    // FIXME: evaluate scripts (phase-2)
+    let languages: Vec<Language> =
+        provided_scripts.values().copied().filter_map(|kind| Language::try_from(kind).ok()).collect();
+
+    for lang in &languages {
+        let has_cost_model = match lang {
+            Language::PlutusV1 => protocol_parameters.cost_models.plutus_v1.is_some(),
+            Language::PlutusV2 => protocol_parameters.cost_models.plutus_v2.is_some(),
+            Language::PlutusV3 => protocol_parameters.cost_models.plutus_v3.is_some(),
+        };
+        if !has_cost_model {
+            return Err(InvalidScripts::MissingCostModel(lang.clone()));
+        }
+    }
+
+    // NOTE: Two conformance tests ("PlutusV3 Initialization/Updating CostModels ...") fail this
+    // check because they contain multi-epoch test vectors where governance actions update the cost
+    // models mid-test. The test harness loads protocol parameters once at the start and doesn't
+    // update them at epoch boundaries, so later transactions are validated against stale cost
+    // models, producing a different script integrity hash.
+    let expected = ScriptIntegrityData::from_witness_set(witness_set, protocol_parameters, &languages);
+    let expected_hash = expected.as_ref().map(ScriptIntegrityData::hash);
+    if script_data_hash != expected_hash {
+        return Err(InvalidScripts::ScriptIntegrityHashMismatch {
+            supplied: script_data_hash,
+            expected: expected.map(Box::new),
+        });
+    }
 
     Ok(())
+}
+
+fn format_expected_integrity(expected: Option<&ScriptIntegrityData>) -> String {
+    match expected {
+        Some(data) => format!("{} (computed from: {data})", data.hash()),
+        None => "none".to_string(),
+    }
 }
 
 fn fail_on_too_many_ex_units(
@@ -459,8 +503,8 @@ fn collect_plutus_witness_scripts<const V: usize>(
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion, WitnessSet,
-        include_cbor,
+        CostModels, ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
+        TransactionBody, WitnessSet, include_cbor, include_json,
     };
     use test_case::test_case;
 
@@ -471,33 +515,96 @@ mod tests {
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS.protocol_version
     }
 
+    fn protocol_parameters_with_cost_models(cost_models: CostModels) -> ProtocolParameters {
+        let mut pp = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
+        pp.cost_models = cost_models;
+        pp
+    }
+
     macro_rules! fixture {
         ($hash:literal) => {
             (
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+                {
+                    let tx: TransactionBody = include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor"));
+                    tx.script_data_hash
+                },
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, with_pp) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+                {
+                    let tx: TransactionBody = include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor"));
+                    tx.script_data_hash
+                },
+                protocol_parameters_with_cost_models(include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/cost-models.json"
+                ))),
             )
         };
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+                {
+                    let tx: TransactionBody = include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor"));
+                    tx.script_data_hash
+                },
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $variant:literal, with_tx) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                {
+                    let tx: TransactionBody =
+                        include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor"));
+                    tx.script_data_hash
+                },
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $variant:literal, with_pp) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                {
+                    let tx: TransactionBody = include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor"));
+                    tx.script_data_hash
+                },
+                protocol_parameters_with_cost_models(include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/cost-models.json"
+                ))),
             )
         };
         ($hash:literal, $pp:expr) => {
-            (fixture_context!($hash), include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")), $pp)
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+                None::<amaru_kernel::Hash<32>>,
+                $pp,
+            )
         };
     }
     #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
     #[test_case(fixture!("ebd7cda7805bc5b89c0fb3c8ad44f6549ab72c1040eb47019146e3f5f98298e1"); "native script locked with datum")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e"); "happy path")]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output", with_tx);
         "supplemental datum output"
     )]
-    #[test_case(fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc"); "reference script in inputs")]
-    #[test_case(fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts"); "proposal script")]
+    #[test_case(fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc", with_pp); "reference script in inputs")]
+    #[test_case(fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts", with_pp); "proposal script")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-scripts") =>
         matches Err(InvalidScripts::MissingRequiredScripts(..));
         "missing required scripts"
@@ -535,9 +642,14 @@ mod tests {
         "too many ex units"
     )]
     fn test_scripts(
-        (mut ctx, witness_set, protocol_parameters): (AssertValidationContext, WitnessSet, ProtocolParameters),
+        (mut ctx, witness_set, script_data_hash, protocol_parameters): (
+            AssertValidationContext,
+            WitnessSet,
+            Option<amaru_kernel::Hash<32>>,
+            ProtocolParameters,
+        ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, &protocol_parameters)
+        super::execute(&mut ctx, &witness_set, &protocol_parameters, script_data_hash)
     }
 
     #[test]

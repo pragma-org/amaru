@@ -14,14 +14,14 @@
 
 use std::{borrow::Cow, collections::BTreeMap};
 
-use crate::{ExUnits, PlutusData, RedeemerKey, Redeemers};
+use crate::{ExUnits, PallasRedeemers, PlutusData, RedeemerKey, Redeemers};
 
 pub trait HasRedeemers {
     fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)>;
 
     /// Stream the deduplicated redeemers without forcing the caller to materialize the full
     /// [`BTreeMap`]. Dedup semantics match [`HasRedeemers::redeemers`] (Haskell `Map.fromList`,
-    /// last value wins for [`Redeemers::List`]).
+    /// last value wins for [`PallasRedeemers::List`]).
     fn iter_unique(&self) -> impl Iterator<Item = (Cow<'_, RedeemerKey>, &ExUnits, &PlutusData)> {
         self.redeemers().into_iter().map(|(k, (ex, data))| (k, ex, data))
     }
@@ -43,8 +43,8 @@ impl HasRedeemers for Redeemers {
     ///
     /// <https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert>
     fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)> {
-        match self {
-            Redeemers::List(list) => list
+        match self.as_ref() {
+            PallasRedeemers::List(list) => list
                 .iter()
                 .map(|redeemer| {
                     (
@@ -53,7 +53,7 @@ impl HasRedeemers for Redeemers {
                     )
                 })
                 .collect(),
-            Redeemers::Map(map) => {
+            PallasRedeemers::Map(map) => {
                 map.iter().map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data))).collect()
             }
         }

@@ -43,6 +43,8 @@ pub mod ex_units;
 pub mod ex_units_prices;
 pub mod governance_action;
 pub mod hash;
+pub mod language_view;
+pub mod script_integrity_data;
 // TODO: BlockHeader vs Header
 //
 // We have two types that seemingly fulfill the same function. They shall be unified.
