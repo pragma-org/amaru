@@ -23,15 +23,15 @@ use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
 use amaru_ouroboros::{ChainStore, Nonces};
 use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
-use async_compression::tokio::bufread::GzipDecoder;
+use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
 use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tar::Archive;
 use tokio::{
     fs::{self, File},
-    io::BufReader,
+    io::AsyncWriteExt,
 };
-use tokio_util::io::StreamReader;
 use tracing::info;
 
 use crate::{
@@ -59,8 +59,12 @@ pub enum BootstrapError {
     #[error("Missing configuration file {0}")]
     MissingConfigFile(PathBuf),
 
-    #[error("Failed to parse snapshots JSON file {0}")]
-    MalformedSnapshotsFile(serde_json::Error),
+    #[error("Failed to parse snapshots JSON file {}: {source}", path.display())]
+    MalformedSnapshotsFile {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
 
     #[error("Can not create snapshots directory {0}: {1}")]
     CreateSnapshotsDir(PathBuf, io::Error),
@@ -99,8 +103,8 @@ fn bootstrap_snapshots(network: NetworkName) -> Result<(PathBuf, Vec<Snapshot>),
     let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
     let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
         .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
-    let snapshots: Vec<Snapshot> =
-        serde_json::from_slice(&snapshots_file).map_err(BootstrapError::MalformedSnapshotsFile)?;
+    let snapshots: Vec<Snapshot> = serde_json::from_slice(&snapshots_file)
+        .map_err(|source| BootstrapError::MalformedSnapshotsFile { path: snapshot_file_name.into(), source })?;
 
     Ok((snapshots_dir, snapshots))
 }
@@ -170,7 +174,8 @@ async fn download_snapshots(snapshots: &[Snapshot], snapshots_dir: &Path) -> Res
 
         info!(epoch = %snapshot.epoch, point = %snapshot.point, "downloading snapshot");
 
-        let target_path = snapshots_dir.join(format!("{}.cbor", snapshot.point));
+        let archive_path = snapshots_dir.join(format!("{}.download.partial", snapshot.point));
+        let extract_path = snapshots_dir.join(format!(".{}.extract.partial", snapshot.point));
 
         let response = client
             .get(&snapshot.url)
@@ -182,29 +187,79 @@ async fn download_snapshots(snapshots: &[Snapshot], snapshots_dir: &Path) -> Res
             return Err(BootstrapError::DownloadInvalidStatusCode(snapshot.url.clone(), response.status()));
         }
 
-        let (tmp_path, file) = uncompress_to_temp_file(&target_path, response).await?;
+        let mut file = File::create(&archive_path).await?;
+        download_to_file(&mut file, response).await?;
         file.sync_all().await?;
-        fs::rename(tmp_path, &target_path).await?;
+        drop(file);
 
-        info!(snapshot = %target_path.display(), "downloaded snapshot");
+        if let Err(err) = extract_snapshot_archive(&archive_path, &extract_path, &snapshot_dir) {
+            let _ = fs::remove_file(&archive_path).await;
+            let _ = fs::remove_dir_all(&extract_path).await;
+            return Err(err);
+        }
+
+        fs::remove_file(&archive_path).await?;
+
+        info!(snapshot = %snapshot_dir.display(), "downloaded snapshot");
     }
 
     Ok(())
 }
 
-async fn uncompress_to_temp_file(
-    target_path: &Path,
-    response: reqwest::Response,
-) -> Result<(PathBuf, File), BootstrapError> {
-    let tmp_path = target_path.with_extension("partial");
-    let mut file = File::create(&tmp_path).await?;
-    let raw_stream_reader = StreamReader::new(response.bytes_stream().map_err(io::Error::other));
-    let buffered_reader = BufReader::new(raw_stream_reader);
-    let mut decoded_stream = GzipDecoder::new(buffered_reader);
+async fn download_to_file(file: &mut File, response: reqwest::Response) -> Result<(), BootstrapError> {
+    let mut stream = response.bytes_stream();
 
-    tokio::io::copy(&mut decoded_stream, &mut file).await?;
+    while let Some(chunk) = stream.try_next().await.map_err(io::Error::other)? {
+        file.write_all(&chunk).await?;
+    }
 
-    Ok((tmp_path, file))
+    Ok(())
+}
+
+fn extract_snapshot_archive(
+    archive_path: &Path,
+    extract_path: &Path,
+    snapshot_dir: &Path,
+) -> Result<(), BootstrapError> {
+    if extract_path.exists() {
+        std::fs::remove_dir_all(extract_path)?;
+    }
+
+    std::fs::create_dir_all(extract_path)?;
+
+    let archive_file = std::fs::File::open(archive_path)?;
+    let mut archive = Archive::new(GzDecoder::new(archive_file));
+    archive.unpack(extract_path)?;
+
+    let extracted_dir = find_extracted_snapshot_dir(extract_path)?
+        .ok_or_else(|| BootstrapError::MissingSnapshotDirectory(snapshot_dir.to_path_buf()))?;
+
+    if extracted_dir == extract_path {
+        std::fs::rename(extract_path, snapshot_dir)?;
+        return Ok(());
+    }
+
+    std::fs::rename(&extracted_dir, snapshot_dir)?;
+    std::fs::remove_dir_all(extract_path)?;
+
+    Ok(())
+}
+
+fn find_extracted_snapshot_dir(path: &Path) -> Result<Option<PathBuf>, io::Error> {
+    if node_snapshot_paths(path).is_some() {
+        return Ok(Some(path.to_path_buf()));
+    }
+
+    let snapshot_dirs = std::fs::read_dir(path)?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|child| node_snapshot_paths(child).is_some())
+        .collect::<Vec<_>>();
+
+    match snapshot_dirs.as_slice() {
+        [] => Ok(None),
+        [snapshot_dir] => Ok(Some(snapshot_dir.clone())),
+        _ => Err(io::Error::other(format!("multiple snapshot directories extracted from {}", path.display()))),
+    }
 }
 
 /// Set the internal dbs in such a state that amaru can run
@@ -454,10 +509,8 @@ mod tests {
 
     use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Slot};
 
-    use crate::{
-        bootstrap::{snapshot_epoch, sort_snapshots_by_slot},
-        cardano_node::ParsedStateSnapshot,
-    };
+    use super::{snapshot_epoch, sort_snapshots_by_slot};
+    use crate::cardano_node::ParsedStateSnapshot;
 
     #[test]
     fn sort_snapshot_paths_by_slot_number() {
