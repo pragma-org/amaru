@@ -340,14 +340,15 @@ impl TxSubmissionResponder {
         (ack, req, blocking)
     }
 
-    /// Prepare a batch of txs to fetch selecting their tx ids from unacked_ids, and
-    /// making sure we don't go over those 2 limits:
+    /// Prepare a batch of txs to fetch selecting their tx ids from unacked_ids, stopping at the
+    /// first tx that would push the running total past either:
     ///
     /// - the mempool's `is_near_capacity` (otherwise we won't be able to insert them in the mempool)
-    /// - the size of transaction batch
+    /// - the per-batch byte budget `fetch_batch_bytes`
     ///
-    /// Always serves at least one tx so an unusually large advertisement doesn't starve the
-    /// queue. Remaining `Pending` entries are revisited once capacity returns.
+    /// Both limits are larger than the protocol-enforced `max_transaction_size`, so under valid
+    /// Cardano parameters a single Pending tx always fits and remaining entries are revisited
+    /// once capacity returns.
     fn txs_to_request(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Vec<TxId> {
         let mut tx_ids = Vec::new();
         let mut reserved: u64 = 0;
@@ -359,13 +360,7 @@ impl TxSubmissionResponder {
             };
             let next_total = reserved.saturating_add(size as u64);
 
-            // Stop if the mempool won't be able accept this tx
-            if mempool.is_near_capacity(next_total) {
-                break;
-            }
-            // Stop if including this tx would exceed the per-batch byte budget unless this
-            // only transaction is over the budget size. In that case we still request it.
-            if !tx_ids.is_empty() && next_total > budget {
+            if mempool.is_near_capacity(next_total) || next_total > budget {
                 break;
             }
 
