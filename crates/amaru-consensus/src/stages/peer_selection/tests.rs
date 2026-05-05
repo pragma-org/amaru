@@ -30,7 +30,7 @@ use crate::stages::{
 fn test_connect_initial_empty_static_peers() {
     let prep = test_prep_no_static();
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::ConnectInitial;
+    let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
     logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"]).assert_no_remaining_at([
@@ -46,7 +46,7 @@ fn test_connect_initial_adds_each_static_peer_in_order() {
     let p1 = TestPrep::peer("10.0.0.1:1");
     let p2 = TestPrep::peer("10.0.0.2:2");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::ConnectInitial;
+    let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,

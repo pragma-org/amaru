@@ -625,6 +625,29 @@ define_schemas! {
             }
         }
 
+        peer_selection {
+            /// A connection has been established and the handshake completed successfully.
+            /// This is the only moment at which peer_selection learns about a usable connection.
+            public CONNECTED {
+                required peer: String
+                required conn_id: String
+                required direction: String
+                required role: String
+                required full_duplex_capable: bool
+                required full_duplex: bool
+            }
+
+            /// A connection has been terminated (graceful disconnect, error, handshake refusal,
+            /// or network error). Reconnection logic (if applicable) is still owned by the Manager.
+            public DISCONNECTED {
+                required peer: String
+                required conn_id: String
+                required direction: String
+                required role: String
+                optional reason: String
+            }
+        }
+
         chainsync {
             initiator {
                 /// Handle chain sync initiator stage messages

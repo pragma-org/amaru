@@ -68,4 +68,10 @@ impl fmt::Display for ConnectionId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ConnectionDirection {
+    Inbound,
+    Outbound,
+}
+
 pub type ConnectionsResource = Arc<dyn ConnectionProvider>;

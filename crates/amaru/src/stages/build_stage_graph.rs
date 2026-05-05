@@ -58,12 +58,29 @@ pub fn build_stage_graph(
     let peer_selection_ref = peer_selection.sender();
 
     let static_peers: BTreeSet<Peer> = config.upstream_peers.iter().map(|s| Peer::new(s)).collect();
-    let peer_selection = stage_graph
-        .wire_up(peer_selection, PeerSelection::new(manager.sender(), static_peers, config.peer_removal_cooldown_secs));
+    let peer_selection = stage_graph.wire_up(
+        peer_selection,
+        PeerSelection::new(
+            manager.sender(),
+            static_peers,
+            config.target_upstream_peers,
+            config.target_downstream_peers,
+            config.peer_removal_cooldown_secs,
+        ),
+    );
 
     let peer_selection_notify =
         stage_graph.contramap(&peer_selection_ref, "peer_selection_notify", |n: PeerSelectionNotify| match n {
-            PeerSelectionNotify::DownstreamConnected(p) => PeerSelectionMsg::DownstreamConnected(p),
+            PeerSelectionNotify::Connected { peer, conn_id, direction, full_duplex_capable, full_duplex } => {
+                PeerSelectionMsg::Connected(
+                    peer,
+                    peer_selection::Connection::new(conn_id, full_duplex_capable, full_duplex),
+                    direction,
+                )
+            }
+            PeerSelectionNotify::Disconnected { peer, conn_id: _, direction, role: _, reason: _ } => {
+                PeerSelectionMsg::Disconnected(peer, direction)
+            }
         });
 
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);
@@ -127,7 +144,7 @@ pub fn build_stage_graph(
 
     #[expect(clippy::expect_used)]
     stage_graph
-        .preload(&peer_selection, [PeerSelectionMsg::ConnectInitial])
+        .preload(&peer_selection, [PeerSelectionMsg::Initialize])
         .expect("initialization message must be preloaded");
 
     let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
