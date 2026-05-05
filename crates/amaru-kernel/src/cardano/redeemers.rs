@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
 pub use pallas_primitives::conway::Redeemers as PallasRedeemers;
 
 use crate::{Bytes, cbor, empty_bytes};
@@ -49,10 +47,8 @@ impl Redeemers {
     }
 }
 
-impl Deref for Redeemers {
-    type Target = PallasRedeemers;
-
-    fn deref(&self) -> &Self::Target {
+impl AsRef<PallasRedeemers> for Redeemers {
+    fn as_ref(&self) -> &PallasRedeemers {
         &self.inner
     }
 }

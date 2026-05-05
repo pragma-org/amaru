@@ -72,7 +72,7 @@ pub use cardano::{
     header_body::HeaderBody,
     int::Int,
     language::Language,
-    language_view::LanguageView,
+    language_view::{LanguageView, compute_script_integrity_hash},
     lovelace::Lovelace,
     memoized::{
         MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
