@@ -17,9 +17,8 @@ use std::{error::Error, path::PathBuf};
 use amaru_kernel::NetworkName;
 use include_dir::{Dir, include_dir};
 
-use crate::bootstrap::{BootstrapError, InitialNonces};
-
 pub mod bootstrap;
+pub mod cardano_node;
 pub mod exit;
 pub mod metrics;
 pub mod observability;
@@ -67,15 +66,6 @@ pub fn default_snapshots_dir(network: NetworkName) -> String {
 
 pub fn default_data_dir(network: NetworkName) -> String {
     format!("{}/{}", DEFAULT_CONFIG_DIR, network.to_string().to_lowercase())
-}
-
-pub fn default_initial_nonces(network: NetworkName) -> Result<InitialNonces, Box<dyn Error>> {
-    let default_nonces_file_name = "nonces.json";
-
-    let nonces_file = get_bootstrap_file(network, default_nonces_file_name)?
-        .ok_or(BootstrapError::MissingConfigFile(default_nonces_file_name.into()))?;
-
-    Ok(serde_json::from_slice(nonces_file.as_slice())?)
 }
 
 pub fn get_bootstrap_file(network: NetworkName, name: &str) -> Result<Option<Vec<u8>>, Box<dyn Error>> {

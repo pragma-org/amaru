@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::Read,
     iter,
     rc::Rc,
     sync::LazyLock,
@@ -42,7 +43,51 @@ static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> = LazyLock::new
     certificate_index: 0,
 });
 
-/// (Partially) decode a Haskell cardano-node's 'NewEpochState'
+#[derive(Debug, thiserror::Error)]
+enum InitialSnapshotFormatError {
+    #[error("invalid initial snapshot payload: expected an epoch prefix")]
+    MissingEpochPrefix,
+
+    #[error("invalid initial snapshot payload: expected epoch {expected} from the snapshot point, got {actual}")]
+    UnexpectedEpoch { expected: Epoch, actual: Epoch },
+
+    #[error("invalid initial snapshot payload: expected a previous-blocks map immediately after the epoch")]
+    MissingPreviousBlocksMap,
+}
+
+fn decode_initial_snapshot_prefix(
+    d: &mut cbor::Decoder<'_>,
+    expected_epoch: Epoch,
+) -> Result<Epoch, Box<dyn std::error::Error>> {
+    use cbor::data::Type::{Map, MapIndef};
+
+    d.array()?;
+
+    let epoch = d
+        .u64()
+        .map(Epoch::from)
+        .map_err(|_| Box::new(InitialSnapshotFormatError::MissingEpochPrefix) as Box<dyn std::error::Error>)?;
+
+    if epoch != expected_epoch {
+        return Err(Box::new(InitialSnapshotFormatError::UnexpectedEpoch { expected: expected_epoch, actual: epoch }));
+    }
+
+    if !matches!(d.datatype()?, Map | MapIndef) {
+        return Err(Box::new(InitialSnapshotFormatError::MissingPreviousBlocksMap));
+    }
+
+    Ok(epoch)
+}
+
+fn skip_fields(d: &mut cbor::Decoder<'_>, count: usize) -> Result<(), cbor::decode::Error> {
+    for _ in 0..count {
+        d.skip()?;
+    }
+
+    Ok(())
+}
+
+/// (Partially) decode a cardano-node `NewEpochState` payload.
 ///
 /// -> <https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345>
 ///
@@ -50,30 +95,30 @@ static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> = LazyLock::new
 #[allow(clippy::too_many_arguments)]
 pub fn import_initial_snapshot(
     db: &impl Store,
-    file: &mut std::fs::File,
+    reader: &mut dyn Read,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
-    // A way to notify progress while importing. The second argument is a template argument, which
-    // follows the format described in:
-    //
-    // https://docs.rs/indicatif/latest/indicatif/index.html#templates
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-    // Assumes the presence of fully computed rewards when set.
+    decode_pool_state: for<'a> fn(
+        &mut cbor::Decoder<'a>,
+        NetworkName,
+    ) -> Result<
+        (BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>),
+        cbor::decode::Error,
+    >,
+    pool_state_tail_skips: usize,
+    decode_accounts: for<'a> fn(
+        &mut cbor::Decoder<'a>,
+    ) -> Result<BTreeMap<StakeCredential, Account>, cbor::decode::Error>,
+    delegation_state_tail_skips: usize,
     has_rewards: bool,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
-    let mut decoder = LazyDecoder::from_file(file);
+    let mut decoder = LazyDecoder::new(reader);
+    let tip = point.slot_or_default();
+    let expected_epoch = era_history.slot_to_epoch(tip, tip)?;
 
-    let epoch: Epoch = decoder.with_decoder(|d| {
-        d.array()?;
-
-        // EpochNo
-        let epoch = Epoch::from(d.u64()?);
-        let tip = point.slot_or_default();
-        assert_eq!(epoch, era_history.slot_to_epoch(tip, tip)?);
-
-        Ok(epoch)
-    })?;
+    let epoch: Epoch = decoder.with_decoder(|d| decode_initial_snapshot_prefix(d, expected_epoch))?;
 
     // NOTE(INITIAL_BOOTSTRAP):
     // We use the current blocks made here as we assume that users are providing snapshots of the
@@ -86,7 +131,7 @@ pub fn import_initial_snapshot(
 
         Ok(d.decode()?)
     })?;
-    import_block_issuers(db, era_history, block_issuers)?;
+    import_block_issuers(db, point, era_history, block_issuers)?;
 
     let (treasury, reserves): (i64, i64) = decoder.with_decoder(|d| {
         // Epoch State
@@ -122,56 +167,37 @@ pub fn import_initial_snapshot(
         Ok(governance_activity)
     })?;
 
-    let (pools, pools_updates, pools_retirements): (
-        BTreeMap<PoolId, PoolParams>,
-        BTreeMap<PoolId, PoolParams>,
-        BTreeMap<PoolId, Epoch>,
-    ) = decoder.with_decoder(|d| {
-        // Epoch State / Ledger State / Cert State / Pool State
-        d.array()?;
+    let (pools, pools_updates, pools_retirements) = decoder
+        .with_decoder(|d| Ok(decode_pool_state(d, network)?))
+        .map_err(|err| format!("decode pool state: {err}"))?;
+    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
+        .map_err(|err| format!("import pool state: {err}"))?;
 
-        Ok((d.decode()?, d.decode()?, d.decode()?))
-    })?;
-    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)?;
+    decoder
+        .with_decoder(|d| Ok(skip_fields(d, pool_state_tail_skips)?))
+        .map_err(|err| format!("skip pool state tail: {err}"))?;
 
-    // Deposits
-    decoder.skip()?;
+    let accounts = decoder
+        .with_decoder(|d| {
+            // Epoch State / Ledger State / Cert State / Delegation state
+            d.array()?;
+            Ok(decode_accounts(d)?)
+        })
+        .map_err(|err| format!("decode accounts: {err}"))?;
 
-    let accounts: BTreeMap<StakeCredential, Account> = decoder.with_decoder(|d| {
-        // Epoch State / Ledger State / Cert State / Delegation state
-        d.array()?;
+    decoder
+        .with_decoder(|d| Ok(skip_fields(d, delegation_state_tail_skips)?))
+        .map_err(|err| format!("skip delegation state tail: {err}"))?;
 
-        // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
-        d.array()?;
+    import_utxo(&mut decoder, db, &with_progress, point, era_history, network)
+        .map_err(|err| format!("import embedded utxo: {err}"))?;
 
-        // credentials
-        let accounts = d.decode()?;
-
-        // pointers
-        d.skip()?;
-
-        Ok(accounts)
-    })?;
-
-    decoder.with_decoder(|d| {
-        // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
-        d.skip()?;
-
-        // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
-        d.skip()?;
-
-        // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
-        d.skip()?;
-
-        Ok(())
-    })?;
-
-    import_utxo(&mut decoder, db, &with_progress, point, era_history, network)?;
-
-    let fees: i64 = decoder.with_decoder(|d| {
-        let _deposited: u64 = d.decode()?;
-        Ok(d.decode()?)
-    })?;
+    let fees: i64 = decoder
+        .with_decoder(|d| {
+            let _deposited: u64 = d.decode()?;
+            Ok(d.decode()?)
+        })
+        .map_err(|err| format!("decode fees: {err}"))?;
 
     let (root_params, root_hard_fork, root_cc, root_constitution) = decoder.with_decoder(|d| {
         // Epoch State / Ledger State / UTxO State / utxosGovState
@@ -281,9 +307,50 @@ pub fn import_initial_snapshot(
             (fees - delta_fees) as u64,
         )?;
     } else {
-        decoder.skip()?;
-        decoder.skip()?;
-        decoder.skip()?;
+        let is_complete = decoder
+            .with_decoder(|d| {
+                let mut probe = d.probe();
+                let is_complete = (|| -> Option<()> {
+                    probe.array().ok()?;
+                    probe.array().ok()?;
+                    (probe.u32().ok()? == 1).then_some(())
+                })()
+                .is_some();
+
+                if is_complete {
+                    d.array()?;
+                    d.array()?;
+                    d.u32()?;
+                    d.array()?;
+                }
+
+                Ok(is_complete)
+            })
+            .map_err(|err| format!("decode rewards update: {err}"))?;
+
+        let (delta_treasury, delta_reserves, mut rewards, delta_fees) = if is_complete {
+            let delta_treasury: i64 = decoder.decode()?;
+            let delta_reserves: i64 = decoder.decode()?;
+            let rewards: BTreeMap<StakeCredential, Set<Reward>> = decoder.decode()?;
+            let delta_fees: i64 = decoder.decode()?;
+            decoder.skip()?;
+            (delta_treasury, delta_reserves, rewards, delta_fees)
+        } else {
+            (0_i64, 0_i64, BTreeMap::new(), 0_i64)
+        };
+
+        import_accounts(db, &with_progress, point, era_history, &protocol_parameters, accounts, &mut rewards)?;
+
+        let unclaimed_rewards = rewards.into_iter().fold(0_u64, |total, (_, rewards)| {
+            total + rewards.into_iter().fold(0, |inner, reward| inner + reward.amount)
+        });
+
+        import_pots(
+            db,
+            (treasury + delta_treasury) as u64 + unclaimed_rewards,
+            (reserves - delta_reserves) as u64,
+            (fees - delta_fees) as u64,
+        )?;
     }
 
     // NOTE(INITIAL_BOOTSTRAP):
@@ -348,6 +415,7 @@ fn import_protocol_parameters(
 
 fn import_block_issuers(
     db: &impl Store,
+    _point: &Point,
     era_history: &EraHistory,
     blocks: BTreeMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -393,7 +461,7 @@ fn import_block_issuers(
 fn import_utxo(
     decoder: &mut LazyDecoder<'_>,
     db: &impl Store,
-    with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+    with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
@@ -405,11 +473,9 @@ fn import_utxo(
     let size: Option<usize> = decoder.with_decoder(|d| {
         d.array()?;
         let size = d.map()?;
-        Ok(size.map(|s| s as usize))
+        Ok(size.map(|entry_count| entry_count as usize))
     })?;
 
-    // Get the size from the serialised snapshot, or give a broad estimate. It's only used for
-    // reporting progress.
     let estimated_size = size.unwrap_or(match network {
         NetworkName::Mainnet => 11_000_000,
         NetworkName::Preview => 1_500_000,
@@ -419,15 +485,11 @@ fn import_utxo(
 
     let progress = with_progress(estimated_size, "  UTxO entries {bar:70} {pos:>7}/{len:7}");
 
-    let mut actual_size: usize = 0;
+    let mut actual_size = 0_usize;
     loop {
         let (done, utxo) = decoder.with_decoder(|d| {
             let mut done = false;
             let mut utxo = BTreeMap::new();
-
-            type I = TransactionInput;
-            type O = MemoizedTransactionOutput;
-
             let mut chunk_size = 0;
 
             loop {
@@ -437,22 +499,22 @@ fn import_utxo(
                     break;
                 }
 
-                if size.is_some_and(|s| actual_size + chunk_size >= s) {
+                if size.is_some_and(|entry_count| actual_size + chunk_size >= entry_count) {
                     done = true;
                     break;
                 }
 
                 let mut probe = d.probe();
+                let io = probe
+                    .decode::<TransactionInput>()
+                    .and_then(|input| probe.decode::<MemoizedTransactionOutput>().map(|output| (input, output)));
 
-                let io = probe.decode::<I>().and_then(|i| probe.decode::<O>().map(|o| (i, o)));
-
-                if let Ok((i, o)) = io {
+                if let Ok((input, output)) = io {
                     chunk_size += 1;
                     d.skip()?;
                     d.skip()?;
-                    utxo.insert(i, o);
+                    utxo.insert(input, output);
                 } else if utxo.is_empty() {
-                    // Request more bytes
                     Err(cbor::decode::Error::end_of_input())?;
                 } else {
                     break;
@@ -470,7 +532,6 @@ fn import_utxo(
             let transaction = db.create_transaction();
             transaction.save(
                 era_history,
-                // TODO: Unused when storing block issuers; require API change.
                 &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
                 &mut default_governance_activity(),
                 point,
@@ -496,7 +557,6 @@ fn import_utxo(
     }
 
     info!(size = actual_size, "utxo");
-
     progress.clear();
 
     Ok(())
@@ -1072,6 +1132,45 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
     }
 }
 
-fn default_governance_activity() -> GovernanceActivity {
+pub fn default_governance_activity() -> GovernanceActivity {
     GovernanceActivity { consecutive_dormant_epochs: 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use amaru_kernel::{Epoch, cbor, to_cbor};
+
+    use super::decode_initial_snapshot_prefix;
+
+    #[test]
+    fn accepts_new_epoch_state_prefix() {
+        let bytes = to_cbor(&(2_u64, BTreeMap::<u8, u8>::new()));
+        let mut decoder = cbor::Decoder::new(&bytes);
+
+        let epoch = decode_initial_snapshot_prefix(&mut decoder, Epoch::from(2)).unwrap();
+
+        assert_eq!(epoch, Epoch::from(2));
+    }
+
+    #[test]
+    fn rejects_unexpected_epoch_prefix() {
+        let bytes = to_cbor(&(2_u64, BTreeMap::<u8, u8>::new()));
+        let mut decoder = cbor::Decoder::new(&bytes);
+
+        let err = decode_initial_snapshot_prefix(&mut decoder, Epoch::from(42)).unwrap_err();
+
+        assert!(err.to_string().contains("expected epoch 42"));
+    }
+
+    #[test]
+    fn rejects_cardano_node_wrapper_shape() {
+        let bytes = to_cbor(&(2_u64, vec![0_u8]));
+        let mut decoder = cbor::Decoder::new(&bytes);
+
+        let err = decode_initial_snapshot_prefix(&mut decoder, Epoch::from(2)).unwrap_err();
+
+        assert!(err.to_string().contains("previous-blocks map"));
+    }
 }
