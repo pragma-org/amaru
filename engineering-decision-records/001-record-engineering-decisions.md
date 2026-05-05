@@ -31,7 +31,9 @@ As demonstrated by this decision record, we'll use the following template for al
 ```markdown
 ---
 type: process | architecture
-status: proposed | accepted | rejected
+status: proposed | accepted | rejected | obsolete
+[supersedes]: <relative URI to EDR>
+[superseded-by]: <relative URI to EDR>
 ---
 
 # <!-- title -->
@@ -52,6 +54,8 @@ status: proposed | accepted | rejected
 
 <!-- Summarizes, a posteriori, the major discussion points around that decisions -->
 ```
+
+Fields `superseded-by` and `supersedes` are optional. The former is only present when status is `obsolete`, and the latter present in a new superseeding EDR.
 
 ## Consequences
 

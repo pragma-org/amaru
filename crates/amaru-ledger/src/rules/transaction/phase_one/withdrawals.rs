@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose, stake_credential_from_reward_account,
+    Lovelace, MemoizedDatum, Network, RequiredScript, RewardAccount, ScriptPurpose, parse_reward_account,
 };
 use thiserror::Error;
 
@@ -28,11 +28,16 @@ use crate::{
 pub enum InvalidWithdrawals {
     #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
     MalformedRewardAccount { bytes: Vec<u8>, context: TransactionField, position: usize },
+    #[error(
+        "network mismatch in reward account in {context:?} at position {position}: expected {expected:?}, received {received:?}"
+    )]
+    NetworkMismatch { expected: Network, received: Network, context: TransactionField, position: usize },
 }
 
 pub(crate) fn execute<C>(
     context: &mut C,
     withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
+    network: Network,
 ) -> Result<(), InvalidWithdrawals>
 where
     C: WitnessSlice + AccountsSlice,
@@ -42,15 +47,23 @@ where
             .into_iter()
             .enumerate()
             .map(|(position, (bytes, st))| {
-                let credential = stake_credential_from_reward_account(&bytes).ok_or_else(|| {
-                    InvalidWithdrawals::MalformedRewardAccount {
+                let (credential, account_network) =
+                    parse_reward_account(&bytes).ok_or_else(|| InvalidWithdrawals::MalformedRewardAccount {
                         bytes: bytes.to_vec(),
                         context: TransactionField::Withdrawals,
                         position,
-                    }
-                })?;
+                    })?;
 
-                Ok((credential, st))
+                if network != account_network {
+                    Err(InvalidWithdrawals::NetworkMismatch {
+                        expected: network,
+                        received: account_network,
+                        context: TransactionField::Withdrawals,
+                        position,
+                    })
+                } else {
+                    Ok((credential, st))
+                }
             })
             // NOTE: Force withdrawals to be sorted by stake credentials
             .collect::<Result<BTreeMap<_, _>, _>>()?
@@ -76,7 +89,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{Network, TransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -116,7 +129,7 @@ mod test {
             || {
                 let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: Default::default() });
 
-                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()))
+                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()), Network::Testnet)
             },
             expected_traces,
         )

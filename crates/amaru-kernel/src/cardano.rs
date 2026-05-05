@@ -67,6 +67,7 @@ pub mod ordered_redeemer;
 pub mod peer;
 pub mod plutus_data;
 pub mod plutus_script;
+pub mod plutus_version;
 pub mod point;
 pub mod pool_metadata;
 pub mod pool_params;

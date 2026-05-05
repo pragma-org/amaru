@@ -214,6 +214,7 @@ pub mod tests {
                 tx.body,
                 &tx_witness_set,
                 tx_auxiliary_data,
+                tx_bytes.len() as u64,
             );
 
             match result {

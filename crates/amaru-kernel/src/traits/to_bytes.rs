@@ -12,17 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Block, ExUnits, HasRedeemers};
+use crate::cbor;
 
-pub trait HasExUnits {
-    fn ex_units(&self) -> impl Iterator<Item = &ExUnits>;
-}
-
-impl HasExUnits for Block {
-    fn ex_units(&self) -> impl Iterator<Item = &ExUnits> {
-        self.transaction_witnesses
-            .iter()
-            .filter_map(|witness_set| witness_set.as_ref().redeemer.as_ref())
-            .flat_map(|redeemers| redeemers.iter_unique().map(|(_, ex_units, _)| ex_units))
-    }
+pub trait ToBytes {
+    fn to_bytes(&self) -> Result<&[u8], cbor::decode::Error>;
 }

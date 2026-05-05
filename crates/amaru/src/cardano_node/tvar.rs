@@ -271,12 +271,12 @@ mod tests {
 
         let legacy = utxos.get(&transaction_input(0x11, 0)).unwrap();
         assert!(legacy.is_legacy);
-        assert_eq!(legacy.value, Value::Coin(42));
+        assert_eq!(legacy.value.as_ref(), &Value::Coin(42));
         assert_eq!(cbor::to_vec(legacy.clone()).unwrap()[0], 0x9f);
 
         let modern = utxos.get(&transaction_input(0x22, 1)).unwrap();
         assert!(!modern.is_legacy);
-        assert_eq!(modern.value, Value::Coin(99));
+        assert_eq!(modern.value.as_ref(), &Value::Coin(99));
         assert_eq!(cbor::to_vec(modern.clone()).unwrap()[0], 0xbf);
     }
 

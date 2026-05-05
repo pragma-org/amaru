@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::MemoizedScript;
+use crate::{MemoizedScript, PlutusVersion};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ScriptKind {
@@ -25,6 +25,16 @@ pub enum ScriptKind {
 impl ScriptKind {
     pub fn is_native_script(&self) -> bool {
         matches!(self, Self::Native)
+    }
+}
+
+impl From<PlutusVersion> for ScriptKind {
+    fn from(version: PlutusVersion) -> Self {
+        match version {
+            PlutusVersion::V1 => ScriptKind::PlutusV1,
+            PlutusVersion::V2 => ScriptKind::PlutusV2,
+            PlutusVersion::V3 => ScriptKind::PlutusV3,
+        }
     }
 }
 

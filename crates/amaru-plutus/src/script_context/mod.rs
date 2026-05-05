@@ -737,7 +737,7 @@ impl<'a> From<&'a MemoizedTransactionOutput> for TransactionOutput<'a> {
         Self {
             is_legacy: output.is_legacy,
             address: Cow::Borrowed(&output.address),
-            value: (&output.value).into(),
+            value: output.value.as_ref().into(),
             datum: (&output.datum).into(),
             script: output.script.as_ref().map(Script::from),
         }
@@ -977,7 +977,8 @@ pub mod test_vectors {
     use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
-        Address, MemoizedDatum, MemoizedTransactionOutput, TransactionInput, include_json, utils::serde::hex_to_bytes,
+        Address, MemoizedDatum, MemoizedTransactionOutput, MemoizedValue, TransactionInput, include_json,
+        utils::serde::hex_to_bytes,
     };
     use serde::Deserialize;
 
@@ -1133,13 +1134,16 @@ pub mod test_vectors {
                         }
                     }
 
-                    Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput {
-                        is_legacy: false,
-                        address: address.ok_or_else(|| serde::de::Error::missing_field("address"))?,
-                        value: value.ok_or_else(|| serde::de::Error::missing_field("value"))?,
+                    let value = value.ok_or_else(|| serde::de::Error::missing_field("value"))?;
+                    let value = MemoizedValue::new(value).map_err(serde::de::Error::custom)?;
+
+                    Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput::new(
+                        false,
+                        address.ok_or_else(|| serde::de::Error::missing_field("address"))?,
+                        value,
                         datum,
                         script,
-                    }))
+                    )))
                 }
             }
 

@@ -20,6 +20,9 @@ use crate::cbor;
 
 pub mod lazy;
 
+mod with_size;
+pub use with_size::*;
+
 // Misc
 // ----------------------------------------------------------------------------
 

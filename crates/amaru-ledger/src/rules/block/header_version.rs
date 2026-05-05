@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,30 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ExUnits, ProtocolParameters, sum_ex_units};
+use amaru_kernel::{Block, ProtocolParameters};
 
 use super::InvalidBlockDetails;
 
-pub fn block_ex_units_valid<'a>(
-    ex_units: impl IntoIterator<Item = &'a ExUnits>,
-    protocol_parameters: &ProtocolParameters,
+pub fn block_header_version_valid(
+    block: &Block,
+    protocol_params: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails> {
-    let pp_max_ex_units = protocol_parameters.max_block_ex_units;
-    let ex_units = ex_units.into_iter().fold(ExUnits { mem: 0, steps: 0 }, sum_ex_units);
-
-    if ex_units.mem <= pp_max_ex_units.mem && ex_units.steps <= pp_max_ex_units.steps {
-        return Ok(());
+    let header_major = block.header.header_body.protocol_version.0;
+    let max_major = protocol_params.protocol_version.0 + 1;
+    if header_major > max_major {
+        return Err(InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major });
     }
-
-    Err(InvalidBlockDetails::TooManyExUnits {
-        provided: ex_units,
-        max: ExUnits { mem: pp_max_ex_units.mem, steps: pp_max_ex_units.steps },
-    })
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Block, ExUnits, HasExUnits, ProtocolParameters, include_cbor};
+    use amaru_kernel::{Block, ProtocolParameters, include_cbor};
     use test_case::test_case;
 
     use crate::rules::block::InvalidBlockDetails;
@@ -52,16 +47,12 @@ mod tests {
         };
     }
 
-    #[test_case(fixture!("2667657"); "valid ex units")]
+    #[test_case(fixture!("2667657"); "valid")]
     #[test_case(fixture!("2667657", ProtocolParameters {
-        max_block_ex_units: ExUnits {
-            mem: 0,
-            steps: 0
-        },
+        protocol_version: (0, 0),
         ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
-    }) => matches Err(InvalidBlockDetails::TooManyExUnits{provided, max: _})
-    if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
-    fn test_ex_units((block, protocol_parameters): (Block, ProtocolParameters)) -> Result<(), InvalidBlockDetails> {
-        super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
+    }) => matches Err(InvalidBlockDetails::HeaderProtVerTooHigh { header_major: 9, max_major: 1 }); "header version too high")]
+    fn test_header_version((block, pp): (Block, ProtocolParameters)) -> Result<(), InvalidBlockDetails> {
+        super::block_header_version_valid(&block, &pp)
     }
 }

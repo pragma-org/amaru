@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, Bytes, Hash, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, Multiasset, MultiassetKeyValuePairs, Network, PlutusScript, PositiveCoin,
+    MemoizedTransactionOutput, MemoizedValue, Multiasset, MultiassetKeyValuePairs, Network, PlutusScript, PositiveCoin,
     ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value,
 };
 
@@ -26,54 +26,54 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
     let mut decoder = Decoder::new(bytes);
 
     match decoder.tag()? {
-        0 => Ok(make_transaction_output(
+        0 => make_transaction_output(
             true,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             MemoizedDatum::None,
             None,
-        )),
-        1 => Ok(make_transaction_output(
+        ),
+        1 => make_transaction_output(
             true,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             MemoizedDatum::Hash(decoder.hash32()?),
             None,
-        )),
+        ),
         2 => {
             let stake = decode_stake_credential(&mut decoder)?;
-            Ok(make_transaction_output(
+            make_transaction_output(
                 true,
                 decode_address28(&mut decoder, stake)?,
                 Value::Coin(decode_compact_coin(&mut decoder)?),
                 MemoizedDatum::None,
                 None,
-            ))
+            )
         }
         3 => {
             let stake = decode_stake_credential(&mut decoder)?;
-            Ok(make_transaction_output(
+            make_transaction_output(
                 true,
                 decode_address28(&mut decoder, stake)?,
                 Value::Coin(decode_compact_coin(&mut decoder)?),
                 MemoizedDatum::Hash(decoder.packed_hash32()?),
                 None,
-            ))
+            )
         }
-        4 => Ok(make_transaction_output(
+        4 => make_transaction_output(
             false,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             MemoizedDatum::Inline(decode_inline_plutus_data(&mut decoder)?),
             None,
-        )),
-        5 => Ok(make_transaction_output(
+        ),
+        5 => make_transaction_output(
             false,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             decode_datum(&mut decoder)?,
             Some(decode_script(&mut decoder)?),
-        )),
+        ),
         tag => Err(format!("unsupported BabbageTxOut mempack tag {tag}")),
     }
 }
@@ -84,8 +84,10 @@ fn make_transaction_output(
     value: Value,
     datum: MemoizedDatum,
     script: Option<MemoizedScript>,
-) -> MemoizedTransactionOutput {
-    MemoizedTransactionOutput { is_legacy, address, value, datum, script }
+) -> Result<MemoizedTransactionOutput, String> {
+    let value = MemoizedValue::new(value)?;
+
+    Ok(MemoizedTransactionOutput::new(is_legacy, address, value, datum, script))
 }
 
 struct Decoder<'a> {
@@ -379,7 +381,7 @@ mod tests {
 
         assert!(output.is_legacy);
         assert_eq!(output.address, address);
-        assert_eq!(output.value, Value::Coin(42));
+        assert_eq!(output.value.as_ref(), &Value::Coin(42));
         assert_eq!(cbor::to_vec(output).unwrap()[0], 0x9f);
     }
 
@@ -399,7 +401,7 @@ mod tests {
 
         assert!(!output.is_legacy);
         assert_eq!(output.address, address);
-        assert_eq!(output.value, Value::Coin(99));
+        assert_eq!(output.value.as_ref(), &Value::Coin(99));
         assert!(matches!(output.datum, MemoizedDatum::Inline(_)));
         assert_eq!(cbor::to_vec(output).unwrap()[0], 0xbf);
     }
