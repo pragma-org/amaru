@@ -21,7 +21,7 @@ use crate::Slot;
 /// A ValidityInterval is inclusive at the lower bound, but exclusive at the upper bound.
 ///
 /// If `None`, the `lower_bound` is -inf.
-/// If `None`, the `upper_bound is +inf.
+/// If `None`, the `upper_bound` is +inf.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ValidityInterval {
     lower_bound: Option<Slot>,
@@ -29,8 +29,24 @@ pub struct ValidityInterval {
 }
 
 impl ValidityInterval {
-    pub fn new(lower_bound: Option<u64>, upper_bound: Option<u64>) -> Self {
-        Self { lower_bound: lower_bound.map(Slot::from), upper_bound: upper_bound.map(Slot::from) }
+    pub fn new(lower_bound: Option<Slot>, upper_bound: Option<Slot>) -> Self {
+        Self { lower_bound, upper_bound }
+    }
+
+    // Construct a fully bounded validity interval. Note that the upper bound is exclusive.
+    pub fn between(lower_bound: Slot, upper_bound: Slot) -> Self {
+        Self { lower_bound: Some(lower_bound), upper_bound: Some(upper_bound) }
+    }
+
+    // Construct a validity interval from an inclusive lower bound.
+    pub fn after(lower_bound: Slot) -> Self {
+        Self { lower_bound: Some(lower_bound), upper_bound: None }
+    }
+
+    /// Construct a validity interval from an exclusive upper bound. "Strictly" refers to how the
+    /// upper bound is generally treated as exclusive.
+    pub fn strictly_before(upper_bound: Slot) -> Self {
+        Self { lower_bound: None, upper_bound: Some(upper_bound) }
     }
 
     pub fn lower_bound(&self) -> Option<Slot> {

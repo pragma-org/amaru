@@ -79,7 +79,7 @@ pub use cardano::{
         serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
-    native_script::NativeScript,
+    native_script::{NativeScript, evaluate_native_script},
     network::Network,
     network_id::NetworkId,
     network_magic::NetworkMagic,

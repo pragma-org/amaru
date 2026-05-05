@@ -18,7 +18,7 @@ use std::mem;
 use crate::to_cbor;
 use crate::{
     AssetName, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NULL_HASH32, NetworkId,
-    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set,
+    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set, Slot,
     TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor,
     size::{CREDENTIAL, KEY},
 };
@@ -51,7 +51,7 @@ pub struct TransactionBody {
     pub fee: Lovelace,
 
     #[n(3)]
-    pub validity_interval_end: Option<u64>,
+    pub validity_interval_end: Option<Slot>,
 
     #[n(4)]
     pub certificates: Option<NonEmptySet<Certificate>>,
@@ -63,7 +63,7 @@ pub struct TransactionBody {
     pub auxiliary_data_hash: Option<Bytes>,
 
     #[n(8)]
-    pub validity_interval_start: Option<u64>,
+    pub validity_interval_start: Option<Slot>,
 
     #[n(9)]
     pub mint: Option<NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
@@ -118,9 +118,9 @@ impl TransactionBody {
         self.original_size
     }
 
-    // FIXME (maybe?):
-    // Perhaps it would be nicer to avoid creating a `ValidityInterval` on every call
-    // But this is pretty cheap and it sure beats the manual encode implementation that would come from having a `ValidityInterval` field on `TransactionBody`
+    // TODO: Transaction body validity interval bounds
+    //
+    // THe raw model
     pub fn validity_interval(&self) -> ValidityInterval {
         ValidityInterval::new(self.validity_interval_start, self.validity_interval_end)
     }
