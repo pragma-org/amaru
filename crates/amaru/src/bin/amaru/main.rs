@@ -81,6 +81,9 @@ enum Command {
     /// Fetch specified headers
     FetchChainHeaders(cmd::fetch_chain_headers::Args),
 
+    /// Generate the three consecutive epoch snapshots needed for bootstrap.
+    GenerateEpochSnapshots(cmd::generate_epoch_snapshots::Args),
+
     /// Import block headers
     #[clap(alias = "import-chain-db")]
     ImportHeaders(cmd::import_headers::Args),
@@ -170,6 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
+        Command::GenerateEpochSnapshots(args) => cmd::generate_epoch_snapshots::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
         Command::RemoveValidationStatus(args) => cmd::remove_validation_status::run(args).await,
         Command::DumpTracesSchema(args) => cmd::dump_schemas::run(args).await,

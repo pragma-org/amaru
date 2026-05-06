@@ -16,27 +16,31 @@ use std::{
     error::Error,
     io,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
-use amaru_kernel::{BlockHeader, Epoch, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor};
+use amaru_kernel::{BlockHeader, Epoch, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, from_cbor};
 use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
+use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_ouroboros::{ChainStore, Nonces};
 use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
+use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tar::Archive;
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
+    time::timeout,
 };
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
-    default_snapshots_dir, get_bootstrap_file, get_bootstrap_headers,
+    default_snapshots_dir, get_bootstrap_file,
 };
 
 /// Configuration for a single ledger state's snapshot to be imported.
@@ -52,6 +56,9 @@ struct Snapshot {
 
     /// The URL to retrieve snapshot from.
     url: String,
+
+    #[serde(default)]
+    header_parent: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,7 +87,12 @@ pub enum BootstrapError {
 
     #[error("Missing cardano-node snapshot directory {0}")]
     MissingSnapshotDirectory(PathBuf),
+
+    #[error("Missing bootstrap header parent for snapshot {0}")]
+    MissingHeaderParent(String),
 }
+
+pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
 
 fn snapshot_directory_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
     snapshots_dir.join(&snapshot.point)
@@ -154,8 +166,96 @@ pub fn default_bootstrap_nonces(network: NetworkName) -> Result<(Epoch, InitialN
     default_bootstrap_nonces_from_snapshots(&snapshots_dir, &snapshots, network)
 }
 
+fn snapshot_header_parent(snapshot: &Snapshot) -> Result<Point, Box<dyn Error>> {
+    let header_parent = snapshot
+        .header_parent
+        .as_deref()
+        .ok_or_else(|| BootstrapError::MissingHeaderParent(snapshot.point.clone()))?;
+
+    Ok(Point::try_from(header_parent)?)
+}
+
+fn bootstrap_header_points(snapshots: &[Snapshot]) -> Result<Vec<Point>, Box<dyn Error>> {
+    let (_, second_snapshot, third_snapshot) = latest_bootstrap_snapshots(snapshots)?;
+    [second_snapshot, third_snapshot].into_iter().map(snapshot_header_parent).collect()
+}
+
+pub fn default_bootstrap_header_points(network: NetworkName) -> Result<Vec<Point>, Box<dyn Error>> {
+    let (_, snapshots) = bootstrap_snapshots(network)?;
+    bootstrap_header_points(&snapshots)
+}
+
+pub async fn fetch_headers_from_points(
+    peer_address: &str,
+    network: NetworkName,
+    points: &[Point],
+    headers_per_point: usize,
+) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    if points.is_empty() || headers_per_point == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut headers = Vec::with_capacity(points.len().saturating_mul(headers_per_point));
+    for point in points {
+        headers.extend(fetch_headers_from_point(peer_address, network, point.clone(), headers_per_point).await?);
+    }
+
+    Ok(headers)
+}
+
+async fn fetch_headers_from_point(
+    peer_address: &str,
+    network: NetworkName,
+    point: Point,
+    headers_per_point: usize,
+) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64())
+        .await
+        .map_err(|err| {
+            error!(peer = %peer_address, reason = %err, "failed to connect to peer");
+            err
+        })?;
+    let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point.clone()]);
+    let intersection = client.find_intersection().await?;
+
+    info!(requested_point = %point, intersection = %intersection, headers_per_point, "fetching bootstrap headers from peer");
+
+    let mut headers = Vec::with_capacity(headers_per_point);
+    while headers.len() < headers_per_point {
+        let next = if client.has_agency() {
+            client.request_next().await?
+        } else {
+            match timeout(Duration::from_secs(1), client.await_next()).await {
+                Ok(next) => next?,
+                Err(_) => continue,
+            }
+        };
+
+        match next {
+            NextResponse::RollForward(content, tip) => {
+                let block_header: BlockHeader =
+                    from_cbor(&content.cbor).ok_or("failed to decode fetched block header")?;
+                let slot = u64::from(block_header.slot());
+                headers.push(content.cbor);
+
+                if headers.len() >= headers_per_point || slot == tip.0.slot_or_default() {
+                    break;
+                }
+            }
+            NextResponse::RollBackward(point, tip) => {
+                info!(?point, ?tip, "roll backward while fetching bootstrap headers");
+            }
+            NextResponse::Await => continue,
+        }
+    }
+
+    info!(requested_point = %point, total = headers.len(), "fetched bootstrap headers from peer");
+
+    Ok(headers)
+}
+
 fn should_download_snapshot(snapshots_dir: &Path, snapshot: &Snapshot) -> bool {
-    !snapshot_directory_path(snapshots_dir, snapshot).is_dir()
+    resolve_snapshot_path(snapshots_dir, snapshot).is_none()
 }
 
 async fn download_snapshots(snapshots: &[Snapshot], snapshots_dir: &Path) -> Result<(), BootstrapError> {
@@ -170,6 +270,11 @@ async fn download_snapshots(snapshots: &[Snapshot], snapshots_dir: &Path) -> Res
         if !should_download_snapshot(snapshots_dir, snapshot) {
             info!(snapshot = %snapshot_dir.display(), "snapshot directory already exists, skipping download");
             continue;
+        }
+
+        if snapshot_dir.exists() {
+            info!(snapshot = %snapshot_dir.display(), "snapshot directory exists but is not a valid tvar snapshot, removing it");
+            fs::remove_dir_all(&snapshot_dir).await?;
         }
 
         info!(epoch = %snapshot.epoch, point = %snapshot.point, "downloading snapshot");
@@ -263,7 +368,12 @@ fn find_extracted_snapshot_dir(path: &Path) -> Result<Option<PathBuf>, io::Error
 }
 
 /// Set the internal dbs in such a state that amaru can run
-pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: PathBuf) -> Result<(), Box<dyn Error>> {
+pub async fn bootstrap(
+    network: NetworkName,
+    ledger_dir: PathBuf,
+    chain_dir: PathBuf,
+    peer_address: &str,
+) -> Result<(), Box<dyn Error>> {
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
 
     download_snapshots(&snapshots, &snapshots_dir).await?;
@@ -293,7 +403,9 @@ pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: Pat
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
-    import_headers(&chain_db, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
+    let header_points = bootstrap_header_points(&snapshots)?;
+    let headers = fetch_headers_from_points(peer_address, network, &header_points, BOOTSTRAP_HEADERS_PER_POINT).await?;
+    import_headers(&chain_db, headers).await?;
 
     Ok(())
 }
@@ -507,9 +619,13 @@ fn node_snapshot_paths(path: &Path) -> Option<NodeSnapshotPaths> {
 mod tests {
     use std::{path::PathBuf, time::Duration};
 
-    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Slot};
+    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Point, Slot};
+    use tempfile::tempdir;
 
-    use super::{snapshot_epoch, sort_snapshots_by_slot};
+    use super::{
+        Snapshot, bootstrap_header_points, node_snapshot_paths, should_download_snapshot, snapshot_epoch,
+        sort_snapshots_by_slot,
+    };
     use crate::cardano_node::ParsedStateSnapshot;
 
     #[test]
@@ -548,5 +664,88 @@ mod tests {
         };
 
         assert_eq!(snapshot_epoch(&parsed_snapshot).unwrap(), Epoch::from(12_u64));
+    }
+
+    #[test]
+    fn node_snapshot_paths_requires_nested_tvar() {
+        let temp_dir = tempdir().unwrap();
+        let snapshot_dir = temp_dir.path().join("69206375.hash");
+        std::fs::create_dir_all(&snapshot_dir).unwrap();
+        std::fs::write(snapshot_dir.join("state"), b"state").unwrap();
+        std::fs::write(snapshot_dir.join("tables"), b"utxo").unwrap();
+
+        assert!(node_snapshot_paths(&snapshot_dir).is_none());
+    }
+
+    #[test]
+    fn should_download_snapshot_for_invalid_existing_directory() {
+        let temp_dir = tempdir().unwrap();
+        let snapshots_dir = temp_dir.path();
+        let snapshot = Snapshot {
+            epoch: Epoch::from(163_u64),
+            point: "69206375.hash".to_string(),
+            url: "https://example.com/69206375.hash.tar.gz".to_string(),
+            header_parent: None,
+        };
+        let snapshot_dir = snapshots_dir.join(&snapshot.point);
+        std::fs::create_dir_all(&snapshot_dir).unwrap();
+        std::fs::write(snapshot_dir.join("state"), b"state").unwrap();
+        std::fs::write(snapshot_dir.join("tables"), b"utxo").unwrap();
+
+        assert!(should_download_snapshot(snapshots_dir, &snapshot));
+    }
+
+    #[test]
+    fn should_not_download_valid_tvar_snapshot_directory() {
+        let temp_dir = tempdir().unwrap();
+        let snapshots_dir = temp_dir.path();
+        let snapshot = Snapshot {
+            epoch: Epoch::from(163_u64),
+            point: "69206375.hash".to_string(),
+            url: "https://example.com/69206375.hash.tar.gz".to_string(),
+            header_parent: None,
+        };
+        let snapshot_dir = snapshots_dir.join(&snapshot.point);
+        std::fs::create_dir_all(snapshot_dir.join("tables")).unwrap();
+        std::fs::write(snapshot_dir.join("state"), b"state").unwrap();
+        std::fs::write(snapshot_dir.join("tables").join("tvar"), b"utxo").unwrap();
+
+        assert!(!should_download_snapshot(snapshots_dir, &snapshot));
+    }
+
+    #[test]
+    fn bootstrap_header_points_use_latest_snapshot_parents() {
+        let snapshots = vec![
+            Snapshot {
+                epoch: Epoch::from(163_u64),
+                point: "69206375.hash1".to_string(),
+                url: "https://example.com/163.tar.gz".to_string(),
+                header_parent: None,
+            },
+            Snapshot {
+                epoch: Epoch::from(164_u64),
+                point: "69638382.hash2".to_string(),
+                url: "https://example.com/164.tar.gz".to_string(),
+                header_parent: Some(
+                    "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
+                ),
+            },
+            Snapshot {
+                epoch: Epoch::from(165_u64),
+                point: "70070379.hash3".to_string(),
+                url: "https://example.com/165.tar.gz".to_string(),
+                header_parent: Some(
+                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
+                ),
+            },
+        ];
+
+        assert_eq!(
+            bootstrap_header_points(&snapshots).unwrap(),
+            vec![
+                Point::try_from("69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2").unwrap(),
+                Point::try_from("70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c").unwrap(),
+            ]
+        );
     }
 }

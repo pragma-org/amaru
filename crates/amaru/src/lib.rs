@@ -110,8 +110,14 @@ pub mod value_names {
 
 /// Environment variables used across command-line options.
 pub mod env_vars {
+    /// --cardano-node-config-dir
+    pub const CARDANO_NODE_CONFIG_DIR: &str = "AMARU_CARDANO_NODE_CONFIG_DIR";
+
     /// --chain-dir
     pub const CHAIN_DIR: &str = "AMARU_CHAIN_DIR";
+
+    /// --dist-dir
+    pub const DIST_DIR: &str = "AMARU_DIST_DIR";
 
     /// --epoch
     pub const EPOCH: &str = "AMARU_EPOCH";

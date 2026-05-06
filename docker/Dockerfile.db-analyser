@@ -1,0 +1,75 @@
+FROM haskell:9.10-slim-bookworm AS builder
+
+ENV PATH="/opt/ghc/9.10.3/bin:${PATH}"
+ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
+
+ARG OUROBOROS_CONSENSUS_REF=9510ebee3a2319944de4967940e140af0878016e
+ARG BLST_REF=v0.3.16
+ARG SODIUM_VRF_REF=dbb48cce5429cb6585c9034f002568964f1ce567
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	autoconf \
+	automake \
+	build-essential \
+	git \
+	libffi-dev \
+	libgmp-dev \
+	liblmdb-dev \
+	libnuma-dev \
+	libsecp256k1-dev \
+	libtool \
+	liburing-dev \
+	libssl-dev \
+	perl \
+	pkg-config \
+	xz-utils \
+	zlib1g-dev \
+	&& rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+RUN git clone --depth 1 --branch "$BLST_REF" https://github.com/supranational/blst.git /tmp/blst \
+	&& cd /tmp/blst \
+	&& ./build.sh \
+	&& install -d /usr/local/include /usr/local/lib/pkgconfig \
+	&& install -m 0644 /tmp/blst/bindings/blst.h /usr/local/include/blst.h \
+	&& install -m 0644 /tmp/blst/bindings/blst_aux.h /usr/local/include/blst_aux.h \
+	&& install -m 0644 /tmp/blst/libblst.a /usr/local/lib/libblst.a \
+	&& printf 'prefix=/usr/local\nexec_prefix=${prefix}\nlibdir=${exec_prefix}/lib\nincludedir=${prefix}/include\n\nName: libblst\nDescription: blst BLS12-381 library\nVersion: 0.3.16\nLibs: -L${libdir} -lblst\nCflags: -I${includedir}\n' > /usr/local/lib/pkgconfig/libblst.pc
+
+RUN git clone https://github.com/input-output-hk/libsodium.git /tmp/libsodium \
+	&& cd /tmp/libsodium \
+	&& git checkout "$SODIUM_VRF_REF" \
+	&& ./configure --prefix=/usr/local --disable-shared --enable-static \
+	&& make -j"$(nproc)" \
+	&& make install
+
+RUN git clone https://github.com/IntersectMBO/ouroboros-consensus.git . \
+	&& git checkout "$OUROBOROS_CONSENSUS_REF" \
+	&& node_to_node_file=ouroboros-consensus-diffusion/src/ouroboros-consensus-diffusion/Ouroboros/Consensus/Network/NodeToNode.hs \
+	&& perl -0pi -e 's/import Data.Map.Strict \(Map\)\n/import Data.Map.Strict (Map)\nimport qualified Data.Set as Set\n/' "$node_to_node_file" \
+	&& perl -0pi -e 's/initiator miniProtocolParameters version versionData Apps\{\.\.\} =\n  nodeToNodeProtocols\n    miniProtocolParameters/initiator miniProtocolParameters version versionData Apps{..} =\n  nodeToNodeProtocols\n    Set.empty\n    miniProtocolParameters/' "$node_to_node_file" \
+	&& perl -0pi -e 's/initiatorAndResponder miniProtocolParameters version versionData Apps\{\.\.\} =\n  nodeToNodeProtocols\n    miniProtocolParameters/initiatorAndResponder miniProtocolParameters version versionData Apps{..} =\n  nodeToNodeProtocols\n    Set.empty\n    miniProtocolParameters/' "$node_to_node_file" \
+	&& grep -q 'import qualified Data.Set as Set' "$node_to_node_file" \
+	&& [ "$(grep -c 'Set.empty' "$node_to_node_file")" -eq 2 ]
+
+RUN cabal update
+RUN cabal build exe:db-analyser
+RUN cp "$(cabal list-bin exe:db-analyser)" /usr/local/bin/db-analyser
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	ca-certificates \
+	libgmp10 \
+	liblmdb0 \
+	libnuma1 \
+	libsecp256k1-1 \
+	liburing2 \
+	libssl3 \
+	zlib1g \
+	&& rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/bin/db-analyser /usr/local/bin/db-analyser
+
+ENTRYPOINT ["db-analyser"]
