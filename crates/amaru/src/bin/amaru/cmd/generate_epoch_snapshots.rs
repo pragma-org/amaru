@@ -82,6 +82,8 @@ struct EpochTarget {
     epoch: u64,
     slot: u64,
     hash: String,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "header_parent")]
+    parent_point: Option<String>,
     archive_path: Option<String>,
     snapshot_path: Option<String>,
 }
@@ -328,6 +330,7 @@ mod tests {
             epoch: 163,
             slot: 69_206_375,
             hash: "6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912".to_string(),
+            parent_point: None,
             archive_path: None,
             snapshot_path: None,
         };
@@ -345,6 +348,7 @@ mod tests {
             epoch: 163,
             slot: 69_206_375,
             hash: "6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912".to_string(),
+            parent_point: None,
             archive_path: None,
             snapshot_path: None,
         };
@@ -370,6 +374,7 @@ mod tests {
             epoch: 163,
             slot: 69_206_375,
             hash: "6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912".to_string(),
+            parent_point: None,
             archive_path: None,
             snapshot_path: None,
         };
@@ -377,6 +382,7 @@ mod tests {
             epoch: 164,
             slot: 69_638_382,
             hash: "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7".to_string(),
+            parent_point: None,
             archive_path: None,
             snapshot_path: None,
         };
@@ -396,6 +402,7 @@ mod tests {
             epoch: 163,
             slot: 69_206_375,
             hash: "6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912".to_string(),
+            parent_point: None,
             archive_path: None,
             snapshot_path: None,
         };
@@ -403,6 +410,7 @@ mod tests {
             epoch: 164,
             slot: 69_638_382,
             hash: "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7".to_string(),
+            parent_point: None,
             archive_path: None,
             snapshot_path: None,
         };

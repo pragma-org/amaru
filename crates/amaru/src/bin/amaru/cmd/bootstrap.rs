@@ -14,7 +14,7 @@
 
 use std::{error::Error, fs::remove_dir_all, path::PathBuf};
 
-use amaru::{DEFAULT_NETWORK, bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
+use amaru::{DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
 use amaru_kernel::NetworkName;
 use clap::{ArgAction, Parser};
 use tracing::{info, warn};
@@ -46,6 +46,15 @@ pub struct Args {
     )]
     ledger_dir: Option<PathBuf>,
 
+    /// Address of the node to connect to for retrieving bootstrap headers.
+    #[arg(
+        long,
+        value_name = amaru::value_names::ENDPOINT,
+        env = amaru::env_vars::PEER_ADDRESS,
+        default_value = DEFAULT_PEER_ADDRESS,
+    )]
+    peer_address: String,
+
     /// Network to bootstrap the node for.
     #[arg(
         long,
@@ -69,6 +78,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         force = %args.force,
         ledger_dir = %ledger_dir.to_string_lossy(),
         network = %network,
+        peer_address = %args.peer_address,
         "running",
     );
 
@@ -98,5 +108,5 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    bootstrap(network, ledger_dir, chain_dir).await
+    bootstrap(network, ledger_dir, chain_dir, &args.peer_address).await
 }

@@ -73,11 +73,6 @@ pub fn get_bootstrap_file(network: NetworkName, name: &str) -> Result<Option<Vec
     Ok(BOOTSTRAP_DIR.get_file(path).map(|f| f.contents().into()))
 }
 
-pub fn get_bootstrap_headers(network: NetworkName) -> Result<impl Iterator<Item = Vec<u8>>, Box<dyn Error>> {
-    let path = format!("{}/headers/*", network.to_string().to_lowercase());
-    Ok(BOOTSTRAP_DIR.find(&path)?.filter_map(|f| f.as_file()).map(|f| f.contents().into()))
-}
-
 /// Value names (a.k.a. metavar) used across command-line options.
 ///
 /// Conventions:

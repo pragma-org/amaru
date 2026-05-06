@@ -14,7 +14,13 @@
 
 use std::{fs, path::PathBuf};
 
-use amaru::{DEFAULT_NETWORK, bootstrap::import_headers, default_chain_dir, get_bootstrap_headers};
+use amaru::{
+    DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS,
+    bootstrap::{
+        BOOTSTRAP_HEADERS_PER_POINT, default_bootstrap_parent_points, fetch_headers_from_points, import_headers,
+    },
+    default_chain_dir,
+};
 use amaru_kernel::NetworkName;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::{ArgAction, Parser};
@@ -50,6 +56,15 @@ pub struct Args {
     )]
     header_file: Vec<PathBuf>,
 
+    /// Address of the node to connect to when bootstrap headers are fetched at runtime.
+    #[arg(
+        long,
+        value_name = amaru::value_names::ENDPOINT,
+        env = amaru::env_vars::PEER_ADDRESS,
+        default_value = DEFAULT_PEER_ADDRESS,
+    )]
+    peer_address: String,
+
     /// Network for which we are importing headers.
     #[arg(
         long,
@@ -73,12 +88,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .map(|s| s.to_string_lossy())
             .collect::<Vec<_>>().join(", "),
+        peer_address = %args.peer_address,
         %network,
         "running",
     );
 
     let headers = if args.header_file.is_empty() {
-        get_bootstrap_headers(network)?.collect::<Vec<_>>()
+        let points = default_bootstrap_parent_points(network)?;
+        fetch_headers_from_points(&args.peer_address, network, &points, BOOTSTRAP_HEADERS_PER_POINT).await?
     } else {
         args.header_file.iter().map(fs::read).collect::<Result<_, _>>()?
     };

@@ -57,8 +57,8 @@ struct Snapshot {
     /// The URL to retrieve snapshot from.
     url: String,
 
-    #[serde(default)]
-    header_parent: Option<String>,
+    #[serde(default, alias = "header_parent")]
+    parent_point: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -88,8 +88,8 @@ pub enum BootstrapError {
     #[error("Missing cardano-node snapshot directory {0}")]
     MissingSnapshotDirectory(PathBuf),
 
-    #[error("Missing bootstrap header parent for snapshot {0}")]
-    MissingHeaderParent(String),
+    #[error("Missing bootstrap parent point for snapshot {0}")]
+    MissingParentPoint(String),
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
@@ -166,23 +166,21 @@ pub fn default_bootstrap_nonces(network: NetworkName) -> Result<(Epoch, InitialN
     default_bootstrap_nonces_from_snapshots(&snapshots_dir, &snapshots, network)
 }
 
-fn snapshot_header_parent(snapshot: &Snapshot) -> Result<Point, Box<dyn Error>> {
-    let header_parent = snapshot
-        .header_parent
-        .as_deref()
-        .ok_or_else(|| BootstrapError::MissingHeaderParent(snapshot.point.clone()))?;
+fn snapshot_parent_point(snapshot: &Snapshot) -> Result<Point, Box<dyn Error>> {
+    let parent_point =
+        snapshot.parent_point.as_deref().ok_or_else(|| BootstrapError::MissingParentPoint(snapshot.point.clone()))?;
 
-    Ok(Point::try_from(header_parent)?)
+    Ok(Point::try_from(parent_point)?)
 }
 
-fn bootstrap_header_points(snapshots: &[Snapshot]) -> Result<Vec<Point>, Box<dyn Error>> {
+fn bootstrap_parent_points(snapshots: &[Snapshot]) -> Result<Vec<Point>, Box<dyn Error>> {
     let (_, second_snapshot, third_snapshot) = latest_bootstrap_snapshots(snapshots)?;
-    [second_snapshot, third_snapshot].into_iter().map(snapshot_header_parent).collect()
+    [second_snapshot, third_snapshot].into_iter().map(snapshot_parent_point).collect()
 }
 
-pub fn default_bootstrap_header_points(network: NetworkName) -> Result<Vec<Point>, Box<dyn Error>> {
+pub fn default_bootstrap_parent_points(network: NetworkName) -> Result<Vec<Point>, Box<dyn Error>> {
     let (_, snapshots) = bootstrap_snapshots(network)?;
-    bootstrap_header_points(&snapshots)
+    bootstrap_parent_points(&snapshots)
 }
 
 pub async fn fetch_headers_from_points(
@@ -197,7 +195,7 @@ pub async fn fetch_headers_from_points(
 
     let mut headers = Vec::with_capacity(points.len().saturating_mul(headers_per_point));
     for point in points {
-        headers.extend(fetch_headers_from_point(peer_address, network, point.clone(), headers_per_point).await?);
+        headers.extend(fetch_headers_from_point(peer_address, network, *point, headers_per_point).await?);
     }
 
     Ok(headers)
@@ -209,13 +207,11 @@ async fn fetch_headers_from_point(
     point: Point,
     headers_per_point: usize,
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-    let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64())
-        .await
-        .map_err(|err| {
-            error!(peer = %peer_address, reason = %err, "failed to connect to peer");
-            err
-        })?;
-    let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point.clone()]);
+    let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.map_err(|err| {
+        error!(peer = %peer_address, reason = %err, "failed to connect to peer");
+        err
+    })?;
+    let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
     let intersection = client.find_intersection().await?;
 
     info!(requested_point = %point, intersection = %intersection, headers_per_point, "fetching bootstrap headers from peer");
@@ -403,8 +399,8 @@ pub async fn bootstrap(
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
-    let header_points = bootstrap_header_points(&snapshots)?;
-    let headers = fetch_headers_from_points(peer_address, network, &header_points, BOOTSTRAP_HEADERS_PER_POINT).await?;
+    let parent_points = bootstrap_parent_points(&snapshots)?;
+    let headers = fetch_headers_from_points(peer_address, network, &parent_points, BOOTSTRAP_HEADERS_PER_POINT).await?;
     import_headers(&chain_db, headers).await?;
 
     Ok(())
@@ -623,7 +619,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, bootstrap_header_points, node_snapshot_paths, should_download_snapshot, snapshot_epoch,
+        Snapshot, bootstrap_parent_points, node_snapshot_paths, should_download_snapshot, snapshot_epoch,
         sort_snapshots_by_slot,
     };
     use crate::cardano_node::ParsedStateSnapshot;
@@ -685,7 +681,7 @@ mod tests {
             epoch: Epoch::from(163_u64),
             point: "69206375.hash".to_string(),
             url: "https://example.com/69206375.hash.tar.gz".to_string(),
-            header_parent: None,
+            parent_point: None,
         };
         let snapshot_dir = snapshots_dir.join(&snapshot.point);
         std::fs::create_dir_all(&snapshot_dir).unwrap();
@@ -703,7 +699,7 @@ mod tests {
             epoch: Epoch::from(163_u64),
             point: "69206375.hash".to_string(),
             url: "https://example.com/69206375.hash.tar.gz".to_string(),
-            header_parent: None,
+            parent_point: None,
         };
         let snapshot_dir = snapshots_dir.join(&snapshot.point);
         std::fs::create_dir_all(snapshot_dir.join("tables")).unwrap();
@@ -714,19 +710,19 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_header_points_use_latest_snapshot_parents() {
+    fn bootstrap_parent_points_use_latest_snapshot_parent_points() {
         let snapshots = vec![
             Snapshot {
                 epoch: Epoch::from(163_u64),
                 point: "69206375.hash1".to_string(),
                 url: "https://example.com/163.tar.gz".to_string(),
-                header_parent: None,
+                parent_point: None,
             },
             Snapshot {
                 epoch: Epoch::from(164_u64),
                 point: "69638382.hash2".to_string(),
                 url: "https://example.com/164.tar.gz".to_string(),
-                header_parent: Some(
+                parent_point: Some(
                     "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
                 ),
             },
@@ -734,14 +730,14 @@ mod tests {
                 epoch: Epoch::from(165_u64),
                 point: "70070379.hash3".to_string(),
                 url: "https://example.com/165.tar.gz".to_string(),
-                header_parent: Some(
+                parent_point: Some(
                     "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
                 ),
             },
         ];
 
         assert_eq!(
-            bootstrap_header_points(&snapshots).unwrap(),
+            bootstrap_parent_points(&snapshots).unwrap(),
             vec![
                 Point::try_from("69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2").unwrap(),
                 Point::try_from("70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c").unwrap(),

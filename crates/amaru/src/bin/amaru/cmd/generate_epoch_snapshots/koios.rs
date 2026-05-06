@@ -24,6 +24,28 @@ use super::EpochTarget;
 struct KoiosBlock {
     abs_slot: u64,
     hash: String,
+    parent_hash: String,
+}
+
+async fn fetch_block_by_hash(
+    client: &reqwest::Client,
+    network: NetworkName,
+    hash: &str,
+) -> Result<KoiosBlock, Box<dyn Error>> {
+    let response = client
+        .get(format!("{}/blocks", koios_api_base(network)?))
+        .header(reqwest::header::ACCEPT, "application/json")
+        .query(&[("hash", format!("eq.{hash}")), ("limit", "1".to_owned())])
+        .send()
+        .await?
+        .error_for_status()?;
+
+    response
+        .json::<Vec<KoiosBlock>>()
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Koios returned no block for hash {hash}").into())
 }
 
 fn koios_api_base(network: NetworkName) -> Result<&'static str, Box<dyn Error>> {
@@ -55,7 +77,17 @@ pub(super) async fn fetch_last_block_for_epoch(
         .next()
         .ok_or_else(|| format!("Koios returned no blocks for epoch {epoch}"))?;
 
-    info!(epoch, slot = block.abs_slot, hash = %block.hash, "resolved last produced block for epoch");
+    let parent_block = fetch_block_by_hash(client, network, &block.parent_hash).await?;
+    let parent_point = format!("{}.{}", parent_block.abs_slot, parent_block.hash);
 
-    Ok(EpochTarget { epoch, slot: block.abs_slot, hash: block.hash, archive_path: None, snapshot_path: None })
+    info!(epoch, slot = block.abs_slot, hash = %block.hash, parent_point, "resolved last produced block for epoch");
+
+    Ok(EpochTarget {
+        epoch,
+        slot: block.abs_slot,
+        hash: block.hash,
+        parent_point: Some(parent_point),
+        archive_path: None,
+        snapshot_path: None,
+    })
 }
