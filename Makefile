@@ -21,7 +21,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas
+.PHONY: help bootstrap start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -38,12 +38,6 @@ help:
 
 bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
-
-import-headers: ## &start Import initial headers
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) import-headers $(ARGS)
-
-import-nonces: ## &start Import initial nonces
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) import-nonces $(ARGS)
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)

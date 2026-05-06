@@ -17,8 +17,6 @@ pub(crate) mod dump_chain_db;
 pub(crate) mod dump_schemas;
 pub(crate) mod fetch_chain_headers;
 pub(crate) mod generate_epoch_snapshots;
-pub(crate) mod import_headers;
-pub(crate) mod import_nonces;
 pub(crate) mod migrate_chain_db;
 pub(crate) mod remove_validation_status;
 pub(crate) mod reset_to_epoch;

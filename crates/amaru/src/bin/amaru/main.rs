@@ -49,11 +49,7 @@ enum Command {
     ///   - preprod
     ///   - preview
     ///
-    /// It is a combination of the following fine-grained steps:
-    ///
-    ///   - import snapshots
-    ///   - import-headers
-    ///   - import-nonces
+    /// It imports snapshots, bootstrap headers and bootstrap nonces in one step.
     #[clap(verbatim_doc_comment)]
     Bootstrap(cmd::bootstrap::Args),
 
@@ -83,13 +79,6 @@ enum Command {
 
     /// Generate the three consecutive epoch snapshots needed for bootstrap.
     GenerateEpochSnapshots(cmd::generate_epoch_snapshots::Args),
-
-    /// Import block headers
-    #[clap(alias = "import-chain-db")]
-    ImportHeaders(cmd::import_headers::Args),
-
-    /// Import VRF nonces intermediate states
-    ImportNonces(cmd::import_nonces::Args),
 
     /// Migrate the chain database to the current version.
     ///
@@ -169,8 +158,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics.unwrap()).await,
-        Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
-        Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
         Command::GenerateEpochSnapshots(args) => cmd::generate_epoch_snapshots::run(args).await,
