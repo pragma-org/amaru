@@ -14,8 +14,13 @@
 
 use std::path::PathBuf;
 
-use amaru::{DEFAULT_NETWORK, bootstrap::import_nonces, default_chain_dir, default_initial_nonces};
-use amaru_kernel::NetworkName;
+use amaru::{
+    DEFAULT_NETWORK,
+    bootstrap::{InitialNonces, default_bootstrap_nonces, store_nonces},
+    default_chain_dir,
+};
+use amaru_kernel::{EraHistory, NetworkName};
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use tracing::info;
 
@@ -40,8 +45,8 @@ pub struct Args {
 
     /// JSON-formatted file with manually specified nonces details.
     ///
-    /// When not present, initial nonces are derived from the specified network, according to
-    /// pre-configured values.
+    /// When not present, initial nonces are derived from the configured bootstrap snapshots for
+    /// the selected network.
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
@@ -62,15 +67,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         "running",
     );
 
-    let initial_nonces = if let Some(manually_specified_file) = args.nonces_file {
-        serde_json::from_slice(std::fs::read(manually_specified_file)?.as_slice())?
+    let (epoch, initial_nonces) = if let Some(manually_specified_file) = args.nonces_file {
+        let initial_nonces: InitialNonces = serde_json::from_slice(std::fs::read(manually_specified_file)?.as_slice())?;
+
+        let era_history: &EraHistory = network.into();
+        let epoch = era_history.slot_to_epoch_unchecked_horizon(initial_nonces.at.slot_or_default())?;
+
+        (epoch, initial_nonces)
     } else {
-        default_initial_nonces(network)?
+        default_bootstrap_nonces(network)?
     };
 
-    // FIXME: import nonces function takes an EraHistory which we
-    // construct from NetworkName. In the case of testnets this can be
-    // problematic hence why we have started writing and reading such
-    // files in import_ledger_state.
-    import_nonces(args.network.into(), &chain_dir, initial_nonces).await
+    let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
+
+    store_nonces(epoch, &chain_db, initial_nonces)
 }

@@ -127,7 +127,7 @@ pub use cardano::{
     transaction_body::TransactionBody,
     transaction_input::{TransactionInput, transaction_input_to_string},
     transaction_pointer::TransactionPointer,
-    value::Value,
+    value::{Multiasset, MultiassetKeyValuePairs, Value},
     vkey_witness::{InvalidEd25519Signature, VKeyWitness, verify_ed25519_signature},
     vote::Vote,
     voter::Voter,

@@ -14,8 +14,9 @@
 
 use std::{fs, path::PathBuf};
 
-use amaru::{DEFAULT_NETWORK, bootstrap::import_headers_for_network, default_chain_dir, get_bootstrap_headers};
+use amaru::{DEFAULT_NETWORK, bootstrap::import_headers, default_chain_dir, get_bootstrap_headers};
 use amaru_kernel::NetworkName;
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::{ArgAction, Parser};
 use tracing::info;
 
@@ -82,5 +83,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         args.header_file.iter().map(fs::read).collect::<Result<_, _>>()?
     };
 
-    import_headers_for_network(&chain_dir, headers).await
+    let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
+
+    import_headers(&chain_db, headers).await
 }

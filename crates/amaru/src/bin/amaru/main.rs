@@ -51,24 +51,11 @@ enum Command {
     ///
     /// It is a combination of the following fine-grained steps:
     ///
-    ///   - import-ledger-state
+    ///   - import snapshots
     ///   - import-headers
     ///   - import-nonces
     #[clap(verbatim_doc_comment)]
     Bootstrap(cmd::bootstrap::Args),
-
-    /// Convert ledger state as produced by Haskell node into data suitable
-    /// for amaru.
-    ///
-    /// This command allows one to take a snapshot as produced by the
-    /// `LedgerDB` in the Haskell node and extract the informations
-    /// relevant to bootstrap an Amaru node, namely:
-    ///
-    /// * The `NewEpochState` part of the snapshot that contains the
-    ///   core state of the ledger, which is written to a file whose
-    ///   name is the point at which the snapshot was produced,
-    /// * The`Nonces` from the `HeaderState` which are written to a `nonces.json` file.
-    ConvertLedgerState(cmd::convert_ledger_state::Args),
 
     /// Dump the content of the chain database for troubleshooting purposes.
     ///
@@ -97,10 +84,6 @@ enum Command {
     /// Import block headers
     #[clap(alias = "import-chain-db")]
     ImportHeaders(cmd::import_headers::Args),
-
-    /// Import the ledger state from a CBOR export produced by a Haskell node.
-    #[clap(alias = "import")]
-    ImportLedgerState(cmd::import_ledger_state::Args),
 
     /// Import VRF nonces intermediate states
     ImportNonces(cmd::import_nonces::Args),
@@ -183,12 +166,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = match args.command {
         Command::Run(args) => cmd::run::run(args, metrics.unwrap()).await,
-        Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
         Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
         Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
-        Command::ConvertLedgerState(args) => cmd::convert_ledger_state::run(args).await,
         Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
         Command::RemoveValidationStatus(args) => cmd::remove_validation_status::run(args).await,
         Command::DumpTracesSchema(args) => cmd::dump_schemas::run(args).await,
