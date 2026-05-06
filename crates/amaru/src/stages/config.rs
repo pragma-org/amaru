@@ -19,6 +19,8 @@ use amaru_ouroboros::ChainStore;
 use amaru_stores::{in_memory::MemoryStore, rocksdb::RocksDbConfig};
 use anyhow::Context;
 
+use crate::DEFAULT_PEER_REMOVAL_COOLDOWN_SECS;
+
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
 pub struct Config {
     pub ledger_store: StoreType<MemoryStore>,
@@ -92,7 +94,7 @@ impl Default for Config {
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
             defer_req_next_poll_ms: 200,
-            peer_removal_cooldown_secs: 600,
+            peer_removal_cooldown_secs: DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
             block_source_max_tip_distance: 2_500,
             trace_buffer_min_entries: 0,
             trace_buffer_max_size: 0,

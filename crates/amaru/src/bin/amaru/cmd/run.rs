@@ -143,7 +143,7 @@ pub struct Args {
         long,
         value_name = amaru::value_names::UINT,
         env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-        default_value_t = 600
+        default_value_t = amaru::DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
     )]
     peer_removal_cooldown_secs: u64,
 
