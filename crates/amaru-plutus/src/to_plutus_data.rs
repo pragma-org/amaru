@@ -16,7 +16,7 @@ use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
 
 use amaru_kernel::{
     Address, BigInt, Bytes, ComputeHash, Hash, Int, MaybeIndefArray, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt,
-    Nullable, PlutusData, Redeemer, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential,
+    Nullable, PlutusData, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential,
 };
 use thiserror::Error;
 
@@ -388,15 +388,6 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr!(0, [self.0, self.1])
-    }
-}
-
-impl<const V: u8> ToPlutusData<V> for Redeemer
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(self.data.clone())
     }
 }
 

@@ -63,7 +63,6 @@ pub mod network_magic;
 pub mod network_name;
 pub mod non_zero_int;
 pub mod nonce;
-pub mod ordered_redeemer;
 pub mod peer;
 pub mod plutus_data;
 pub mod plutus_script;
