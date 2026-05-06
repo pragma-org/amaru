@@ -19,7 +19,7 @@ use crate::to_cbor;
 use crate::{
     AssetName, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NULL_HASH32, NetworkId,
     NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set,
-    TransactionInput, Voter, VotingProcedure, cbor,
+    TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor,
     size::{CREDENTIAL, KEY},
 };
 
@@ -116,6 +116,10 @@ impl TransactionBody {
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
         self.original_size
+    }
+
+    pub fn validity_interval(&self) -> ValidityInterval {
+        ValidityInterval::new(self.validity_interval_start, self.validity_interval_end)
     }
 
     /// Artificially construct a transaction from its required constituents; Good enough for

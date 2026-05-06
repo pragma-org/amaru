@@ -19,8 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, PlutusScript, ProtocolParameters, ProtocolVersion,
-    RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, WitnessSet, decode_plutus_script, script_purpose_to_string,
+    ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
+    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, ValidityInterval,
+    WitnessSet, decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
@@ -30,29 +31,76 @@ use thiserror::Error;
 
 use crate::context::{UtxoSlice, WitnessSlice};
 
+// TODO: Unify ProvideScript with ScriptKind
+//
+// These two types look very similar; and it's likely that they can be unified into one.
+pub(super) enum ProvidedScript<'a> {
+    Native(&'a NativeScript),
+    PlutusV1,
+    PlutusV2,
+    PlutusV3,
+}
+
+impl ProvidedScript<'_> {
+    pub(super) fn kind(&self) -> ScriptKind {
+        match self {
+            Self::Native(_) => ScriptKind::Native,
+            Self::PlutusV1 => ScriptKind::PlutusV1,
+            Self::PlutusV2 => ScriptKind::PlutusV2,
+            Self::PlutusV3 => ScriptKind::PlutusV3,
+        }
+    }
+}
+
+impl<'a> From<PlutusVersion> for ProvidedScript<'a> {
+    fn from(version: PlutusVersion) -> ProvidedScript<'a> {
+        match version {
+            PlutusVersion::V1 => ProvidedScript::PlutusV1,
+            PlutusVersion::V2 => ProvidedScript::PlutusV2,
+            PlutusVersion::V3 => ProvidedScript::PlutusV3,
+        }
+    }
+}
+
+impl<'a> From<&'a MemoizedScript> for ProvidedScript<'a> {
+    fn from(script: &'a MemoizedScript) -> Self {
+        match script {
+            MemoizedScript::NativeScript(ns) => Self::Native(ns.as_ref()),
+            MemoizedScript::PlutusV1Script(_) => Self::PlutusV1,
+            MemoizedScript::PlutusV2Script(_) => Self::PlutusV2,
+            MemoizedScript::PlutusV3Script(_) => Self::PlutusV3,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
     #[error("missing required scripts: missing [{}]", display_collection(.0))]
     MissingRequiredScripts(BTreeSet<Hash<SCRIPT>>),
+
     #[error("extraneous script witnesses: extra [{}]", display_collection(.0))]
     ExtraneousScriptWitnesses(BTreeSet<Hash<SCRIPT>>),
+
     #[error(
         "unspendable inputs at position(s) [{}]: no datums",
         display_collection(.0)
     )]
     UnspendableInputsNoDatums(BTreeSet<u32>),
+
     #[error(
         "missing required datums: missing [{}] provided [{}]",
         display_collection(missing),
         display_collection(provided)
     )]
     MissingRequiredDatums { missing: BTreeSet<Hash<DATUM>>, provided: BTreeSet<Hash<DATUM>> },
+
     #[error(
         "extraneous supplemental datums: supplemental: [{}], extraneous: [{}]",
         display_collection(supplemental),
         display_collection(extraneous)
     )]
     ExtraneousSupplementalDatums { supplemental: BTreeSet<Hash<DATUM>>, extraneous: BTreeSet<Hash<DATUM>> },
+
     #[error(
         "extraneous redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
@@ -62,6 +110,7 @@ pub enum InvalidScripts {
         )).collect::<Vec<_>>().join(", ")
     )]
     ExtraneousRedeemers(Vec<RedeemerKey>),
+
     #[error(
         "missing redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
@@ -77,12 +126,16 @@ pub enum InvalidScripts {
 
     #[error("transaction execution units exceeded: provided {provided:?}, max {max:?}")]
     TooManyExUnits { provided: ExUnits, max: ExUnits },
+
+    #[error("native script(s) failed to validate: [{}]", display_collection(.0))]
+    ScriptWitnessNotValidatingUTXOW(BTreeSet<Hash<SCRIPT>>),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(
     context: &mut C,
     witness_set: &WitnessSet,
+    validity_interval: ValidityInterval,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidScripts>
 where
@@ -97,6 +150,8 @@ where
 
     let provided_scripts =
         collect_provided_scripts(context, &required_script_hashes, witness_set, protocol_parameters.protocol_version)?;
+
+    super::native_scripts::execute(&provided_scripts, &required_script_hashes, witness_set, validity_interval)?;
 
     let required_scripts = fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
 
@@ -128,8 +183,6 @@ where
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
 
-    // FIXME: evaluate scripts (phase-2)
-
     Ok(())
 }
 
@@ -160,13 +213,13 @@ fn fail_on_too_many_ex_units(
 /// The function fails if there's any input with missing mandatory datum (i.e. Plutus V1 or V2
 /// script-locked inputs without datum; those are simply "forever" unspendable).
 fn partition_scripts(
-    required_scripts: Vec<(RequiredScript, &ScriptKind)>,
+    required_scripts: Vec<(RequiredScript, ScriptKind)>,
 ) -> Result<(Vec<RedeemerKey>, BTreeSet<Hash<DATUM>>), InvalidScripts> {
     let mut required_redeemers = Vec::new();
     let mut required_datums = BTreeSet::new();
     let mut missing_datums = BTreeSet::new();
 
-    required_scripts.iter().for_each(|(required_script, script)| {
+    required_scripts.iter().for_each(|(required_script, kind)| {
         let RequiredScript { index, datum, hash: _, purpose } = required_script;
 
         let mut require_redeemer = || required_redeemers.push(RedeemerKey::from(required_script));
@@ -184,7 +237,7 @@ fn partition_scripts(
             MemoizedDatum::Inline(..) | MemoizedDatum::None => {}
         };
 
-        match script {
+        match kind {
             // NOTE: One may very well send some funds to a native script, and attach a
             // datum hash to it. In which case, the datum has no effect and is simply
             // ignored.
@@ -224,12 +277,24 @@ fn datum_hashes(witness_set: &WitnessSet) -> BTreeSet<Hash<DATUM>> {
         .unwrap_or_default()
 }
 
+/// Collect all scripts (Native & Plutus) that are **available for evaluation**. This includes:
+///
+/// - Scripts present in the witness set
+/// - Scripts from inputs
+/// - Scripts from reference inputs
+///
+/// It **DOES NOT** include:
+///
+/// - Scripts from *outputs*
+/// - Scripts from auxiliary data
+/// - Scripts from collateral inputs
+/// - Scripts from collateral return
 fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
     required: &BTreeSet<&Hash<SCRIPT>>,
     witness_set: &'a WitnessSet,
     protocol_version: ProtocolVersion,
-) -> Result<BTreeMap<Hash<SCRIPT>, ScriptKind>, InvalidScripts>
+) -> Result<BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>, InvalidScripts>
 where
     C: WitnessSlice,
 {
@@ -240,7 +305,7 @@ where
     // the transaction.
     for (script_hash, script_ref) in context.known_scripts() {
         if required.contains(&script_hash) {
-            provided.insert(script_hash, ScriptKind::from(script_ref));
+            provided.insert(script_hash, ProvidedScript::from(script_ref));
         }
     }
 
@@ -251,8 +316,8 @@ where
 /// in each other).
 fn fail_on_script_symmetric_differences(
     required: BTreeSet<RequiredScript>,
-    provided: &BTreeMap<Hash<SCRIPT>, ScriptKind>,
-) -> Result<Vec<(RequiredScript, &ScriptKind)>, InvalidScripts> {
+    provided: &BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>,
+) -> Result<Vec<(RequiredScript, ScriptKind)>, InvalidScripts> {
     let mut missing = BTreeSet::new();
     let mut existing = BTreeSet::new();
 
@@ -260,8 +325,8 @@ fn fail_on_script_symmetric_differences(
         .into_iter()
         .filter_map(|script| {
             existing.insert(script.hash);
-            if let Some(borrowed) = provided.get(&script.hash) {
-                Some((script, borrowed))
+            if let Some(provided) = provided.get(&script.hash) {
+                Some((script, provided.kind()))
             } else {
                 missing.insert(script.hash);
                 None
@@ -362,10 +427,6 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
 
 /// Attempts to flat decode the script bytes to validate they are well formed.
 /// Takes an arena to decode the script into, and then resets it.
-//
-// FIXME:
-// We decode the script bytes here and, if they're well-formed, again during phase 2 validation.
-// We should decode the script bytes once, and then pass them to phase 2 validation for execution.
 pub(crate) fn validate_plutus_script<const V: usize>(
     script: &PlutusScript<V>,
     plutus_version: PlutusVersion,
@@ -383,6 +444,10 @@ pub(crate) fn validate_plutus_script<const V: usize>(
         )));
     }
 
+    // FIXME: Carry decoded programs throughout
+    //
+    // We decode the script bytes here and, if they're well-formed, again during phase 2 validations.
+    // We should decode the script bytes once, and then pass them to phase 2 validation for execution.
     Ok(())
 }
 
@@ -393,14 +458,14 @@ pub(crate) fn validate_plutus_script<const V: usize>(
 fn validate_witness_scripts(
     witness_set: &WitnessSet,
     protocol_version: ProtocolVersion,
-) -> Result<BTreeMap<Hash<SCRIPT>, ScriptKind>, InvalidScripts> {
+) -> Result<BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>, InvalidScripts> {
     let mut provided = BTreeMap::new();
     let mut malformed = BTreeSet::new();
     let mut arena = Arena::new();
 
     if let Some(scripts) = witness_set.native_script.as_deref() {
         for script in scripts {
-            provided.insert(script.script_hash(), ScriptKind::Native);
+            provided.insert(script.script_hash(), ProvidedScript::Native(script.as_ref()));
         }
     }
 
@@ -431,6 +496,18 @@ fn validate_witness_scripts(
         &mut malformed,
     );
 
+    // TODO: Early return of ledger failures
+    //
+    // It is essential for the ledger to return as early as possible to minimize the amount of work
+    // being done. We could potentially adjust this behaviour at a later stage when running in a
+    // client mode to provide better errors; but that's not the goal _right now_. Note that I am
+    // not changing this now because:
+    //
+    // 1. I am in the middle of a review and it's not the time; it might break unrelated tests.
+    // 2. I would like to do a more extensive pass on the whole ledger regarding this; there might
+    //    be more similar occurences.
+    //
+    // TL; DR; do not decode ALL scripts if one is malformed, return at the first one.
     if !malformed.is_empty() {
         return Err(InvalidScripts::MalformedScriptWitnesses(malformed));
     }
@@ -443,13 +520,13 @@ fn collect_plutus_witness_scripts<const V: usize>(
     plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
     arena: &mut Arena,
-    provided: &mut BTreeMap<Hash<SCRIPT>, ScriptKind>,
+    provided: &mut BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>,
     malformed: &mut BTreeSet<Hash<SCRIPT>>,
 ) {
     let Some(scripts) = scripts else { return };
     for script in scripts {
         let hash = script.script_hash();
-        provided.insert(hash, ScriptKind::from(plutus_version));
+        provided.insert(hash, ProvidedScript::from(plutus_version));
         if validate_plutus_script(script, plutus_version, protocol_version, arena).is_err() {
             malformed.insert(hash);
         }
@@ -459,8 +536,8 @@ fn collect_plutus_witness_scripts<const V: usize>(
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion, WitnessSet,
-        include_cbor,
+        ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
+        TransactionBody, WitnessSet, include_cbor,
     };
     use test_case::test_case;
 
@@ -475,6 +552,7 @@ mod tests {
         ($hash:literal) => {
             (
                 fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
                 amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
@@ -482,62 +560,101 @@ mod tests {
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
                 amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $pp:expr) => {
-            (fixture_context!($hash), include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")), $pp)
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+                $pp,
+            )
         };
     }
-    #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
-    #[test_case(fixture!("ebd7cda7805bc5b89c0fb3c8ad44f6549ab72c1040eb47019146e3f5f98298e1"); "native script locked with datum")]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e"); "happy path")]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");
+    #[test_case(
+        fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0");
+        "incorrect missing script due to re-serialisation"
+    )]
+    #[test_case(
+        fixture!("ebd7cda7805bc5b89c0fb3c8ad44f6549ab72c1040eb47019146e3f5f98298e1");
+        "native script locked with datum"
+    )]
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e");
+        "happy path"
+    )]
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");
         "supplemental datum output"
     )]
-    #[test_case(fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc"); "reference script in inputs")]
-    #[test_case(fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts"); "proposal script")]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-scripts") =>
-        matches Err(InvalidScripts::MissingRequiredScripts(..));
+    #[test_case(
+        fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc");
+        "reference script in inputs"
+    )]
+    #[test_case(
+        fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts");
+        "proposal script"
+    )]
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-scripts")
+        => matches Err(InvalidScripts::MissingRequiredScripts(..));
         "missing required scripts"
     )]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-script-witness") =>
-        matches Err(InvalidScripts::ExtraneousScriptWitnesses(..));
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-script-witness")
+        => matches Err(InvalidScripts::ExtraneousScriptWitnesses(..));
         "extraneous script witness"
     )]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "unspendable-input") =>
-        matches Err(InvalidScripts::UnspendableInputsNoDatums(..));
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "unspendable-input")
+        => matches Err(InvalidScripts::UnspendableInputsNoDatums(..));
         "unspendable input"
     )]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-datum") =>
-        matches Err(InvalidScripts::MissingRequiredDatums{..});
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-datum")
+        => matches Err(InvalidScripts::MissingRequiredDatums{..});
         "missing required datum"
     )]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-supplemental-datum") =>
-        matches Err(InvalidScripts::ExtraneousSupplementalDatums{..});
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-supplemental-datum")
+        => matches Err(InvalidScripts::ExtraneousSupplementalDatums{..});
         "extraneous supplemental datum"
     )]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-redeemer") =>
-        matches Err(InvalidScripts::MissingRedeemers{..});
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-redeemer")
+        => matches Err(InvalidScripts::MissingRedeemers{..});
         "missing required redeemer"
     )]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-redeemer") =>
-        matches Err(InvalidScripts::ExtraneousRedeemers{..});
+    #[test_case(
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-redeemer")
+        => matches Err(InvalidScripts::ExtraneousRedeemers{..});
         "extraneous redeemer"
     )]
-    #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
-    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", ProtocolParameters {
-        max_tx_ex_units: ExUnits { mem: 1, steps: 1 },
-        ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
-        }) =>
-        matches Err(InvalidScripts::TooManyExUnits{..});
+    #[test_case(
+        fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers"
+    )]
+    #[test_case(
+        fixture!(
+            "3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e",
+            ProtocolParameters {
+                max_tx_ex_units: ExUnits { mem: 1, steps: 1 },
+                ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
+            }
+        ) => matches Err(InvalidScripts::TooManyExUnits{..});
         "too many ex units"
     )]
     fn test_scripts(
-        (mut ctx, witness_set, protocol_parameters): (AssertValidationContext, WitnessSet, ProtocolParameters),
+        (mut ctx, tx, witness_set, protocol_parameters): (
+            AssertValidationContext,
+            TransactionBody,
+            WitnessSet,
+            ProtocolParameters,
+        ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, &protocol_parameters)
+        super::execute(&mut ctx, &witness_set, tx.validity_interval(), &protocol_parameters)
     }
 
     #[test]
