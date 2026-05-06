@@ -14,17 +14,17 @@
 
 use std::{
     error::Error,
-    io,
+    io::{self, IsTerminal},
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{BlockHeader, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Point, from_cbor};
+use amaru_kernel::{BlockHeader, EraHistory, Hash, HeaderHash, NetworkName, Nonce, Point, from_cbor};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_ouroboros::{ChainStore, Nonces};
-use amaru_progress_bar::new_terminal_progress_bar;
+use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar, no_progress_bar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use async_compression::tokio::bufread::GzipDecoder;
 use futures_util::TryStreamExt;
@@ -77,6 +77,12 @@ pub enum BootstrapError {
     DownloadInvalidStatusCode(String, reqwest::StatusCode),
 }
 
+/// Pick a progress-bar factory that draws to the terminal only when stderr is a TTY,
+/// so non-interactive runs (CI, log capture) stay quiet.
+fn pick_progress_factory() -> fn(usize, &str) -> Box<dyn ProgressBar> {
+    if std::io::stderr().is_terminal() { new_terminal_progress_bar } else { no_progress_bar }
+}
+
 async fn download_snapshots(snapshots_content: Vec<u8>, snapshots_dir: &PathBuf) -> Result<(), BootstrapError> {
     // Create the target directory if it doesn't exist
     fs::create_dir_all(snapshots_dir)
@@ -88,9 +94,10 @@ async fn download_snapshots(snapshots_content: Vec<u8>, snapshots_dir: &PathBuf)
 
     // Create a reqwest client
     let client = reqwest::Client::new();
+    let total = snapshots.len();
 
     // Download each snapshot
-    for snapshot in &snapshots {
+    for (i, snapshot) in snapshots.iter().enumerate() {
         info!(epoch=%snapshot.epoch, point=%snapshot.point,
             "Downloading snapshot",
         );
@@ -101,9 +108,12 @@ async fn download_snapshots(snapshots_content: Vec<u8>, snapshots_dir: &PathBuf)
 
         // Skip if file already exists
         if target_path.exists() {
+            eprintln!("  - snapshot {}/{} (epoch {}): already present, skipping", i + 1, total, snapshot.epoch);
             info!(filename=%filename, "Snapshot already exists, skipping");
             continue;
         }
+
+        eprintln!("  - snapshot {}/{} (epoch {}): downloading", i + 1, total, snapshot.epoch);
 
         // Download the file
         let response = client
@@ -146,11 +156,20 @@ pub async fn bootstrap(network: NetworkName, ledger_dir: PathBuf, chain_dir: Pat
     let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
     let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
         .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
+
+    eprintln!("Downloading snapshots...");
     download_snapshots(snapshots_file, &snapshots_dir).await?;
+
+    eprintln!("Importing ledger snapshots...");
     import_snapshots_from_directory(network, &ledger_dir, &snapshots_dir).await?;
+
+    eprintln!("Importing nonces...");
     import_nonces(network.into(), &chain_dir, default_initial_nonces(network)?).await?;
+
+    eprintln!("Importing headers...");
     import_headers_for_network(&chain_dir, get_bootstrap_headers(network)?.collect::<Vec<_>>()).await?;
 
+    eprintln!("Bootstrap complete.");
     Ok(())
 }
 
@@ -211,15 +230,15 @@ pub async fn import_nonces(
 pub async fn import_headers_for_network(chain_dir: &PathBuf, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     let db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.into()))?;
 
+    let progress = pick_progress_factory()(headers.len(), "  importing headers {bar:40} {pos}/{len}");
+
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).unwrap();
-        let hash = block_header.hash();
-
-        info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting header");
-
         db.store_header(&block_header)?;
+        progress.tick(1);
     }
 
+    progress.clear();
     Ok(())
 }
 
@@ -255,7 +274,14 @@ pub async fn import_snapshots(
     ledger_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(count = snapshots.len(), "Importing snapshots");
-    for snapshot in snapshots {
+    let total = snapshots.len();
+    for (i, snapshot) in snapshots.iter().enumerate() {
+        eprintln!(
+            "  - importing snapshot {}/{}: {}",
+            i + 1,
+            total,
+            snapshot.file_name().and_then(|s| s.to_str()).unwrap_or("?")
+        );
         import_snapshot(network, snapshot, ledger_dir).await?;
     }
     info!("Imported snapshots");
