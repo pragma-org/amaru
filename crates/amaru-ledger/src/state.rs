@@ -663,18 +663,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             trace_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string());
         let _guard = _span.enter();
 
-        // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
-        // rollback to the last known point, which ought to be the tip of the database.
-        if self.volatile.is_empty() && self.tip().as_ref() == to {
-            return Ok(());
-        }
-
-        if self.tip().as_ref() > to {
-            return Err(BackwardError::RollbackPointBeforeTip { rollback_point: *to, tip: self.tip().into_owned() });
-        }
-
-        if self.volatile.is_empty() && self.tip().as_ref() < to {
-            return Err(BackwardError::RollbackPointInFuture(*to));
+        if self.volatile.is_empty() {
+            // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
+            // rollback to the last known point, which ought to be the tip of the database.
+            // Otherwise we return an error.
+            if self.tip().as_ref() == to {
+                return Ok(());
+            } else if self.tip().as_ref() > to {
+                return Err(BackwardError::RollbackPointBeforeTip {
+                    rollback_point: *to,
+                    tip: self.tip().into_owned(),
+                });
+            } else {
+                return Err(BackwardError::RollbackPointInFuture(*to));
+            }
         }
 
         if let Some(last) = self.volatile.view_back()

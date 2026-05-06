@@ -220,6 +220,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
+ "amaru-stores",
  "amaru-tracing-json",
  "amaru-uplc",
  "anyhow",
