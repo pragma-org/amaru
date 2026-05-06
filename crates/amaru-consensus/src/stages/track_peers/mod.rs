@@ -22,7 +22,6 @@ use amaru_kernel::{
 use amaru_observability::trace_span;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
-    manager::ManagerMessage,
     store_effects::Store,
 };
 pub use defer_req_next::DeferReqNextMsg;
@@ -30,6 +29,7 @@ use pure_stage::{Effects, Instant, StageRef};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+use super::peer_selection::PeerSelectionMsg;
 use crate::{
     effects::{Ledger, LedgerOps},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
@@ -50,12 +50,12 @@ pub(super) async fn ledger_applied_block_height<T: pure_stage::SendData + Sync>(
 /// It maintains the currently communicated tip as well as the highest advertised tip for each peer.
 /// With this information, it validates incoming headers for protocol conformance and ensures that
 /// they are stored in the chain store. When a new header is stored, its [`Tip`] is sent to the
-/// `downstream` stage. The `manager` stage is used to remove peers that have violated the protocol.
+/// `downstream` stage. The `peer_selection` stage removes misbehaving peers and applies cooldown policy.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TrackPeers {
     era_history: EraHistory,
     upstream: BTreeMap<Peer, PerPeer>,
-    manager: StageRef<ManagerMessage>,
+    peer_selection: StageRef<PeerSelectionMsg>,
     downstream: StageRef<(Tip, Point)>,
     consensus_security_parameter: u64,
     /// Lazily populated via [`Effects::stage`](pure_stage::Effects::stage) on first deferred `RequestNext`.
@@ -96,7 +96,7 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
 impl TrackPeers {
     pub fn new(
         era_history: EraHistory,
-        manager: StageRef<ManagerMessage>,
+        peer_selection: StageRef<PeerSelectionMsg>,
         downstream: StageRef<(Tip, Point)>,
         consensus_security_parameter: u64,
         defer_req_next_poll_ms: u64,
@@ -104,7 +104,7 @@ impl TrackPeers {
         Self {
             era_history,
             upstream: BTreeMap::new(),
-            manager,
+            peer_selection,
             downstream,
             consensus_security_parameter,
             defer_req_next: StageRef::blackhole(),
@@ -247,7 +247,7 @@ impl TrackPeers {
             Err(error) => {
                 tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                 self.upstream.remove(&peer);
-                eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
+                eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                 return;
             }
         };
@@ -259,7 +259,7 @@ impl TrackPeers {
             Err(error) => {
                 tracing::error!(%error, %peer, "chain_sync.store_header.failed");
                 self.upstream.remove(&peer);
-                eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
+                eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                 return;
             }
         };
@@ -314,7 +314,7 @@ impl TrackPeers {
                     Err(error) => {
                         tracing::error!(%error, %peer, "chain_sync.decode_header.failed");
                         self.upstream.remove(&peer);
-                        eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
+                        eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                         return;
                     }
                 };
@@ -351,7 +351,7 @@ impl TrackPeers {
                 if let Err(error) = self.roll_backward(&peer, current, tip, &store).await {
                     tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
                     self.upstream.remove(&peer);
-                    eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
+                    eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
                 }
             }
         }

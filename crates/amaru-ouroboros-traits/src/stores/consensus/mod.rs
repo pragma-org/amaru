@@ -16,7 +16,11 @@ pub mod in_memory_consensus_store;
 pub mod overriding_consensus_store;
 
 pub mod missing_blocks;
-use std::{cmp::Reverse, fmt::Display, iter::successors};
+use std::{
+    cmp::Reverse,
+    fmt::Display,
+    iter::{from_fn, successors},
+};
 
 use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 use thiserror::Error;
@@ -139,6 +143,32 @@ where
             Box::new(vec![*hash].into_iter())
         }
     }
+
+    fn child_tips<'a>(&'a self, hash: &HeaderHash, mode: ChildTipsMode) -> Box<dyn Iterator<Item = Tip> + 'a>
+    where
+        H: 'a,
+    {
+        let mut to_visit = if hash == &ORIGIN_HASH { self.get_children(hash) } else { vec![*hash] };
+        Box::new(from_fn(move || {
+            loop {
+                let hash = to_visit.pop()?;
+                tracing::debug!(hash = %hash, "visiting child");
+                let (header, validity) = self.load_header_with_validity(&hash)?;
+                if mode == ChildTipsMode::SkipInvalid && validity == Some(false) {
+                    continue;
+                }
+                let children = self.get_children(&hash);
+                to_visit.extend(children);
+                return Some(header.tip());
+            }
+        }))
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ChildTipsMode {
+    All,
+    SkipInvalid,
 }
 
 /// A chain store interface that exposes diagnostic methods to load raw data.

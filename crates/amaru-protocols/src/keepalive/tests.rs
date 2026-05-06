@@ -57,6 +57,7 @@ fn test_keepalive_with_node() {
             StageRef::blackhole(),
             Arc::new(era_history.clone()),
             StageRef::blackhole(),
+            StageRef::blackhole(), // dummy manager for test
         ),
     );
     network.preload(connection, [ConnectionMessage::Initialize]).unwrap();

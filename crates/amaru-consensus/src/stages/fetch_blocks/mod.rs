@@ -14,12 +14,14 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, ORIGIN_HASH, Point, Tip, cardano::network_block::NetworkBlock};
+use amaru_kernel::{
+    BlockHeader, BlockHeight, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
+};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef};
 
-use crate::stages::select_chain::SelectChainMsg;
+use crate::stages::{block_source::BlockSourceMsg, select_chain::SelectChainMsg};
 
 // TODO make configurable
 const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
@@ -31,6 +33,7 @@ pub struct FetchBlocks {
     missing: Option<MissingBlocks>,
     upstream: StageRef<SelectChainMsg>,
     manager: StageRef<ManagerMessage>,
+    block_source: StageRef<BlockSourceMsg>,
     cleanup_replies: StageRef<Blocks2>,
     timeout: Option<ScheduleId>,
     block_height: BlockHeight,
@@ -41,6 +44,7 @@ impl FetchBlocks {
         downstream: StageRef<(Tip, Point, BlockHeight)>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
+        block_source: StageRef<BlockSourceMsg>,
     ) -> Self {
         Self {
             downstream,
@@ -48,6 +52,7 @@ impl FetchBlocks {
             missing: None,
             upstream,
             manager,
+            block_source,
             cleanup_replies: StageRef::blackhole(),
             timeout: None,
             block_height: BlockHeight::from(0),
@@ -60,6 +65,7 @@ impl FetchBlocks {
         downstream: StageRef<(Tip, Point, BlockHeight)>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
+        block_source: StageRef<BlockSourceMsg>,
         cleanup_replies: StageRef<Blocks2>,
     ) -> Self {
         Self {
@@ -68,6 +74,7 @@ impl FetchBlocks {
             missing: None,
             upstream,
             manager,
+            block_source,
             cleanup_replies,
             timeout: None,
             block_height: BlockHeight::from(0),
@@ -131,7 +138,7 @@ impl FetchBlocks {
         }
     }
 
-    pub async fn block(&mut self, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
+    pub async fn block(&mut self, peer: Peer, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
         let store = Store::new(eff.clone());
         let block = match network_block.decode_block() {
             Ok(block) => block,
@@ -142,6 +149,8 @@ impl FetchBlocks {
         };
         let header = BlockHeader::from(&block.header);
         let point = header.point();
+        let block_height = block.header.header_body.block_number.into();
+        eff.send(&self.block_source, BlockSourceMsg::BlockReceived { peer, point, block_height }).await;
         tracing::debug!(%point, "received block");
 
         // check that body belongs to header
@@ -203,7 +212,7 @@ impl FetchBlocks {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
     NewTip(Tip, Point),
-    Block(NetworkBlock),
+    Block(Peer, NetworkBlock),
     Timeout(u64),
 }
 
@@ -214,7 +223,7 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     }
     match msg {
         FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
-        FetchBlocksMsg::Block(block) => state.block(block, eff).await,
+        FetchBlocksMsg::Block(peer, block) => state.block(peer, block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
     }
     state
@@ -230,9 +239,9 @@ pub async fn cleanup_replies(
         // completely ignore empty responses, fetch stage will deal with timeouts
         Blocks2::NoBlocks(_) => (curr_id, fetch),
         // ignore responses to prior requests
-        Blocks2::Block(id, _) if id < curr_id => (curr_id, fetch),
-        Blocks2::Block(id, block) => {
-            eff.send(&fetch, FetchBlocksMsg::Block(block)).await;
+        Blocks2::Block(id, _, _) if id < curr_id => (curr_id, fetch),
+        Blocks2::Block(id, peer, block) => {
+            eff.send(&fetch, FetchBlocksMsg::Block(peer, block)).await;
             // getting higher id implies a new request has started
             (id.max(curr_id), fetch)
         }

@@ -22,11 +22,14 @@ use amaru_protocols::{
 use pure_stage::trace_buffer::TraceEntry;
 use tracing::Level;
 
-use crate::stages::track_peers::{
-    TrackPeersMsg,
-    test_setup::{
-        FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
-        te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
+use crate::stages::{
+    peer_selection::PeerSelectionMsg,
+    track_peers::{
+        TrackPeersMsg,
+        test_setup::{
+            FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
+            te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
+        },
     },
 };
 
@@ -232,7 +235,7 @@ fn test_roll_forward_unknown_peer_removes_peer() {
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
     );
@@ -341,7 +344,7 @@ fn test_roll_forward_invalid_variant_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -374,7 +377,7 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -407,7 +410,7 @@ fn test_roll_forward_invalid_parent_removes_peer() {
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -439,7 +442,7 @@ fn test_roll_forward_invalid_height_removes_peer() {
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -471,7 +474,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -516,7 +519,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
-            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );

@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
+    BlockHeader, HeaderHash, Peer, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
 use amaru_ouroboros_traits::{ChainStore, MissingBlocks, StoreError, in_memory_consensus_store::InMemConsensusStore};
@@ -34,9 +34,14 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
 use crate::stages::{
+    block_source::BlockSourceMsg,
     select_chain::SelectChainMsg,
     test_utils::{BufferWriter, Logs},
 };
+
+pub fn test_peer() -> Peer {
+    Peer::new("test-peer")
+}
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
     let header = amaru_kernel::make_header(block_number, slot, parent);
@@ -119,6 +124,8 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<FetchBlocksMsg>().boxed(),
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
+        pure_stage::register_data_deserializer::<amaru_kernel::Peer>().boxed(),
+        pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
         pure_stage::register_data_deserializer::<(Tip, Point, BlockHeight)>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
@@ -135,9 +142,10 @@ pub fn test_prep() -> TestPrep {
     let downstream = StageRef::named_for_tests("downstream");
     let upstream = StageRef::named_for_tests("upstream");
     let manager = StageRef::named_for_tests("manager");
+    let block_source = StageRef::named_for_tests("block_source");
     let cleanup_replies = StageRef::named_for_tests("cleanup_replies");
 
-    let state = FetchBlocks::for_tests(downstream, upstream, manager, cleanup_replies.clone());
+    let state = FetchBlocks::for_tests(downstream, upstream, manager, block_source.clone(), cleanup_replies.clone());
 
     TestPrep {
         state,

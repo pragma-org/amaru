@@ -21,21 +21,27 @@ use pure_stage::{Effects, OrTerminateWith, StageRef};
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
     errors::{ConsensusError, ValidationFailed},
-    stages::{adopt_chain::AdoptChainMsg, select_chain::SelectChainMsg},
+    stages::{adopt_chain::AdoptChainMsg, block_source::BlockSourceMsg, select_chain::SelectChainMsg},
 };
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlock {
     manager: StageRef<AdoptChainMsg>,
     selet_chain: StageRef<SelectChainMsg>,
+    block_source: StageRef<BlockSourceMsg>,
     /// This is always at the tip of the ledger
     current: Point,
     max_block_height: BlockHeight,
 }
 
 impl ValidateBlock {
-    pub fn new(manager: StageRef<AdoptChainMsg>, selet_chain: StageRef<SelectChainMsg>, current: Point) -> Self {
-        Self { manager, selet_chain, current, max_block_height: BlockHeight::from(0) }
+    pub fn new(
+        manager: StageRef<AdoptChainMsg>,
+        selet_chain: StageRef<SelectChainMsg>,
+        block_source: StageRef<BlockSourceMsg>,
+        current: Point,
+    ) -> Self {
+        Self { manager, selet_chain, block_source, current, max_block_height: BlockHeight::from(0) }
     }
 }
 
@@ -74,6 +80,8 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 // step 2: roll forward to the parent point if needed
                 // (none of the ancestors is already known to be invalid, as ensured above)
                 tracing::info!(parent = %msg.parent, current = %state.current, points = %forward_points.len(), "rolling forward ledger to reach parent");
+                let to_do = forward_points.len();
+                let mut done = 0;
                 for point in forward_points {
                     tracing::debug!(point = %point, "validating block (roll forward)");
                     match validate(point, &ledger, &eff).await {
@@ -84,8 +92,13 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                         Err(error) => {
                             tracing::warn!(error = %error, point = %point, "invalid block");
                             eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+                            eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point }).await;
                             return state;
                         }
+                    }
+                    done += 1;
+                    if done % 100 == 0 {
+                        tracing::info!(%done, %to_do, "rolling forward ledger to reach parent");
                     }
                 }
             }
@@ -100,6 +113,8 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 }
                 tracing::warn!(error = %err.error, parent = %msg.parent, "failed to rollback ledger to parent point");
                 eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+                eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() })
+                    .await;
                 return state;
             }
         }
@@ -109,12 +124,14 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         Ok(metrics) => {
             Metrics::new(&eff).record(metrics.into()).await;
             eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
+            eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }).await;
             eff.send(&state.manager, AdoptChainMsg::new(msg.tip, msg.max_block_height)).await;
             state.current = msg.tip.point();
         }
         Err(error) => {
             tracing::warn!(error = %error, point = %msg.tip.point(), "invalid block");
             eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+            eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() }).await;
         }
     }
 

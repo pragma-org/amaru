@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, MempoolMsg, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
 use tracing::Instrument;
 
@@ -30,6 +30,33 @@ use crate::{
     protocol::Role,
 };
 
+/// Messages the [`Manager`] sends to the consensus `peer_selection` stage (via [`StageRef`]).
+///
+/// Notifications are sent *only after the handshake completes successfully*, so that
+/// `full_duplex` status is known accurately.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum PeerSelectionNotify {
+    /// A connection has been established and the handshake completed successfully.
+    /// This is the only moment at which `peer_selection` learns about a usable connection.
+    Connected {
+        peer: Peer,
+        conn_id: ConnectionId,
+        direction: ConnectionDirection,
+        full_duplex_capable: bool,
+        full_duplex: bool,
+    },
+
+    /// A connection has been terminated (graceful disconnect, error, handshake refusal,
+    /// or network error). Reconnection logic (if applicable) is still owned by the Manager.
+    Disconnected {
+        peer: Peer,
+        conn_id: ConnectionId,
+        direction: ConnectionDirection,
+        role: Role,
+        reason: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
     AddPeer(Peer),
@@ -42,20 +69,35 @@ pub enum ManagerMessage {
     // TODO move to separate message type
     Connect(Peer),
     Accepted(Peer, ConnectionId),
+    /// Sent by the connection stage after successful handshake.
+    /// This allows the manager to notify peer_selection with accurate full_duplex status.
+    HandshakeComplete {
+        peer: Peer,
+        conn_id: ConnectionId,
+        role: Role,
+        full_duplex_capable: bool,
+        full_duplex: bool,
+    },
+    /// Remove a peer after terminating all of its connections.
     RemovePeer(Peer),
+    /// Terminate the given connection only.
+    Disconnect(Peer, ConnectionId),
     Listen(SocketAddr),
+    // TODO: remove, then rename FetchBlocks2 to FetchBlocks
     FetchBlocks {
         peer: Peer,
         from: Point,
         through: Point,
         cr: StageRef<Blocks>,
     },
+    /// Fetch all blocks on the given chain fragment
     FetchBlocks2 {
         from: Point,
         through: Point,
         cr: StageRef<Blocks2>,
         id: u64,
     },
+    /// Advertise this new tip to all downstream peers.
     NewTip(Tip),
 }
 
@@ -66,7 +108,9 @@ impl ManagerMessage {
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
             ManagerMessage::Connect(_) => "Connect",
             ManagerMessage::Accepted(..) => "Accepted",
+            ManagerMessage::HandshakeComplete { .. } => "HandshakeComplete",
             ManagerMessage::RemovePeer(_) => "RemovePeer",
+            ManagerMessage::Disconnect(..) => "Disconnect",
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
             ManagerMessage::FetchBlocks2 { .. } => "FetchBlocks2",
@@ -83,12 +127,21 @@ pub struct Manager {
     era_history: Arc<EraHistory>,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
     mempool: StageRef<MempoolMsg>,
+    peer_selection: StageRef<PeerSelectionNotify>,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ConnectionState {
-    Scheduled,
-    Connected(ConnectionId, StageRef<ConnectionMessage>),
+    Scheduled {
+        retries: u16,
+    },
+    Connected {
+        conn_id: ConnectionId,
+        connection: StageRef<ConnectionMessage>,
+        role: Role,
+        full_duplex_capable: bool,
+        full_duplex: bool,
+    },
     // Does not contain the connection ID because that will be received in the ConnectionDied message.
     Disconnecting,
 }
@@ -100,8 +153,9 @@ impl Manager {
         era_history: Arc<EraHistory>,
         chain_sync: StageRef<ChainSyncInitiatorMsg>,
         mempool: StageRef<MempoolMsg>,
+        peer_selection: StageRef<PeerSelectionNotify>,
     ) -> Self {
-        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync, mempool }
+        Self { peers: BTreeMap::new(), magic, config, era_history, chain_sync, mempool, peer_selection }
     }
 
     pub fn config(&self) -> ManagerConfig {
@@ -114,6 +168,7 @@ impl Manager {
 pub struct ManagerConfig {
     pub connection_timeout: Duration,
     pub reconnect_delay: Duration,
+    pub connect_retries: u16,
     pub accept_interval: Duration,
 }
 
@@ -139,7 +194,135 @@ impl Default for ManagerConfig {
         Self {
             connection_timeout: Duration::from_secs(10),
             reconnect_delay: Duration::from_secs(2),
+            connect_retries: 3,
             accept_interval: Duration::from_millis(100),
+        }
+    }
+}
+
+impl Manager {
+    async fn add_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
+        match self.peers.get_mut(&peer) {
+            Some(ConnectionState::Connected { .. } | ConnectionState::Scheduled { .. }) => {
+                tracing::info!(%peer, "discarding connection request, already connected or scheduled");
+                return;
+            }
+            Some(s @ ConnectionState::Disconnecting) => {
+                tracing::info!(%peer, "adding peer while still disconnecting");
+                *s = ConnectionState::Scheduled { retries: self.config.connect_retries };
+            }
+            None => {
+                tracing::info!(%peer, "adding peer");
+                self.peers.insert(peer.clone(), ConnectionState::Scheduled { retries: self.config.connect_retries });
+            }
+        }
+        eff.send(eff.me_ref(), ManagerMessage::Connect(peer)).await;
+    }
+
+    async fn connect(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
+        let attempts = match self.peers.get_mut(&peer) {
+            Some(ConnectionState::Connected { .. }) => {
+                tracing::debug!(%peer, "discarding connection request, already connected");
+                return;
+            }
+            Some(ConnectionState::Scheduled { retries }) => retries,
+            Some(ConnectionState::Disconnecting) => {
+                tracing::debug!(%peer, "discarding connection request, already disconnecting");
+                return;
+            }
+            None => {
+                tracing::debug!(%peer, "discarding connection request, not added");
+                return;
+            }
+        };
+        let addr = ToSocketAddrs::String(peer.to_string());
+        let conn_id = match Network::new(&eff).connect(addr, self.config.connection_timeout).await {
+            Ok(conn_id) => conn_id,
+            Err(err) => {
+                *attempts -= 1;
+                if *attempts > 0 {
+                    tracing::info!(?err, %peer, retries = *attempts, reconnecting_in = ?self.config.reconnect_delay, "failed to connect");
+                    eff.schedule_after(ManagerMessage::Connect(peer), self.config.reconnect_delay).await;
+                } else {
+                    tracing::warn!(?err, %peer, "failed to connect, removing peer");
+                    self.peers.remove(&peer);
+                }
+                return;
+            }
+        };
+        tracing::info!(?conn_id, %peer, "connected to peer");
+        start_connection_stage(self, eff, peer, conn_id, Role::Initiator).await;
+    }
+
+    async fn accepted(&mut self, peer: Peer, conn_id: ConnectionId, eff: &Effects<ManagerMessage>) {
+        match self.peers.get(&peer) {
+            Some(ConnectionState::Connected { .. }) => {
+                tracing::debug!(%peer, "already connected. Closing the newly accepted connection");
+                close_connection(&eff, &peer, conn_id).await;
+                return;
+            }
+            Some(ConnectionState::Disconnecting) => {
+                tracing::debug!(%peer, "already disconnecting, the previous connection will be closed with ConnectionDied, the newly accepted connection will be closed now");
+                close_connection(&eff, &peer, conn_id).await;
+                return;
+            }
+            Some(ConnectionState::Scheduled { .. }) => {
+                unreachable!(
+                    "Accepted peers are initiators. They will schedule reconnections on their side so this case cannot happen."
+                )
+            }
+            None => {}
+        };
+        start_connection_stage(self, eff, peer.clone(), conn_id, Role::Responder).await;
+        // Notification to peer_selection happens only after successful handshake
+        // (see HandshakeComplete handler in stage())
+    }
+
+    async fn remove_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
+        let Some(entry) = self.peers.get_mut(&peer) else {
+            tracing::info!(%peer, "disconnect request ignored, not connected");
+            return;
+        };
+        match entry {
+            ConnectionState::Connected { connection, .. } => {
+                eff.send(connection, ConnectionMessage::Disconnect).await;
+                *entry = ConnectionState::Disconnecting;
+            }
+            ConnectionState::Scheduled { .. } | ConnectionState::Disconnecting => {
+                tracing::info!(%peer, "removing currently disconnected peer");
+                self.peers.remove(&peer);
+            }
+        }
+    }
+
+    async fn connection_died(&mut self, peer: Peer, conn_id: ConnectionId, role: Role, eff: &Effects<ManagerMessage>) {
+        close_connection(&eff, &peer, conn_id).await;
+        let Some(peer_state) = self.peers.get_mut(&peer) else {
+            tracing::debug!(%peer, "connection died, peer already removed");
+            return;
+        };
+        // FIXME notify peer_selection about disconnection with reason (if available)
+        match peer_state {
+            ConnectionState::Connected { conn_id: conn_id_new, .. } if *conn_id_new != conn_id => {
+                tracing::debug!(%peer, "previously terminated connection closed");
+            }
+            ConnectionState::Connected { .. } => {
+                if role == Role::Initiator {
+                    tracing::info!(%peer, reconnecting_in = ?self.config.reconnect_delay, "initiator connection died, scheduling reconnect");
+                    eff.schedule_after(ManagerMessage::Connect(peer), self.config.reconnect_delay).await;
+                    *peer_state = ConnectionState::Scheduled { retries: self.config.connect_retries };
+                } else {
+                    tracing::info!(%peer, "responder connection died, removing peer");
+                    self.peers.remove(&peer);
+                }
+            }
+            ConnectionState::Scheduled { .. } => {
+                tracing::debug!(%peer, "initiator connection died, reconnect already scheduled");
+            }
+            ConnectionState::Disconnecting => {
+                tracing::debug!(%peer, "peer terminated after removal");
+                self.peers.remove(&peer);
+            }
         }
     }
 }
@@ -153,134 +336,95 @@ impl Default for ManagerConfig {
 /// A peer can be added right after being removed even though the socket will be closed asynchronously.
 pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
     let message_type = msg.message_type().to_string();
+    let span = trace_span!(amaru_observability::amaru::protocols::manager::MANAGER_STAGE, message_type = message_type);
 
     async move {
         match msg {
             ManagerMessage::AddPeer(peer) => {
-                let _span = trace_span!(amaru_observability::amaru::protocols::manager::ADD_PEER, peer = peer.to_string());
-                let _guard = _span.enter();
-                match manager.peers.get_mut(&peer) {
-                    Some(ConnectionState::Connected(..) | ConnectionState::Scheduled) => {
-                        tracing::info!(%peer, "discarding connection request, already connected or scheduled");
-                        return manager;
-                    }
-                    Some(s @ ConnectionState::Disconnecting) => {
-                        tracing::info!(%peer, "adding peer while still disconnecting");
-                        *s = ConnectionState::Scheduled;
-                    }
-                    None => {
-                        tracing::info!(%peer, "adding peer");
-                        manager.peers.insert(peer.clone(), ConnectionState::Scheduled);
-                    }
-                }
-                eff.send(eff.me_ref(), ManagerMessage::Connect(peer)).await;
+                let span =
+                    trace_span!(amaru_observability::amaru::protocols::manager::ADD_PEER, peer = peer.to_string());
+                manager.add_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Connect(peer) => {
-                let _span = trace_span!(amaru_observability::amaru::protocols::manager::CONNECT, peer = peer.to_string());
-                let _guard = _span.enter();
-                let entry = match manager.peers.get_mut(&peer) {
-                    Some(ConnectionState::Connected(..)) => {
-                        tracing::debug!(%peer, "discarding connection request, already connected");
-                        return manager;
-                    }
-                    Some(entry @ ConnectionState::Scheduled) => entry,
-                    Some(ConnectionState::Disconnecting) => {
-                        tracing::debug!(%peer, "discarding connection request, already disconnecting");
-                        return manager;
-                    }
-                    None => {
-                        tracing::debug!(%peer, "discarding connection request, not added");
-                        return manager;
-                    }
-                };
-                let addr = ToSocketAddrs::String(peer.to_string());
-                let conn_id = match Network::new(&eff).connect(addr, manager.config.connection_timeout).await {
-                    Ok(conn_id) => conn_id,
-                    Err(err) => {
-                        tracing::error!(?err, %peer, reconnecting_in=?manager.config.reconnect_delay, "failed to connect to peer. Scheduling reconnect");
-                        eff.schedule_after(ManagerMessage::Connect(peer), manager.config.reconnect_delay).await;
-                        assert_eq!(*entry, ConnectionState::Scheduled);
-                        return manager;
-                    }
-                };
-                tracing::info!(?conn_id, %peer, "connected to peer");
-                start_connection_stage(&mut manager, &eff, peer, conn_id, Role::Initiator).await;
+                let span =
+                    trace_span!(amaru_observability::amaru::protocols::manager::CONNECT, peer = peer.to_string());
+                manager.connect(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Accepted(peer, conn_id) => {
-                let _span = trace_span!(amaru_observability::amaru::protocols::manager::ACCEPTED, peer = peer.to_string(), conn_id = conn_id.to_string());
-                let _guard = _span.enter();
-                match manager.peers.get(&peer) {
-                    Some(ConnectionState::Connected(..)) => {
-                        tracing::debug!(%peer, "already connected. Closing the newly accepted connection");
-                        close_connection(&eff, &peer, conn_id).await;
-                        return manager;
-                    }
-                    Some(ConnectionState::Disconnecting) => {
-                        tracing::debug!(%peer, "already disconnecting, the previous connection will be closed with ConnectionDied, the newly accepted connection will be closed now");
-                        close_connection(&eff, &peer, conn_id).await;
-                        return manager;
-                    }
-                    Some(ConnectionState::Scheduled) => {
-                        unreachable!(
-                            "Accepted peers are initiators. They will schedule reconnections on their side so this case cannot happen."
-                        )
-                    }
-                    None => {}
-                };
-                start_connection_stage(&mut manager, &eff, peer, conn_id, Role::Responder).await;
+                let span = trace_span!(
+                    amaru_observability::amaru::protocols::manager::ACCEPTED,
+                    peer = peer.to_string(),
+                    conn_id = conn_id.to_string()
+                );
+                manager.accepted(peer, conn_id, &eff).instrument(span).await;
             }
             ManagerMessage::RemovePeer(peer) => {
-                let _span = trace_span!(amaru_observability::amaru::protocols::manager::REMOVE_PEER, peer = peer.to_string());
-                let _guard = _span.enter();
-                let Some(entry) = manager.peers.get_mut(&peer) else {
-                    tracing::info!(%peer, "disconnect request ignored, not connected");
-                    return manager;
+                let span =
+                    trace_span!(amaru_observability::amaru::protocols::manager::REMOVE_PEER, peer = peer.to_string());
+                manager.remove_peer(peer, &eff).instrument(span).await;
+            }
+            ManagerMessage::Disconnect(peer, conn_id) => {
+                tracing::debug!(%peer, %conn_id, "disconnecting specific connection");
+                let handled = if let Some(state) = manager.peers.get_mut(&peer) {
+                    if let ConnectionState::Connected { conn_id: current_id, connection, .. } = state {
+                        if *current_id == conn_id {
+                            eff.send(connection, ConnectionMessage::Disconnect).await;
+                            *state = ConnectionState::Disconnecting;
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 };
-                match entry {
-                    ConnectionState::Connected(_conn_id, connection) => {
-                        eff.send(connection, ConnectionMessage::Disconnect).await;
-                        *entry = ConnectionState::Disconnecting;
-                    }
-                    ConnectionState::Scheduled | ConnectionState::Disconnecting => {
-                        tracing::info!(%peer, "removing currently disconnected peer");
-                        manager.peers.remove(&peer);
-                    }
+                if !handled {
+                    close_connection(&eff, &peer, conn_id).await;
                 }
             }
             ManagerMessage::ConnectionDied(peer, conn_id, role) => {
-                let _span = trace_span!(amaru_observability::amaru::protocols::manager::CONNECTION_DIED, peer = peer.to_string(), conn_id = conn_id.to_string(), role = role.to_string());
-                let _guard = _span.enter();
-                close_connection(&eff, &peer, conn_id).await;
-                let Some(peer_state) = manager.peers.get_mut(&peer) else {
-                    tracing::debug!(%peer, "connection died, peer already removed");
-                    return manager;
+                let span = trace_span!(
+                    amaru_observability::amaru::protocols::manager::CONNECTION_DIED,
+                    peer = peer.to_string(),
+                    conn_id = conn_id.to_string(),
+                    role = role.to_string()
+                );
+                manager.connection_died(peer, conn_id, role, &eff).instrument(span).await;
+            }
+            ManagerMessage::HandshakeComplete { peer, conn_id, role, full_duplex_capable, full_duplex } => {
+                let direction = match role {
+                    Role::Initiator => ConnectionDirection::Outbound,
+                    Role::Responder => ConnectionDirection::Inbound,
                 };
-                match peer_state {
-                    ConnectionState::Connected(conn_id_new, ..) if *conn_id_new != conn_id => {
-                        tracing::debug!(%peer, "previously terminated connection closed");
-                    }
-                    ConnectionState::Connected(..) => {
-                        if role == Role::Initiator {
-                            tracing::info!(%peer, reconnecting_in=?manager.config.reconnect_delay, "initiator connection died, scheduling reconnect");
-                            eff.schedule_after(ManagerMessage::Connect(peer), manager.config.reconnect_delay).await;
-                            *peer_state = ConnectionState::Scheduled;
-                        } else {
-                            tracing::info!(%peer, "responder connection died, removing peer");
-                            manager.peers.remove(&peer);
-                        }
-                    }
-                    ConnectionState::Scheduled => {
-                        tracing::debug!(%peer, "initiator connection died, reconnect already scheduled");
-                    }
-                    ConnectionState::Disconnecting => {
-                        tracing::debug!(%peer, "peer terminated after removal");
-                        manager.peers.remove(&peer);
+                tracing::info!(%peer, %conn_id, full_duplex_capable, full_duplex, "handshake completed");
+                eff.send(
+                    &manager.peer_selection,
+                    PeerSelectionNotify::Connected {
+                        peer: peer.clone(),
+                        conn_id,
+                        direction,
+                        full_duplex_capable,
+                        full_duplex,
+                    },
+                )
+                .await;
+
+                // Update internal state with full connection info from handshake (reconnect logic remains unchanged)
+                if let Some(ConnectionState::Connected {
+                    conn_id: stored_id, full_duplex_capable, full_duplex, ..
+                }) = manager.peers.get_mut(&peer)
+                {
+                    if *stored_id == conn_id {
+                        *full_duplex_capable = *full_duplex_capable;
+                        *full_duplex = *full_duplex;
                     }
                 }
             }
             ManagerMessage::FetchBlocks { peer, from, through, cr } => {
                 tracing::trace!(?from, ?through, %peer, "fetching blocks");
-                if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
+                if let Some(ConnectionState::Connected { connection, .. }) = manager.peers.get(&peer) {
                     eff.send(connection, ConnectionMessage::FetchBlocks { from, through, cr }).await;
                 } else {
                     tracing::error!(%peer, "peer not found");
@@ -307,32 +451,29 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::NewTip(tip) => {
                 for conn in manager.peers.values() {
-                    if let ConnectionState::Connected(_, connection) = conn {
+                    if let ConnectionState::Connected { connection, .. } = conn {
                         eff.send(connection, ConnectionMessage::NewTip(tip)).await;
                     }
                 }
             }
             ManagerMessage::FetchBlocks2 { from, through, cr, id } => {
-            if manager.peers.is_empty() {
-                tracing::warn!("no peers to fetch blocks");
-                eff.send(&cr, Blocks2::NoBlocks(id)).await;
-                return manager;
-            }
-            tracing::debug!(?from, ?through, "fetching blocks");
-            for state in manager.peers.values() {
-                let ConnectionState::Connected(_conn_id, connection) = state else {
-                    continue;
-                };
-                eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+                if manager.peers.is_empty() {
+                    tracing::warn!("no peers to fetch blocks");
+                    eff.send(&cr, Blocks2::NoBlocks(id)).await;
+                    return manager;
+                }
+                tracing::debug!(?from, ?through, "fetching blocks");
+                for state in manager.peers.values() {
+                    let ConnectionState::Connected { connection, .. } = state else {
+                        continue;
+                    };
+                    eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+                }
             }
         }
-    }
         manager
     }
-    .instrument(trace_span!(
-        amaru_observability::amaru::protocols::manager::MANAGER_STAGE,
-        message_type = message_type
-    ))
+    .instrument(span)
     .await
 }
 
@@ -365,13 +506,27 @@ async fn start_connection_stage(
                 manager.chain_sync.clone(),
                 manager.era_history.clone(),
                 manager.mempool.clone(),
+                eff.me(), // manager itself to receive HandshakeComplete
             ),
         )
         .await;
     eff.send(&connection, ConnectionMessage::Initialize).await;
-    manager.peers.insert(peer, ConnectionState::Connected(conn_id, connection));
+    manager.peers.insert(
+        peer,
+        ConnectionState::Connected {
+            conn_id,
+            connection,
+            role,
+            full_duplex_capable: false, // updated in HandshakeComplete handler
+            full_duplex: false,
+        },
+    );
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![register_data_deserializer::<Manager>().boxed(), register_data_deserializer::<ManagerMessage>().boxed()]
+    vec![
+        register_data_deserializer::<Manager>().boxed(),
+        register_data_deserializer::<ManagerMessage>().boxed(),
+        register_data_deserializer::<PeerSelectionNotify>().boxed(),
+    ]
 }

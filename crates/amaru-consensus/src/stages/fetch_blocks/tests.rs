@@ -14,15 +14,17 @@
 
 use std::time::Duration;
 
+use amaru_kernel::BlockHeight;
 use amaru_ouroboros_traits::MissingBlocks;
 use pure_stage::{Instant, ScheduleIds, trace_buffer::TerminationReason};
 use tracing::Level;
 
 use super::*;
 use crate::stages::{
+    block_source::BlockSourceMsg,
     fetch_blocks::test_setup::{
         TestPrep, assert_trace, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_schedule, te_send,
-        te_store_block, te_terminate, te_terminated, test_prep,
+        te_store_block, te_terminate, te_terminated, test_peer, test_prep,
     },
     test_utils::{te_input, te_state},
 };
@@ -149,7 +151,7 @@ fn test_block_received() {
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
 
-    let msg = FetchBlocksMsg::Block(TestPrep::network_block(&prep.headers.h1));
+    let msg = FetchBlocksMsg::Block(test_peer(), TestPrep::network_block(&prep.headers.h1));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
@@ -161,6 +163,15 @@ fn test_block_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
+            te_send(
+                "fb-1",
+                "block_source",
+                BlockSourceMsg::BlockReceived {
+                    peer: test_peer(),
+                    point: prep.headers.h1.point(),
+                    block_height: BlockHeight::from(2),
+                },
+            ),
             te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
             te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(0))),
             te_state("fb-1", &expected),
@@ -186,7 +197,7 @@ fn test_block2_received() {
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
 
-    let msg = FetchBlocksMsg::Block(TestPrep::network_block(&prep.headers.h2));
+    let msg = FetchBlocksMsg::Block(test_peer(), TestPrep::network_block(&prep.headers.h2));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
@@ -199,6 +210,15 @@ fn test_block2_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
+            te_send(
+                "fb-1",
+                "block_source",
+                BlockSourceMsg::BlockReceived {
+                    peer: test_peer(),
+                    point: prep.headers.h2.point(),
+                    block_height: BlockHeight::from(3),
+                },
+            ),
             te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
             te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(0))),
             te_cancel_schedule("fb-1", schedule_id),

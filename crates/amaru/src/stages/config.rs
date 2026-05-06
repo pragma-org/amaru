@@ -19,11 +19,15 @@ use amaru_ouroboros::ChainStore;
 use amaru_stores::{in_memory::MemoryStore, rocksdb::RocksDbConfig};
 use anyhow::Context;
 
+use crate::DEFAULT_PEER_REMOVAL_COOLDOWN_SECS;
+
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
 pub struct Config {
     pub ledger_store: StoreType<MemoryStore>,
     pub chain_store: StoreType<Arc<dyn ChainStore<BlockHeader>>>,
     pub upstream_peers: Vec<String>,
+    pub target_upstream_peers: usize,
+    pub target_downstream_peers: usize,
     pub network: NetworkName,
     pub network_magic: NetworkMagic,
     pub listen_address: String,
@@ -43,6 +47,12 @@ pub struct Config {
 
     /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
     pub defer_req_next_poll_ms: u64,
+
+    /// After a misbehaving upstream peer is removed, do not allow it to be re-added for this many seconds.
+    pub peer_removal_cooldown_secs: u64,
+
+    /// Maximum distance (in block height) below the adopted tip for which `block_source` retains provenance.
+    pub block_source_max_tip_distance: u64,
 
     /// Minimum number of trace entries retained when the stage graph trace buffer is full.
     pub trace_buffer_min_entries: usize,
@@ -72,6 +82,8 @@ impl Default for Config {
             ledger_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./ledger.db"))),
             chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
+            target_upstream_peers: 3,
+            target_downstream_peers: 10,
             network: NetworkName::Preprod,
             network_magic: NetworkMagic::PREPROD,
             listen_address: "0.0.0.0:3000".to_string(),
@@ -82,6 +94,8 @@ impl Default for Config {
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
             defer_req_next_poll_ms: 200,
+            peer_removal_cooldown_secs: DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+            block_source_max_tip_distance: 2_500,
             trace_buffer_min_entries: 0,
             trace_buffer_max_size: 0,
             trace_dump_path: None,

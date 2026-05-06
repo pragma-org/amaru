@@ -16,13 +16,14 @@ use std::{hint::black_box, time::Duration};
 
 use amaru_consensus::stages::{
     adopt_chain::AdoptChainMsg,
+    block_source::BlockSourceMsg,
     fetch_blocks::FetchBlocksMsg,
     select_chain::SelectChainMsg,
     track_peers::{DeferReqNextMsg, TrackPeersMsg},
     validate_block::ValidateBlockMsg,
 };
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraName, Point, TESTNET_ERA_HISTORY, Tip, any_header_hash,
+    BlockHeader, BlockHeight, EraName, Peer, Point, TESTNET_ERA_HISTORY, Tip, any_header_hash,
     cardano::network_block::{NetworkBlock, make_block},
     make_header,
     utils::tests::run_strategy,
@@ -47,6 +48,10 @@ fn stage_msgs(c: &mut Criterion) {
     let msg = AdoptChainMsg::new(tip, bh);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("AdoptChainMsg", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
+
+    let msg = BlockSourceMsg::Validation { valid: true, point: tip.point() };
+    let msg: Box<dyn SendData> = Box::new(msg);
+    group.bench_function("BlockSourceMsg::Validation", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
     let msg = SelectChainMsg::TipFromUpstream(tip, point);
     let msg: Box<dyn SendData> = Box::new(msg);
@@ -78,7 +83,7 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("DeferReqNextMsg::Poll", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = FetchBlocksMsg::Block(nb.clone());
+    let msg = FetchBlocksMsg::Block(Peer::new("bench"), nb.clone());
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::Block", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
