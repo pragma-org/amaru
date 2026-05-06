@@ -1040,11 +1040,11 @@ pub fn default_governance_activity() -> GovernanceActivity {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, io::Cursor};
+    use std::collections::BTreeMap;
 
     use amaru_kernel::{Epoch, cbor, to_cbor};
 
-    use super::{LazyDecoder, decode_initial_snapshot_prefix, skip_embedded_utxo};
+    use super::decode_initial_snapshot_prefix;
 
     #[test]
     fn accepts_new_epoch_state_prefix() {
