@@ -15,7 +15,10 @@
 use std::{slice, sync::Arc};
 
 use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
-use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage::RequestNext};
+use amaru_protocols::{
+    chainsync::{self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage::RequestNext},
+    manager::ManagerMessage,
+};
 use pure_stage::trace_buffer::TraceEntry;
 use tracing::Level;
 
@@ -25,7 +28,7 @@ use crate::stages::{
         TrackPeersMsg,
         test_setup::{
             FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
-            te_has_header, te_load_header, te_send, te_store_header, te_validate_header, test_prep,
+            te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
         },
     },
 };
@@ -105,7 +108,7 @@ fn test_intersect_found_missing_header_sends_done() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_load_header("tp-1", current.hash()),
+            te_load_tip("tp-1", current.hash()),
             te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
@@ -141,7 +144,7 @@ fn test_intersect_found_tracks_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_load_header("tp-1", current.hash()),
+            te_load_tip("tp-1", current.hash()),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -550,7 +553,7 @@ fn test_roll_backward_updates_peer() {
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_load_header("tp-1", current.hash()),
+            te_load_tip("tp-1", current.hash()),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
@@ -584,8 +587,8 @@ fn test_roll_backward_unknown_peer_removes_peer() {
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_load_header("tp-1", current.hash()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_load_tip("tp-1", current.hash()),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
     );
@@ -617,8 +620,8 @@ fn test_roll_backward_unknown_point_removes_peer() {
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_load_header("tp-1", current.hash()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_load_tip("tp-1", current.hash()),
+            te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );

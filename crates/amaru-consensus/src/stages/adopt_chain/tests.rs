@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::ORIGIN_HASH;
+use amaru_kernel::{HeaderHash, NonEmptyVec};
 use pure_stage::trace_buffer::TerminationReason;
-use test_setup::{assert_trace, setup, te_load_header, te_terminate, te_terminated, test_prep};
+use test_setup::{
+    assert_trace, setup, te_find_ancestor_on_best_chain, te_load_header, te_terminate, te_terminated, test_prep,
+};
 use tracing::Level;
 
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_get_anchor_hash, te_load_from_best_chain, te_next_best_chain, te_roll_forward_chain,
-        te_rollback_chain, te_send, te_set_anchor_hash, te_set_best_chain_hash,
+        te_clock, te_find_anchor_at_height, te_roll_forward_chain, te_send, te_set_anchor_hash, te_switch_to_fork,
     },
     block_source::BlockSourceMsg,
     test_utils::{te_input, te_state},
@@ -54,8 +55,10 @@ fn test_incoming_tip_not_in_store() {
 /// Current best not loadable (best_chain_hash points to missing header) -> terminate.
 #[test]
 fn test_current_best_not_loadable() {
-    let prep = test_prep(2);
+    let mut prep = test_prep(2);
     prep.store_headers(&prep.headers.main_chain());
+    let missing_current_best = Tip::new(Point::Specific(4u64.into(), HeaderHash::from([0u8; 32])), BlockHeight::new(4));
+    prep.state.current_best_tip = missing_current_best;
 
     let msg = prep.headers.h3.tip();
     let (running, _guards, mut logs) = setup(&prep, msg);
@@ -65,7 +68,7 @@ fn test_current_best_not_loadable() {
             te_state("ac-1", &prep.state),
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
-            te_load_header("ac-1", ORIGIN_HASH),
+            te_load_header("ac-1", missing_current_best.hash()),
             te_terminate("ac-1"),
             te_terminated("ac-1", TerminationReason::Voluntary),
         ],
@@ -102,7 +105,7 @@ fn test_incoming_not_better_than_current_best() {
     ]);
 }
 
-/// Extension: h3 extends h2 -> roll_forward, set_best_chain, drag anchor, send.
+/// Extension: h3 extends h2 -> roll_forward, drag anchor, send.
 #[test]
 fn test_extension_adopts_and_sends() {
     let mut prep = test_prep(2);
@@ -124,11 +127,7 @@ fn test_extension_adopts_and_sends() {
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
             te_roll_forward_chain("ac-1", msg.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_next_best_chain("ac-1", prep.headers.h0.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
+            te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
@@ -169,22 +168,13 @@ fn test_fork_switch_adopts_and_sends() {
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h3a.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h2a.point()),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h1.point()),
-            te_rollback_chain("ac-1", prep.headers.h1.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h2a.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h3a.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_next_best_chain("ac-1", prep.headers.h0.point()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
+            te_find_ancestor_on_best_chain("ac-1", msg.hash()),
+            te_switch_to_fork(
+                "ac-1",
+                prep.headers.h1.point(),
+                NonEmptyVec::try_from(vec![prep.headers.h2a.point(), prep.headers.h3a.point()]).unwrap(),
+            ),
+            te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
@@ -224,17 +214,9 @@ fn test_fork_switch_opcert_hacked() {
             te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
             te_load_header("ac-1", msg.hash()),
             te_load_header("ac-1", prep.headers.h2a.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_header("ac-1", prep.headers.h1.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h2.point()),
-            te_load_header("ac-1", prep.headers.h0.hash()),
-            te_load_from_best_chain("ac-1", prep.headers.h1.point()),
-            te_rollback_chain("ac-1", prep.headers.h1.point()),
-            te_roll_forward_chain("ac-1", prep.headers.h2.point()),
-            te_set_best_chain_hash("ac-1", msg.hash()),
-            te_get_anchor_hash("ac-1"),
-            te_load_header("ac-1", prep.headers.h0.hash()),
+            te_find_ancestor_on_best_chain("ac-1", msg.hash()),
+            te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
+            te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_clock("ac-1"),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(msg)),

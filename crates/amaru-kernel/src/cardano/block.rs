@@ -16,10 +16,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, Tip, Transaction, TransactionBody, WitnessSet, cbor,
+    cbor::WithSize,
     size::{BLOCK_BODY, HEADER},
 };
 
-#[derive(Debug, Clone, PartialEq, cbor::Encode, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, cbor::Encode)]
 pub struct Block {
     #[cbor(skip)]
     original_body_size: u64,
@@ -40,7 +41,7 @@ pub struct Block {
     pub transaction_bodies: Vec<TransactionBody>,
 
     #[n(2)]
-    pub transaction_witnesses: Vec<WitnessSet>,
+    pub transaction_witnesses: Vec<WithSize<WitnessSet>>,
 
     #[n(3)]
     pub auxiliary_data: BTreeMap<u32, AuxiliaryData>,
@@ -81,7 +82,7 @@ impl Block {
 }
 
 impl IntoIterator for Block {
-    type Item = (u32, Transaction);
+    type Item = (u32, Transaction, u64);
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(mut self) -> Self::IntoIter {
@@ -92,10 +93,24 @@ impl IntoIterator for Block {
                 let is_expected_valid =
                     !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
 
-                // TODO: Do not re-hash here, but get the hash while parsing.
-                let auxiliary_data: Option<AuxiliaryData> = self.auxiliary_data.remove(&i);
+                let (auxiliary_data_len, auxiliary_data) = match self.auxiliary_data.remove(&i) {
+                    Some(auxiliary_data) => (auxiliary_data.len(), Some(auxiliary_data)),
+                    None => (1, None),
+                };
 
-                (i, Transaction { body, witnesses, is_expected_valid, auxiliary_data })
+                // NOTE: Transaction size calculation
+                //
+                // Due to how the transactions are serialised in blocks (with seggregated witnesses
+                // and auxiliary data), we have to calculate the size from multiple pieces and add
+                // an extra 'cbor framing byte' which corresponds to the declaration of the
+                // top-level array of size 3 (`0x83`). Importantly, the validity of the transaction
+                // is not taken into account for the size calculation (rationale being that this
+                // the logic is then preserved between pre-alonzo and post-alonzo eras).
+                //
+                // See also: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Tx.hs#L351-L362>
+                let size = 1 + body.len() + witnesses.len() as u64 + auxiliary_data_len;
+
+                (i, Transaction { body, witnesses: witnesses.into_inner(), auxiliary_data, is_expected_valid }, size)
             })
             .collect::<Vec<_>>()
             .into_iter()
@@ -126,7 +141,17 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
 
             let (transaction_witnesses, transaction_witnesses_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let (auxiliary_data, auxiliary_data_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
+            let (auxiliary_data, auxiliary_data_bytes) =
+                // FIXME: duplicate keys in aux data top-level map?
+                //
+                // We must double-check and confirm (i.e. have tests for) the behaviour of the
+                // decoder regarding duplicate keys: if allowed, should they overwrite a previously
+                // decoded value or give precedence to the first value decoded? If not allowed,
+                // we should loudly fail.
+                cbor::tee(d, |d| cbor::heterogeneous_map(d, BTreeMap::new(), |d| d.u32(), |d, st, field| {
+                    st.insert(field, d.decode_with(ctx)?);
+                    Ok(())
+                }))?;
 
             let (invalid_transactions, invalid_transactions_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 

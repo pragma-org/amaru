@@ -14,12 +14,15 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, Point, Tip, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{
+    BlockHeader, BlockHeight, HeaderHash, NonEmptyVec, Point, Tip, make_header, make_header_with_op_cert_seq,
+};
 use amaru_ouroboros::StoreError;
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, GetBestChainHashEffect, LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect,
-    ResourceHeaderStore, RollBackChainEffect, RollForwardChainEffect, SetAnchorHashEffect, SetBestChainHashEffect,
+    FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
+    LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
+    SetAnchorHashEffect, SwitchToForkEffect,
 };
 use pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
@@ -114,7 +117,6 @@ impl TestPrep {
     }
 
     pub fn set_best_chain(&mut self, header: BlockHeader) {
-        self.store.set_best_chain_hash(&header.hash()).unwrap();
         self.state.current_best_tip = header.tip();
         let mut ancestors = self.store.ancestors(header).collect::<Vec<_>>();
         ancestors.reverse();
@@ -137,12 +139,15 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<SetBestChainHashEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         pure_stage::register_effect_deserializer::<RollForwardChainEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<RollBackChainEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
         pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
+        pure_stage::register_data_deserializer::<Option<(Point, NonEmptyVec<Point>)>>().boxed(),
+        pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
     ]
 }
 
@@ -189,32 +194,24 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
 }
 
-pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new())))
-}
-
-pub fn te_set_best_chain_hash(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(SetBestChainHashEffect::new(hash))))
-}
-
 pub fn te_set_anchor_hash(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(SetAnchorHashEffect::new(hash))))
+}
+
+pub fn te_switch_to_fork(at_stage: &str, fork_point: Point, forward_points: NonEmptyVec<Point>) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(fork_point, forward_points))))
 }
 
 pub fn te_roll_forward_chain(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(RollForwardChainEffect::new(point))))
 }
 
-pub fn te_rollback_chain(at_stage: &str, point: Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(RollBackChainEffect::new(point))))
+pub fn te_find_ancestor_on_best_chain(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindAncestorOnBestChainEffect::new(hash))))
 }
 
-pub fn te_load_from_best_chain(at_stage: &str, point: Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadFromBestChainEffect::new(point))))
-}
-
-pub fn te_next_best_chain(at_stage: &str, point: Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(NextBestChainEffect::new(point))))
+pub fn te_find_anchor_at_height(at_stage: &str, target_height: BlockHeight) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindAnchorAtHeightEffect::new(target_height))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {

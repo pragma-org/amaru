@@ -18,6 +18,9 @@ use crate::{Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_H
 #[cbor(map)]
 pub struct AuxiliaryData {
     #[cbor(skip)]
+    original_size: u64,
+
+    #[cbor(skip)]
     hash: Hash<{ AuxiliaryData::HASH_SIZE }>,
 
     #[n(0)]
@@ -44,12 +47,39 @@ impl AuxiliaryData {
     pub fn hash(&self) -> Hash<{ Self::HASH_SIZE }> {
         self.hash
     }
+
+    #[allow(clippy::len_without_is_empty)]
+    /// Original size of the serialised bytes
+    pub fn len(&self) -> u64 {
+        self.original_size
+    }
+
+    /// Obtain the transaction metadata key-value pairs.
+    pub fn metadata(&self) -> &KeyValuePairs<u64, Metadatum> {
+        &self.metadata
+    }
+
+    /// Obtain the Plutus V1 scripts embedded in the auxiliary data.
+    pub fn plutus_v1_scripts(&self) -> &[PlutusScript<1>] {
+        &self.plutus_v1_scripts
+    }
+
+    /// Obtain the Plutus V2 scripts embedded in the auxiliary data.
+    pub fn plutus_v2_scripts(&self) -> &[PlutusScript<2>] {
+        &self.plutus_v2_scripts
+    }
+
+    /// Obtain the Plutus V3 scripts embedded in the auxiliary data.
+    pub fn plutus_v3_scripts(&self) -> &[PlutusScript<3>] {
+        &self.plutus_v3_scripts
+    }
 }
 
 impl Default for AuxiliaryData {
     fn default() -> Self {
         Self {
             hash: NULL_HASH32,
+            original_size: 0,
             metadata: KeyValuePairs::default(),
             native_scripts: Vec::default(),
             plutus_v1_scripts: Vec::default(),
@@ -107,7 +137,11 @@ impl<'b, C> cbor::Decode<'b, C> for AuxiliaryData {
 
         let end_position = d.position();
 
-        Ok(Self { hash: Hasher::<256>::hash(&original_bytes[start_position..end_position]), ..aux_data })
+        Ok(Self {
+            hash: Hasher::<256>::hash(&original_bytes[start_position..end_position]),
+            original_size: (end_position - start_position) as u64,
+            ..aux_data
+        })
     }
 }
 

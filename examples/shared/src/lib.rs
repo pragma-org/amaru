@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput, NetworkName, Point,
-    ProtocolParameters, Tip, TransactionInput, Value,
+    cbor, Address, Block, EraHistory, GlobalParameters, Hash, Hasher, MemoizedTransactionOutput, MemoizedValue,
+    NetworkName, Point, ProtocolParameters, Tip, TransactionInput, Value,
 };
 use amaru_ledger::{
     context,
@@ -36,6 +36,7 @@ pub fn forward_ledger(raw_block: &str) {
     let bytes = hex::decode(raw_block).unwrap();
 
     let network = NetworkName::Preprod;
+
     let era_history: &EraHistory = network.into();
 
     let (_era, block): BlockWrapper = cbor::decode(&bytes).unwrap();
@@ -44,7 +45,14 @@ pub fn forward_ledger(raw_block: &str) {
 
     let arena_pool = ArenaPool::new(10, 1_024_000);
 
-    let protocol_parameters = <&ProtocolParameters>::try_from(network).expect("unsupported network");
+    // NOTE: modified protocol parameters
+    //
+    // From what I can tell, conway3.block is a synthetic test block from Pallas, not a real on-chain block.
+    // It happens to include a proposal with a 50,000 ADA deposit while our default parameters have a
+    // 100,000 ADA `gov_action_deposit.
+    // In order to avoiding modifying the test block, we are overriding the gov_action_deposit, to allow a 50k deposit.
+    let mut protocol_parameters = <&ProtocolParameters>::try_from(network).expect("unsupported network").clone();
+    protocol_parameters.gov_action_deposit = 50_000_000_000;
 
     let store = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
 
@@ -62,13 +70,13 @@ pub fn forward_ledger(raw_block: &str) {
     }
 
     fn create_output(address: &str) -> MemoizedTransactionOutput {
-        MemoizedTransactionOutput {
-            is_legacy: false,
-            address: Address::from_hex(address).expect("Invalid hex address"),
-            value: Value::Coin(0),
-            datum: amaru_kernel::MemoizedDatum::None,
-            script: None,
-        }
+        MemoizedTransactionOutput::new(
+            false,
+            Address::from_hex(address).expect("Invalid hex address"),
+            MemoizedValue::new(Value::Coin(0)).expect("Value encoding should never fail"),
+            amaru_kernel::MemoizedDatum::None,
+            None,
+        )
     }
 
     let inputs = BTreeMap::from([

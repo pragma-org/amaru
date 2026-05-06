@@ -75,7 +75,7 @@ pub use cardano::{
     lovelace::Lovelace,
     memoized::{
         MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
-        decode_script, deserialize_script, encode_script, from_minted_script, script_original_bytes,
+        MemoizedValue, decode_script, deserialize_script, encode_script, from_minted_script, script_original_bytes,
         serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
@@ -89,7 +89,8 @@ pub use cardano::{
     ordered_redeemer::OrderedRedeemer,
     peer::Peer,
     plutus_data::PlutusData,
-    plutus_script::PlutusScript,
+    plutus_script::{PlutusScript, decode_plutus_script},
+    plutus_version::{IsKnownPlutusVersion, KnownPlutusVersion, PlutusVersion, reify_plutus_version},
     point::Point,
     pool_metadata::PoolMetadata,
     pool_params::PoolParams,
@@ -119,7 +120,7 @@ pub use cardano::{
     script_kind::ScriptKind,
     script_purpose::{ScriptPurpose, script_purpose_to_string},
     slot::{Slot, SlotArithmeticError},
-    stake_credential::{BorrowedStakeCredential, StakeCredential, stake_credential_from_reward_account},
+    stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
     tip::Tip,
     transaction::Transaction,
@@ -177,7 +178,7 @@ pub use cardano::{
 
 pub mod cbor {
     pub use amaru_minicbor_extra::{
-        TAG_MAP_259, TAG_SET_258, allow_tag, check_tagged_array_length, collect_array_item_bytes,
+        TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
         collect_map_value_bytes, decode_break, expect_tag, from_cbor, from_cbor_no_leftovers,
         from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee, to_cbor,
         unexpected_field,
@@ -212,9 +213,9 @@ pub mod macros;
 
 mod traits;
 pub use traits::{
-    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasNetwork, HasOwnership, HasRedeemers, HasScriptHash,
-    IsHeader, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_network, has_ownership, has_redeemers,
-    has_script_hash, is_header,
+    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasNetwork, HasOwnership, HasRedeemers,
+    HasScriptHash, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_major_version,
+    has_network, has_ownership, has_redeemers, has_script_hash, is_header, to_bytes,
 };
 
 pub mod utils;

@@ -834,41 +834,6 @@
       "description": "A peer was removed from the manager",
       "public": true
     },
-    "amaru::stores::consensus::ROLLBACK_CHAIN": {
-      "type": "object",
-      "properties": {
-        "hash": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
-        },
-        "slot": {
-          "type": "integer"
-        },
-        "db_system_name": {
-          "type": "string"
-        },
-        "db_operation_name": {
-          "type": "string"
-        },
-        "db_collection_name": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "hash",
-        "slot",
-        "db_system_name",
-        "db_operation_name",
-        "db_collection_name"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "rollback_chain",
-      "level": "TRACE",
-      "target": "amaru::stores::consensus",
-      "description": "Rollback the chain to a point",
-      "public": true
-    },
     "amaru::stores::consensus::ROLL_FORWARD_CHAIN": {
       "type": "object",
       "properties": {
@@ -964,6 +929,41 @@
       "level": "TRACE",
       "target": "amaru::stores::consensus",
       "description": "Store a block header",
+      "public": true
+    },
+    "amaru::stores::consensus::SWITCH_TO_FORK": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "db_system_name": {
+          "type": "string"
+        },
+        "db_operation_name": {
+          "type": "string"
+        },
+        "db_collection_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash",
+        "slot",
+        "db_system_name",
+        "db_operation_name",
+        "db_collection_name"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch_to_fork",
+      "level": "TRACE",
+      "target": "amaru::stores::consensus",
+      "description": "Switch the chain to a new fork",
       "public": true
     },
     "amaru::stores::ledger::DREPS_DELEGATION_REMOVE": {

@@ -14,9 +14,9 @@
 
 use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros::{BlockValidationError, ReadOnlyChainStore};
+use amaru_ouroboros::BlockValidationError;
 use amaru_protocols::store_effects::Store;
-use pure_stage::{Effects, StageRef, TryInStage};
+use pure_stage::{Effects, OrTerminateWith, StageRef};
 
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
@@ -84,7 +84,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 let mut done = 0;
                 for point in forward_points {
                     tracing::debug!(point = %point, "validating block (roll forward)");
-                    match validate(point, &ledger).await {
+                    match validate(point, &ledger, &eff).await {
                         Ok(metrics) => {
                             Metrics::new(&eff).record(metrics.into()).await;
                             state.current = point;
@@ -120,7 +120,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         }
     }
 
-    match validate(msg.tip.point(), &ledger).await {
+    match validate(msg.tip.point(), &ledger, &eff).await {
         Ok(metrics) => {
             Metrics::new(&eff).record(metrics.into()).await;
             eff.send(&state.selet_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
@@ -138,12 +138,15 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
     state
 }
 
-async fn validate(point: Point, ledger: &Ledger<ValidateBlockMsg>) -> Result<LedgerMetrics, BlockValidationError> {
+async fn validate(
+    point: Point,
+    ledger: &Ledger,
+    eff: &Effects<ValidateBlockMsg>,
+) -> Result<LedgerMetrics, BlockValidationError> {
     let ctx = opentelemetry::Context::current();
     ledger
         .validate_block(&Peer::new("unknown"), &point, ctx)
-        .await
-        .or_terminate(ledger.eff(), async |error| {
+        .or_terminate_with(eff, async |error| {
             tracing::error!(error = %error, %point, "failed to validate block");
         })
         .await
@@ -161,22 +164,34 @@ fn validation_failed_when_contains_claimed_rollback(rollback_target: Point, vf: 
 }
 
 async fn roll_back_to_ancestor(
-    ledger: &Ledger<ValidateBlockMsg>,
-    store: &Store<ValidateBlockMsg>,
+    ledger: &Ledger,
+    store: &Store,
     parent: Point,
 ) -> Result<(Point, Vec<Point>), ValidationFailed> {
-    if ledger.contains_point(&parent) {
+    if ledger.contains_point(&parent).await {
         return match ledger.rollback(&Peer::new("unknown"), &parent, opentelemetry::Context::current()).await {
             Ok(()) => Ok((parent, Vec::new())),
             Err(vf) => Err(validation_failed_when_contains_claimed_rollback(parent, vf)),
         };
     }
 
-    let ledger_tip = ledger.tip();
-    let mut rb_point = None;
-    let mut rb_chosen_because_contains = false;
+    let anchor_hash = store.get_anchor_hash().await;
+    let ledger_tip = ledger.tip().await;
+    let mut current_hash = parent.hash();
     let mut forward_points = Vec::new();
-    for (ancestor, valid) in store.ancestors_with_validity(parent.hash()) {
+
+    loop {
+        let Some((ancestor, valid)) = store.load_header_with_validity(&current_hash).await else {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point not found in volatile db").into(),
+                ),
+            ));
+        };
+        let ancestor_point = ancestor.point();
+
         if valid == Some(false) {
             return Err(ValidationFailed::new(
                 &Peer::new("unknown"),
@@ -186,7 +201,22 @@ async fn roll_back_to_ancestor(
                 ),
             ));
         }
-        if ancestor.point() < ledger_tip.point() {
+
+        if ledger.contains_point(&ancestor_point).await {
+            forward_points.reverse();
+            return match ledger
+                .rollback(&Peer::new("unknown"), &ancestor_point, opentelemetry::Context::current())
+                .await
+            {
+                Ok(()) => Ok((ancestor_point, forward_points)),
+                Err(vf) if ancestor_point != ledger_tip.point() => {
+                    Err(validation_failed_when_contains_claimed_rollback(ancestor_point, vf))
+                }
+                Err(vf) => Err(vf),
+            };
+        }
+
+        if store.load_from_best_chain(&ancestor_point).await.is_some() {
             return Err(ValidationFailed::new(
                 &Peer::new("unknown"),
                 ConsensusError::RollbackBlockFailed(
@@ -195,33 +225,28 @@ async fn roll_back_to_ancestor(
                 ),
             ));
         }
-        let contains_ancestor = ledger.contains_point(&ancestor.point());
-        if ancestor.point() == ledger_tip.point() || contains_ancestor {
-            rb_point = Some(ancestor.point());
-            rb_chosen_because_contains = contains_ancestor;
-            break;
-        }
-        forward_points.push(ancestor.point());
-    }
-    forward_points.reverse();
 
-    if let Some(rb_point) = rb_point {
-        return match ledger.rollback(&Peer::new("unknown"), &rb_point, opentelemetry::Context::current()).await {
-            Ok(()) => Ok((rb_point, forward_points)),
-            Err(vf) if rb_chosen_because_contains => {
-                Err(validation_failed_when_contains_claimed_rollback(rb_point, vf))
-            }
-            Err(vf) => Err(vf),
+        forward_points.push(ancestor_point);
+        if current_hash == anchor_hash {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point not found in volatile db").into(),
+                ),
+            ));
+        }
+
+        let Some(parent_hash) = ancestor.parent() else {
+            return Err(ValidationFailed::new(
+                &Peer::new("unknown"),
+                ConsensusError::RollbackBlockFailed(
+                    parent,
+                    anyhow::anyhow!("rollback point not found in volatile db").into(),
+                ),
+            ));
         };
-    } else {
-        Err(ValidationFailed::new(
-            // TODO: figure out which peer to blame
-            &Peer::new("unknown"),
-            ConsensusError::RollbackBlockFailed(
-                parent,
-                anyhow::anyhow!("rollback point not found in volatile db").into(),
-            ),
-        ))
+        current_hash = parent_hash;
     }
 }
 

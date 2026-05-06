@@ -18,19 +18,13 @@ use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation,
     },
-    stages::select_chain::cmp_tip,
     validate_header::ValidateHeader,
 };
-use amaru_kernel::{
-    BlockHeader, BlockHeight, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, ORIGIN_HASH, Point,
-    Transaction,
-};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{
-    ChainStore, ChildTipsMode, ConnectionsResource, HasStakeDistribution, MempoolMsg, ResourceMempool,
-};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, MempoolMsg, ResourceMempool};
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
@@ -129,43 +123,6 @@ pub fn build_node(
     let chain_store = initialize_chain_store(config, ledger_tip)?;
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
-    let best_candidates = chain_store
-        .child_tips(&chain_store.get_best_chain_hash(), ChildTipsMode::SkipInvalid)
-        .fold((BlockHeight::new(0), vec![]), |(best_height, mut hashes), tip| {
-            if tip.block_height() > best_height {
-                hashes.clear();
-                hashes.push(tip.hash());
-                (tip.block_height(), hashes)
-            } else if tip.block_height() == best_height {
-                hashes.push(tip.hash());
-                (best_height, hashes)
-            } else {
-                (best_height, hashes)
-            }
-        })
-        .1;
-    let best_candidate = best_candidates
-        .into_iter()
-        .map(|h| chain_store.load_header(&h))
-        .max_by(|a, b| cmp_tip(a.as_ref(), b.as_ref()))
-        .flatten();
-    let anchor = chain_store.get_anchor_hash();
-    let mut best_missing = vec![];
-    if let Some(best_candidate) = best_candidate.as_ref() {
-        for (header, validity) in chain_store.ancestors_with_validity(best_candidate.hash()) {
-            // the anchor cannot be validated, so don"t return it
-            if validity.is_none() && header.hash() != anchor {
-                best_missing.push(header.hash());
-            } else {
-                break;
-            }
-        }
-        best_missing.reverse();
-    }
-
-    let tip = best_candidate.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
-    tracing::info!(%tip, "build_chain");
-
     // Make resources
     let validate_header =
         make_validate_header(global_parameters, era_history, chain_store.clone(), ledger.get_stake_distribution()?);
@@ -173,12 +130,8 @@ pub fn build_node(
     // Register resources
     register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
 
-    // Build the stage graph and return a reference to the manager stage
-    let best_candidate = best_candidate.map(|h| (h, best_missing));
-
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
-    let node_stages =
-        build_stage_graph(config, era_history, global_parameters, ledger_tip, best_candidate, stage_builder);
+    let node_stages = build_stage_graph(config, era_history, global_parameters, ledger_tip, stage_builder);
 
     // Open a port to listen for downstream peers
     stage_builder

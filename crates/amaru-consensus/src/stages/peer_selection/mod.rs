@@ -241,7 +241,11 @@ impl LedgerCheck {
 #[tracing::instrument(level = "info", skip_all, fields(last_height = %state.last_height))]
 async fn get_ledger_candidates(mut state: LedgerCheck, _msg: (), eff: Effects<()>) -> LedgerCheck {
     let ledger = Ledger::new(eff.clone());
-    let current_height = ledger.volatile_tip().unwrap_or_else(|| ledger.tip()).block_height();
+    let current_height = if let Some(tip) = ledger.volatile_tip().await {
+        tip.block_height()
+    } else {
+        ledger.tip().await.block_height()
+    };
     if current_height < state.last_height + state.min_height_change {
         return reschedule_check(state, eff).await;
     }

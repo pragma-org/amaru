@@ -397,6 +397,45 @@ impl<T: Send + 'static, E: Send + 'static> TryInStage for Result<T, E> {
     }
 }
 
+/// Extension trait for awaiting an effect future and running `or_terminate` on its output in a
+/// single `.await`.
+///
+/// Identical to `effect.await.or_terminate(eff, alt).await`.
+pub trait OrTerminateWith<Inner: TryInStage>: Future<Output = Inner> + Sized {
+    fn or_terminate_with<'a, M: Send + 'static, F, Fut>(
+        self,
+        eff: &'a Effects<M>,
+        alt: F,
+    ) -> impl Future<Output = Inner::Result> + Send + 'a
+    where
+        F: FnOnce(Inner::Error) -> Fut + 'a + Send,
+        Fut: Future<Output = ()> + Send + 'a,
+        Self: 'a + Send;
+}
+
+impl<Fut, Inner> OrTerminateWith<Inner> for Fut
+where
+    Fut: Future<Output = Inner> + Send + Sized,
+    Inner: TryInStage + Send + 'static,
+{
+    fn or_terminate_with<'a, M: Send + 'static, F, AltFut>(
+        self,
+        eff: &'a Effects<M>,
+        alt: F,
+    ) -> impl Future<Output = Inner::Result> + Send + 'a
+    where
+        F: FnOnce(Inner::Error) -> AltFut + 'a + Send,
+        AltFut: Future<Output = ()> + Send + 'a,
+        Self: 'a + Send,
+    {
+        let eff = eff.clone();
+        async move {
+            let result = self.await;
+            result.or_terminate(&eff, alt).await
+        }
+    }
+}
+
 pub fn err<'a, E: std::fmt::Display + Send + 'a>(msg: &'a str) -> impl FnOnce(E) -> BoxFuture<'a, ()> {
     move |err| Box::pin(async move { tracing::error!(%err, "{}", msg) })
 }

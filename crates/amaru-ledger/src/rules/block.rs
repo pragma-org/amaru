@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, HasExUnits, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
-    TransactionPointer,
+    Block, EraHistory, ExUnits, HasExUnits, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
+    TransactionPointer, size::BLOCK_BODY,
 };
 use amaru_observability::trace_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -32,9 +32,11 @@ use crate::{
     store::GovernanceActivity,
 };
 
+pub mod body_hash;
 pub mod body_size;
 pub mod ex_units;
 pub mod header_size;
+pub mod header_version;
 
 #[derive(Debug, Error)]
 pub enum TransactionInvalid {
@@ -48,6 +50,8 @@ pub enum InvalidBlockDetails {
     BlockSizeMismatch { supplied: u64, actual: u64 },
     TooManyExUnits { provided: ExUnits, max: ExUnits },
     HeaderSizeTooBig { supplied: u64, max: u64 },
+    InvalidBodyHash { header: Hash<BLOCK_BODY>, actual: Hash<BLOCK_BODY> },
+    HeaderProtVerTooHigh { header_major: u64, max_major: u64 },
     Transaction { transaction_hash: TransactionId, transaction_index: u32, violation: TransactionInvalid },
 }
 
@@ -78,6 +82,12 @@ impl Display for InvalidBlockDetails {
             }
             InvalidBlockDetails::HeaderSizeTooBig { supplied, max } => {
                 write!(f, "Header size too big: supplied {}, max {}", supplied, max)
+            }
+            InvalidBlockDetails::InvalidBodyHash { header, actual } => {
+                write!(f, "Invalid body hash: header says {}, actual {}", header, actual)
+            }
+            InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major } => {
+                write!(f, "Header protocol version too high: {} > {}", header_major, max_major)
             }
             InvalidBlockDetails::Transaction { transaction_hash, transaction_index, violation } => {
                 write!(f, "Transaction {} at index {} is invalid: {}", transaction_hash, transaction_index, violation)
@@ -178,11 +188,15 @@ where
 
     with_block_context(body_size::block_body_size_valid(&block))?;
 
+    with_block_context(body_hash::block_body_hash_valid(&block))?;
+
+    with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
+
     with_block_context(ex_units::block_ex_units_valid(block.ex_units(), protocol_params))?;
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
-    for (i, transaction) in block {
+    for (i, transaction, tx_size) in block {
         let transaction_hash = transaction.body.id();
 
         transaction.body.required_signers.as_deref().unwrap_or(&[]).iter().for_each(|vk_hash| {
@@ -205,6 +219,7 @@ where
             transaction.body.clone(),
             &transaction.witnesses,
             transaction.auxiliary_data.as_ref(),
+            tx_size,
         ) {
             Ok(inputs) => inputs,
             Err(err) => {

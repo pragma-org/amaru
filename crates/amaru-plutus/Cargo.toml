@@ -15,7 +15,6 @@ categories.workspace = true
 
 [dependencies]
 # External dependencies
-amaru-uplc.workspace = true
 hex.workspace = true
 itertools.workspace = true
 num.workspace = true
@@ -24,6 +23,7 @@ pallas-codec.workspace = true
 
 # Internal dependencies
 amaru-kernel.workspace = true
+amaru-uplc.workspace = true
 
 [dev-dependencies]
 serde.workspace = true

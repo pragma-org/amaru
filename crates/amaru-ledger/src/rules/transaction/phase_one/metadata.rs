@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryData, Bytes, Hash, TransactionBody};
+use amaru_kernel::{AuxiliaryData, Bytes, Hash, ProtocolVersion, TransactionBody};
+use amaru_uplc::{arena::Arena, flat::FlatDecodeError, machine::PlutusVersion};
 use thiserror::Error;
+
+use crate::rules::transaction::phase_one::scripts::validate_plutus_script;
 
 #[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
@@ -28,34 +31,53 @@ pub enum InvalidTransactionMetadata {
         supplied: Hash<{ AuxiliaryData::HASH_SIZE }>,
         expected: Hash<{ AuxiliaryData::HASH_SIZE }>,
     },
+    #[error("Invalid script bytes: {0}")]
+    InvalidScriptBytes(#[from] FlatDecodeError),
 }
 
 pub fn execute(
     transaction: &TransactionBody,
     auxiliary_data: Option<&AuxiliaryData>,
+    protocol_version: ProtocolVersion,
 ) -> Result<(), InvalidTransactionMetadata> {
-    match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data.map(|aux| aux.hash())) {
+    match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data.map(|aux| (aux, aux.hash()))) {
         (None, None) => Ok(()),
-        (None, Some(hash)) => Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash)),
+        (None, Some((_data, hash))) => Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash)),
         (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(adh.clone())),
-        (Some(supplied_hash), Some(expected_hash)) => {
-            let supplied_hash = Hash::from(&supplied_hash[..]);
-            if expected_hash != supplied_hash {
-                Err(InvalidTransactionMetadata::ConflictingMetadataHash {
-                    supplied: supplied_hash,
-                    expected: expected_hash,
-                })
-            } else {
-                // the validateMetadata logic is not implemented here (unlike the Haskell code), but instead during deserialization (TODO)
-                Ok(())
+        (Some(supplied_hash), Some((data, expected))) => {
+            let supplied = Hash::from(&supplied_hash[..]);
+            if expected != supplied {
+                return Err(InvalidTransactionMetadata::ConflictingMetadataHash { supplied, expected });
             }
+
+            // TODO: we should not be allocating a new arena here, instead using a shared pool, such as the one we use for phase 2 validation.
+            let mut arena = Arena::new();
+            validate_auxiliary_data_scripts(data, protocol_version, &mut arena)?;
+            Ok(())
         }
     }
 }
 
+fn validate_auxiliary_data_scripts(
+    data: &AuxiliaryData,
+    protocol_version: ProtocolVersion,
+    arena: &mut Arena,
+) -> Result<(), FlatDecodeError> {
+    data.plutus_v1_scripts()
+        .iter()
+        .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V1, protocol_version, arena))?;
+    data.plutus_v2_scripts()
+        .iter()
+        .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V2, protocol_version, arena))?;
+    data.plutus_v3_scripts()
+        .iter()
+        .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V3, protocol_version, arena))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{AuxiliaryData, TransactionBody, include_cbor};
+    use amaru_kernel::{AuxiliaryData, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, TransactionBody, include_cbor};
     use test_case::test_case;
 
     use super::InvalidTransactionMetadata;
@@ -111,6 +133,6 @@ mod tests {
     fn test_metadata(
         (transaction, auxiliary_data): (TransactionBody, Option<AuxiliaryData>),
     ) -> Result<(), InvalidTransactionMetadata> {
-        super::execute(&transaction, auxiliary_data.as_ref())
+        super::execute(&transaction, auxiliary_data.as_ref(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.protocol_version)
     }
 }

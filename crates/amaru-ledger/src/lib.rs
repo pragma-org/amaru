@@ -28,19 +28,19 @@ pub mod summary;
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, TransactionInput, Value};
+    use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, MemoizedValue, TransactionInput, Value};
 
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
         TransactionInput { transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()), index }
     }
 
     pub(crate) fn fake_output(address: &str) -> MemoizedTransactionOutput {
-        MemoizedTransactionOutput {
-            is_legacy: false,
-            address: Address::from_hex(address).expect("Invalid hex address"),
-            value: Value::Coin(0),
-            datum: amaru_kernel::MemoizedDatum::None,
-            script: None,
-        }
+        MemoizedTransactionOutput::new(
+            false,
+            Address::from_hex(address).expect("Invalid hex address"),
+            MemoizedValue::new(Value::Coin(0)).expect("Value encoding should never fail"),
+            amaru_kernel::MemoizedDatum::None,
+            None,
+        )
     }
 }

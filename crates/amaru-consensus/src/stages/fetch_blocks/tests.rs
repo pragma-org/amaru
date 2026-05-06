@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use amaru_kernel::BlockHeight;
+use amaru_ouroboros_traits::MissingBlocks;
 use pure_stage::{Instant, ScheduleIds, trace_buffer::TerminationReason};
 use tracing::Level;
 
@@ -22,8 +23,8 @@ use super::*;
 use crate::stages::{
     block_source::BlockSourceMsg,
     fetch_blocks::test_setup::{
-        TestPrep, assert_trace, setup, te_cancel_schedule, te_clock, te_get_anchor_hash, te_load_block, te_load_header,
-        te_schedule, te_send, te_store_block, te_terminate, te_terminated, test_peer, test_prep,
+        TestPrep, assert_trace, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_schedule, te_send,
+        te_store_block, te_terminate, te_terminated, test_peer, test_prep,
     },
     test_utils::{te_input, te_state},
 };
@@ -42,7 +43,7 @@ fn test_new_tip_load_header_fails() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_load_header("fb-1", tip.hash()),
+            te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_terminate("fb-1"),
             te_terminated("fb-1", TerminationReason::Voluntary),
         ],
@@ -71,12 +72,7 @@ fn test_new_tip_no_blocks_to_fetch() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_load_header("fb-1", tip.hash()),
-            te_get_anchor_hash("fb-1"),
-            te_get_anchor_hash("fb-1"),
-            te_load_header("fb-1", prep.headers.h0.hash()),
-            te_load_header("fb-1", prep.headers.h1.hash()),
-            te_load_block("fb-1", prep.headers.h2.hash()),
+            te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(tip.point())),
             te_state("fb-1", &prep.state_with_block_height(3)),
         ],
@@ -103,14 +99,14 @@ fn test_new_tip_blocks_to_fetch() {
     let timeout_at = Instant::at_offset(Duration::from_secs(5));
     let schedule_id = ScheduleIds::default().next_at(timeout_at);
     let mut state_with_timeout = prep.state_with_request(
-        vec![prep.headers.h0.point(), prep.headers.h1.point(), prep.headers.h2.point()],
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
         1,
         schedule_id,
     );
     state_with_timeout.block_height = BlockHeight::from(3);
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
-        state.missing.clear();
+        state.missing = None;
         state.timeout = None;
         state
     };
@@ -119,15 +115,7 @@ fn test_new_tip_blocks_to_fetch() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_load_header("fb-1", tip.hash()),
-            te_get_anchor_hash("fb-1"),
-            te_get_anchor_hash("fb-1"),
-            te_load_header("fb-1", prep.headers.h0.hash()),
-            te_load_header("fb-1", prep.headers.h1.hash()),
-            te_load_block("fb-1", prep.headers.h2.hash()),
-            te_load_header("fb-1", prep.headers.h0.hash()),
-            te_load_block("fb-1", prep.headers.h1.hash()),
-            te_load_block("fb-1", prep.headers.h0.hash()),
+            te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_send(
                 "fb-1",
                 "manager",
@@ -155,7 +143,7 @@ fn test_new_tip_blocks_to_fetch() {
 fn test_block_received() {
     let mut prep = test_prep();
     prep.state = prep.state_with_request(
-        vec![prep.headers.h0.point(), prep.headers.h1.point(), prep.headers.h2.point()],
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
         1,
         prep.schedule_at(Duration::from_secs(5)),
     );
@@ -167,7 +155,7 @@ fn test_block_received() {
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
-        state.missing.remove(0);
+        state.missing = Some(MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]));
         state
     };
     assert_trace(
@@ -200,7 +188,11 @@ fn test_block_received() {
 fn test_block2_received() {
     let mut prep = test_prep();
     let schedule_id = prep.schedule_at(Duration::from_secs(5));
-    prep.state = prep.state_with_request(vec![prep.headers.h1.point(), prep.headers.h2.point()], 1, schedule_id);
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]),
+        1,
+        schedule_id,
+    );
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
@@ -209,7 +201,7 @@ fn test_block2_received() {
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
-        state.missing.clear();
+        state.missing = None;
         state.timeout = None;
         state
     };

@@ -33,5 +33,8 @@ tracing.workspace = true
 amaru-kernel.workspace = true
 amaru-metrics.workspace = true
 
+[dev-dependencies]
+amaru-kernel = { workspace = true, features = ["test-utils"] }
+
 [package.metadata.cargo-machete]
 ignored = ["rand"]

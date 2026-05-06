@@ -15,7 +15,8 @@
 use pure_stage::DeserializerGuards;
 
 use crate::{
-    accept, blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects, tx_submission,
+    accept, blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects, store_effects,
+    tx_submission,
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -29,6 +30,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     guards.extend(manager::register_deserializers());
     guards.extend(mux::register_deserializers());
     guards.extend(network_effects::register_deserializers());
+    guards.extend(store_effects::register_deserializers());
     guards.extend(tx_submission::register_deserializers());
     guards
 }

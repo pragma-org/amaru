@@ -14,18 +14,23 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Peer, Point, Tip, cardano::network_block::NetworkBlock};
-use amaru_ouroboros::{ChainStore, ReadOnlyChainStore};
+use amaru_kernel::{
+    BlockHeader, BlockHeight, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
+};
+use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
-use pure_stage::{Effects, ScheduleId, StageRef, TryInStage};
+use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef};
 
 use crate::stages::{block_source::BlockSourceMsg, select_chain::SelectChainMsg};
+
+// TODO make configurable
+const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchBlocks {
     downstream: StageRef<(Tip, Point, BlockHeight)>,
     req_id: u64,
-    missing: Vec<Point>,
+    missing: Option<MissingBlocks>,
     upstream: StageRef<SelectChainMsg>,
     manager: StageRef<ManagerMessage>,
     block_source: StageRef<BlockSourceMsg>,
@@ -44,7 +49,7 @@ impl FetchBlocks {
         Self {
             downstream,
             req_id: 0,
-            missing: Vec::new(),
+            missing: None,
             upstream,
             manager,
             block_source,
@@ -66,7 +71,7 @@ impl FetchBlocks {
         Self {
             downstream,
             req_id: 0,
-            missing: Vec::new(),
+            missing: None,
             upstream,
             manager,
             block_source,
@@ -76,67 +81,65 @@ impl FetchBlocks {
         }
     }
 
-    #[expect(clippy::expect_used)]
     pub async fn new_tip(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
         self.block_height = tip.block_height().max(self.block_height);
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
-        let store = Store::new(eff);
-        // find blocks to retrieve
-        assert!(self.missing.is_empty(), "missing blocks should be empty when starting a new tip: {:?}", self.missing);
-        let initial = store
-            .load_header(&tip.hash())
-            .or_terminate(store.eff(), async |_| {
+        let store = Store::new(eff.clone());
+        assert!(
+            self.missing.is_none(),
+            "there shouldn't be any missing blocks when starting a new tip: {:?}",
+            self.missing
+        );
+
+        match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_PER_BATCH).await {
+            Ok(MissingBlocksResult::StartHeaderNotFound) => {
                 tracing::error!("failed to load initial header");
-            })
-            .await;
-        let mut failed_hash = None;
-        // don't fetch the anchor block because that will confuse block validation
-        let anchor = store.get_anchor_hash();
-        for header in store.ancestors(initial) {
-            let Ok(block) = store.load_block(&header.hash()) else {
-                failed_hash = Some(header.hash());
-                break;
-            };
-            if block.is_some() || header.hash() == anchor {
-                // push the parent of the first block to fetch
-                self.missing.push(header.point());
-                break;
+                return eff.terminate().await;
             }
-            self.missing.push(header.point());
+            Ok(MissingBlocksResult::BoundaryNotFound) => {
+                tracing::debug!("no boundary for missing blocks found given the new tip");
+                self.missing = None;
+            }
+            Ok(MissingBlocksResult::Found(missing_blocks)) => {
+                self.missing = Some(missing_blocks);
+            }
+            Err(error) => {
+                tracing::error!(%error, "failed to find missing blocks");
+                return eff.terminate().await;
+            }
         }
-        if let Some(failed_hash) = failed_hash {
-            tracing::error!(hash = %failed_hash, "failed to load block");
-            return store.eff().terminate().await;
-        }
-        self.missing.reverse();
-        // TODO make configurable
-        self.missing.truncate(25);
-        // only the first parent is not enough
-        if self.missing.len() < 2 {
-            self.missing.clear();
-            tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
-            store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
+        let Some(missing) = self.missing.as_ref() else {
             return;
+        };
+
+        match missing.from_to() {
+            None => {
+                self.missing = None;
+                tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
+                eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
+            }
+            Some((from, to)) => {
+                tracing::debug!(%from, %to, length = missing.nb_missing_blocks(), "requesting blocks");
+                self.req_id += 1;
+                eff.send(
+                    &self.manager,
+                    ManagerMessage::FetchBlocks2 {
+                        from: *from,
+                        through: *to,
+                        id: self.req_id,
+                        cr: self.cleanup_replies.clone(),
+                    },
+                )
+                .await;
+                let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
+                self.timeout = Some(timeout);
+            }
         }
-        // request blocks
-        let from = *self.missing.get(1).expect("checked above that this exists");
-        let through = *self.missing.last().expect("checked above that not empty");
-        tracing::debug!(%from, %through, length = self.missing.len() - 1, "requesting blocks");
-        self.req_id += 1;
-        store
-            .eff()
-            .send(
-                &self.manager,
-                ManagerMessage::FetchBlocks2 { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
-            )
-            .await;
-        let timeout = store.eff().schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
-        self.timeout = Some(timeout);
     }
 
     pub async fn block(&mut self, peer: Peer, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
-        let store = Store::new(eff);
+        let store = Store::new(eff.clone());
         let block = match network_block.decode_block() {
             Ok(block) => block,
             Err(error) => {
@@ -147,7 +150,7 @@ impl FetchBlocks {
         let header = BlockHeader::from(&block.header);
         let point = header.point();
         let block_height = block.header.header_body.block_number.into();
-        store.eff().send(&self.block_source, BlockSourceMsg::BlockReceived { peer, point, block_height }).await;
+        eff.send(&self.block_source, BlockSourceMsg::BlockReceived { peer, point, block_height }).await;
         tracing::debug!(%point, "received block");
 
         // check that body belongs to header
@@ -155,46 +158,54 @@ impl FetchBlocks {
             tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
-        // check that parent is as expected
-        if header.parent_hash() != self.missing.first().map(|p| p.hash()) {
-            tracing::warn!(expected = ?self.missing.first().map(|p| p.hash()), actual = ?header.parent_hash(), "block parent hash mismatch");
+        let Some(missing) = self.missing.as_mut() else {
+            // TODO: eventually accept blocks that could arrive when we don't get them within the timeout
+            // provided that they are valid (parent block exists, no invalid parent).
+            tracing::warn!("received block with no outstanding missing blocks");
+            return;
+        };
+        if header.parent_hash() != Some(missing.boundary().hash()) {
+            tracing::warn!(expected = %missing.boundary().hash(), actual = %header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
             return;
         }
-        // check that block's point is as expected
-        if Some(&point) != self.missing.get(1) {
-            tracing::warn!(expected = ?self.missing.get(1), actual = ?point, "block point mismatch");
+        if Some(point) != missing.first() {
+            let expected = missing.first().map(|p| p.to_string()).unwrap_or("none".to_string());
+            tracing::warn!(%expected, actual = ?point, "block point mismatch");
             return;
         }
 
-        let parent = self.missing.remove(0);
         store
             .store_block(&point.hash(), &network_block.raw_block())
-            .or_terminate(store.eff(), async |error| {
+            .or_terminate_with(&eff, async |error| {
                 tracing::error!(%error, "failed to store block");
             })
             .await;
         let tip = Tip::new(point, block.header.header_body.block_number.into());
-        store.eff().send(&self.downstream, (tip, parent, self.block_height)).await;
+        eff.send(&self.downstream, (tip, missing.boundary(), self.block_height)).await;
 
-        // check if we are done
-        if self.missing.len() < 2 {
-            self.missing.clear();
+        missing.shift_one_block();
+        if missing.is_empty() {
+            self.missing = None;
             if let Some(timeout) = self.timeout.take() {
-                store.eff().cancel_schedule(timeout).await;
+                eff.cancel_schedule(timeout).await;
             }
-            store.eff().send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
+            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
         }
     }
 
     pub async fn timeout(&mut self, req_id: u64, eff: Effects<FetchBlocksMsg>) {
-        if req_id != self.req_id || self.missing.is_empty() {
+        if req_id != self.req_id {
             return;
         }
         tracing::error!(%req_id, "timeout fetching blocks");
-        self.timeout = None;
-        let from = self.missing.remove(0);
-        self.missing.clear();
-        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from)).await;
+        match self.missing.as_ref().map(|m| m.boundary()) {
+            None => (),
+            Some(from) => {
+                self.timeout = None;
+                self.missing = None;
+                eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from)).await;
+            }
+        }
     }
 }
 

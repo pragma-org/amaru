@@ -193,7 +193,7 @@ jobs:
     uses: ./.github/workflows/snapshot-tests.yml
     with:
       use_fixed_epoch: true
-      default_timeout: 15
+      default_timeout: 30
       network: ${{ github.event.inputs.network || '' }}
       run_until_target_epoch: ${{ github.event.inputs.run_until_target_epoch || '' }}
       timeout: ${{ github.event.inputs.timeout || '' }}

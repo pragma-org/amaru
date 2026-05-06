@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Lovelace, MemoizedTransactionOutput, Value};
+use crate::{Lovelace, MemoizedTransactionOutput, MemoizedValue, Value};
 
 pub trait HasLovelace {
     fn lovelace(&self) -> Lovelace;
@@ -24,6 +24,12 @@ impl HasLovelace for Value {
             Value::Coin(lovelace) => *lovelace,
             Value::Multiasset(lovelace, _) => *lovelace,
         }
+    }
+}
+
+impl HasLovelace for MemoizedValue {
+    fn lovelace(&self) -> Lovelace {
+        self.as_ref().lovelace()
     }
 }
 
