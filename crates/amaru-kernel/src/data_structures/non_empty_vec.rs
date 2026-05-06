@@ -21,6 +21,13 @@ use crate::{KeepRaw, cbor};
 pub struct NonEmptyVec<T: Eq>(Vec<T>);
 
 impl<T: Eq> NonEmptyVec<T> {
+    pub fn new(head: T, tail: Vec<T>) -> Self {
+        let mut elems = Vec::with_capacity(1 + tail.len());
+        elems.push(head);
+        elems.extend(tail);
+        Self(elems)
+    }
+
     pub fn singleton(elem: T) -> Self {
         Self(vec![elem])
     }

@@ -45,6 +45,7 @@ use std::{
 
 use parking_lot::Mutex;
 use rand::{SeedableRng, prelude::StdRng};
+use tokio::runtime::Builder;
 
 use crate::{
     BLACKHOLE_NAME, Clock, Name, Resources, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph, StageRef,
@@ -377,4 +378,59 @@ fn deliver_message(
     }
     data.mailbox.push_back(msg);
     Ok(())
+}
+
+/// Run a function using store effects only inside a stage and get back the result as the stage state.
+pub fn run_function_with_resource<S, R, F, Fut>(r: R, function: F) -> S
+where
+    F: FnMut(Effects<()>) -> Fut + 'static + Send,
+    Fut: Future<Output = S> + 'static + Send,
+    S: SendData + PartialEq + serde::de::DeserializeOwned + serde::Serialize + 'static + Clone,
+    R: Send + Sync + 'static + Clone,
+{
+    run_function(|resources| resources.put::<R>(r), function)
+}
+
+/// Run a function inside a stage and get back the result as the stage state.
+/// Resources can be set with the `set_resources` function and the `test_stage` function might
+/// modify the state (initially set to `None`) to get a value back.
+pub fn run_function<S, FS, F, Fut>(set_resources: FS, mut function: F) -> S
+where
+    FS: FnOnce(&Resources),
+    F: FnMut(Effects<()>) -> Fut + 'static + Send,
+    Fut: Future<Output = S> + 'static + Send,
+    S: SendData + PartialEq + serde::de::DeserializeOwned + serde::Serialize + 'static + Clone,
+{
+    run_test(set_resources, (), move |_, _, eff| {
+        let future = function(eff);
+        async move { Some(future.await) }
+    })
+    .unwrap()
+}
+
+/// Run a function inside a stage and get back the result as the stage state.
+/// Resources can be set with the `set_resources` function and the `test_stage` function might
+/// modify the state (initially set to `None`) to get a value back.
+pub fn run_test<S, T, FS, F, Fut>(set_resources: FS, msg: T, test_stage: F) -> Option<S>
+where
+    FS: FnOnce(&Resources),
+    F: FnMut(Option<S>, T, Effects<T>) -> Fut + 'static + Send,
+    Fut: Future<Output = Option<S>> + 'static + Send,
+    T: SendData + serde::de::DeserializeOwned,
+    S: SendData + PartialEq + serde::de::DeserializeOwned + serde::Serialize + 'static + Clone,
+{
+    let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
+    set_resources(network.resources());
+
+    let stage = network.stage("test_stage", test_stage);
+    let stage = network.wire_up(stage, None);
+    network.preload(&stage, [msg]).unwrap();
+
+    let mut running = network.run();
+    running.run_until_blocked_incl_effects(runtime.handle()).assert_idle();
+
+    running.get_state(&stage).cloned().flatten()
 }

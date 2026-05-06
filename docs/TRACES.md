@@ -361,23 +361,11 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `roll_forward_chain` | `TRACE` | public | Roll forward the chain to a point | hash, slot, db_system_name, db_operation_name, db_collection_name |  |
-| `rollback_chain` | `TRACE` | public | Rollback the chain to a point | hash, slot, db_system_name, db_operation_name, db_collection_name |  |
 | `store_block` | `TRACE` | public | Store a raw block | hash, db_system_name, db_operation_name, db_collection_name |  |
 | `store_header` | `TRACE` | public | Store a block header | hash, db_system_name, db_operation_name, db_collection_name |  |
+| `switch_to_fork` | `TRACE` | public | Switch the chain to a new fork | hash, slot, db_system_name, db_operation_name, db_collection_name |  |
 
 <details><summary>span: `roll_forward_chain`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `hash` | `string` | ✓ |
-| `slot` | `integer` | ✓ |
-| `db_system_name` | `string` | ✓ |
-| `db_operation_name` | `string` | ✓ |
-| `db_collection_name` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `rollback_chain`</summary>
 
 | field | type | required |
 | --- | --- | --- |
@@ -405,6 +393,18 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `switch_to_fork`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
 | `db_system_name` | `string` | ✓ |
 | `db_operation_name` | `string` | ✓ |
 | `db_collection_name` | `string` | ✓ |

@@ -26,7 +26,6 @@ use std::{
 };
 
 use cbor4ii::{core::Value, serde::from_slice};
-use futures_util::FutureExt;
 use parking_lot::Mutex;
 #[cfg(target_arch = "riscv32")]
 use parking_lot::Mutex;
@@ -38,7 +37,8 @@ use crate::{
     serde::{NoDebug, SendDataValue, never, to_cbor},
     simulation::Transition,
     time::Clock,
-    trace_buffer::{TraceBuffer, find_next_external_resume, find_next_external_suspend},
+    trace_buffer::TraceBuffer,
+    types::Void,
 };
 
 /// A handle for performing effects on the current stage.
@@ -100,6 +100,23 @@ impl<M: SendData> Effects<M> {
     /// message to the current stage. For owned access, see [`me()`](Self::me).
     pub fn me_ref(&self) -> &StageRef<M> {
         &self.me
+    }
+
+    /// Return an erased version of Effects to be used when a self reference is not necessary.
+    pub fn erase(&self) -> Effects<Void> {
+        let me = StageRef::new(self.me.name().clone());
+        let me = match self.me.extra().cloned() {
+            Some(extra) => me.with_extra(extra),
+            None => me,
+        };
+        Effects {
+            me,
+            effect: self.effect.clone(),
+            clock: self.clock.clone(),
+            resources: self.resources.clone(),
+            schedule_ids: self.schedule_ids.clone(),
+            trace_buffer: self.trace_buffer.clone(),
+        }
     }
 }
 
@@ -261,44 +278,6 @@ impl<M> Effects<M> {
             }
             _ => None,
         })
-    }
-
-    /// Run an effect that is not part of the StageGraph as a synchronous effect.
-    /// In that case we return the response directly.
-    #[allow(clippy::panic)]
-    pub fn external_sync<T: ExternalEffectSync + serde::Serialize>(&self, effect: T) -> T::Response {
-        self.trace_buffer.lock().push_suspend_external(self.me.name(), &effect);
-
-        let response = if let Some(fetch_replay) = self.trace_buffer.lock().fetch_replay_mut() {
-            let Some(replayed) = find_next_external_suspend(fetch_replay, self.me.name()) else {
-                panic!("no entry found in fetch replay");
-            };
-            let Effect::External { effect, .. } =
-                from_slice(&to_cbor(&Effect::External { at_stage: self.me.name().clone(), effect: Box::new(effect) }))
-                    .expect("internal replay error")
-            else {
-                panic!("serde roundtrip broken");
-            };
-
-            assert!(
-                replayed.test_eq(&*effect),
-                "replayed effect {replayed:?}\ndoes not match performed effect {effect:?}"
-            );
-            find_next_external_resume(fetch_replay, self.me.name())
-                .expect("no response found in fetch replay")
-                .cast_deserialize::<T::Response>()
-                .expect("internal messaging type error")
-        } else {
-            Box::new(effect)
-                .run(self.resources.clone())
-                .now_or_never()
-                .expect("an external sync effect must complete immediately in sync context")
-                .cast_deserialize::<T::Response>()
-                .expect("internal messaging type error")
-        };
-
-        self.trace_buffer.lock().push_resume_external(self.me.name(), &response);
-        response
     }
 
     /// Terminate this stage
@@ -488,13 +467,6 @@ impl Display for dyn ExternalEffect {
 pub trait ExternalEffectAPI: ExternalEffect {
     type Response: SendData + DeserializeOwned;
 }
-
-/// Marker trait for external effects that have a synchronous response.
-///
-/// The [`ExternalEffect::run`](ExternalEffect::run) method must return a Future that resolves
-/// at the first call to `poll`. You can ensure this by not using `.await` or by using `.await`
-/// only on Futures that resolve at the first call to `poll`.
-pub trait ExternalEffectSync: ExternalEffectAPI {}
 
 impl dyn ExternalEffect {
     pub fn is<T: ExternalEffect>(&self) -> bool {

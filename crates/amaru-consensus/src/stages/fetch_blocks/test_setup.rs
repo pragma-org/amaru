@@ -18,9 +18,10 @@ use amaru_kernel::{
     BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
-use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros_traits::{ChainStore, MissingBlocks, StoreError, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, LoadBlockEffect, LoadHeaderEffect, ResourceHeaderStore, StoreBlockEffect,
+    FindMissingBlocksEffect, GetAnchorHashEffect, LoadBlockEffect, LoadHeaderEffect, ResourceHeaderStore,
+    StoreBlockEffect,
 };
 use pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef, TerminationReason,
@@ -103,8 +104,8 @@ impl TestPrep {
         ScheduleIds::default().next_at(Instant::at_offset(duration))
     }
 
-    pub fn state_with_request(&self, missing: Vec<Point>, req_id: u64, timeout: ScheduleId) -> FetchBlocks {
-        FetchBlocks { req_id, missing, timeout: Some(timeout), ..self.state.clone() }
+    pub fn state_with_request(&self, missing: MissingBlocks, req_id: u64, timeout: ScheduleId) -> FetchBlocks {
+        FetchBlocks { req_id, missing: Some(missing), timeout: Some(timeout), ..self.state.clone() }
     }
 
     pub fn state_with_block_height(&self, block_height: u64) -> FetchBlocks {
@@ -124,6 +125,8 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
+        pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
     ]
 }
 
@@ -171,16 +174,8 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
     (running, guards, logs.logs())
 }
 
-pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
-}
-
-pub fn te_load_block(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadBlockEffect::new(hash))))
-}
-
-pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new())))
+pub fn te_find_missing_blocks(at_stage: &str, start: HeaderHash, limit: usize) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindMissingBlocksEffect::new(start, limit))))
 }
 
 pub fn te_store_block(at_stage: &str, hash: HeaderHash, block: amaru_kernel::RawBlock) -> TraceEntry {

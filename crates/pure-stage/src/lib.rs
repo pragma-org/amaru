@@ -34,8 +34,7 @@ mod types;
 pub mod simulation;
 
 pub use effect::{
-    Effect, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, ScheduleIds, StageResponse,
-    UnknownExternalEffect,
+    Effect, Effects, ExternalEffect, ExternalEffectAPI, ScheduleIds, StageResponse, UnknownExternalEffect,
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;
@@ -49,5 +48,5 @@ pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
 pub use trace_buffer::TerminationReason;
-pub use types::{BLACKHOLE_NAME, BoxFuture, Name, SendData, TryInStage, Void, err, warn};
+pub use types::{BLACKHOLE_NAME, BoxFuture, Name, OrTerminateWith, SendData, TryInStage, Void, err, warn};
 pub use typetag;

@@ -53,12 +53,13 @@ use std::fmt::{Debug, Display};
 use ProtocolError::*;
 use amaru_kernel::{Transaction, utils::string::display_collection};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxId, TxSubmissionMempool};
+use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
+use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
-    mempool_effects::MemoryPool,
+    mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
@@ -89,9 +90,9 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+        let mempool = MemoryPool::new(eff.clone());
         let action = match input {
-            InitiatorLocalIn::WaitForAtLeastReached => self.complete_request_tx_ids_blocking(mempool)?,
+            InitiatorLocalIn::WaitForAtLeastReached => self.complete_request_tx_ids_blocking(&mempool).await?,
         };
         Ok((action, self))
     }
@@ -105,16 +106,16 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         let message_type = input.message_type().to_string();
 
         async move {
-            let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+            let mempool = MemoryPool::new(eff.clone());
 
             let action = match input {
                 InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
                     self.request_tx_ids_blocking(eff, ack, req).await?
                 }
                 InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
-                    self.request_tx_ids_non_blocking(mempool, ack, req)?
+                    self.request_tx_ids_non_blocking(&mempool, ack, req).await?
                 }
-                InitiatorResult::RequestTxs(tx_ids) => self.request_txs(mempool, tx_ids)?,
+                InitiatorResult::RequestTxs(tx_ids) => self.request_txs(&mempool, tx_ids).await?,
             };
             Ok((action, self))
         }
@@ -324,21 +325,21 @@ impl TxSubmissionInitiator {
     }
 
     /// Drop the internal pending request and return the new transaction ids
-    fn complete_request_tx_ids_blocking(
+    async fn complete_request_tx_ids_blocking(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
+        mempool: &dyn AsyncMempool,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         let Some(PendingBlockingRequest { req }) = self.pending_blocking_request.take() else {
             anyhow::bail!("missing pending blocking request")
         };
 
-        let tx_ids = self.get_next_tx_ids(mempool, req)?;
+        let tx_ids = self.get_next_tx_ids(mempool, req).await?;
         Ok(Some(InitiatorAction::SendReplyTxIds(tx_ids)))
     }
 
-    fn request_tx_ids_non_blocking(
+    async fn request_tx_ids_non_blocking(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
+        mempool: &dyn AsyncMempool,
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
@@ -356,12 +357,12 @@ impl TxSubmissionInitiator {
 
         // update the window by discarding acknowledged tx ids and update the last_seq
         self.discard(ack);
-        Ok(Some(InitiatorAction::SendReplyTxIds(self.get_next_tx_ids(mempool, req)?)))
+        Ok(Some(InitiatorAction::SendReplyTxIds(self.get_next_tx_ids(mempool, req).await?)))
     }
 
-    fn request_txs(
+    async fn request_txs(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
+        mempool: &dyn AsyncMempool,
         tx_ids: Vec<TxId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         tracing::debug!(tx_ids = display_collection(&tx_ids), "received RequestTxs");
@@ -371,7 +372,7 @@ impl TxSubmissionInitiator {
         if tx_ids.iter().any(|id| !self.window.iter().any(|(wid, _)| wid == id)) {
             return protocol_error(UnadvertisedTransactionIdsRequested(tx_ids));
         }
-        let txs = mempool.get_txs_for_ids(tx_ids.as_slice());
+        let txs = mempool.get_txs_for_ids(tx_ids.clone()).await;
         if txs.is_empty() {
             protocol_error(UnknownTxsRequested(tx_ids))
         } else {
@@ -391,12 +392,12 @@ impl TxSubmissionInitiator {
     }
 
     /// Take notice of the acknowledged transactions, and send the next batch of tx ids.
-    fn get_next_tx_ids<Tx: Send + Debug + Sync + 'static>(
+    async fn get_next_tx_ids(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
+        mempool: &dyn AsyncMempool,
         required_next: u16,
     ) -> anyhow::Result<Vec<(TxId, u32)>> {
-        let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next);
+        let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next).await;
         let result = tx_ids.clone().into_iter().map(|(tx_id, tx_size, _)| (tx_id, tx_size)).collect();
         self.update(tx_ids);
         Ok(result)
@@ -452,7 +453,7 @@ mod tests {
     use std::sync::Arc;
 
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
-    use amaru_ouroboros_traits::TxOrigin;
+    use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
 
     use super::*;
     use crate::tx_submission::{assert_actions_eq, create_transactions_in_mempool, tests::create_transactions};
@@ -504,7 +505,7 @@ mod tests {
         let txs = create_transactions(6);
 
         for tx in txs.iter().take(2) {
-            mempool.insert(tx.clone(), TxOrigin::Local)?;
+            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local)?;
         }
 
         // Send requests to retrieve transactions and block until they are available.
@@ -517,7 +518,7 @@ mod tests {
 
         // Refill the mempool with more transactions
         for tx in &txs[2..] {
-            mempool.insert(tx.clone(), TxOrigin::Local)?;
+            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local)?;
         }
         let messages = vec![
             request_tx_ids(1, 2, Blocking::Yes),
@@ -734,16 +735,16 @@ mod tests {
 
     // HELPERS
 
-    async fn run_stage(
-        mempool: Arc<InMemoryMempool<Transaction>>,
+    async fn run_stage<M: AsyncMempool>(
+        mempool: Arc<M>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<Vec<InitiatorAction>> {
         let (actions, _initiator) = run_stage_and_return_state(mempool, results).await?;
         Ok(actions)
     }
 
-    async fn run_stage_and_return_state(
-        mempool: Arc<InMemoryMempool<Transaction>>,
+    async fn run_stage_and_return_state<M: AsyncMempool>(
+        mempool: Arc<M>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         run_stage_and_return_state_with(
@@ -754,14 +755,15 @@ mod tests {
         .await
     }
 
-    async fn run_stage_and_return_state_with(
+    async fn run_stage_and_return_state_with<M: AsyncMempool>(
         mut initiator: TxSubmissionInitiator,
-        mempool: Arc<InMemoryMempool<Transaction>>,
+        mempool: Arc<M>,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         let mut actions = vec![];
+        let mempool = mempool.as_ref();
         for r in results {
-            let action = step(&mut initiator, r, mempool.as_ref()).await?;
+            let action = step(&mut initiator, r, mempool).await?;
             if let Some(action) = action {
                 actions.push(action);
             }
@@ -769,25 +771,25 @@ mod tests {
         Ok((actions, initiator))
     }
 
-    async fn step(
+    async fn step<M: AsyncMempool>(
         initiator: &mut TxSubmissionInitiator,
         input: InitiatorResult,
-        mempool: &InMemoryMempool<Transaction>,
+        mempool: &M,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         let action = match input {
             InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
                 match initiator.begin_request_tx_ids_blocking(ack, req) {
-                    Ok(seq_no) if mempool.last_seq_no() >= seq_no => {
-                        initiator.complete_request_tx_ids_blocking(mempool)?
+                    Ok(seq_no) if mempool.wait_for_at_least(seq_no).await => {
+                        initiator.complete_request_tx_ids_blocking(mempool).await?
                     }
                     Ok(_) => None,
                     Err(error) => Some(error_action(error)),
                 }
             }
             InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No } => {
-                initiator.request_tx_ids_non_blocking(mempool, ack, req)?
+                initiator.request_tx_ids_non_blocking(mempool, ack, req).await?
             }
-            InitiatorResult::RequestTxs(tx_ids) => initiator.request_txs(mempool, tx_ids)?,
+            InitiatorResult::RequestTxs(tx_ids) => initiator.request_txs(mempool, tx_ids).await?,
         };
         Ok(action)
     }

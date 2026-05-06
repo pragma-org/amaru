@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
+use amaru_kernel::{IsHeader, Point};
 use pure_stage::TerminationReason;
 use tracing::Level;
 
@@ -21,7 +21,7 @@ use crate::stages::{
     select_chain::SelectChainMsg,
     test_utils::{te_input, te_state},
     validate_block::test_setup::{
-        assert_trace, setup, te_get_anchor_hash, te_ledger_contains, te_ledger_tip, te_load_header,
+        assert_trace, setup, te_get_anchor_hash, te_ledger_contains, te_ledger_tip, te_load_from_best_chain,
         te_load_header_with_validity, te_record_metrics, te_rollback_ledger, te_send, te_terminate, te_terminated,
         te_validate_block, test_prep,
     },
@@ -170,6 +170,9 @@ fn test_grand_parent_in_ledger() {
     prep.store_headers(&prep.headers.all());
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
+    prep.roll_forward_chain(prep.headers.h0.point());
+    prep.roll_forward_chain(prep.headers.h1.point());
+    prep.set_validity(prep.headers.h1.hash(), true);
 
     let tip = prep.headers.h3.tip();
     let parent = prep.headers.h2.point();
@@ -183,13 +186,12 @@ fn test_grand_parent_in_ledger() {
             te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
             te_ledger_contains("vb-1", &parent),
-            te_ledger_tip("vb-1"),
             te_get_anchor_hash("vb-1"),
-            te_load_header("vb-1", prep.headers.h0.hash()),
+            te_ledger_tip("vb-1"),
             te_load_header_with_validity("vb-1", prep.headers.h2.hash()),
-            te_load_header_with_validity("vb-1", prep.headers.h1.hash()),
             te_ledger_contains("vb-1", &prep.headers.h2.point()),
-            te_load_header_with_validity("vb-1", prep.headers.h0.hash()),
+            te_load_from_best_chain("vb-1", prep.headers.h2.point()),
+            te_load_header_with_validity("vb-1", prep.headers.h1.hash()),
             te_ledger_contains("vb-1", &prep.headers.h1.point()),
             te_rollback_ledger("vb-1", &prep.headers.h1.point()),
             te_validate_block("vb-1", &Peer::new("unknown"), parent),
@@ -229,11 +231,9 @@ fn test_rollback_fails_when_ancestor_invalid() {
             te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
             te_ledger_contains("vb-1", &parent),
-            te_ledger_tip("vb-1"),
             te_get_anchor_hash("vb-1"),
-            te_load_header("vb-1", prep.headers.h0.hash()),
+            te_ledger_tip("vb-1"),
             te_load_header_with_validity("vb-1", prep.headers.h2.hash()),
-            te_load_header_with_validity("vb-1", prep.headers.h1.hash()),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)),
             te_state("vb-1", &prep.state).into(),
         ],
@@ -254,6 +254,9 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
     // normally, the anchor would be set to the tip of the chain, but that doesn’t happen
     // at the same place and time, so we pessimistically place the anchor further in the past
     prep.set_anchor(prep.headers.h0.hash());
+    prep.roll_forward_chain(prep.headers.h0.point());
+    prep.roll_forward_chain(prep.headers.h1.point());
+    prep.roll_forward_chain(prep.headers.h2.point());
 
     let tip = prep.headers.h3a.tip();
     let parent = prep.headers.h2a.point();
@@ -266,13 +269,14 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
             te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
             te_ledger_contains("vb-1", &parent),
-            te_ledger_tip("vb-1"),
             te_get_anchor_hash("vb-1"),
-            te_load_header("vb-1", prep.headers.h0.hash()),
+            te_ledger_tip("vb-1"),
             te_load_header_with_validity("vb-1", prep.headers.h2a.hash()),
-            te_load_header_with_validity("vb-1", prep.headers.h1.hash()),
             te_ledger_contains("vb-1", &prep.headers.h2a.point()),
-            te_load_header_with_validity("vb-1", prep.headers.h0.hash()),
+            te_load_from_best_chain("vb-1", prep.headers.h2a.point()),
+            te_load_header_with_validity("vb-1", prep.headers.h1.hash()),
+            te_ledger_contains("vb-1", &prep.headers.h1.point()),
+            te_load_from_best_chain("vb-1", prep.headers.h1.point()),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)),
             te_state("vb-1", &prep.state).into(),
         ],
