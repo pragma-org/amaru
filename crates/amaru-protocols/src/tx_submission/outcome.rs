@@ -51,7 +51,7 @@ pub enum ProtocolError {
     /// `RequestTxs`. Mirrors the Cardano Haskell node's `ExceededTimeLimit StTxs` driver-level
     /// error.
     TxFetchTimeout,
-    MempoolInsertFailed(TxId, MempoolError),
+    MempoolInsertFailed(MempoolError),
     MempoolBatchInsertFailedTimedout,
 }
 
@@ -99,8 +99,8 @@ impl Display for ProtocolError {
             ProtocolError::DuplicateTxIds(tx_ids) => {
                 write!(f, "duplicate transaction ids were found in the request: {tx_ids:?}")
             }
-            ProtocolError::MempoolInsertFailed(tx_id, error) => {
-                write!(f, "failed to insert transaction {tx_id} into the mempool: {error}")
+            ProtocolError::MempoolInsertFailed(error) => {
+                write!(f, "failed to insert a transaction into the mempool: {error}")
             }
             ProtocolError::MempoolBatchInsertFailedTimedout => {
                 write!(f, "failed to insert a transaction batch: timeout")

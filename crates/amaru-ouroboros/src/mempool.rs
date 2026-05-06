@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Tip, Transaction};
-use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin};
+use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::StageRef;
 
 /// Messages accepted by the mempool stage.
@@ -29,25 +29,14 @@ use pure_stage::StageRef;
 /// NewTip comes from the `adopt_chain` stage and informs the mempool that a new tip has been adopted.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMsg {
-    WaitForAtLeast {
-        seq_no: MempoolSeqNo,
-        caller: StageRef<()>,
-    },
-    Insert {
-        tx: Box<Transaction>,
-        origin: TxOrigin,
-        caller: StageRef<Result<TxInsertResult, MempoolInsertError>>,
-    },
-    InsertBatch {
-        txs: Vec<Transaction>,
-        origin: TxOrigin,
-        caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertError>>,
-    },
+    WaitForAtLeast { seq_no: MempoolSeqNo, caller: StageRef<()> },
+    Insert { tx: Box<Transaction>, origin: TxOrigin, caller: StageRef<Result<TxInsertResult, MempoolError>> },
+    InsertBatch { txs: Vec<Transaction>, origin: TxOrigin, caller: StageRef<Result<Vec<TxInsertResult>, MempoolError>> },
     NewTip(Tip),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct MempoolInsertError {
+pub struct MempoolInsertResult {
     pub tx_id: TxId,
-    pub error: MempoolError,
+    pub rejected: Option<TxRejectReason>,
 }

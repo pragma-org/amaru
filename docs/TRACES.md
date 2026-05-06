@@ -294,6 +294,53 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::mempool`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `tx_accepted` | `TRACE` | public | Transaction validated and inserted into the mempool. | tx_id, seq_no, origin |  |
+| `tx_evicted` | `TRACE` | public | Transaction removed from the mempool. Reason ∈ {invalid_after_tip}. TODO: split the reason into invalid after tip + present in applied block | tx_id, reason |  |
+| `tx_received` | `TRACE` | public | Transaction received by the mempool stage, before validation. | tx_id, origin |  |
+| `tx_rejected` | `TRACE` | public | Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}. | tx_id, reason | validation_error |
+
+<details><summary>span: `tx_accepted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tx_id` | `string` | ✓ |
+| `seq_no` | `integer` | ✓ |
+| `origin` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `tx_evicted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tx_id` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `tx_received`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tx_id` | `string` | ✓ |
+| `origin` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `tx_rejected`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tx_id` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+| `validation_error` | `string` |  |
+
+</details>
+
 ## target: `amaru::protocols::manager`
 
 | name | level | public | description | required fields | optional fields |

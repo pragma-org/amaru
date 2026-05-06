@@ -16,7 +16,9 @@ use std::fmt::Debug;
 
 use amaru_kernel::Transaction;
 use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use amaru_ouroboros_traits::{
+    MempoolError, MempoolSeqNo, MempoolState, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool,
+};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +43,7 @@ pub trait AsyncMempool: Send + Sync {
     fn remove_txs(&self, ids: &[TxId]) -> BoxFuture<'_, Result<(), MempoolError>>;
     fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo>;
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool>;
+    fn state(&self) -> BoxFuture<'_, MempoolState>;
 }
 
 impl MemoryPool {
@@ -98,6 +101,11 @@ impl MemoryPool {
     pub fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'static, bool> {
         self.external(IsNearCapacity { additional_bytes })
     }
+
+    /// This effect retrieves a snapshot of the mempool's tx count and cumulative size.
+    pub fn state(&self) -> BoxFuture<'static, MempoolState> {
+        self.external(State)
+    }
 }
 
 impl AsyncMempool for MemoryPool {
@@ -135,6 +143,10 @@ impl AsyncMempool for MemoryPool {
 
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool> {
         MemoryPool::is_near_capacity(self, additional_bytes)
+    }
+
+    fn state(&self) -> BoxFuture<'_, MempoolState> {
+        MemoryPool::state(self)
     }
 }
 
@@ -176,6 +188,10 @@ impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
 
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool> {
         Box::pin(async move { TxSubmissionMempool::is_near_capacity(self, additional_bytes) })
+    }
+
+    fn state(&self) -> BoxFuture<'_, MempoolState> {
+        Box::pin(async move { TxSubmissionMempool::state(self) })
     }
 }
 
@@ -386,10 +402,29 @@ impl ExternalEffectAPI for IsNearCapacity {
     type Response = bool;
 }
 
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct State;
+
+impl ExternalEffect for State {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
+            mempool.state()
+        })
+    }
+}
+
+impl ExternalEffectAPI for State {
+    type Response = MempoolState;
+}
+
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{Transaction, TransactionBody, WitnessSet};
-    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
+    use amaru_ouroboros_traits::{
+        MempoolError, MempoolSeqNo, MempoolState, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool,
+    };
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
@@ -437,6 +472,10 @@ mod tests {
 
         fn is_near_capacity(&self, _additional_bytes: u64) -> bool {
             false
+        }
+
+        fn state(&self) -> MempoolState {
+            MempoolState { tx_count: 1, size_bytes: 0 }
         }
     }
 }

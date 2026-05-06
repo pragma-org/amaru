@@ -216,6 +216,14 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<T
         let current = self.inner.read().current_bytes;
         current.saturating_add(additional_bytes) > self.config.max_bytes
     }
+
+    fn state(&self) -> amaru_ouroboros_traits::MempoolState {
+        let inner = self.inner.read();
+        amaru_ouroboros_traits::MempoolState {
+            tx_count: inner.entries_by_id.len() as u64,
+            size_bytes: inner.current_bytes,
+        }
+    }
 }
 
 impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {

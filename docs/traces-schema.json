@@ -714,6 +714,103 @@
       "description": "Persist the oldest volatile block to stable storage once the security parameter is reached",
       "public": true
     },
+    "amaru::mempool::TX_ACCEPTED": {
+      "type": "object",
+      "properties": {
+        "tx_id": {
+          "type": "string"
+        },
+        "seq_no": {
+          "type": "integer"
+        },
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_id",
+        "seq_no",
+        "origin"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "tx_accepted",
+      "level": "TRACE",
+      "target": "amaru::mempool",
+      "description": "Transaction validated and inserted into the mempool.",
+      "public": true
+    },
+    "amaru::mempool::TX_EVICTED": {
+      "type": "object",
+      "properties": {
+        "tx_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_id",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "tx_evicted",
+      "level": "TRACE",
+      "target": "amaru::mempool",
+      "description": "Transaction removed from the mempool. Reason ∈ {invalid_after_tip}. TODO: split the reason into invalid after tip + present in applied block",
+      "public": true
+    },
+    "amaru::mempool::TX_RECEIVED": {
+      "type": "object",
+      "properties": {
+        "tx_id": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_id",
+        "origin"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "tx_received",
+      "level": "TRACE",
+      "target": "amaru::mempool",
+      "description": "Transaction received by the mempool stage, before validation.",
+      "public": true
+    },
+    "amaru::mempool::TX_REJECTED": {
+      "type": "object",
+      "properties": {
+        "tx_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "validation_error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_id",
+        "reason"
+      ],
+      "optional": [
+        "validation_error"
+      ],
+      "additionalProperties": false,
+      "name": "tx_rejected",
+      "level": "TRACE",
+      "target": "amaru::mempool",
+      "description": "Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.",
+      "public": true
+    },
     "amaru::protocols::manager::ACCEPTED": {
       "type": "object",
       "properties": {

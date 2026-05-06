@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod stage;
+pub mod traces;
 
 pub use stage::*;
 
