@@ -63,6 +63,9 @@ pub use validity_interval::InvalidValidityInterval;
 
 pub mod mint;
 
+#[cfg(test)]
+mod fixture;
+
 #[derive(Debug, Error)]
 pub enum PhaseOneError {
     #[error("invalid inputs: {0}")]
@@ -263,4 +266,57 @@ fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Re
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{EraHistory, ProtocolParameters, Transaction, TransactionPointer, cbor, include_json};
+    use test_case::test_case;
+
+    use super::fixture::{Expected, Fixture, Predicate};
+    use crate::{context::DefaultValidationContext, store::GovernanceActivity};
+
+    macro_rules! fixture {
+        ($path:literal) => {
+            include_json!(concat!("phase-one/", $path, ".json"))
+        };
+    }
+
+    #[test_case(fixture!("pass/simple-transfer"); "simple transfer")]
+    #[test_case(fixture!("fail/InvalidWitnessesUTXOW/0"); "invalid vkey signature")]
+    fn conformance(fixture: Fixture) {
+        let tx_size = fixture.transaction.len() as u64;
+
+        let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
+
+        let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
+        let pparams: ProtocolParameters = fixture.protocol_parameters.into();
+        let era_history: EraHistory = fixture.era_history.into();
+        let governance: GovernanceActivity = fixture.initial_state.voting_state.into();
+        let pointer: TransactionPointer = fixture.ledger_env.into();
+
+        let result = super::execute(
+            &mut ctx,
+            &fixture.network,
+            &pparams,
+            &era_history,
+            &governance,
+            pointer,
+            tx.is_expected_valid,
+            tx.body,
+            &tx.witnesses,
+            tx.auxiliary_data.as_ref(),
+            tx_size,
+        )
+        .map_err(Predicate::from);
+
+        match (fixture.expected, result) {
+            (Expected::Pass, Ok(_)) => (),
+            (Expected::Pass, Err(actual)) => panic!("expected pass, got error: {actual:?}"),
+            (Expected::Fail(expected), Err(actual)) => {
+                assert_eq!(actual, expected, "expected {expected:?}, got {actual:?}");
+            }
+            (Expected::Fail(expected), Ok(_)) => panic!("expected fail ({expected:?}), got pass"),
+        }
+    }
 }

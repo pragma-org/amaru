@@ -1,0 +1,154 @@
+{
+  "title": "simple-transfer",
+  "description": "Single vkey-locked input, single vkey-locked output, sufficient fee. Passes every phase-one predicate.",
+  "network": "preprod",
+  "eraHistory": {
+    "stabilityWindow": 129600,
+    "eras": [
+      {
+        "start": { "time": 0, "slot": 0, "epoch": 0 },
+        "end": null,
+        "params": {
+          "epochSizeSlots": 432000,
+          "slotLengthMs": 1000,
+          "eraName": "Conway"
+        }
+      }
+    ]
+  },
+  "protocolParameters": {
+    "protocolVersion": { "major": 9, "minor": 0 },
+    "txFeePerByte": 44,
+    "txFeeFixed": 155381,
+    "maxBlockBodySize": 90112,
+    "maxTxSize": 16384,
+    "maxBlockHeaderSize": 1100,
+    "stakeAddressDeposit": 2000000,
+    "stakePoolDeposit": 500000000,
+    "poolRetireMaxEpoch": 18,
+    "stakePoolTargetNum": 500,
+    "poolPledgeInfluence": { "numerator": 3, "denominator": 10 },
+    "monetaryExpansion": { "numerator": 3, "denominator": 1000 },
+    "treasuryCut": { "numerator": 2, "denominator": 10 },
+    "minPoolCost": 340000000,
+    "utxoCostPerByte": 4310,
+    "executionUnitPrices": {
+      "priceMemory": { "numerator": 577, "denominator": 10000 },
+      "priceSteps": { "numerator": 721, "denominator": 10000000 }
+    },
+    "maxTxExecutionUnits": { "memory": 14000000, "steps": 10000000000 },
+    "maxBlockExecutionUnits": { "memory": 62000000, "steps": 20000000000 },
+    "maxValueSize": 5000,
+    "collateralPercentage": 150,
+    "maxCollateralInputs": 3,
+    "poolVotingThresholds": {
+      "motionNoConfidence": { "numerator": 51, "denominator": 100 },
+      "committeeNormal": { "numerator": 51, "denominator": 100 },
+      "committeeNoConfidence": { "numerator": 51, "denominator": 100 },
+      "hardForkInitiation": { "numerator": 51, "denominator": 100 },
+      "ppSecurityGroup": { "numerator": 51, "denominator": 100 }
+    },
+    "dRepVotingThresholds": {
+      "motionNoConfidence": { "numerator": 51, "denominator": 100 },
+      "committeeNormal": { "numerator": 67, "denominator": 100 },
+      "committeeNoConfidence": { "numerator": 67, "denominator": 100 },
+      "updateToConstitution": { "numerator": 6, "denominator": 10 },
+      "hardForkInitiation": { "numerator": 75, "denominator": 100 },
+      "ppNetworkGroup": { "numerator": 6, "denominator": 10 },
+      "ppEconomicGroup": { "numerator": 67, "denominator": 100 },
+      "ppTechnicalGroup": { "numerator": 67, "denominator": 100 },
+      "ppGovGroup": { "numerator": 75, "denominator": 100 },
+      "treasuryWithdrawal": { "numerator": 67, "denominator": 100 }
+    },
+    "committeeMinSize": 7,
+    "committeeMaxTermLength": 146,
+    "govActionLifetime": 6,
+    "govActionDeposit": 100000000000,
+    "dRepDeposit": 500000000,
+    "dRepActivity": 20,
+    "minFeeRefScriptCostPerByte": { "numerator": 15, "denominator": 1 },
+    "costModels": {
+      "PlutusV1": [
+        100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32,
+        201305, 8356, 4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000,
+        100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4,
+        72010, 178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 228465, 122, 0, 1,
+        1, 1000, 42921, 4, 2, 24548, 29498, 38, 1, 898148, 27279, 1, 51775, 558,
+        1, 39184, 1000, 60594, 1, 141895, 32, 83150, 32, 15299, 32, 76049, 1,
+        13169, 4, 22100, 10, 28999, 74, 1, 28999, 74, 1, 43285, 552, 1, 44749,
+        541, 1, 33852, 32, 68246, 32, 72362, 32, 7243, 32, 7391, 32, 11546, 32,
+        85848, 228465, 122, 0, 1, 1, 90434, 519, 0, 1, 74433, 32, 85848, 228465,
+        122, 0, 1, 1, 85848, 228465, 122, 0, 1, 1, 270652, 22588, 4, 1457325,
+        64566, 4, 20467, 1, 4, 0, 141992, 32, 100788, 420, 1, 1, 81663, 32,
+        59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32,
+        53384111, 14333, 10
+      ],
+      "PlutusV2": [
+        100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32,
+        201305, 8356, 4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000,
+        100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4,
+        72010, 178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 228465, 122, 0, 1,
+        1, 1000, 42921, 4, 2, 24548, 29498, 38, 1, 898148, 27279, 1, 51775, 558,
+        1, 39184, 1000, 60594, 1, 141895, 32, 83150, 32, 15299, 32, 76049, 1,
+        13169, 4, 22100, 10, 28999, 74, 1, 28999, 74, 1, 43285, 552, 1, 44749,
+        541, 1, 33852, 32, 68246, 32, 72362, 32, 7243, 32, 7391, 32, 11546, 32,
+        85848, 228465, 122, 0, 1, 1, 90434, 519, 0, 1, 74433, 32, 85848, 228465,
+        122, 0, 1, 1, 85848, 228465, 122, 0, 1, 1, 955506, 213312, 0, 2, 270652,
+        22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32, 100788, 420, 1,
+        1, 81663, 32, 59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32,
+        24623, 32, 43053543, 10, 53384111, 14333, 10, 43574283, 26308, 10
+      ],
+      "PlutusV3": [
+        100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32,
+        201305, 8356, 4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000,
+        100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4,
+        72010, 178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 123203, 7305,
+        -900, 1716, 549, 57, 85848, 0, 1, 1, 1000, 42921, 4, 2, 24548, 29498,
+        38, 1, 898148, 27279, 1, 51775, 558, 1, 39184, 1000, 60594, 1, 141895,
+        32, 83150, 32, 15299, 32, 76049, 1, 13169, 4, 22100, 10, 28999, 74, 1,
+        28999, 74, 1, 43285, 552, 1, 44749, 541, 1, 33852, 32, 68246, 32, 72362,
+        32, 7243, 32, 7391, 32, 11546, 32, 85848, 123203, 7305, -900, 1716, 549,
+        57, 85848, 0, 1, 90434, 519, 0, 1, 74433, 32, 85848, 123203, 7305, -900,
+        1716, 549, 57, 85848, 0, 1, 1, 85848, 123203, 7305, -900, 1716, 549, 57,
+        85848, 0, 1, 955506, 213312, 0, 2, 270652, 22588, 4, 1457325, 64566, 4,
+        20467, 1, 4, 0, 141992, 32, 100788, 420, 1, 1, 81663, 32, 59498, 32,
+        20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32, 43053543, 10,
+        53384111, 14333, 10, 43574283, 26308, 10, 16000, 100, 16000, 100,
+        962335, 18, 2780678, 6, 442008, 1, 52538055, 3756, 18, 267929, 18,
+        76433006, 8868, 18, 52948122, 18, 1995836, 36, 3227919, 12, 901022, 1,
+        166917843, 4307, 36, 284546, 36, 158221314, 26549, 36, 74698472, 36,
+        333849714, 1, 254006273, 72, 2174038, 72, 2261318, 64571, 4, 207616,
+        8310, 4, 1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1, 100181,
+        726, 719, 0, 1, 100181, 726, 719, 0, 1, 100181, 726, 719, 0, 1, 107878,
+        680, 0, 1, 95336, 1, 281145, 18848, 0, 1, 180194, 159, 1, 1, 158519,
+        8942, 0, 1, 159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1,
+        1964219, 24520, 3
+      ]
+    }
+  },
+  "initialState": {
+    "utxo": [
+      [
+        {
+          "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "index": 0
+        },
+        {
+          "address": "6091de07fed8a2b52a92686dd68bb2b8d443d6d42089cf508259774675",
+          "value": { "Coin": 5000000 },
+          "datum": null,
+          "script": null
+        }
+      ]
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a400d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400f00a100d9010281825820b2f2453e32288dd3c90d532e997d0e5992a633ff66365e2b852606037ae8fc7b5840ec12c03465ef6693a9d862e1ba44969bfc38b7761ae5e2527524a1478bb152a5ba44707fae37f7d33f550888035111e4dca051d9441ee973ec9f1da7d90fbe0ff5f6",
+  "expected": "Pass"
+}
