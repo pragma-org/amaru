@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
-use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip, Transaction};
+use amaru_kernel::{BlockHeader, EraHistory, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
     TransactionValidationError,
 };
-use amaru_protocols::store_effects::ResourceHeaderStore;
+use amaru_protocols::store_effects::{ResourceHeaderStore, ResourceParameters};
 use opentelemetry::trace::FutureExt;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 
@@ -132,8 +137,9 @@ pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
+pub type ResourceEraHistory = EraHistory;
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
     tx: Transaction,
 }
@@ -141,6 +147,12 @@ pub struct ValidateTxEffect {
 impl ValidateTxEffect {
     pub fn new(tx: &Transaction) -> Self {
         Self { tx: tx.clone() }
+    }
+}
+
+impl PartialEq for ValidateTxEffect {
+    fn eq(&self, other: &Self) -> bool {
+        self.tx == other.tx
     }
 }
 
@@ -152,7 +164,19 @@ impl ExternalEffect for ValidateTxEffect {
                 .get::<ResourceTxValidation>()
                 .expect("ValidateTxEffect requires a ResourceTxValidation resource")
                 .clone();
-            validator.validate_tx(&self.tx)
+            let parameters = resources.get::<ResourceParameters>().expect("ValidateTxEffect requires parameters");
+            let era_history = resources.get::<ResourceEraHistory>().expect("ValidateTxEffect requires era history");
+            let ledger = resources.get::<ResourceBlockValidation>().expect("ValidateTxEffect requires a ledger");
+            let system_start = SystemTime::UNIX_EPOCH + Duration::from_millis(parameters.system_start);
+            let slot = match era_history
+                .posix_time_to_slot(SystemTime::now(), system_start)
+                .map(|current_slot| current_slot.max(ledger.tip().slot_or_default()))
+                .map_err(|error| TransactionValidationError::from(anyhow::anyhow!(error)))
+            {
+                Ok(slot) => slot,
+                Err(error) => return Self::wrap_sync(Err(error)),
+            };
+            validator.validate_tx(&self.tx, slot)
         })
     }
 }

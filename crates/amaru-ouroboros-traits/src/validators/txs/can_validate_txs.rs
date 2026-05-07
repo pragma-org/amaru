@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Slot, Transaction};
 
 use crate::mempool::TransactionValidationError;
 
@@ -23,16 +23,16 @@ pub type ResourceTxValidation = Arc<dyn CanValidateTxs>;
 /// This trait abstract over the possibility to validate transactions.
 /// Concretely speaking this will be done by the ledger.
 pub trait CanValidateTxs: Send + Sync {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
+    fn validate_tx(&self, tx: &Transaction, slot: Slot) -> Result<(), TransactionValidationError>;
 }
 
 /// A simple function can be used to implement the validation trait
 impl<F> CanValidateTxs for F
 where
-    F: Fn(&Transaction) -> Result<(), TransactionValidationError> + Send + Sync,
+    F: Fn(&Transaction, Slot) -> Result<(), TransactionValidationError> + Send + Sync,
 {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
-        self(tx)
+    fn validate_tx(&self, tx: &Transaction, slot: Slot) -> Result<(), TransactionValidationError> {
+        self(tx, slot)
     }
 }
 
@@ -41,7 +41,7 @@ where
 pub struct MockCanValidateTxs;
 
 impl CanValidateTxs for MockCanValidateTxs {
-    fn validate_tx(&self, _tx: &Transaction) -> Result<(), TransactionValidationError> {
+    fn validate_tx(&self, _tx: &Transaction, _slot: Slot) -> Result<(), TransactionValidationError> {
         Ok(())
     }
 }

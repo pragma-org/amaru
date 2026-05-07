@@ -64,10 +64,8 @@ use crate::{
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
     },
-    tx_submission::{Blocking, Message, ProtocolError, State},
+    tx_submission::{Blocking, DEFAULT_MAX_OUTSTANDING_TX_IDS, Message, ProtocolError, State, TerminationCause},
 };
-
-const MAX_REQUESTED_TX_IDS: u16 = 10;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -92,7 +90,20 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         let mempool = MemoryPool::new(eff.clone());
         let action = match input {
-            InitiatorLocalIn::WaitForAtLeastReached => self.complete_request_tx_ids_blocking(&mempool).await?,
+            InitiatorLocalIn::WaitForAtLeastReached => {
+                let action = self.complete_request_tx_ids_blocking(&mempool).await?;
+                if action.is_none() {
+                    // Mempool reached the expected seq_no but the tx was removed before we could read it
+                    // Send a new wait message with the last_seq_no next value
+                    let seq_no = mempool.last_seq_no().await.next();
+                    eff.send(
+                        &self.mempool_stage,
+                        MempoolMsg::WaitForAtLeast { seq_no, caller: self.wait_for_at_least_callback.clone() },
+                    )
+                    .await;
+                }
+                action
+            }
         };
         Ok((action, self))
     }
@@ -135,7 +146,7 @@ impl ProtocolState<Initiator> for State {
     type WireMsg = Message;
     type Action = InitiatorAction;
     type Out = InitiatorResult;
-    type Error = ProtocolError;
+    type Error = TerminationCause;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
         Ok((outcome().send(Message::Init).want_next(), State::Idle))
@@ -192,7 +203,7 @@ impl ProtocolState<Initiator> for State {
 pub enum InitiatorAction {
     SendReplyTxIds(Vec<(TxId, u32)>),
     SendReplyTxs(Vec<Transaction>),
-    Error(ProtocolError),
+    Error(TerminationCause),
     Done,
 }
 
@@ -279,7 +290,7 @@ impl TxSubmissionInitiator {
     ) -> anyhow::Result<Option<InitiatorAction>> {
         let expected_seq_no = match self.begin_request_tx_ids_blocking(ack, req) {
             Ok(seq_no) => seq_no,
-            Err(error) => return protocol_error(error),
+            Err(cause) => return terminate(cause),
         };
 
         // Ask the mempool to notify us when it has reached the expected sequence number,
@@ -305,35 +316,45 @@ impl TxSubmissionInitiator {
 
     /// Check the request and store an internal pending request to wait until the mempool has enough
     /// new transactions.
-    fn begin_request_tx_ids_blocking(&mut self, ack: u16, req: u16) -> Result<MempoolSeqNo, ProtocolError> {
+    fn begin_request_tx_ids_blocking(&mut self, ack: u16, req: u16) -> Result<MempoolSeqNo, TerminationCause> {
         // check the ack and req values
+        if let Some(cause) = self.check_ack(ack) {
+            return Err(cause);
+        }
+        if let Some(cause) = self.check_request_window(ack, req) {
+            return Err(cause);
+        }
         if req == 0 {
-            return Err(NoTxIdsRequested);
-        };
-        if let Some(value) = self.check_ack_req(ack, req) {
-            return Err(value);
+            return Err(RequestedNothing.into());
         }
         if (ack as usize) < self.window.len() {
-            return Err(BlockingRequestMadeWhenTxsStillUnacknowledged);
+            return Err(RequestBlocking.into());
         }
 
-        // update the window by discarding acknowledged tx ids and update the last_seq
+        // update the window by discarding acknowledged tx ids and wait for any new tx id to become available.
         self.discard(ack);
-        let seq_no = self.last_seq.unwrap_or_default().add(req as u64);
+        let seq_no = self.last_seq.unwrap_or_default().next();
         self.pending_blocking_request = Some(PendingBlockingRequest { req });
         Ok(seq_no)
     }
 
-    /// Drop the internal pending request and return the new transaction ids
+    /// Drop the internal pending request and return the new transaction ids.
+    /// Returns `Ok(None)` when no ids are available (the awaited tx was removed before we read
+    /// it); the pending request is left in place so the caller can re-arm the wait.
     async fn complete_request_tx_ids_blocking(
         &mut self,
         mempool: &dyn AsyncMempool,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        let Some(PendingBlockingRequest { req }) = self.pending_blocking_request.take() else {
+        let Some(PendingBlockingRequest { req }) = self.pending_blocking_request.as_ref() else {
             anyhow::bail!("missing pending blocking request")
         };
+        let req = *req;
 
         let tx_ids = self.get_next_tx_ids(mempool, req).await?;
+        if tx_ids.is_empty() {
+            return Ok(None);
+        }
+        self.pending_blocking_request = None;
         Ok(Some(InitiatorAction::SendReplyTxIds(tx_ids)))
     }
 
@@ -343,16 +364,18 @@ impl TxSubmissionInitiator {
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        // check the ack and req values
         tracing::debug!(%ack, %req, "received RequestTxIdsNonBlocking");
-        if ack == 0 && req == 0 {
-            return protocol_error(NoAckOrReqTxIdsRequested);
+        if let Some(cause) = self.check_ack(ack) {
+            return terminate(cause);
         }
-        if let Some(error) = self.check_ack_req(ack, req) {
-            return protocol_error(error);
+        if let Some(cause) = self.check_request_window(ack, req) {
+            return terminate(cause);
+        }
+        if ack == 0 && req == 0 {
+            return terminate(RequestedNothing);
         }
         if ack as usize == self.window.len() {
-            return protocol_error(NonBlockingRequestMadeWhenAllTxsAcknowledged);
+            return terminate(RequestNonBlocking);
         }
 
         // update the window by discarding acknowledged tx ids and update the last_seq
@@ -366,29 +389,33 @@ impl TxSubmissionInitiator {
         tx_ids: Vec<TxId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         tracing::debug!(tx_ids = display_collection(&tx_ids), "received RequestTxs");
-        if tx_ids.is_empty() {
-            return protocol_error(NoTxsRequested);
+        // Return an error if the peer asked for a tx_id that was not advertised.
+        let unavailable: Vec<&TxId> =
+            tx_ids.iter().filter(|id| !self.window.iter().any(|(wid, _)| wid == *id)).collect();
+        if !unavailable.is_empty() {
+            tracing::warn!(?unavailable, "peer requested transactions that are not in our window");
+            return terminate(RequestedUnavailableTx);
         }
-        if tx_ids.iter().any(|id| !self.window.iter().any(|(wid, _)| wid == id)) {
-            return protocol_error(UnadvertisedTransactionIdsRequested(tx_ids));
-        }
-        let txs = mempool.get_txs_for_ids(tx_ids.clone()).await;
-        if txs.is_empty() {
-            protocol_error(UnknownTxsRequested(tx_ids))
-        } else {
-            Ok(Some(InitiatorAction::SendReplyTxs(txs)))
-        }
+        Ok(Some(InitiatorAction::SendReplyTxs(mempool.get_txs_for_ids(&tx_ids).await)))
     }
 
-    /// Check that the ack and req values are valid for a request whether it is blocking or non blocking.
-    fn check_ack_req(&mut self, ack: u16, req: u16) -> Option<ProtocolError> {
-        if req > MAX_REQUESTED_TX_IDS {
-            Some(MaxOutstandingTxIdsRequested(req, MAX_REQUESTED_TX_IDS))
-        } else if ack as usize > self.window.len() {
-            Some(TooManyAcknowledgedTxs(ack, self.window.len() as u16))
+    /// Check that `ack` does not exceed the outstanding window.
+    fn check_ack(&self, ack: u16) -> Option<TerminationCause> {
+        if ack as usize > self.window.len() {
+            tracing::warn!(ack, window = self.window.len(), "peer acked more txids than are outstanding");
+            Some(AckedTooManyTxids.into())
         } else {
             None
         }
+    }
+
+    /// Check that requesting `req` after acking `ack` won't push the window over its cap.
+    /// `unacked - ack + req > max_unacked`.
+    fn check_request_window(&self, ack: u16, req: u16) -> Option<TerminationCause> {
+        let unacked = self.window.len() as u16;
+        let max_unacked = DEFAULT_MAX_OUTSTANDING_TX_IDS.get();
+        let projected = unacked.saturating_sub(ack).saturating_add(req);
+        if projected > max_unacked { Some(RequestedTooManyTxIds { req, unacked, max_unacked }.into()) } else { None }
     }
 
     /// Take notice of the acknowledged transactions, and send the next batch of tx ids.
@@ -437,9 +464,10 @@ struct PendingBlockingRequest {
     req: u16,
 }
 
-fn protocol_error(error: ProtocolError) -> anyhow::Result<Option<InitiatorAction>> {
-    tracing::warn!("protocol error: {error}");
-    Ok(Some(InitiatorAction::Error(error)))
+fn terminate(cause: impl Into<TerminationCause>) -> anyhow::Result<Option<InitiatorAction>> {
+    let cause = cause.into();
+    tracing::warn!("terminating: {cause}");
+    Ok(Some(InitiatorAction::Error(cause)))
 }
 
 impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
@@ -452,7 +480,7 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 mod tests {
     use std::sync::Arc;
 
-    use amaru_mempool::{InMemoryMempool, MempoolConfig};
+    use amaru_mempool::InMemoryMempool;
     use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
 
     use super::*;
@@ -461,7 +489,7 @@ mod tests {
     #[tokio::test]
     async fn serve_transactions() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = new_mempool(6);
+        let mempool = new_mempool();
         let txs = create_transactions_in_mempool(mempool.clone(), 6);
 
         // Send requests to retrieve transactions and block until they are available.
@@ -501,7 +529,7 @@ mod tests {
     #[tokio::test]
     async fn serve_transactions_with_mempool_refilling() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = new_mempool(6);
+        let mempool = new_mempool();
         let txs = create_transactions(6);
 
         for tx in txs.iter().take(2) {
@@ -546,9 +574,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn blocking_request_waits_for_one_new_tx_id() -> anyhow::Result<()> {
+        let mempool = new_mempool();
+        let txs = create_transactions(1);
+        let (_, mut initiator) = TxSubmissionInitiator::new(StageRef::blackhole(), StageRef::blackhole());
+
+        let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
+
+        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) < seq_no);
+        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local)?;
+        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
+        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, Some(reply_tx_ids(&txs, &[0])));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn blocking_request_keeps_pending_when_tx_was_removed() -> anyhow::Result<()> {
+        let mempool = new_mempool();
+        let txs = create_transactions(1);
+        let (_, mut initiator) = TxSubmissionInitiator::new(StageRef::blackhole(), StageRef::blackhole());
+
+        let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
+
+        let tx_id = TxId::from(&txs[0]);
+        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local)?;
+        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[tx_id])?;
+        // the last seq_no is greater than the requested seq_no
+        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
+
+        // yet we don't complete the request because the mempool is empty
+        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, None);
+        assert!(
+            initiator.pending_blocking_request.is_some(),
+            "the request is still pending because no tx can satisfy it"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn evicted_advertised_txs_yield_a_partial_reply() -> anyhow::Result<()> {
+        // The peer asks for an id we did advertise but has since been evicted from our mempool.
+        let mempool = new_mempool();
+        let txs = create_transactions_in_mempool(mempool.clone(), 2);
+
+        // Advertise both txs, then evict tx[0] before the peer requests it.
+        let advertise = request_tx_ids(0, 2, Blocking::Yes);
+        let request_both = request_txs(&txs, &[0, 1]);
+        let (actions, initiator) = run_stage_and_return_state(mempool.clone(), vec![advertise]).await?;
+        assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1])]);
+
+        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[TxId::from(&txs[0])])?;
+
+        let (actions, _) = run_stage_and_return_state_with(initiator, mempool, vec![request_both]).await?;
+        assert_actions_eq(&actions, &[reply_txs(&txs, &[1])]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn all_advertised_txs_evicted_yields_an_empty_reply() -> anyhow::Result<()> {
+        // Edge case: every requested id has been evicted. We must still send `ReplyTxs` (with
+        // an empty body list) rather than terminate — the wire format and the peer's inbound
+        // logic both accept it.
+        let mempool = new_mempool();
+        let txs = create_transactions_in_mempool(mempool.clone(), 2);
+
+        let advertise = request_tx_ids(0, 2, Blocking::Yes);
+        let request_both = request_txs(&txs, &[0, 1]);
+        let (actions, initiator) = run_stage_and_return_state(mempool.clone(), vec![advertise]).await?;
+        assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1])]);
+
+        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[TxId::from(&txs[0]), TxId::from(&txs[1])])?;
+
+        let (actions, _) = run_stage_and_return_state_with(initiator, mempool, vec![request_both]).await?;
+        assert_actions_eq(&actions, &[reply_txs(&txs, &[])]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn request_txs_must_come_from_requested_ids() -> anyhow::Result<()> {
         // Create a mempool with some transactions
-        let mempool = new_mempool(6);
+        let mempool = new_mempool();
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         // Send requests to retrieve transactions and block until they are available.
@@ -560,71 +667,45 @@ mod tests {
         let results = vec![request_tx_ids(0, 2, Blocking::Yes), request_txs(&txs, &[2, 3])];
 
         let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(
-            &actions,
-            &[
-                reply_tx_ids(&txs, &[0, 1]),
-                error_action(UnadvertisedTransactionIdsRequested(vec![TxId::from(&txs[2]), TxId::from(&txs[3])])),
-            ],
-        );
+        assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1]), error_action(RequestedUnavailableTx)]);
         Ok(())
     }
 
     #[tokio::test]
     async fn blocking_requested_ids_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = new_mempool(6);
+        let mempool = new_mempool();
 
         let results = vec![request_tx_ids(0, 0, Blocking::Yes)];
         let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(&actions, &[error_action(NoTxIdsRequested)]);
+        assert_actions_eq(&actions, &[error_action(RequestedNothing)]);
         Ok(())
     }
 
     #[tokio::test]
-    async fn blocking_requested_txs_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = new_mempool(4);
+    async fn empty_request_txs_is_tolerated() -> anyhow::Result<()> {
+        let mempool = new_mempool();
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![request_tx_ids(0, 2, Blocking::Yes), request_txs(&txs, &[])];
 
         let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1]), error_action(NoTxsRequested)]);
+        assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1]), reply_txs(&txs, &[])]);
         Ok(())
     }
 
     #[tokio::test]
     async fn non_blocking_ack_or_requested_ids_must_be_greater_than_0() -> anyhow::Result<()> {
-        let mempool = new_mempool(6);
+        let mempool = new_mempool();
 
         let results = vec![request_tx_ids(0, 0, Blocking::No)];
         let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(&actions, &[error_action(NoAckOrReqTxIdsRequested)]);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn blocking_requested_nb_must_be_less_than_protocol_limit() -> anyhow::Result<()> {
-        let mempool = new_mempool(6);
-
-        let results = vec![request_tx_ids(0, 12, Blocking::Yes)];
-        let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(&actions, &[error_action(MaxOutstandingTxIdsRequested(12, MAX_REQUESTED_TX_IDS))]);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn non_blocking_requested_nb_must_be_less_than_protocol_limit() -> anyhow::Result<()> {
-        let mempool = new_mempool(6);
-
-        let results = vec![request_tx_ids(0, 12, Blocking::No)];
-        let actions = run_stage(mempool, results).await?;
-        assert_actions_eq(&actions, &[error_action(MaxOutstandingTxIdsRequested(12, MAX_REQUESTED_TX_IDS))]);
+        assert_actions_eq(&actions, &[error_action(RequestedNothing)]);
         Ok(())
     }
 
     #[tokio::test]
     async fn a_blocking_request_must_be_made_when_all_txs_are_acknowledged() -> anyhow::Result<()> {
-        let mempool = new_mempool(4);
+        let mempool = new_mempool();
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![
@@ -642,7 +723,7 @@ mod tests {
                 reply_txs(&txs, &[0, 1]),
                 reply_tx_ids(&txs, &[]),
                 reply_txs(&txs, &[2, 3]),
-                error_action(NonBlockingRequestMadeWhenAllTxsAcknowledged),
+                error_action(RequestNonBlocking),
             ],
         );
         Ok(())
@@ -650,7 +731,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_non_blocking_request_must_be_made_when_some_txs_are_unacknowledged() -> anyhow::Result<()> {
-        let mempool = new_mempool(4);
+        let mempool = new_mempool();
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results =
@@ -658,18 +739,14 @@ mod tests {
         let actions = run_stage(mempool, results).await?;
         assert_actions_eq(
             &actions,
-            &[
-                reply_tx_ids(&txs, &[0, 1, 2, 3]),
-                reply_txs(&txs, &[0, 1]),
-                error_action(BlockingRequestMadeWhenTxsStillUnacknowledged),
-            ],
+            &[reply_tx_ids(&txs, &[0, 1, 2, 3]), reply_txs(&txs, &[0, 1]), error_action(RequestBlocking)],
         );
         Ok(())
     }
 
     #[tokio::test]
     async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_blocking() -> anyhow::Result<()> {
-        let mempool = new_mempool(4);
+        let mempool = new_mempool();
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![
@@ -687,7 +764,7 @@ mod tests {
                 reply_txs(&txs, &[0, 1]),
                 reply_tx_ids(&txs, &[]),
                 reply_txs(&txs, &[2, 3]),
-                error_action(TooManyAcknowledgedTxs(4, 2)),
+                error_action(AckedTooManyTxids),
             ],
         );
         Ok(())
@@ -696,7 +773,7 @@ mod tests {
     #[tokio::test]
     async fn the_responder_cannot_acknowledge_more_than_the_current_unacknowledged_non_blocking() -> anyhow::Result<()>
     {
-        let mempool = new_mempool(4);
+        let mempool = new_mempool();
         let txs = create_transactions_in_mempool(mempool.clone(), 4);
 
         let results = vec![
@@ -714,7 +791,25 @@ mod tests {
                 reply_txs(&txs, &[0, 1]),
                 reply_tx_ids(&txs, &[]),
                 reply_txs(&txs, &[2, 3]),
-                error_action(TooManyAcknowledgedTxs(4, 2)),
+                error_action(AckedTooManyTxids),
+            ],
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn requesting_more_than_window_cap_terminates_protocol() -> anyhow::Result<()> {
+        let mempool = new_mempool();
+        let txs = create_transactions_in_mempool(mempool.clone(), 10);
+
+        // Fill the window completely (10 advertised), then ask for one more without acking.
+        let results = vec![request_tx_ids(0, 10, Blocking::Yes), request_tx_ids(0, 1, Blocking::No)];
+        let actions = run_stage(mempool, results).await?;
+        assert_actions_eq(
+            &actions,
+            &[
+                reply_tx_ids(&txs, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+                error_action(RequestedTooManyTxIds { req: 1, unacked: 10, max_unacked: 10 }),
             ],
         );
         Ok(())
@@ -779,7 +874,7 @@ mod tests {
         let action = match input {
             InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
                 match initiator.begin_request_tx_ids_blocking(ack, req) {
-                    Ok(seq_no) if mempool.wait_for_at_least(seq_no).await => {
+                    Ok(seq_no) if mempool.last_seq_no().await >= seq_no => {
                         initiator.complete_request_tx_ids_blocking(mempool).await?
                     }
                     Ok(_) => None,
@@ -809,15 +904,15 @@ mod tests {
         InitiatorResult::RequestTxIds { ack, req, blocking }
     }
 
-    fn new_mempool(capacity: usize) -> Arc<InMemoryMempool<Transaction>> {
-        Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_txs(capacity)))
+    fn new_mempool() -> Arc<InMemoryMempool<Transaction>> {
+        Arc::new(InMemoryMempool::default())
     }
 
     fn request_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorResult {
         InitiatorResult::RequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
     }
 
-    fn error_action(error: ProtocolError) -> InitiatorAction {
-        InitiatorAction::Error(error)
+    fn error_action(cause: impl Into<TerminationCause>) -> InitiatorAction {
+        InitiatorAction::Error(cause.into())
     }
 }

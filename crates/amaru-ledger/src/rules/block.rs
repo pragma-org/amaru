@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, HasExUnits, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
-    TransactionPointer, size::BLOCK_BODY,
+    Block, EraHistory, ExUnits, HasExUnits, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, Transaction,
+    TransactionId, TransactionPointer, size::BLOCK_BODY,
 };
 use amaru_observability::trace_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -29,6 +29,7 @@ use thiserror::Error;
 use crate::{
     context::ValidationContext,
     rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
+    state::ValidationContextError,
     store::GovernanceActivity,
 };
 
@@ -53,6 +54,14 @@ pub enum InvalidBlockDetails {
     InvalidBodyHash { header: Hash<BLOCK_BODY>, actual: Hash<BLOCK_BODY> },
     HeaderProtVerTooHigh { header_major: u64, max_major: u64 },
     Transaction { transaction_hash: TransactionId, transaction_index: u32, violation: TransactionInvalid },
+}
+
+#[derive(Debug, Error)]
+pub enum TransactionValidationFailed {
+    #[error("transaction {transaction_hash} is invalid: {violation}")]
+    Transaction { transaction_hash: TransactionId, violation: TransactionInvalid },
+    #[error("failed to prepare transaction {transaction_hash} for validation: {error}")]
+    Preparation { transaction_hash: TransactionId, error: ValidationContextError },
 }
 
 #[derive(Debug)]
@@ -199,58 +208,91 @@ where
     for (i, transaction, tx_size) in block {
         let transaction_hash = transaction.body.id();
 
-        transaction.body.required_signers.as_deref().unwrap_or(&[]).iter().for_each(|vk_hash| {
-            context.require_vkey_witness(*vk_hash);
-        });
-
-        let pointer = TransactionPointer {
-            slot,
-            transaction_index: i as usize, // From u32
-        };
-
-        let consumed_inputs = match transaction::phase_one::execute(
-            context,
-            network,
-            protocol_params,
-            era_history,
-            governance_activity,
-            pointer,
-            transaction.is_expected_valid,
-            transaction.body.clone(),
-            &transaction.witnesses,
-            transaction.auxiliary_data.as_ref(),
-            tx_size,
-        ) {
-            Ok(inputs) => inputs,
-            Err(err) => {
-                return with_block_context(Err(InvalidBlockDetails::Transaction {
-                    transaction_hash,
-                    transaction_index: i,
-                    violation: err.into(),
-                }));
-            }
-        };
-
-        if let Err(e) = transaction::phase_two::execute(
+        if let Err(err) = validate_transaction(
             context,
             arena_pool,
             network,
             protocol_params,
             era_history,
-            pointer,
-            transaction.is_expected_valid,
-            &transaction.body,
-            &transaction.witnesses,
+            governance_activity,
+            TransactionPointer { slot, transaction_index: i as usize },
+            &transaction,
+            tx_size,
         ) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_hash,
                 transaction_index: i,
-                violation: e.into(),
+                violation: match err {
+                    TransactionValidationFailed::Transaction { violation, .. } => violation,
+                    TransactionValidationFailed::Preparation { error, .. } => {
+                        return BlockValidation::Err(error.into());
+                    }
+                },
             }));
-        }
-
-        consumed_inputs.into_iter().for_each(|input| context.consume(input));
+        };
     }
 
     BlockValidation::Valid(())
+}
+
+/// Validate a single transaction against a validation context.
+///
+/// This runs:
+///
+/// - Phase-one and phase-two ledger rules.
+/// - Records required vkey witnesses, and consumes the transaction inputs in the provided context after both
+///   phases succeed.
+///
+/// The caller is responsible for preparing the context with the UTxO and other ledger slices required by the transaction.
+#[expect(clippy::too_many_arguments)]
+pub fn validate_transaction<C>(
+    context: &mut C,
+    arena_pool: &ArenaPool,
+    network: &NetworkName,
+    protocol_params: &ProtocolParameters,
+    era_history: &EraHistory,
+    governance_activity: &GovernanceActivity,
+    pointer: TransactionPointer,
+    transaction: &Transaction,
+    tx_size: u64,
+) -> Result<(), TransactionValidationFailed>
+where
+    C: ValidationContext + fmt::Debug,
+{
+    let transaction_hash = transaction.body.id();
+
+    transaction.body.required_signers.as_deref().unwrap_or(&[]).iter().for_each(|vk_hash| {
+        context.require_vkey_witness(*vk_hash);
+    });
+
+    let consumed_inputs = transaction::phase_one::execute(
+        context,
+        network,
+        protocol_params,
+        era_history,
+        governance_activity,
+        pointer,
+        transaction.is_expected_valid,
+        transaction.body.clone(),
+        &transaction.witnesses,
+        transaction.auxiliary_data.as_ref(),
+        tx_size,
+    )
+    .map_err(|err| TransactionValidationFailed::Transaction { transaction_hash, violation: err.into() })?;
+
+    transaction::phase_two::execute(
+        context,
+        arena_pool,
+        network,
+        protocol_params,
+        era_history,
+        pointer,
+        transaction.is_expected_valid,
+        &transaction.body,
+        &transaction.witnesses,
+    )
+    .map_err(|err| TransactionValidationFailed::Transaction { transaction_hash, violation: err.into() })?;
+
+    consumed_inputs.into_iter().for_each(|input| context.consume(input));
+    Ok(())
 }

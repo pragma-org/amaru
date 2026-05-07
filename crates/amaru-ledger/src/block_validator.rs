@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Tip, Transaction};
+use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Slot, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, CanValidateTxs, HasStakePools, TransactionValidationError,
@@ -59,9 +59,13 @@ where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    fn validate_tx(&self, _tx: &Transaction) -> Result<(), TransactionValidationError> {
-        // TODO: validate transactions against a temporary ledger slice once tx-level ledger validation is available.
-        Ok(())
+    fn validate_tx(&self, tx: &Transaction, slot: Slot) -> Result<(), TransactionValidationError> {
+        let state = self.state.lock().map_err(|error| {
+            TransactionValidationError::from(anyhow!("failed to acquire ledger state lock: {error}"))
+        })?;
+        state
+            .validate_tx(tx, slot, &self.vm_eval_pool)
+            .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }
 

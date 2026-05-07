@@ -144,6 +144,24 @@ pub mod env_vars {
     /// --max-extra-ledger-snapshots
     pub const MAX_EXTRA_LEDGER_SNAPSHOTS: &str = "AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS";
 
+    /// --mempool-max-bytes
+    pub const MEMPOOL_MAX_BYTES: &str = "AMARU_MEMPOOL_MAX_BYTES";
+
+    /// --tx-submission-max-window
+    pub const TX_SUBMISSION_MAX_WINDOW: &str = "AMARU_TX_SUBMISSION_MAX_WINDOW";
+
+    /// --tx-submission-fetch-batch-bytes
+    pub const TX_SUBMISSION_FETCH_BATCH_BYTES: &str = "AMARU_TX_SUBMISSION_FETCH_BATCH_BYTES";
+
+    /// --tx-submission-inflight-timeout-ms
+    pub const TX_SUBMISSION_INFLIGHT_TIMEOUT_MS: &str = "AMARU_TX_SUBMISSION_INFLIGHT_TIMEOUT_MS";
+
+    /// --tx-submission-recheck-interval-ms
+    pub const TX_SUBMISSION_RECHECK_INTERVAL_MS: &str = "AMARU_TX_SUBMISSION_RECHECK_INTERVAL_MS";
+
+    /// --tx-submission-insert-timeout-ms
+    pub const TX_SUBMISSION_INSERT_TIMEOUT_MS: &str = "AMARU_TX_SUBMISSION_INSERT_TIMEOUT_MS";
+
     /// --migrate-chain-db
     pub const MIGRATE_CHAIN_DB: &str = "AMARU_MIGRATE_CHAIN_DB";
 

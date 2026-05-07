@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
-use amaru_ouroboros::{MempoolInsertError, MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_kernel::{
+    Hash, NetworkName, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY,
+};
+use amaru_ouroboros::{
+    MempoolInsertError, MempoolMsg, MockCanValidateBlocks, ResourceMempool, TxInsertResult, TxOrigin,
+};
+use amaru_protocols::store_effects::ResourceParameters;
 use pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
     serde::SendDataValue,
@@ -26,7 +31,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
 use crate::{
-    effects::{ResourceTxValidation, ValidateTxEffect},
+    effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation, ValidateTxEffect},
     stages::test_utils::{BufferWriter, Logs},
 };
 
@@ -66,6 +71,11 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000));
+    let era_history = <&amaru_kernel::EraHistory>::from(NetworkName::Preprod);
+    let global_parameters = <&amaru_kernel::GlobalParameters>::from(NetworkName::Preprod);
+    network.resources().put::<ResourceParameters>(global_parameters.clone());
+    network.resources().put::<ResourceEraHistory>(era_history.clone());
+    network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockCanValidateBlocks));
     network.resources().put::<ResourceMempool<Transaction>>(prep.mempool.clone());
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
 

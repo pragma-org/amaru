@@ -16,14 +16,15 @@ use std::sync::Arc;
 
 use amaru_consensus::{
     effects::{
-        ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter, ResourceTxValidation,
+        ResourceBlockValidation, ResourceEraHistory, ResourceHasStakePools, ResourceHeaderValidation, ResourceMeter,
+        ResourceTxValidation,
     },
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Peer, Point, Transaction,
 };
-use amaru_mempool::InMemoryMempool;
+use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, MempoolMsg, ResourceMempool};
@@ -130,7 +131,16 @@ pub fn build_node(
         make_validate_header(global_parameters, era_history, chain_store.clone(), ledger.get_stake_distribution()?);
 
     // Register resources
-    register_resources(stage_builder, chain_store, global_parameters, ledger, validate_header, meter_provider);
+    register_resources(
+        stage_builder,
+        chain_store,
+        global_parameters,
+        era_history,
+        ledger,
+        validate_header,
+        meter_provider,
+        config.mempool.clone(),
+    );
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
     let node_stages = build_stage_graph(config, era_history, global_parameters, ledger_tip, stage_builder);
@@ -155,22 +165,26 @@ pub fn build_node(
 
 /// Register the resources required by the external effects invoked by the stages in the stage graph.
 /// It is possible to override those resources later on.
+#[allow(clippy::too_many_arguments)]
 fn register_resources(
     stage_graph: &mut impl StageGraph,
     chain_store: Arc<dyn ChainStore<BlockHeader>>,
     global_parameters: &GlobalParameters,
+    era_history: &EraHistory,
     ledger: Ledger,
     validate_header: ValidateHeader,
     meter_provider: Option<SdkMeterProvider>,
+    mempool_config: MempoolConfig,
 ) {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
+    stage_graph.resources().put::<ResourceEraHistory>(era_history.clone());
     stage_graph.resources().put::<ResourceBlockValidation>(ledger.get_block_validation());
     stage_graph.resources().put::<ResourceHasStakePools>(ledger.get_stake_pools());
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(validate_header));
     stage_graph.resources().put::<ResourceTxValidation>(ledger.get_tx_validation());
     stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
+    stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
 
     if let Some(provider) = meter_provider {
         let meter = provider.meter(METRICS_METER_NAME);

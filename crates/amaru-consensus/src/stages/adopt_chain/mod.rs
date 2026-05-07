@@ -15,6 +15,7 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
+use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
@@ -36,6 +37,7 @@ use crate::stages::select_chain::cmp_tip;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AdoptChain {
     downstream: StageRef<ManagerMessage>,
+    mempool: StageRef<MempoolMsg>,
     consensus_security_param: u64,
     current_best_tip: Tip,
     max_block_height: BlockHeight,
@@ -44,9 +46,15 @@ pub struct AdoptChain {
 }
 
 impl AdoptChain {
-    pub fn new(downstream: StageRef<ManagerMessage>, consensus_security_param: u64, current_best_tip: Tip) -> Self {
+    pub fn new(
+        downstream: StageRef<ManagerMessage>,
+        mempool: StageRef<MempoolMsg>,
+        consensus_security_param: u64,
+        current_best_tip: Tip,
+    ) -> Self {
         Self {
             downstream,
+            mempool,
             consensus_security_param,
             current_best_tip,
             max_block_height: BlockHeight::from(0),
@@ -135,6 +143,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
         state.suppressed += 1;
     }
+    eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
     eff.send(&state.downstream, ManagerMessage::NewTip(msg)).await;
     state.current_best_tip = msg;
     state
