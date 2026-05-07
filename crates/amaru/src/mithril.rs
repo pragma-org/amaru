@@ -140,7 +140,7 @@ fn aggregator_details(network: NetworkName) -> Result<AggregatorDetails, Box<dyn
     }
 }
 
-pub(super) async fn download_from_mithril(
+pub async fn download_from_mithril(
     network: NetworkName,
     target_dir: PathBuf,
     from_chunk: u64,
@@ -170,9 +170,9 @@ pub(super) async fn download_from_mithril(
     info!(target_dir = %target_dir.display(), from_chunk, "certificate chain validated; downloading and unpacking immutable files");
     database_client.download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options).await?;
 
-    info!("immutable files unpacked; downloading and verifying Mithril digests");
+    info!(target_dir = %target_dir.display(), "immutable files unpacked; downloading and verifying Mithril digests");
     let verified_digests = client.cardano_database_v2().download_and_verify_digests(&certificate, &snapshot).await?;
-    info!("Mithril digests verified; validating local cardano-db against certificate");
+    info!(target_dir = %target_dir.display(), "Mithril digests verified; validating local cardano-db against certificate");
     let merkle_proof = client
         .cardano_database_v2()
         .verify_cardano_database(&certificate, &snapshot, &immutable_file_range, false, &target_dir, &verified_digests)
@@ -188,7 +188,7 @@ pub(super) async fn download_from_mithril(
     Ok(())
 }
 
-pub(super) fn get_latest_chunk(immutable_dir: &Path) -> Result<Option<u64>, io::Error> {
+pub fn get_latest_chunk(immutable_dir: &Path) -> Result<Option<u64>, io::Error> {
     if !immutable_dir.try_exists()? {
         return Ok(None);
     }

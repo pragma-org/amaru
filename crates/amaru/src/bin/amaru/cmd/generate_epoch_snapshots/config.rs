@@ -25,7 +25,7 @@ use tracing::{info, warn};
 
 use super::repo_root;
 
-const DEFAULT_DB_ANALYSER_IMAGE: &str = "amaru-db-analyser";
+const DEFAULT_DB_ANALYSER_IMAGE: &str = "amaru-db-analyser-resume";
 const DEFAULT_DB_ANALYSER_REF: &str = "9510ebee3a2319944de4967940e140af0878016e";
 const DOCKER_ENV_FILE_NAME: &str = ".env";
 const OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL: &str = "https://book.world.dev.cardano.org/environments";

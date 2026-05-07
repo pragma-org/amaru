@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 
+COPY docker/patches/db-analyser-analyse-from.patch /tmp/db-analyser-analyse-from.patch
+
 RUN git clone --depth 1 --branch "$BLST_REF" https://github.com/supranational/blst.git /tmp/blst \
 	&& cd /tmp/blst \
 	&& ./build.sh \
@@ -46,6 +48,7 @@ RUN git clone https://github.com/input-output-hk/libsodium.git /tmp/libsodium \
 
 RUN git clone https://github.com/IntersectMBO/ouroboros-consensus.git . \
 	&& git checkout "$OUROBOROS_CONSENSUS_REF" \
+	&& git apply /tmp/db-analyser-analyse-from.patch \
 	&& node_to_node_file=ouroboros-consensus-diffusion/src/ouroboros-consensus-diffusion/Ouroboros/Consensus/Network/NodeToNode.hs \
 	&& perl -0pi -e 's/import Data.Map.Strict \(Map\)\n/import Data.Map.Strict (Map)\nimport qualified Data.Set as Set\n/' "$node_to_node_file" \
 	&& perl -0pi -e 's/initiator miniProtocolParameters version versionData Apps\{\.\.\} =\n  nodeToNodeProtocols\n    miniProtocolParameters/initiator miniProtocolParameters version versionData Apps{..} =\n  nodeToNodeProtocols\n    Set.empty\n    miniProtocolParameters/' "$node_to_node_file" \

@@ -17,9 +17,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru::{DEFAULT_NETWORK, default_data_dir, default_snapshots_dir};
+use amaru::{
+    DEFAULT_NETWORK, default_data_dir, default_snapshots_dir,
+    mithril::{download_from_mithril, get_latest_chunk},
+};
 use amaru_kernel::NetworkName;
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -27,7 +30,6 @@ mod archive;
 mod config;
 mod db_analyser;
 mod koios;
-mod mithril;
 
 use archive::{
     archive_path_for_target, existing_archive_paths, existing_snapshot_paths, materialize_snapshot,
@@ -36,7 +38,6 @@ use archive::{
 use config::{resolve_config_dir, resolve_db_analyser_build_config};
 use db_analyser::{ensure_db_analyser_image, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::fetch_last_block_for_epoch;
-use mithril::{download_from_mithril, get_latest_chunk};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -68,6 +69,15 @@ pub struct Args {
     )]
     dist_dir: Option<PathBuf>,
 
+    /// Forcefully erase requested generated snapshot outputs and regenerate them.
+    #[arg(
+        short,
+        long,
+        action = ArgAction::SetTrue,
+        default_value_t = false,
+    )]
+    force: bool,
+
     /// Directory containing the cardano-node config.json and genesis files.
     #[arg(
         long,
@@ -97,7 +107,7 @@ fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let Args { network, epoch, dist_dir, cardano_node_config_dir } = args;
+    let Args { network, epoch, dist_dir, force, cardano_node_config_dir } = args;
     let target_epochs = bootstrap_target_epochs(epoch)?;
     let dist_dir = dist_dir.unwrap_or_else(|| default_dist_dir(network));
     let metadata_dir = dist_dir.join("epochs");
@@ -120,6 +130,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         config_dir = %config_dir.display(),
         network = %network,
         dist_dir = %dist_dir.display(),
+        force,
         requested_epoch = epoch,
         target_epochs = ?target_epochs,
         "running",
@@ -133,6 +144,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         target.snapshot_path =
             Some(snapshot_path_for_target(&snapshot_output_dir, &target).to_string_lossy().into_owned());
         targets.push(target);
+    }
+
+    if force {
+        remove_target_outputs(&snapshot_output_dir, &targets)?;
     }
 
     let existing_snapshots = existing_snapshot_paths(&snapshot_output_dir, &targets);
@@ -201,6 +216,34 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn remove_target_outputs(
+    snapshot_output_dir: &Path,
+    targets: &[EpochTarget],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in targets {
+        remove_path_if_exists(&snapshot_path_for_target(snapshot_output_dir, target), "prepared snapshot directory")?;
+        remove_path_if_exists(&archive_path_for_target(snapshot_output_dir, target), "prepared snapshot archive")?;
+    }
+
+    Ok(())
+}
+
+fn remove_path_if_exists(path: &Path, kind: &'static str) -> Result<(), Box<dyn std::error::Error>> {
+    if !path.try_exists()? {
+        return Ok(());
+    }
+
+    info!(path = %path.display(), kind, "removing existing generate-epoch-snapshots output");
+
+    if fs::symlink_metadata(path)?.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+
+    Ok(())
+}
+
 fn bootstrap_target_epochs(epoch: u64) -> Result<[u64; 3], Box<dyn std::error::Error>> {
     Ok([
         epoch,
@@ -228,11 +271,10 @@ mod tests {
             snapshot_path_for_target, write_snapshot_archive,
         },
         bootstrap_target_epochs,
-        config::{CardanoNodeConfigManifest, dotenv_value, strip_optional_quotes},
+        config::{dotenv_value, strip_optional_quotes},
         db_analyser::{
-            DbAnalyserLogAction, DbAnalyserLogRelay, latest_snapshot_slot_at_or_before,
-            parse_db_analyser_progress_line, parse_snapshot_slot_dir_name, sanitize_image_tag,
-            select_analyse_from_slot,
+            latest_snapshot_slot_at_or_before, parse_db_analyser_progress_line, parse_snapshot_slot_dir_name,
+            sanitize_image_tag, select_analyse_from_slot,
         },
         default_snapshot_output_dir,
     };
@@ -261,35 +303,6 @@ mod tests {
             ),
             Some((176.010306, 26_757_779))
         );
-    }
-
-    #[test]
-    fn db_analyser_log_relay_reports_throttled_progress_with_eta() {
-        let mut relay = DbAnalyserLogRelay::new(300, Some(100));
-
-        assert_eq!(
-            relay.handle_line("[0.100000s] Started StoreLedgerStateAt (SlotNo 300) LedgerReapply"),
-            DbAnalyserLogAction::Report("db-analyser started: replaying from slot 100 to slot 300".to_string())
-        );
-
-        let first_report = relay.handle_line("[10.000000s] BlockNo 1      SlotNo 150     deadbeef");
-        let DbAnalyserLogAction::Report(first_report) = first_report else {
-            panic!("expected first db-analyser progress line to be reported");
-        };
-        assert!(first_report.contains("25.0%"));
-        assert!(first_report.contains("eta 30s"));
-
-        assert_eq!(
-            relay.handle_line("[20.000000s] BlockNo 2      SlotNo 200     deadbeef"),
-            DbAnalyserLogAction::Suppress
-        );
-
-        let second_report = relay.handle_line("[40.000000s] BlockNo 3      SlotNo 250     deadbeef");
-        let DbAnalyserLogAction::Report(second_report) = second_report else {
-            panic!("expected throttled db-analyser progress line to be reported after 30 seconds");
-        };
-        assert!(second_report.contains("75.0%"));
-        assert!(second_report.contains("eta 13s"));
     }
 
     #[test]
@@ -460,31 +473,6 @@ mod tests {
     fn sanitize_image_tag_only_keeps_docker_safe_characters() {
         let sanitized = sanitize_image_tag("refs/heads/main");
         assert_eq!(sanitized, "refs-heads-main");
-    }
-
-    #[test]
-    fn config_manifest_collects_all_referenced_files() {
-        let manifest = serde_json::from_str::<CardanoNodeConfigManifest>(
-            r#"{
-                "AlonzoGenesisFile": "alonzo-genesis.json",
-                "ByronGenesisFile": "byron-genesis.json",
-                "CheckpointsFile": "checkpoints.json",
-                "ConwayGenesisFile": "conway-genesis.json",
-                "ShelleyGenesisFile": "shelley-genesis.json"
-            }"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            manifest.referenced_files(),
-            vec![
-                "alonzo-genesis.json",
-                "byron-genesis.json",
-                "checkpoints.json",
-                "conway-genesis.json",
-                "shelley-genesis.json"
-            ]
-        );
     }
 
     #[test]

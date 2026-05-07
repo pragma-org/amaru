@@ -226,11 +226,23 @@ impl DbAnalyserLogRelay {
         if self.start_slot == 0 {
             format!("db-analyser started: replaying to slot {}", self.target_slot)
         } else {
-            format!("db-analyser started: replaying from slot {} to slot {}", self.start_slot, self.target_slot)
+            format!(
+                "db-analyser started: resuming from stored ledger snapshot at slot {} and replaying to slot {}",
+                self.start_slot, self.target_slot
+            )
         }
     }
 
     fn progress_message(&self, elapsed_secs: f64, current_slot: u64) -> String {
+        if self.is_restoring_resume_snapshot(current_slot) {
+            return format!(
+                "db-analyser resume: still restoring stored ledger snapshot at slot {} before replaying to slot {} (elapsed {})",
+                self.start_slot,
+                self.target_slot,
+                format_seconds(elapsed_secs),
+            );
+        }
+
         let capped_slot = current_slot.clamp(self.start_slot, self.target_slot);
         let done_slots = capped_slot.saturating_sub(self.start_slot);
         let total_slots = self.target_slot.saturating_sub(self.start_slot).max(1);
@@ -246,6 +258,10 @@ impl DbAnalyserLogRelay {
             format_seconds(elapsed_secs),
             format_seconds(eta_secs),
         )
+    }
+
+    fn is_restoring_resume_snapshot(&self, current_slot: u64) -> bool {
+        self.start_slot > 0 && current_slot <= self.start_slot && self.start_slot < self.target_slot
     }
 }
 
@@ -359,4 +375,47 @@ pub(super) fn latest_snapshot_slot_at_or_before(
 
 pub(super) fn parse_snapshot_slot_dir_name(name: &str) -> Option<u64> {
     name.strip_suffix("_db-analyser")?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DbAnalyserLogAction, DbAnalyserLogRelay};
+
+    #[test]
+    fn started_message_explains_resume_source() {
+        let mut relay = DbAnalyserLogRelay::new(134_524_753, Some(134_092_758));
+
+        assert_eq!(
+            relay.handle_line("[0.0s] Started StoreLedgerStateAt (SlotNo 134524753)"),
+            DbAnalyserLogAction::Report(
+                "db-analyser started: resuming from stored ledger snapshot at slot 134092758 and replaying to slot 134524753"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn progress_message_describes_resume_restore_before_replay() {
+        let mut relay = DbAnalyserLogRelay::new(134_524_753, Some(134_092_758));
+
+        assert_eq!(
+            relay.handle_line("[32.0s] BlockNo 42 SlotNo 134092758"),
+            DbAnalyserLogAction::Report(
+                "db-analyser resume: still restoring stored ledger snapshot at slot 134092758 before replaying to slot 134524753 (elapsed 32s)"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn progress_message_switches_to_percentage_after_resume_slot() {
+        let mut relay = DbAnalyserLogRelay::new(134_524_753, Some(134_092_758));
+
+        assert_eq!(
+            relay.handle_line("[32.0s] BlockNo 42 SlotNo 134100000"),
+            DbAnalyserLogAction::Report(
+                "db-analyser progress: 1.7% (slot 134100000/134524753, elapsed 32s, eta 31m 17s)".to_owned()
+            )
+        );
+    }
 }

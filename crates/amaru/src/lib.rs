@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, path::PathBuf};
+use std::{
+    error::Error,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use amaru_kernel::NetworkName;
 use include_dir::{Dir, include_dir};
@@ -21,6 +25,8 @@ pub mod bootstrap;
 pub mod cardano_node;
 pub mod exit;
 pub mod metrics;
+#[cfg(feature = "mithril")]
+pub mod mithril;
 pub mod observability;
 pub mod panic;
 
@@ -48,6 +54,23 @@ const SNAPSHOTS_PATH: &str = "snapshots";
 const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";
 static BOOTSTRAP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/bootstrap");
 
+fn source_bootstrap_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/bootstrap")
+}
+
+fn read_runtime_bootstrap_file(
+    root: &Path,
+    network: NetworkName,
+    name: &str,
+) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+    let path = root.join(network.to_string().to_lowercase()).join(name);
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    Ok(Some(fs::read(path)?))
+}
+
 pub fn default_ledger_dir(network: NetworkName) -> String {
     format!("./ledger.{}.db", network.to_string().to_lowercase())
 }
@@ -69,6 +92,10 @@ pub fn default_data_dir(network: NetworkName) -> String {
 }
 
 pub fn get_bootstrap_file(network: NetworkName, name: &str) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+    if let Some(file) = read_runtime_bootstrap_file(&source_bootstrap_dir(), network, name)? {
+        return Ok(Some(file));
+    }
+
     let path = format!("{}/{}", network.to_string().to_lowercase(), name);
     Ok(BOOTSTRAP_DIR.get_file(path).map(|f| f.contents().into()))
 }

@@ -21,6 +21,7 @@ use amaru_kernel::{
 };
 
 const INDEFINITE_MAP_THRESHOLD: usize = 23;
+const MAX_VARUINT64_BYTES: usize = 10;
 
 pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutput, String> {
     let mut decoder = Decoder::new(bytes);
@@ -121,14 +122,7 @@ impl<'a> Decoder<'a> {
     }
 
     fn varuint(&mut self) -> Result<u64, String> {
-        let mut value = 0u64;
-        loop {
-            let byte = self.tag()?;
-            value = (value << 7) | u64::from(byte & 0x7f);
-            if byte & 0x80 == 0 {
-                return Ok(value);
-            }
-        }
+        decode_varuint64_with(|| self.tag(), "mempack varuint")
     }
 
     fn short_bytes(&mut self) -> Result<&'a [u8], String> {
@@ -172,7 +166,116 @@ impl<'a> Decoder<'a> {
 }
 
 fn decode_compact_address(decoder: &mut Decoder<'_>) -> Result<Address, String> {
-    decoder.decode_from_short_bytes_ref("compact address", Address::from_bytes)
+    let bytes = decoder.short_bytes()?;
+    let normalized = normalize_compact_address(bytes)?;
+
+    Address::from_bytes(&normalized).map_err(|err| format!("invalid compact address: {err}"))
+}
+
+fn normalize_compact_address(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    if !is_pointer_compact_address(bytes) {
+        return Ok(bytes.to_vec());
+    }
+
+    let mut offset = 29;
+    let slot = decode_varuint64(bytes, &mut offset, "slot")?;
+    let tx_index = decode_varuint64(bytes, &mut offset, "tx index")?;
+    let cert_index = decode_varuint64(bytes, &mut offset, "certificate index")?;
+
+    let (slot, tx_index, cert_index) = normalize_pointer(slot, tx_index, cert_index);
+
+    let mut normalized = Vec::with_capacity(bytes.len() + 8);
+    normalized.extend_from_slice(&bytes[..29]);
+    encode_varuint64(slot, &mut normalized);
+    encode_varuint64(tx_index, &mut normalized);
+    encode_varuint64(cert_index, &mut normalized);
+
+    Ok(normalized)
+}
+
+fn is_pointer_compact_address(bytes: &[u8]) -> bool {
+    if bytes.len() < 29 {
+        return false;
+    }
+
+    let header = bytes[0];
+    let is_byron = header == 0x82;
+    let is_account = header & 0b1110_1110 == 0b1110_0000;
+    let is_not_base = header & 0b0100_0000 != 0;
+    let is_enterprise = header & 0b0010_0000 != 0;
+
+    !is_byron && !is_account && is_not_base && !is_enterprise
+}
+
+fn decode_varuint64(bytes: &[u8], offset: &mut usize, field_name: &str) -> Result<u64, String> {
+    decode_varuint64_with(
+        || {
+            if *offset >= bytes.len() {
+                return Err(format!("unexpected end of compact address while decoding {field_name}"));
+            }
+
+            let byte = bytes[*offset];
+            *offset += 1;
+            Ok(byte)
+        },
+        &format!("compact address {field_name}"),
+    )
+}
+
+fn decode_varuint64_with<F>(mut next_byte: F, what: &str) -> Result<u64, String>
+where
+    F: FnMut() -> Result<u8, String>,
+{
+    let mut value = 0_u64;
+
+    for byte_index in 0..MAX_VARUINT64_BYTES {
+        let byte = next_byte()?;
+        value = value
+            .checked_mul(0x80)
+            .and_then(|value| value.checked_add(u64::from(byte & 0x7f)))
+            .ok_or_else(|| format!("{what} overflows u64"))?;
+
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+
+        if byte_index + 1 == MAX_VARUINT64_BYTES {
+            return Err(format!("{what} exceeds {MAX_VARUINT64_BYTES} bytes"));
+        }
+    }
+
+    unreachable!()
+}
+
+fn normalize_pointer(slot: u64, tx_index: u64, cert_index: u64) -> (u64, u64, u64) {
+    if u32::try_from(slot).is_ok() && u16::try_from(tx_index).is_ok() && u16::try_from(cert_index).is_ok() {
+        (slot, tx_index, cert_index)
+    } else {
+        (0, 0, 0)
+    }
+}
+
+fn encode_varuint64(mut value: u64, out: &mut Vec<u8>) {
+    let mut chunks = [0_u8; 10];
+    let mut len = 0;
+
+    loop {
+        chunks[len] = (value & 0x7f) as u8;
+        len += 1;
+        value >>= 7;
+
+        if value == 0 {
+            break;
+        }
+    }
+
+    for index in (0..len).rev() {
+        let mut byte = chunks[index];
+        if index != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+    }
 }
 
 fn decode_stake_credential(decoder: &mut Decoder<'_>) -> Result<StakeCredential, String> {
@@ -365,7 +468,7 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
 mod tests {
     use amaru_kernel::{Address, MemoizedDatum, Value, cbor};
 
-    use super::decode_transaction_output;
+    use super::{Decoder, decode_transaction_output, decode_varuint64};
 
     #[test]
     fn decodes_tag_zero_outputs_as_legacy() {
@@ -404,5 +507,40 @@ mod tests {
         assert_eq!(output.value.as_ref(), &Value::Coin(99));
         assert!(matches!(output.datum, MemoizedDatum::Inline(_)));
         assert_eq!(cbor::to_vec(output).unwrap()[0], 0xbf);
+    }
+
+    #[test]
+    fn normalizes_pointer_compact_addresses() {
+        let compact_address =
+            hex::decode("412813b99a80cfb3f1cf95653b169b17035963544837b7ce33d30710a8e710a09072c78ccf01").unwrap();
+        let expected = Address::from_hex("412813b99a80cfb3f1cf95653b169b17035963544837b7ce33d30710a8000000").unwrap();
+
+        let mut bytes = vec![0, compact_address.len() as u8];
+        bytes.extend_from_slice(&compact_address);
+        bytes.push(0);
+        bytes.push(42);
+
+        let output = decode_transaction_output(&bytes).unwrap();
+
+        assert_eq!(output.address, expected);
+        assert_eq!(output.address.to_vec(), expected.to_vec());
+    }
+
+    #[test]
+    fn rejects_overlong_mempack_varuints() {
+        let mut decoder = Decoder::new(&[0x80; 10]);
+
+        assert_eq!(decoder.varuint(), Err("mempack varuint exceeds 10 bytes".to_string()));
+    }
+
+    #[test]
+    fn rejects_overflowing_pointer_varuints() {
+        let bytes = [0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00];
+        let mut offset = 0;
+
+        assert_eq!(
+            decode_varuint64(&bytes, &mut offset, "slot"),
+            Err("compact address slot overflows u64".to_string())
+        );
     }
 }

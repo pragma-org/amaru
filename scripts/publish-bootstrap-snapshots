@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+epoch="${1:-}"
+network="${AMARU_NETWORK:-preprod}"
+dist_dir="${AMARU_DIST_DIR:-data/${network}/epoch-snapshots}"
+metadata_dir="${dist_dir}/epochs"
+manifest_path="crates/amaru/config/bootstrap/${network}/snapshots.json"
+public_url_base="${BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE:-}"
+
+require_command() {
+  local command_name="$1"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "Error: required command '$command_name' is not available." >&2
+    exit 1
+  fi
+}
+
+require_env() {
+  local variable_name="$1"
+  if [ -z "${!variable_name:-}" ]; then
+    echo "Error: environment variable '$variable_name' must be set." >&2
+    exit 1
+  fi
+}
+
+if [ -z "$epoch" ]; then
+  echo "Error: bootstrap snapshot epoch must be provided as the first argument." >&2
+  exit 1
+fi
+
+require_command aws
+require_command jq
+require_env AWS_ACCESS_KEY_ID
+require_env AWS_SECRET_ACCESS_KEY
+require_env BUCKET_NAME
+require_env ENDPOINT
+require_env BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE
+
+public_url_base="${public_url_base%/}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+
+epochs=("$epoch" "$((epoch + 1))" "$((epoch + 2))")
+metadata_files=()
+
+for target_epoch in "${epochs[@]}"; do
+  metadata_path="${metadata_dir}/${target_epoch}.json"
+
+  if [ ! -f "$metadata_path" ]; then
+    echo "Error: expected epoch metadata file '$metadata_path' was not found." >&2
+    exit 1
+  fi
+
+  archive_path="$(jq -r '.archive_path // empty' "$metadata_path")"
+  if [ -z "$archive_path" ] || [ ! -f "$archive_path" ]; then
+    echo "Error: epoch metadata '$metadata_path' does not reference an existing archive." >&2
+    exit 1
+  fi
+
+  object_key="$(basename "$archive_path")"
+  echo "Uploading '$archive_path' to 's3://${BUCKET_NAME}/${object_key}'"
+  aws s3 cp "$archive_path" "s3://${BUCKET_NAME}/${object_key}" --endpoint-url "$ENDPOINT"
+  metadata_files+=("$metadata_path")
+done
+
+tmp_manifest="${manifest_path}.tmp"
+jq -s --arg base "$public_url_base" '
+  sort_by(.epoch)
+  | to_entries
+  | map({
+      epoch: .value.epoch,
+      point: "\(.value.slot).\(.value.hash)",
+      url: ($base + "/" + (.value.archive_path | split("/") | last))
+    } + if .key == 0 or .value.parent_point == null then {} else { parent_point: .value.parent_point } end)
+' "${metadata_files[@]}" > "$tmp_manifest"
+mv "$tmp_manifest" "$manifest_path"
+
+echo "Updated '$manifest_path' to reference uploaded bootstrap snapshot archives."

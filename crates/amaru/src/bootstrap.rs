@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeMap,
     error::Error,
     io,
     path::{Path, PathBuf},
@@ -90,6 +91,9 @@ pub enum BootstrapError {
 
     #[error("Missing bootstrap parent point for snapshot {0}")]
     MissingParentPoint(String),
+
+    #[error("{0}")]
+    SnapshotSelection(String),
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
@@ -121,13 +125,45 @@ fn bootstrap_snapshots(network: NetworkName) -> Result<(PathBuf, Vec<Snapshot>),
     Ok((snapshots_dir, snapshots))
 }
 
-fn latest_bootstrap_snapshots(snapshots: &[Snapshot]) -> Result<(&Snapshot, &Snapshot, &Snapshot), Box<dyn Error>> {
-    let snapshot_count = snapshots.len();
-    if snapshot_count < 3 {
-        return Err("Expected at least 3 snapshots in the configuration file".into());
+fn format_epoch_list(epochs: &[Epoch]) -> String {
+    if epochs.is_empty() {
+        return "none".to_string();
     }
 
-    Ok((&snapshots[snapshot_count - 3], &snapshots[snapshot_count - 2], &snapshots[snapshot_count - 1]))
+    epochs.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+}
+
+fn select_bootstrap_snapshots(
+    snapshots: &[Snapshot],
+    requested_first_epoch: Option<Epoch>,
+) -> Result<[&Snapshot; 3], Box<dyn Error>> {
+    let snapshots_by_epoch = snapshots.iter().map(|snapshot| (snapshot.epoch, snapshot)).collect::<BTreeMap<_, _>>();
+    let latest_epoch = snapshots_by_epoch.keys().next_back().copied().ok_or_else(|| {
+        BootstrapError::SnapshotSelection("No bootstrap snapshots are configured in snapshots.json".to_string())
+    })?;
+    let first_epoch = requested_first_epoch.unwrap_or_else(|| latest_epoch.saturating_sub(2));
+    let required_epochs = [first_epoch, first_epoch + 1, first_epoch + 2];
+
+    match required_epochs.map(|epoch| snapshots_by_epoch.get(&epoch).copied()) {
+        [Some(first_snapshot), Some(second_snapshot), Some(third_snapshot)] => {
+            Ok([first_snapshot, second_snapshot, third_snapshot])
+        }
+        _ => {
+            let available_epochs = snapshots_by_epoch.keys().copied().collect::<Vec<_>>();
+            let available_epochs = format_epoch_list(&available_epochs);
+            let required_epochs = format_epoch_list(&required_epochs);
+            let message = match requested_first_epoch {
+                Some(requested_first_epoch) => format!(
+                    "bootstrap requested epoch {requested_first_epoch}, but snapshots.json must contain epochs {required_epochs}. Available epochs: {available_epochs}"
+                ),
+                None => format!(
+                    "bootstrap needs the latest 3 consecutive snapshot epochs ending at {latest_epoch}, but snapshots.json only provides epochs {available_epochs}. Required epochs: {required_epochs}"
+                ),
+            };
+
+            Err(BootstrapError::SnapshotSelection(message).into())
+        }
+    }
 }
 
 fn initial_nonces_from_snapshot(
@@ -151,7 +187,7 @@ fn default_bootstrap_nonces_from_snapshots(
     snapshots: &[Snapshot],
     network: NetworkName,
 ) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
-    let (_, second_snapshot, third_snapshot) = latest_bootstrap_snapshots(snapshots)?;
+    let [_, second_snapshot, third_snapshot] = select_bootstrap_snapshots(snapshots, None)?;
     let third_snapshot_path = resolve_snapshot_path(snapshots_dir, third_snapshot).ok_or_else(|| {
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, third_snapshot))
     })?;
@@ -173,14 +209,14 @@ fn snapshot_parent_point(snapshot: &Snapshot) -> Result<Point, Box<dyn Error>> {
     Ok(Point::try_from(parent_point)?)
 }
 
-fn bootstrap_parent_points(snapshots: &[Snapshot]) -> Result<Vec<Point>, Box<dyn Error>> {
-    let (_, second_snapshot, third_snapshot) = latest_bootstrap_snapshots(snapshots)?;
+fn bootstrap_parent_points(snapshots: [&Snapshot; 3]) -> Result<Vec<Point>, Box<dyn Error>> {
+    let [_, second_snapshot, third_snapshot] = snapshots;
     [second_snapshot, third_snapshot].into_iter().map(snapshot_parent_point).collect()
 }
 
 pub fn default_bootstrap_parent_points(network: NetworkName) -> Result<Vec<Point>, Box<dyn Error>> {
     let (_, snapshots) = bootstrap_snapshots(network)?;
-    bootstrap_parent_points(&snapshots)
+    bootstrap_parent_points(select_bootstrap_snapshots(&snapshots, None)?)
 }
 
 pub async fn fetch_headers_from_points(
@@ -254,7 +290,7 @@ fn should_download_snapshot(snapshots_dir: &Path, snapshot: &Snapshot) -> bool {
     resolve_snapshot_path(snapshots_dir, snapshot).is_none()
 }
 
-async fn download_snapshots(snapshots: &[Snapshot], snapshots_dir: &Path) -> Result<(), BootstrapError> {
+async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Result<(), BootstrapError> {
     fs::create_dir_all(snapshots_dir)
         .await
         .map_err(|err| BootstrapError::CreateSnapshotsDir(snapshots_dir.to_path_buf(), err))?;
@@ -369,12 +405,14 @@ pub async fn bootstrap(
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
     peer_address: &str,
+    requested_first_epoch: Option<Epoch>,
 ) -> Result<(), Box<dyn Error>> {
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
+    let [first_snapshot, second_snapshot, third_snapshot] =
+        select_bootstrap_snapshots(&snapshots, requested_first_epoch)?;
 
-    download_snapshots(&snapshots, &snapshots_dir).await?;
+    download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir).await?;
 
-    let (first_snapshot, second_snapshot, third_snapshot) = latest_bootstrap_snapshots(&snapshots)?;
     let first_snapshot_path = resolve_snapshot_path(&snapshots_dir, first_snapshot).ok_or_else(|| {
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(&snapshots_dir, first_snapshot))
     })?;
@@ -399,7 +437,7 @@ pub async fn bootstrap(
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
-    let parent_points = bootstrap_parent_points(&snapshots)?;
+    let parent_points = bootstrap_parent_points([first_snapshot, second_snapshot, third_snapshot])?;
     let headers = fetch_headers_from_points(peer_address, network, &parent_points, BOOTSTRAP_HEADERS_PER_POINT).await?;
     import_headers(&chain_db, headers).await?;
 
@@ -619,8 +657,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, bootstrap_parent_points, node_snapshot_paths, should_download_snapshot, snapshot_epoch,
-        sort_snapshots_by_slot,
+        Snapshot, bootstrap_parent_points, node_snapshot_paths, select_bootstrap_snapshots, should_download_snapshot,
+        snapshot_epoch, sort_snapshots_by_slot,
     };
     use crate::cardano_node::ParsedStateSnapshot;
 
@@ -710,8 +748,112 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_parent_points_use_latest_snapshot_parent_points() {
+    fn select_bootstrap_snapshots_defaults_to_latest_epoch_window() {
         let snapshots = vec![
+            Snapshot {
+                epoch: Epoch::from(165_u64),
+                point: "70070379.hash3".to_string(),
+                url: "https://example.com/165.tar.gz".to_string(),
+                parent_point: Some(
+                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
+                ),
+            },
+            Snapshot {
+                epoch: Epoch::from(163_u64),
+                point: "69206375.hash1".to_string(),
+                url: "https://example.com/163.tar.gz".to_string(),
+                parent_point: None,
+            },
+            Snapshot {
+                epoch: Epoch::from(164_u64),
+                point: "69638382.hash2".to_string(),
+                url: "https://example.com/164.tar.gz".to_string(),
+                parent_point: Some(
+                    "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
+                ),
+            },
+        ];
+
+        let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, None).unwrap();
+
+        assert_eq!(first_snapshot.epoch, Epoch::from(163_u64));
+        assert_eq!(second_snapshot.epoch, Epoch::from(164_u64));
+        assert_eq!(third_snapshot.epoch, Epoch::from(165_u64));
+    }
+
+    #[test]
+    fn select_bootstrap_snapshots_honors_requested_start_epoch() {
+        let snapshots = vec![
+            Snapshot {
+                epoch: Epoch::from(163_u64),
+                point: "69206375.hash1".to_string(),
+                url: "https://example.com/163.tar.gz".to_string(),
+                parent_point: None,
+            },
+            Snapshot {
+                epoch: Epoch::from(164_u64),
+                point: "69638382.hash2".to_string(),
+                url: "https://example.com/164.tar.gz".to_string(),
+                parent_point: Some(
+                    "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
+                ),
+            },
+            Snapshot {
+                epoch: Epoch::from(165_u64),
+                point: "70070379.hash3".to_string(),
+                url: "https://example.com/165.tar.gz".to_string(),
+                parent_point: Some(
+                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
+                ),
+            },
+            Snapshot {
+                epoch: Epoch::from(166_u64),
+                point: "70502379.hash4".to_string(),
+                url: "https://example.com/166.tar.gz".to_string(),
+                parent_point: Some(
+                    "70502331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364d".to_string(),
+                ),
+            },
+        ];
+
+        let [first_snapshot, second_snapshot, third_snapshot] =
+            select_bootstrap_snapshots(&snapshots, Some(Epoch::from(164_u64))).unwrap();
+
+        assert_eq!(first_snapshot.epoch, Epoch::from(164_u64));
+        assert_eq!(second_snapshot.epoch, Epoch::from(165_u64));
+        assert_eq!(third_snapshot.epoch, Epoch::from(166_u64));
+    }
+
+    #[test]
+    fn select_bootstrap_snapshots_reports_missing_requested_epochs() {
+        let snapshots = vec![
+            Snapshot {
+                epoch: Epoch::from(163_u64),
+                point: "69206375.hash1".to_string(),
+                url: "https://example.com/163.tar.gz".to_string(),
+                parent_point: None,
+            },
+            Snapshot {
+                epoch: Epoch::from(165_u64),
+                point: "70070379.hash3".to_string(),
+                url: "https://example.com/165.tar.gz".to_string(),
+                parent_point: Some(
+                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
+                ),
+            },
+        ];
+
+        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(163_u64))).unwrap_err();
+        let err = err.to_string();
+
+        assert!(err.contains("requested epoch 163"));
+        assert!(err.contains("must contain epochs 163, 164, 165"));
+        assert!(err.contains("Available epochs: 163, 165"));
+    }
+
+    #[test]
+    fn bootstrap_parent_points_use_selected_snapshot_parent_points() {
+        let snapshots = [
             Snapshot {
                 epoch: Epoch::from(163_u64),
                 point: "69206375.hash1".to_string(),
@@ -737,7 +879,7 @@ mod tests {
         ];
 
         assert_eq!(
-            bootstrap_parent_points(&snapshots).unwrap(),
+            bootstrap_parent_points([&snapshots[0], &snapshots[1], &snapshots[2]]).unwrap(),
             vec![
                 Point::try_from("69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2").unwrap(),
                 Point::try_from("70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c").unwrap(),

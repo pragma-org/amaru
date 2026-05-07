@@ -15,7 +15,7 @@
 use std::{error::Error, fs::remove_dir_all, path::PathBuf};
 
 use amaru::{DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
-use amaru_kernel::NetworkName;
+use amaru_kernel::{Epoch, NetworkName};
 use clap::{ArgAction, Parser};
 use tracing::{info, warn};
 
@@ -45,6 +45,16 @@ pub struct Args {
         env = amaru::env_vars::LEDGER_DIR,
     )]
     ledger_dir: Option<PathBuf>,
+
+    /// Bootstrap start epoch from snapshots.json.
+    ///
+    /// Bootstrap requires this epoch and the next two consecutive epochs.
+    #[arg(
+        long = "epoch",
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::EPOCH,
+    )]
+    epoch: Option<u64>,
 
     /// Address of the node to connect to for retrieving bootstrap headers.
     #[arg(
@@ -78,6 +88,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         force = %args.force,
         ledger_dir = %ledger_dir.to_string_lossy(),
         network = %network,
+        requested_epoch = ?args.epoch,
         peer_address = %args.peer_address,
         "running",
     );
@@ -108,5 +119,5 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    bootstrap(network, ledger_dir, chain_dir, &args.peer_address).await
+    bootstrap(network, ledger_dir, chain_dir, &args.peer_address, args.epoch.map(Epoch::from)).await
 }
