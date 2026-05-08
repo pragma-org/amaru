@@ -14,7 +14,9 @@
 
 use std::{sync::LazyLock, time::Duration};
 
+use amaru_metrics::METRICS_METER_NAME;
 use anyhow::anyhow;
+use opentelemetry::KeyValue;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 use tokio::task::JoinHandle;
@@ -22,8 +24,14 @@ use tracing::error;
 
 static METRICS_POLL_DELAY: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(1));
 
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     use internals::*;
+
+    record_build_info(&provider);
 
     let mut sys = System::new_with_specifics(
         RefreshKind::nothing()
@@ -53,6 +61,55 @@ pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>
             }
         }
     }))
+}
+
+fn record_build_info(provider: &SdkMeterProvider) {
+    use opentelemetry::metrics::MeterProvider;
+
+    let meter = provider.meter(METRICS_METER_NAME);
+
+    let build_info = meter
+        .u64_gauge("cardano_node_metrics_cardano_build_info")
+        .with_description("build information for the running amaru node")
+        .build();
+
+    build_info.record(
+        1,
+        &[
+            KeyValue::new("version", built_info::PKG_VERSION),
+            KeyValue::new("git_rev", built_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown")),
+            KeyValue::new("dirty", built_info::GIT_DIRTY.unwrap_or(false).to_string()),
+            KeyValue::new("os", built_info::CFG_OS),
+            KeyValue::new("arch", built_info::CFG_TARGET_ARCH),
+        ],
+    );
+
+    let version_major = meter
+        .u64_gauge("cardano_node_metrics_cardano_version_major_int")
+        .with_description("Major version number")
+        .build();
+
+    let version_minor = meter
+        .u64_gauge("cardano_node_metrics_cardano_version_minor_int")
+        .with_description("Minor version number")
+        .build();
+
+    let version_patch = meter
+        .u64_gauge("cardano_node_metrics_cardano_version_patch_int")
+        .with_description("Patch version number")
+        .build();
+
+    let version_parts: Vec<&str> = built_info::PKG_VERSION.split('.').collect();
+
+    if let Some(major) = version_parts.get(0).and_then(|v| v.parse::<u64>().ok()) {
+        version_major.record(major, &[]);
+    }
+    if let Some(minor) = version_parts.get(1).and_then(|v| v.parse::<u64>().ok()) {
+        version_minor.record(minor, &[]);
+    }
+    if let Some(patch) = version_parts.get(2).and_then(|v| v.parse::<u64>().ok()) {
+        version_patch.record(patch, &[]);
+    }
 }
 
 mod internals {
