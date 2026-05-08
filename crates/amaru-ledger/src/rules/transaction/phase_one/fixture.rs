@@ -21,7 +21,7 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    rules::transaction::phase_one::{InvalidTransactionMetadata, InvalidVKeyWitness, PhaseOneError},
+    rules::transaction::phase_one::{InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, PhaseOneError},
     store::GovernanceActivity,
 };
 
@@ -72,7 +72,10 @@ impl<'de> Deserialize<'de> for Expected {
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "predicate")]
 pub(super) enum Predicate {
+    BabbageNonDisjointRefInputs,
+    BadInputsUTxO,
     ConflictingMetadataHash,
+    InputSetEmptyUTxO,
     InvalidWitnessesUTXOW,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
@@ -93,9 +96,12 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Metadata(InvalidTransactionMetadata::ConflictingMetadataHash { .. }) => {
                 Predicate::ConflictingMetadataHash
             }
-            PhaseOneError::Metadata(_)
+            PhaseOneError::Inputs(InvalidInputs::EmptyInputSet) => Predicate::InputSetEmptyUTxO,
+            PhaseOneError::Inputs(InvalidInputs::UnknownInput(_)) => Predicate::BadInputsUTxO,
+            PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
+            PhaseOneError::Inputs(_)
+            | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
-            | PhaseOneError::Inputs(_)
             | PhaseOneError::Outputs(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Fees(_)

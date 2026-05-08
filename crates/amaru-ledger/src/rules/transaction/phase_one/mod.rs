@@ -288,6 +288,11 @@ mod tests {
     #[test_case(fixture!("fail/MissingTxBodyMetadataHash/0"); "auxiliary data without body hash")]
     #[test_case(fixture!("fail/MissingTxMetadata/0"); "body hash without auxiliary data")]
     #[test_case(fixture!("fail/ConflictingMetadataHash/0"); "auxiliary data hash mismatch")]
+    #[test_case(fixture!("fail/InputSetEmptyUTxO/0"); "empty input set")]
+    #[test_case(fixture!("fail/BadInputsUTxO/0"); "unknown spent input")]
+    #[test_case(fixture!("fail/BadInputsUTxO/1"); "unknown reference input")]
+    #[test_case(fixture!("pass/native-script-input"); "native script-locked input")]
+    #[test_case(fixture!("fail/BabbageNonDisjointRefInputs/0"); "input appears as both spent and reference")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
