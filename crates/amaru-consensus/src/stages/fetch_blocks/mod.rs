@@ -113,20 +113,25 @@ impl FetchBlocks {
         let tip = best_tip.tip();
         tracing::debug!(tip = %tip.point(), "recovering stored blocks");
 
+        let mut parent: Option<Point> = None;
         for hash in unvalidated {
             let Some(header) = store.load_header(&hash).await else {
                 tracing::error!(%hash, "failed to load candidate header");
                 return eff.terminate().await;
             };
             let tip = header.tip();
-            let parent = load_parent_point(&eff, store.clone(), &header).await;
+            let block_parent = match parent {
+                Some(p) => p,
+                None => load_parent_point(&eff, store.clone(), &header).await,
+            };
             match store.has_block(&hash).await {
                 Ok(true) => {
                     tracing::debug!(point = %tip.point(), "validating stored block");
-                    eff.send(&self.downstream, (tip, parent, self.block_height)).await;
+                    eff.send(&self.downstream, (tip, block_parent, self.block_height)).await;
+                    parent = Some(tip.point());
                 }
                 Ok(false) => {
-                    self.request_missing_blocks(tip, parent, eff).await;
+                    self.request_missing_blocks(tip, block_parent, eff).await;
                     return;
                 }
                 Err(error) => {

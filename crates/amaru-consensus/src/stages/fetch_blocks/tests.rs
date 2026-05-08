@@ -115,7 +115,6 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
             te_has_block("fb-1", prep.headers.h1.hash()),
             te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(3))),
             te_load_header("fb-1", prep.headers.h2.hash(), false),
-            te_load_tip("fb-1", prep.headers.h1.hash()),
             te_has_block("fb-1", prep.headers.h2.hash()),
             te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(3))),
             te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h2.point())),
