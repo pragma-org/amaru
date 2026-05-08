@@ -210,178 +210,197 @@ impl From<RationalFixture> for RationalNumber {
 }
 
 #[derive(Debug, Deserialize)]
-struct ExUnitsFixture {
+struct ExecutionUnitsFixture {
     memory: u64,
-    steps: u64,
+    cpu: u64,
 }
 
-impl From<ExUnitsFixture> for ExUnits {
-    fn from(f: ExUnitsFixture) -> Self {
-        ExUnits { mem: f.memory, steps: f.steps }
+impl From<ExecutionUnitsFixture> for ExUnits {
+    fn from(f: ExecutionUnitsFixture) -> Self {
+        ExUnits { mem: f.memory, steps: f.cpu }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ScriptExecutionPricesFixture {
+    memory: RationalFixture,
+    cpu: RationalFixture,
+}
+
+impl From<ScriptExecutionPricesFixture> for ExUnitPrices {
+    fn from(f: ScriptExecutionPricesFixture) -> Self {
+        ExUnitPrices { mem_price: f.memory.into(), step_price: f.cpu.into() }
     }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ExUnitPricesFixture {
-    price_memory: RationalFixture,
-    price_steps: RationalFixture,
+struct ConstitutionalCommitteeThresholds {
+    default: RationalFixture,
+    state_of_no_confidence: RationalFixture,
 }
 
-impl From<ExUnitPricesFixture> for ExUnitPrices {
-    fn from(f: ExUnitPricesFixture) -> Self {
-        ExUnitPrices { mem_price: f.price_memory.into(), step_price: f.price_steps.into() }
-    }
+#[derive(Debug, Deserialize)]
+struct StakePoolPpuThresholds {
+    security: RationalFixture,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PoolVotingThresholdsFixture {
-    motion_no_confidence: RationalFixture,
-    committee_normal: RationalFixture,
-    committee_no_confidence: RationalFixture,
+struct StakePoolVotingThresholdsFixture {
+    no_confidence: RationalFixture,
+    constitutional_committee: ConstitutionalCommitteeThresholds,
     hard_fork_initiation: RationalFixture,
-    pp_security_group: RationalFixture,
+    protocol_parameters_update: StakePoolPpuThresholds,
 }
 
-impl From<PoolVotingThresholdsFixture> for PoolVotingThresholds {
-    fn from(f: PoolVotingThresholdsFixture) -> Self {
+impl From<StakePoolVotingThresholdsFixture> for PoolVotingThresholds {
+    fn from(f: StakePoolVotingThresholdsFixture) -> Self {
         PoolVotingThresholds {
-            motion_no_confidence: f.motion_no_confidence.into(),
-            committee_normal: f.committee_normal.into(),
-            committee_no_confidence: f.committee_no_confidence.into(),
+            motion_no_confidence: f.no_confidence.into(),
+            committee_normal: f.constitutional_committee.default.into(),
+            committee_no_confidence: f.constitutional_committee.state_of_no_confidence.into(),
             hard_fork_initiation: f.hard_fork_initiation.into(),
-            security_voting_threshold: f.pp_security_group.into(),
+            security_voting_threshold: f.protocol_parameters_update.security.into(),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct DRepPpuThresholds {
+    network: RationalFixture,
+    economic: RationalFixture,
+    technical: RationalFixture,
+    governance: RationalFixture,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DRepVotingThresholdsFixture {
-    motion_no_confidence: RationalFixture,
-    committee_normal: RationalFixture,
-    committee_no_confidence: RationalFixture,
-    update_to_constitution: RationalFixture,
+    no_confidence: RationalFixture,
+    constitution: RationalFixture,
+    constitutional_committee: ConstitutionalCommitteeThresholds,
     hard_fork_initiation: RationalFixture,
-    pp_network_group: RationalFixture,
-    pp_economic_group: RationalFixture,
-    pp_technical_group: RationalFixture,
-    pp_gov_group: RationalFixture,
-    treasury_withdrawal: RationalFixture,
+    protocol_parameters_update: DRepPpuThresholds,
+    treasury_withdrawals: RationalFixture,
 }
 
 impl From<DRepVotingThresholdsFixture> for DRepVotingThresholds {
     fn from(f: DRepVotingThresholdsFixture) -> Self {
         DRepVotingThresholds {
-            motion_no_confidence: f.motion_no_confidence.into(),
-            committee_normal: f.committee_normal.into(),
-            committee_no_confidence: f.committee_no_confidence.into(),
-            update_constitution: f.update_to_constitution.into(),
+            motion_no_confidence: f.no_confidence.into(),
+            committee_normal: f.constitutional_committee.default.into(),
+            committee_no_confidence: f.constitutional_committee.state_of_no_confidence.into(),
+            update_constitution: f.constitution.into(),
             hard_fork_initiation: f.hard_fork_initiation.into(),
-            pp_network_group: f.pp_network_group.into(),
-            pp_economic_group: f.pp_economic_group.into(),
-            pp_technical_group: f.pp_technical_group.into(),
-            pp_governance_group: f.pp_gov_group.into(),
-            treasury_withdrawal: f.treasury_withdrawal.into(),
+            pp_network_group: f.protocol_parameters_update.network.into(),
+            pp_economic_group: f.protocol_parameters_update.economic.into(),
+            pp_technical_group: f.protocol_parameters_update.technical.into(),
+            pp_governance_group: f.protocol_parameters_update.governance.into(),
+            treasury_withdrawal: f.treasury_withdrawals.into(),
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
-struct CostModelsFixture {
-    #[serde(rename = "PlutusV1")]
+struct PlutusCostModelsFixture {
+    #[serde(rename = "plutusV1")]
     plutus_v1: Option<CostModel>,
-    #[serde(rename = "PlutusV2")]
+    #[serde(rename = "plutusV2")]
     plutus_v2: Option<CostModel>,
-    #[serde(rename = "PlutusV3")]
+    #[serde(rename = "plutusV3")]
     plutus_v3: Option<CostModel>,
 }
 
-impl From<CostModelsFixture> for CostModels {
-    fn from(f: CostModelsFixture) -> Self {
+impl From<PlutusCostModelsFixture> for CostModels {
+    fn from(f: PlutusCostModelsFixture) -> Self {
         CostModels { plutus_v1: f.plutus_v1, plutus_v2: f.plutus_v2, plutus_v3: f.plutus_v3 }
     }
 }
 
 #[derive(Debug, Deserialize)]
+struct MinFeeReferenceScripts {
+    range: u32,
+    base: RationalFixture,
+    multiplier: RationalFixture,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProtocolParametersFixture {
-    protocol_version: ProtocolVersionFixture,
-    tx_fee_per_byte: u64,
-    tx_fee_fixed: u64,
+    min_fee_coefficient: u64,
+    min_fee_constant: u64,
+    min_fee_reference_scripts: MinFeeReferenceScripts,
+    min_utxo_deposit_coefficient: u64,
     max_block_body_size: u64,
-    max_tx_size: u64,
     max_block_header_size: u16,
-    stake_address_deposit: u64,
-    stake_pool_deposit: u64,
-    pool_retire_max_epoch: u64,
-    stake_pool_target_num: u16,
-    pool_pledge_influence: RationalFixture,
-    monetary_expansion: RationalFixture,
-    treasury_cut: RationalFixture,
-    min_pool_cost: u64,
-    utxo_cost_per_byte: u64,
-    execution_unit_prices: ExUnitPricesFixture,
-    max_tx_execution_units: ExUnitsFixture,
-    max_block_execution_units: ExUnitsFixture,
+    max_transaction_size: u64,
     max_value_size: u64,
+    max_reference_scripts_size: u32,
+    stake_credential_deposit: u64,
+    stake_pool_deposit: u64,
+    stake_pool_retirement_epoch_bound: u64,
+    stake_pool_pledge_influence: RationalFixture,
+    min_stake_pool_cost: u64,
+    desired_number_of_stake_pools: u16,
+    monetary_expansion: RationalFixture,
+    treasury_expansion: RationalFixture,
     collateral_percentage: u16,
     max_collateral_inputs: u16,
-    pool_voting_thresholds: PoolVotingThresholdsFixture,
-    #[serde(rename = "dRepVotingThresholds")]
-    drep_voting_thresholds: DRepVotingThresholdsFixture,
-    committee_min_size: u16,
-    committee_max_term_length: u64,
-    gov_action_lifetime: u64,
-    gov_action_deposit: u64,
-    #[serde(rename = "dRepDeposit")]
-    drep_deposit: u64,
-    #[serde(rename = "dRepActivity")]
-    drep_activity: u64,
-    min_fee_ref_script_cost_per_byte: RationalFixture,
-    cost_models: CostModelsFixture,
+    plutus_cost_models: PlutusCostModelsFixture,
+    script_execution_prices: ScriptExecutionPricesFixture,
+    max_execution_units_per_transaction: ExecutionUnitsFixture,
+    max_execution_units_per_block: ExecutionUnitsFixture,
+    stake_pool_voting_thresholds: StakePoolVotingThresholdsFixture,
+    constitutional_committee_min_size: u16,
+    constitutional_committee_max_term_length: u64,
+    governance_action_lifetime: u64,
+    governance_action_deposit: u64,
+    delegate_representative_voting_thresholds: DRepVotingThresholdsFixture,
+    delegate_representative_deposit: u64,
+    delegate_representative_max_idle_time: u64,
+    version: ProtocolVersionFixture,
 }
 
 impl From<ProtocolParametersFixture> for ProtocolParameters {
     fn from(f: ProtocolParametersFixture) -> Self {
         ProtocolParameters {
-            protocol_version: f.protocol_version.into(),
-            min_fee_a: f.tx_fee_per_byte,
-            min_fee_b: f.tx_fee_fixed,
+            protocol_version: f.version.into(),
+            min_fee_a: f.min_fee_coefficient,
+            min_fee_b: f.min_fee_constant,
             max_block_body_size: f.max_block_body_size,
-            max_transaction_size: f.max_tx_size,
+            max_transaction_size: f.max_transaction_size,
             max_block_header_size: f.max_block_header_size,
-            stake_credential_deposit: f.stake_address_deposit,
+            stake_credential_deposit: f.stake_credential_deposit,
             stake_pool_deposit: f.stake_pool_deposit,
-            stake_pool_max_retirement_epoch: f.pool_retire_max_epoch,
-            optimal_stake_pools_count: f.stake_pool_target_num,
-            pledge_influence: f.pool_pledge_influence.into(),
+            stake_pool_max_retirement_epoch: f.stake_pool_retirement_epoch_bound,
+            optimal_stake_pools_count: f.desired_number_of_stake_pools,
+            pledge_influence: f.stake_pool_pledge_influence.into(),
             monetary_expansion_rate: f.monetary_expansion.into(),
-            treasury_expansion_rate: f.treasury_cut.into(),
-            min_pool_cost: f.min_pool_cost,
-            lovelace_per_utxo_byte: f.utxo_cost_per_byte,
-            prices: f.execution_unit_prices.into(),
-            max_tx_ex_units: f.max_tx_execution_units.into(),
-            max_block_ex_units: f.max_block_execution_units.into(),
+            treasury_expansion_rate: f.treasury_expansion.into(),
+            min_pool_cost: f.min_stake_pool_cost,
+            lovelace_per_utxo_byte: f.min_utxo_deposit_coefficient,
+            prices: f.script_execution_prices.into(),
+            max_tx_ex_units: f.max_execution_units_per_transaction.into(),
+            max_block_ex_units: f.max_execution_units_per_block.into(),
             max_value_size: f.max_value_size,
             collateral_percentage: f.collateral_percentage,
             max_collateral_inputs: f.max_collateral_inputs,
-            pool_voting_thresholds: f.pool_voting_thresholds.into(),
-            drep_voting_thresholds: f.drep_voting_thresholds.into(),
-            min_committee_size: f.committee_min_size,
-            max_committee_term_length: f.committee_max_term_length,
-            gov_action_lifetime: f.gov_action_lifetime,
-            gov_action_deposit: f.gov_action_deposit,
-            drep_deposit: f.drep_deposit,
-            drep_expiry: f.drep_activity,
-            min_fee_ref_script_lovelace_per_byte: f.min_fee_ref_script_cost_per_byte.into(),
-            cost_models: f.cost_models.into(),
-            // Hardcoded in the Haskell ledger; not part of the cardano-cli protocol-parameters output.
-            max_ref_script_size_per_tx: 200 * 1024,
+            pool_voting_thresholds: f.stake_pool_voting_thresholds.into(),
+            drep_voting_thresholds: f.delegate_representative_voting_thresholds.into(),
+            min_committee_size: f.constitutional_committee_min_size,
+            max_committee_term_length: f.constitutional_committee_max_term_length,
+            gov_action_lifetime: f.governance_action_lifetime,
+            gov_action_deposit: f.governance_action_deposit,
+            drep_deposit: f.delegate_representative_deposit,
+            drep_expiry: f.delegate_representative_max_idle_time,
+            min_fee_ref_script_lovelace_per_byte: f.min_fee_reference_scripts.base.into(),
+            cost_models: f.plutus_cost_models.into(),
+            max_ref_script_size_per_tx: f.max_reference_scripts_size,
+            // Ogmios exposes a single max-ref-scripts size; the per-block bound is hardcoded in the Haskell ledger.
             max_ref_script_size_per_block: 1024 * 1024,
-            ref_script_cost_stride: 25600,
-            ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
+            ref_script_cost_stride: f.min_fee_reference_scripts.range,
+            ref_script_cost_multiplier: f.min_fee_reference_scripts.multiplier.into(),
         }
     }
 }
