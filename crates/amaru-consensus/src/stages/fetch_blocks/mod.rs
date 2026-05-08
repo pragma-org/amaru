@@ -19,7 +19,7 @@ use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef};
 
-use crate::stages::select_chain::SelectChainMsg;
+use crate::stages::select_chain::{SelectChainMsg, best_tip_from_store, load_parent_point};
 
 // TODO make configurable
 const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
@@ -78,13 +78,70 @@ impl FetchBlocks {
         self.block_height = tip.block_height().max(self.block_height);
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
-        let store = Store::new(eff.clone());
         assert!(
             self.missing.is_none(),
             "there shouldn't be any missing blocks when starting a new tip: {:?}",
             self.missing
         );
 
+        self.request_missing_blocks(tip, parent, eff).await;
+    }
+
+    /// Startup-only recovery: resubmit downloaded blocks whose validity was not
+    /// persisted before shutdown, then fetch from the first missing block.
+    pub async fn recover_stored_blocks(&mut self, eff: Effects<FetchBlocksMsg>) {
+        assert!(
+            self.missing.is_none(),
+            "there shouldn't be any missing blocks when recovering stored blocks: {:?}",
+            self.missing
+        );
+
+        let store = Store::new(eff.clone());
+        let (best_tip, unvalidated) = match best_tip_from_store(&store).await {
+            Ok(Some(candidate)) => candidate,
+            Ok(None) => {
+                eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(Point::Origin)).await;
+                return;
+            }
+            Err(error) => {
+                tracing::error!(%error, "failed to find best tip from store");
+                return eff.terminate().await;
+            }
+        };
+
+        self.block_height = best_tip.block_height().max(self.block_height);
+        let tip = best_tip.tip();
+        tracing::debug!(tip = %tip.point(), "recovering stored blocks");
+
+        for hash in unvalidated {
+            let Some(header) = store.load_header(&hash).await else {
+                tracing::error!(%hash, "failed to load candidate header");
+                return eff.terminate().await;
+            };
+            let tip = header.tip();
+            let parent = load_parent_point(&eff, store.clone(), &header).await;
+            match store.has_block(&hash).await {
+                Ok(true) => {
+                    tracing::debug!(point = %tip.point(), "validating stored block");
+                    eff.send(&self.downstream, (tip, parent, self.block_height)).await;
+                }
+                Ok(false) => {
+                    self.request_missing_blocks(tip, parent, eff).await;
+                    return;
+                }
+                Err(error) => {
+                    tracing::error!(%error, %hash, "failed to check stored block");
+                    return eff.terminate().await;
+                }
+            }
+        }
+
+        tracing::info!(tip = %tip.point(), "no blocks to fetch");
+        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
+    }
+
+    async fn request_missing_blocks(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
+        let store = Store::new(eff.clone());
         match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_PER_BATCH).await {
             Ok(MissingBlocksResult::StartHeaderNotFound) => {
                 tracing::error!("failed to load initial header");
@@ -203,6 +260,7 @@ impl FetchBlocks {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
     NewTip(Tip, Point),
+    RecoverStoredBlocks,
     Block(NetworkBlock),
     Timeout(u64),
 }
@@ -214,6 +272,7 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     }
     match msg {
         FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
+        FetchBlocksMsg::RecoverStoredBlocks => state.recover_stored_blocks(eff).await,
         FetchBlocksMsg::Block(block) => state.block(block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
     }

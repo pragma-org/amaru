@@ -100,6 +100,12 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 
     #[expect(clippy::unwrap_used)]
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        let inner = self.inner.lock().unwrap();
+        Ok(inner.blocks.contains_key(hash))
+    }
+
+    #[expect(clippy::unwrap_used)]
     fn has_header(&self, hash: &HeaderHash) -> bool {
         let inner = self.inner.lock().unwrap();
         inner.headers.contains_key(hash)
@@ -258,6 +264,10 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         Ok(self.blocks.get(hash).cloned())
+    }
+
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        Ok(self.blocks.contains_key(hash))
     }
 
     fn has_header(&self, hash: &HeaderHash) -> bool {
