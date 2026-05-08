@@ -15,6 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
+use amaru_metrics::protocol::ConnectionManagerMetrics;
 use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
@@ -26,6 +27,7 @@ use crate::{
     blockfetch::{Blocks, Blocks2},
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
+    metrics_effects::{Metrics, MetricsOps},
     network_effects::{Network, NetworkOps},
     protocol::Role,
 };
@@ -88,7 +90,7 @@ pub struct Manager {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ConnectionState {
     Scheduled,
-    Connected(ConnectionId, StageRef<ConnectionMessage>),
+    Connected { conn_id: ConnectionId, connection: StageRef<ConnectionMessage>, role: Role },
     // Does not contain the connection ID because that will be received in the ConnectionDied message.
     Disconnecting,
 }
@@ -160,7 +162,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::ADD_PEER, peer = peer.to_string());
                 let _guard = _span.enter();
                 match manager.peers.get_mut(&peer) {
-                    Some(ConnectionState::Connected(..) | ConnectionState::Scheduled) => {
+                    Some(ConnectionState::Connected { .. } | ConnectionState::Scheduled) => {
                         tracing::info!(%peer, "discarding connection request, already connected or scheduled");
                         return manager;
                     }
@@ -179,7 +181,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::CONNECT, peer = peer.to_string());
                 let _guard = _span.enter();
                 let entry = match manager.peers.get_mut(&peer) {
-                    Some(ConnectionState::Connected(..)) => {
+                    Some(ConnectionState::Connected { .. }) => {
                         tracing::debug!(%peer, "discarding connection request, already connected");
                         return manager;
                     }
@@ -210,7 +212,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::ACCEPTED, peer = peer.to_string(), conn_id = conn_id.to_string());
                 let _guard = _span.enter();
                 match manager.peers.get(&peer) {
-                    Some(ConnectionState::Connected(..)) => {
+                    Some(ConnectionState::Connected { .. }) => {
                         tracing::debug!(%peer, "already connected. Closing the newly accepted connection");
                         close_connection(&eff, &peer, conn_id).await;
                         return manager;
@@ -237,7 +239,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     return manager;
                 };
                 match entry {
-                    ConnectionState::Connected(_conn_id, connection) => {
+                    ConnectionState::Connected { connection, .. } => {
                         eff.send(connection, ConnectionMessage::Disconnect).await;
                         *entry = ConnectionState::Disconnecting;
                     }
@@ -256,10 +258,10 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     return manager;
                 };
                 match peer_state {
-                    ConnectionState::Connected(conn_id_new, ..) if *conn_id_new != conn_id => {
+                    ConnectionState::Connected { conn_id: conn_id_new, .. } if *conn_id_new != conn_id => {
                         tracing::debug!(%peer, "previously terminated connection closed");
                     }
-                    ConnectionState::Connected(..) => {
+                    ConnectionState::Connected { .. } => {
                         if role == Role::Initiator {
                             tracing::info!(%peer, reconnecting_in=?manager.config.reconnect_delay, "initiator connection died, scheduling reconnect");
                             eff.schedule_after(ManagerMessage::Connect(peer), manager.config.reconnect_delay).await;
@@ -277,10 +279,11 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                         manager.peers.remove(&peer);
                     }
                 }
+                record_connection_metrics(&manager, &eff).await;
             }
             ManagerMessage::FetchBlocks { peer, from, through, cr } => {
                 tracing::trace!(?from, ?through, %peer, "fetching blocks");
-                if let Some(ConnectionState::Connected(_, connection)) = manager.peers.get(&peer) {
+                if let Some(ConnectionState::Connected { connection, .. }) = manager.peers.get(&peer) {
                     eff.send(connection, ConnectionMessage::FetchBlocks { from, through, cr }).await;
                 } else {
                     tracing::error!(%peer, "peer not found");
@@ -307,7 +310,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::NewTip(tip) => {
                 for conn in manager.peers.values() {
-                    if let ConnectionState::Connected(_, connection) = conn {
+                    if let ConnectionState::Connected { connection, .. } = conn {
                         eff.send(connection, ConnectionMessage::NewTip(tip)).await;
                     }
                 }
@@ -320,7 +323,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             tracing::debug!(?from, ?through, "fetching blocks");
             for state in manager.peers.values() {
-                let ConnectionState::Connected(_conn_id, connection) = state else {
+                let ConnectionState::Connected { connection, .. } = state else {
                     continue;
                 };
                 eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
@@ -369,7 +372,28 @@ async fn start_connection_stage(
         )
         .await;
     eff.send(&connection, ConnectionMessage::Initialize).await;
-    manager.peers.insert(peer, ConnectionState::Connected(conn_id, connection));
+    manager.peers.insert(peer, ConnectionState::Connected { conn_id, connection, role });
+    record_connection_metrics(manager, eff).await;
+}
+
+fn connection_manager_metrics(manager: &Manager) -> ConnectionManagerMetrics {
+    let (incoming_connections, outgoing_connections) = manager.peers.values().fold((0, 0), |acc, state| match state {
+        ConnectionState::Connected { role: Role::Responder, .. } => (acc.0 + 1, acc.1),
+        ConnectionState::Connected { role: Role::Initiator, .. } => (acc.0, acc.1 + 1),
+        ConnectionState::Scheduled | ConnectionState::Disconnecting => acc,
+    });
+
+    ConnectionManagerMetrics {
+        duplex_connections: 0,
+        full_duplex_connections: 0,
+        inbound_connections: incoming_connections,
+        outbound_connections: outgoing_connections,
+        unidirectional_connections: incoming_connections + outgoing_connections,
+    }
+}
+
+async fn record_connection_metrics(manager: &Manager, eff: &Effects<ManagerMessage>) {
+    Metrics::new(eff).record(connection_manager_metrics(manager).into()).await;
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
