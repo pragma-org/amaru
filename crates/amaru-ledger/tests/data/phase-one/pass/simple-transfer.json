@@ -139,18 +139,10 @@
   },
   "initialState": {
     "utxo": [
-      [
-        {
-          "transaction_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "index": 0
-        },
-        {
-          "address": "6091de07fed8a2b52a92686dd68bb2b8d443d6d42089cf508259774675",
-          "value": { "Coin": 5000000 },
-          "datum": null,
-          "script": null
-        }
-      ]
+      {
+        "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
+        "output": "a200581d6091de07fed8a2b52a92686dd68bb2b8d443d6d42089cf508259774675011a004c4b40"
+      }
     ],
     "votingState": {
       "numDormantEpochs": 0

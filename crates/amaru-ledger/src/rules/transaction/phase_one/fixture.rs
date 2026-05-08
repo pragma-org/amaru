@@ -17,8 +17,8 @@ use std::{collections::BTreeMap, str::FromStr, time::Duration};
 use amaru_kernel::{
     CostModel, CostModels, DRepVotingThresholds, Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary,
     ExUnitPrices, ExUnits, MemoizedTransactionOutput, NetworkName, PoolVotingThresholds, ProtocolParameters,
-    ProtocolVersion, RationalNumber, Slot, TransactionInput, TransactionPointer, json,
-    utils::serde::{deserialize_map_proxy, hex_to_bytes},
+    ProtocolVersion, RationalNumber, Slot, TransactionInput, TransactionPointer, cbor, json,
+    utils::serde::hex_to_bytes,
 };
 use serde::Deserialize;
 
@@ -97,9 +97,31 @@ fn deserialize_network_name<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Ne
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct InitialState {
-    #[serde(deserialize_with = "deserialize_map_proxy")]
+    #[serde(deserialize_with = "deserialize_utxo")]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     pub(super) voting_state: VotingState,
+}
+
+#[derive(Debug, Deserialize)]
+struct UtxoEntryFixture {
+    #[serde(deserialize_with = "hex_to_bytes")]
+    input: Vec<u8>,
+    #[serde(deserialize_with = "hex_to_bytes")]
+    output: Vec<u8>,
+}
+
+fn deserialize_utxo<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, D::Error> {
+    let entries = Vec::<UtxoEntryFixture>::deserialize(d)?;
+    entries
+        .into_iter()
+        .map(|entry| {
+            let input: TransactionInput = cbor::decode(&entry.input).map_err(serde::de::Error::custom)?;
+            let output: MemoizedTransactionOutput = cbor::decode(&entry.output).map_err(serde::de::Error::custom)?;
+            Ok((input, output))
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
