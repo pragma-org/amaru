@@ -109,7 +109,41 @@ impl<'b, C> cbor::Decode<'b, C> for EraSummary {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use serde::Deserialize;
+
+    use super::EraSummary;
+    use crate::{
+        EraBound, EraParams,
+        utils::serde::{HasProxy, deserialize_option_proxy, deserialize_proxy},
+    };
+
+    /// Fixture JSON shape: each nested field uses its own `*Proxy` decoder.
+    #[derive(Deserialize)]
+    pub struct EraSummaryProxy {
+        #[serde(deserialize_with = "deserialize_proxy")]
+        start: EraBound,
+        #[serde(default, deserialize_with = "deserialize_option_proxy")]
+        end: Option<EraBound>,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        params: EraParams,
+    }
+
+    impl From<EraSummaryProxy> for EraSummary {
+        fn from(p: EraSummaryProxy) -> Self {
+            EraSummary { start: p.start, end: p.end, params: p.params }
+        }
+    }
+
+    impl HasProxy for EraSummary {
+        type Proxy = EraSummaryProxy;
+    }
+}
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {

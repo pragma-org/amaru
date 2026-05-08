@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::{MemoizedTransactionOutput, TransactionInput};
+use crate::{MemoizedTransactionOutput, TransactionInput, cbor};
 
 // ----------------------------------------------------------------------------------- Generic utils
 
@@ -60,6 +60,34 @@ where
 {
     let s: String = serde::Deserialize::deserialize(deserializer)?;
     hex::decode(s).map_err(serde::de::Error::custom)
+}
+
+/// Decode a fixture-shape UTxO list — `[{ "input": "<cbor-hex>", "output": "<cbor-hex>" }]` —
+/// into a `BTreeMap<TransactionInput, MemoizedTransactionOutput>` by hex-decoding then
+/// CBOR-decoding each entry.
+pub fn deserialize_utxo<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(serde::Deserialize)]
+    struct UtxoEntryProxy {
+        #[serde(deserialize_with = "hex_to_bytes")]
+        input: Vec<u8>,
+        #[serde(deserialize_with = "hex_to_bytes")]
+        output: Vec<u8>,
+    }
+
+    let entries: Vec<UtxoEntryProxy> = serde::Deserialize::deserialize(deserializer)?;
+    entries
+        .into_iter()
+        .map(|entry| {
+            let input: TransactionInput = cbor::decode(&entry.input).map_err(serde::de::Error::custom)?;
+            let output: MemoizedTransactionOutput = cbor::decode(&entry.output).map_err(serde::de::Error::custom)?;
+            Ok((input, output))
+        })
+        .collect()
 }
 
 // -------------------------------------------------------------------------------- TransactionInput
