@@ -659,6 +659,36 @@ fn slot_to_epoch(slot: &Slot, era: &EraSummary) -> Result<Epoch, EraHistoryError
     Ok(epoch_number)
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use serde::Deserialize;
+
+    use super::EraHistory;
+    use crate::{EraSummary, Slot, cardano::era_summary::EraSummaryProxy, utils::serde::HasProxy};
+
+    /// Fixture JSON shape: camelCase with `eras` decoded element-wise via the `EraSummary` proxy.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct EraHistoryProxy {
+        stability_window: Slot,
+        eras: Vec<EraSummaryProxy>,
+    }
+
+    impl From<EraHistoryProxy> for EraHistory {
+        fn from(p: EraHistoryProxy) -> Self {
+            let eras: Vec<EraSummary> = p.eras.into_iter().map(EraSummary::from).collect();
+            EraHistory::new(&eras, p.stability_window)
+        }
+    }
+
+    impl HasProxy for EraHistory {
+        type Proxy = EraHistoryProxy;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{env, fs::File, io::Write, path::Path, str::FromStr};

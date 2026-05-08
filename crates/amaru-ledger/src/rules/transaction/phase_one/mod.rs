@@ -270,11 +270,11 @@ fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Re
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{EraHistory, ProtocolParameters, Transaction, TransactionPointer, cbor, include_json};
+    use amaru_kernel::{Transaction, cbor, include_json};
     use test_case::test_case;
 
     use super::fixture::{Expected, Fixture, Predicate};
-    use crate::{context::DefaultValidationContext, store::GovernanceActivity};
+    use crate::context::DefaultValidationContext;
 
     macro_rules! fixture {
         ($path:literal) => {
@@ -290,18 +290,14 @@ mod tests {
         let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
 
         let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
-        let pparams: ProtocolParameters = fixture.protocol_parameters;
-        let era_history: EraHistory = fixture.era_history.into();
-        let governance: GovernanceActivity = fixture.initial_state.voting_state.into();
-        let pointer: TransactionPointer = fixture.ledger_env.into();
 
         let result = super::execute(
             &mut ctx,
             &fixture.network,
-            &pparams,
-            &era_history,
-            &governance,
-            pointer,
+            &fixture.protocol_parameters,
+            &fixture.era_history,
+            &fixture.initial_state.voting_state,
+            fixture.ledger_env,
             tx.is_expected_valid,
             tx.body,
             &tx.witnesses,
