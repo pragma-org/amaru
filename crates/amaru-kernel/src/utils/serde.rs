@@ -44,6 +44,16 @@ where
     Ok(option.map(T::from))
 }
 
+pub fn deserialize_proxy<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: HasProxy,
+    T::Proxy: serde::Deserialize<'de>,
+{
+    let proxy: T::Proxy = serde::Deserialize::deserialize(deserializer)?;
+    Ok(T::from(proxy))
+}
+
 pub fn hex_to_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
     D: serde::Deserializer<'de>,

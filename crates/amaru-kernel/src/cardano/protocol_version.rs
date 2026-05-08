@@ -25,3 +25,31 @@ impl HasMajorVersion for ProtocolVersion {
         self.0 as u32
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use serde::Deserialize;
+
+    use super::ProtocolVersion;
+    use crate::utils::serde::HasProxy;
+
+    /// Fixture JSON shape `{ "major": <u64>, "minor": <u64> }`.
+    #[derive(Deserialize)]
+    pub struct ProtocolVersionProxy {
+        major: u64,
+        minor: u64,
+    }
+
+    impl From<ProtocolVersionProxy> for ProtocolVersion {
+        fn from(p: ProtocolVersionProxy) -> Self {
+            (p.major, p.minor)
+        }
+    }
+
+    impl HasProxy for ProtocolVersion {
+        type Proxy = ProtocolVersionProxy;
+    }
+}
