@@ -290,7 +290,7 @@ mod tests {
         let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
 
         let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
-        let pparams: ProtocolParameters = fixture.protocol_parameters.into();
+        let pparams: ProtocolParameters = fixture.protocol_parameters;
         let era_history: EraHistory = fixture.era_history.into();
         let governance: GovernanceActivity = fixture.initial_state.voting_state.into();
         let pointer: TransactionPointer = fixture.ledger_env.into();
