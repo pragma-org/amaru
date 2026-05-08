@@ -21,7 +21,7 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    rules::transaction::phase_one::{InvalidVKeyWitness, PhaseOneError},
+    rules::transaction::phase_one::{InvalidTransactionMetadata, InvalidVKeyWitness, PhaseOneError},
     store::GovernanceActivity,
 };
 
@@ -72,7 +72,10 @@ impl<'de> Deserialize<'de> for Expected {
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "predicate")]
 pub(super) enum Predicate {
+    ConflictingMetadataHash,
     InvalidWitnessesUTXOW,
+    MissingTxBodyMetadataHash,
+    MissingTxMetadata,
 }
 
 impl From<PhaseOneError> for Predicate {
@@ -81,7 +84,17 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::VKeyWitness(InvalidVKeyWitness::InvalidSignatures { .. }) => {
                 Predicate::InvalidWitnessesUTXOW
             }
-            PhaseOneError::VKeyWitness(_)
+            PhaseOneError::Metadata(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(_)) => {
+                Predicate::MissingTxBodyMetadataHash
+            }
+            PhaseOneError::Metadata(InvalidTransactionMetadata::MissingTransactionMetadata(_)) => {
+                Predicate::MissingTxMetadata
+            }
+            PhaseOneError::Metadata(InvalidTransactionMetadata::ConflictingMetadataHash { .. }) => {
+                Predicate::ConflictingMetadataHash
+            }
+            PhaseOneError::Metadata(_)
+            | PhaseOneError::VKeyWitness(_)
             | PhaseOneError::Inputs(_)
             | PhaseOneError::Outputs(_)
             | PhaseOneError::Certificates(_)
@@ -90,7 +103,6 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Scripts(_)
             | PhaseOneError::Collateral(_)
             | PhaseOneError::Proposals(_)
-            | PhaseOneError::Metadata(_)
             | PhaseOneError::ValidityInterval(_)
             | PhaseOneError::InvalidNetworkID { .. }
             | PhaseOneError::TooLarge { .. } => unreachable!("no predicate mapping yet for {err}"),

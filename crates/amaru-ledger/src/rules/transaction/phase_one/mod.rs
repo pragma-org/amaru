@@ -283,7 +283,11 @@ mod tests {
     }
 
     #[test_case(fixture!("pass/simple-transfer"); "simple transfer")]
+    #[test_case(fixture!("pass/with-metadata"); "with matching auxiliary data")]
     #[test_case(fixture!("fail/InvalidWitnessesUTXOW/0"); "invalid vkey signature")]
+    #[test_case(fixture!("fail/MissingTxBodyMetadataHash/0"); "auxiliary data without body hash")]
+    #[test_case(fixture!("fail/MissingTxMetadata/0"); "body hash without auxiliary data")]
+    #[test_case(fixture!("fail/ConflictingMetadataHash/0"); "auxiliary data hash mismatch")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
