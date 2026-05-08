@@ -17,58 +17,69 @@
     ]
   },
   "protocolParameters": {
-    "protocolVersion": { "major": 9, "minor": 0 },
-    "txFeePerByte": 44,
-    "txFeeFixed": 155381,
-    "maxBlockBodySize": 90112,
-    "maxTxSize": 16384,
-    "maxBlockHeaderSize": 1100,
-    "stakeAddressDeposit": 2000000,
-    "stakePoolDeposit": 500000000,
-    "poolRetireMaxEpoch": 18,
-    "stakePoolTargetNum": 500,
-    "poolPledgeInfluence": { "numerator": 3, "denominator": 10 },
-    "monetaryExpansion": { "numerator": 3, "denominator": 1000 },
-    "treasuryCut": { "numerator": 2, "denominator": 10 },
-    "minPoolCost": 340000000,
-    "utxoCostPerByte": 4310,
-    "executionUnitPrices": {
-      "priceMemory": { "numerator": 577, "denominator": 10000 },
-      "priceSteps": { "numerator": 721, "denominator": 10000000 }
+    "minFeeCoefficient": 44,
+    "minFeeConstant": 155381,
+    "minFeeReferenceScripts": {
+      "range": 25600,
+      "base": { "numerator": 15, "denominator": 1 },
+      "multiplier": { "numerator": 12, "denominator": 10 }
     },
-    "maxTxExecutionUnits": { "memory": 14000000, "steps": 10000000000 },
-    "maxBlockExecutionUnits": { "memory": 62000000, "steps": 20000000000 },
+    "minUtxoDepositCoefficient": 4310,
+    "maxBlockBodySize": 90112,
+    "maxBlockHeaderSize": 1100,
+    "maxTransactionSize": 16384,
     "maxValueSize": 5000,
+    "maxReferenceScriptsSize": 204800,
+    "stakeCredentialDeposit": 2000000,
+    "stakePoolDeposit": 500000000,
+    "stakePoolRetirementEpochBound": 18,
+    "stakePoolPledgeInfluence": { "numerator": 3, "denominator": 10 },
+    "minStakePoolCost": 340000000,
+    "desiredNumberOfStakePools": 500,
+    "monetaryExpansion": { "numerator": 3, "denominator": 1000 },
+    "treasuryExpansion": { "numerator": 2, "denominator": 10 },
     "collateralPercentage": 150,
     "maxCollateralInputs": 3,
-    "poolVotingThresholds": {
-      "motionNoConfidence": { "numerator": 51, "denominator": 100 },
-      "committeeNormal": { "numerator": 51, "denominator": 100 },
-      "committeeNoConfidence": { "numerator": 51, "denominator": 100 },
+    "scriptExecutionPrices": {
+      "memory": { "numerator": 577, "denominator": 10000 },
+      "cpu": { "numerator": 721, "denominator": 10000000 }
+    },
+    "maxExecutionUnitsPerTransaction": { "memory": 14000000, "cpu": 10000000000 },
+    "maxExecutionUnitsPerBlock": { "memory": 62000000, "cpu": 20000000000 },
+    "stakePoolVotingThresholds": {
+      "noConfidence": { "numerator": 51, "denominator": 100 },
+      "constitutionalCommittee": {
+        "default": { "numerator": 51, "denominator": 100 },
+        "stateOfNoConfidence": { "numerator": 51, "denominator": 100 }
+      },
       "hardForkInitiation": { "numerator": 51, "denominator": 100 },
-      "ppSecurityGroup": { "numerator": 51, "denominator": 100 }
+      "protocolParametersUpdate": { "security": { "numerator": 51, "denominator": 100 } }
     },
-    "dRepVotingThresholds": {
-      "motionNoConfidence": { "numerator": 51, "denominator": 100 },
-      "committeeNormal": { "numerator": 67, "denominator": 100 },
-      "committeeNoConfidence": { "numerator": 67, "denominator": 100 },
-      "updateToConstitution": { "numerator": 6, "denominator": 10 },
+    "delegateRepresentativeVotingThresholds": {
+      "noConfidence": { "numerator": 51, "denominator": 100 },
+      "constitution": { "numerator": 6, "denominator": 10 },
+      "constitutionalCommittee": {
+        "default": { "numerator": 67, "denominator": 100 },
+        "stateOfNoConfidence": { "numerator": 67, "denominator": 100 }
+      },
       "hardForkInitiation": { "numerator": 75, "denominator": 100 },
-      "ppNetworkGroup": { "numerator": 6, "denominator": 10 },
-      "ppEconomicGroup": { "numerator": 67, "denominator": 100 },
-      "ppTechnicalGroup": { "numerator": 67, "denominator": 100 },
-      "ppGovGroup": { "numerator": 75, "denominator": 100 },
-      "treasuryWithdrawal": { "numerator": 67, "denominator": 100 }
+      "protocolParametersUpdate": {
+        "network": { "numerator": 6, "denominator": 10 },
+        "economic": { "numerator": 67, "denominator": 100 },
+        "technical": { "numerator": 67, "denominator": 100 },
+        "governance": { "numerator": 75, "denominator": 100 }
+      },
+      "treasuryWithdrawals": { "numerator": 67, "denominator": 100 }
     },
-    "committeeMinSize": 7,
-    "committeeMaxTermLength": 146,
-    "govActionLifetime": 6,
-    "govActionDeposit": 100000000000,
-    "dRepDeposit": 500000000,
-    "dRepActivity": 20,
-    "minFeeRefScriptCostPerByte": { "numerator": 15, "denominator": 1 },
-    "costModels": {
-      "PlutusV1": [
+    "constitutionalCommitteeMinSize": 7,
+    "constitutionalCommitteeMaxTermLength": 146,
+    "governanceActionLifetime": 6,
+    "governanceActionDeposit": 100000000000,
+    "delegateRepresentativeDeposit": 500000000,
+    "delegateRepresentativeMaxIdleTime": 20,
+    "version": { "major": 9, "minor": 0 },
+    "plutusCostModels": {
+      "plutusV1": [
         100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32,
         201305, 8356, 4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000,
         100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4,
@@ -83,7 +94,7 @@
         59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32,
         53384111, 14333, 10
       ],
-      "PlutusV2": [
+      "plutusV2": [
         100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32,
         201305, 8356, 4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000,
         100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4,
@@ -98,7 +109,7 @@
         1, 81663, 32, 59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32,
         24623, 32, 43053543, 10, 53384111, 14333, 10, 43574283, 26308, 10
       ],
-      "PlutusV3": [
+      "plutusV3": [
         100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32,
         201305, 8356, 4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000,
         100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4,
