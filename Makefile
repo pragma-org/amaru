@@ -44,20 +44,12 @@ help:
 bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
 
-publish-bootstrap-snapshots: ## &start Generate, upload and publish the three bootstrap snapshots starting at $BOOTSTRAP_SNAPSHOT_EPOCH
+publish-bootstrap-snapshots: ## &start Upload and publish the three existing bootstrap snapshots starting at $BOOTSTRAP_SNAPSHOT_EPOCH
 	@set -euo pipefail; \
 	if [ -z "$(BOOTSTRAP_SNAPSHOT_EPOCH)" ]; then \
 		echo "BOOTSTRAP_SNAPSHOT_EPOCH must be set" >&2; \
 		exit 1; \
 	fi; \
-	extra_args=""; \
-	if [ -n "$(AMARU_DIST_DIR)" ]; then \
-		extra_args="$$extra_args --dist-dir $(AMARU_DIST_DIR)"; \
-	fi; \
-	if [ -n "$(AMARU_CARDANO_NODE_CONFIG_DIR)" ]; then \
-		extra_args="$$extra_args --cardano-node-config-dir $(AMARU_CARDANO_NODE_CONFIG_DIR)"; \
-	fi; \
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) generate-epoch-snapshots --network $(AMARU_NETWORK) --epoch $(BOOTSTRAP_SNAPSHOT_EPOCH) $$extra_args; \
 	AMARU_NETWORK="$(AMARU_NETWORK)" \
 	AMARU_DIST_DIR="$(AMARU_DIST_DIR)" \
 	AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
