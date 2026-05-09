@@ -632,7 +632,6 @@ define_schemas! {
                 required peer: String
                 required conn_id: String
                 required direction: String
-                required role: String
                 required full_duplex_capable: bool
                 required full_duplex: bool
             }
@@ -643,7 +642,6 @@ define_schemas! {
                 required peer: String
                 required conn_id: String
                 required direction: String
-                required role: String
                 optional reason: String
             }
         }

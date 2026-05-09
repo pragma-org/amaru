@@ -192,7 +192,7 @@ fn tokenize(input: &str) -> Result<Vec<String>, String> {
                 grab_comment(input, idx, &mut tokens, &mut chars);
             }
             '#' => {
-                panic!("Found #: {:?}", &input[idx..]);
+                return Err(format!("Found #: {:?}", &input[idx..]));
             }
             '{' | '}' | ',' | ':' => {
                 if !current.is_empty() {

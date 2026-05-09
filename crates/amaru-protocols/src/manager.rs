@@ -30,7 +30,7 @@ use crate::{
     protocol::Role,
 };
 
-/// Messages the [`Manager`] sends to the consensus `peer_selection` stage (via [`StageRef`]).
+/// Messages the [`Manager`] sends to the consensus `peer_selection` stage.
 ///
 /// Notifications are sent *only after the handshake completes successfully*, so that
 /// `full_duplex` status is known accurately.
@@ -47,7 +47,8 @@ pub enum PeerSelectionNotify {
     },
 
     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
-    /// or network error). Reconnection logic (if applicable) is still owned by the Manager.
+    /// or network error). Reconnection logic (if applicable) is still owned by the Manager,
+    /// so peer_selection is only informed once retries are exhausted.
     Disconnected {
         peer: Peer,
         conn_id: ConnectionId,
@@ -236,11 +237,11 @@ impl Manager {
             }
         };
         let addr = ToSocketAddrs::String(peer.to_string());
-        let conn_id = match Network::new(&eff).connect(addr, self.config.connection_timeout).await {
+        let conn_id = match Network::new(eff).connect(addr, self.config.connection_timeout).await {
             Ok(conn_id) => conn_id,
             Err(err) => {
-                *attempts -= 1;
-                if *attempts > 0 {
+                if *attempts > 1 {
+                    *attempts -= 1;
                     tracing::info!(?err, %peer, retries = *attempts, reconnecting_in = ?self.config.reconnect_delay, "failed to connect");
                     eff.schedule_after(ManagerMessage::Connect(peer), self.config.reconnect_delay).await;
                 } else {
@@ -258,12 +259,12 @@ impl Manager {
         match self.peers.get(&peer) {
             Some(ConnectionState::Connected { .. }) => {
                 tracing::debug!(%peer, "already connected. Closing the newly accepted connection");
-                close_connection(&eff, &peer, conn_id).await;
+                close_connection(eff, &peer, conn_id).await;
                 return;
             }
             Some(ConnectionState::Disconnecting) => {
                 tracing::debug!(%peer, "already disconnecting, the previous connection will be closed with ConnectionDied, the newly accepted connection will be closed now");
-                close_connection(&eff, &peer, conn_id).await;
+                close_connection(eff, &peer, conn_id).await;
                 return;
             }
             Some(ConnectionState::Scheduled { .. }) => {
@@ -296,7 +297,7 @@ impl Manager {
     }
 
     async fn connection_died(&mut self, peer: Peer, conn_id: ConnectionId, role: Role, eff: &Effects<ManagerMessage>) {
-        close_connection(&eff, &peer, conn_id).await;
+        close_connection(eff, &peer, conn_id).await;
         let Some(peer_state) = self.peers.get_mut(&peer) else {
             tracing::debug!(%peer, "connection died, peer already removed");
             return;
@@ -411,14 +412,18 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 )
                 .await;
 
-                // Update internal state with full connection info from handshake (reconnect logic remains unchanged)
-                if let Some(ConnectionState::Connected {
-                    conn_id: stored_id, full_duplex_capable, full_duplex, ..
-                }) = manager.peers.get_mut(&peer)
-                {
-                    if *stored_id == conn_id {
-                        *full_duplex_capable = *full_duplex_capable;
-                        *full_duplex = *full_duplex;
+                match manager.peers.get_mut(&peer) {
+                    Some(ConnectionState::Connected {
+                        conn_id: stored_id,
+                        full_duplex_capable: fdc,
+                        full_duplex: fd,
+                        ..
+                    }) if *stored_id == conn_id => {
+                        *fdc = full_duplex_capable;
+                        *fd = full_duplex;
+                    }
+                    state => {
+                        tracing::error!(?state, %peer, %conn_id, "unexpected handshake complete for non connected peer");
                     }
                 }
             }

@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, NonEmptyVec, ORIGIN_HASH, Point, RawBlock};
+use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, RawBlock};
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 
@@ -209,12 +209,12 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     }
 
     #[expect(clippy::unwrap_used)]
-    fn switch_to_fork(&self, fork_point: &Point, forward_points: &NonEmptyVec<Point>) -> Result<(), StoreError> {
+    fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         if let Some(pos) = inner.chain.iter().rposition(|p| p == fork_point) {
             inner.chain.truncate(pos + 1);
             inner.chain.extend(forward_points.iter().copied());
-            inner.best_chain = forward_points.last().hash();
+            inner.best_chain = forward_points.last().unwrap_or(fork_point).hash();
             Ok(())
         } else {
             Err(StoreError::ReadError {

@@ -99,6 +99,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 }
 
 #[expect(clippy::print_stdout)]
+#[expect(clippy::unwrap_used)]
 pub fn print_best_chain(db: &impl ReadOnlyChainStore<BlockHeader>) {
     println!();
     let best_chain = db.retrieve_best_chain();

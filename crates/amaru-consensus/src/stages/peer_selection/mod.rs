@@ -128,7 +128,7 @@ impl PeerSelection {
             eff.send(&self.manager, ManagerMessage::RemovePeer(peer.clone())).await;
         }
 
-        self.cool_down(peer, &eff, is_static).await;
+        self.cool_down(peer, eff, is_static).await;
     }
 
     async fn cool_down(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>, is_static: bool) {
@@ -233,12 +233,13 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             match state.inbound_peers.entry(peer) {
                 Entry::Occupied(entry) => {
                     let old = entry.get();
-                    if let PeerState::Connected(conn) = old {
-                        if conn.id == conn_id {
-                            entry.remove();
-                        }
+                    if let PeerState::Connected(conn) = old
+                        && conn.id == conn_id
+                    {
+                        entry.remove();
                     }
                 }
+
                 Entry::Vacant(_) => {}
             }
         }

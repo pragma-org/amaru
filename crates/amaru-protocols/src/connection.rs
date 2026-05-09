@@ -75,7 +75,6 @@ struct Params {
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     era_history: Arc<EraHistory>,
     mempool_stage: StageRef<MempoolMsg>,
-    // Used to notify manager (and then peer_selection) after successful handshake
     manager: StageRef<ManagerMessage>,
 }
 
@@ -261,9 +260,9 @@ async fn do_handshake(
         }
     };
 
-    // full_duplex = !initiator_only_diffusion_mode (see handshake responder setup)
     let full_duplex_capable = version_data.is_full_duplex_capable();
-    let full_duplex = full_duplex_capable; // for now; can be more nuanced later when we monitor mini-protocol usage
+    // TODO: this needs to change once we actually start supporting full duplex mode
+    let full_duplex = false;
 
     eff.send(
         manager,

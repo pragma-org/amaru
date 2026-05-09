@@ -148,12 +148,16 @@ where
     where
         H: 'a,
     {
+        // FIXME operate on a snapshot
         let mut to_visit = if hash == &ORIGIN_HASH { self.get_children(hash) } else { vec![*hash] };
         Box::new(from_fn(move || {
             loop {
                 let hash = to_visit.pop()?;
                 tracing::debug!(hash = %hash, "visiting child");
-                let (header, validity) = self.load_header_with_validity(&hash)?;
+                #[expect(clippy::panic)]
+                let Some((header, validity)) = self.load_header_with_validity(&hash) else {
+                    panic!("child header not found: {}", hash);
+                };
                 if mode == ChildTipsMode::SkipInvalid && validity == Some(false) {
                     continue;
                 }
@@ -547,7 +551,7 @@ where
     /// Replace the current best chain from the given fork point with the provided
     /// forward path and set the best chain hash in one store operation.
     /// The best chain hash is set to the hash of the last forward point.
-    fn switch_to_fork(&self, fork_point: &Point, forward_points: &NonEmptyVec<Point>) -> Result<(), StoreError>;
+    fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError>;
 
     /// Roll forward the best chain to the given point and set the best chain hash to that point.
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;

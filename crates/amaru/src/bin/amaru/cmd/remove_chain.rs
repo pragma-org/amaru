@@ -80,14 +80,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let best_chain_hash = chain_store.get_best_chain_hash();
     if points.iter().any(|p| p.hash() == best_chain_hash) || chain_store.load_header(&best_chain_hash).is_none() {
         tracing::warn!("moving back best chain hash");
-        let mut current = chain_store.load_header(&from_point.hash()).unwrap();
+        let mut current = chain_store
+            .load_header(&from_point.hash())
+            .ok_or_else(|| anyhow::anyhow!("cannot find from_point {} in store", from_point))?;
         loop {
             let Some(parent) = current.parent().and_then(|h| chain_store.load_header(&h)) else {
                 tracing::error!("no parent found for {}", current.hash());
                 return Err("no parent found for best chain hash".into());
             };
             if chain_store.load_from_best_chain(&parent.point()).is_some() {
-                chain_store.set_best_chain_hash(&parent.hash())?;
+                chain_store.switch_to_fork(&parent.point(), &[])?;
                 break;
             }
             current = parent;

@@ -65,11 +65,11 @@ pub enum Blocks2 {
 impl std::fmt::Debug for Blocks2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NoBlocks(arg0) => f.debug_tuple("NoBlocks").field(arg0).finish(),
-            Self::Block(arg0, peer, arg2) => {
-                f.debug_tuple("Block").field(arg0).field(peer).field(&debug_bytes(arg2.as_slice(), 80)).finish()
+            Self::NoBlocks(height) => f.debug_tuple("NoBlocks").field(height).finish(),
+            Self::Block(height, peer, block) => {
+                f.debug_tuple("Block").field(height).field(peer).field(&debug_bytes(block.as_slice(), 80)).finish()
             }
-            Self::Done(arg0) => f.debug_tuple("Done").field(arg0).finish(),
+            Self::Done(height) => f.debug_tuple("Done").field(height).finish(),
         }
     }
 }

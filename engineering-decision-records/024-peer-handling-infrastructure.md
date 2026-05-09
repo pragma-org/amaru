@@ -22,7 +22,7 @@ The most important externally observable connection management behaviours are th
   - **cold** means no mini-protocols will be run in initiator mode (all other states will always run `keepalive`, `peersharing`)
   - **warm** means that `blockfetch`, `txsubmission` will be run in initiator mode
   - **hot** means that in addition to the warm protocols `chainsync` will be run in initiator mode
-- demoting hot → warm → cold will gracefully shut down the mini-protocols by transitioning into StDone, expecting that a later promotion is possible by sending any message that is allowed from the initial state of the respective mini-protocol
+- demoting hot → warm → cold will gracefully shut down the mini-protocols by transitioning into `StDone`, expecting that a later promotion is possible by sending any message that is allowed from the initial state of the respective mini-protocol
 - a unidirectional connection (i.e. with `initiatorOnlyMode == true` in the handshake) will be terminated when demoted to cold
 - a bidirectional connection will be terminated when the local intent is cold and the remote activity is judged to indicate cold state as well (no mini-protocols active for some time)
 - a connection will be terminated upon seeing any non-conformant behaviour from the peer; repeat offenders will not be reconnected to for some time (violation count is reset when connection remains established for some time)
@@ -34,7 +34,7 @@ The most important externally observable connection management behaviours are th
 
 ### Connection Management
 
-As the network specification does not prescribe binding to the local server port for outgoing connections, we shall not assume that peers do so; this is prudent also in the face of NAT and the general brokenness of today’s Internet.
+As the network specification does not prescribe binding to the local server port for outgoing connections, we shall not assume that peers do so; this is prudent also in the face of NAT.
 From this follows that incoming connections’ remote port information shall not be used to deduce peer server port addresses.
 
 In the interest of allowing Amaru node admins to distinguish inbound and outbound connections by local port number, Amaru shall not bind to the server port for outbound connections.
@@ -43,7 +43,7 @@ The `amaru-protocols` Manager corresponds to the Haskell connection manager in t
 It shall detect remote peer usage of connections (including new connections and disconnects) and forward the observed remote connection temperature as well as the possible duplex modes to the peer selection stage.
 It shall also start or gracefully stop mini-protocols according to the desired connection temperature (cold / warm / hot) communicated by the peer selection stage as far as the handshake result allows.
 
-## Peer Selection
+### Peer Selection
 
 This stage is the brain of Amaru when it comes to understanding the network vicinity.
 Since the network topology is live and evolves in real-time, the node does not persist the peer tracking information across restarts.
@@ -54,7 +54,7 @@ It tracks several **disjoint sets of peers**:
 - **connected peers** are those with which a TCP connection currently shall exist (i.e. it might be connecting, connected, or remotely disconnecting)
 
 The connected peers are associated with more information, namely the kind of connection (inbound / outbound, full-duplex capability), the current local and remote usage modes, and the failure count.
-A candidate peer only remembers the failure count and a cool-down period (stored as the Instant after which it may connect again).
+A candidate peer only remembers the failure count and a cool-down period (stored as the `Instant` after which it may connect again).
 
 The system is primed with a set of **static peers**.
 These are configured by the node admin and used for initial connections, i.e. they populate the initial candidate list.
@@ -62,19 +62,19 @@ Static peers will also never be forgotten and cool-down periods are much shorter
 
 Nodes are discovered via any viable means, including stake pool registrations in the ledger, peer sharing from other nodes, well-known node lists, etc.
 
-## Peer Performance Tracking
+### Peer Performance Tracking
 
-A PeerPerformanceResource is used to track information across all pure-stage stages.
+A `PeerPerformanceResource` is used to track information across all pure-stage stages.
 
 - the `keepalive` protocol handler injects latency measurements
-- the `blockfetch` protocol handler injects block delivery timing measurements, which together with latency allows computing bandwidth to a per
+- the `blockfetch` protocol handler injects block delivery timing measurements, which together with latency allows computing bandwidth to a peer
 - the `chainsync` protocol handler injects when each header was received and from which peer
 - the block fetching logic computes candidates for requesting blocks from based on who has sent the header
 - the peer selection logic uses performance measurements to demote/promote peers
 
 This information is not persisted across node restarts due to the ephemeral nature of the observed phenomena.
 
-## Block Source Tracking
+### Block Source Tracking
 
 A BlockSource stage tracks which peers sent a given block in order to classify them as adversarial in case the block fails validation.
 This information is not persisted across node restarts because the window of opportunity between receiving an adversarial block and validating it is small: blocks are only fetched for the current best chain.
@@ -84,5 +84,5 @@ This information is not persisted across node restarts because the window of opp
 - There can be two connections with the same peer, and if that peer binds to the server port for outbound connections then both connections have the same remote socket address.
   This means that we cannot use the `Peer` data type for identifying connections.
 - A peer that has closed all its mini-protocols and disconnects must not be treated as failed or even adversarial.
-- After a peer transitioned a mini-protocol into StDone, that mini-protocol must be reset to its initial state.
+- After a peer transitioned a mini-protocol into `StDone`, that mini-protocol must be reset to its initial state.
 - The node will discover the current network topology and peer performance anew after each restart.
