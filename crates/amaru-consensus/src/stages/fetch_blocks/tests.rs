@@ -166,11 +166,7 @@ fn test_block_received() {
             te_send(
                 "fb-1",
                 "block_source",
-                BlockSourceMsg::BlockReceived {
-                    peer: test_peer(),
-                    point: prep.headers.h1.point(),
-                    block_height: BlockHeight::from(2),
-                },
+                BlockSourceMsg::BlockReceived { peer: test_peer(), tip: prep.headers.h1.tip() },
             ),
             te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
             te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(0))),
@@ -213,11 +209,7 @@ fn test_block2_received() {
             te_send(
                 "fb-1",
                 "block_source",
-                BlockSourceMsg::BlockReceived {
-                    peer: test_peer(),
-                    point: prep.headers.h2.point(),
-                    block_height: BlockHeight::from(3),
-                },
+                BlockSourceMsg::BlockReceived { peer: test_peer(), tip: prep.headers.h2.tip() },
             ),
             te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
             te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(0))),

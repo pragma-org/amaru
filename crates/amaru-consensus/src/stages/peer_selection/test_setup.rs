@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
-};
+use std::{collections::BTreeSet, net::SocketAddr, time::Duration};
 
 use amaru_kernel::Peer;
+use amaru_ouroboros_traits::validators::blocks::can_validate_blocks::BlockValidationError;
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
-    simulation::{SimulationBuilder, SimulationRunning},
+    simulation::{SimulationBuilder, SimulationRunning, running::OverrideResult},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::{Builder, Runtime};
@@ -29,7 +27,10 @@ use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
-use crate::stages::test_utils::{BufferWriter, Logs};
+use crate::{
+    effects::{RegisteredRelaySocketAddrsEffect, TipEffect, VolatileTipEffect},
+    stages::test_utils::{BufferWriter, Logs},
+};
 
 pub const COOLDOWN_SECS: u64 = 1;
 
@@ -54,40 +55,19 @@ pub fn second_schedule_id() -> ScheduleId {
 pub struct TestPrep {
     pub state: PeerSelection,
     pub rt: Runtime,
-    pub manager: StageRef<ManagerMessage>,
 }
 
 impl TestPrep {
     pub fn peer(name: &str) -> Peer {
         Peer::new(name)
     }
-
-    pub fn state_with_timers(&self, timers: BTreeMap<Peer, ScheduleId>) -> PeerSelection {
-        PeerSelection {
-            manager: self.manager.clone(),
-            static_peers: self.state.static_peers.clone(),
-            peer_removal_cooldown: self.state.peer_removal_cooldown,
-            cooldown_timers: timers,
-            downstream_connected: self.state.downstream_connected.clone(),
-        }
-    }
-
-    pub fn state_with_downstream(&self, downstream: BTreeSet<Peer>) -> PeerSelection {
-        PeerSelection {
-            manager: self.manager.clone(),
-            static_peers: self.state.static_peers.clone(),
-            peer_removal_cooldown: self.state.peer_removal_cooldown,
-            cooldown_timers: self.state.cooldown_timers.clone(),
-            downstream_connected: downstream,
-        }
-    }
 }
 
 pub fn test_prep_static(static_names: &[&str]) -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
     let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| Peer::new(n)).collect();
-    let state = PeerSelection::new(manager.clone(), static_peers, COOLDOWN_SECS);
-    TestPrep { state, rt: Builder::new_current_thread().build().unwrap(), manager }
+    let state = PeerSelection::new(manager, static_peers, 3, 10, COOLDOWN_SECS);
+    TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
 }
 
 pub fn test_prep_no_static() -> TestPrep {
@@ -129,6 +109,19 @@ pub fn setup_preload(
     network.preload(&ps, messages).unwrap();
 
     let mut running = network.run();
+
+    // Override ledger external effects so the internal ledger-check stage created by
+    // Initialize does not require any Ledger resource.
+    running.override_external_effect::<VolatileTipEffect>(usize::MAX, |_| {
+        OverrideResult::Handled(Box::new(Option::<amaru_kernel::Tip>::None))
+    });
+    running.override_external_effect::<TipEffect>(usize::MAX, |_| {
+        OverrideResult::Handled(Box::new(amaru_kernel::Tip::origin()))
+    });
+    running.override_external_effect::<RegisteredRelaySocketAddrsEffect>(usize::MAX, |_| {
+        OverrideResult::Handled(Box::new(Ok::<BTreeSet<SocketAddr>, BlockValidationError>(BTreeSet::new())))
+    });
+
     running.run_until_blocked_incl_effects(prep.rt.handle());
 
     (running, guards, logs.logs())

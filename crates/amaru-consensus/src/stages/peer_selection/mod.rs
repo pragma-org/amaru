@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     time::Duration,
 };
 
@@ -81,7 +81,7 @@ pub enum PeerSelectionMsg {
     /// A peer has disconnected and the peer_selection stage can stop tracking it.
     ///
     /// This is also the message sent when a connection attempt fails.
-    Disconnected(Peer, ConnectionDirection),
+    Disconnected(Peer, ConnectionId, ConnectionDirection),
     /// Internal message from ledger check with new candidates.
     LedgerCheckCandidates(BTreeSet<Peer>),
 }
@@ -108,6 +108,73 @@ impl PeerSelection {
     }
 }
 
+impl PeerSelection {
+    async fn ban_peer(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>) {
+        let is_static = self.static_peers.contains(&peer);
+
+        let mut send_remove = false;
+        if let Some(peer_state) = self.inbound_peers.remove(&peer) {
+            tracing::warn!(%peer, ?peer_state, is_static, "removing peer (inbound)");
+            send_remove = true;
+        }
+
+        if let Some(peer_state) = self.outbound_peers.remove(&peer) {
+            tracing::warn!(%peer, ?peer_state, is_static, "removing peer (outbound)");
+            self.regulate_peers(eff).await;
+            send_remove = true;
+        }
+
+        if send_remove {
+            eff.send(&self.manager, ManagerMessage::RemovePeer(peer.clone())).await;
+        }
+
+        self.cool_down(peer, &eff, is_static).await;
+    }
+
+    async fn cool_down(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>, is_static: bool) {
+        let ban_period = if is_static { STATIC_PEER_BAN_PERIOD } else { self.peer_removal_cooldown };
+        let id = eff.schedule_after(PeerSelectionMsg::CooldownEnded(peer.clone()), ban_period).await;
+        let old = self.cooldown_timers.insert(peer, id);
+        if let Some(id) = old {
+            eff.cancel_schedule(id).await;
+        }
+    }
+
+    async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        let target_upstream_peers = self.target_upstream_peers;
+
+        // first refill from static_peers
+        let outbound_peers = self.outbound_peers.len();
+        if outbound_peers < target_upstream_peers {
+            let candidates = self
+                .static_peers
+                .iter()
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
+                .cloned()
+                .choose_multiple(&mut rand::rng(), target_upstream_peers - outbound_peers);
+            for peer in candidates {
+                eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
+                self.outbound_peers.insert(peer, PeerState::Connecting);
+            }
+        }
+
+        // refill from ledger candidates
+        let outbound_peers = self.outbound_peers.len();
+        if outbound_peers < target_upstream_peers {
+            let candidates = self
+                .ledger_candidates
+                .iter()
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
+                .cloned()
+                .choose_multiple(&mut rand::rng(), target_upstream_peers - outbound_peers);
+            for peer in candidates {
+                eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
+                self.outbound_peers.insert(peer, PeerState::Connecting);
+            }
+        }
+    }
+}
+
 pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects<PeerSelectionMsg>) -> PeerSelection {
     match msg {
         PeerSelectionMsg::Initialize => {
@@ -116,6 +183,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::AddPeer(p.clone())).await;
                 state.outbound_peers.insert(p.clone(), PeerState::Connecting);
             }
+            // NOTE: no supervision, failure in ledger-check tears down the node.
             let ledger_check = eff
                 .wire_up(
                     eff.stage("peer-selection/ledger-check", get_ledger_candidates).await,
@@ -126,23 +194,25 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         }
         PeerSelectionMsg::Adversarial(peer) => {
             tracing::debug!(%peer, "peer_selection.adversarial");
-            ban_peer(&mut state, peer, eff).await;
+            state.ban_peer(peer, &eff).await;
         }
         PeerSelectionMsg::CooldownEnded(peer) => {
             state.cooldown_timers.remove(&peer);
+            state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::AddPeer(peer) => {
-            tracing::info!(%peer, "peer_selection.add_peer");
-            if state.cooldown_timers.contains_key(&peer) {
-                tracing::info!(%peer, "peer is banned");
+            if let Some(schedule_id) = state.cooldown_timers.remove(&peer) {
+                tracing::info!(%peer, was_banned = true, "peer_selection.add_peer");
+                eff.cancel_schedule(schedule_id).await;
             } else {
-                eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
-                state.outbound_peers.insert(peer, PeerState::Connecting);
+                tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
             }
+            eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
+            state.outbound_peers.insert(peer, PeerState::Connecting);
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Inbound) => {
             if state.inbound_peers.len() >= state.target_downstream_peers {
-                tracing::info!(%peer, "inbound peer limit reached");
+                tracing::info!(%peer, "rejecting inbound connection: too many peers");
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, connection.id)).await;
                 return state;
             }
@@ -159,69 +229,45 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, conn.id)).await;
             }
         }
-        PeerSelectionMsg::Disconnected(peer, ConnectionDirection::Inbound) => {
-            state.inbound_peers.remove(&peer);
-        }
-        PeerSelectionMsg::Disconnected(peer, ConnectionDirection::Outbound) => {
-            let old = state.outbound_peers.remove(&peer);
-            if old == Some(PeerState::Connecting) {
-                cool_down(&mut state, peer, &eff, false).await;
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound) => {
+            match state.inbound_peers.entry(peer) {
+                Entry::Occupied(entry) => {
+                    let old = entry.get();
+                    if let PeerState::Connected(conn) = old {
+                        if conn.id == conn_id {
+                            entry.remove();
+                        }
+                    }
+                }
+                Entry::Vacant(_) => {}
             }
-            regulate_peers(&mut state, eff).await;
+        }
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound) => {
+            match state.inbound_peers.entry(peer.clone()) {
+                Entry::Occupied(entry) => {
+                    let old = entry.get();
+                    match old {
+                        PeerState::Connected(conn) => {
+                            if conn.id == conn_id {
+                                entry.remove();
+                            }
+                        }
+                        PeerState::Connecting => {
+                            // NOTE: this is a connection error, use the shorter cooldown period
+                            state.cool_down(peer, &eff, true).await;
+                        }
+                    }
+                }
+                Entry::Vacant(_) => {}
+            }
+            state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::LedgerCheckCandidates(candidates) => {
             state.ledger_candidates = candidates;
-            regulate_peers(&mut state, eff).await;
+            state.regulate_peers(&eff).await;
         }
     }
     state
-}
-
-async fn ban_peer(state: &mut PeerSelection, peer: Peer, eff: Effects<PeerSelectionMsg>) {
-    let is_static = state.static_peers.contains(&peer);
-
-    let mut send_remove = false;
-    if let Some(peer_state) = state.inbound_peers.remove(&peer) {
-        tracing::warn!(%peer, ?peer_state, is_static, "removing peer (inbound)");
-        send_remove = true;
-    }
-
-    if let Some(peer_state) = state.outbound_peers.remove(&peer) {
-        tracing::warn!(%peer, ?peer_state, is_static, "removing peer (outbound)");
-        send_remove = true;
-    }
-
-    if send_remove {
-        eff.send(&state.manager, ManagerMessage::RemovePeer(peer.clone())).await;
-    }
-
-    cool_down(state, peer, &eff, is_static).await;
-}
-
-async fn cool_down(state: &mut PeerSelection, peer: Peer, eff: &Effects<PeerSelectionMsg>, is_static: bool) {
-    let ban_period = if is_static { STATIC_PEER_BAN_PERIOD } else { state.peer_removal_cooldown };
-    let id = eff.schedule_after(PeerSelectionMsg::CooldownEnded(peer.clone()), ban_period).await;
-    let old = state.cooldown_timers.insert(peer, id);
-    if let Some(id) = old {
-        eff.cancel_schedule(id).await;
-    }
-}
-
-async fn regulate_peers(state: &mut PeerSelection, eff: Effects<PeerSelectionMsg>) {
-    let target_upstream_peers = state.target_upstream_peers as usize;
-    let outbound_peers = state.outbound_peers.len();
-    if outbound_peers < target_upstream_peers {
-        let candidates = state
-            .ledger_candidates
-            .iter()
-            .filter(|p| !state.outbound_peers.contains_key(p) && !state.cooldown_timers.contains_key(p))
-            .cloned()
-            .choose_multiple(&mut rand::rng(), target_upstream_peers - outbound_peers);
-        for peer in candidates {
-            eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
-            state.outbound_peers.insert(peer, PeerState::Connecting);
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -268,7 +314,7 @@ async fn reschedule_check(state: LedgerCheck, eff: Effects<()>) -> LedgerCheck {
     state
 }
 
-// #[cfg(test)]
-// mod test_setup;
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod test_setup;
+#[cfg(test)]
+mod tests;

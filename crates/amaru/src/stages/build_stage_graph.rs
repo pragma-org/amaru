@@ -77,8 +77,8 @@ pub fn build_stage_graph(
                     direction,
                 )
             }
-            PeerSelectionNotify::Disconnected { peer, conn_id: _, direction, role: _, reason: _ } => {
-                PeerSelectionMsg::Disconnected(peer, direction)
+            PeerSelectionNotify::Disconnected { peer, conn_id, direction, role: _, reason: _ } => {
+                PeerSelectionMsg::Disconnected(peer, conn_id, direction)
             }
         });
 
@@ -122,7 +122,13 @@ pub fn build_stage_graph(
 
     let fetch_blocks = stage_graph.wire_up(
         fetch_blocks,
-        FetchBlocks::new(validate_block_input, select_chain.sender(), manager.sender(), block_source_sender),
+        FetchBlocks::new(
+            validate_block_input,
+            select_chain.sender(),
+            manager.sender(),
+            block_source_sender,
+            peer_selection_ref.clone(),
+        ),
     );
     let fetch_blocks_input =
         stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |(tip, parent)| FetchBlocksMsg::NewTip(tip, parent));

@@ -143,9 +143,11 @@ pub fn test_prep() -> TestPrep {
     let upstream = StageRef::named_for_tests("upstream");
     let manager = StageRef::named_for_tests("manager");
     let block_source = StageRef::named_for_tests("block_source");
+    let peer_selection = StageRef::named_for_tests("peer_selection");
     let cleanup_replies = StageRef::named_for_tests("cleanup_replies");
 
-    let state = FetchBlocks::for_tests(downstream, upstream, manager, block_source.clone(), cleanup_replies.clone());
+    let state =
+        FetchBlocks::for_tests(downstream, upstream, manager, block_source, peer_selection, cleanup_replies.clone());
 
     TestPrep {
         state,

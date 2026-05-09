@@ -24,8 +24,6 @@ use amaru_protocols::store_effects::ResourceHeaderStore;
 use opentelemetry::trace::FutureExt;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 
-use crate::errors::{ConsensusError, ValidationFailed};
-
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps: Send + Sync {
@@ -49,7 +47,7 @@ pub trait LedgerOps: Send + Sync {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>>;
+    ) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>>;
 
     fn contains_point(&self, point: &Point) -> BoxFuture<'static, bool>;
 
@@ -104,7 +102,7 @@ impl LedgerOps for Ledger {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>> {
+    ) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>> {
         self.effects.external(RollbackBlockEffect::new(peer, point, ctx))
     }
 
@@ -260,15 +258,13 @@ impl ExternalEffect for RollbackBlockEffect {
                 .get::<ResourceBlockValidation>()
                 .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
                 .clone();
-            validator
-                .rollback_block(&self.point)
-                .map_err(|e| ValidationFailed::new(&self.peer, ConsensusError::RollbackBlockFailed(self.point, e)))
+            validator.rollback_block(&self.point)
         })
     }
 }
 
 impl ExternalEffectAPI for RollbackBlockEffect {
-    type Response = anyhow::Result<(), ValidationFailed>;
+    type Response = anyhow::Result<(), BlockValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -21,7 +21,7 @@ use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef};
 
-use crate::stages::{block_source::BlockSourceMsg, select_chain::SelectChainMsg};
+use crate::stages::{block_source::BlockSourceMsg, peer_selection::PeerSelectionMsg, select_chain::SelectChainMsg};
 
 // TODO make configurable
 const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
@@ -34,6 +34,7 @@ pub struct FetchBlocks {
     upstream: StageRef<SelectChainMsg>,
     manager: StageRef<ManagerMessage>,
     block_source: StageRef<BlockSourceMsg>,
+    peer_selection: StageRef<PeerSelectionMsg>,
     cleanup_replies: StageRef<Blocks2>,
     timeout: Option<ScheduleId>,
     block_height: BlockHeight,
@@ -45,6 +46,7 @@ impl FetchBlocks {
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         block_source: StageRef<BlockSourceMsg>,
+        peer_selection: StageRef<PeerSelectionMsg>,
     ) -> Self {
         Self {
             downstream,
@@ -53,6 +55,7 @@ impl FetchBlocks {
             upstream,
             manager,
             block_source,
+            peer_selection,
             cleanup_replies: StageRef::blackhole(),
             timeout: None,
             block_height: BlockHeight::from(0),
@@ -66,6 +69,7 @@ impl FetchBlocks {
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         block_source: StageRef<BlockSourceMsg>,
+        peer_selection: StageRef<PeerSelectionMsg>,
         cleanup_replies: StageRef<Blocks2>,
     ) -> Self {
         Self {
@@ -75,6 +79,7 @@ impl FetchBlocks {
             upstream,
             manager,
             block_source,
+            peer_selection,
             cleanup_replies,
             timeout: None,
             block_height: BlockHeight::from(0),
@@ -149,12 +154,13 @@ impl FetchBlocks {
         };
         let header = BlockHeader::from(&block.header);
         let point = header.point();
-        let block_height = block.header.header_body.block_number.into();
-        eff.send(&self.block_source, BlockSourceMsg::BlockReceived { peer, point, block_height }).await;
+        let tip = header.tip();
+        eff.send(&self.block_source, BlockSourceMsg::BlockReceived { peer: peer.clone(), tip }).await;
         tracing::debug!(%point, "received block");
 
         // check that body belongs to header
         if header.header().header_body.block_body_hash != block.body_hash() {
+            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
             tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
@@ -219,7 +225,8 @@ pub enum FetchBlocksMsg {
 pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<FetchBlocksMsg>) -> FetchBlocks {
     if state.cleanup_replies.is_blackhole() {
         let stage = eff.stage("cleanup_replies", cleanup_replies).await;
-        state.cleanup_replies = eff.wire_up(stage, (0, eff.me())).await;
+        let cleanup = Cleanup::new(eff.me(), state.block_source.clone(), state.peer_selection.clone());
+        state.cleanup_replies = eff.wire_up(stage, cleanup).await;
     }
     match msg {
         FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
@@ -229,25 +236,52 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     state
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Cleanup {
+    curr_id: u64,
+    fetch: StageRef<FetchBlocksMsg>,
+    block_source: StageRef<BlockSourceMsg>,
+    peer_selection: StageRef<PeerSelectionMsg>,
+}
+
+impl Cleanup {
+    fn new(
+        fetch: StageRef<FetchBlocksMsg>,
+        block_source: StageRef<BlockSourceMsg>,
+        peer_selection: StageRef<PeerSelectionMsg>,
+    ) -> Self {
+        Self { curr_id: 0, fetch, block_source, peer_selection }
+    }
+}
+
 /// Ensure that straggling block replies do not clog the mailbox of the fetch stage.
-pub async fn cleanup_replies(
-    (curr_id, fetch): (u64, StageRef<FetchBlocksMsg>),
-    msg: Blocks2,
-    eff: Effects<Blocks2>,
-) -> (u64, StageRef<FetchBlocksMsg>) {
+async fn cleanup_replies(mut state: Cleanup, msg: Blocks2, eff: Effects<Blocks2>) -> Cleanup {
     match msg {
         // completely ignore empty responses, fetch stage will deal with timeouts
-        Blocks2::NoBlocks(_) => (curr_id, fetch),
-        // ignore responses to prior requests
-        Blocks2::Block(id, _, _) if id < curr_id => (curr_id, fetch),
-        Blocks2::Block(id, peer, block) => {
-            eff.send(&fetch, FetchBlocksMsg::Block(peer, block)).await;
+        Blocks2::NoBlocks(_) => {}
+        Blocks2::Block(id, peer, network_block) => {
+            let header = match network_block.decode_header() {
+                Ok(header) => header,
+                Err(error) => {
+                    tracing::warn!(%error, "failed to decode block in cleanup");
+                    eff.send(&state.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
+                    return state;
+                }
+            };
+            eff.send(&state.block_source, BlockSourceMsg::BlockReceived { peer: peer.clone(), tip: header.tip() })
+                .await;
+            if id >= state.curr_id {
+                eff.send(&state.fetch, FetchBlocksMsg::Block(peer, network_block)).await;
+            }
             // getting higher id implies a new request has started
-            (id.max(curr_id), fetch)
+            state.curr_id = id.max(state.curr_id);
         }
         // getting done message implies a new request will start with id+1, but Done might be old as well
-        Blocks2::Done(id) => ((id + 1).max(curr_id), fetch),
+        Blocks2::Done(id) => {
+            state.curr_id = (id + 1).max(state.curr_id);
+        }
     }
+    state
 }
 
 #[cfg(test)]

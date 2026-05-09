@@ -47,7 +47,7 @@ impl BlockValidity {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BlockSourceMsg {
-    BlockReceived { peer: Peer, point: Point, block_height: BlockHeight },
+    BlockReceived { peer: Peer, tip: Tip },
     Validation { valid: bool, point: Point },
     AdoptedTip(Tip),
 }
@@ -61,21 +61,17 @@ impl BlockSource {
         let span = tracing::debug_span!("block_source.prune", pruned = field::Empty, retained = field::Empty).entered();
         let adopted_h = self.adopted_tip.block_height();
         let entries = self.by_point.len();
-        self.by_point.retain(|_, entry| entry.block_height() - self.max_tip_distance <= adopted_h);
+        self.by_point.retain(|_, entry| entry.block_height() >= adopted_h - self.max_tip_distance);
         let retained = self.by_point.len();
         span.record("pruned", entries - retained);
         span.record("retained", retained);
     }
 
-    async fn on_block_received(
-        &mut self,
-        peer: Peer,
-        point: Point,
-        block_height: BlockHeight,
-        eff: &Effects<BlockSourceMsg>,
-    ) {
+    async fn on_block_received(&mut self, peer: Peer, tip: Tip, eff: &Effects<BlockSourceMsg>) {
         use BlockValidity::*;
 
+        let point = tip.point();
+        let block_height = tip.block_height();
         tracing::debug!(%peer, %point, %block_height, "block received");
         match self.by_point.get_mut(&point) {
             Some(Invalid(_height)) => {
@@ -118,10 +114,15 @@ impl BlockSource {
     }
 }
 
+/// The block source stage receives notifications of blocks received from the
+/// network, and their validation results.
+///
+/// It tracks which peers have sent which blocks, and if a block is deemed invalid,
+/// it reports all peers that sent that block as adversarial to the peer selection stage.
 pub async fn stage(mut state: BlockSource, msg: BlockSourceMsg, eff: Effects<BlockSourceMsg>) -> BlockSource {
     match msg {
-        BlockSourceMsg::BlockReceived { peer, point, block_height } => {
-            state.on_block_received(peer, point, block_height, &eff).await;
+        BlockSourceMsg::BlockReceived { peer, tip } => {
+            state.on_block_received(peer, tip, &eff).await;
         }
         BlockSourceMsg::Validation { valid, point } => {
             state.on_validation(valid, point, &eff).await;
