@@ -26,6 +26,14 @@ pub enum InvalidValidityInterval {
 
 pub fn execute(
     validity_interval: ValidityInterval,
+    // TODO: 'enforce_forecast_horizon' boolean
+    //
+    // This boolean really shouldn't exist. Instead, we should selectively construct a TimeRange
+    // as needed by phase-2 validations when phase-2 validations are required (i.e. there are
+    // scripts to execute).
+    //
+    // One way to possibly do this would be via returning a closure as result, that if invoked,
+    // returns a TimeRange after having performed the additional horizon check.
     enforce_forecast_horizon: bool,
     era_history: &EraHistory,
     current_slot: Slot,
