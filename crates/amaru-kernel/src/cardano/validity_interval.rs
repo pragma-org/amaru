@@ -80,3 +80,19 @@ impl fmt::Display for ValidityInterval {
         write!(f, "[{lower}, {upper})")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+
+    #[test_case(ValidityInterval::default() => "[-∞, +∞)"; "unbounded")]
+    #[test_case(ValidityInterval::after(Slot::from(0)) => "[0, +∞)"; "lower bound only")]
+    #[test_case(ValidityInterval::strictly_before(Slot::from(42)) => "[-∞, 42)"; "upper bound only")]
+    #[test_case(ValidityInterval::between(Slot::from(42), Slot::from(84)) => "[42, 84)"; "both bounds")]
+    #[test_case(ValidityInterval::new(Some(Slot::from(1)), Some(Slot::from(1))) => "[1, 1)"; "empty interval")]
+    fn display_validity_interval(validity_interval: ValidityInterval) -> String {
+        validity_interval.to_string()
+    }
+}

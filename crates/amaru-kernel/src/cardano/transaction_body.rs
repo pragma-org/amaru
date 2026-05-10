@@ -118,9 +118,6 @@ impl TransactionBody {
         self.original_size
     }
 
-    // TODO: Transaction body validity interval bounds
-    //
-    // THe raw model
     pub fn validity_interval(&self) -> ValidityInterval {
         ValidityInterval::new(self.validity_interval_start, self.validity_interval_end)
     }
