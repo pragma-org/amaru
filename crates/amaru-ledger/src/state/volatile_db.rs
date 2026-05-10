@@ -95,7 +95,7 @@ impl VolatileDB {
         self.sequence.push_back(state);
     }
 
-    pub fn rollback_to<E>(&mut self, point: &Point, on_unknown_point: impl Fn(&Point) -> E) -> Result<(), E> {
+    pub fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
         let target_slot = point.slot_or_default();
 
         // Check if the target point is beyond the sequence
@@ -121,7 +121,7 @@ impl VolatileDB {
                 first_slot = ?first.anchor.0.slot(),
                 "Attempting to rollback to a point before the first point of the volatile state"
             );
-            return Err(on_unknown_point(point));
+            return Err(point);
         }
 
         // Now we know the target point is within the sequence
@@ -141,12 +141,12 @@ impl VolatileDB {
                     break;
                 }
             } else {
-                return Err(on_unknown_point(point));
+                return Err(point);
             }
         }
 
         if !found {
-            return Err(on_unknown_point(point));
+            return Err(point);
         }
 
         self.sequence.truncate(ix);
@@ -387,7 +387,7 @@ mod tests {
         // This represents rolling back to a point in the stable DB
         let rollback_point = Point::Specific(Slot::from(5), Hash::new([0u8; 32]));
 
-        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+        let result = db.rollback_to(&rollback_point);
 
         // This should fail
         // (rolling back to a point inside the stable DB is not allowed)
@@ -404,7 +404,7 @@ mod tests {
         let rollback_point = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
 
         // This should succeed, keeping all 3 elements
-        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+        let result = db.rollback_to(&rollback_point);
 
         assert!(result.is_ok(), "Rolling back to the exact slot of the last element should succeed");
         assert_eq!(db.len(), 3, "All elements should be retained");
@@ -418,7 +418,7 @@ mod tests {
         // Rollback to slot 20 (middle element)
         let rollback_point = Point::Specific(Slot::from(20), Hash::new([0u8; 32]));
 
-        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+        let result = db.rollback_to(&rollback_point);
 
         // This should succeed
         assert!(result.is_ok());
@@ -433,7 +433,7 @@ mod tests {
         // Try to rollback to slot 40 (after the sequence)
         let rollback_point = Point::Specific(Slot::from(40), Hash::new([0u8; 32]));
 
-        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+        let result = db.rollback_to(&rollback_point);
 
         // This should succeed
         assert!(result.is_ok(), "Rolling back to a point after the sequence should succeed");
@@ -448,9 +448,9 @@ mod tests {
         // Rollback to slot 25 (between 20 and 30)
         let rollback_point = Point::Specific(Slot::from(25), Hash::new([0u8; 32]));
 
-        let result = db.rollback_to(&rollback_point, |_| "Point not found");
+        let result = db.rollback_to(&rollback_point);
 
-        assert_eq!(result.unwrap_err(), "Point not found");
+        assert_eq!(result.unwrap_err(), &rollback_point);
         assert_eq!(db.len(), 3, "All elements should be retained");
     }
 

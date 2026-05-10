@@ -43,14 +43,57 @@ fn rollback_before_volatile_front_is_rejected() {
     forward_to(&mut state, point(100, 1), 1);
     forward_to(&mut state, point(200, 2), 2);
 
-    let before_volatile = point(50, 9);
-    let err = state.rollback_to(&before_volatile).err().unwrap();
+    let to = point(50, 9);
 
-    assert!(
-        matches!(err, BackwardError::UnknownRollbackPoint(p) if p == before_volatile),
-        "expected UnknownRollbackPoint, got {err:?}",
-    );
+    assert!(matches!(
+        dbg!(state.rollback_to(&to)),
+        Err(BackwardError::UnknownRollbackPoint { rollback_point, .. }) if rollback_point == to,
+    ));
     assert_eq!(*state.tip(), point(200, 2), "tip is unchanged after a rejected rollback");
+}
+
+#[test]
+fn rollback_within_volatile_but_unknown_hash_is_rejected() {
+    let mut state = make_state();
+    forward_to(&mut state, point(100, 1), 1);
+    forward_to(&mut state, point(200, 2), 2);
+
+    let to = point(100, 2);
+
+    assert!(matches!(
+        dbg!(state.rollback_to(&to)),
+        Err(BackwardError::UnknownRollbackPoint { rollback_point, .. }) if rollback_point == to,
+    ));
+    assert_eq!(*state.tip(), point(200, 2), "tip is unchanged after a rejected rollback");
+}
+
+#[test]
+fn rollback_within_volatile_but_unknown_slot_is_rejected() {
+    let mut state = make_state();
+    forward_to(&mut state, point(100, 1), 1);
+    forward_to(&mut state, point(200, 2), 2);
+
+    let to = point(150, 1);
+
+    assert!(matches!(
+        dbg!(state.rollback_to(&to)),
+        Err(BackwardError::UnknownRollbackPoint { rollback_point, .. }) if rollback_point == to,
+    ));
+    assert_eq!(*state.tip(), point(200, 2), "tip is unchanged after a rejected rollback");
+}
+
+#[test]
+fn rollback_after_volatile_front_is_rejected() {
+    let mut state = make_state();
+    forward_to(&mut state, point(100, 1), 1);
+
+    let to = point(101, 2);
+
+    assert!(matches!(
+        dbg!(state.rollback_to(&to)),
+        Err(BackwardError::RollbackPointInFuture { rollback_point, .. }) if rollback_point == to,
+    ));
+    assert_eq!(*state.tip(), point(100, 1), "tip is unchanged after a rejected rollback");
 }
 
 // HELPERS
