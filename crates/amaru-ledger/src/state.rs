@@ -232,14 +232,19 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
     /// applied to the ledger.
-    #[expect(clippy::panic)]
-    #[expect(clippy::unwrap_used)]
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
             return Cow::Owned(st.anchor.0.point());
         }
 
-        Cow::Owned(self.stable.lock().unwrap().tip().unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")))
+        Cow::Owned(self.immutable_tip())
+    }
+
+    #[expect(clippy::panic)]
+    #[expect(clippy::unwrap_used)]
+    /// Tip of the immutable db (i.e. farthest point we can ever rollback to).
+    pub fn immutable_tip(&self) -> Point {
+        self.stable.lock().unwrap().tip().unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}"))
     }
 
     /// Tip of the volatile (`VolatileDB`) sequence only, if non-empty.
@@ -659,31 +664,43 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
-        let _span =
-            trace_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string());
-        let _guard = _span.enter();
+        trace_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string()).in_scope(
+            || {
+                // NOTE: Rolling back to the tip of the immutable
+                //
+                // On start-up where the consensus layer will typically ask the ledger to rollback
+                // to the last known point, which ought to be the tip of the (immutable) database.
+                //
+                // Said differently, if the volatile db is empty, the rollback point MUST be the
+                // tip of the immutable.
+                let tip = match self.volatile_tip() {
+                    Some(volatile_tip) => volatile_tip.point(),
+                    None => {
+                        let immutable_tip = self.immutable_tip();
 
-        // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
-        // rollback to the last known point, which ought to be the tip of the database.
-        if self.volatile.is_empty() && self.tip().as_ref() == to {
-            return Ok(());
-        }
+                        if &immutable_tip != to {
+                            return Err(BackwardError::UnknownRollbackPoint {
+                                rollback_point: *to,
+                                tip: immutable_tip,
+                            });
+                        }
 
-        if self.tip().as_ref() > to {
-            return Err(BackwardError::RollbackPointBeforeTip { rollback_point: *to, tip: self.tip().into_owned() });
-        }
+                        immutable_tip
+                    }
+                };
 
-        if self.volatile.is_empty() && self.tip().as_ref() < to {
-            return Err(BackwardError::RollbackPointInFuture(*to));
-        }
+                // Would still be caught by the next check, but this is a special case for which we
+                // can provide a better error.
+                if to > &tip {
+                    return Err(BackwardError::RollbackPointInFuture { rollback_point: *to, tip });
+                }
 
-        if let Some(last) = self.volatile.view_back()
-            && last.anchor.0.point() < *to
-        {
-            return Err(BackwardError::RollbackPointInFuture(*to));
-        }
-
-        self.volatile.rollback_to(to, |point| BackwardError::UnknownRollbackPoint(*point))
+                self.volatile.rollback_to(to).map_err(|rollback_point| BackwardError::UnknownRollbackPoint {
+                    rollback_point: *rollback_point,
+                    tip,
+                })
+            },
+        )
     }
 
     pub fn contains_volatile_point(&self, point: &Point) -> bool {
@@ -1098,14 +1115,11 @@ impl HasStakeDistribution for StakeDistributionObserver {
 pub enum BackwardError {
     /// The ledger has been instructed to rollback to an unknown point. This should be impossible
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
-    #[error("error rolling back to unknown {0:?}")]
-    UnknownRollbackPoint(Point),
+    #[error("error rolling back to unknown point at {rollback_point}; current ledger tip is at {tip}")]
+    UnknownRollbackPoint { rollback_point: Point, tip: Point },
 
-    #[error("error rolling back to point {rollback_point:?}: before tip {tip:?}")]
-    RollbackPointBeforeTip { rollback_point: Point, tip: Point },
-
-    #[error("cannot roll back to a point in the future: {0:?}")]
-    RollbackPointInFuture(Point),
+    #[error("cannot roll back to a point {rollback_point} in the future of the current ledger tip {tip}")]
+    RollbackPointInFuture { rollback_point: Point, tip: Point },
 }
 
 #[derive(Debug, Error)]
