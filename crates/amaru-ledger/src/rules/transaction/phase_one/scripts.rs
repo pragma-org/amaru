@@ -20,8 +20,8 @@ use std::{
 
 use amaru_kernel::{
     ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
-    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptKind, ScriptPurpose, ValidityInterval,
-    WitnessSet, decode_plutus_script, script_purpose_to_string,
+    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptPurpose, ValidityInterval, WitnessSet,
+    decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
@@ -31,24 +31,22 @@ use thiserror::Error;
 
 use crate::context::{UtxoSlice, WitnessSlice};
 
-// TODO: Unify ProvideScript with ScriptKind
-//
-// These two types look very similar; and it's likely that they can be unified into one.
+#[derive(Clone, Copy)]
 pub(super) enum ProvidedScript<'a> {
+    // FIXME: Use of 'NativeScript'
+    //
+    // This should very likely be 'MemoizedNativeScript'; we could likely get rid of the
+    // 'NativeScript' entirely now already?
     Native(&'a NativeScript),
     PlutusV1,
     PlutusV2,
     PlutusV3,
 }
 
-impl ProvidedScript<'_> {
-    pub(super) fn kind(&self) -> ScriptKind {
-        match self {
-            Self::Native(_) => ScriptKind::Native,
-            Self::PlutusV1 => ScriptKind::PlutusV1,
-            Self::PlutusV2 => ScriptKind::PlutusV2,
-            Self::PlutusV3 => ScriptKind::PlutusV3,
-        }
+impl<'a> Deref for ProvidedScript<'a> {
+    type Target = ProvidedScript<'a>;
+    fn deref(&self) -> &Self::Target {
+        self
     }
 }
 
@@ -213,7 +211,7 @@ fn fail_on_too_many_ex_units(
 /// The function fails if there's any input with missing mandatory datum (i.e. Plutus V1 or V2
 /// script-locked inputs without datum; those are simply "forever" unspendable).
 fn partition_scripts(
-    required_scripts: Vec<(RequiredScript, ScriptKind)>,
+    required_scripts: Vec<(RequiredScript, ProvidedScript<'_>)>,
 ) -> Result<(Vec<RedeemerKey>, BTreeSet<Hash<DATUM>>), InvalidScripts> {
     let mut required_redeemers = Vec::new();
     let mut required_datums = BTreeSet::new();
@@ -241,21 +239,21 @@ fn partition_scripts(
             // NOTE: One may very well send some funds to a native script, and attach a
             // datum hash to it. In which case, the datum has no effect and is simply
             // ignored.
-            ScriptKind::Native => {}
+            ProvidedScript::Native(..) => {}
 
-            ScriptKind::PlutusV1 => {
+            ProvidedScript::PlutusV1 => {
                 require_redeemer();
                 unspendable_without_datum();
                 require_datum_preimage();
             }
 
-            ScriptKind::PlutusV2 => {
+            ProvidedScript::PlutusV2 => {
                 require_redeemer();
                 unspendable_without_datum();
                 require_datum_preimage();
             }
 
-            ScriptKind::PlutusV3 => {
+            ProvidedScript::PlutusV3 => {
                 require_redeemer();
                 require_datum_preimage();
             }
@@ -314,10 +312,10 @@ where
 
 /// Ensures that the required and provided scripts match exactly (i.e. check that they're included
 /// in each other).
-fn fail_on_script_symmetric_differences(
+fn fail_on_script_symmetric_differences<'a>(
     required: BTreeSet<RequiredScript>,
-    provided: &BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>,
-) -> Result<Vec<(RequiredScript, ScriptKind)>, InvalidScripts> {
+    provided: &'_ BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>,
+) -> Result<Vec<(RequiredScript, ProvidedScript<'a>)>, InvalidScripts> {
     let mut missing = BTreeSet::new();
     let mut existing = BTreeSet::new();
 
@@ -326,7 +324,7 @@ fn fail_on_script_symmetric_differences(
         .filter_map(|script| {
             existing.insert(script.hash);
             if let Some(provided) = provided.get(&script.hash) {
-                Some((script, provided.kind()))
+                Some((script, *provided))
             } else {
                 missing.insert(script.hash);
                 None

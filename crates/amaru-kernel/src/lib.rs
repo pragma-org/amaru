@@ -117,7 +117,6 @@ pub use cardano::{
     reward::Reward,
     reward_account::{RewardAccount, expect_stake_credential, new_stake_address, reward_account_to_stake_credential},
     reward_kind::RewardKind,
-    script_kind::ScriptKind,
     script_purpose::{ScriptPurpose, script_purpose_to_string},
     slot::{Slot, SlotArithmeticError},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},

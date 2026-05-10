@@ -90,7 +90,6 @@ pub mod required_script;
 pub mod reward;
 pub mod reward_account;
 pub mod reward_kind;
-pub mod script_kind;
 pub mod script_purpose;
 pub mod slot;
 pub mod stake_credential;
