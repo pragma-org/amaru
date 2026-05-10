@@ -57,8 +57,10 @@ pub fn evaluate_native_script(
 mod tests {
     use std::collections::BTreeSet;
 
+    use test_case::test_case;
+
     use super::evaluate_native_script;
-    use crate::{Hash, NativeScript::*, ValidityInterval, size::KEY};
+    use crate::{Hash, NativeScript, NativeScript::*, ValidityInterval, size::KEY};
 
     /// The following test proves that the scriptNOfK evaluate_native_scripts native scripts lazily.
     /// If they weren't, this test would panic.
@@ -80,134 +82,100 @@ mod tests {
         assert_eq!(scripts.iter().filter(|s| s()).take(n).count(), n);
     }
 
-    fn key(byte: u8) -> Hash<KEY> {
-        Hash::from([byte; 28])
+    #[test_case(vk(1), &[vk(1), vk(2)], always(); "script pubkey present")]
+    #[test_case(all([vk(1), vk(2)]), &[vk(1), vk(2)], always(); "script all all pass")]
+    #[test_case(all([]), &[], always(); "script all empty is true")]
+    #[test_case(any([vk(3), vk(1)]), &[vk(1)], always(); "script any one passes")]
+    #[test_case(at_least(0, [vk(9)]), &[vk(1), vk(2)], always(); "script n of k zero always passes")]
+    #[test_case(at_least(2, [vk(1), vk(2), vk(9)]), &[vk(1), vk(2)], always(); "script n of k exact quorum")]
+    #[test_case(InvalidBefore(100), &[], after(100); "invalid before with tx start at lock")]
+    #[test_case(InvalidBefore(100), &[], after(101); "invalid before with tx start above lock")]
+    #[test_case(InvalidHereafter(100), &[], before(100); "invalid hereafter with tx expire at lock")]
+    #[test_case(InvalidHereafter(100), &[], before(50); "invalid hereafter with tx expire below lock")]
+    #[test_case(
+        all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
+        &[vk(1)],
+        between(150, 199);
+        "nested all any timelock all conditions pass"
+    )]
+    fn ok(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
+        assert!(evaluate_native_script(&script, &context_vkey_hashes(context_keys), validity_interval));
     }
 
-    fn keys(bytes: &[u8]) -> BTreeSet<Hash<KEY>> {
-        bytes.iter().copied().map(key).collect()
+    #[test_case(vk(3), &[vk(1), vk(2)], always(); "script pubkey absent")]
+    #[test_case(all([vk(1), vk(3)]), &[vk(1), vk(2)], always(); "script all one fails")]
+    #[test_case(any([vk(3), vk(4)]), &[vk(1), vk(2)], always(); "script any all fail")]
+    #[test_case(any([]), &[vk(1), vk(2)], always(); "script any empty is false")]
+    #[test_case(at_least(2, [vk(1), vk(8), vk(9)]), &[vk(1), vk(2)], always(); "script n of k just below quorum")]
+    #[test_case(at_least(3, [vk(1), vk(2)]), &[vk(1), vk(2)], always(); "script n of k more than available")]
+    #[test_case(InvalidBefore(100), &[], after(99); "invalid before with tx start below lock")]
+    #[test_case(InvalidBefore(100), &[], always(); "invalid before without tx start")]
+    #[test_case(InvalidHereafter(100), &[], before(101); "invalid hereafter with tx expire above lock")]
+    #[test_case(InvalidHereafter(100), &[], always(); "invalid hereafter without tx expire")]
+    #[test_case(
+        all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
+        &[vk(1)],
+        between(99, 199);
+        "nested all any timelock lower bound fails"
+    )]
+    #[test_case(
+        all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
+        &[vk(1)],
+        between(150, 201);
+        "nested all any timelock upper bound fails"
+    )]
+    #[test_case(
+        all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
+        &[vk(9)],
+        between(150, 199);
+        "nested all any timelock key check fails"
+    )]
+    fn ko(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
+        assert!(!evaluate_native_script(&script, &context_vkey_hashes(context_keys), validity_interval));
     }
 
-    #[test]
-    fn script_pubkey_present() {
-        let script = ScriptPubkey(key(1));
-        assert!(evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
+    // ------------------------------------------------------------------------ Helpers
+
+    fn vk(byte: u8) -> NativeScript {
+        ScriptPubkey(Hash::from([byte; 28]))
     }
 
-    #[test]
-    fn script_pubkey_absent() {
-        let script = ScriptPubkey(key(3));
-        assert!(!evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
+    fn all<const N: usize>(scripts: [NativeScript; N]) -> NativeScript {
+        ScriptAll(scripts.into())
     }
 
-    #[test]
-    fn script_all_all_pass() {
-        let script = ScriptAll(vec![ScriptPubkey(key(1)), ScriptPubkey(key(2))]);
-        assert!(evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
+    fn any<const N: usize>(scripts: [NativeScript; N]) -> NativeScript {
+        ScriptAny(scripts.into())
     }
 
-    #[test]
-    fn script_all_one_fails() {
-        let script = ScriptAll(vec![ScriptPubkey(key(1)), ScriptPubkey(key(3))]);
-        assert!(!evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
+    fn at_least<const N: usize>(n: u32, scripts: [NativeScript; N]) -> NativeScript {
+        ScriptNOfK(n, scripts.into())
     }
 
-    #[test]
-    fn script_all_empty_is_true() {
-        let script = ScriptAll(vec![]);
-        assert!(evaluate_native_script(&script, &keys(&[]), ValidityInterval::default()));
+    fn always() -> ValidityInterval {
+        ValidityInterval::default()
     }
 
-    #[test]
-    fn script_any_one_passes() {
-        let script = ScriptAny(vec![ScriptPubkey(key(3)), ScriptPubkey(key(1))]);
-        assert!(evaluate_native_script(&script, &keys(&[1]), ValidityInterval::default()));
+    fn after(slot: u64) -> ValidityInterval {
+        ValidityInterval::after(slot.into())
     }
 
-    #[test]
-    fn script_any_all_fail() {
-        let script = ScriptAny(vec![ScriptPubkey(key(3)), ScriptPubkey(key(4))]);
-        assert!(!evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
+    fn before(slot: u64) -> ValidityInterval {
+        ValidityInterval::strictly_before(slot.into())
     }
 
-    #[test]
-    fn script_any_empty_is_false() {
-        let script = ScriptAny(vec![]);
-        assert!(!evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
+    fn between(lower_bound: u64, upper_bound: u64) -> ValidityInterval {
+        ValidityInterval::between(lower_bound.into(), upper_bound.into())
     }
 
-    #[test]
-    fn script_n_of_k_zero_always_passes() {
-        let script = ScriptNOfK(0, vec![ScriptPubkey(key(9))]);
-        assert!(evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
-    }
-
-    #[test]
-    fn script_n_of_k_exact_quorum() {
-        let script = ScriptNOfK(2, vec![ScriptPubkey(key(1)), ScriptPubkey(key(2)), ScriptPubkey(key(9))]);
-        assert!(evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
-    }
-
-    #[test]
-    fn script_n_of_k_just_below_quorum() {
-        let script = ScriptNOfK(2, vec![ScriptPubkey(key(1)), ScriptPubkey(key(8)), ScriptPubkey(key(9))]);
-        assert!(!evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
-    }
-
-    #[test]
-    fn script_n_of_k_more_than_available() {
-        let script = ScriptNOfK(3, vec![ScriptPubkey(key(1)), ScriptPubkey(key(2))]);
-        assert!(!evaluate_native_script(&script, &keys(&[1, 2]), ValidityInterval::default()));
-    }
-
-    #[test]
-    fn invalid_before_with_tx_start_ge_lock() {
-        let script = InvalidBefore(100);
-        assert!(evaluate_native_script(&script, &keys(&[]), ValidityInterval::after(100.into())));
-        assert!(evaluate_native_script(&script, &keys(&[]), ValidityInterval::after(101.into())));
-    }
-
-    #[test]
-    fn invalid_before_with_tx_start_below_lock() {
-        let script = InvalidBefore(100);
-        assert!(!evaluate_native_script(&script, &keys(&[]), ValidityInterval::after(99.into())));
-    }
-
-    #[test]
-    fn invalid_before_without_tx_start() {
-        let script = InvalidBefore(100);
-        assert!(!evaluate_native_script(&script, &keys(&[]), ValidityInterval::default()));
-    }
-
-    #[test]
-    fn invalid_hereafter_with_tx_expire_le_lock() {
-        let script = InvalidHereafter(100);
-        assert!(evaluate_native_script(&script, &keys(&[]), ValidityInterval::strictly_before(100.into())));
-        assert!(evaluate_native_script(&script, &keys(&[]), ValidityInterval::strictly_before(50.into())));
-    }
-
-    #[test]
-    fn invalid_hereafter_with_tx_expire_above_lock() {
-        let script = InvalidHereafter(100);
-        assert!(!evaluate_native_script(&script, &keys(&[]), ValidityInterval::strictly_before(101.into())));
-    }
-
-    #[test]
-    fn invalid_hereafter_without_tx_expire() {
-        let script = InvalidHereafter(100);
-        assert!(!evaluate_native_script(&script, &keys(&[]), ValidityInterval::default()));
-    }
-
-    #[test]
-    fn nested_all_of_any_of_and_timelock() {
-        let script = ScriptAll(vec![
-            ScriptAny(vec![ScriptPubkey(key(8)), ScriptPubkey(key(1))]),
-            InvalidBefore(100),
-            InvalidHereafter(200),
-        ]);
-        assert!(evaluate_native_script(&script, &keys(&[1]), ValidityInterval::between(150.into(), 199.into())));
-        assert!(!evaluate_native_script(&script, &keys(&[1]), ValidityInterval::between(99.into(), 199.into())));
-        assert!(!evaluate_native_script(&script, &keys(&[1]), ValidityInterval::between(150.into(), 201.into())));
-        assert!(!evaluate_native_script(&script, &keys(&[9]), ValidityInterval::between(150.into(), 199.into())));
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn context_vkey_hashes(context_keys: &[NativeScript]) -> BTreeSet<Hash<KEY>> {
+        context_keys
+            .iter()
+            .map(|script| match script {
+                ScriptPubkey(hash) => *hash,
+                _ => panic!("expected ScriptPubkey in validation context"),
+            })
+            .collect()
     }
 }
