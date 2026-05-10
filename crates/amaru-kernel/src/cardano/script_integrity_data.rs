@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use crate::{Hash, Hasher, Language, LanguageView, ProtocolParameters, WitnessSet, cbor, cbor::Encode};
 
@@ -32,7 +32,7 @@ pub struct ScriptIntegrityData {
     /// Original CBOR bytes of the plutus data set, or `None` when no datums are present.
     datums_bytes: Option<Vec<u8>>,
     /// Sorted, deduplicated language views.
-    language_views: Vec<LanguageView>,
+    language_views: BTreeSet<LanguageView>,
 }
 
 impl ScriptIntegrityData {
@@ -44,11 +44,11 @@ impl ScriptIntegrityData {
         protocol_parameters: &ProtocolParameters,
         languages: &[Language],
     ) -> Option<Self> {
-        let has_redeemers = witness_set.redeemer.is_some();
-        let has_datums = witness_set.plutus_data.is_some();
-        let has_languages = !languages.is_empty();
+        let has_no_redeemers = witness_set.redeemer.is_none();
+        let has_no_datums = witness_set.plutus_data.is_none();
+        let has_no_languages = languages.is_empty();
 
-        if !has_redeemers && !has_datums && !has_languages {
+        if has_no_redeemers && has_no_datums && has_no_languages {
             return None;
         }
 
@@ -59,12 +59,10 @@ impl ScriptIntegrityData {
 
         let datums_bytes = witness_set.plutus_data.as_ref().map(|d| d.original_bytes().to_vec());
 
-        let mut language_views: Vec<LanguageView> = languages
+        let language_views: BTreeSet<LanguageView> = languages
             .iter()
             .map(|lang| LanguageView::from_cost_models(lang.clone(), &protocol_parameters.cost_models))
             .collect();
-        language_views.sort();
-        language_views.dedup();
 
         Some(Self { redeemers_bytes, datums_bytes, language_views })
     }
