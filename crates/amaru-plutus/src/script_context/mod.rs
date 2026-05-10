@@ -223,13 +223,8 @@ impl<'a> TxInfo<'a> {
 
         let withdrawals = tx.withdrawals.as_ref().map(Withdrawals::try_from).transpose()?.unwrap_or_default();
 
-        let valid_range = TimeRange::new(
-            tx.validity_interval_start.map(Slot::from),
-            tx.validity_interval_end.map(Slot::from),
-            slot,
-            era_history,
-            network,
-        )?;
+        let valid_range =
+            TimeRange::new(tx.validity_interval_start, tx.validity_interval_end, slot, era_history, network)?;
 
         let signatories = tx.required_signers.as_ref().map(RequiredSigners::from).unwrap_or_default();
 

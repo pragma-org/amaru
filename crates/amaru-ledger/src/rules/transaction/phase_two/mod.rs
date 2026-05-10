@@ -323,7 +323,7 @@ mod tests {
             .unwrap_or_default()
             .max(transaction.body.validity_interval_end.unwrap_or_default());
 
-        TransactionPointer { slot: slot.into(), transaction_index: 0 }
+        TransactionPointer { slot, transaction_index: 0 }
     }
 
     #[test]
