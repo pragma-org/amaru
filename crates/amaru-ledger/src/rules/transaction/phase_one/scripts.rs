@@ -19,9 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasRedeemers, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
-    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptPurpose, ValidityInterval, WitnessSet,
-    decode_plutus_script, script_purpose_to_string,
+    ExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
+    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptIntegrityData, ScriptPurpose,
+    ValidityInterval, WitnessSet, decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
@@ -47,6 +47,30 @@ impl<'a> Deref for ProvidedScript<'a> {
     type Target = ProvidedScript<'a>;
     fn deref(&self) -> &Self::Target {
         self
+    }
+}
+
+impl TryFrom<&ProvidedScript<'_>> for PlutusVersion {
+    type Error = ();
+    fn try_from(script: &ProvidedScript<'_>) -> Result<Self, Self::Error> {
+        match script {
+            ProvidedScript::Native(..) => Err(()),
+            ProvidedScript::PlutusV1 => Ok(PlutusVersion::V1),
+            ProvidedScript::PlutusV2 => Ok(PlutusVersion::V2),
+            ProvidedScript::PlutusV3 => Ok(PlutusVersion::V3),
+        }
+    }
+}
+
+impl TryFrom<&ProvidedScript<'_>> for Language {
+    type Error = ();
+    fn try_from(script: &ProvidedScript<'_>) -> Result<Self, Self::Error> {
+        match script {
+            ProvidedScript::Native(..) => Err(()),
+            ProvidedScript::PlutusV1 => Ok(Language::PlutusV1),
+            ProvidedScript::PlutusV2 => Ok(Language::PlutusV2),
+            ProvidedScript::PlutusV3 => Ok(Language::PlutusV3),
+        }
     }
 }
 
@@ -127,6 +151,15 @@ pub enum InvalidScripts {
 
     #[error("native script(s) failed to validate: [{}]", display_collection(.0))]
     ScriptWitnessNotValidatingUTXOW(BTreeSet<Hash<SCRIPT>>),
+
+    #[error(
+        "script integrity hash mismatch: supplied {supplied:?}, expected {}",
+        format_expected_integrity(.expected.as_deref())
+    )]
+    ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Box<ScriptIntegrityData>> },
+
+    #[error("no cost model in protocol parameters for language used by transaction: {0:?}")]
+    MissingCostModel(Language),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -135,6 +168,7 @@ pub fn execute<C>(
     witness_set: &WitnessSet,
     validity_interval: ValidityInterval,
     protocol_parameters: &ProtocolParameters,
+    script_data_hash: Option<Hash<32>>,
 ) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice + fmt::Debug,
@@ -156,6 +190,9 @@ where
     let (mut required_redeemers, required_datums) = partition_scripts(required_scripts)?;
 
     let witnessed_datums = datum_hashes(witness_set);
+
+    let languages: Vec<Language> =
+        provided_scripts.values().filter_map(|script| Language::try_from(script).ok()).collect();
 
     fail_on_supplemental_datums(context, &required_datums, &witnessed_datums)?;
 
@@ -181,7 +218,39 @@ where
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
 
+    for lang in &languages {
+        let has_cost_model = match lang {
+            Language::PlutusV1 => protocol_parameters.cost_models.plutus_v1.is_some(),
+            Language::PlutusV2 => protocol_parameters.cost_models.plutus_v2.is_some(),
+            Language::PlutusV3 => protocol_parameters.cost_models.plutus_v3.is_some(),
+        };
+        if !has_cost_model {
+            return Err(InvalidScripts::MissingCostModel(lang.clone()));
+        }
+    }
+
+    // NOTE: Two conformance tests ("PlutusV3 Initialization/Updating CostModels ...") fail this
+    // check because they contain multi-epoch test vectors where governance actions update the cost
+    // models mid-test. The test harness loads protocol parameters once at the start and doesn't
+    // update them at epoch boundaries, so later transactions are validated against stale cost
+    // models, producing a different script integrity hash.
+    let expected = ScriptIntegrityData::from_witness_set(witness_set, protocol_parameters, &languages);
+    let expected_hash = expected.as_ref().map(ScriptIntegrityData::hash);
+    if script_data_hash != expected_hash {
+        return Err(InvalidScripts::ScriptIntegrityHashMismatch {
+            supplied: script_data_hash,
+            expected: expected.map(Box::new),
+        });
+    }
+
     Ok(())
+}
+
+fn format_expected_integrity(expected: Option<&ScriptIntegrityData>) -> String {
+    match expected {
+        Some(data) => format!("{} (computed from: {data})", data.hash()),
+        None => "none".to_string(),
+    }
 }
 
 fn fail_on_too_many_ex_units(
@@ -534,8 +603,8 @@ fn collect_plutus_witness_scripts<const V: usize>(
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
-        TransactionBody, WitnessSet, include_cbor,
+        CostModels, ExUnits, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PlutusScript, ProtocolParameters, ProtocolVersion,
+        TransactionBody, WitnessSet, include_cbor, include_json,
     };
     use test_case::test_case;
 
@@ -546,13 +615,31 @@ mod tests {
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS.protocol_version
     }
 
+    fn protocol_parameters_with_cost_models(cost_models: CostModels) -> ProtocolParameters {
+        let mut pp = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
+        pp.cost_models = cost_models;
+        pp
+    }
+
     macro_rules! fixture {
         ($hash:literal) => {
             (
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, with_pp) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+                protocol_parameters_with_cost_models(include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/cost-models.json"
+                ))),
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -560,7 +647,29 @@ mod tests {
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $variant:literal, with_tx) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $variant:literal, with_pp) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
+                protocol_parameters_with_cost_models(include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/cost-models.json"
+                ))),
             )
         };
         ($hash:literal, $pp:expr) => {
@@ -585,15 +694,15 @@ mod tests {
         "happy path"
     )]
     #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");
+        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output", with_tx);
         "supplemental datum output"
     )]
     #[test_case(
-        fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc");
+        fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc", with_pp);
         "reference script in inputs"
     )]
     #[test_case(
-        fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts");
+        fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts", with_pp);
         "proposal script"
     )]
     #[test_case(
@@ -652,7 +761,7 @@ mod tests {
             ProtocolParameters,
         ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, tx.validity_interval(), &protocol_parameters)
+        super::execute(&mut ctx, &witness_set, tx.validity_interval(), &protocol_parameters, tx.script_data_hash)
     }
 
     #[test]

@@ -228,7 +228,13 @@ where
         transaction_witness_set.vkeywitness.as_deref(),
     )?;
 
-    scripts::execute(context, transaction_witness_set, transaction_body.validity_interval(), protocol_parameters)?;
+    scripts::execute(
+        context,
+        transaction_witness_set,
+        transaction_body.validity_interval(),
+        protocol_parameters,
+        transaction_body.script_data_hash,
+    )?;
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {
