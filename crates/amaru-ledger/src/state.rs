@@ -644,7 +644,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 let density = self.chain_density(point);
 
-                let metrics = LedgerMetrics { block_height, txs_processed, slot, slot_in_epoch, epoch, density };
+                let current_kes_period = slot / self.global_parameters.slots_per_kes_period;
+                let remaining_kes_periods = (self.global_parameters.max_kes_evolution as u64)
+                    .saturating_sub(current_kes_period);
+
+                let metrics = LedgerMetrics {
+                    block_height,
+                    txs_processed,
+                    slot,
+                    slot_in_epoch,
+                    epoch,
+                    density,
+                    current_kes_period,
+                    remaining_kes_periods,
+                };
 
                 let tip = Tip::new(*point, block_height.into());
                 match self.forward(state.anchor(tip, issuer)) {
