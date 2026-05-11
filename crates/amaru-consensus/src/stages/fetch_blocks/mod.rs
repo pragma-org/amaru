@@ -14,11 +14,14 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip, cardano::network_block::NetworkBlock};
+use amaru_kernel::{BlockHeader, BlockHeight, EraHistory, IsHeader, Point, Tip, cardano::network_block::NetworkBlock};
+use amaru_metrics::protocol::BlockfetchClientMetrics;
 use amaru_ouroboros::{ChainStore, ReadOnlyChainStore};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, ScheduleId, StageRef, TryInStage};
 
+#[cfg(not(test))]
+use crate::effects::{Metrics, MetricsOps};
 use crate::stages::select_chain::SelectChainMsg;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -31,6 +34,13 @@ pub struct FetchBlocks {
     cleanup_replies: StageRef<Blocks2>,
     timeout: Option<ScheduleId>,
     block_height: BlockHeight,
+    era_history: EraHistory,
+    system_start_ms: u64,
+    block_delay_samples: u64,
+    block_delay_under_one_second: u64,
+    block_delay_under_three_seconds: u64,
+    block_delay_under_five_seconds: u64,
+    block_delay_over_five_seconds: u64,
 }
 
 impl FetchBlocks {
@@ -38,6 +48,8 @@ impl FetchBlocks {
         downstream: StageRef<(Tip, Point, BlockHeight)>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
+        era_history: EraHistory,
+        system_start_ms: u64,
     ) -> Self {
         Self {
             downstream,
@@ -48,6 +60,13 @@ impl FetchBlocks {
             cleanup_replies: StageRef::blackhole(),
             timeout: None,
             block_height: BlockHeight::from(0),
+            era_history,
+            system_start_ms,
+            block_delay_samples: 0,
+            block_delay_under_one_second: 0,
+            block_delay_under_three_seconds: 0,
+            block_delay_under_five_seconds: 0,
+            block_delay_over_five_seconds: 0,
         }
     }
 
@@ -58,6 +77,8 @@ impl FetchBlocks {
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         cleanup_replies: StageRef<Blocks2>,
+        era_history: EraHistory,
+        system_start_ms: u64,
     ) -> Self {
         Self {
             downstream,
@@ -68,7 +89,60 @@ impl FetchBlocks {
             cleanup_replies,
             timeout: None,
             block_height: BlockHeight::from(0),
+            era_history,
+            system_start_ms,
+            block_delay_samples: 0,
+            block_delay_under_one_second: 0,
+            block_delay_under_three_seconds: 0,
+            block_delay_under_five_seconds: 0,
+            block_delay_over_five_seconds: 0,
         }
+    }
+
+    fn observe_blockfetch_metrics(&mut self, block_delay: f64, block_size: u64) -> BlockfetchClientMetrics {
+        self.block_delay_samples += 1;
+        self.block_delay_under_one_second += u64::from(block_delay <= 1.0);
+        self.block_delay_under_three_seconds += u64::from(block_delay <= 3.0);
+        self.block_delay_under_five_seconds += u64::from(block_delay <= 5.0);
+        self.block_delay_over_five_seconds += u64::from(block_delay > 5.0);
+
+        let block_delay_samples = self.block_delay_samples as f64;
+
+        BlockfetchClientMetrics {
+            block_delay,
+            block_delay_cdf_one: self.block_delay_under_one_second as f64 / block_delay_samples,
+            block_delay_cdf_three: self.block_delay_under_three_seconds as f64 / block_delay_samples,
+            block_delay_cdf_five: self.block_delay_under_five_seconds as f64 / block_delay_samples,
+            block_size,
+            late_blocks: self.block_delay_over_five_seconds,
+        }
+    }
+
+    #[cfg(not(test))]
+    async fn record_blockfetch_metrics(
+        &mut self,
+        slot: amaru_kernel::Slot,
+        block_size: u64,
+        eff: &Effects<FetchBlocksMsg>,
+    ) {
+        let system_start = std::time::SystemTime::UNIX_EPOCH + Duration::from_millis(self.system_start_ms);
+        let Ok(expected_time) = self.era_history.slot_to_posix_time(slot, slot, system_start) else {
+            return;
+        };
+
+        let block_delay = std::time::SystemTime::now().duration_since(expected_time).unwrap_or_default().as_secs_f64();
+        let blockfetch_metrics = self.observe_blockfetch_metrics(block_delay, block_size);
+
+        Metrics::new(eff).record(blockfetch_metrics.into()).await;
+    }
+
+    #[cfg(test)]
+    async fn record_blockfetch_metrics(
+        &mut self,
+        _slot: amaru_kernel::Slot,
+        _block_size: u64,
+        _eff: &Effects<FetchBlocksMsg>,
+    ) {
     }
 
     #[expect(clippy::expect_used)]
@@ -160,12 +234,15 @@ impl FetchBlocks {
         }
 
         let parent = self.missing.remove(0);
+        let raw_block = network_block.raw_block();
+        let block_size = raw_block.len() as u64;
         store
-            .store_block(&point.hash(), &network_block.raw_block())
+            .store_block(&point.hash(), &raw_block)
             .or_terminate(store.eff(), async |error| {
                 tracing::error!(%error, "failed to store block");
             })
             .await;
+        self.record_blockfetch_metrics(header.slot(), block_size, store.eff()).await;
         let tip = Tip::new(point, block.header.header_body.block_number.into());
         store.eff().send(&self.downstream, (tip, parent, self.block_height)).await;
 

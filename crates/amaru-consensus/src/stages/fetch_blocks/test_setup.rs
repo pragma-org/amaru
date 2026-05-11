@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
+    BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, TESTNET_GLOBAL_PARAMETERS, Tip,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
@@ -134,7 +134,14 @@ pub fn test_prep() -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
     let cleanup_replies = StageRef::named_for_tests("cleanup_replies");
 
-    let state = FetchBlocks::for_tests(downstream, upstream, manager, cleanup_replies.clone());
+    let state = FetchBlocks::for_tests(
+        downstream,
+        upstream,
+        manager,
+        cleanup_replies.clone(),
+        TESTNET_ERA_HISTORY.clone(),
+        TESTNET_GLOBAL_PARAMETERS.system_start,
+    );
 
     TestPrep {
         state,

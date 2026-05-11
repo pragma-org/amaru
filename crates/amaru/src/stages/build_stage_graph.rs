@@ -77,8 +77,16 @@ pub fn build_stage_graph(
             ValidateBlockMsg::new(tip, parent, max_block_height)
         });
 
-    let fetch_blocks = stage_graph
-        .wire_up(fetch_blocks, FetchBlocks::new(validate_block_input, select_chain.sender(), manager.sender()));
+    let fetch_blocks = stage_graph.wire_up(
+        fetch_blocks,
+        FetchBlocks::new(
+            validate_block_input,
+            select_chain.sender(),
+            manager.sender(),
+            era_history.clone(),
+            global_parameters.system_start,
+        ),
+    );
     let fetch_blocks_input =
         stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |(tip, parent)| FetchBlocksMsg::NewTip(tip, parent));
 

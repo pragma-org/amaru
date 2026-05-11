@@ -15,6 +15,7 @@
 use std::cmp::Reverse;
 
 use amaru_kernel::{BlockHeader, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_metrics::protocol::ServedHeaderCountMetrics;
 use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionId, ReadOnlyChainStore};
 use anyhow::{Context, ensure};
@@ -23,6 +24,7 @@ use tracing::Instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
+    metrics_effects::{Metrics, MetricsOps},
     mux::MuxMessage,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, Responder, StageState, miniprotocol,
@@ -83,6 +85,9 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 self.upstream = tip;
                 let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
                     .context("failed to get next header")?;
+                if matches!(action, Some(ResponderAction::RollForward(..))) {
+                    Metrics::new(eff).record(ServedHeaderCountMetrics { count: 1 }.into()).await;
+                }
                 Ok((action, self))
             }
         }
@@ -109,6 +114,9 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 ResponderResult::RequestNext => {
                     let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
                         .context("failed to get next header")?;
+                    if matches!(action, Some(ResponderAction::RollForward(..))) {
+                        Metrics::new(eff).record(ServedHeaderCountMetrics { count: 1 }.into()).await;
+                    }
                     Ok((action, self))
                 }
                 ResponderResult::Done => {

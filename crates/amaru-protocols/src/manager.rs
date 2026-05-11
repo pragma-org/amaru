@@ -316,20 +316,20 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 }
             }
             ManagerMessage::FetchBlocks2 { from, through, cr, id } => {
-            if manager.peers.is_empty() {
-                tracing::warn!("no peers to fetch blocks");
-                eff.send(&cr, Blocks2::NoBlocks(id)).await;
-                return manager;
-            }
-            tracing::debug!(?from, ?through, "fetching blocks");
-            for state in manager.peers.values() {
-                let ConnectionState::Connected { connection, .. } = state else {
-                    continue;
-                };
-                eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+                if manager.peers.is_empty() {
+                    tracing::warn!("no peers to fetch blocks");
+                    eff.send(&cr, Blocks2::NoBlocks(id)).await;
+                    return manager;
+                }
+                tracing::debug!(?from, ?through, "fetching blocks");
+                for state in manager.peers.values() {
+                    let ConnectionState::Connected { connection, .. } = state else {
+                        continue;
+                    };
+                    eff.send(connection, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+                }
             }
         }
-    }
         manager
     }
     .instrument(trace_span!(
@@ -377,18 +377,19 @@ async fn start_connection_stage(
 }
 
 fn connection_manager_metrics(manager: &Manager) -> ConnectionManagerMetrics {
-    let (incoming_connections, outgoing_connections) = manager.peers.values().fold((0, 0), |acc, state| match state {
-        ConnectionState::Connected { role: Role::Responder, .. } => (acc.0 + 1, acc.1),
-        ConnectionState::Connected { role: Role::Initiator, .. } => (acc.0, acc.1 + 1),
-        ConnectionState::Scheduled | ConnectionState::Disconnecting => acc,
-    });
+    let (connected_connections, inbound_connections, outbound_connections) =
+        manager.peers.values().fold((0, 0, 0), |acc, state| match state {
+            ConnectionState::Connected { role: Role::Responder, .. } => (acc.0 + 1, acc.1 + 1, acc.2),
+            ConnectionState::Connected { role: Role::Initiator, .. } => (acc.0 + 1, acc.1, acc.2 + 1),
+            ConnectionState::Scheduled | ConnectionState::Disconnecting => acc,
+        });
 
     ConnectionManagerMetrics {
-        duplex_connections: 0,
-        full_duplex_connections: 0,
-        inbound_connections: incoming_connections,
-        outbound_connections: outgoing_connections,
-        unidirectional_connections: incoming_connections + outgoing_connections,
+        duplex_connections: connected_connections,
+        full_duplex_connections: connected_connections,
+        inbound_connections,
+        outbound_connections,
+        unidirectional_connections: inbound_connections + outbound_connections,
     }
 }
 

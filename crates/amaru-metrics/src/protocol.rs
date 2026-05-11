@@ -23,6 +23,8 @@ use crate::{Meter, MetricRecorder, MetricsEvent};
 pub enum ProtocolMetrics {
     ConnectionManager(ConnectionManagerMetrics),
     ServedBlockCount(ServedBlockCountMetrics),
+    ServedHeaderCount(ServedHeaderCountMetrics),
+    BlockfetchClient(BlockfetchClientMetrics),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -39,6 +41,21 @@ pub struct ServedBlockCountMetrics {
     pub count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServedHeaderCountMetrics {
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BlockfetchClientMetrics {
+    pub block_delay: f64,
+    pub block_delay_cdf_one: f64,
+    pub block_delay_cdf_three: f64,
+    pub block_delay_cdf_five: f64,
+    pub block_size: u64,
+    pub late_blocks: u64,
+}
+
 #[cfg(target_arch = "wasm32")]
 impl MetricRecorder for ProtocolMetrics {
     fn record_to_meter(&self, _meter: &Meter) {}
@@ -50,6 +67,8 @@ impl MetricRecorder for ProtocolMetrics {
         match self {
             ProtocolMetrics::ConnectionManager(metrics) => metrics.record_to_meter(meter),
             ProtocolMetrics::ServedBlockCount(metrics) => metrics.record_to_meter(meter),
+            ProtocolMetrics::ServedHeaderCount(metrics) => metrics.record_to_meter(meter),
+            ProtocolMetrics::BlockfetchClient(metrics) => metrics.record_to_meter(meter),
         }
     }
 }
@@ -134,6 +153,95 @@ impl MetricRecorder for ServedBlockCountMetrics {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for ServedHeaderCountMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MetricRecorder for ServedHeaderCountMetrics {
+    fn record_to_meter(&self, meter: &Meter) {
+        static SERVED_HEADER_COUNT: OnceLock<Counter<u64>> = OnceLock::new();
+
+        let served_header_count = SERVED_HEADER_COUNT.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_ChainSync_HeadersServed_counter")
+                .with_description("total number of chain sync headers served to peers")
+                .with_unit("count")
+                .build()
+        });
+
+        served_header_count.add(self.count, &[]);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for BlockfetchClientMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MetricRecorder for BlockfetchClientMetrics {
+    fn record_to_meter(&self, meter: &Meter) {
+        static BLOCK_DELAY: OnceLock<Gauge<f64>> = OnceLock::new();
+        static BLOCK_DELAY_CDF_ONE: OnceLock<Gauge<f64>> = OnceLock::new();
+        static BLOCK_DELAY_CDF_THREE: OnceLock<Gauge<f64>> = OnceLock::new();
+        static BLOCK_DELAY_CDF_FIVE: OnceLock<Gauge<f64>> = OnceLock::new();
+        static BLOCK_SIZE: OnceLock<Gauge<u64>> = OnceLock::new();
+        static LATE_BLOCKS: OnceLock<Counter<u64>> = OnceLock::new();
+
+        let block_delay = BLOCK_DELAY.get_or_init(|| {
+            meter
+                .f64_gauge("cardano_node_metrics_blockfetchclient_blockdelay_real")
+                .with_description("delay in seconds between a block's slot time and when it is received")
+                .with_unit("real")
+                .build()
+        });
+        let block_delay_cdf_one = BLOCK_DELAY_CDF_ONE.get_or_init(|| {
+            meter
+                .f64_gauge("cardano_node_metrics_blockfetchclient_blockdelay_cdfOne_real")
+                .with_description("fraction of fetched blocks received within 1 second of their slot time")
+                .with_unit("real")
+                .build()
+        });
+        let block_delay_cdf_three = BLOCK_DELAY_CDF_THREE.get_or_init(|| {
+            meter
+                .f64_gauge("cardano_node_metrics_blockfetchclient_blockdelay_cdfThree_real")
+                .with_description("fraction of fetched blocks received within 3 seconds of their slot time")
+                .with_unit("real")
+                .build()
+        });
+        let block_delay_cdf_five = BLOCK_DELAY_CDF_FIVE.get_or_init(|| {
+            meter
+                .f64_gauge("cardano_node_metrics_blockfetchclient_blockdelay_cdfFive_real")
+                .with_description("fraction of fetched blocks received within 5 seconds of their slot time")
+                .with_unit("real")
+                .build()
+        });
+        let block_size = BLOCK_SIZE.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_blockfetchclient_blocksize_int")
+                .with_description("size in bytes of the most recently fetched block")
+                .with_unit("int")
+                .build()
+        });
+        let late_blocks = LATE_BLOCKS.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_blockfetchclient_lateblocks_counter")
+                .with_description("total number of blocks received more than 5 seconds after their slot time")
+                .with_unit("count")
+                .build()
+        });
+
+        block_delay.record(self.block_delay, &[]);
+        block_delay_cdf_one.record(self.block_delay_cdf_one, &[]);
+        block_delay_cdf_three.record(self.block_delay_cdf_three, &[]);
+        block_delay_cdf_five.record(self.block_delay_cdf_five, &[]);
+        block_size.record(self.block_size, &[]);
+        late_blocks.add(self.late_blocks, &[]);
+    }
+}
+
 impl From<ProtocolMetrics> for MetricsEvent {
     fn from(value: ProtocolMetrics) -> Self {
         MetricsEvent::ProtocolMetrics(value)
@@ -149,5 +257,17 @@ impl From<ConnectionManagerMetrics> for MetricsEvent {
 impl From<ServedBlockCountMetrics> for MetricsEvent {
     fn from(value: ServedBlockCountMetrics) -> Self {
         MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedBlockCount(value))
+    }
+}
+
+impl From<ServedHeaderCountMetrics> for MetricsEvent {
+    fn from(value: ServedHeaderCountMetrics) -> Self {
+        MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedHeaderCount(value))
+    }
+}
+
+impl From<BlockfetchClientMetrics> for MetricsEvent {
+    fn from(value: BlockfetchClientMetrics) -> Self {
+        MetricsEvent::ProtocolMetrics(ProtocolMetrics::BlockfetchClient(value))
     }
 }

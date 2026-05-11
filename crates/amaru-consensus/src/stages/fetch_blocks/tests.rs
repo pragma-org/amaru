@@ -14,6 +14,7 @@
 
 use std::time::Duration;
 
+use amaru_metrics::protocol::BlockfetchClientMetrics;
 use pure_stage::{Instant, ScheduleIds, trace_buffer::TerminationReason};
 use tracing::Level;
 
@@ -219,4 +220,33 @@ fn test_block2_received() {
         Level::WARN,
         Level::ERROR,
     ]);
+}
+
+#[test]
+fn test_observe_blockfetch_metrics_tracks_running_cdfs() {
+    let mut state = test_prep().state;
+
+    assert_eq!(
+        state.observe_blockfetch_metrics(0.5, 100),
+        BlockfetchClientMetrics {
+            block_delay: 0.5,
+            block_delay_cdf_one: 1.0,
+            block_delay_cdf_three: 1.0,
+            block_delay_cdf_five: 1.0,
+            block_size: 100,
+            late_blocks: 0,
+        }
+    );
+
+    assert_eq!(
+        state.observe_blockfetch_metrics(4.0, 200),
+        BlockfetchClientMetrics {
+            block_delay: 4.0,
+            block_delay_cdf_one: 0.5,
+            block_delay_cdf_three: 0.5,
+            block_delay_cdf_five: 1.0,
+            block_size: 200,
+            late_blocks: 0,
+        }
+    );
 }
