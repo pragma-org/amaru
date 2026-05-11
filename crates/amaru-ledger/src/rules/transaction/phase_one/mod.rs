@@ -282,6 +282,12 @@ mod tests {
         };
     }
 
+    /// TODO: Simplify adding cases
+    ///
+    /// This could be created at build time via build.rs (or via a macro).
+    /// The benefit to that is that:
+    ///   1) This file is smaller when editing manually
+    ///   2) When a new fixture is introduced, we can automatically include it
     #[test_case(fixture!("pass/simple-transfer"); "simple transfer")]
     #[test_case(fixture!("pass/with-metadata"); "with matching auxiliary data")]
     #[test_case(fixture!("fail/InvalidWitnessesUTXOW/0"); "invalid vkey signature")]
