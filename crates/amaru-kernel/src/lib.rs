@@ -154,6 +154,7 @@ pub use cardano::{
     drep::any_drep,
     epoch::any_epoch,
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
+    era_history::EraHistoryProxy,
     era_name::any_era_name,
     era_params::any_era_params,
     hash::{any_hash28, any_hash32},
