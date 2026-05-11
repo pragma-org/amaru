@@ -297,6 +297,8 @@ mod tests {
     #[test_case(fixture!("fail/MaxTxSizeUTxO/0"); "transaction larger than maxTransactionSize")]
     #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/0"); "current slot before invalid_before")]
     #[test_case(fixture!("fail/OutsideForecast/0"); "upper validity bound past forecast horizon with redeemer")]
+    #[test_case(fixture!("fail/MissingVKeyWitnessesUTXOW/0"); "vkey-locked input with empty witness set")]
+    #[test_case(fixture!("fail/WrongNetworkWithdrawal/0"); "withdrawal reward account on wrong network")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
