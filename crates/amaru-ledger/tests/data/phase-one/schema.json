@@ -20,8 +20,20 @@
       "type": "string",
       "pattern": "^(mainnet|preprod|preview|testnet_[0-9]+)$"
     },
-    "eraHistory": { "$ref": "#/$defs/EraHistory" },
-    "protocolParameters": { "$ref": "#/$defs/ProtocolParameters" },
+    "eraHistory": {
+      "oneOf": [
+        { "$ref": "#/$defs/EraHistory" },
+        { "$ref": "#/$defs/RefOrOverride" }
+      ],
+      "description": "Either an inline EraHistory or a $ref to a shared file under common/eraHistory/."
+    },
+    "protocolParameters": {
+      "oneOf": [
+        { "$ref": "#/$defs/ProtocolParameters" },
+        { "$ref": "#/$defs/RefOrOverride" }
+      ],
+      "description": "Either inline ProtocolParameters or a $ref to a shared file under common/protocolParameters/, with an optional $override object that is shallow-merged over the referenced document."
+    },
     "initialState": { "$ref": "#/$defs/InitialState" },
     "ledgerEnv": { "$ref": "#/$defs/LedgerEnv" },
     "transaction": {
@@ -34,6 +46,21 @@
     "HexCbor": {
       "type": "string",
       "pattern": "^[0-9a-fA-F]+$"
+    },
+    "RefOrOverride": {
+      "type": "object",
+      "required": ["$ref"],
+      "properties": {
+        "$ref": {
+          "type": "string",
+          "description": "Path to a shared canonical document, relative to the fixture data root (e.g. \"common/protocolParameters/preprod-conway-v9.json\")."
+        },
+        "$override": {
+          "type": "object",
+          "description": "Optional object shallow-merged over the referenced document before final deserialization. Use for one-off variations on a shared preset."
+        }
+      },
+      "additionalProperties": false
     },
     "Ratio": {
       "type": "object",
