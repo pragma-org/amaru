@@ -14,11 +14,13 @@
 
 use std::{cmp::Ordering, time::Duration};
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Tip};
+use amaru_kernel::{BlockHeader, BlockHeight, Hasher, IsHeader, ORIGIN_HASH, Tip};
+use amaru_metrics::protocol::TipBlockMetrics;
 use amaru_ouroboros_traits::{ChainStore, ReadOnlyChainStore, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, Instant, StageRef, TryInStage};
 
+use crate::effects::{Metrics, MetricsOps};
 use crate::stages::select_chain::cmp_tip;
 
 /// This stage receives validated chains in the form of a Tip and decides
@@ -111,6 +113,8 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         })
         .await;
 
+    Metrics::new(store.eff()).record(tip_block_metrics(&incoming_header).into()).await;
+
     // do not print every single block while catching up
     let now = store.eff().clock().await;
     if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
@@ -141,6 +145,14 @@ fn adopt_tip(
 
     store.set_best_chain_hash(&incoming_header.hash())?;
     Ok(())
+}
+
+fn tip_block_metrics(header: &BlockHeader) -> TipBlockMetrics {
+    TipBlockMetrics {
+        hash: header.hash().to_string(),
+        parent_hash: header.parent_hash().unwrap_or(ORIGIN_HASH).to_string(),
+        issuer_verification_key_hash: Hasher::<224>::hash(&header.header_body().issuer_vkey[..]).to_string(),
+    }
 }
 
 /// Find the youngest point on the current best chain that is an ancestor of
