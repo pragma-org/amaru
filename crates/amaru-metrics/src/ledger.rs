@@ -27,6 +27,8 @@ pub struct LedgerMetrics {
     pub slot_in_epoch: u64,
     pub epoch: u64,
     pub density: f64,
+    pub current_kes_period: u64,
+    pub remaining_kes_periods: u64,
 }
 
 impl Default for LedgerMetrics {
@@ -38,6 +40,8 @@ impl Default for LedgerMetrics {
             slot_in_epoch: Default::default(),
             epoch: Default::default(),
             density: Default::default(),
+            current_kes_period: Default::default(),
+            remaining_kes_periods: Default::default(),
         }
     }
 }
@@ -59,6 +63,8 @@ impl MetricRecorder for LedgerMetrics {
         static SLOT_IN_EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
         static EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
         static DENSITY: OnceLock<Gauge<f64>> = OnceLock::new();
+        static CURRENT_KES_PERIOD: OnceLock<Gauge<u64>> = OnceLock::new();
+        static REMAINING_KES_PERIODS: OnceLock<Gauge<u64>> = OnceLock::new();
 
         let block_height = BLOCK_HEIGHT.get_or_init(|| {
             meter
@@ -102,6 +108,20 @@ impl MetricRecorder for LedgerMetrics {
                 .with_unit("real")
                 .build()
         });
+        let current_kes_period = CURRENT_KES_PERIOD.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_currentKESPeriod_int")
+                .with_description("current KES (Key Evolving Signature) period")
+                .with_unit("int")
+                .build()
+        });
+        let remaining_kes_periods = REMAINING_KES_PERIODS.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_remainingKESPeriods_int")
+                .with_description("number of remaining KES periods before the key becomes invalid")
+                .with_unit("int")
+                .build()
+        });
 
         block_height.record(self.block_height, &[]);
         txs_processed.add(self.txs_processed, &[]);
@@ -109,6 +129,8 @@ impl MetricRecorder for LedgerMetrics {
         epoch.record(self.epoch, &[]);
         slot_in_epoch.record(self.slot_in_epoch, &[]);
         density.record(self.density, &[]);
+        current_kes_period.record(self.current_kes_period, &[]);
+        remaining_kes_periods.record(self.remaining_kes_periods, &[]);
     }
 }
 
