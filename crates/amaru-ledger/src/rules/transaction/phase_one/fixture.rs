@@ -21,7 +21,9 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    rules::transaction::phase_one::{InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, PhaseOneError},
+    rules::transaction::phase_one::{
+        InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, PhaseOneError,
+    },
     store::GovernanceActivity,
 };
 
@@ -77,8 +79,12 @@ pub(super) enum Predicate {
     ConflictingMetadataHash,
     InputSetEmptyUTxO,
     InvalidWitnessesUTXOW,
+    MaxTxSizeUTxO,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
+    OutsideForecast,
+    OutsideValidityIntervalUTxO,
+    WrongNetworkInTxBody,
 }
 
 impl From<PhaseOneError> for Predicate {
@@ -99,6 +105,12 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::EmptyInputSet) => Predicate::InputSetEmptyUTxO,
             PhaseOneError::Inputs(InvalidInputs::UnknownInput(_)) => Predicate::BadInputsUTxO,
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
+            PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
+            PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
+            PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
+                Predicate::OutsideValidityIntervalUTxO
+            }
+            PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideForecast(_)) => Predicate::OutsideForecast,
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
@@ -108,10 +120,7 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Withdrawals(_)
             | PhaseOneError::Scripts(_)
             | PhaseOneError::Collateral(_)
-            | PhaseOneError::Proposals(_)
-            | PhaseOneError::ValidityInterval(_)
-            | PhaseOneError::InvalidNetworkID { .. }
-            | PhaseOneError::TooLarge { .. } => unreachable!("no predicate mapping yet for {err}"),
+            | PhaseOneError::Proposals(_) => unreachable!("no predicate mapping yet for {err}"),
         }
     }
 }
