@@ -304,6 +304,10 @@ mod tests {
     #[test_case(fixture!("pass/validity-interval-end-only"); "slot below end with no lower bound")]
     #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/1"); "slot equals invalid_after exclusive upper bound")]
     #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/2"); "slot equals end with no lower bound")]
+    #[test_case(fixture!("pass/validity-interval-start-only"); "slot above start with no upper bound")]
+    #[test_case(fixture!("pass/reference-input"); "tx with resolvable reference input")]
+    #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
+    #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
