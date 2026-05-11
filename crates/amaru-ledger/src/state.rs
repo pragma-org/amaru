@@ -129,6 +129,10 @@ where
     /// Updatable protocol parameters.
     protocol_parameters: ProtocolParameters,
 
+    /// Protocol parameters previewed for validating volatile blocks in an epoch that the stable DB
+    /// has not reached yet.
+    validation_protocol_parameters: Option<(Epoch, ProtocolParameters)>,
+
     /// Track the number of dormant epochs (i.e. epochs that start without any available
     /// proposals).
     governance_activity: GovernanceActivity,
@@ -201,6 +205,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             global_parameters: Arc::new(global_parameters),
 
             protocol_parameters,
+
+            validation_protocol_parameters: None,
 
             governance_activity,
 
@@ -433,6 +439,53 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             Ok(db.protocol_parameters()?)
         }?;
         batch.commit()?;
+
+        Ok(protocol_parameters)
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn protocol_parameters_for_validation(&mut self, slot: Slot) -> Result<ProtocolParameters, StateError> {
+        let block_epoch =
+            self.era_history.slot_to_epoch(slot, slot).map_err(|e| StateError::ErrorComputingEpoch(slot, e))?;
+
+        let db = self.stable.lock().unwrap();
+        let stable_tip = db.tip().map_err(StateError::Storage)?;
+        let stable_slot = stable_tip.slot_or_default();
+        let stable_epoch = self
+            .era_history
+            .slot_to_epoch(stable_slot, slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(stable_slot, e))?;
+
+        if block_epoch <= stable_epoch {
+            return Ok(self.protocol_parameters.clone());
+        }
+
+        if let Some((epoch, protocol_parameters)) = &self.validation_protocol_parameters
+            && *epoch == block_epoch
+        {
+            return Ok(protocol_parameters.clone());
+        }
+
+        let batch = db.create_transaction();
+        let treasury = db.pots().map_err(StateError::Storage)?.treasury;
+        let ratification_context = new_ratification_context(
+            self.snapshots.for_epoch(block_epoch - 2)?,
+            self.stake_distribution(block_epoch - 2)?,
+            self.protocol_parameters.clone(),
+            treasury,
+        )?;
+        let protocol_parameters = begin_epoch(
+            &batch,
+            block_epoch,
+            &self.era_history,
+            ratification_context,
+            db.iter_proposals()?.collect::<Vec<_>>(),
+            db.proposals_roots()?,
+            &self.protocol_parameters,
+        )?;
+        batch.rollback().map_err(StateError::Storage)?;
+
+        self.validation_protocol_parameters = Some((block_epoch, protocol_parameters.clone()));
 
         Ok(protocol_parameters)
     }
@@ -699,12 +752,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let prev_hash = block.header.header_body.prev_hash;
         let tx_count = block.transaction_bodies.len() as u64;
         trace_block_transactions(point, block_height, &block);
+        let protocol_parameters = match self.protocol_parameters_for_validation(point.slot_or_default()) {
+            Ok(protocol_parameters) => protocol_parameters,
+            Err(error) => return BlockValidation::Err(error.into()),
+        };
 
         match rules::validate_block(
             &mut context,
             arena_pool,
             self.network(),
-            self.protocol_parameters(),
+            &protocol_parameters,
             self.era_history(),
             self.governance_activity(),
             block,
@@ -799,7 +856,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 self.volatile.rollback_to(to).map_err(|rollback_point| BackwardError::UnknownRollbackPoint {
                     rollback_point: *rollback_point,
                     tip,
-                })
+                })?;
+                self.validation_protocol_parameters = None;
+                Ok(())
             },
         )
     }
