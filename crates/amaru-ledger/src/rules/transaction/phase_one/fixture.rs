@@ -15,8 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    EraHistory, MemoizedTransactionOutput, NetworkName, ProtocolParameters, TransactionInput, TransactionPointer, json,
-    utils::serde::{deserialize_proxy, deserialize_utxo, hex_to_bytes},
+    EraHistoryProxy, MemoizedTransactionOutput, NetworkName, ProtocolParameters, TransactionInput, TransactionPointer,
+    json,
+    utils::serde::{RefOrInline, deserialize_proxy, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
@@ -28,13 +29,12 @@ use crate::{
     store::GovernanceActivity,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Fixture {
     pub(super) network: NetworkName,
-    #[serde(deserialize_with = "deserialize_proxy")]
-    pub(super) era_history: EraHistory,
-    pub(super) protocol_parameters: ProtocolParameters,
+    pub(super) era_history: RefOrInline<EraHistoryProxy>,
+    pub(super) protocol_parameters: RefOrInline<ProtocolParameters>,
     pub(super) initial_state: InitialState,
     #[serde(deserialize_with = "deserialize_proxy")]
     pub(super) ledger_env: TransactionPointer,
@@ -43,7 +43,7 @@ pub(super) struct Fixture {
     pub(super) expected: Expected,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_utxo")]
@@ -52,7 +52,6 @@ pub(super) struct InitialState {
     pub(super) voting_state: GovernanceActivity,
 }
 
-#[derive(Debug)]
 pub(super) enum Expected {
     Pass,
     Fail(Predicate),

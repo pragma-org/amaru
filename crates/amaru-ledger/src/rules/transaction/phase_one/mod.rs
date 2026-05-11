@@ -270,7 +270,9 @@ fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Re
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Transaction, cbor, include_json};
+    use amaru_kernel::{
+        EraHistory, ProtocolParameters, Transaction, cbor, include_json, utils::serde::FilesystemRefResolver,
+    };
     use test_case::test_case;
 
     use super::fixture::{Expected, Fixture, Predicate};
@@ -319,13 +321,19 @@ mod tests {
 
         let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
 
+        let resolver =
+            FilesystemRefResolver::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/phase-one"));
+        let era_history: EraHistory = fixture.era_history.resolve_into(&resolver).expect("resolve eraHistory");
+        let protocol_parameters: ProtocolParameters =
+            fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
+
         let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
 
         let result = super::execute(
             &mut ctx,
             &fixture.network,
-            &fixture.protocol_parameters,
-            &fixture.era_history,
+            &protocol_parameters, 
+            &era_history,
             &fixture.initial_state.voting_state,
             fixture.ledger_env,
             tx.is_expected_valid,
