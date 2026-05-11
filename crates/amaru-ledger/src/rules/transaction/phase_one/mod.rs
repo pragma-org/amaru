@@ -299,6 +299,11 @@ mod tests {
     #[test_case(fixture!("fail/OutsideForecast/0"); "upper validity bound past forecast horizon with redeemer")]
     #[test_case(fixture!("fail/MissingVKeyWitnessesUTXOW/0"); "vkey-locked input with empty witness set")]
     #[test_case(fixture!("fail/WrongNetworkWithdrawal/0"); "withdrawal reward account on wrong network")]
+    #[test_case(fixture!("pass/withdrawal"); "withdrawal with matching credential")]
+    #[test_case(fixture!("pass/validity-interval-both-bounds"); "slot strictly inside both bounds")]
+    #[test_case(fixture!("pass/validity-interval-end-only"); "slot below end with no lower bound")]
+    #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/1"); "slot equals invalid_after exclusive upper bound")]
+    #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/2"); "slot equals end with no lower bound")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
