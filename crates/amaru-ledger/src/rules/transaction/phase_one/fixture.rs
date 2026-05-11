@@ -22,7 +22,8 @@ use serde::Deserialize;
 
 use crate::{
     rules::transaction::phase_one::{
-        InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, PhaseOneError,
+        InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals,
+        PhaseOneError,
     },
     store::GovernanceActivity,
 };
@@ -82,9 +83,11 @@ pub(super) enum Predicate {
     MaxTxSizeUTxO,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
+    MissingVKeyWitnessesUTXOW,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
     WrongNetworkInTxBody,
+    WrongNetworkWithdrawal,
 }
 
 impl From<PhaseOneError> for Predicate {
@@ -93,6 +96,10 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::VKeyWitness(InvalidVKeyWitness::InvalidSignatures { .. }) => {
                 Predicate::InvalidWitnessesUTXOW
             }
+            PhaseOneError::VKeyWitness(InvalidVKeyWitness::MissingRequiredKeysOrRoots { .. }) => {
+                Predicate::MissingVKeyWitnessesUTXOW
+            }
+            PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
             PhaseOneError::Metadata(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(_)) => {
                 Predicate::MissingTxBodyMetadataHash
             }
