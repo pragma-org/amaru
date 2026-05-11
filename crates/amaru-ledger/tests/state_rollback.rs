@@ -21,7 +21,7 @@ use amaru_ledger::{
     state::{BackwardError, State, VolatileState},
     store::GovernanceActivity,
 };
-use amaru_stores::in_memory::MemoryStore;
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 
 #[test]
 fn rollback_to_a_volatile_common_ancestor_succeeds() {
@@ -100,15 +100,17 @@ fn rollback_after_volatile_front_is_rejected() {
 
 /// Create an initial ledger state
 #[expect(clippy::expect_used)]
-fn make_state() -> State<MemoryStore, MemoryStore> {
+fn make_state() -> State<RocksDB, RocksDBHistoricalStores> {
     let network = NetworkName::Preprod;
     let era_history: EraHistory = <&EraHistory>::from(network).clone();
     let global_parameters: GlobalParameters = <&GlobalParameters>::from(network).clone();
     let protocol_parameters: ProtocolParameters =
         <&ProtocolParameters>::try_from(network).expect("preprod parameters available").clone();
 
-    let store = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
-    let snapshots = MemoryStore::new(era_history.clone(), protocol_parameters.clone());
+    let tmp = tempfile::tempdir().expect("tempdir creation succeeds");
+    let cfg = RocksDbConfig::new(tmp.path().to_path_buf());
+    let store = RocksDB::empty(&cfg).expect("RocksDB::empty succeeds");
+    let snapshots = RocksDBHistoricalStores::new(&cfg, 0);
 
     State::new_with(
         store,
@@ -124,7 +126,7 @@ fn make_state() -> State<MemoryStore, MemoryStore> {
 
 /// Forward the ldeger to a given point
 #[expect(clippy::expect_used)]
-fn forward_to(state: &mut State<MemoryStore, MemoryStore>, point: Point, height: u64) {
+fn forward_to(state: &mut State<RocksDB, RocksDBHistoricalStores>, point: Point, height: u64) {
     let issuer = Hash::new([0u8; 28]);
     state
         .forward(VolatileState::default().anchor(Tip::new(point, BlockHeight::from(height)), issuer))

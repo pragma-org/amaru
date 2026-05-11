@@ -18,19 +18,12 @@ use amaru_kernel::{EraHistory, GlobalParameters, Point};
 use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros::{CanValidateBlocks, CanValidateTxs, HasStakeDistribution, HasStakePools};
 use amaru_plutus::arena_pool::ArenaPool;
-use amaru_stores::{
-    in_memory::MemoryStore,
-    rocksdb::{RocksDB, RocksDBHistoricalStores},
-};
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 
-use crate::stages::config::{Config, StoreType};
+use crate::stages::config::Config;
 
 /// Representation of the ledger as used by the consensus stages.
-/// It is either implemented in memory for tests or on disk for production.
-pub enum Ledger {
-    InMemLedger(BlockValidator<MemoryStore, MemoryStore>),
-    OnDiskLedger(BlockValidator<RocksDB, RocksDBHistoricalStores>),
-}
+pub struct Ledger(BlockValidator<RocksDB, RocksDBHistoricalStores>);
 
 impl Ledger {
     pub fn new(
@@ -40,74 +33,39 @@ impl Ledger {
     ) -> anyhow::Result<Ledger> {
         let vm_eval_pool = ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size);
 
-        match &config.ledger_store {
-            StoreType::InMem(store) => {
-                let ledger = BlockValidator::new(
-                    store.clone(),
-                    store.clone(),
-                    vm_eval_pool,
-                    config.network,
-                    era_history,
-                    global_parameters,
-                )?;
-                Ok(Ledger::InMemLedger(ledger))
-            }
-            StoreType::RocksDb(rocks_db_config) => {
-                let ledger = BlockValidator::new(
-                    RocksDB::new(rocks_db_config)?,
-                    RocksDBHistoricalStores::new(rocks_db_config, u64::from(config.max_extra_ledger_snapshots)),
-                    vm_eval_pool,
-                    config.network,
-                    era_history,
-                    global_parameters,
-                )?;
-                Ok(Ledger::OnDiskLedger(ledger))
-            }
-        }
+        let ledger = BlockValidator::new(
+            RocksDB::new(&config.ledger_store)?,
+            RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots)),
+            vm_eval_pool,
+            config.network,
+            era_history,
+            global_parameters,
+        )?;
+        Ok(Ledger(ledger))
     }
 
     /// Return the current ledger tip.
     pub fn get_tip(&self) -> Point {
-        match self {
-            Ledger::InMemLedger(stage) => stage.get_tip(),
-            Ledger::OnDiskLedger(stage) => stage.get_tip(),
-        }
+        self.0.get_tip()
     }
 
     /// Return the current stake distribution.
     /// It used to validate header nonces.
     pub fn get_stake_distribution(&self) -> anyhow::Result<Arc<dyn HasStakeDistribution>> {
-        match self {
-            Ledger::InMemLedger(stage) => {
-                let state = stage.state.lock().map_err(|e| anyhow::anyhow!("{:?}", e))?;
-                Ok(Arc::new(state.view_stake_distribution()))
-            }
-            Ledger::OnDiskLedger(stage) => {
-                let state = stage.state.lock().map_err(|e| anyhow::anyhow!("{:?}", e))?;
-                Ok(Arc::new(state.view_stake_distribution()))
-            }
-        }
+        let state = self.0.state.lock().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        Ok(Arc::new(state.view_stake_distribution()))
     }
 
     /// Return the ledger as a capability for validating blocks.
     pub fn get_block_validation(&self) -> Arc<dyn CanValidateBlocks + Send + Sync> {
-        match self {
-            Ledger::InMemLedger(stage) => Arc::new((*stage).clone()),
-            Ledger::OnDiskLedger(stage) => Arc::new((*stage).clone()),
-        }
+        Arc::new(self.0.clone())
     }
 
     pub fn get_stake_pools(&self) -> Arc<dyn HasStakePools + Send + Sync> {
-        match self {
-            Ledger::InMemLedger(stage) => Arc::new((*stage).clone()),
-            Ledger::OnDiskLedger(stage) => Arc::new((*stage).clone()),
-        }
+        Arc::new(self.0.clone())
     }
 
     pub fn get_tx_validation(&self) -> Arc<dyn CanValidateTxs + Send + Sync> {
-        match self {
-            Ledger::InMemLedger(stage) => Arc::new((*stage).clone()),
-            Ledger::OnDiskLedger(stage) => Arc::new((*stage).clone()),
-        }
+        Arc::new(self.0.clone())
     }
 }

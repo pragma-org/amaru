@@ -16,12 +16,12 @@ use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use amaru_kernel::{BlockHeader, NetworkMagic, NetworkName};
 use amaru_ouroboros::ChainStore;
-use amaru_stores::{in_memory::MemoryStore, rocksdb::RocksDbConfig};
+use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::Context;
 
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
 pub struct Config {
-    pub ledger_store: StoreType<MemoryStore>,
+    pub ledger_store: RocksDbConfig,
     pub chain_store: StoreType<Arc<dyn ChainStore<BlockHeader>>>,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
@@ -69,7 +69,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            ledger_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./ledger.db"))),
+            ledger_store: RocksDbConfig::new(PathBuf::from("./ledger.db")),
             chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
             network: NetworkName::Preprod,
