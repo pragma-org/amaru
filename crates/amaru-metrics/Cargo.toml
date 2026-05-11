@@ -18,6 +18,6 @@ categories.workspace = true
 
 [dependencies]
 # External Dependencies
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "std"] }
 [target.'cfg(not(target_arch="wasm32"))'.dependencies]
 opentelemetry.workspace = true

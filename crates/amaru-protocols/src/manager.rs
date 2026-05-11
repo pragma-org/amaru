@@ -248,6 +248,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                         manager.peers.remove(&peer);
                     }
                 }
+                record_connection_metrics(&manager, &eff).await;
             }
             ManagerMessage::ConnectionDied(peer, conn_id, role) => {
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::CONNECTION_DIED, peer = peer.to_string(), conn_id = conn_id.to_string(), role = role.to_string());
@@ -377,16 +378,13 @@ async fn start_connection_stage(
 }
 
 fn connection_manager_metrics(manager: &Manager) -> ConnectionManagerMetrics {
-    let (connected_connections, inbound_connections, outbound_connections) =
-        manager.peers.values().fold((0, 0, 0), |acc, state| match state {
-            ConnectionState::Connected { role: Role::Responder, .. } => (acc.0 + 1, acc.1 + 1, acc.2),
-            ConnectionState::Connected { role: Role::Initiator, .. } => (acc.0 + 1, acc.1, acc.2 + 1),
-            ConnectionState::Scheduled | ConnectionState::Disconnecting => acc,
-        });
+    let (inbound_connections, outbound_connections) = manager.peers.values().fold((0, 0), |acc, state| match state {
+        ConnectionState::Connected { role: Role::Responder, .. } => (acc.0 + 1, acc.1),
+        ConnectionState::Connected { role: Role::Initiator, .. } => (acc.0, acc.1 + 1),
+        ConnectionState::Scheduled | ConnectionState::Disconnecting => acc,
+    });
 
     ConnectionManagerMetrics {
-        duplex_connections: connected_connections,
-        full_duplex_connections: connected_connections,
         inbound_connections,
         outbound_connections,
         unidirectional_connections: inbound_connections + outbound_connections,
