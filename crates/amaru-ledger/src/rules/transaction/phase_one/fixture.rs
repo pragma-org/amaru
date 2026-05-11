@@ -91,6 +91,7 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Collateral(_)
             | PhaseOneError::Proposals(_)
             | PhaseOneError::Metadata(_)
+            | PhaseOneError::ValidityInterval(_)
             | PhaseOneError::InvalidNetworkID { .. }
             | PhaseOneError::TooLarge { .. } => unreachable!("no predicate mapping yet for {err}"),
         }
