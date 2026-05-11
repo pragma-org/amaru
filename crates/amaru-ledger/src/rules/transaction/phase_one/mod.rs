@@ -332,7 +332,7 @@ mod tests {
         let result = super::execute(
             &mut ctx,
             &fixture.network,
-            &protocol_parameters, 
+            &protocol_parameters,
             &era_history,
             &fixture.initial_state.voting_state,
             fixture.ledger_env,
