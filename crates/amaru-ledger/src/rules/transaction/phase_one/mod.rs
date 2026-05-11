@@ -293,6 +293,10 @@ mod tests {
     #[test_case(fixture!("fail/BadInputsUTxO/1"); "unknown reference input")]
     #[test_case(fixture!("pass/native-script-input"); "native script-locked input")]
     #[test_case(fixture!("fail/BabbageNonDisjointRefInputs/0"); "input appears as both spent and reference")]
+    #[test_case(fixture!("fail/WrongNetworkInTxBody/0"); "body network_id disagrees with fixture network")]
+    #[test_case(fixture!("fail/MaxTxSizeUTxO/0"); "transaction larger than maxTransactionSize")]
+    #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/0"); "current slot before invalid_before")]
+    #[test_case(fixture!("fail/OutsideForecast/0"); "upper validity bound past forecast horizon with redeemer")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
