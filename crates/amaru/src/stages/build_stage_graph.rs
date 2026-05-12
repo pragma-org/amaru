@@ -65,7 +65,8 @@ pub fn build_stage_graph(
             .try_into()
             .expect("consensus security param will not be larger than u64::MAX")
     };
-    let adopt_chain = stage_graph.wire_up(adopt_chain, AdoptChain::new(manager.sender(), k, ledger_tip));
+    let adopt_chain =
+        stage_graph.wire_up(adopt_chain, AdoptChain::new(manager.sender(), track_peers.sender(), k, ledger_tip));
 
     let validate_block = stage_graph.wire_up(
         validate_block,

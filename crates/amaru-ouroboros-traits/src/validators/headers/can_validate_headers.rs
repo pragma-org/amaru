@@ -14,43 +14,49 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::BlockHeader;
+use amaru_kernel::{BlockHeader, Epoch};
 use serde::{Deserialize, Serialize};
 
 pub trait CanValidateHeaders: Send + Sync {
     fn validate_header(&self, header: &BlockHeader) -> Result<(), HeaderValidationError>;
 }
 
+/// An error reported by header validation.
+///
+/// The `MissingStakeDistribution` variant flags a transient condition: the ledger has not yet
+/// computed the stake distribution required to validate this header. In that case we need to wait
+/// until the ledger has caught up to revalidate the header.
 #[derive(Debug)]
-pub struct HeaderValidationError(anyhow::Error);
+pub enum HeaderValidationError {
+    MissingStakeDistribution(Epoch),
+    Other(anyhow::Error),
+}
 
 impl HeaderValidationError {
-    pub fn new(err: anyhow::Error) -> Self {
-        HeaderValidationError(err)
-    }
-
-    pub fn to_anyhow(self) -> anyhow::Error {
-        self.0
-    }
-
-    pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(self) -> Result<T, anyhow::Error> {
-        self.0.downcast::<T>()
-    }
-
-    pub fn downcast_ref<T: std::error::Error + Debug + Send + Sync + 'static>(&self) -> Option<&T> {
-        self.0.downcast_ref::<T>()
+    /// If this error was caused by a missing stake distribution, return the epoch whose
+    /// distribution is missing. Returns `None` for all other errors.
+    pub fn as_missing_stake_distribution(&self) -> Option<Epoch> {
+        match self {
+            Self::MissingStakeDistribution(epoch) => Some(*epoch),
+            Self::Other(_) => None,
+        }
     }
 }
 
 impl From<anyhow::Error> for HeaderValidationError {
     fn from(err: anyhow::Error) -> Self {
-        HeaderValidationError::new(err)
+        Self::Other(err)
     }
 }
 
 impl Display for HeaderValidationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HeaderValidationError: {}", self.0)
+        match self {
+            Self::MissingStakeDistribution(epoch) => {
+                write!(f, "HeaderValidationError: no stake distribution available for epoch {}.", epoch)
+            }
+            Self::Other(err) => write!(f, "HeaderValidationError: {}", err),
+        }
     }
 }
 
@@ -59,25 +65,28 @@ impl Serialize for HeaderValidationError {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.0.to_string())
+        serializer.serialize_str(&self.to_string())
     }
 }
 
-/// This deserialization implementation is a best-effort attempt to
-/// recover the error message. The original error type is lost during
-/// serialization, so we can only reconstruct the error message as a string.
+/// Best-effort deserialization: the original error type is lost during serialization, so
+/// any recovered value lands in the `Other` variant carrying the error message as a string.
 impl<'de> Deserialize<'de> for HeaderValidationError {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(HeaderValidationError::new(anyhow::anyhow!(s)))
+        Ok(Self::Other(anyhow::anyhow!(s)))
     }
 }
 
 impl PartialEq for HeaderValidationError {
     fn eq(&self, other: &Self) -> bool {
-        self.0.to_string() == other.0.to_string()
+        match (self, other) {
+            (Self::MissingStakeDistribution(a), Self::MissingStakeDistribution(b)) => a == b,
+            (Self::Other(a), Self::Other(b)) => a.to_string() == b.to_string(),
+            _ => false,
+        }
     }
 }

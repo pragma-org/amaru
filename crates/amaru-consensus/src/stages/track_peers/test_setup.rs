@@ -114,6 +114,8 @@ fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
         pure_stage::register_data_deserializer::<TrackPeersMsg>().boxed(),
+        pure_stage::register_data_deserializer::<super::defer_req_next::DeferReqNext>().boxed(),
+        pure_stage::register_data_deserializer::<super::DeferReqNextMsg>().boxed(),
         pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
@@ -178,7 +180,19 @@ pub struct FailingHeaderValidation;
 
 impl CanValidateHeaders for FailingHeaderValidation {
     fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        Err(HeaderValidationError::new(anyhow!("header validation failed: booyah!")))
+        Err(HeaderValidationError::Other(anyhow!("header validation failed: booyah!")))
+    }
+}
+
+/// Header validation mock that always fails with the transient
+/// "stake distribution not available" condition for the given epoch.
+pub struct TransientHeaderValidation {
+    pub epoch: amaru_kernel::Epoch,
+}
+
+impl CanValidateHeaders for TransientHeaderValidation {
+    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
+        Err(HeaderValidationError::MissingStakeDistribution(self.epoch))
     }
 }
 

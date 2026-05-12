@@ -23,11 +23,11 @@ use pure_stage::trace_buffer::TraceEntry;
 use tracing::Level;
 
 use crate::stages::track_peers::{
-    TrackPeersMsg,
     test_setup::{
-        FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
-        te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
+        assert_trace, build_store, make_block_header, setup, setup_with_validation, te_has_header, te_load_tip,
+        te_send, te_store_header, te_validate_header, test_prep, FailingHeaderValidation, TransientHeaderValidation,
     },
+    TrackPeersMsg,
 };
 
 #[test]
@@ -231,7 +231,6 @@ fn test_roll_forward_unknown_peer_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state.clone())),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(state)),
         ],
@@ -266,8 +265,8 @@ fn test_roll_forward_known_peer_header_already_stored() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
+            te_send("tp-1", &prep.handler, RequestNext),
             te_has_header("tp-1", header.hash()),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
@@ -304,8 +303,8 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
+            te_send("tp-1", &prep.handler, RequestNext),
             te_has_header("tp-1", header.hash()),
             te_store_header("tp-1", header.clone()),
             te_send("tp-1", "downstream", (header.tip(), parent.point())),
@@ -406,7 +405,6 @@ fn test_roll_forward_invalid_parent_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
@@ -438,7 +436,6 @@ fn test_roll_forward_invalid_height_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
@@ -470,7 +467,6 @@ fn test_roll_forward_invalid_point_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
@@ -514,12 +510,55 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
         &[
             TraceEntry::state("tp-1", Box::new(state)),
             TraceEntry::input("tp-1", Box::new(msg)),
-            te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
             te_send("tp-1", "manager", ManagerMessage::RemovePeer(peer)),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );
+}
+
+#[test]
+fn test_roll_forward_transient_validation_failure_keeps_peer() {
+    // When a header cannot be validated because the stake distribution needed for its validation
+    // is not yet available, we should not remove the peer.
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let header = &prep.headers[1];
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.tip()),
+    });
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), parent.tip(), header.tip());
+
+    let mut expected = state.clone();
+    expected.pending_validations.push(PendingValidation {
+        peer: peer.clone(),
+        handler: prep.handler.clone(),
+        variant: EraName::Conway,
+        header: header.clone(),
+        tip: header.tip(),
+        missing_epoch,
+    });
+
+    let (running, _guards, mut logs) = setup_with_validation(
+        &prep.rt_handle(),
+        state.clone(),
+        msg,
+        build_store(&[]),
+        Arc::new(TransientHeaderValidation { epoch: amaru_kernel::Epoch::from(286) }),
+    );
+
+    assert!(state.upstream.contains_key(&peer));
+
+    // A transient failure should produce a DEBUG log when the stake distribution is not yet
+    // available — and *no* WARN or ERROR, so the peer is not dropped or flagged.
+    logs.assert_and_remove(Level::DEBUG, &["chain_sync.validate_header.pending_stake_distribution"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }
 
 #[test]

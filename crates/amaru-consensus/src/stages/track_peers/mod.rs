@@ -17,7 +17,8 @@ mod defer_req_next;
 use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
+    BlockHeader, BlockHeight, Epoch, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip,
+    from_cbor_no_leftovers,
 };
 use amaru_observability::trace_span;
 use amaru_protocols::{
@@ -61,6 +62,10 @@ pub struct TrackPeers {
     /// Lazily populated via [`Effects::stage`](pure_stage::Effects::stage) on first deferred `RequestNext`.
     defer_req_next: StageRef<DeferReqNextMsg>,
     defer_req_next_poll_ms: u64,
+    /// Headers whose validation failed because the ledger had not yet computed the required
+    /// stake distribution. Drained on every `BlockApplied` and re-validated against the
+    /// now-advanced ledger state.
+    pending_validations: Vec<PendingValidation>,
     ledger_applied_block_height: BlockHeight,
     ledger_last_checked_at: Instant,
 }
@@ -71,9 +76,23 @@ struct PerPeer {
     highest: Tip,
 }
 
+/// A header whose validation failed transiently and must be retried once the ledger has
+/// caught up far enough to compute the required stake distribution.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct PendingValidation {
+    peer: Peer,
+    handler: StageRef<chainsync::InitiatorMessage>,
+    variant: EraName,
+    header: BlockHeader,
+    tip: Tip,
+    missing_epoch: Epoch,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TrackPeersMsg {
     FromUpstream(ChainSyncInitiatorMsg),
+    /// Sent by `adopt_chain` after a block has been adopted. This is used to re-validate pending headers.
+    BlockApplied(Tip),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +107,25 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
     match msg {
         TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
             state.handle_from_upstream(peer, handler, msg, eff).await;
+        }
+        TrackPeersMsg::BlockApplied(tip) => {
+            // Only retry pending validations whose `missing_epoch` boundary has been crossed by
+            // the applied tip. Entries still waiting are kept and reconsidered on the next
+            // `BlockApplied`.
+            match state.era_history.slot_to_epoch_unchecked_horizon(tip.slot()) {
+                Ok(applied_epoch) => {
+                    let (ready, still_pending) = std::mem::take(&mut state.pending_validations)
+                        .into_iter()
+                        .partition::<Vec<_>, _>(|p| applied_epoch > p.missing_epoch);
+                    state.pending_validations = still_pending;
+                    for pending in ready {
+                        state.handle_retry_validation(pending, eff.clone()).await;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "track_peers.block_applied.slot_to_epoch_failed");
+                }
+            }
         }
     }
     state
@@ -109,6 +147,7 @@ impl TrackPeers {
             consensus_security_parameter,
             defer_req_next: StageRef::blackhole(),
             defer_req_next_poll_ms,
+            pending_validations: Vec::new(),
             ledger_applied_block_height: BlockHeight::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::from_secs(0)),
         }
@@ -123,6 +162,46 @@ impl TrackPeers {
         let wired = eff.wire_up(defer_b, state).await;
         self.defer_req_next = wired;
         eff.send(&self.defer_req_next, DeferReqNextMsg::Poll).await;
+    }
+
+    /// Retry a previously deferred header validation.
+    async fn handle_retry_validation(&mut self, pending: PendingValidation, eff: Effects<TrackPeersMsg>) {
+        let mode = self.compute_rollforward_mode(pending.header.block_height(), &eff).await;
+        self.execute_roll_forward(
+            pending.peer,
+            pending.handler,
+            pending.variant,
+            pending.header,
+            pending.tip,
+            mode,
+            eff,
+        )
+        .await;
+    }
+
+    /// Decide whether to pipeline the next `RequestNext` or defer it, based on how far the
+    /// ledger applied tip is behind the header being processed. Refreshes the cached
+    /// `ledger_applied_block_height` if it might be stale and the comparison is close.
+    async fn compute_rollforward_mode(
+        &mut self,
+        header_block_height: BlockHeight,
+        eff: &Effects<TrackPeersMsg>,
+    ) -> RollForwardMode {
+        let min_ledger_height = header_block_height - self.consensus_security_parameter;
+        if min_ledger_height > self.ledger_applied_block_height {
+            let now = eff.clock().await;
+            if now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
+                || self.ledger_applied_block_height == BlockHeight::from(0)
+            {
+                self.ledger_last_checked_at = now;
+                self.ledger_applied_block_height = ledger_applied_block_height(eff).await;
+            }
+        }
+        if self.ledger_applied_block_height < min_ledger_height {
+            RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
+        } else {
+            RollForwardMode::PipelineRequestNext
+        }
     }
 
     /// Insert or replace a peer's current and highest tip. For use in tests.
@@ -235,22 +314,55 @@ impl TrackPeers {
         mode: RollForwardMode,
         eff: Effects<TrackPeersMsg>,
     ) {
-        if matches!(mode, RollForwardMode::PipelineRequestNext) {
-            eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
-        }
-
         let ledger = Ledger::new(eff.clone());
         let store = Store::new(eff.clone());
-        let header = self.validate_header(&peer, variant, header, tip, &ledger).await;
-        let (header, parent) = match header {
+        // Validate before sending `RequestNext` so a transient validation failure does not
+        // leave us with the next header in flight that we have no way to validate either.
+        let header_for_retry = header.clone();
+        let result = self.validate_header(&peer, variant, header, tip, &ledger).await;
+        let (header, parent) = match result {
             Ok(header) => header,
             Err(error) => {
+                if let Some(epoch) = missing_stake_distribution(&error) {
+                    // Transient issue: the ledger has not yet computed the stake distribution we need
+                    // to validate this header. Keep the peer and stash the header so it can be
+                    // retried once the ledger catches up. `per_peer.current` is unchanged so the
+                    // retry sees the same predecessor.
+                    tracing::debug!(
+                        %peer, %epoch,
+                        "chain_sync.validate_header.pending_stake_distribution"
+                    );
+                    self.pending_validations.push(PendingValidation {
+                        peer,
+                        handler,
+                        variant,
+                        header: header_for_retry,
+                        tip,
+                        missing_epoch: epoch,
+                    });
+                    return;
+                }
                 tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                 self.upstream.remove(&peer);
                 eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
                 return;
             }
         };
+
+        // Ask for the next header, if the ledger is not too far off.
+        match mode {
+            RollForwardMode::PipelineRequestNext => {
+                eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
+            }
+            RollForwardMode::DeferTrailingRequestNext { min_ledger_height } => {
+                self.ensure_defer_req_next_stage(&eff).await;
+                eff.send(
+                    &self.defer_req_next,
+                    DeferReqNextMsg::Register { handler: handler.clone(), min_ledger_height },
+                )
+                .await;
+            }
+        }
 
         let tip_point = header.point();
         let tip = self.roll_forward(&peer, header, tip, &store).await;
@@ -269,11 +381,6 @@ impl TrackPeers {
             eff.send(&self.downstream, (tip, parent)).await;
         } else {
             tracing::debug!(%peer, tip = %tip_point, "roll forward, header already stored");
-        }
-
-        if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
-            self.ensure_defer_req_next_stage(&eff).await;
-            eff.send(&self.defer_req_next, DeferReqNextMsg::Register { handler, min_ledger_height }).await;
         }
     }
 
@@ -319,16 +426,8 @@ impl TrackPeers {
                     }
                 };
 
-                let min_ledger_height = header.block_height() - self.consensus_security_parameter;
-                if min_ledger_height > self.ledger_applied_block_height
-                    && let now = eff.clock().await
-                    && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
-                        || self.ledger_applied_block_height == BlockHeight::from(0))
-                {
-                    self.ledger_last_checked_at = now;
-                    self.ledger_applied_block_height = ledger_applied_block_height(&eff).await;
-                }
-                let mode = if self.ledger_applied_block_height < min_ledger_height {
+                let mode = self.compute_rollforward_mode(header.block_height(), &eff).await;
+                if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
                     tracing::debug!(
                         %peer,
                         header_height = %header.block_height(),
@@ -336,10 +435,7 @@ impl TrackPeers {
                         limit = %min_ledger_height,
                         "track_peers.defer_request_next",
                     );
-                    RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
-                } else {
-                    RollForwardMode::PipelineRequestNext
-                };
+                }
 
                 self.execute_roll_forward(peer, handler, variant, header, tip, mode, eff).await;
             }
@@ -367,6 +463,16 @@ pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<BlockHead
     }
     from_cbor_no_leftovers(&raw_header.cbor)
         .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.cbor, reason: reason.to_string() })
+}
+
+/// Inspect a `ConsensusError` and, if it carries a transient "stake distribution not available" error,
+/// return the epoch whose distribution is missing. Otherwise return `None`.
+#[expect(clippy::wildcard_enum_match_arm)]
+fn missing_stake_distribution(error: &ConsensusError) -> Option<Epoch> {
+    match error {
+        ConsensusError::InvalidHeader(_, e) => e.as_missing_stake_distribution(),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
