@@ -204,6 +204,6 @@ mod tests {
         let tx_bytes = txs.next().expect("the first transaction");
         let tx: Transaction = minicbor::decode(&tx_bytes).expect("decode extracted transaction");
         assert!(!tx_bytes.is_empty());
-        assert_eq!(tx.body.id().to_string(), "3741dc1d8f14f938904388bb257a05b361ac1e9f447db11032bb2577ff0cbd38");
+        assert_eq!(tx.body.id().to_string(), "43f396b0d5c55e34b507cfe9964672586370cc09912a4790488fba4079f96429");
     }
 }

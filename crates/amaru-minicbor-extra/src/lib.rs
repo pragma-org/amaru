@@ -18,6 +18,9 @@ pub use decode::*;
 use minicbor::{self as cbor, data::Tag};
 mod decode;
 
+mod encode;
+pub use encode::*;
+
 /// The IANA Tag 258: <https://github.com/input-output-hk/cbor-sets-spec/blob/master/CBOR_SETS.md>
 pub static TAG_SET_258: Tag = Tag::new(258);
 
