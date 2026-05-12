@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{EraHistory, NetworkMagic, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, MempoolMsg, ReadOnlyChainStore, TxOrigin};
+use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 use tracing::Instrument;
 
@@ -238,7 +238,6 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
     State::Handshake { muxer, handshake }
 }
 
-#[expect(clippy::expect_used)]
 async fn do_handshake(
     Params { role, peer, conn_id, era_history, mempool_stage, .. }: &Params,
     muxer: StageRef<MuxMessage>,
@@ -279,13 +278,7 @@ async fn do_handshake(
         })
     } else {
         let store = Store::new(eff.clone());
-        let upstream = store.get_best_chain_hash();
-        let upstream = if upstream == ORIGIN_HASH {
-            Tip::new(Point::Origin, 0.into())
-        } else {
-            let header = store.load_header(&upstream).expect("best chain hash not found");
-            header.tip()
-        };
+        let upstream = store.get_best_chain_tip().await;
         let chainsync_responder = register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;
         let blockfetch_responder = register_blockfetch_responder(&muxer, &eff).await;
 

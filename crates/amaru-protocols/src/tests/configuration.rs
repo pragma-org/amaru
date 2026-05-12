@@ -130,8 +130,6 @@ fn initialize_chain_store(chain_length: usize, chain_store: Arc<dyn ChainStore<B
     for header in headers.iter() {
         chain_store.store_header(header)?;
         chain_store.roll_forward_chain(&header.point())?;
-        chain_store.set_best_chain_hash(&header.hash())?;
-
         tracing::info!("storing block for header {}", header.point());
         let network_block = make_network_block(header, &PREPROD_ERA_HISTORY);
         chain_store.store_block(&header.hash(), &network_block.raw_block())?;

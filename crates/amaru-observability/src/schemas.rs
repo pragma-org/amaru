@@ -567,8 +567,8 @@ define_schemas! {
                 required db_collection_name: String
             }
 
-            /// Rollback the chain to a point
-            public ROLLBACK_CHAIN {
+            /// Switch the chain to a new fork
+            public SWITCH_TO_FORK {
                 required hash: amaru_kernel::HeaderHash
                 required slot: u64
                 required db_system_name: String

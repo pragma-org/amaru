@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 
 /// Metrics operations available to a stage. This allows a stage to record a MetricsEvent that
 /// will be collected via OpenTelemetry.
@@ -75,8 +75,6 @@ impl ExternalEffect for RecordMetricsEffect {
 impl ExternalEffectAPI for RecordMetricsEffect {
     type Response = ();
 }
-
-impl ExternalEffectSync for RecordMetricsEffect {}
 
 #[test]
 fn record_metrics_cbor_roundtrip() {

@@ -27,7 +27,7 @@ use amaru_ouroboros::ConnectionId;
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use pure_stage::{EPOCH, Effects, Instant, StageRef, TryInStage, Void};
+use pure_stage::{EPOCH, Effects, Instant, OrTerminateWith, StageRef, TryInStage, Void};
 use tracing::Instrument;
 
 use crate::{
@@ -177,8 +177,7 @@ impl State {
                         move |(conn, muxer, role), data: NonEmptyBytes, eff| async move {
                             Network::new(&eff)
                                 .send(conn, data)
-                                .await
-                                .or_terminate(
+                                .or_terminate_with(
                                     &eff,
                                     async |err| tracing::error!(%err, %role, "failed to send data to network"),
                                 )
@@ -284,8 +283,7 @@ async fn read_segment(
     let header = loop {
         let data = Network::new(&eff)
             .recv(conn, HEADER_LEN)
-            .await
-            .or_terminate(
+            .or_terminate_with(
                 &eff,
                 async |err| tracing::error!(%role, %err, "failed to receive segment header from network"),
             )
@@ -303,8 +301,10 @@ async fn read_segment(
 
     let data = Network::new(&eff)
         .recv(conn, header.length.into())
-        .await
-        .or_terminate(&eff, async |err| tracing::error!(%role, %err, "failed to receive segment data from network"))
+        .or_terminate_with(
+            &eff,
+            async |err| tracing::error!(%role, %err, "failed to receive segment data from network"),
+        )
         .await;
 
     eff.send(&muxer, MuxMessage::FromNetwork(header.timestamp, header.proto_id, data)).await;

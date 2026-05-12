@@ -20,27 +20,29 @@ use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
 };
 use amaru_observability::trace_span;
-use amaru_ouroboros::ReadOnlyChainStore;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     manager::ManagerMessage,
     store_effects::Store,
 };
 pub use defer_req_next::DeferReqNextMsg;
-use pure_stage::{Effects, Instant, SendData, StageRef};
+use pure_stage::{Effects, Instant, StageRef};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
-    effects::{ConsensusEffects, ConsensusOps},
+    effects::{Ledger, LedgerOps},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
 };
 
 /// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
-fn ledger_applied_block_height<T: SendData>(eff: &Effects<T>) -> BlockHeight {
-    let store = Store::new(eff.clone());
-    let best = store.get_best_chain_hash();
-    store.load_header(&best).map(|h| h.block_height()).unwrap_or(BlockHeight::from(0))
+pub(super) async fn ledger_applied_block_height<T: pure_stage::SendData + Sync>(eff: &Effects<T>) -> BlockHeight {
+    let ledger = Ledger::new(eff.clone());
+    let tip = match ledger.volatile_tip().await {
+        Some(tip) => tip,
+        None => ledger.tip().await,
+    };
+    tip.block_height()
 }
 
 /// This is the state of the [`stage`] that tracks peers from whom we are receiving headers.
@@ -138,7 +140,7 @@ impl TrackPeers {
         variant: EraName,
         header: BlockHeader,
         tip: Tip,
-        eff: impl ConsensusOps,
+        ledger: &Ledger,
     ) -> Result<(BlockHeader, Point), ConsensusError> {
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
@@ -176,7 +178,7 @@ impl TrackPeers {
 
         // TODO: check that slot time is within the permissible clock skew
 
-        eff.ledger()
+        ledger
             .validate_header(&header, Span::current().context())
             .await
             .map_err(|e| ConsensusError::InvalidHeader(header.point(), e))?;
@@ -188,7 +190,7 @@ impl TrackPeers {
         peer: &Peer,
         header: BlockHeader,
         tip: Tip,
-        eff: impl ConsensusOps,
+        store: &Store,
     ) -> Result<Option<Tip>, ConsensusError> {
         let Some(per_peer) = self.upstream.get_mut(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
@@ -196,10 +198,10 @@ impl TrackPeers {
         per_peer.current = header.tip();
         per_peer.highest = tip;
         let tip = header.tip();
-        if eff.store().has_header(&header.hash()) {
+        if store.has_header(&header.hash()).await {
             Ok(None)
         } else {
-            eff.store().store_header(&header).map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
+            store.store_header(&header).await.map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
             Ok(Some(tip))
         }
     }
@@ -209,16 +211,15 @@ impl TrackPeers {
         peer: &Peer,
         current: Point,
         tip: Tip,
-        eff: impl ConsensusOps,
+        store: &Store,
     ) -> Result<(), ConsensusError> {
-        let store = eff.store();
-        let Some(header) = store.load_header(&current.hash()) else {
+        let Some(current_tip) = store.load_tip(&current.hash()).await else {
             return Err(ConsensusError::UnknownPoint(current.hash()));
         };
         let Some(per_peer) = self.upstream.get_mut(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         };
-        per_peer.current = Tip::new(current, header.block_height());
+        per_peer.current = current_tip;
         per_peer.highest = tip;
         Ok(())
     }
@@ -238,7 +239,9 @@ impl TrackPeers {
             eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
         }
 
-        let header = self.validate_header(&peer, variant, header, tip, ConsensusEffects::new(eff.clone())).await;
+        let ledger = Ledger::new(eff.clone());
+        let store = Store::new(eff.clone());
+        let header = self.validate_header(&peer, variant, header, tip, &ledger).await;
         let (header, parent) = match header {
             Ok(header) => header,
             Err(error) => {
@@ -250,7 +253,7 @@ impl TrackPeers {
         };
 
         let tip_point = header.point();
-        let tip = self.roll_forward(&peer, header, tip, ConsensusEffects::new(eff.clone())).await;
+        let tip = self.roll_forward(&peer, header, tip, &store).await;
         let tip = match tip {
             Ok(tip) => tip,
             Err(error) => {
@@ -287,14 +290,14 @@ impl TrackPeers {
                 tracing::info!(%peer,"initializing chainsync");
             }
             IntersectFound(current, tip) => {
-                let Some(header) = Store::new(eff.clone()).load_header(&current.hash()) else {
+                let current_tip = Store::new(eff.clone()).load_tip(&current.hash()).await;
+                let Some(current_tip) = current_tip else {
                     tracing::warn!(%peer, %current, tip = %tip.point(), reason = "peer sent unknown intersection point", "stopping chainsync");
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
                 tracing::info!(%peer, %current, highest = %tip.point(), "intersect found");
-                let current = Tip::new(current, header.block_height());
-                self.upstream.insert(peer, PerPeer { current, highest: tip });
+                self.upstream.insert(peer, PerPeer { current: current_tip, highest: tip });
             }
             IntersectNotFound(tip) => {
                 tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
@@ -323,7 +326,7 @@ impl TrackPeers {
                         || self.ledger_applied_block_height == BlockHeight::from(0))
                 {
                     self.ledger_last_checked_at = now;
-                    self.ledger_applied_block_height = ledger_applied_block_height(&eff);
+                    self.ledger_applied_block_height = ledger_applied_block_height(&eff).await;
                 }
                 let mode = if self.ledger_applied_block_height < min_ledger_height {
                     tracing::debug!(
@@ -344,7 +347,8 @@ impl TrackPeers {
                 tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
                 eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
 
-                if let Err(error) = self.roll_backward(&peer, current, tip, ConsensusEffects::new(eff.clone())).await {
+                let store = Store::new(eff.clone());
+                if let Err(error) = self.roll_backward(&peer, current, tip, &store).await {
                     tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
                     self.upstream.remove(&peer);
                     eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;

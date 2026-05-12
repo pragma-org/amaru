@@ -21,14 +21,13 @@ use std::{
 use ProtocolError::*;
 use amaru_kernel::Transaction;
 use amaru_observability::trace_span;
-use amaru_ouroboros::{
-    MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool,
-};
+use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo};
+use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
-    mempool_effects::MemoryPool,
+    mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, miniprotocol, outcome,
@@ -70,14 +69,14 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         let message_type = input.message_type().to_string();
 
         async move {
-            let mempool: &dyn TxSubmissionMempool<Transaction> = &MemoryPool::new(eff.clone());
+            let mempool = MemoryPool::new(eff.clone());
 
             let action = match input {
                 ResponderResult::Init => {
                     tracing::trace!("received Init");
-                    self.initialize_state(mempool)
+                    self.initialize_state(&mempool).await
                 }
-                ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(mempool, tx_ids)?,
+                ResponderResult::ReplyTxIds(tx_ids) => self.process_tx_ids_reply(&mempool, tx_ids).await?,
                 ResponderResult::ReplyTxs(txs) => self.insert_txs(txs, eff).await?,
                 ResponderResult::Done => None,
             };
@@ -218,14 +217,14 @@ impl TxSubmissionResponder {
         )
     }
 
-    fn initialize_state(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> Option<ResponderAction> {
-        let (ack, req, blocking) = self.request_tx_ids(mempool);
+    async fn initialize_state(&mut self, mempool: &dyn AsyncMempool) -> Option<ResponderAction> {
+        let (ack, req, blocking) = self.request_tx_ids(mempool).await;
         Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
     }
 
-    fn process_tx_ids_reply(
+    async fn process_tx_ids_reply(
         &mut self,
-        mempool: &dyn TxSubmissionMempool<Transaction>,
+        mempool: &dyn AsyncMempool,
         tx_ids: Vec<(TxId, u32)>,
     ) -> anyhow::Result<Option<ResponderAction>> {
         if self.window.len() + tx_ids.len() > self.params.max_window.into() {
@@ -235,27 +234,60 @@ impl TxSubmissionResponder {
                 self.params.max_window.into(),
             ));
         }
-        self.received_tx_ids(mempool, tx_ids);
+        self.received_tx_ids(mempool, tx_ids).await;
 
         let txs = self.txs_to_request();
         if txs.is_empty() {
-            let (ack, req, blocking) = self.request_tx_ids(mempool);
+            let (ack, req, blocking) = self.request_tx_ids(mempool).await;
             Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
         } else {
             Ok(Some(ResponderAction::SendRequestTxs(txs)))
         }
     }
 
+    #[cfg(test)]
+    async fn process_txs_reply(
+        &mut self,
+        mempool: &dyn AsyncMempool,
+        txs: Vec<Transaction>,
+        origin: TxOrigin,
+    ) -> anyhow::Result<Option<ResponderAction>> {
+        if txs.len() > self.params.fetch_batch.into() {
+            return protocol_error(ReceivedTxsExceedsBatchSize(txs.len(), self.params.fetch_batch.into()));
+        }
+
+        // check for duplicate tx ids
+        let tx_ids = txs.iter().map(TxId::from).collect::<BTreeSet<_>>();
+        if tx_ids.len() != txs.len() {
+            // return the full list of tx ids including duplicates
+            let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
+            return protocol_error(DuplicateTxIds(tx_ids));
+        }
+
+        // check that all received tx ids were in-flight
+        let not_in_flight =
+            tx_ids.iter().filter(|tx_id| !self.inflight_fetch_set.contains(tx_id)).cloned().collect::<Vec<_>>();
+        if !not_in_flight.is_empty() {
+            return protocol_error(SomeReceivedTxsNotInFlight(not_in_flight));
+        }
+
+        if let Some(action) = self.received_txs(mempool, txs, origin).await? {
+            return Ok(Some(action));
+        }
+        let (ack, req, blocking) = self.request_tx_ids(mempool).await;
+        Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
+    }
+
     /// Prepare a request for tx ids, acknowledging already processed ones
     /// and requesting as many as fit in the window.
     #[allow(clippy::expect_used)]
-    fn request_tx_ids(&mut self, mempool: &dyn TxSubmissionMempool<Transaction>) -> (u16, u16, Blocking) {
+    async fn request_tx_ids(&mut self, mempool: &dyn AsyncMempool) -> (u16, u16, Blocking) {
         // Acknowledge everything we’ve already processed.
         let mut ack = 0_u16;
 
         while let Some((tx_id, _size)) = self.window.front() {
             let already_processed = self.processed_fetch_set.remove(tx_id);
-            let already_in_mempool = mempool.contains(tx_id);
+            let already_in_mempool = mempool.contains(*tx_id).await;
             if already_processed || already_in_mempool {
                 // pop from window and ack it
                 if self.window.pop_front().is_some() {
@@ -280,17 +312,13 @@ impl TxSubmissionResponder {
 
     /// Register received tx ids, adding them to the window and to the pending fetch list
     /// if they are not already in the mempool.
-    fn received_tx_ids<Tx: Send + Sync + 'static>(
-        &mut self,
-        mempool: &dyn TxSubmissionMempool<Tx>,
-        tx_ids: Vec<(TxId, u32)>,
-    ) {
+    async fn received_tx_ids(&mut self, mempool: &dyn AsyncMempool, tx_ids: Vec<(TxId, u32)>) {
         for (tx_id, size) in tx_ids {
             // We add the tx id to the window to acknowledge it on the next round.
             self.window.push_back((tx_id, size));
 
             // We only add to pending fetch if we haven't received it yet in the mempool.
-            if !mempool.contains(&tx_id) {
+            if !mempool.contains(tx_id).await {
                 self.pending_fetch.push_back(tx_id);
             }
         }
@@ -321,7 +349,6 @@ impl TxSubmissionResponder {
         txs: Vec<Transaction>,
         eff: &Effects<Inputs<Void>>,
     ) -> anyhow::Result<Option<ResponderAction>> {
-        // 'action' in that case represents an error message that we want to return to the initiator.
         if let Some(action) = self.validate_received_txs(&txs)? {
             return Ok(Some(action));
         }
@@ -344,15 +371,40 @@ impl TxSubmissionResponder {
             Some(Err(error)) => return protocol_error(MempoolInsertFailed(error.tx_id, error.error)),
             Some(Ok(results)) => {
                 self.record_processed_results(&results);
-                for result in results {
-                    log_insert_result(&result);
+                for result in &results {
+                    log_insert_result(result);
                 }
             }
         }
 
         let mempool = MemoryPool::new(eff.clone());
-        let (ack, req, blocking) = self.request_tx_ids(&mempool);
+        let (ack, req, blocking) = self.request_tx_ids(&mempool).await;
         Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
+    }
+
+    /// Process received txs, validating and inserting them into the mempool.
+    #[cfg(test)]
+    async fn received_txs(
+        &mut self,
+        mempool: &dyn AsyncMempool,
+        txs: Vec<Transaction>,
+        origin: TxOrigin,
+    ) -> anyhow::Result<Option<ResponderAction>> {
+        let mut results = Vec::with_capacity(txs.len());
+        for tx in txs {
+            let requested_id = TxId::from(&tx);
+            self.inflight_fetch_set.remove(&requested_id);
+            match mempool.insert(tx, origin.clone()).await {
+                Ok(result) => {
+                    log_insert_result(&result);
+                    results.push(result);
+                }
+                Err(error) => return protocol_error(MempoolInsertFailed(requested_id, error)),
+            }
+        }
+
+        self.record_processed_results(&results);
+        Ok(None)
     }
 
     /// Check:
@@ -460,7 +512,8 @@ mod tests {
     use amaru_kernel::Transaction;
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::{
-        MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxRejectReason,
+        MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+        TxSubmissionMempool,
     };
 
     use super::*;
@@ -626,19 +679,15 @@ mod tests {
 
     // HELPERS
 
-    /// Run the responder stage, given a list of ResponderResults as inputs, and return the list of
-    /// ResponderActions produced as output.
-    async fn run_stage(
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+    async fn run_stage<M: AsyncMempool>(
+        mempool: Arc<M>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<Vec<ResponderAction>> {
         Ok(run_stage_and_return_state(mempool, results).await?.0)
     }
 
-    /// Run the responder stage, given a list of ResponderResults as inputs, and return the list of
-    /// ResponderActions produced as output, plus the responder itself
-    async fn run_stage_and_return_state(
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+    async fn run_stage_and_return_state<M: AsyncMempool>(
+        mempool: Arc<M>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         run_stage_and_return_state_with(
@@ -655,44 +704,22 @@ mod tests {
         .await
     }
 
-    /// Run the responder stage with a list of ResponderResults as input, and return the list of
-    /// ResponderActions produced as output, along with the final state of the responder.
-    async fn run_stage_and_return_state_with(
+    async fn run_stage_and_return_state_with<M: AsyncMempool>(
         mut responder: TxSubmissionResponder,
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
+        mempool: Arc<M>,
         results: Vec<ResponderResult>,
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         let mut actions = vec![];
+        let mempool = mempool.as_ref();
         for r in results {
             let action = match r {
-                ResponderResult::Init => responder.initialize_state(mempool.as_ref()),
-                ResponderResult::ReplyTxIds(tx_ids) => responder.process_tx_ids_reply(mempool.as_ref(), tx_ids)?,
+                ResponderResult::Init => responder.initialize_state(mempool).await,
+                ResponderResult::ReplyTxIds(tx_ids) => responder.process_tx_ids_reply(mempool, tx_ids).await?,
                 ResponderResult::ReplyTxs(txs) => {
-                    // insert transactions directly into the mempool, without sending a message to the mempool stage.
                     if let Some(action) = responder.validate_received_txs(&txs)? {
                         Some(action)
                     } else {
-                        let origin = responder.origin.clone();
-                        let mut processed_results = Vec::with_capacity(txs.len());
-                        let mut error = None;
-                        for tx in txs {
-                            let requested_id = TxId::from(&tx);
-                            responder.inflight_fetch_set.remove(&requested_id);
-                            match mempool.insert(tx, origin.clone()) {
-                                Ok(result) => processed_results.push(result),
-                                Err(e) => {
-                                    error = Some(protocol_error(MempoolInsertFailed(requested_id, e))?);
-                                    break;
-                                }
-                            }
-                        }
-                        if let Some(error) = error {
-                            error
-                        } else {
-                            responder.record_processed_results(&processed_results);
-                            let (ack, req, blocking) = responder.request_tx_ids(mempool.as_ref());
-                            Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
-                        }
+                        responder.process_txs_reply(mempool, txs, responder.origin.clone()).await?
                     }
                 }
                 ResponderResult::Done => None,

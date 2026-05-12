@@ -13,4 +13,4 @@
 // limitations under the License.
 
 pub mod consensus;
-pub use consensus::*;
+pub use consensus::{missing_blocks::*, *};

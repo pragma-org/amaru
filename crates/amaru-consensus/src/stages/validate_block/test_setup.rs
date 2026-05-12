@@ -15,14 +15,15 @@
 use std::{collections::BTreeSet, fmt, net::SocketAddr, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
+    BlockHeader, HeaderHash, IsHeader, Point, TESTNET_ERA_HISTORY, Tip, make_header, make_header_with_op_cert_seq,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks, ChainStore, HasStakePools, in_memory_consensus_store::InMemConsensusStore,
 };
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, LoadBlockEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect, ResourceHeaderStore,
+    GetAnchorHashEffect, LoadBlockEffect, LoadFromBestChainEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
+    ResourceHeaderStore,
 };
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -259,6 +260,10 @@ impl TestPrep {
     pub fn set_best_chain(&self, hash: HeaderHash) {
         self.store.set_best_chain_hash(&hash).unwrap();
     }
+
+    pub fn roll_forward_chain(&self, point: Point) {
+        self.store.roll_forward_chain(&point).unwrap();
+    }
 }
 
 pub fn register_guards() -> DeserializerGuards {
@@ -269,10 +274,13 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
+        pure_stage::register_data_deserializer::<Option<(BlockHeader, Option<bool>)>>().boxed(),
+        pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<ContainsPointEffect>().boxed(),
         pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<RollbackBlockEffect>().boxed(),
@@ -327,18 +335,6 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
     (running, guards, logs.logs())
 }
 
-pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash)))).into()
-}
-
-pub fn te_load_header_with_validity(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderWithValidityEffect::new(hash)))).into()
-}
-
-pub fn te_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new()))).into()
-}
-
 pub fn te_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceMatch<'static> {
     let ctx = opentelemetry::Context::current();
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point, ctx)))).into()
@@ -363,6 +359,18 @@ pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceMatch<'static> 
 
 pub fn te_ledger_tip(at_stage: &str) -> TraceMatch<'static> {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(TipEffect))).into()
+}
+
+pub fn te_get_anchor_hash(at_stage: &str) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new()))).into()
+}
+
+pub fn te_load_header_with_validity(at_stage: &str, hash: HeaderHash) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderWithValidityEffect::new(hash)))).into()
+}
+
+pub fn te_load_from_best_chain(at_stage: &str, point: Point) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadFromBestChainEffect::new(point)))).into()
 }
 
 pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceMatch<'static> {

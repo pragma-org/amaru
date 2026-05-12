@@ -24,8 +24,8 @@ use std::{
 };
 
 use pure_stage::{
-    Effect, ExternalEffect, Instant, Name, OutputEffect, Receiver, Resources, SendData, StageGraph, StageGraphRunning,
-    StageRef, StageResponse, TryInStage, UnknownExternalEffect,
+    Effect, ExternalEffect, Instant, Name, OrTerminateWith, OutputEffect, Receiver, Resources, SendData, StageGraph,
+    StageGraphRunning, StageRef, StageResponse, UnknownExternalEffect,
     serde::SendDataValue,
     simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
     trace_buffer::{TraceBuffer, TraceEntry},
@@ -369,8 +369,7 @@ fn call() {
     let caller = network.stage("caller", async |mut state: State3, msg: u32, eff| {
         state.0 = eff
             .call(&state.1, Duration::from_secs(2), move |cr| Msg3(msg + 1, cr))
-            .await
-            .or_terminate(&eff, async |_| ())
+            .or_terminate_with(&eff, async |_| ())
             .await;
         state
     });
@@ -441,10 +440,9 @@ fn call_timeout_terminates_graph() {
     // caller times out quickly; callee sleeps longer -> triggers terminate
     let caller = network.stage("caller", async |state: State3, msg: u32, eff| {
         eff.call(&state.1, Duration::from_millis(10), move |cr| Msg3(msg + 1, cr))
-            .await
             // Returning terminate here should trigger graph termination
             // (SimulationRunning.termination should complete)
-            .or_terminate(&eff, async |_| {})
+            .or_terminate_with(&eff, async |_| {})
             .await;
         state
     });

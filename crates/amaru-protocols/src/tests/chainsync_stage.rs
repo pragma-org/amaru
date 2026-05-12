@@ -15,7 +15,6 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeader, Header, IsHeader, Point, cbor};
-use amaru_ouroboros_traits::ChainStore;
 use pallas_primitives::babbage::MintedHeader;
 use pure_stage::{Effects, StageRef};
 use tokio::sync::Notify;
@@ -90,10 +89,8 @@ pub(super) async fn test_chainsync_stage(
             tracing::info!(%peer, hash = header_hash.to_string(), %tip, "roll forward");
 
             // store the header, update the best chain, fetch and store the block
-            store.store_header(&block_header).unwrap();
-            store.roll_forward_chain(&point).unwrap();
-            store.set_best_chain_hash(&header_hash).unwrap();
-
+            store.store_header(&block_header).await.unwrap();
+            store.roll_forward_chain(&point).await.unwrap();
             // We accumulate points to fetch and fetch them in batches of 3
             state.blocks_to_fetch.push(point);
 
@@ -122,7 +119,7 @@ pub(super) async fn test_chainsync_stage(
                 for network_block in blocks.blocks {
                     let block_header = network_block.decode_header().expect("failed to extract header from block");
                     tracing::info!("storing block {:?}", block_header.point());
-                    store.store_block(&block_header.hash(), &network_block.raw_block()).unwrap();
+                    store.store_block(&block_header.hash(), &network_block.raw_block()).await.unwrap();
                 }
                 state.blocks_to_fetch.clear();
             };

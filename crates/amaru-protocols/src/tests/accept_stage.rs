@@ -14,7 +14,6 @@
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use amaru_ouroboros_traits::TxSubmissionMempool;
 use pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
@@ -58,7 +57,7 @@ pub async fn accept_stage(state: AcceptState, _msg: PullAccept, eff: Effects<Pul
     // Terminate if the mempool already has all expected transactions
     let mempool = MemoryPool::new(eff.clone());
     let expected_tx_ids = get_tx_ids();
-    let txs = mempool.get_txs_for_ids(expected_tx_ids.as_slice());
+    let txs = mempool.get_txs_for_ids(expected_tx_ids.as_slice()).await;
     if txs.len() == expected_tx_ids.len() {
         tracing::info!("all txs retrieved, done");
         state.notify.notify_waiters();

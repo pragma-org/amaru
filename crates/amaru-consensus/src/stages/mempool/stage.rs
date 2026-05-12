@@ -15,7 +15,6 @@
 use amaru_kernel::Transaction;
 use amaru_ouroboros::{
     MempoolError, MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason,
-    TxSubmissionMempool,
 };
 use amaru_protocols::mempool_effects::MemoryPool;
 use pure_stage::{Effects, StageRef};
@@ -31,7 +30,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
     let mut state = state;
     match msg {
         MempoolMsg::WaitForAtLeast { seq_no, caller } => {
-            if memory_pool.last_seq_no() >= seq_no {
+            if memory_pool.last_seq_no().await >= seq_no {
                 eff.send(&caller, ()).await;
             } else {
                 state.waiters.push(MempoolWaiter { seq_no, caller });
@@ -40,7 +39,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
         MempoolMsg::Insert { tx, origin, caller } => {
             let tx = *tx;
             let tx_id = TxId::from(&tx);
-            match validate_and_insert(&ledger, &memory_pool, tx, &origin) {
+            match validate_and_insert(&ledger, &memory_pool, tx, &origin).await {
                 Ok(result) => {
                     if let TxInsertResult::Accepted { seq_no, .. } = result {
                         notify_ready_waiters(&mut state, &eff, seq_no).await;
@@ -57,7 +56,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             let mut results = Vec::with_capacity(txs.len());
             for tx in txs {
                 let tx_id = TxId::from(&tx);
-                match validate_and_insert(&ledger, &memory_pool, tx, &origin) {
+                match validate_and_insert(&ledger, &memory_pool, tx, &origin).await {
                     Ok(result) => {
                         if let TxInsertResult::Accepted { seq_no, .. } = result {
                             notify_ready_waiters(&mut state, &eff, seq_no).await;
@@ -80,14 +79,14 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 /// Validate a transaction against the current ledger state
 /// and insert it into the mempool if it is valid.
 ///
-fn validate_and_insert(
-    ledger: &Ledger<MempoolMsg>,
+async fn validate_and_insert(
+    ledger: &Ledger,
     memory_pool: &MemoryPool<MempoolMsg>,
     tx: Transaction,
     origin: &TxOrigin,
 ) -> Result<TxInsertResult, MempoolError> {
-    match ledger.validate_tx(&tx) {
-        Ok(()) => memory_pool.insert(tx, origin.clone()),
+    match ledger.validate_tx(&tx).await {
+        Ok(()) => memory_pool.insert(tx, origin.clone()).await,
         Err(error) => Ok(TxInsertResult::rejected(TxId::from(&tx), TxRejectReason::Invalid(error))),
     }
 }

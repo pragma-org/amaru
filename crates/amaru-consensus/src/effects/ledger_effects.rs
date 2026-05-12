@@ -22,40 +22,40 @@ use amaru_ouroboros_traits::{
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use opentelemetry::trace::FutureExt;
-use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, ExternalEffectSync, Resources, SendData};
+use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 
 use crate::errors::{ConsensusError, ValidationFailed};
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps: Send + Sync {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
+    fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>>;
 
     fn validate_header(
         &self,
         header: &BlockHeader,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<(), HeaderValidationError>>;
+    ) -> BoxFuture<'static, Result<(), HeaderValidationError>>;
 
     fn validate_block(
         &self,
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
+    ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
     fn rollback(
         &self,
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>>;
+    ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>>;
 
-    fn contains_point(&self, point: &Point) -> bool;
+    fn contains_point(&self, point: &Point) -> BoxFuture<'static, bool>;
 
-    fn tip(&self) -> Tip;
+    fn tip(&self) -> BoxFuture<'static, Tip>;
 
-    fn volatile_tip(&self) -> Option<Tip>;
+    fn volatile_tip(&self) -> BoxFuture<'static, Option<Tip>>;
 
     /// Get the registered relay socket addresses from the stable store.
     ///
@@ -66,29 +66,28 @@ pub trait LedgerOps: Send + Sync {
 }
 
 /// Implementation of LedgerOps using pure_stage::Effects.
-pub struct Ledger<T>(Effects<T>);
+#[derive(Clone, Debug)]
+pub struct Ledger {
+    effects: Effects<Void>,
+}
 
-impl<T> Ledger<T> {
-    pub fn new(effects: Effects<T>) -> Ledger<T> {
-        Ledger(effects)
-    }
-
-    pub fn eff(&self) -> &Effects<T> {
-        &self.0
+impl Ledger {
+    pub fn new<T: SendData>(effects: Effects<T>) -> Self {
+        Self { effects: effects.erase() }
     }
 }
 
-impl<T: SendData + Sync> LedgerOps for Ledger<T> {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
-        self.0.external_sync(ValidateTxEffect::new(tx))
+impl LedgerOps for Ledger {
+    fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>> {
+        self.effects.external(ValidateTxEffect::new(tx))
     }
 
     fn validate_header(
         &self,
         header: &BlockHeader,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<(), HeaderValidationError>> {
-        self.0.external(ValidateHeaderEffect::new(header, ctx))
+    ) -> BoxFuture<'static, Result<(), HeaderValidationError>> {
+        self.effects.external(ValidateHeaderEffect::new(header, ctx))
     }
 
     fn validate_block(
@@ -96,8 +95,8 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
-        self.0.external(ValidateBlockEffect::new(peer, point, ctx))
+    ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
+        self.effects.external(ValidateBlockEffect::new(peer, point, ctx))
     }
 
     fn rollback(
@@ -105,24 +104,24 @@ impl<T: SendData + Sync> LedgerOps for Ledger<T> {
         peer: &Peer,
         point: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'_, anyhow::Result<(), ValidationFailed>> {
-        self.0.external(RollbackBlockEffect::new(peer, point, ctx))
+    ) -> BoxFuture<'static, anyhow::Result<(), ValidationFailed>> {
+        self.effects.external(RollbackBlockEffect::new(peer, point, ctx))
     }
 
-    fn contains_point(&self, point: &Point) -> bool {
-        self.0.external_sync(ContainsPointEffect::new(point))
+    fn contains_point(&self, point: &Point) -> BoxFuture<'static, bool> {
+        self.effects.external(ContainsPointEffect::new(point))
     }
 
-    fn tip(&self) -> Tip {
-        self.0.external_sync(TipEffect)
+    fn tip(&self) -> BoxFuture<'static, Tip> {
+        self.effects.external(TipEffect)
     }
 
-    fn volatile_tip(&self) -> Option<Tip> {
-        self.0.external_sync(VolatileTipEffect)
+    fn volatile_tip(&self) -> BoxFuture<'static, Option<Tip>> {
+        self.effects.external(VolatileTipEffect)
     }
 
     fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
-        self.0.external(RegisteredRelaySocketAddrsEffect)
+        self.effects.external(RegisteredRelaySocketAddrsEffect)
     }
 }
 
@@ -161,8 +160,6 @@ impl ExternalEffect for ValidateTxEffect {
 impl ExternalEffectAPI for ValidateTxEffect {
     type Response = Result<(), TransactionValidationError>;
 }
-
-impl ExternalEffectSync for ValidateTxEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockEffect {
@@ -240,8 +237,6 @@ impl ExternalEffectAPI for ValidateHeaderEffect {
     type Response = Result<(), HeaderValidationError>;
 }
 
-impl ExternalEffectSync for ValidateHeaderEffect {}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RollbackBlockEffect {
     peer: Peer,
@@ -276,8 +271,6 @@ impl ExternalEffectAPI for RollbackBlockEffect {
     type Response = anyhow::Result<(), ValidationFailed>;
 }
 
-impl ExternalEffectSync for RollbackBlockEffect {}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ContainsPointEffect {
     point: Point,
@@ -306,8 +299,6 @@ impl ExternalEffectAPI for ContainsPointEffect {
     type Response = bool;
 }
 
-impl ExternalEffectSync for ContainsPointEffect {}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TipEffect;
 
@@ -324,7 +315,10 @@ impl ExternalEffect for TipEffect {
                 .expect("TipEffect requires a ResourceHeaderStore resource")
                 .clone();
             let point = ledger.tip();
-            store.load_tip(&point.hash()).expect("cannot load header for ledger tip")
+            store.load_tip(&point.hash()).unwrap_or_else(|| {
+                tracing::error!(?point, "ledger tip header not found in chain store, falling back to origin");
+                Tip::origin()
+            })
         })
     }
 }
@@ -332,8 +326,6 @@ impl ExternalEffect for TipEffect {
 impl ExternalEffectAPI for TipEffect {
     type Response = Tip;
 }
-
-impl ExternalEffectSync for TipEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VolatileTipEffect;
@@ -354,8 +346,6 @@ impl ExternalEffect for VolatileTipEffect {
 impl ExternalEffectAPI for VolatileTipEffect {
     type Response = Option<Tip>;
 }
-
-impl ExternalEffectSync for VolatileTipEffect {}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RegisteredRelaySocketAddrsEffect;

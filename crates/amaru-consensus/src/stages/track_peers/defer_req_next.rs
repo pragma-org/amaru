@@ -22,7 +22,6 @@ use amaru_protocols::chainsync::InitiatorMessage;
 use pure_stage::{Effects, StageRef};
 
 use super::ledger_applied_block_height;
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DeferReqNextMsg {
     Register { handler: StageRef<InitiatorMessage>, min_ledger_height: BlockHeight },
@@ -57,7 +56,7 @@ pub async fn stage(mut state: DeferReqNext, msg: DeferReqNextMsg, eff: Effects<D
 }
 
 async fn dispatch_ready(state: &mut DeferReqNext, eff: &Effects<DeferReqNextMsg>) {
-    let ledger_height = ledger_applied_block_height(eff);
+    let ledger_height = ledger_applied_block_height(eff).await;
     let mut remaining = Vec::new();
     for (handler, min_h) in std::mem::take(&mut state.pending) {
         if ledger_height >= min_h {
