@@ -95,7 +95,14 @@ pub fn build_stage_graph(
 
     let track_peers = stage_graph.wire_up(
         track_peers,
-        TrackPeers::new(era_history.clone(), manager.sender(), select_chain_input, k, config.defer_req_next_poll_ms),
+        TrackPeers::new(
+            era_history.clone(),
+            manager.sender(),
+            select_chain_input,
+            k,
+            config.defer_req_next_poll_ms,
+            config.defer_validation_poll_ms,
+        ),
     );
     let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
 

@@ -76,6 +76,7 @@ pub fn test_prep() -> TestPrep {
         StageRef::named_for_tests("downstream"),
         10_000_000,
         200,
+        200,
     );
     let rt = Builder::new_current_thread().build().unwrap();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
@@ -114,6 +115,10 @@ fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
         pure_stage::register_data_deserializer::<TrackPeersMsg>().boxed(),
+        pure_stage::register_data_deserializer::<super::defer_req_next::DeferReqNext>().boxed(),
+        pure_stage::register_data_deserializer::<super::DeferReqNextMsg>().boxed(),
+        pure_stage::register_data_deserializer::<super::defer_validation::DeferValidation>().boxed(),
+        pure_stage::register_data_deserializer::<super::DeferValidationMsg>().boxed(),
         pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         pure_stage::register_data_deserializer::<Tip>().boxed(),
@@ -179,6 +184,18 @@ pub struct FailingHeaderValidation;
 impl CanValidateHeaders for FailingHeaderValidation {
     fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
         Err(HeaderValidationError::new(anyhow!("header validation failed: booyah!")))
+    }
+}
+
+/// Header validation mock that always fails with the transient
+/// "stake distribution not available" condition for the given epoch.
+pub struct TransientHeaderValidation {
+    pub epoch: amaru_kernel::Epoch,
+}
+
+impl CanValidateHeaders for TransientHeaderValidation {
+    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
+        Err(HeaderValidationError::missing_stake_distribution(self.epoch))
     }
 }
 

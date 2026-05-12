@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod defer_req_next;
+mod defer_validation;
 
 use std::{collections::BTreeMap, time::Duration};
 
@@ -26,6 +27,7 @@ use amaru_protocols::{
     store_effects::Store,
 };
 pub use defer_req_next::DeferReqNextMsg;
+pub use defer_validation::DeferValidationMsg;
 use pure_stage::{Effects, Instant, StageRef};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -34,6 +36,16 @@ use crate::{
     effects::{Ledger, LedgerOps},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
 };
+
+/// Inspect a `ConsensusError` and, if it carries a transient
+/// "stake distribution not available" condition, return the epoch whose
+/// distribution is missing. Otherwise return `None`.
+fn missing_stake_distribution(error: &ConsensusError) -> Option<amaru_kernel::Epoch> {
+    match error {
+        ConsensusError::InvalidHeader(_, hve) => hve.as_missing_stake_distribution(),
+        _ => None,
+    }
+}
 
 /// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
 pub(super) async fn ledger_applied_block_height<T: pure_stage::SendData + Sync>(eff: &Effects<T>) -> BlockHeight {
@@ -61,6 +73,9 @@ pub struct TrackPeers {
     /// Lazily populated via [`Effects::stage`](pure_stage::Effects::stage) on first deferred `RequestNext`.
     defer_req_next: StageRef<DeferReqNextMsg>,
     defer_req_next_poll_ms: u64,
+    /// Lazily populated on first transient header-validation failure.
+    defer_validation: StageRef<DeferValidationMsg>,
+    defer_validation_poll_ms: u64,
     ledger_applied_block_height: BlockHeight,
     ledger_last_checked_at: Instant,
 }
@@ -71,9 +86,23 @@ struct PerPeer {
     highest: Tip,
 }
 
+/// A header whose validation failed transiently and must be retried once the ledger has
+/// caught up far enough to compute the required stake distribution.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PendingValidation {
+    pub peer: Peer,
+    pub handler: StageRef<chainsync::InitiatorMessage>,
+    pub variant: EraName,
+    pub header: BlockHeader,
+    pub tip: Tip,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TrackPeersMsg {
     FromUpstream(ChainSyncInitiatorMsg),
+    /// Sent by the `defer_validation` sub-stage to retry a header whose previous validation
+    /// failed because the ledger had not yet computed the required stake distribution.
+    RetryValidation(PendingValidation),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +118,9 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
         TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
             state.handle_from_upstream(peer, handler, msg, eff).await;
         }
+        TrackPeersMsg::RetryValidation(pending) => {
+            state.handle_retry_validation(pending, eff).await;
+        }
     }
     state
 }
@@ -100,6 +132,7 @@ impl TrackPeers {
         downstream: StageRef<(Tip, Point)>,
         consensus_security_parameter: u64,
         defer_req_next_poll_ms: u64,
+        defer_validation_poll_ms: u64,
     ) -> Self {
         Self {
             era_history,
@@ -109,6 +142,8 @@ impl TrackPeers {
             consensus_security_parameter,
             defer_req_next: StageRef::blackhole(),
             defer_req_next_poll_ms,
+            defer_validation: StageRef::blackhole(),
+            defer_validation_poll_ms,
             ledger_applied_block_height: BlockHeight::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::from_secs(0)),
         }
@@ -123,6 +158,44 @@ impl TrackPeers {
         let wired = eff.wire_up(defer_b, state).await;
         self.defer_req_next = wired;
         eff.send(&self.defer_req_next, DeferReqNextMsg::Poll).await;
+    }
+
+    async fn ensure_defer_validation_stage(&mut self, eff: &Effects<TrackPeersMsg>) {
+        if !self.defer_validation.is_blackhole() {
+            return;
+        }
+        let defer_b = eff.stage("track_peers/defer_validation", defer_validation::stage).await;
+        let state = defer_validation::DeferValidation::new(self.defer_validation_poll_ms, eff.me());
+        let wired = eff.wire_up(defer_b, state).await;
+        self.defer_validation = wired;
+        eff.send(&self.defer_validation, DeferValidationMsg::Poll).await;
+    }
+
+    /// Retry a previously deferred header validation. On a transient failure the pending
+    /// entry will be re-registered with `defer_validation` and tried again on the next poll.
+    async fn handle_retry_validation(&mut self, pending: PendingValidation, eff: Effects<TrackPeersMsg>) {
+        // Recompute the back-pressure mode from the current ledger state so that the retry
+        // honours the same throttling rules as a fresh RollForward.
+        let min_ledger_height = pending.header.block_height() - self.consensus_security_parameter;
+        if min_ledger_height > self.ledger_applied_block_height {
+            self.ledger_applied_block_height = ledger_applied_block_height(&eff).await;
+            self.ledger_last_checked_at = eff.clock().await;
+        }
+        let mode = if self.ledger_applied_block_height < min_ledger_height {
+            RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
+        } else {
+            RollForwardMode::PipelineRequestNext
+        };
+        self.execute_roll_forward(
+            pending.peer,
+            pending.handler,
+            pending.variant,
+            pending.header,
+            pending.tip,
+            mode,
+            eff,
+        )
+        .await;
     }
 
     /// Insert or replace a peer's current and highest tip. For use in tests.
@@ -235,22 +308,60 @@ impl TrackPeers {
         mode: RollForwardMode,
         eff: Effects<TrackPeersMsg>,
     ) {
-        if matches!(mode, RollForwardMode::PipelineRequestNext) {
-            eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
-        }
-
         let ledger = Ledger::new(eff.clone());
         let store = Store::new(eff.clone());
-        let header = self.validate_header(&peer, variant, header, tip, &ledger).await;
-        let (header, parent) = match header {
+        // Validate before sending `RequestNext` so a transient validation failure does not
+        // leave us with the next header in flight that we have no way to validate either.
+        let header_for_retry = header.clone();
+        let result = self.validate_header(&peer, variant, header, tip, &ledger).await;
+        let (header, parent) = match result {
             Ok(header) => header,
             Err(error) => {
+                if let Some(epoch) = missing_stake_distribution(&error) {
+                    // Transient: the ledger has not yet computed the stake distribution we need
+                    // to validate this header. Keep the peer and stash the header so it can be
+                    // retried once the ledger catches up. `per_peer.current` is unchanged so the
+                    // retry sees the same predecessor.
+                    tracing::warn!(
+                        %peer, %epoch,
+                        "chain_sync.validate_header.pending_stake_distribution"
+                    );
+                    self.ensure_defer_validation_stage(&eff).await;
+                    eff.send(
+                        &self.defer_validation,
+                        DeferValidationMsg::Register(PendingValidation {
+                            peer,
+                            handler,
+                            variant,
+                            header: header_for_retry,
+                            tip,
+                        }),
+                    )
+                    .await;
+                    return;
+                }
                 tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                 self.upstream.remove(&peer);
                 eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
                 return;
             }
         };
+
+        // Validation succeeded; ask for the next header (either immediately or once the ledger
+        // catches up far enough, per `mode`).
+        match mode {
+            RollForwardMode::PipelineRequestNext => {
+                eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
+            }
+            RollForwardMode::DeferTrailingRequestNext { min_ledger_height } => {
+                self.ensure_defer_req_next_stage(&eff).await;
+                eff.send(
+                    &self.defer_req_next,
+                    DeferReqNextMsg::Register { handler: handler.clone(), min_ledger_height },
+                )
+                .await;
+            }
+        }
 
         let tip_point = header.point();
         let tip = self.roll_forward(&peer, header, tip, &store).await;
@@ -269,11 +380,6 @@ impl TrackPeers {
             eff.send(&self.downstream, (tip, parent)).await;
         } else {
             tracing::debug!(%peer, tip = %tip_point, "roll forward, header already stored");
-        }
-
-        if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
-            self.ensure_defer_req_next_stage(&eff).await;
-            eff.send(&self.defer_req_next, DeferReqNextMsg::Register { handler, min_ledger_height }).await;
         }
     }
 

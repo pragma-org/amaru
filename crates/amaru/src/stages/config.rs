@@ -46,6 +46,10 @@ pub struct Config {
     /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
     pub defer_req_next_poll_ms: u64,
 
+    /// How often the `defer_validation` stage retries header validations that previously failed
+    /// because the ledger had not yet computed the required stake distribution.
+    pub defer_validation_poll_ms: u64,
+
     /// Minimum number of trace entries retained when the stage graph trace buffer is full.
     pub trace_buffer_min_entries: usize,
 
@@ -90,6 +94,7 @@ impl Default for Config {
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
             defer_req_next_poll_ms: 200,
+            defer_validation_poll_ms: 5_000,
             trace_buffer_min_entries: 0,
             trace_buffer_max_size: 0,
             trace_dump_path: None,

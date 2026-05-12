@@ -14,7 +14,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::BlockHeader;
+use amaru_kernel::{BlockHeader, Epoch};
 use serde::{Deserialize, Serialize};
 
 pub trait CanValidateHeaders: Send + Sync {
@@ -22,23 +22,42 @@ pub trait CanValidateHeaders: Send + Sync {
 }
 
 #[derive(Debug)]
-pub struct HeaderValidationError(anyhow::Error);
+pub struct HeaderValidationError {
+    inner: anyhow::Error,
+    missing_stake_distribution: Option<Epoch>,
+}
 
 impl HeaderValidationError {
     pub fn new(err: anyhow::Error) -> Self {
-        HeaderValidationError(err)
+        HeaderValidationError { inner: err, missing_stake_distribution: None }
+    }
+
+    /// Construct an error indicating that the stake distribution for the given epoch is not
+    /// yet available. This is a transient condition that callers may use to retry validation
+    /// once the ledger has caught up.
+    pub fn missing_stake_distribution(epoch: Epoch) -> Self {
+        HeaderValidationError {
+            inner: anyhow::anyhow!("no stake distribution available for pool access {}.", epoch),
+            missing_stake_distribution: Some(epoch),
+        }
+    }
+
+    /// If this error was caused by a missing stake distribution, return the epoch whose
+    /// distribution is missing. Returns `None` for all other errors.
+    pub fn as_missing_stake_distribution(&self) -> Option<Epoch> {
+        self.missing_stake_distribution
     }
 
     pub fn to_anyhow(self) -> anyhow::Error {
-        self.0
+        self.inner
     }
 
     pub fn downcast<T: std::error::Error + Debug + Send + Sync + 'static>(self) -> Result<T, anyhow::Error> {
-        self.0.downcast::<T>()
+        self.inner.downcast::<T>()
     }
 
     pub fn downcast_ref<T: std::error::Error + Debug + Send + Sync + 'static>(&self) -> Option<&T> {
-        self.0.downcast_ref::<T>()
+        self.inner.downcast_ref::<T>()
     }
 }
 
@@ -50,7 +69,7 @@ impl From<anyhow::Error> for HeaderValidationError {
 
 impl Display for HeaderValidationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HeaderValidationError: {}", self.0)
+        write!(f, "HeaderValidationError: {}", self.inner)
     }
 }
 
@@ -59,7 +78,7 @@ impl Serialize for HeaderValidationError {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.0.to_string())
+        serializer.serialize_str(&self.inner.to_string())
     }
 }
 
@@ -78,6 +97,7 @@ impl<'de> Deserialize<'de> for HeaderValidationError {
 
 impl PartialEq for HeaderValidationError {
     fn eq(&self, other: &Self) -> bool {
-        self.0.to_string() == other.0.to_string()
+        self.inner.to_string() == other.inner.to_string()
+            && self.missing_stake_distribution == other.missing_stake_distribution
     }
 }
