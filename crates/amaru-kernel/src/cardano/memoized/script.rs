@@ -60,6 +60,10 @@ pub fn script_original_bytes(script: &MemoizedScript) -> &[u8] {
     }
 }
 
+pub fn script_size(script: &MemoizedScript) -> u64 {
+    script_original_bytes(script).len() as u64
+}
+
 pub fn decode_script<C>(d: &mut cbor::Decoder<'_>, ctx: &mut C) -> Result<MemoizedScript, cbor::decode::Error> {
     let tag = d.tag()?;
     if tag != IanaTag::Cbor.tag() {
