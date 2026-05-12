@@ -107,8 +107,8 @@ fn make_state() -> State<RocksDB, RocksDBHistoricalStores> {
     let protocol_parameters: ProtocolParameters =
         <&ProtocolParameters>::try_from(network).expect("preprod parameters available").clone();
 
-    let tmp = tempfile::tempdir().expect("tempdir creation succeeds");
-    let cfg = RocksDbConfig::new(tmp.path().to_path_buf());
+    let ledger_dir = tempfile::tempdir().expect("tempdir creation succeeds").keep();
+    let cfg = RocksDbConfig::new(ledger_dir);
     let store = RocksDB::empty(&cfg).expect("RocksDB::empty succeeds");
     let snapshots = RocksDBHistoricalStores::new(&cfg, 0);
 
