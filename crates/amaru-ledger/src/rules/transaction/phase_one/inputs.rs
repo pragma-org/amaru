@@ -155,7 +155,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{PREPROD_DEFAULT_PROTOCOL_PARAMETERS, TransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor, include_json, json,
+    };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -171,6 +173,7 @@ mod tests {
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -178,6 +181,15 @@ mod tests {
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
                 include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $pp:expr) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+                $pp,
             )
         };
     }
@@ -213,8 +225,22 @@ mod tests {
         matches Err(InvalidInputs::UnknownInput(..));
         "unknown reference input"
     )]
+    #[test_case(fixture!(
+        "3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1",
+        ProtocolParameters {
+            max_ref_script_size_per_tx: 0,
+            ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
+        }
+    ) => matches Err(InvalidInputs::RefScriptSizeTooBig { provided, allowed: 0 }) if provided > 0;
+        "reference script size too big"
+    )]
     fn inputs(
-        (ctx, tx, expected_traces): (AssertPreparationContext, TransactionBody, Vec<json::Value>),
+        (ctx, tx, expected_traces, protocol_parameters): (
+            AssertPreparationContext,
+            TransactionBody,
+            Vec<json::Value>,
+            ProtocolParameters,
+        ),
     ) -> Result<(), InvalidInputs> {
         assert_trace(
             move || {
@@ -223,7 +249,7 @@ mod tests {
                     &mut validation_context,
                     &tx.inputs,
                     tx.reference_inputs.as_deref(),
-                    &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+                    &protocol_parameters,
                 )
             },
             expected_traces,
