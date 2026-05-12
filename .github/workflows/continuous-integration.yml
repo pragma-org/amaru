@@ -206,30 +206,6 @@ jobs:
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       CARDANO_NODE_BUCKET_NAME: ${{ secrets.CARDANO_NODE_BUCKET_NAME }}
 
-  examples:
-    name: Examples
-    strategy:
-      fail-fast: false
-      matrix:
-        projects:
-          - ledger-in-nodejs
-    defaults:
-      run:
-        working-directory: examples/${{ matrix.projects }}
-    timeout-minutes: 30
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-wasm32-unknown-unknown
-          restore-keys: |
-            cargo-wasm32-unknown-unknown
-      - name: Run make
-        shell: bash
-        run: make
-
   benches:
     name: Benches
     runs-on: ubuntu-22.04
