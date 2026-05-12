@@ -186,7 +186,7 @@ jobs:
         run: |
           docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
           make HASKELL_NODE_CONFIG_DIR=cardano-node-config AMARU_NETWORK=${{ matrix.network.name }} download-haskell-config
-          jq 'del(.bootstrapPeers)' ./cardano-node-config/topology.json > cardano-node-config/topology.patched.json
+          jq 'del(.bootstrapPeers) | del(.peerSnapshotFile) | .useLedgerAfterSlot = -1' ./cardano-node-config/topology.json > cardano-node-config/topology.patched.json
           mv cardano-node-config/topology.patched.json cardano-node-config/topology.json
           docker run -d --name cardano-node \
             -v ${{ runner.temp }}/db-${{ matrix.network.name }}:/db \
