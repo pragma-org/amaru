@@ -157,7 +157,12 @@ where
         transaction_body.collateral_return.as_ref(),
     )?;
 
-    inputs::execute(context, transaction_body.inputs.deref(), transaction_body.reference_inputs.as_deref())?;
+    inputs::execute(
+        context,
+        transaction_body.inputs.deref(),
+        transaction_body.reference_inputs.as_deref(),
+        protocol_parameters,
+    )?;
 
     if transaction_witness_set.redeemer.is_some() {
         collateral::execute(
