@@ -304,7 +304,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     );
 
     Ok(Config {
-        ledger_store: StoreType::RocksDb(RocksDbConfig::new(ledger_dir).with_shared_env()),
+        ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: args.peer_address,
         network: args.network,
