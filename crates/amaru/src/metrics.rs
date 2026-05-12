@@ -101,13 +101,13 @@ fn record_build_info(provider: &SdkMeterProvider) {
 
     let version_parts: Vec<&str> = built_info::PKG_VERSION.split('.').collect();
 
-    if let Some(major) = version_parts.first().and_then(|v| v.parse::<u64>().ok()) {
+    if let Some(major) = version_parts.first().and_then(|v| v.split('-').next()?.parse::<u64>().ok()) {
         version_major.record(major, &[]);
     }
-    if let Some(minor) = version_parts.get(1).and_then(|v| v.parse::<u64>().ok()) {
+    if let Some(minor) = version_parts.get(1).and_then(|v| v.split('-').next()?.parse::<u64>().ok()) {
         version_minor.record(minor, &[]);
     }
-    if let Some(patch) = version_parts.get(2).and_then(|v| v.parse::<u64>().ok()) {
+    if let Some(patch) = version_parts.get(2).and_then(|v| v.split('-').next()?.parse::<u64>().ok()) {
         version_patch.record(patch, &[]);
     }
 }

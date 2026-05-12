@@ -646,13 +646,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 }
                 .into();
 
-                let slot = slot.into();
+                let slot: u64 = slot.into();
 
                 let density = self.chain_density(point);
 
-                let current_kes_period = slot / self.global_parameters.slots_per_kes_period;
-                let remaining_kes_periods = (self.global_parameters.max_kes_evolution as u64)
-                    .saturating_sub(current_kes_period);
+                let current_kes_period = slot.checked_div(self.global_parameters.slots_per_kes_period).unwrap_or(0);
+                let remaining_kes_periods =
+                    (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
 
                 let metrics = LedgerMetrics {
                     block_height,
@@ -664,7 +664,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     current_kes_period,
                     remaining_kes_periods,
                     hash: hex::encode(point.hash()),
-                    parent_hash: prev_hash.map(|h| hex::encode(h)).unwrap_or_default(),
+                    parent_hash: prev_hash.map(hex::encode).unwrap_or_default(),
                     issuer_verification_key_hash: hex::encode(issuer),
                 };
 

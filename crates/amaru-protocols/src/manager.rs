@@ -384,7 +384,6 @@ fn connection_manager_metrics(manager: &Manager) -> ConnectionManagerMetrics {
     });
 
     ConnectionManagerMetrics {
-        duplex_connections: 0,
         inbound_connections: incoming_connections,
         outbound_connections: outgoing_connections,
         unidirectional_connections: incoming_connections + outgoing_connections,

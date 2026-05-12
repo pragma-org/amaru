@@ -16,10 +16,11 @@
 use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
+use opentelemetry::KeyValue;
+
+#[cfg(not(target_arch = "wasm32"))]
 use crate::{Counter, Gauge};
 use crate::{Meter, MetricRecorder, MetricsEvent};
-#[cfg(not(target_arch = "wasm32"))]
-use opentelemetry::KeyValue;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ProtocolMetrics {
@@ -30,7 +31,6 @@ pub enum ProtocolMetrics {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectionManagerMetrics {
-    pub duplex_connections: u64,
     pub inbound_connections: u64,
     pub outbound_connections: u64,
     pub unidirectional_connections: u64,
@@ -72,18 +72,10 @@ impl MetricRecorder for ConnectionManagerMetrics {
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ConnectionManagerMetrics {
     fn record_to_meter(&self, meter: &Meter) {
-        static DUPLEX_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
         static INBOUND_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
         static OUTBOUND_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
         static UNIDIRECTIONAL_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
 
-        let duplex_connections = DUPLEX_CONNECTIONS.get_or_init(|| {
-            meter
-                .u64_gauge("cardano_node_metrics_connectionManager_duplexConns_int")
-                .with_description("current number of duplex connections")
-                .with_unit("int")
-                .build()
-        });
         let inbound_connections = INBOUND_CONNECTIONS.get_or_init(|| {
             meter
                 .u64_gauge("cardano_node_metrics_connectionManager_inboundConns_int")
@@ -106,7 +98,6 @@ impl MetricRecorder for ConnectionManagerMetrics {
                 .build()
         });
 
-        duplex_connections.record(self.duplex_connections, &[]);
         inbound_connections.record(self.inbound_connections, &[]);
         outbound_connections.record(self.outbound_connections, &[]);
         unidirectional_connections.record(self.unidirectional_connections, &[]);
@@ -146,10 +137,7 @@ impl MetricRecorder for TipBlockMetrics {
         static TIP_BLOCK: OnceLock<Gauge<u64>> = OnceLock::new();
 
         let tip_block = TIP_BLOCK.get_or_init(|| {
-            meter
-                .u64_gauge("cardano_node_metrics_tipBlock")
-                .with_description("current chain tip block info")
-                .build()
+            meter.u64_gauge("cardano_node_metrics_tipBlock").with_description("current chain tip block info").build()
         });
 
         tip_block.record(
