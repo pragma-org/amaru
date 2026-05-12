@@ -18,11 +18,14 @@ use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{Counter, Gauge};
 use crate::{Meter, MetricRecorder, MetricsEvent};
+#[cfg(not(target_arch = "wasm32"))]
+use opentelemetry::KeyValue;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ProtocolMetrics {
     ConnectionManager(ConnectionManagerMetrics),
     ServedBlockCount(ServedBlockCountMetrics),
+    TipBlock(TipBlockMetrics),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -38,6 +41,13 @@ pub struct ServedBlockCountMetrics {
     pub count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TipBlockMetrics {
+    pub hash: String,
+    pub parent_hash: String,
+    pub issuer_verification_key_hash: String,
+}
+
 #[cfg(target_arch = "wasm32")]
 impl MetricRecorder for ProtocolMetrics {
     fn record_to_meter(&self, _meter: &Meter) {}
@@ -49,6 +59,7 @@ impl MetricRecorder for ProtocolMetrics {
         match self {
             ProtocolMetrics::ConnectionManager(metrics) => metrics.record_to_meter(meter),
             ProtocolMetrics::ServedBlockCount(metrics) => metrics.record_to_meter(meter),
+            ProtocolMetrics::TipBlock(metrics) => metrics.record_to_meter(meter),
         }
     }
 }
@@ -124,6 +135,34 @@ impl MetricRecorder for ServedBlockCountMetrics {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for TipBlockMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MetricRecorder for TipBlockMetrics {
+    fn record_to_meter(&self, meter: &Meter) {
+        static TIP_BLOCK: OnceLock<Gauge<u64>> = OnceLock::new();
+
+        let tip_block = TIP_BLOCK.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_tipBlock")
+                .with_description("current chain tip block info")
+                .build()
+        });
+
+        tip_block.record(
+            1,
+            &[
+                KeyValue::new("hash", self.hash.clone()),
+                KeyValue::new("parent_hash", self.parent_hash.clone()),
+                KeyValue::new("issuer_verification_key_hash", self.issuer_verification_key_hash.clone()),
+            ],
+        );
+    }
+}
+
 impl From<ProtocolMetrics> for MetricsEvent {
     fn from(value: ProtocolMetrics) -> Self {
         MetricsEvent::ProtocolMetrics(value)
@@ -139,5 +178,11 @@ impl From<ConnectionManagerMetrics> for MetricsEvent {
 impl From<ServedBlockCountMetrics> for MetricsEvent {
     fn from(value: ServedBlockCountMetrics) -> Self {
         MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedBlockCount(value))
+    }
+}
+
+impl From<TipBlockMetrics> for MetricsEvent {
+    fn from(value: TipBlockMetrics) -> Self {
+        MetricsEvent::ProtocolMetrics(ProtocolMetrics::TipBlock(value))
     }
 }
