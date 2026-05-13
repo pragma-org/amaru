@@ -11,23 +11,15 @@ on:
     types: [opened, synchronize, reopened, converted_to_draft, ready_for_review]
     branches: ["*"]
 
-env:
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target/
-
 jobs:
   rust-toolchain:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - run: ./scripts/check-rust-toolchain-version
 
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Required to expose outputs to dependent jobs (unused-dependencies, licenses-compatibility)
     outputs:
       dependencies: ${{ steps.changes.outputs.dependencies }}
@@ -46,7 +38,7 @@ jobs:
   unused-dependencies:
     needs: changes
     if: ${{ needs.changes.outputs.dependencies == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: jaxxstorm/action-install-gh-release@v1.10.0
@@ -59,7 +51,7 @@ jobs:
   licenses-compatibility:
     needs: changes
     if: ${{ needs.changes.outputs.dependencies == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: jaxxstorm/action-install-gh-release@v1.10.0
@@ -70,7 +62,7 @@ jobs:
       - run: cargo deny-amaru
 
   license-headers:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: viperproject/check-license-header@v2
@@ -80,35 +72,25 @@ jobs:
           strict: false
 
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/cache/restore@v5
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: ./.github/actions/cache
       - run: cargo clippy-amaru
 
   formatting:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - run: cargo fmt-amaru
 
   docs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: true
-      - uses: actions/cache/restore@v5
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: ./.github/actions/cache
       - name: Check documentation
         run: |
           export RUSTDOCFLAGS="-D warnings"

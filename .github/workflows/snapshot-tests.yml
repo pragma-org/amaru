@@ -49,12 +49,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target/
   INPUT_TIMEOUT: ${{ inputs.timeout }}
   AMARU_TRACE: ${{ inputs.run_until_trace_level || 'info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info' }}
   RUSTUP_LOG: error
@@ -180,12 +174,7 @@ jobs:
               --socket-path /ipc/node.socket \
               --topology /config/topology.json
 
-      - uses: actions/cache/restore@v5
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: ./.github/actions/cache
 
       - name: Build Amaru
         shell: bash
@@ -201,7 +190,7 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-${{ env.LEDGER_CACHE_VERSION }}
+          key: ledger-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
@@ -220,7 +209,7 @@ jobs:
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.${{ matrix.network.name }}.db
-          key: ${{ runner.OS }}-ledger-cache-${{ env.LEDGER_CACHE_VERSION }}
+          key: ledger-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Retrieve latest epoch if needed
         if: env.RUN_UNTIL_TARGET_EPOCH == ''

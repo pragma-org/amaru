@@ -11,13 +11,6 @@ env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   DOCKER_IMAGE: ghcr.io/pragma-org/amaru
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target
-    !target/amaru
 
 permissions:
   contents: read
@@ -69,17 +62,7 @@ jobs:
         with:
           submodules: true
 
-      - id: timestamp
-        shell: bash
-        run: |
-          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
-      - uses: actions/cache@v5
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-release-${{ matrix.environments.target }}-${{ steps.timestamp.outputs.value }}
-          restore-keys: |
-            cargo-release-${{ matrix.environments.target }}
+      - uses: ./.github/actions/cache
 
       - name: build metadata
         id: meta
@@ -130,7 +113,7 @@ jobs:
         os: [ linux ]
         arch: [ amd64, arm64 ]
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -188,7 +171,7 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [ docker-build ]
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download digests
@@ -234,7 +217,7 @@ jobs:
 
   cargo-publish:
     name: Publish crates to crates.io
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ github.ref_type == 'tag' }}
     needs: rust-build
     environment: crates-io
@@ -255,7 +238,7 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: rust-build
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download all artifacts
@@ -367,7 +350,7 @@ jobs:
 
   publish:
     name: Publish to GitHub Pages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: merge-artifacts
     environment:

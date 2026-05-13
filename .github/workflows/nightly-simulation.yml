@@ -56,7 +56,7 @@ jobs:
       matrix:
         # run only on linux for now.
         environments:
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             title: x86_64/linux
 
