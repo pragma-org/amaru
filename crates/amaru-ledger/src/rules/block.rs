@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, GlobalParameters, HasExUnits, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot,
-    Transaction, TransactionId, TransactionPointer, size::BLOCK_BODY,
+    Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, Transaction,
+    TransactionId, TransactionPointer, size::BLOCK_BODY,
 };
 use amaru_observability::trace_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -214,7 +214,7 @@ where
 
     with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
 
-    with_block_context(ex_units::block_ex_units_valid(block.ex_units(), protocol_params))?;
+    with_block_context(ex_units::block_ex_units_valid(&block, protocol_params))?;
 
     with_block_context(ref_scripts_size::block_ref_scripts_size_valid(
         block.transaction_bodies.iter().flat_map(|tx| tx.reference_inputs.as_deref().unwrap_or(&[])),
