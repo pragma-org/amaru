@@ -32,11 +32,6 @@ on:
         type: string
         required: false
         default: ""
-      use_buildjet_runner:
-        description: "Use buildjet runner for better performance"
-        type: boolean
-        required: false
-        default: false
       run_tests:
         description: "Run e2e tests after node sync"
         type: boolean
@@ -54,35 +49,19 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target/
   INPUT_TIMEOUT: ${{ inputs.timeout }}
   AMARU_TRACE: ${{ inputs.run_until_trace_level || 'info,amaru::consensus=debug,amaru::ledger=debug,pure_stage=warn,amaru_protocols=warn,amaru_consensus=info' }}
   RUSTUP_LOG: error
+  LEDGER_CACHE_VERSION: "v12"
 
 permissions:
   contents: read
   actions: write
 
 jobs:
-  snapshots-instance-choice:
-    name: End-to-end snapshot preparation
-    runs-on: ubuntu-22.04
-    outputs:
-      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-22.04' }}
-    steps:
-      - id: alt-runner
-        if: inputs.use_buildjet_runner
-        run: echo "runner=buildjet-4vcpu-ubuntu-2204" >> $GITHUB_OUTPUT
-
   snapshots:
     name: End-to-end snapshot tests
-    needs: snapshots-instance-choice
-    runs-on: ${{ needs.snapshots-instance-choice.outputs.runner }}
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         network:
@@ -159,18 +138,13 @@ jobs:
 
       - name: Support longpaths
         run: git config --system core.longpaths true
-        if: contains(needs.snapshots-instance-choice.outputs.runner, 'windows')
-      - uses: actions/checkout@v4
+        if: runner.os == 'Windows'
+      - uses: actions/checkout@v6
 
       - name: Reclaim Disk Space
         run: |
           chmod +x ./scripts/cleanup-runner.sh
           ./scripts/cleanup-runner.sh
-
-      - id: timestamp
-        shell: bash
-        run: |
-          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
       - name: Download (Haskell) cardano-node's db
         shell: bash
@@ -200,12 +174,7 @@ jobs:
               --socket-path /ipc/node.socket \
               --topology /config/topology.json
 
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: ./.github/actions/cache
 
       - name: Build Amaru
         shell: bash
@@ -221,9 +190,7 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
-          restore-keys: |
-            ${{ runner.OS }}-ledger-cache-v12
+          key: ledger-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
@@ -238,11 +205,11 @@ jobs:
           make import-headers
           make import-nonces
 
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v5
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.${{ matrix.network.name }}.db
-          key: ${{ runner.OS }}-ledger-cache-v12-${{ steps.timestamp.outputs.value }}
+          key: ledger-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Retrieve latest epoch if needed
         if: env.RUN_UNTIL_TARGET_EPOCH == ''

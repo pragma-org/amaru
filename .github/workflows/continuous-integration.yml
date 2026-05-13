@@ -25,12 +25,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target/
   RUST_NIGHTLY_TOOLCHAIN: nightly-2026-04-17
   RUSTUP_LOG: error
 
@@ -46,75 +40,62 @@ jobs:
       fail-fast: false
       matrix:
         environments:
-          - runner: ubuntu-22.04
+          - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             title: x86_64/linux
+            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
-          - runner: ubuntu-22.04
-            target: aarch64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
             title: aarch64/linux
-            command: test # This is a cross specific command. Do not change
-            setup: rustup target add aarch64-unknown-linux-musl
-            cross-compile: true
+            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
-          - runner: macos-latest
+          - runner: macos-15
             target: aarch64-apple-darwin
             title: aarch64/macos
+            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
-          - runner: windows-latest
+          - runner: windows-2025
             target: x86_64-pc-windows-msvc
             title: x86_64/windows
             command: test --workspace --all-targets --profile dev-debug
+            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
-          - runner: ubuntu-22.04
+          - runner: ubuntu-24.04
             target: wasm32-unknown-unknown
             title: wasm32
             packages: -p amaru-consensus -p amaru-ledger -p pure-stage
             command: build
+            cache_mode: READ_ONLY
             setup: rustup target add wasm32-unknown-unknown
 
           # When targetting RISC-V, the uplc-turbo crate fails to compile.
           # Providing the specific RISC-V gnu clang compiler to Rust allows it to build
-          - runner: ubuntu-22.04
+          - runner: ubuntu-24.04
             target: riscv32gc-unknown-linux-gnu
             title: riscv32
             packages: -p amaru-ledger
             extra-args: +$RUST_NIGHTLY_TOOLCHAIN -Zbuild-std=std,panic_abort
             command: build
+            cache_mode: READ_ONLY
             setup: |
               rustup component add rust-src --toolchain "$RUST_NIGHTLY_TOOLCHAIN"
               curl -L -o riscv32-glibc-llvm.tar.xz \
-                "https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.11.04/riscv32-glibc-ubuntu-22.04-llvm.tar.xz"
+                "https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.11.04/riscv32-glibc-ubuntu-24.04-llvm.tar.xz"
               tar -xvf riscv32-glibc-llvm.tar.xz
               export CC_riscv32gc_unknown_linux_gnu="$(pwd)/riscv/bin/riscv32-unknown-linux-gnu-clang"
+
     runs-on: ${{ matrix.environments.runner }}
     steps:
       - name: Support longpaths
         run: git config --system core.longpaths true
         if: contains(matrix.environments.runner, 'windows')
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
-      - id: timestamp
-        shell: bash
-        run: |
-          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-      # Cache dependencies when pushing (i.e. merging into allowed branch).
-      - uses: actions/cache@v4
-        if: github.event_name == 'push'
+      - uses: ./.github/actions/cache
         with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-${{ matrix.environments.target }}-${{ steps.timestamp.outputs.value }}
-          restore-keys: |
-            cargo-${{ matrix.environments.target }}
-      # Only restore cache for other types of events (e.g. Pull requests).
-      - uses: actions/cache/restore@v4
-        if: github.event_name != 'push'
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-${{ matrix.environments.target }}
-          restore-keys: |
-            cargo-${{ matrix.environments.target }}
+          mode: ${{ matrix.environments.cache_mode }}
       - name: Run build
         shell: bash
         run: |
@@ -122,54 +103,42 @@ jobs:
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
           SCOPE="${{ matrix.environments.packages || '' }}"
           COMMAND="${{ matrix.environments.command  || 'test --workspace --all-targets' }}"
+
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
             echo "Running setup command: ${{ matrix.environments.setup }}"
             ${{ matrix.environments.setup }}
           fi
-          if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
-            cargo install --force cross --git https://github.com/cross-rs/cross
-            # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
-            $HOME/.cargo/bin/cross $COMMAND --locked $SCOPE --target ${{ matrix.environments.target }}
-          else
-            if [[ "${{ matrix.environments.target }}" == "x86_64-unknown-linux-gnu" ]] ; then
-              cargo $EXTRA_ARGS $COMMAND $SCOPE --locked
-            else
-              cargo $EXTRA_ARGS $COMMAND $SCOPE --locked --target ${{ matrix.environments.target }}
-            fi
-            # Run doc tests separately as --doc can't be used with --all-targets
-            cargo test --doc
-          fi
+
+          cargo $EXTRA_ARGS $COMMAND $SCOPE --locked --target ${{ matrix.environments.target }}
+
+          # Run doc tests separately as --doc can't be used with --all-targets
+          cargo test --doc
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: failed-simulation-data
           path: simulation/amaru-sim/test-data
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: failed-simulation-data
           path: simulation/amaru-sim/test-data
 
   coverage:
     name: Test coverage
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     if: ${{ !github.event.pull_request.draft }}
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: True
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: ./.github/actions/cache
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
@@ -177,7 +146,7 @@ jobs:
         run: make coverage-lconv
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: failed-simulation-data
           path: simulation/amaru-sim/test-data
@@ -198,7 +167,6 @@ jobs:
       run_until_target_epoch: ${{ github.event.inputs.run_until_target_epoch || '' }}
       timeout: ${{ github.event.inputs.timeout || '' }}
       run_until_trace_level: ${{ github.event.inputs.run_until_trace_level || '' }}
-      use_buildjet_runner: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
       run_tests: ${{ github.event_name == 'pull_request' }}
     secrets:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -208,30 +176,20 @@ jobs:
 
   benches:
     name: Benches
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache
       - name: Run amaru-consensus benches
         shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"
 
   cli:
     name: Test the CLI
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache
       - name: Install bash_unit
         shell: bash
         run: curl -s https://raw.githubusercontent.com/bash-unit/bash_unit/master/install.sh | bash
@@ -246,25 +204,20 @@ jobs:
 
   validate-schemas:
     name: Validate Trace Schemas and Documentation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache
       - name: Validate trace schemas
         run: make validate-trace-schemas
       - name: Upload schema diff
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: schema-diff
           path: /tmp/schemas.diff
       - name: Build amaru release binary
-        run: cargo build --bin amaru --release --quiet
+        run: cargo build --bin amaru --quiet
       - name: Generate current TRACES.md
         run: |
           ./scripts/generate-traces-doc
