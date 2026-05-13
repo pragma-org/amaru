@@ -58,7 +58,7 @@ jobs:
           - runner: windows-2025
             target: x86_64-pc-windows-msvc
             title: x86_64/windows
-            command: test --workspace --all-targets --profile dev-debug
+            command: test --tests --workspace --profile dev-debug
             cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
           - runner: ubuntu-24.04
