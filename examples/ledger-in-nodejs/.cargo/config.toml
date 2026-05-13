@@ -1,9 +1,0 @@
-[build]
-target = "wasm32-unknown-unknown"
-
-[profile.release]
-lto = true
-strip = true
-
-[unstable]
-unstable-options = true

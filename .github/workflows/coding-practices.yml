@@ -42,8 +42,6 @@ jobs:
               - "Cargo.lock"
               - "crates/**/Cargo.toml"
               - "crates/**/Cargo.lock"
-              - "examples/**/Cargo.toml"
-              - "examples/**/Cargo.lock"
 
   unused-dependencies:
     needs: changes
