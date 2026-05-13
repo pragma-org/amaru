@@ -32,11 +32,6 @@ on:
         type: string
         required: false
         default: ""
-      use_buildjet_runner:
-        description: "Use buildjet runner for better performance"
-        type: boolean
-        required: false
-        default: false
       run_tests:
         description: "Run e2e tests after node sync"
         type: boolean
@@ -69,20 +64,9 @@ permissions:
   actions: write
 
 jobs:
-  snapshots-instance-choice:
-    name: End-to-end snapshot preparation
-    runs-on: ubuntu-22.04
-    outputs:
-      runner: ${{ steps.alt-runner.outputs.runner || 'ubuntu-22.04' }}
-    steps:
-      - id: alt-runner
-        if: inputs.use_buildjet_runner
-        run: echo "runner=buildjet-4vcpu-ubuntu-2204" >> $GITHUB_OUTPUT
-
   snapshots:
     name: End-to-end snapshot tests
-    needs: snapshots-instance-choice
-    runs-on: ${{ needs.snapshots-instance-choice.outputs.runner }}
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         network:
@@ -160,7 +144,7 @@ jobs:
       - name: Support longpaths
         run: git config --system core.longpaths true
         if: contains(needs.snapshots-instance-choice.outputs.runner, 'windows')
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Reclaim Disk Space
         run: |
@@ -200,7 +184,7 @@ jobs:
               --socket-path /ipc/node.socket \
               --topology /config/topology.json
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v5
         with:
           path: ${{ env.RUST_CACHE_PATH }}
           key: cargo-x86_64-unknown-linux-gnu
@@ -238,7 +222,7 @@ jobs:
           make import-headers
           make import-nonces
 
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v5
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.${{ matrix.network.name }}.db
