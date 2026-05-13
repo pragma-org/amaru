@@ -46,7 +46,7 @@ pub fn execute<C>(
     inputs: &[TransactionInput],
     reference_inputs: Option<&[TransactionInput]>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), InvalidInputs>
+) -> Result<u64, InvalidInputs>
 where
     C: UtxoSlice + WitnessSlice,
 {
@@ -150,7 +150,7 @@ where
         }
     }
 
-    Ok(())
+    Ok(ref_scripts_size)
 }
 
 #[cfg(test)]
@@ -251,6 +251,7 @@ mod tests {
                     tx.reference_inputs.as_deref(),
                     &protocol_parameters,
                 )
+                .map(|_| ())
             },
             expected_traces,
         )

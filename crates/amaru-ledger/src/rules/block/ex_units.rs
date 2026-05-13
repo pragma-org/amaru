@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ExUnits, ProtocolParameters, sum_ex_units};
+use amaru_kernel::{ExUnits, HasExUnits, ProtocolParameters};
 
 use super::InvalidBlockDetails;
 
-pub fn block_ex_units_valid<'a>(
-    ex_units: impl IntoIterator<Item = &'a ExUnits>,
+pub fn block_ex_units_valid(
+    block: &impl HasExUnits,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails> {
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
-    let ex_units = ex_units.into_iter().fold(ExUnits { mem: 0, steps: 0 }, sum_ex_units);
+    let ex_units = block.total_ex_units();
 
     if ex_units.mem <= pp_max_ex_units.mem && ex_units.steps <= pp_max_ex_units.steps {
         return Ok(());
@@ -35,7 +35,7 @@ pub fn block_ex_units_valid<'a>(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Block, ExUnits, HasExUnits, ProtocolParameters, include_cbor};
+    use amaru_kernel::{Block, ExUnits, ProtocolParameters, include_cbor};
     use test_case::test_case;
 
     use crate::rules::block::InvalidBlockDetails;
@@ -62,6 +62,6 @@ mod tests {
     }) => matches Err(InvalidBlockDetails::TooManyExUnits{provided, max: _})
     if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units((block, protocol_parameters): (Block, ProtocolParameters)) -> Result<(), InvalidBlockDetails> {
-        super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
+        super::block_ex_units_valid(&block, &protocol_parameters)
     }
 }

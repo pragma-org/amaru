@@ -152,19 +152,23 @@ where
         mem::take(&mut transaction_body.certificates),
     )?;
 
-    fees::execute(
-        context,
-        is_valid,
-        transaction_body.fee,
-        transaction_body.collateral.as_deref(),
-        transaction_body.collateral_return.as_ref(),
-    )?;
-
-    inputs::execute(
+    let ref_scripts_size = inputs::execute(
         context,
         transaction_body.inputs.deref(),
         transaction_body.reference_inputs.as_deref(),
         protocol_parameters,
+    )?;
+
+    fees::execute(
+        context,
+        is_valid,
+        transaction_body.fee,
+        tx_size,
+        transaction_witness_set,
+        ref_scripts_size,
+        protocol_parameters,
+        transaction_body.collateral.as_deref(),
+        transaction_body.collateral_return.as_ref(),
     )?;
 
     if transaction_witness_set.redeemer.is_some() {
