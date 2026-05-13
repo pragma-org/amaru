@@ -25,8 +25,6 @@ pub mod bootstrap;
 pub mod cardano_node;
 pub mod exit;
 pub mod metrics;
-#[cfg(feature = "mithril")]
-pub mod mithril;
 pub mod observability;
 pub mod panic;
 

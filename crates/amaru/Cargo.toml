@@ -33,16 +33,13 @@ doc = false
 anyhow.workspace = true
 axum.workspace = true
 async-compression.workspace = true
-async-trait.workspace = true
 clap.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 include_dir = { workspace = true, features = ["glob"] }
-indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
-mithril-client = { workspace = true, optional = true }
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry-semantic-conventions.workspace = true
@@ -75,6 +72,7 @@ amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
 amaru-mempool.workspace = true
+amaru-mithril = { workspace = true, optional = true }
 amaru-metrics.workspace = true
 amaru-network.workspace = true
 amaru-observability.workspace = true
@@ -90,7 +88,7 @@ rlimit = "0.10.2"
 
 [features]
 default = ["mithril"]
-mithril = ["dep:mithril-client"]
+mithril = ["dep:amaru-mithril"]
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

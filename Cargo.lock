@@ -64,6 +64,7 @@ dependencies = [
  "amaru-ledger",
  "amaru-mempool",
  "amaru-metrics",
+ "amaru-mithril",
  "amaru-network",
  "amaru-observability",
  "amaru-ouroboros",
@@ -74,7 +75,6 @@ dependencies = [
  "amaru-stores",
  "anyhow",
  "async-compression",
- "async-trait",
  "axum",
  "built",
  "clap",
@@ -82,11 +82,9 @@ dependencies = [
  "futures-util",
  "hex",
  "include_dir",
- "indicatif",
  "indoc",
  "insta",
  "minicbor",
- "mithril-client",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
@@ -261,6 +259,20 @@ name = "amaru-minicbor-extra"
 version = "0.1.2"
 dependencies = [
  "minicbor",
+ "tracing",
+]
+
+[[package]]
+name = "amaru-mithril"
+version = "0.1.2"
+dependencies = [
+ "amaru-kernel",
+ "async-trait",
+ "flate2",
+ "indicatif",
+ "mithril-client",
+ "tar",
+ "tokio",
  "tracing",
 ]
 

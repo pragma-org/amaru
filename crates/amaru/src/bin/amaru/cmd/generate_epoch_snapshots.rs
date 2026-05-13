@@ -17,11 +17,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru::{
-    DEFAULT_NETWORK, default_data_dir, default_snapshots_dir,
-    mithril::{download_from_mithril, get_latest_chunk},
-};
+use amaru::{DEFAULT_NETWORK, default_data_dir, default_snapshots_dir};
 use amaru_kernel::NetworkName;
+use amaru_mithril::{download_from_mithril, get_latest_chunk};
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 use tracing::info;

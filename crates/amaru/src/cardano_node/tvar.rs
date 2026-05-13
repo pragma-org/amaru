@@ -95,6 +95,15 @@ fn read_state_snapshot(file: &mut std::fs::File) -> Result<Vec<u8>, Box<dyn std:
     Ok(bytes)
 }
 
+fn default_utxo_size(network: NetworkName) -> usize {
+    match network {
+        NetworkName::Mainnet => 11_000_000,
+        NetworkName::Preview => 1_500_000,
+        NetworkName::Preprod => 1_500_000,
+        NetworkName::Testnet(..) => 1,
+    }
+}
+
 fn import_utxo_from_tvar<S, F>(
     utxo_file: &mut std::fs::File,
     db: &S,
@@ -134,12 +143,7 @@ where
         Ok(d.map()?.map(|len| len as usize))
     })?;
 
-    let estimated_size = size.unwrap_or(match network {
-        NetworkName::Mainnet => 11_000_000,
-        NetworkName::Preview => 1_500_000,
-        NetworkName::Preprod => 1_500_000,
-        NetworkName::Testnet(..) => 1,
-    });
+    let estimated_size = size.unwrap_or(default_utxo_size(network));
 
     let progress = with_progress(estimated_size, "  UTxO entries {bar:70} {pos:>7}/{len:7}");
 
