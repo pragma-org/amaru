@@ -1,0 +1,28 @@
+{
+  "title": "stake-registration",
+  "description": "The transaction body carries one Conway `Reg(credential, deposit)` cert. The stake credential is the same key-hash as the input's payment key, so the existing vkey witness satisfies both required signers. The deposit (2_000_000) matches protocolParameters.stakeCredentialDeposit. Opens conformance coverage on certificates::execute (Reg arm + AccountsSlice::register).",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4004d901028183078200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a001e84800f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584061c1a24c40f4b2ada1a8fc45d0ac5259f4911a7a27285b118abbdb286567dc7efb990c19e63f314ac1934451fb0f209d95f8b6cad5fece8eddb89941241de404f5f6",
+  "expected": "Pass"
+}

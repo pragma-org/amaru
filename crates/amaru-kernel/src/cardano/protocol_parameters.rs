@@ -158,6 +158,132 @@ impl ProtocolParameters {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl<'de> Deserialize<'de> for ProtocolParameters {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        crate::utils::serde::deserialize_proxy(d)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use serde::Deserialize;
+
+    use super::{
+        CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParameters,
+        ProtocolVersion, RationalNumber,
+    };
+    use crate::utils::serde::{HasProxy, deserialize_proxy};
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct MinFeeReferenceScriptsProxy {
+        range: u32,
+        base: RationalNumber,
+        multiplier: RationalNumber,
+    }
+
+    /// Fixture JSON shape. The field naming is loosely inspired by
+    /// [Ogmios's `ProtocolParameters` schema](https://github.com/CardanoSolutions/ogmios) but
+    /// the wire format intentionally differs: ratios are `{ numerator, denominator }` objects
+    /// rather than `"n/m"` strings, lovelace amounts and byte sizes are bare integers rather
+    /// than wrapped, and Plutus cost-model keys are camelCase (`plutusV1`, etc.).
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ProtocolParametersProxy {
+        min_fee_coefficient: u64,
+        min_fee_constant: Lovelace,
+        min_fee_reference_scripts: MinFeeReferenceScriptsProxy,
+        min_utxo_deposit_coefficient: u64,
+        max_block_body_size: u64,
+        max_block_header_size: u16,
+        max_transaction_size: u64,
+        max_value_size: u64,
+        max_reference_scripts_size: u32,
+        stake_credential_deposit: Lovelace,
+        stake_pool_deposit: Lovelace,
+        stake_pool_retirement_epoch_bound: u64,
+        stake_pool_pledge_influence: RationalNumber,
+        min_stake_pool_cost: Lovelace,
+        desired_number_of_stake_pools: u16,
+        monetary_expansion: RationalNumber,
+        treasury_expansion: RationalNumber,
+        collateral_percentage: u16,
+        max_collateral_inputs: u16,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        plutus_cost_models: CostModels,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        script_execution_prices: ExUnitPrices,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        max_execution_units_per_transaction: ExUnits,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        max_execution_units_per_block: ExUnits,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        stake_pool_voting_thresholds: PoolVotingThresholds,
+        constitutional_committee_min_size: u16,
+        constitutional_committee_max_term_length: u64,
+        governance_action_lifetime: u64,
+        governance_action_deposit: Lovelace,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        delegate_representative_voting_thresholds: DRepVotingThresholds,
+        delegate_representative_deposit: Lovelace,
+        delegate_representative_max_idle_time: u64,
+        #[serde(deserialize_with = "deserialize_proxy")]
+        version: ProtocolVersion,
+    }
+
+    impl From<ProtocolParametersProxy> for ProtocolParameters {
+        fn from(p: ProtocolParametersProxy) -> Self {
+            ProtocolParameters {
+                protocol_version: p.version,
+                min_fee_a: p.min_fee_coefficient,
+                min_fee_b: p.min_fee_constant,
+                max_block_body_size: p.max_block_body_size,
+                max_transaction_size: p.max_transaction_size,
+                max_block_header_size: p.max_block_header_size,
+                stake_credential_deposit: p.stake_credential_deposit,
+                stake_pool_deposit: p.stake_pool_deposit,
+                stake_pool_max_retirement_epoch: p.stake_pool_retirement_epoch_bound,
+                optimal_stake_pools_count: p.desired_number_of_stake_pools,
+                pledge_influence: p.stake_pool_pledge_influence,
+                monetary_expansion_rate: p.monetary_expansion,
+                treasury_expansion_rate: p.treasury_expansion,
+                min_pool_cost: p.min_stake_pool_cost,
+                lovelace_per_utxo_byte: p.min_utxo_deposit_coefficient,
+                prices: p.script_execution_prices,
+                max_tx_ex_units: p.max_execution_units_per_transaction,
+                max_block_ex_units: p.max_execution_units_per_block,
+                max_value_size: p.max_value_size,
+                collateral_percentage: p.collateral_percentage,
+                max_collateral_inputs: p.max_collateral_inputs,
+                pool_voting_thresholds: p.stake_pool_voting_thresholds,
+                drep_voting_thresholds: p.delegate_representative_voting_thresholds,
+                min_committee_size: p.constitutional_committee_min_size,
+                max_committee_term_length: p.constitutional_committee_max_term_length,
+                gov_action_lifetime: p.governance_action_lifetime,
+                gov_action_deposit: p.governance_action_deposit,
+                drep_deposit: p.delegate_representative_deposit,
+                drep_expiry: p.delegate_representative_max_idle_time,
+                min_fee_ref_script_lovelace_per_byte: p.min_fee_reference_scripts.base,
+                cost_models: p.plutus_cost_models,
+                max_ref_script_size_per_tx: p.max_reference_scripts_size,
+                // Hardcoded in the Haskell ledger; not yet a real protocol parameter, so the
+                // fixture schema does not carry it.
+                max_ref_script_size_per_block: 1024 * 1024,
+                ref_script_cost_stride: p.min_fee_reference_scripts.range,
+                ref_script_cost_multiplier: p.min_fee_reference_scripts.multiplier,
+            }
+        }
+    }
+
+    impl HasProxy for ProtocolParameters {
+        type Proxy = ProtocolParametersProxy;
+    }
+}
+
 fn decode_rationale(d: &mut cbor::Decoder<'_>) -> Result<RationalNumber, cbor::decode::Error> {
     cbor::allow_tag(d, cbor::Tag::new(30))?;
     cbor::heterogeneous_array(d, |d, assert_len| {
@@ -267,10 +393,18 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             drep_deposit,
             drep_expiry,
             min_fee_ref_script_lovelace_per_byte,
-            max_ref_script_size_per_tx: 200 * 1024, //Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Ledger.hs#L154)
-            max_ref_script_size_per_block: 1024 * 1024, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Bbody.hs#L91)
-            ref_script_cost_stride: 25600, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L82)
-            ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 }, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85)
+            // Hardcoded in the haskell ledger
+            // <https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Ledger.hs#L154>
+            max_ref_script_size_per_tx: 200 * 1024,
+            // Hardcoded in the haskell ledger
+            // <https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Bbody.hs#L91>
+            max_ref_script_size_per_block: 1024 * 1024,
+            // Hardcoded in the haskell ledger
+            // <https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L82>
+            ref_script_cost_stride: 25600,
+            // Hardcoded in the haskell ledger
+            // <https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85>
+            ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
         })
     }
 }

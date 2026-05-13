@@ -52,7 +52,38 @@ impl<'b, C> cbor::Decode<'b, C> for EraBound {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use std::time::Duration;
+
+    use serde::Deserialize;
+
+    use super::EraBound;
+    use crate::{Epoch, Slot, utils::serde::HasProxy};
+
+    /// Fixture JSON shape: `time` is a plain integer in **seconds** (the existing kernel
+    /// `Deserialize` impl uses picoseconds-as-string).
+    #[derive(Deserialize)]
+    pub struct EraBoundProxy {
+        time: u64,
+        slot: u64,
+        epoch: u64,
+    }
+
+    impl From<EraBoundProxy> for EraBound {
+        fn from(p: EraBoundProxy) -> Self {
+            EraBound { time: Duration::from_secs(p.time), slot: Slot::new(p.slot), epoch: Epoch::new(p.epoch) }
+        }
+    }
+
+    impl HasProxy for EraBound {
+        type Proxy = EraBoundProxy;
+    }
+}
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {

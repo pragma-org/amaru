@@ -1,0 +1,28 @@
+{
+  "title": "simple-transfer",
+  "description": "Single vkey-locked input, single vkey-locked output, sufficient fee. Passes every phase-one predicate.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
+        "output": "a200581d6091de07fed8a2b52a92686dd68bb2b8d443d6d42089cf508259774675011a004c4b40"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a400d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400f00a100d9010281825820b2f2453e32288dd3c90d532e997d0e5992a633ff66365e2b852606037ae8fc7b5840ec12c03465ef6693a9d862e1ba44969bfc38b7761ae5e2527524a1478bb152a5ba44707fae37f7d33f550888035111e4dca051d9441ee973ec9f1da7d90fbe0ff5f6",
+  "expected": "Pass"
+}
