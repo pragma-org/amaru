@@ -58,7 +58,7 @@ jobs:
           - runner: windows-2025
             target: x86_64-pc-windows-msvc
             title: x86_64/windows
-            command: test --workspace --all-targets --profile dev-debug
+            command: test --tests --workspace --profile dev-debug
             cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
           - runner: ubuntu-24.04
@@ -139,6 +139,9 @@ jobs:
         with:
           submodules: True
       - uses: ./.github/actions/cache
+        with:
+          suffix: "-coverage"
+          mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
@@ -180,6 +183,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache
+        with:
+          suffix: "-bench"
+          mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
       - name: Run amaru-consensus benches
         shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"
