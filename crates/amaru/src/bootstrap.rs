@@ -92,8 +92,18 @@ pub enum BootstrapError {
     #[error("Missing bootstrap parent point for snapshot {0}")]
     MissingParentPoint(String),
 
-    #[error("{0}")]
-    SnapshotSelection(String),
+    #[error("No bootstrap snapshots are configured in snapshots.json")]
+    NoBootstrapSnapshots,
+
+    #[error(
+        "bootstrap requested epoch {requested_first_epoch}, but snapshots.json must contain epochs {required_epochs}. Available epochs: {available_epochs}"
+    )]
+    SnapshotSelectionRequestedEpoch { requested_first_epoch: Epoch, required_epochs: String, available_epochs: String },
+
+    #[error(
+        "bootstrap needs the latest 3 consecutive snapshot epochs ending at {latest_epoch}, but snapshots.json only provides epochs {available_epochs}. Required epochs: {required_epochs}"
+    )]
+    SnapshotSelectionLatestEpoch { latest_epoch: Epoch, required_epochs: String, available_epochs: String },
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
@@ -138,9 +148,7 @@ fn select_bootstrap_snapshots(
     requested_first_epoch: Option<Epoch>,
 ) -> Result<[&Snapshot; 3], Box<dyn Error>> {
     let snapshots_by_epoch = snapshots.iter().map(|snapshot| (snapshot.epoch, snapshot)).collect::<BTreeMap<_, _>>();
-    let latest_epoch = snapshots_by_epoch.keys().next_back().copied().ok_or_else(|| {
-        BootstrapError::SnapshotSelection("No bootstrap snapshots are configured in snapshots.json".to_string())
-    })?;
+    let latest_epoch = snapshots_by_epoch.keys().next_back().copied().ok_or(BootstrapError::NoBootstrapSnapshots)?;
     let first_epoch = requested_first_epoch.unwrap_or_else(|| latest_epoch.saturating_sub(2));
     let required_epochs = [first_epoch, first_epoch + 1, first_epoch + 2];
 
@@ -152,16 +160,21 @@ fn select_bootstrap_snapshots(
             let available_epochs = snapshots_by_epoch.keys().copied().collect::<Vec<_>>();
             let available_epochs = format_epoch_list(&available_epochs);
             let required_epochs = format_epoch_list(&required_epochs);
-            let message = match requested_first_epoch {
-                Some(requested_first_epoch) => format!(
-                    "bootstrap requested epoch {requested_first_epoch}, but snapshots.json must contain epochs {required_epochs}. Available epochs: {available_epochs}"
-                ),
-                None => format!(
-                    "bootstrap needs the latest 3 consecutive snapshot epochs ending at {latest_epoch}, but snapshots.json only provides epochs {available_epochs}. Required epochs: {required_epochs}"
-                ),
-            };
 
-            Err(BootstrapError::SnapshotSelection(message).into())
+            match requested_first_epoch {
+                Some(requested_first_epoch) => Err(BootstrapError::SnapshotSelectionRequestedEpoch {
+                    requested_first_epoch,
+                    required_epochs,
+                    available_epochs,
+                }
+                .into()),
+                None => Err(BootstrapError::SnapshotSelectionLatestEpoch {
+                    latest_epoch,
+                    required_epochs,
+                    available_epochs,
+                }
+                .into()),
+            }
         }
     }
 }
