@@ -16,8 +16,9 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, Bytes, Hash, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, MemoizedValue, Multiasset, MultiassetKeyValuePairs, Network, PlutusScript, PositiveCoin,
-    ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value,
+    MemoizedTransactionOutput, MemoizedValue, Multiasset, Network, PlutusScript, PositiveCoin, ShelleyAddress,
+    ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value,
+    cardano::multiasset_key_value_pairs::NonEmptyKeyValuePairs,
 };
 
 const INDEFINITE_MAP_THRESHOLD: usize = 23;
@@ -448,9 +449,9 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
             return Err("invalid multiasset bundle: empty asset bundle".to_string());
         }
         let assets = if assets.len() > INDEFINITE_MAP_THRESHOLD {
-            MultiassetKeyValuePairs::Indef(assets)
+            NonEmptyKeyValuePairs::Indef(assets)
         } else {
-            MultiassetKeyValuePairs::Def(assets)
+            NonEmptyKeyValuePairs::Def(assets)
         };
         policies.push((policy_id, assets));
     }
@@ -458,9 +459,9 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
     if policies.is_empty() {
         Err("empty multiasset representation".to_string())
     } else if policies.len() > INDEFINITE_MAP_THRESHOLD {
-        Ok(MultiassetKeyValuePairs::Indef(policies))
+        Ok(NonEmptyKeyValuePairs::Indef(policies))
     } else {
-        Ok(MultiassetKeyValuePairs::Def(policies))
+        Ok(NonEmptyKeyValuePairs::Def(policies))
     }
 }
 
