@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
-use amaru_kernel::{BlockHeader, IgnoreEq, Peer, Point, Tip, Transaction};
+use amaru_kernel::{BlockHeader, EraHistory, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
@@ -132,8 +132,9 @@ pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
+pub type ResourceEraHistory = EraHistory;
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
     tx: Transaction,
 }
@@ -141,6 +142,12 @@ pub struct ValidateTxEffect {
 impl ValidateTxEffect {
     pub fn new(tx: &Transaction) -> Self {
         Self { tx: tx.clone() }
+    }
+}
+
+impl PartialEq for ValidateTxEffect {
+    fn eq(&self, other: &Self) -> bool {
+        self.tx == other.tx
     }
 }
 

@@ -59,9 +59,13 @@ where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    fn validate_tx(&self, _tx: &Transaction) -> Result<(), TransactionValidationError> {
-        // TODO: validate transactions against a temporary ledger slice once tx-level ledger validation is available.
-        Ok(())
+    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
+        let state = self.state.lock().map_err(|error| {
+            TransactionValidationError::from(anyhow!("failed to acquire ledger state lock: {error}"))
+        })?;
+        state
+            .validate_tx(tx, state.tip().slot_or_default(), &self.vm_eval_pool)
+            .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }
 

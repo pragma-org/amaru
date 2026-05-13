@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Transaction, TransactionId};
+use amaru_kernel::{Tip, Transaction, TransactionId};
 use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin};
 use pure_stage::StageRef;
 
@@ -25,6 +25,13 @@ use pure_stage::StageRef;
 ///
 /// The response to `InsertBatch` contains one `TxInsertResult` per input transaction,
 /// in the same order.
+///
+/// NewTip comes from the `adopt_chain` stage and informs the mempool that a new tip has been adopted.
+///
+/// `SubscribeCapacity` is a one-shot subscription used by the tx-submission responder for
+/// back-pressure: the caller is notified the next time the mempool frees capacity (currently
+/// only when `apply_new_tip` removes invalidated txs). Subscribers must re-subscribe if they
+/// still need capacity after being notified.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMsg {
     WaitForAtLeast {
@@ -40,6 +47,10 @@ pub enum MempoolMsg {
         txs: Vec<Transaction>,
         origin: TxOrigin,
         caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertError>>,
+    },
+    NewTip(Tip),
+    SubscribeCapacity {
+        caller: StageRef<()>,
     },
 }
 
