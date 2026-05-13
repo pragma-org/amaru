@@ -14,7 +14,7 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::Block;
+use amaru_kernel::{Block, TransactionBody};
 use amaru_observability::trace_span;
 pub use block::execute as validate_block;
 
@@ -40,19 +40,19 @@ impl<T: Display> Display for WithPosition<T> {
     }
 }
 
+/// Prepare the context for a whole block of transactions.
 pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
     let _span = trace_span!(amaru_observability::amaru::ledger::state::PREPARE_BLOCK);
     let _guard = _span.enter();
+    block.transaction_bodies.iter().for_each(|transaction| prepare_transaction(context, transaction));
+}
 
-    block.transaction_bodies.iter().for_each(|transaction| {
-        let inputs = transaction.inputs.iter();
-
-        let collaterals = transaction.collateral.as_deref().unwrap_or(&[]).iter();
-
-        let reference_inputs = transaction.reference_inputs.as_deref().unwrap_or(&[]).iter();
-
-        inputs.chain(reference_inputs).chain(collaterals).for_each(|input| context.require_input(input));
-    });
+/// Prepare the context for a single transaction.
+pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
+    let inputs = transaction.inputs.iter();
+    let collaterals = transaction.collateral.as_deref().unwrap_or(&[]).iter();
+    let reference_inputs = transaction.reference_inputs.as_deref().unwrap_or(&[]).iter();
+    inputs.chain(reference_inputs).chain(collaterals).for_each(|input| context.require_input(input));
 }
 
 #[cfg(test)]

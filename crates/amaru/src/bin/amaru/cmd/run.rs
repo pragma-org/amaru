@@ -27,7 +27,9 @@ use amaru::{
     },
 };
 use amaru_kernel::NetworkName;
+use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::MempoolMsg;
+use amaru_protocols::tx_submission::ResponderParams;
 use amaru_stores::rocksdb::RocksDbConfig;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -285,6 +287,9 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
 
     let trace_dump_path = args.dump_trace_buffer;
 
+    let mempool = MempoolConfig::default();
+    let tx_submission_params = ResponderParams::default();
+
     info!(
         _command = "run",
         chain_dir = %chain_dir.to_string_lossy(),
@@ -300,6 +305,11 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_min_entries,
         trace_buffer_max_size,
         trace_dump_path = %trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
+        mempool_max_bytes = ?mempool.max_bytes,
+        tx_submission_max_window = tx_submission_params.max_window.get(),
+        tx_submission_fetch_batch_bytes = tx_submission_params.fetch_batch_bytes.get(),
+        tx_submission_inflight_timeout_ms = tx_submission_params.inflight_fetch_timeout.as_duration().as_millis() as u64,
+        tx_submission_insert_timeout_ms = tx_submission_params.mempool_insert_timeout.as_duration().as_millis() as u64,
         "running"
     );
 
@@ -317,6 +327,8 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_min_entries,
         trace_buffer_max_size,
         trace_dump_path,
+        mempool,
+        tx_submission_responder_params: tx_submission_params,
         ..Config::default()
     })
 }

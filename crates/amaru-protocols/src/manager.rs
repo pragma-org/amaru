@@ -28,6 +28,7 @@ use crate::{
     connection::{self, ConnectionMessage},
     network_effects::{Network, NetworkOps},
     protocol::Role,
+    tx_submission::ResponderParams,
 };
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -115,6 +116,7 @@ pub struct ManagerConfig {
     pub connection_timeout: Duration,
     pub reconnect_delay: Duration,
     pub accept_interval: Duration,
+    pub tx_submission_params: ResponderParams,
 }
 
 impl ManagerConfig {
@@ -132,6 +134,11 @@ impl ManagerConfig {
         self.accept_interval = accept_interval;
         self
     }
+
+    pub fn with_tx_submission_params(mut self, params: ResponderParams) -> Self {
+        self.tx_submission_params = params;
+        self
+    }
 }
 
 impl Default for ManagerConfig {
@@ -140,6 +147,7 @@ impl Default for ManagerConfig {
             connection_timeout: Duration::from_secs(10),
             reconnect_delay: Duration::from_secs(2),
             accept_interval: Duration::from_millis(100),
+            tx_submission_params: ResponderParams::default(),
         }
     }
 }
