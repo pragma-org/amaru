@@ -19,11 +19,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
-    ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptIntegrityData, ScriptPurpose,
+    ExUnits, HasExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript,
+    PlutusScript, ProtocolParameters, ProtocolVersion, RedeemerKey, RequiredScript, ScriptIntegrityData, ScriptPurpose,
     ValidityInterval, WitnessSet, decode_plutus_script, script_purpose_to_string,
     size::{DATUM, SCRIPT},
-    sum_ex_units,
     utils::string::display_collection,
 };
 use amaru_uplc::{arena::Arena, flat::FlatDecodeError, machine::PlutusVersion};
@@ -258,11 +257,7 @@ fn fail_on_too_many_ex_units(
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidScripts> {
     let max = protocol_parameters.max_tx_ex_units;
-    let provided = witness_set
-        .redeemer
-        .as_ref()
-        .map(|r| r.redeemers().values().map(|(ex_units, _)| *ex_units).fold(ExUnits { mem: 0, steps: 0 }, sum_ex_units))
-        .unwrap_or(ExUnits { mem: 0, steps: 0 });
+    let provided = witness_set.total_ex_units();
 
     if provided.mem > max.mem || provided.steps > max.steps {
         return Err(InvalidScripts::TooManyExUnits { provided, max });
