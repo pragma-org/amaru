@@ -20,9 +20,7 @@ use amaru_consensus::{
     },
     validate_header::ValidateHeader,
 };
-use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Peer, Point, Transaction,
-};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
@@ -93,7 +91,7 @@ impl NodeRunning {
 /// 2. Initialize the chain store and its tip (make it equal to the ledger tip, because it could be further along than the ledger tip after a node stop).
 /// 3. Prepare resources for the stages graph.
 /// 4. Build the stages graph.
-/// 5. Register static peers and preload a message to start connecting to them.
+/// 5. The stage graph preloads `peer_selection` to connect to configured upstream peers.
 /// 6. Register a listener for downstream connections.
 ///
 /// Return a refererence to the `Manager` stage to have the possibility to send internal messages for
@@ -139,16 +137,6 @@ pub fn build_node(
     stage_builder
         .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(config.listen_address()?)])
         .map_err(|e| anyhow!(format!("{e:?}")))?;
-
-    // Connect to upstream peers
-    for peer in &config.upstream_peers {
-        let Ok(_) =
-            stage_builder.preload(node_stages.manager_stage.clone(), [ManagerMessage::AddPeer(Peer::new(peer))])
-        else {
-            tracing::warn!("supplied more peers than can be initially connected");
-            break;
-        };
-    }
 
     Ok(node_stages)
 }

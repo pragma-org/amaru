@@ -28,7 +28,7 @@ use crate::{
     chainsync::{self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder},
     handshake,
     keepalive::register_keepalive,
-    manager::ManagerConfig,
+    manager::{ManagerConfig, ManagerMessage},
     mux::{self, HandlerMessage, MuxMessage},
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
@@ -56,9 +56,10 @@ impl Connection {
         pipeline: StageRef<ChainSyncInitiatorMsg>,
         era_history: Arc<EraHistory>,
         mempool_stage: StageRef<MempoolMsg>,
+        manager: StageRef<ManagerMessage>,
     ) -> Self {
         Self {
-            params: Params { peer, conn_id, role, config, magic, pipeline, era_history, mempool_stage },
+            params: Params { peer, conn_id, role, config, magic, pipeline, era_history, mempool_stage, manager },
             state: State::Initial,
         }
     }
@@ -74,6 +75,7 @@ struct Params {
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     era_history: Arc<EraHistory>,
     mempool_stage: StageRef<MempoolMsg>,
+    manager: StageRef<ManagerMessage>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -239,7 +241,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
 }
 
 async fn do_handshake(
-    Params { role, peer, conn_id, era_history, mempool_stage, .. }: &Params,
+    Params { role, peer, conn_id, manager, era_history, mempool_stage, .. }: &Params,
     muxer: StageRef<MuxMessage>,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     handshake: StageRef<Inputs<Void>>,
@@ -257,6 +259,22 @@ async fn do_handshake(
             return eff.terminate().await;
         }
     };
+
+    let full_duplex_capable = version_data.is_full_duplex_capable();
+    // TODO: this needs to change once we actually start supporting full duplex mode
+    let full_duplex = false;
+
+    eff.send(
+        manager,
+        ManagerMessage::HandshakeComplete {
+            peer: peer.clone(),
+            conn_id: *conn_id,
+            role: *role,
+            full_duplex_capable,
+            full_duplex,
+        },
+    )
+    .await;
 
     let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
     let tx_submission =
@@ -401,6 +419,7 @@ mod tests {
                 pipeline: StageRef::blackhole(),
                 era_history: Arc::new(era_history.clone()),
                 mempool_stage: StageRef::blackhole(),
+                manager: StageRef::blackhole(),
             },
             state,
         }

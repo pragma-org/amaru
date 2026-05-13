@@ -34,6 +34,8 @@ pub async fn slow_manager_stage(manager: Manager, msg: ManagerMessage, eff: Effe
             eff.wait(Duration::from_secs(3)).await;
         }
         ManagerMessage::RemovePeer(_) => {}
+        ManagerMessage::Disconnect(_, _) => {}
+        ManagerMessage::HandshakeComplete { .. } => {}
         ManagerMessage::FetchBlocks { .. } => {}
         ManagerMessage::Listen(_) => {}
         ManagerMessage::NewTip(_) => {}

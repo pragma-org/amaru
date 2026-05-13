@@ -15,7 +15,7 @@
 use std::{fmt, fmt::Display};
 
 use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
-use amaru_ouroboros_traits::{BlockValidationError, HeaderValidationError, StoreError};
+use amaru_ouroboros_traits::{HeaderValidationError, StoreError};
 use serde::ser::SerializeStruct;
 use thiserror::Error;
 
@@ -51,6 +51,8 @@ pub enum ConsensusError {
     InvalidRollback { peer: Peer, rollback_point: HeaderHash, max_point: HeaderHash },
     #[error("Invalid block from peer {} at {}", peer, point)]
     InvalidBlock { peer: Peer, point: Point },
+    #[error("Invalid block at {} build on invalid block {}", point, invalid)]
+    BlockBuiltOnInvalidBlock { point: Point, invalid: Point },
     #[error("{0}")]
     NoncesError(#[from] crate::store::NoncesError),
     #[error("{0}")]
@@ -65,11 +67,6 @@ pub enum ConsensusError {
     RollForwardChainFailed(amaru_kernel::Hash<32>, StoreError),
     #[error("Failed to rollback chain at {0}: {1}")]
     RollbackChainFailed(Point, StoreError),
-    #[error("Failed to rollback block at {0}: {1}")]
-    RollbackBlockFailed(Point, BlockValidationError),
-    /// Ledger reported containing this point but rollback failed (inconsistent ledger state).
-    #[error("ledger reported containing {0} but rollback failed: {1}")]
-    LedgerContainsPointButRollbackFailed(Point, BlockValidationError),
     #[error("{0}")]
     EraHistoryError(#[from] amaru_kernel::EraHistoryError),
     #[error("Era name mismatch: from raw_header {from_raw_header}, from slot={from_slot}")]
@@ -120,6 +117,12 @@ impl Display for ValidationFailed {
 impl ValidationFailed {
     pub fn new(peer: &Peer, error: ConsensusError) -> Self {
         Self { peer: peer.clone(), error }
+    }
+}
+
+impl From<ConsensusError> for ValidationFailed {
+    fn from(error: ConsensusError) -> Self {
+        Self { peer: Peer::new(""), error }
     }
 }
 

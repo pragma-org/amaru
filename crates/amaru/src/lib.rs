@@ -45,6 +45,8 @@ pub const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 
 pub const DEFAULT_CONFIG_DIR: &str = "data";
 
+pub const DEFAULT_PEER_REMOVAL_COOLDOWN_SECS: u64 = 600; // 10 minutes
+
 const SNAPSHOTS_PATH: &str = "snapshots";
 const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";
 static BOOTSTRAP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/bootstrap");
@@ -158,6 +160,9 @@ pub mod env_vars {
 
     /// --peer-address
     pub const PEER_ADDRESS: &str = "AMARU_PEER_ADDRESS";
+
+    /// --peer-removal-cooldown-secs
+    pub const PEER_REMOVAL_COOLDOWN_SECS: &str = "AMARU_PEER_REMOVAL_COOLDOWN_SECS";
 
     /// --pid-file
     pub const PID_FILE: &str = "AMARU_PID_FILE";

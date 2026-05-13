@@ -22,6 +22,7 @@ use amaru_ouroboros_traits::{
 };
 use amaru_protocols::{
     chainsync::InitiatorMessage,
+    manager::ManagerMessage,
     store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
 };
 use anyhow::anyhow;
@@ -72,7 +73,7 @@ impl TestPrep {
 pub fn test_prep() -> TestPrep {
     let state = TrackPeers::new(
         TESTNET_ERA_HISTORY.clone(),
-        StageRef::named_for_tests("manager"),
+        StageRef::named_for_tests("peer_selection"),
         StageRef::named_for_tests("downstream"),
         10_000_000,
         200,

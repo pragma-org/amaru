@@ -15,8 +15,7 @@
 use std::{fs, path::PathBuf};
 
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER,
-    to_cbor,
+    BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER, to_cbor,
 };
 use amaru_observability::trace_span;
 use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
@@ -194,6 +193,31 @@ impl RocksDBStore<OptimisticTransactionDB> {
         self.db
             .delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat())
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
+    }
+
+    pub fn remove_block(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        self.db
+            .delete([&BLOCK_PREFIX[..], &hash[..]].concat())
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        self.remove_block_valid(hash)?;
+        Ok(())
+    }
+
+    pub fn remove_header<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>>(
+        &self,
+        hash: &HeaderHash,
+    ) -> Result<(), StoreError> {
+        let parent = self.load_header(hash).and_then(|h: H| h.parent());
+        if let Some(parent) = parent {
+            self.db
+                .delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat())
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        }
+        self.db
+            .delete([&HEADER_PREFIX[..], &hash[..]].concat())
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        self.remove_block(hash)?;
+        Ok(())
     }
 }
 
@@ -487,8 +511,8 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         self.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    fn switch_to_fork(&self, fork_point: &Point, forward_points: &NonEmptyVec<Point>) -> Result<(), StoreError> {
-        let last = forward_points.last();
+    fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {
+        let last = forward_points.last().unwrap_or(fork_point);
         let _span = trace_span!(
             amaru_observability::amaru::stores::consensus::SWITCH_TO_FORK,
             hash = last.hash(),
@@ -543,7 +567,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
                     .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
             }
 
-            tx.put(BEST_CHAIN_PREFIX, forward_points.last().hash().as_ref())
+            tx.put(BEST_CHAIN_PREFIX, forward_points.last().unwrap_or(fork_point).hash().as_ref())
                 .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
 
             Ok(())
@@ -577,8 +601,8 @@ pub mod test {
     use std::{collections::BTreeMap, fs, io, path::Path, sync::Arc};
 
     use amaru_kernel::{
-        BlockHeader, BlockHeight, Nonce, ORIGIN_HASH, Point, Slot, any_header_hash, any_header_with_parent,
-        any_headers_chain, make_header,
+        BlockHeader, BlockHeight, NonEmptyVec, Nonce, ORIGIN_HASH, Point, Slot, any_header_hash,
+        any_header_with_parent, any_headers_chain, make_header,
         size::HEADER,
         utils::tests::{random_bytes, run_strategy},
     };
@@ -851,10 +875,7 @@ pub mod test {
             }
 
             store
-                .switch_to_fork(
-                    &headers.h1.point(),
-                    &NonEmptyVec::try_from(vec![headers.h2a.point(), headers.h3a.point()]).unwrap(),
-                )
+                .switch_to_fork(&headers.h1.point(), &[headers.h2a.point(), headers.h3a.point()])
                 .expect("should replace the best chain successfully");
 
             assert_eq!(store.get_best_chain_hash(), headers.h3a.hash());
@@ -873,7 +894,7 @@ pub mod test {
                 store.store_header(header).unwrap();
             }
 
-            let result = store.switch_to_fork(&headers.h2a.point(), &NonEmptyVec::singleton(headers.h3a.point()));
+            let result = store.switch_to_fork(&headers.h2a.point(), &[headers.h3a.point()]);
 
             if result.is_ok() {
                 panic!("expected test to fail");
@@ -895,7 +916,7 @@ pub mod test {
             let best_chain_before = store.get_best_chain_hash();
             let chain_before = store.retrieve_best_chain();
 
-            let result = store.switch_to_fork(&headers.h2a.point(), &NonEmptyVec::singleton(headers.h3a.point()));
+            let result = store.switch_to_fork(&headers.h2a.point(), &[headers.h3a.point()]);
             assert!(result.is_err(), "expected fork-point-not-on-chain error");
 
             assert_eq!(store.get_best_chain_hash(), best_chain_before, "best tip must not move");

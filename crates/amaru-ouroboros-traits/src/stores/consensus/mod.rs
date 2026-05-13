@@ -16,7 +16,11 @@ pub mod in_memory_consensus_store;
 pub mod overriding_consensus_store;
 
 pub mod missing_blocks;
-use std::{cmp::Reverse, fmt::Display, iter::successors};
+use std::{
+    cmp::Reverse,
+    fmt::Display,
+    iter::{from_fn, successors},
+};
 
 use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 use thiserror::Error;
@@ -139,6 +143,36 @@ where
             Box::new(vec![*hash].into_iter())
         }
     }
+
+    fn child_tips<'a>(&'a self, hash: &HeaderHash, mode: ChildTipsMode) -> Box<dyn Iterator<Item = Tip> + 'a>
+    where
+        H: 'a,
+    {
+        // FIXME operate on a snapshot
+        let mut to_visit = if hash == &ORIGIN_HASH { self.get_children(hash) } else { vec![*hash] };
+        Box::new(from_fn(move || {
+            loop {
+                let hash = to_visit.pop()?;
+                tracing::debug!(hash = %hash, "visiting child");
+                #[expect(clippy::panic)]
+                let Some((header, validity)) = self.load_header_with_validity(&hash) else {
+                    panic!("child header not found: {}", hash);
+                };
+                if mode == ChildTipsMode::SkipInvalid && validity == Some(false) {
+                    continue;
+                }
+                let children = self.get_children(&hash);
+                to_visit.extend(children);
+                return Some(header.tip());
+            }
+        }))
+    }
+}
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ChildTipsMode {
+    All,
+    SkipInvalid,
 }
 
 /// A chain store interface that exposes diagnostic methods to load raw data.
@@ -517,7 +551,7 @@ where
     /// Replace the current best chain from the given fork point with the provided
     /// forward path and set the best chain hash in one store operation.
     /// The best chain hash is set to the hash of the last forward point.
-    fn switch_to_fork(&self, fork_point: &Point, forward_points: &NonEmptyVec<Point>) -> Result<(), StoreError>;
+    fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError>;
 
     /// Roll forward the best chain to the given point and set the best chain hash to that point.
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;

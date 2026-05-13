@@ -39,6 +39,12 @@ impl VersionData {
     ) -> Self {
         VersionData { network_magic, initiator_only_diffusion_mode, peer_sharing, query }
     }
+
+    /// Returns whether this peer can act as both initiator and responder (full duplex).
+    /// See initiator_only_diffusion_mode in the handshake spec.
+    pub fn is_full_duplex_capable(&self) -> bool {
+        !self.initiator_only_diffusion_mode
+    }
 }
 
 impl Display for VersionData {
