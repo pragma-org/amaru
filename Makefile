@@ -71,8 +71,7 @@ serve-traces-doc: generate-traces-doc ## &build Regenerate traces docs and serve
 	@python3 -m http.server $(TRACES_PORT) --directory docs
 
 validate-trace-schemas: ## &test Validate generated trace schemas against docs/traces-schema.json
-	@cargo build --bin amaru --quiet
-	@./target/debug/amaru dump-traces-schema 2> /tmp/schemas-current.json
+	@cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
 	@./scripts/unused-schemas
 	@set -eu; \
 	jq -S 'walk(if type == "object" then del(.private) else . end)' docs/traces-schema.json > /tmp/expected.json; \
