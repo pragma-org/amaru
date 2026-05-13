@@ -18,9 +18,9 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{cbor, to_cbor};
+use amaru_kernel::{TxId, cardano::transaction::HasTxId, cbor, to_cbor};
 use amaru_ouroboros_traits::{
-    MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool, mempool::Mempool,
+    MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool, mempool::Mempool,
 };
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
@@ -58,7 +58,7 @@ impl<Tx> Default for MempoolInner<Tx> {
     }
 }
 
-impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
+impl<Tx: HasTxId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
     /// Inserts a new transaction into the mempool.
     /// The transaction id is a hash of the transaction body.
     fn insert(
@@ -73,7 +73,7 @@ impl<Tx: cbor::Encode<()> + Clone> MempoolInner<Tx> {
             return Err(TxRejectReason::MempoolFull);
         }
 
-        let tx_id = TxId::from(&tx);
+        let tx_id = tx.tx_id();
         if self.entries_by_id.contains_key(&tx_id) {
             return Err(TxRejectReason::Duplicate);
         }
@@ -142,9 +142,9 @@ impl MempoolConfig {
     }
 }
 
-impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx> for InMemoryMempool<Tx> {
+impl<Tx: Send + Sync + 'static + HasTxId + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx> for InMemoryMempool<Tx> {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, amaru_ouroboros_traits::MempoolError> {
-        let tx_id = TxId::from(&tx);
+        let tx_id = tx.tx_id();
         let mut inner = self.inner.write();
         let res = inner.insert(&self.config, tx, tx_origin);
         Ok(match res {
@@ -170,7 +170,7 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> TxSubmissionMempool<T
     }
 }
 
-impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
+impl<Tx: Send + Sync + 'static + HasTxId + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
     fn take(&self) -> Vec<Tx> {
         let mut inner = self.inner.write();
         let entries = mem::take(&mut inner.entries_by_id);
@@ -204,7 +204,7 @@ impl<Tx: Send + Sync + 'static + cbor::Encode<()> + Clone> Mempool<Tx> for InMem
 mod tests {
     use std::{ops::Deref, slice, str::FromStr};
 
-    use amaru_kernel::{Peer, cbor, cbor as minicbor};
+    use amaru_kernel::{Hasher, Peer, cbor, cbor as minicbor, size::TRANSACTION_BODY};
     use assertables::assert_some_eq_x;
 
     use super::*;
@@ -241,6 +241,12 @@ mod tests {
         type Err = ();
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             Ok(Tx(s.to_string()))
+        }
+    }
+
+    impl HasTxId for Tx {
+        fn tx_id(&self) -> TxId {
+            TxId::new(Hasher::<{ TRANSACTION_BODY * 8 }>::hash_cbor(self))
         }
     }
 }

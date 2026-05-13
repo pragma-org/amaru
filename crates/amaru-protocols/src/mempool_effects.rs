@@ -14,9 +14,9 @@
 
 use std::fmt::Debug;
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Transaction, TxId};
 use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin, TxSubmissionMempool};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
 
@@ -287,8 +287,8 @@ impl ExternalEffectAPI for LastSeqNo {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Transaction, TransactionBody, WitnessSet};
-    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
+    use amaru_kernel::{Transaction, TransactionBody, TxId, WitnessSet};
+    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
@@ -307,7 +307,7 @@ mod tests {
 
     impl TxSubmissionMempool<Transaction> for ConstantMempool {
         fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
-            Ok(TxInsertResult::accepted(TxId::from(&tx), MempoolSeqNo(1)))
+            Ok(TxInsertResult::accepted(tx.tx_id(), MempoolSeqNo(1)))
         }
 
         fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
@@ -315,7 +315,7 @@ mod tests {
         }
 
         fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
-            vec![(TxId::from(&self.tx), 100, MempoolSeqNo(1))]
+            vec![(self.tx.tx_id(), 100, MempoolSeqNo(1))]
         }
 
         fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {

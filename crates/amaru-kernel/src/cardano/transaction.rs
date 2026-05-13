@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AuxiliaryData, TransactionBody, WitnessSet, cbor};
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+};
+
+use pallas_crypto::hash::Hash;
+
+use crate::{AuxiliaryData, TransactionBody, TransactionId, WitnessSet, cardano::hash::size::TRANSACTION_BODY, cbor};
 
 // TODO:
 //
-// This type is currently mostly unused; transactions in blocks have their constituents separated
-// (i.e. seggregated witnesses). This type would however come in handy as soon as start accepting
-// transactions from an external API.
-//
-// In which case, it'll become interesting to think about what public API we wanna expose. Exposing
+// Think about what public API we wanna expose. Exposing
 // all fields an internals doesn't sound like a good idea and will likely break people's code
 // (including ours) over time.
 #[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, cbor::Decode, serde::Serialize, serde::Deserialize)]
@@ -33,4 +36,56 @@ pub struct Transaction {
     pub is_expected_valid: bool,
     #[n(3)]
     pub auxiliary_data: Option<AuxiliaryData>,
+}
+
+impl Transaction {
+    pub fn tx_id(&self) -> TxId {
+        TxId(self.body.id())
+    }
+}
+
+/// Identifier for a transaction. This is the hash of the transaction body bytes.
+/// It encapsulates the TransactionId to be completely opaque to the structure of the
+/// transaction identifier.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct TxId(TransactionId);
+
+impl TxId {
+    pub fn new(id: TransactionId) -> TxId {
+        TxId(id)
+    }
+}
+
+impl cbor::Encode<()> for TxId {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut (),
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.encode(self.0)?;
+        Ok(())
+    }
+}
+
+impl<'b> cbor::Decode<'b, ()> for TxId {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
+        let hash = Hash::<{ TRANSACTION_BODY }>::decode(d, _ctx)?;
+        Ok(TxId(hash))
+    }
+}
+
+impl Display for TxId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(self.0.as_slice()))
+    }
+}
+
+pub trait HasTxId {
+    fn tx_id(&self) -> TxId;
+}
+
+impl HasTxId for Transaction {
+    fn tx_id(&self) -> TxId {
+        self.tx_id()
+    }
 }

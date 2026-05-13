@@ -19,12 +19,12 @@ use std::{
 
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{
-    BlockHeader, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction,
+    BlockHeader, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction, TxId,
     cardano::network_block::make_encoded_block,
 };
 use amaru_ledger::store::{Columns, GovernanceActivity, Store, TransactionalContext};
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, TxId, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, in_memory_consensus_store::InMemConsensusStore};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use anyhow::anyhow;
 use parking_lot::Mutex;
@@ -309,5 +309,5 @@ pub const INITIATOR_TXS_NB: usize = 10;
 
 /// By construction we return the same tx ids as the ones created in the function above
 pub fn get_tx_ids() -> Vec<TxId> {
-    create_transactions(RESPONDER_TXS_NB).into_iter().map(|tx| TxId::from(&tx)).collect()
+    create_transactions(RESPONDER_TXS_NB).into_iter().map(|tx| tx.tx_id()).collect()
 }

@@ -51,10 +51,9 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 
 use ProtocolError::*;
-use amaru_kernel::{Transaction, utils::string::display_collection};
+use amaru_kernel::{Transaction, TxId, utils::string::display_collection};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
-use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -565,7 +564,7 @@ mod tests {
             &actions,
             &[
                 reply_tx_ids(&txs, &[0, 1]),
-                error_action(UnadvertisedTransactionIdsRequested(vec![TxId::from(&txs[2]), TxId::from(&txs[3])])),
+                error_action(UnadvertisedTransactionIdsRequested(vec![txs[2].tx_id(), txs[3].tx_id()])),
             ],
         );
         Ok(())
@@ -797,7 +796,7 @@ mod tests {
 
     fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
         InitiatorAction::SendReplyTxIds(
-            ids.iter().map(|id| (TxId::from(&txs[*id]), to_cbor(&txs[*id]).len() as u32)).collect(),
+            ids.iter().map(|id| (txs[*id].tx_id(), to_cbor(&txs[*id]).len() as u32)).collect(),
         )
     }
 
@@ -814,7 +813,7 @@ mod tests {
     }
 
     fn request_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorResult {
-        InitiatorResult::RequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
+        InitiatorResult::RequestTxs(ids.iter().map(|id| txs[*id].tx_id()).collect())
     }
 
     fn error_action(error: ProtocolError) -> InitiatorAction {

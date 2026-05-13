@@ -14,7 +14,9 @@
 
 use std::sync::Arc;
 
-use crate::mempool::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin};
+use amaru_kernel::TxId;
+
+use crate::mempool::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin};
 
 /// An simple mempool interface to:
 ///

@@ -14,7 +14,7 @@
 
 use amaru_kernel::Transaction;
 use amaru_ouroboros::{
-    MempoolError, MempoolInsertError, MempoolMsg, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxRejectReason,
+    MempoolError, MempoolInsertError, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason,
 };
 use amaru_protocols::mempool_effects::MemoryPool;
 use pure_stage::{Effects, StageRef};
@@ -38,7 +38,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
         }
         MempoolMsg::Insert { tx, origin, caller } => {
             let tx = *tx;
-            let tx_id = TxId::from(&tx);
+            let tx_id = tx.tx_id();
             match validate_and_insert(&ledger, &memory_pool, tx, &origin).await {
                 Ok(result) => {
                     if let TxInsertResult::Accepted { seq_no, .. } = result {
@@ -55,7 +55,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
         MempoolMsg::InsertBatch { txs, origin, caller } => {
             let mut results = Vec::with_capacity(txs.len());
             for tx in txs {
-                let tx_id = TxId::from(&tx);
+                let tx_id = tx.tx_id();
                 match validate_and_insert(&ledger, &memory_pool, tx, &origin).await {
                     Ok(result) => {
                         if let TxInsertResult::Accepted { seq_no, .. } = result {
@@ -87,7 +87,7 @@ async fn validate_and_insert(
 ) -> Result<TxInsertResult, MempoolError> {
     match ledger.validate_tx(&tx).await {
         Ok(()) => memory_pool.insert(tx, origin.clone()).await,
-        Err(error) => Ok(TxInsertResult::rejected(TxId::from(&tx), TxRejectReason::Invalid(error))),
+        Err(error) => Ok(TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error))),
     }
 }
 

@@ -124,7 +124,7 @@ pub use cardano::{
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
     tip::Tip,
-    transaction::Transaction,
+    transaction::{Transaction, TxId},
     transaction_body::TransactionBody,
     transaction_input::{TransactionInput, transaction_input_to_string},
     transaction_pointer::TransactionPointer,

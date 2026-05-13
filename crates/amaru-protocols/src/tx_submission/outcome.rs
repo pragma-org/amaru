@@ -14,7 +14,8 @@
 
 use std::fmt::{Display, Formatter};
 
-use amaru_ouroboros_traits::{MempoolError, TxId};
+use amaru_kernel::TxId;
+use amaru_ouroboros_traits::MempoolError;
 use serde::{Deserialize, Serialize};
 
 use crate::tx_submission::{ResponderResult, initiator::InitiatorResult};

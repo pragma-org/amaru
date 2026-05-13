@@ -17,7 +17,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use amaru_kernel::{Hash, Hasher, Peer, TransactionId, cbor, size::TRANSACTION_BODY};
+use amaru_kernel::{Peer, TxId};
 use serde::{Deserialize, Serialize};
 
 /// Origin of a transaction being inserted into the mempool:
@@ -27,57 +27,6 @@ use serde::{Deserialize, Serialize};
 pub enum TxOrigin {
     Local,
     Remote(Peer),
-}
-
-/// Identifier for a transaction in the mempool.
-/// It is derived from the hash of the encoding of the transaction as CBOR.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub struct TxId(TransactionId);
-
-impl cbor::Encode<()> for TxId {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        _ctx: &mut (),
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.encode(self.0)?;
-        Ok(())
-    }
-}
-
-impl<'b> cbor::Decode<'b, ()> for TxId {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
-        let hash = Hash::<TRANSACTION_BODY>::decode(d, _ctx)?;
-        Ok(TxId(hash))
-    }
-}
-
-impl TxId {
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.0.as_ref().to_vec()
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        self.0.as_slice()
-    }
-}
-
-impl TxId {
-    pub fn new(hash: Hash<TRANSACTION_BODY>) -> Self {
-        TxId(hash)
-    }
-}
-
-impl<Tx: cbor::Encode<()>> From<&Tx> for TxId {
-    fn from(tx: &Tx) -> Self {
-        TxId(Hasher::<{ TRANSACTION_BODY * 8 }>::hash_cbor(tx))
-    }
-}
-
-impl Display for TxId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.as_slice()))
-    }
 }
 
 /// Sequence number assigned to a transaction when inserted into the mempool.

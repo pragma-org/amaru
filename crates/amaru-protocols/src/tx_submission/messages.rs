@@ -14,8 +14,7 @@
 
 use std::fmt::Display;
 
-use amaru_kernel::{NonEmptyBytes, Transaction, cbor, to_cbor};
-use amaru_ouroboros_traits::TxId;
+use amaru_kernel::{NonEmptyBytes, Transaction, TxId, cbor, to_cbor};
 
 use crate::tx_submission::Blocking;
 
@@ -208,7 +207,7 @@ impl Display for Message {
                 write!(
                     f,
                     "ReplyTxs(txs: [{}])",
-                    txs.iter().map(|tx| format!("{}", TxId::from(tx))).collect::<Vec<_>>().join(", ")
+                    txs.iter().map(|tx| format!("{}", tx.tx_id())).collect::<Vec<_>>().join(", ")
                 )
             }
             Message::Done => write!(f, "Done"),

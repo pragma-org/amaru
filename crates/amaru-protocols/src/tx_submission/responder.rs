@@ -19,10 +19,10 @@ use std::{
 };
 
 use ProtocolError::*;
-use amaru_kernel::Transaction;
+use amaru_kernel::{Transaction, TxId};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo};
-use amaru_ouroboros_traits::{TxId, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros_traits::{TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -257,10 +257,10 @@ impl TxSubmissionResponder {
         }
 
         // check for duplicate tx ids
-        let tx_ids = txs.iter().map(TxId::from).collect::<BTreeSet<_>>();
+        let tx_ids = txs.iter().map(|tx| tx.tx_id()).collect::<BTreeSet<_>>();
         if tx_ids.len() != txs.len() {
             // return the full list of tx ids including duplicates
-            let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
+            let tx_ids = txs.iter().map(|tx| tx.tx_id()).collect::<Vec<_>>();
             return protocol_error(DuplicateTxIds(tx_ids));
         }
 
@@ -353,7 +353,7 @@ impl TxSubmissionResponder {
             return Ok(Some(action));
         }
 
-        let tx_ids: Vec<TxId> = txs.iter().map(TxId::from).collect();
+        let tx_ids: Vec<TxId> = txs.iter().map(|tx| tx.tx_id()).collect();
         for tx_id in &tx_ids {
             self.inflight_fetch_set.remove(tx_id);
         }
@@ -392,7 +392,7 @@ impl TxSubmissionResponder {
     ) -> anyhow::Result<Option<ResponderAction>> {
         let mut results = Vec::with_capacity(txs.len());
         for tx in txs {
-            let requested_id = TxId::from(&tx);
+            let requested_id = tx.tx_id();
             self.inflight_fetch_set.remove(&requested_id);
             match mempool.insert(tx, origin.clone()).await {
                 Ok(result) => {
@@ -417,9 +417,9 @@ impl TxSubmissionResponder {
             return protocol_error(ReceivedTxsExceedsBatchSize(txs.len(), self.params.fetch_batch.into()));
         }
 
-        let tx_ids_set = txs.iter().map(TxId::from).collect::<BTreeSet<_>>();
+        let tx_ids_set = txs.iter().map(|tx| tx.tx_id()).collect::<BTreeSet<_>>();
         if tx_ids_set.len() != txs.len() {
-            let tx_ids = txs.iter().map(TxId::from).collect::<Vec<_>>();
+            let tx_ids = txs.iter().map(|tx| tx.tx_id()).collect::<Vec<_>>();
             return protocol_error(DuplicateTxIds(tx_ids));
         }
 
@@ -619,7 +619,7 @@ mod tests {
                 request_txs(&txs, &[0, 1]),
                 request_tx_ids(1, 8, Blocking::No),
                 request_txs(&txs, &[2]),
-                error_action(SomeReceivedTxsNotInFlight(vec![TxId::from(&txs[3])])),
+                error_action(SomeReceivedTxsNotInFlight(vec![txs[3].tx_id()])),
             ],
         );
         Ok(())
@@ -637,7 +637,7 @@ mod tests {
             &[
                 request_tx_ids(0, 10, Blocking::Yes),
                 request_txs(&txs, &[0, 1]),
-                error_action(MempoolInsertFailed(TxId::from(&txs[0]), MempoolError::new("database unavailable"))),
+                error_action(MempoolInsertFailed(txs[0].tx_id(), MempoolError::new("database unavailable"))),
             ],
         );
         Ok(())
@@ -648,10 +648,10 @@ mod tests {
         let txs = create_transactions(3);
         let mempool = Arc::new(MockMempool::new(vec![
             TxInsertResult::rejected(
-                TxId::from(&txs[0]),
+                txs[0].tx_id(),
                 TxRejectReason::Invalid(TransactionValidationError::from(anyhow::anyhow!("invalid for test"))),
             ),
-            TxInsertResult::accepted(TxId::from(&txs[1]), MempoolSeqNo(1)),
+            TxInsertResult::accepted(txs[1].tx_id(), MempoolSeqNo(1)),
         ]));
 
         let actions =
@@ -740,7 +740,7 @@ mod tests {
     }
 
     fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> ResponderResult {
-        ResponderResult::ReplyTxIds(ids.iter().map(|id| (TxId::from(&txs[*id]), 50)).collect())
+        ResponderResult::ReplyTxIds(ids.iter().map(|id| (txs[*id].tx_id(), 50)).collect())
     }
 
     fn reply_txs(txs: &[Transaction], ids: &[usize]) -> ResponderResult {
@@ -752,7 +752,7 @@ mod tests {
     }
 
     fn request_txs(txs: &[Transaction], ids: &[usize]) -> ResponderAction {
-        ResponderAction::SendRequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
+        ResponderAction::SendRequestTxs(ids.iter().map(|id| txs[*id].tx_id()).collect())
     }
 
     fn error_action(error: ProtocolError) -> ResponderAction {
@@ -806,7 +806,7 @@ mod tests {
 
     impl TxSubmissionMempool<Transaction> for MockMempool {
         fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
-            let tx_id = TxId::from(&tx);
+            let tx_id = tx.tx_id();
             Ok(self
                 .results
                 .lock()
