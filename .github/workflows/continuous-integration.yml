@@ -139,6 +139,9 @@ jobs:
         with:
           submodules: True
       - uses: ./.github/actions/cache
+        with:
+          suffix: "-coverage"
+          mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
@@ -180,6 +183,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache
+        with:
+          suffix: "-bench"
+          mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
       - name: Run amaru-consensus benches
         shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"

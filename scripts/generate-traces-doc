@@ -18,7 +18,7 @@ trap "rm -f ${SCHEMAS_JSON}" EXIT
 AMARU_BIN="${REPO_ROOT}/target/release/amaru"
 echo "Building amaru binary if needed..." >&2
 cd "$REPO_ROOT"
-cargo build --bin amaru --release --quiet
+cargo build --bin amaru --quiet
 cd - > /dev/null
 
 if [ ! -f "$AMARU_BIN" ]; then
@@ -67,9 +67,9 @@ ENTRY
   # Add details for each span (in sorted order by name)
   jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | .value.name" "${SCHEMAS_JSON}" | while read -r name; do
     SPAN_DATA=$(jq -r ".definitions | to_entries[] | select(.value.target == \"${target}\" and .value.name == \"${name}\") | .value" "${SCHEMAS_JSON}")
-    
+
     HAS_FIELDS=$(echo "$SPAN_DATA" | jq -r '.properties | keys | length')
-    
+
     if [ "$HAS_FIELDS" -gt 0 ]; then
       cat >> "${OUTPUT_FILE}" << ENTRY
 
@@ -78,7 +78,7 @@ ENTRY
 | field | type | required |
 | --- | --- | --- |
 ENTRY
-      
+
       # Get all properties and show with required flag
       echo "$SPAN_DATA" | jq -r '.properties | to_entries[] | .key' | while read -r field; do
         FIELD_TYPE=$(echo "$SPAN_DATA" | jq -r ".properties[\"${field}\"].type")
@@ -86,7 +86,7 @@ ENTRY
         REQUIRED_BADGE=$([ "$IS_REQUIRED" = "true" ] && echo "✓" || echo "")
         echo "| \`${field}\` | \`${FIELD_TYPE}\` | ${REQUIRED_BADGE} |" >> "${OUTPUT_FILE}"
       done
-      
+
       echo "" >> "${OUTPUT_FILE}"
       echo "</details>" >> "${OUTPUT_FILE}"
     fi

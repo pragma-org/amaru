@@ -6,6 +6,9 @@ inputs:
   mode:
     description: 'Cache mode: READ_ONLY or READ_WRITE'
     default: READ_ONLY
+  suffix:
+    description: 'An optionnal suffix to add to the cache name'
+    default: ''
 
 runs:
   using: composite
@@ -22,8 +25,9 @@ runs:
       uses: actions/cache/restore@v5
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-${{ runner.arch }}-${{ runner.os }}
+        key: sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
         restore-keys: |
+          sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
           sccache-${{ runner.arch }}-${{ runner.os }}
 
     - name: Restore and save cache
@@ -31,8 +35,9 @@ runs:
       uses: actions/cache@v5
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-${{ runner.arch }}-${{ runner.os }}
+        key: sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
         restore-keys: |
+          sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
           sccache-${{ runner.arch }}-${{ runner.os }}
 
     - uses: mozilla-actions/sccache-action@v0.0.10
