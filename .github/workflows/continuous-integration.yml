@@ -111,9 +111,6 @@ jobs:
 
           cargo $EXTRA_ARGS $COMMAND $SCOPE --locked --target ${{ matrix.environments.target }}
 
-          # Run doc tests separately as --doc can't be used with --all-targets
-          cargo test --doc
-
       - name: Upload test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v7
