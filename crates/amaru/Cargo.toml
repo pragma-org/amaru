@@ -32,7 +32,6 @@ doc = false
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 axum.workspace = true
-async-compression.workspace = true
 clap.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
