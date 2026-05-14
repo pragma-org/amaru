@@ -59,14 +59,6 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 build: ## &build Compile for $BUILD_PROFILE
 	cargo build --profile $(BUILD_PROFILE) $(ARGS)
 
-build-examples: ## &build Build all examples
-	@for dir in $(wildcard examples/*/.); do \
-		if [ -f $$dir/Makefile ]; then \
-			echo "Building $$dir"; \
-			$(MAKE) -C $$dir || exit; \
-		fi; \
-	done
-
 sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
@@ -149,7 +141,6 @@ all-ci-checks: ## &test Run all CI checks
 	@cargo clippy-amaru
 	@cargo test --workspace --all-targets
 	@cargo test --doc
-	@$(MAKE) build-examples
 	@$(MAKE) coverage-lconv
 
 fetch-data: ## &test Fetch epoch data (dreps, pools, accounts, ...) from a Haskell node

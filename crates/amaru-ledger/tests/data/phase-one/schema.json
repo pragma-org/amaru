@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pragma-org/amaru/blob/main/crates/amaru-ledger/tests/data/phase-one/schema.json",
+  "title": "Phase-one validation fixture",
+  "description": "An implementation-generic test vector for Cardano phase-one transaction validation.",
+  "type": "object",
+  "required": [
+    "network",
+    "eraHistory",
+    "protocolParameters",
+    "initialState",
+    "ledgerEnv",
+    "transaction",
+    "expected"
+  ],
+  "properties": {
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "network": {
+      "type": "string",
+      "pattern": "^(mainnet|preprod|preview|testnet_[0-9]+)$"
+    },
+    "eraHistory": {
+      "oneOf": [
+        { "$ref": "#/$defs/EraHistory" },
+        { "$ref": "#/$defs/RefOrOverride" }
+      ],
+      "description": "Either an inline EraHistory or a $ref to a shared file under common/eraHistory/."
+    },
+    "protocolParameters": {
+      "oneOf": [
+        { "$ref": "#/$defs/ProtocolParameters" },
+        { "$ref": "#/$defs/RefOrOverride" }
+      ],
+      "description": "Either inline ProtocolParameters or a $ref to a shared file under common/protocolParameters/, with an optional $override object that is shallow-merged over the referenced document."
+    },
+    "initialState": { "$ref": "#/$defs/InitialState" },
+    "ledgerEnv": { "$ref": "#/$defs/LedgerEnv" },
+    "transaction": {
+      "$ref": "#/$defs/HexCbor",
+      "description": "Hex-encoded CBOR of the transaction."
+    },
+    "expected": { "$ref": "#/$defs/Expected" }
+  },
+  "$defs": {
+    "HexCbor": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]+$"
+    },
+    "RefOrOverride": {
+      "type": "object",
+      "required": ["$ref"],
+      "properties": {
+        "$ref": {
+          "type": "string",
+          "description": "Path to a shared canonical document, relative to the fixture data root (e.g. \"common/protocolParameters/preprod-conway-v9.json\")."
+        },
+        "$override": {
+          "type": "object",
+          "description": "Optional object shallow-merged over the referenced document before final deserialization. Use for one-off variations on a shared preset."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Ratio": {
+      "type": "object",
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ExecutionUnits": {
+      "type": "object",
+      "required": ["memory", "cpu"],
+      "properties": {
+        "memory": { "type": "integer", "minimum": 0 },
+        "cpu": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ProtocolVersion": {
+      "type": "object",
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 0 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "EraName": {
+      "type": "string",
+      "enum": [
+        "Byron",
+        "Shelley",
+        "Allegra",
+        "Mary",
+        "Alonzo",
+        "Babbage",
+        "Conway"
+      ]
+    },
+    "EraBound": {
+      "type": "object",
+      "required": ["time", "slot", "epoch"],
+      "properties": {
+        "time": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds since system start."
+        },
+        "slot": { "type": "integer", "minimum": 0 },
+        "epoch": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "EraParams": {
+      "type": "object",
+      "required": ["epochSizeSlots", "slotLengthMs", "eraName"],
+      "properties": {
+        "epochSizeSlots": { "type": "integer", "minimum": 1 },
+        "slotLengthMs": { "type": "integer", "minimum": 1 },
+        "eraName": { "$ref": "#/$defs/EraName" }
+      }
+    },
+    "EraSummary": {
+      "type": "object",
+      "required": ["start", "end", "params"],
+      "properties": {
+        "start": { "$ref": "#/$defs/EraBound" },
+        "end": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/EraBound" }]
+        },
+        "params": { "$ref": "#/$defs/EraParams" }
+      }
+    },
+    "EraHistory": {
+      "type": "object",
+      "required": ["stabilityWindow", "eras"],
+      "properties": {
+        "stabilityWindow": { "type": "integer", "minimum": 0 },
+        "eras": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EraSummary" }
+        }
+      }
+    },
+    "LedgerEnv": {
+      "type": "object",
+      "required": ["slot", "txIx"],
+      "properties": {
+        "slot": { "type": "integer", "minimum": 0 },
+        "txIx": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "UtxoEntry": {
+      "type": "object",
+      "required": ["input", "output"],
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of TransactionInput."
+        },
+        "output": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of the transaction output."
+        }
+      }
+    },
+    "VotingState": {
+      "type": "object",
+      "required": ["numDormantEpochs"],
+      "properties": {
+        "numDormantEpochs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "InitialState": {
+      "type": "object",
+      "required": ["utxo", "votingState"],
+      "properties": {
+        "utxo": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/UtxoEntry" }
+        },
+        "votingState": { "$ref": "#/$defs/VotingState" }
+      }
+    },
+    "MinFeeReferenceScripts": {
+      "type": "object",
+      "required": ["range", "base", "multiplier"],
+      "properties": {
+        "range": { "type": "integer", "minimum": 0 },
+        "base": { "$ref": "#/$defs/Ratio" },
+        "multiplier": { "$ref": "#/$defs/Ratio" }
+      }
+    },
+    "PlutusCostModels": {
+      "type": "object",
+      "properties": {
+        "plutusV1": { "type": "array", "items": { "type": "integer" } },
+        "plutusV2": { "type": "array", "items": { "type": "integer" } },
+        "plutusV3": { "type": "array", "items": { "type": "integer" } }
+      }
+    },
+    "ScriptExecutionPrices": {
+      "type": "object",
+      "required": ["memory", "cpu"],
+      "properties": {
+        "memory": { "$ref": "#/$defs/Ratio" },
+        "cpu": { "$ref": "#/$defs/Ratio" }
+      }
+    },
+    "CommitteeThresholds": {
+      "type": "object",
+      "required": ["default", "stateOfNoConfidence"],
+      "properties": {
+        "default": { "$ref": "#/$defs/Ratio" },
+        "stateOfNoConfidence": { "$ref": "#/$defs/Ratio" }
+      }
+    },
+    "StakePoolVotingThresholds": {
+      "type": "object",
+      "required": [
+        "noConfidence",
+        "constitutionalCommittee",
+        "hardForkInitiation",
+        "protocolParametersUpdate"
+      ],
+      "properties": {
+        "noConfidence": { "$ref": "#/$defs/Ratio" },
+        "constitutionalCommittee": { "$ref": "#/$defs/CommitteeThresholds" },
+        "hardForkInitiation": { "$ref": "#/$defs/Ratio" },
+        "protocolParametersUpdate": {
+          "type": "object",
+          "required": ["security"],
+          "properties": {
+            "security": { "$ref": "#/$defs/Ratio" }
+          }
+        }
+      }
+    },
+    "DelegateRepresentativeVotingThresholds": {
+      "type": "object",
+      "required": [
+        "noConfidence",
+        "constitution",
+        "constitutionalCommittee",
+        "hardForkInitiation",
+        "protocolParametersUpdate",
+        "treasuryWithdrawals"
+      ],
+      "properties": {
+        "noConfidence": { "$ref": "#/$defs/Ratio" },
+        "constitution": { "$ref": "#/$defs/Ratio" },
+        "constitutionalCommittee": { "$ref": "#/$defs/CommitteeThresholds" },
+        "hardForkInitiation": { "$ref": "#/$defs/Ratio" },
+        "protocolParametersUpdate": {
+          "type": "object",
+          "required": ["network", "economic", "technical", "governance"],
+          "properties": {
+            "network": { "$ref": "#/$defs/Ratio" },
+            "economic": { "$ref": "#/$defs/Ratio" },
+            "technical": { "$ref": "#/$defs/Ratio" },
+            "governance": { "$ref": "#/$defs/Ratio" }
+          }
+        },
+        "treasuryWithdrawals": { "$ref": "#/$defs/Ratio" }
+      }
+    },
+    "ProtocolParameters": {
+      "type": "object",
+      "required": [
+        "minFeeCoefficient",
+        "minFeeConstant",
+        "minFeeReferenceScripts",
+        "minUtxoDepositCoefficient",
+        "maxBlockBodySize",
+        "maxBlockHeaderSize",
+        "maxTransactionSize",
+        "maxValueSize",
+        "maxReferenceScriptsSize",
+        "stakeCredentialDeposit",
+        "stakePoolDeposit",
+        "stakePoolRetirementEpochBound",
+        "stakePoolPledgeInfluence",
+        "minStakePoolCost",
+        "desiredNumberOfStakePools",
+        "monetaryExpansion",
+        "treasuryExpansion",
+        "collateralPercentage",
+        "maxCollateralInputs",
+        "plutusCostModels",
+        "scriptExecutionPrices",
+        "maxExecutionUnitsPerTransaction",
+        "maxExecutionUnitsPerBlock",
+        "stakePoolVotingThresholds",
+        "constitutionalCommitteeMinSize",
+        "constitutionalCommitteeMaxTermLength",
+        "governanceActionLifetime",
+        "governanceActionDeposit",
+        "delegateRepresentativeVotingThresholds",
+        "delegateRepresentativeDeposit",
+        "delegateRepresentativeMaxIdleTime",
+        "version"
+      ],
+      "properties": {
+        "minFeeCoefficient": { "type": "integer", "minimum": 0 },
+        "minFeeConstant": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace."
+        },
+        "minFeeReferenceScripts": { "$ref": "#/$defs/MinFeeReferenceScripts" },
+        "minUtxoDepositCoefficient": { "type": "integer", "minimum": 0 },
+        "maxBlockBodySize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes."
+        },
+        "maxBlockHeaderSize": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Bytes."
+        },
+        "maxTransactionSize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes."
+        },
+        "maxValueSize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes."
+        },
+        "maxReferenceScriptsSize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes."
+        },
+        "stakeCredentialDeposit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace."
+        },
+        "stakePoolDeposit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace."
+        },
+        "stakePoolRetirementEpochBound": { "type": "integer", "minimum": 0 },
+        "stakePoolPledgeInfluence": { "$ref": "#/$defs/Ratio" },
+        "minStakePoolCost": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace."
+        },
+        "desiredNumberOfStakePools": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "monetaryExpansion": { "$ref": "#/$defs/Ratio" },
+        "treasuryExpansion": { "$ref": "#/$defs/Ratio" },
+        "collateralPercentage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "maxCollateralInputs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "plutusCostModels": { "$ref": "#/$defs/PlutusCostModels" },
+        "scriptExecutionPrices": { "$ref": "#/$defs/ScriptExecutionPrices" },
+        "maxExecutionUnitsPerTransaction": { "$ref": "#/$defs/ExecutionUnits" },
+        "maxExecutionUnitsPerBlock": { "$ref": "#/$defs/ExecutionUnits" },
+        "stakePoolVotingThresholds": {
+          "$ref": "#/$defs/StakePoolVotingThresholds"
+        },
+        "constitutionalCommitteeMinSize": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "constitutionalCommitteeMaxTermLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "governanceActionLifetime": { "type": "integer", "minimum": 0 },
+        "governanceActionDeposit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace."
+        },
+        "delegateRepresentativeVotingThresholds": {
+          "$ref": "#/$defs/DelegateRepresentativeVotingThresholds"
+        },
+        "delegateRepresentativeDeposit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace."
+        },
+        "delegateRepresentativeMaxIdleTime": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "version": { "$ref": "#/$defs/ProtocolVersion" }
+      }
+    },
+    "Expected": {
+      "oneOf": [
+        { "const": "Pass" },
+        {
+          "type": "object",
+          "required": ["predicate"],
+          "properties": {
+            "predicate": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,43 @@
+name: cache
+
+description: Restore/save Rust cache
+
+inputs:
+  mode:
+    description: 'Cache mode: READ_ONLY or READ_WRITE'
+    default: READ_ONLY
+  suffix:
+    description: 'An optionnal suffix to add to the cache name'
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Configure sccache env
+      shell: bash
+      run: |
+        echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
+        echo "SCCACHE_LOCAL_RW_MODE=${{ inputs.mode }}" >> "$GITHUB_ENV"
+        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+
+    - name: Restore cache
+      if: ${{ inputs.mode == 'READ_ONLY' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
+        restore-keys: |
+          sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
+          sccache-${{ runner.arch }}-${{ runner.os }}
+
+    - name: Restore and save cache
+      if: ${{ inputs.mode == 'READ_WRITE' }}
+      uses: actions/cache@v5
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
+        restore-keys: |
+          sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
+          sccache-${{ runner.arch }}-${{ runner.os }}
+
+    - uses: mozilla-actions/sccache-action@v0.0.10

@@ -51,7 +51,37 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use serde::Deserialize;
+
+    use super::TransactionPointer;
+    use crate::{Slot, utils::serde::HasProxy};
+
+    /// Fixture JSON shape `{ "slot": <u64>, "txIx": <u64> }`. The `txIx` is converted to the
+    /// kernel's platform-dependent `usize` at the boundary.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TransactionPointerProxy {
+        slot: Slot,
+        tx_ix: u64,
+    }
+
+    impl From<TransactionPointerProxy> for TransactionPointer {
+        #[allow(clippy::expect_used)]
+        fn from(p: TransactionPointerProxy) -> Self {
+            TransactionPointer { slot: p.slot, transaction_index: p.tx_ix.try_into().expect("tx_ix fits in usize") }
+        }
+    }
+
+    impl HasProxy for TransactionPointer {
+        type Proxy = TransactionPointerProxy;
+    }
+}
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {

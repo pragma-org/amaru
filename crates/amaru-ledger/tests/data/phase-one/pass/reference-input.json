@@ -1,0 +1,32 @@
+{
+  "title": "reference-input",
+  "description": "The transaction has one resolvable reference input alongside its spent input. Both inputs exist in the initial UTxO; the reference input does not appear in the spent set. Exercises the resolvable-reference-input branch in inputs::execute.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      },
+      {
+        "input": "8258209690ee807c69ee0c5b7baf62a19771a38eed3a2fad7fb7beba36bbc6ff8583bd00",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400f0012d90102818258209690ee807c69ee0c5b7baf62a19771a38eed3a2fad7fb7beba36bbc6ff8583bd00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840df71dd9c625f6a2ff7317d3212b023e7724f80e736b4015d88eeb116085e1e6791edce5e36fac666153ae9c56b59ab4556ed78c9b4ec8d9ae2d52d56dc021e03f5f6",
+  "expected": "Pass"
+}

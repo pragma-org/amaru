@@ -9,3 +9,9 @@ deny-amaru = "deny check licenses --config .cargo/deny.toml"
 
 [env]
 CLIPPY_CONF_DIR = ".cargo"
+
+[build]
+rustflags = [
+  "-Zshare-generics",
+  "-Zthreads=8",
+]

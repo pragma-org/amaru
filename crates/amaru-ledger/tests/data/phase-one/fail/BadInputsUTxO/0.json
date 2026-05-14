@@ -1,0 +1,30 @@
+{
+  "title": "BadInputsUTxO",
+  "description": "The transaction's only spent input does not exist in the initial UTxO; phase-one must reject.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a400d90102818258203991376bb5e6b438faa7f87150cd52e1b84c36b116180b30cdb03b3f0ae406a9000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584060fac40034dba8cc32d8cbf0bea285d166b057b630ee962082bfbd833a8c8b3d85c9deffeb9aadd0d51f29552511b8c9b8ef5bfee0c42205f7e3c9f54840a00cf5f6",
+  "expected": {
+    "predicate": "BadInputsUTxO"
+  }
+}

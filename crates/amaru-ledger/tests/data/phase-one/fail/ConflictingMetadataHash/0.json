@@ -1,0 +1,30 @@
+{
+  "title": "ConflictingMetadataHash",
+  "description": "The auxiliary_data_hash declared in the body does not match the hash of the attached auxiliary data; phase-one must reject.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4007582097a81fb0df80f7ec9408ce74f0a76456b790de71c8d554008f9acddead37b12e0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258402c34f3c0d510ccd75f413864048462c8125ef1e47ed673903849b8dcb4c0d0c7714451b286382019d00105a56f26c8268c92f30c4686a13ffa2047f6faa56f09f5d90103a100a11902a2781a70686173652d6f6e65206d657461646174612066697874757265",
+  "expected": {
+    "predicate": "ConflictingMetadataHash"
+  }
+}

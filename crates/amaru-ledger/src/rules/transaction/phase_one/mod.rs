@@ -63,6 +63,9 @@ pub use validity_interval::InvalidValidityInterval;
 
 pub mod mint;
 
+#[cfg(test)]
+mod fixture;
+
 #[derive(Debug, Error)]
 pub enum PhaseOneError {
     #[error("invalid inputs: {0}")]
@@ -263,4 +266,91 @@ fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Re
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{
+        EraHistory, ProtocolParameters, Transaction, cbor, include_json, utils::serde::FilesystemRefResolver,
+    };
+    use test_case::test_case;
+
+    use super::fixture::{Expected, Fixture, Predicate};
+    use crate::context::DefaultValidationContext;
+
+    macro_rules! fixture {
+        ($path:literal) => {
+            include_json!(concat!("phase-one/", $path, ".json"))
+        };
+    }
+
+    /// TODO: Simplify adding cases
+    ///
+    /// This could be created at build time via build.rs (or via a macro).
+    /// The benefit to that is that:
+    ///   1) This file is smaller when editing manually
+    ///   2) When a new fixture is introduced, we can automatically include it
+    #[test_case(fixture!("pass/simple-transfer"); "simple transfer")]
+    #[test_case(fixture!("pass/with-metadata"); "with matching auxiliary data")]
+    #[test_case(fixture!("fail/InvalidWitnessesUTXOW/0"); "invalid vkey signature")]
+    #[test_case(fixture!("fail/MissingTxBodyMetadataHash/0"); "auxiliary data without body hash")]
+    #[test_case(fixture!("fail/MissingTxMetadata/0"); "body hash without auxiliary data")]
+    #[test_case(fixture!("fail/ConflictingMetadataHash/0"); "auxiliary data hash mismatch")]
+    #[test_case(fixture!("fail/InputSetEmptyUTxO/0"); "empty input set")]
+    #[test_case(fixture!("fail/BadInputsUTxO/0"); "unknown spent input")]
+    #[test_case(fixture!("fail/BadInputsUTxO/1"); "unknown reference input")]
+    #[test_case(fixture!("pass/native-script-input"); "native script-locked input")]
+    #[test_case(fixture!("fail/BabbageNonDisjointRefInputs/0"); "input appears as both spent and reference")]
+    #[test_case(fixture!("fail/WrongNetworkInTxBody/0"); "body network_id disagrees with fixture network")]
+    #[test_case(fixture!("fail/MaxTxSizeUTxO/0"); "transaction larger than maxTransactionSize")]
+    #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/0"); "current slot before invalid_before")]
+    #[test_case(fixture!("fail/OutsideForecast/0"); "upper validity bound past forecast horizon with redeemer")]
+    #[test_case(fixture!("fail/MissingVKeyWitnessesUTXOW/0"); "vkey-locked input with empty witness set")]
+    #[test_case(fixture!("fail/WrongNetworkWithdrawal/0"); "withdrawal reward account on wrong network")]
+    #[test_case(fixture!("pass/withdrawal"); "withdrawal with matching credential")]
+    #[test_case(fixture!("pass/validity-interval-both-bounds"); "slot strictly inside both bounds")]
+    #[test_case(fixture!("pass/validity-interval-end-only"); "slot below end with no lower bound")]
+    #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/1"); "slot equals invalid_after exclusive upper bound")]
+    #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/2"); "slot equals end with no lower bound")]
+    #[test_case(fixture!("pass/validity-interval-start-only"); "slot above start with no upper bound")]
+    #[test_case(fixture!("pass/reference-input"); "tx with resolvable reference input")]
+    #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
+    #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
+    fn conformance(fixture: Fixture) {
+        let tx_size = fixture.transaction.len() as u64;
+
+        let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
+
+        let resolver =
+            FilesystemRefResolver::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/phase-one"));
+        let era_history: EraHistory = fixture.era_history.resolve_into(&resolver).expect("resolve eraHistory");
+        let protocol_parameters: ProtocolParameters =
+            fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
+
+        let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
+
+        let result = super::execute(
+            &mut ctx,
+            &fixture.network,
+            &protocol_parameters,
+            &era_history,
+            &fixture.initial_state.voting_state,
+            fixture.ledger_env,
+            tx.is_expected_valid,
+            tx.body,
+            &tx.witnesses,
+            tx.auxiliary_data.as_ref(),
+            tx_size,
+        )
+        .map_err(Predicate::from);
+
+        match (fixture.expected, result) {
+            (Expected::Pass, Ok(_)) => (),
+            (Expected::Pass, Err(actual)) => panic!("expected pass, got error: {actual:?}"),
+            (Expected::Fail(expected), Err(actual)) => {
+                assert_eq!(actual, expected, "expected {expected:?}, got {actual:?}");
+            }
+            (Expected::Fail(expected), Ok(_)) => panic!("expected fail ({expected:?}), got pass"),
+        }
+    }
 }

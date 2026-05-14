@@ -13,3 +13,30 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::ExUnitPrices;
+#[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use serde::Deserialize;
+
+    use super::ExUnitPrices;
+    use crate::{RationalNumber, utils::serde::HasProxy};
+
+    /// Fixture JSON shape `{ "memory": <ratio>, "cpu": <ratio> }`.
+    #[derive(Deserialize)]
+    pub struct ExUnitPricesProxy {
+        memory: RationalNumber,
+        cpu: RationalNumber,
+    }
+
+    impl From<ExUnitPricesProxy> for ExUnitPrices {
+        fn from(p: ExUnitPricesProxy) -> Self {
+            ExUnitPrices { mem_price: p.memory, step_price: p.cpu }
+        }
+    }
+
+    impl HasProxy for ExUnitPrices {
+        type Proxy = ExUnitPricesProxy;
+    }
+}

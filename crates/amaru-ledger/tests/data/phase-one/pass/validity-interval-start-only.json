@@ -1,0 +1,28 @@
+{
+  "title": "validity-interval-start-only",
+  "description": "validity_interval = [50, None) and ledgerEnv.slot = 100; the slot is above the lower bound with no upper bound, so phase-one must accept. Rounds out ValidityInterval::includes to all four (start, end) arms on the pass side.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 100,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400818320f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258409509446f2a89796cc94aa0f56c4f1d54d82b4fb57d3c50758a4fefe27591ab4d011477e18ecdc3aab12695fd5d4720e2c8d390badf7ca6f60d9e89fc9a275906f5f6",
+  "expected": "Pass"
+}

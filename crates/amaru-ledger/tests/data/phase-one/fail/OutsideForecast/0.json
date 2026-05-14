@@ -1,0 +1,30 @@
+{
+  "title": "OutsideForecast",
+  "description": "The witness set carries a (empty) redeemer set, which forces the forecast-horizon check on the validity interval. The upper bound is slot 500000, past the era history's foreseeable slot 432000 from tip 0; phase-one must reject.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d40031a0007a1200f00a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258405e74cc61d9f039b1291f9ea6ceb6e5ca3cbec0d6dcb89f19e7c0df079d960256547d19104d4ed8068b0fc88ddefd03ec4f16207304fcf02c9e6f62a8a1901b030580f5f6",
+  "expected": {
+    "predicate": "OutsideForecast"
+  }
+}

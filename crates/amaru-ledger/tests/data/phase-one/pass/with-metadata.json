@@ -1,0 +1,28 @@
+{
+  "title": "with-metadata",
+  "description": "simple-transfer extended with auxiliary data and a matching auxiliary_data_hash; passes every phase-one predicate.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4007582068a81fb0df80f7ec9408ce74f0a76456b790de71c8d554008f9acddead37b12e0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840023754f189a856a79174b55c2660f39a8eeb45eba572364e0d73e6b871b53c526b87cf7c2ddda38276e4e81e31a183baa8d5e906b7829906f027afa49f5b8c0ff5d90103a100a11902a2781a70686173652d6f6e65206d657461646174612066697874757265",
+  "expected": "Pass"
+}
