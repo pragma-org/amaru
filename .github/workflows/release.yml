@@ -62,8 +62,6 @@ jobs:
         with:
           submodules: true
 
-      - uses: ./.github/actions/cache
-
       - name: build metadata
         id: meta
         shell: bash
@@ -135,10 +133,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: amaru-*-${{ matrix.os }}-${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }}
-
-      - name: Rename artifact
-        run: |
-          mv amaru-*-${{ matrix.os }}-${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }} dist
+          path: dist
 
       - name: Build and push
         id: build
