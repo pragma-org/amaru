@@ -4,40 +4,64 @@ description: Restore/save Rust cache
 
 inputs:
   mode:
-    description: 'Cache mode: READ_ONLY or READ_WRITE'
-    default: READ_ONLY
+    description: 'Cache mode: READ or WRITE; default to READ on branches and WRITE on main.'
+    default: ''
   suffix:
-    description: 'An optionnal suffix to add to the cache name'
+    description: 'An optional suffix to add to the cache name, to have multiple different cache on same arch and OS.'
     default: ''
 
 runs:
   using: composite
   steps:
-    - name: Configure sccache env
+    - name: Configure env
       shell: bash
       run: |
-        echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
-        echo "SCCACHE_LOCAL_RW_MODE=${{ inputs.mode }}" >> "$GITHUB_ENV"
-        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+        echo "CACHE_MODE=${{ inputs.mode || (github.ref == 'refs/heads/main' && 'WRITE' || 'READ') }}" >> "$GITHUB_ENV"
+        echo "CACHE_PRIMARY_KEY=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}-$(/bin/date -u '+%Y%m%d-%H%M%S')" >> "$GITHUB_ENV"
+        echo "CACHE_RESTORE_KEY_1=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}" >> "$GITHUB_ENV"
+        echo "CACHE_RESTORE_KEY_2=cargo-${{ runner.arch }}-${{ runner.os }}" >> "$GITHUB_ENV"
+        {
+          echo 'RUST_CACHE_PATHS<<EOF'
+          echo '~/.cargo/bin/'
+          echo '~/.cargo/registry/index/'
+          echo '~/.cargo/registry/cache/'
+          echo '~/.cargo/git/db/'
+          echo 'target/'
+          echo 'EOF'
+        } >> "$GITHUB_ENV"
 
-    - name: Restore cache
-      if: ${{ inputs.mode == 'READ_ONLY' }}
+    # Only read from an existing cache. We tightly control who can write to
+    # the cache (here, only workflow executing on 'main') for mostly two
+    # reasons:
+    #
+    # 1. It avoid concurrency conflicts where multiple parallel job would have
+    #    grabbed the same cache and then both try to write a new update.
+    #
+    # 2. It prevents one PR from interfering with other PRs; if someone is working
+    #    with a new set of dependencies, it would constantly push caches that would
+    #    force other to rebuild. It's annoying.
+    - name: Read cache
+      if: ${{ env.CACHE_MODE == 'READ' }}
       uses: actions/cache/restore@v5
       with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
+        path: ${{ env.RUST_CACHE_PATHS }}
+        key: ${{ env.CACHE_PRIMARY_KEY }}
         restore-keys: |
-          sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
-          sccache-${{ runner.arch }}-${{ runner.os }}
+          ${{ env.CACHE_RESTORE_KEY_1 }}
+          ${{ env.CACHE_RESTORE_KEY_2 }}
 
-    - name: Restore and save cache
-      if: ${{ inputs.mode == 'READ_WRITE' }}
+    # Invalidate and rewrite the cache. Note that because the primary key holds
+    # a timestamp, there will never be a cache hit here. It's not a bug, it's a
+    # feature. Those cache have a tendency to grow large, because `rustc`
+    # accumulates stuff over time.
+    #
+    # So, when we build on `main/`, we always build without cache, to rewrite a
+    # clean, pruned one for PRs. The timestamp allows to keep caches
+    # alphabetically sorted for a given prefix; which ensures they're used in
+    # priority (and thus, let github evicts the others).
+    - name: Write cache
+      if: ${{ env.CACHE_MODE == 'WRITE' }}
       uses: actions/cache@v5
       with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
-        restore-keys: |
-          sccache-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}
-          sccache-${{ runner.arch }}-${{ runner.os }}
-
-    - uses: mozilla-actions/sccache-action@v0.0.10
+        path: ${{ env.RUST_CACHE_PATHS }}
+        key: ${{ env.CACHE_PRIMARY_KEY }}

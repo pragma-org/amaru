@@ -175,9 +175,6 @@ jobs:
               --topology /config/topology.json
 
       - uses: ./.github/actions/cache
-        with:
-          suffix: "-test"
-          mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
       - name: Build Amaru
         shell: bash
@@ -239,7 +236,7 @@ jobs:
           echo "RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH" >> "$GITHUB_ENV"
 
       - name: Run until target epoch
-        if: github.ref != 'refs/heads/main'
+        if: matrix.network.name != 'preprod' || github.ref != 'refs/heads/main'
         timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
         shell: bash
         run: |
