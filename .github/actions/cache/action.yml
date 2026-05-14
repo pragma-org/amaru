@@ -5,7 +5,7 @@ description: Restore/save Rust cache
 inputs:
   mode:
     description: 'Cache mode: READ or WRITE; default to READ on branches and WRITE on main.'
-    default: ''
+    default: 'READ'
   suffix:
     description: 'An optional suffix to add to the cache name, to have multiple different cache on same arch and OS.'
     default: ''
@@ -16,7 +16,6 @@ runs:
     - name: Configure env
       shell: bash
       run: |
-        echo "CACHE_MODE=${{ inputs.mode || (github.ref == 'refs/heads/main' && 'WRITE' || 'READ') }}" >> "$GITHUB_ENV"
         echo "CACHE_PRIMARY_KEY=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}-$(/bin/date -u '+%Y%m%d-%H%M%S')" >> "$GITHUB_ENV"
         echo "CACHE_RESTORE_KEY_1=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}" >> "$GITHUB_ENV"
         echo "CACHE_RESTORE_KEY_2=cargo-${{ runner.arch }}-${{ runner.os }}" >> "$GITHUB_ENV"
@@ -41,7 +40,7 @@ runs:
     #    with a new set of dependencies, it would constantly push caches that would
     #    force other to rebuild. It's annoying.
     - name: Read cache
-      if: ${{ env.CACHE_MODE == 'READ' }}
+      if: ${{ inputs.mode == 'READ' }}
       uses: actions/cache/restore@v5
       with:
         path: ${{ env.RUST_CACHE_PATHS }}
@@ -60,7 +59,7 @@ runs:
     # alphabetically sorted for a given prefix; which ensures they're used in
     # priority (and thus, let github evicts the others).
     - name: Write cache
-      if: ${{ env.CACHE_MODE == 'WRITE' }}
+      if: ${{ inputs.mode == 'WRITE' }}
       uses: actions/cache@v5
       with:
         path: ${{ env.RUST_CACHE_PATHS }}
