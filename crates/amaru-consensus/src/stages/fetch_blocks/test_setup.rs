@@ -20,8 +20,9 @@ use amaru_kernel::{
 };
 use amaru_ouroboros_traits::{ChainStore, MissingBlocks, StoreError, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
-    FindMissingBlocksEffect, GetAnchorHashEffect, LoadBlockEffect, LoadHeaderEffect, ResourceHeaderStore,
-    StoreBlockEffect,
+    FindMissingBlocksEffect, GetAnchorHashEffect, GetChildrenEffect, HasBlockEffect, LoadHeaderEffect,
+    LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, StoreBlockEffect,
+    UnvalidatedAncestorHashesEffect,
 };
 use pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef, TerminationReason,
@@ -100,6 +101,10 @@ impl TestPrep {
         self.store.set_anchor_hash(&hash).unwrap();
     }
 
+    pub fn set_validity(&self, hash: HeaderHash, valid: bool) {
+        self.store.set_block_valid(&hash, valid).unwrap();
+    }
+
     pub fn schedule_at(&self, duration: Duration) -> ScheduleId {
         ScheduleIds::default().next_at(Instant::at_offset(duration))
     }
@@ -122,10 +127,15 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
         pure_stage::register_data_deserializer::<(Tip, Point, BlockHeight)>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
-        pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<HasBlockEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
+        pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
     ]
 }
@@ -176,6 +186,37 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
 
 pub fn te_find_missing_blocks(at_stage: &str, start: HeaderHash, limit: usize) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(FindMissingBlocksEffect::new(start, limit))))
+}
+
+pub fn te_get_anchor_hash(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetAnchorHashEffect::new())))
+}
+
+pub fn te_get_children(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetChildrenEffect::new(hash))))
+}
+
+pub fn te_has_block(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasBlockEffect::new(hash))))
+}
+
+pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        if with_validity {
+            Box::new(LoadHeaderWithValidityEffect::new(hash))
+        } else {
+            Box::new(LoadHeaderEffect::new(hash))
+        },
+    ))
+}
+
+pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
+}
+
+pub fn te_unvalidated_ancestor_hashes(at_stage: &str, start: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(UnvalidatedAncestorHashesEffect::new(start))))
 }
 
 pub fn te_store_block(at_stage: &str, hash: HeaderHash, block: amaru_kernel::RawBlock) -> TraceEntry {

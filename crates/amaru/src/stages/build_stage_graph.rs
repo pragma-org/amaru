@@ -22,7 +22,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{EraHistory, GlobalParameters, Point, Tip};
+use amaru_kernel::{EraHistory, GlobalParameters, Tip};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
@@ -78,14 +78,16 @@ pub fn build_stage_graph(
 
     let fetch_blocks = stage_graph
         .wire_up(fetch_blocks, FetchBlocks::new(validate_block_input, select_chain.sender(), manager.sender()));
+    #[expect(clippy::expect_used)]
+    stage_graph
+        .preload(&fetch_blocks, [FetchBlocksMsg::RecoverStoredBlocks])
+        .expect("fetch blocks recovery message must be preloaded");
     let fetch_blocks_input =
         stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |(tip, parent)| FetchBlocksMsg::NewTip(tip, parent));
 
     let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));
     #[expect(clippy::expect_used)]
-    stage_graph
-        .preload(&select_chain, [SelectChainMsg::Initialize, SelectChainMsg::FetchNextFrom(Point::Origin)])
-        .expect("initialization message must be preloaded");
+    stage_graph.preload(&select_chain, [SelectChainMsg::Initialize]).expect("initialization message must be preloaded");
     let select_chain_input = stage_graph
         .contramap(select_chain, "select_chain_input", |(tip, parent)| SelectChainMsg::TipFromUpstream(tip, parent));
 

@@ -65,6 +65,10 @@ impl Store {
         self.effects.external(LoadBlockEffect::new(*hash))
     }
 
+    pub fn has_block(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<bool, StoreError>> {
+        self.effects.external(HasBlockEffect::new(*hash))
+    }
+
     pub fn get_nonces(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Nonces>> {
         self.effects.external(GetNoncesEffect::new(*hash))
     }
@@ -193,6 +197,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetBestChainTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<HasBlockEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetNoncesEffect>().boxed(),
         pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         pure_stage::register_effect_deserializer::<RollForwardChainEffect>().boxed(),
@@ -672,6 +677,31 @@ impl ExternalEffect for LoadBlockEffect {
 
 impl ExternalEffectAPI for LoadBlockEffect {
     type Response = Result<Option<RawBlock>, StoreError>;
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HasBlockEffect {
+    hash: HeaderHash,
+}
+
+impl HasBlockEffect {
+    pub fn new(hash: HeaderHash) -> Self {
+        Self { hash }
+    }
+}
+
+impl ExternalEffect for HasBlockEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let store = resources.get::<ResourceHeaderStore>().expect("HasBlockEffect requires a chain store").clone();
+            store.has_block(&self.hash)
+        })
+    }
+}
+
+impl ExternalEffectAPI for HasBlockEffect {
+    type Response = Result<bool, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

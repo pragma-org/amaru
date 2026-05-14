@@ -49,6 +49,7 @@ where
     fn next_best_chain(&self, point: &Point) -> Option<Point>;
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
     fn has_header(&self, hash: &HeaderHash) -> bool;
 
@@ -180,6 +181,10 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
         self.as_ref().load_block(hash)
     }
 
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        self.as_ref().has_block(hash)
+    }
+
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         self.as_ref().get_nonces(header)
     }
@@ -220,6 +225,10 @@ impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ReadOnlyChainStore<H> + '_> 
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         self.as_ref().load_block(hash)
+    }
+
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        self.as_ref().has_block(hash)
     }
 
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
@@ -489,8 +498,7 @@ where
         let anchor = snapshot.get_anchor_hash();
         let mut missing = Vec::new();
         for header in snapshot.ancestors(start) {
-            let block = snapshot.load_block(&header.hash())?;
-            if block.is_some() || header.hash() == anchor {
+            if snapshot.has_block(&header.hash())? || header.hash() == anchor {
                 missing.reverse();
                 missing.truncate(limit);
                 return Ok(Found(MissingBlocks::new(header.point(), missing)));
