@@ -7,16 +7,10 @@ on:
     tags: ["*.*.*"]
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   DOCKER_IMAGE: ghcr.io/pragma-org/amaru
-  RUST_CACHE_PATH: |
-    ~/.cargo/bin/
-    ~/.cargo/registry/index/
-    ~/.cargo/registry/cache/
-    ~/.cargo/git/db/
-    target
-    !target/amaru
 
 permissions:
   contents: read
@@ -64,21 +58,9 @@ jobs:
     runs-on: ${{ matrix.environments.runner }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
-
-      - id: timestamp
-        shell: bash
-        run: |
-          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-release-${{ matrix.environments.target }}-${{ steps.timestamp.outputs.value }}
-          restore-keys: |
-            cargo-release-${{ matrix.environments.target }}
 
       - name: build metadata
         id: meta
@@ -113,7 +95,7 @@ jobs:
           cp LICENSE README.md CHANGELOG.md $OUT
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: amaru-${{ steps.meta.outputs.version }}-${{ matrix.environments.title }}
           path: ${{ steps.pack.outputs.path }}
@@ -129,36 +111,33 @@ jobs:
         os: [ linux ]
         arch: [ amd64, arm64 ]
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           cache-binary: false
 
       - name: Login Docker Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: amaru-*-${{ matrix.os }}-${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }}
-
-      - name: Rename artifact
-        run: |
-          mv amaru-*-${{ matrix.os }}-${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }} dist
+          path: dist
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: .github/Dockerfile.workflow
@@ -174,7 +153,7 @@ jobs:
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -187,24 +166,24 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [ docker-build ]
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: digests-*
           path: /tmp/digests
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           cache-binary: false
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.DOCKER_IMAGE }}
           tags: |
@@ -212,7 +191,7 @@ jobs:
             type=semver,pattern=v{{version}}
 
       - name: Login Docker Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -233,13 +212,13 @@ jobs:
 
   cargo-publish:
     name: Publish crates to crates.io
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ github.ref_type == 'tag' }}
     needs: rust-build
     environment: crates-io
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
@@ -254,11 +233,11 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: rust-build
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: amaru-*
           path: ./artifacts
@@ -360,13 +339,13 @@ jobs:
           EOF
 
       - name: Upload combined artifact for Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
   publish:
     name: Publish to GitHub Pages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: merge-artifacts
     environment:

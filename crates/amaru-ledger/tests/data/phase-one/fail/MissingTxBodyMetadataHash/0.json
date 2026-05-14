@@ -1,0 +1,30 @@
+{
+  "title": "MissingTxBodyMetadataHash",
+  "description": "Auxiliary data is present but the transaction body lacks an auxiliary_data_hash; phase-one must reject.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a400d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840ab95ef2f208e7c7c513a48467450eb4820c3d425c9b3fef96cc400c90cbad96bbef647c65df3b8f3a855b3122c594ef8d7d7445f8597f2571e397ec288eb4705f5d90103a100a11902a2781a70686173652d6f6e65206d657461646174612066697874757265",
+  "expected": {
+    "predicate": "MissingTxBodyMetadataHash"
+  }
+}

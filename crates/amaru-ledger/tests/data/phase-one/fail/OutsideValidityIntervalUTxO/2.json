@@ -1,0 +1,30 @@
+{
+  "title": "OutsideValidityIntervalUTxO",
+  "description": "validity_interval = [None, 100) and ledgerEnv.slot = 100; same exclusive-upper-bound boundary as case 1 but with no lower bound, so phase-one must reject.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 100,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400318640f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840be7ca23b11f1a3a25c78c9de085c9f12405b3cfc962cc9458aeb2dc7a62405f3b9efb601e2b175cd20fbefff6d904b59b8c5514f9e72a606371510b72d084c0af5f6",
+  "expected": {
+    "predicate": "OutsideValidityIntervalUTxO"
+  }
+}

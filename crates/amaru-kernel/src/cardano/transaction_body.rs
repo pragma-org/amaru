@@ -14,6 +14,8 @@
 
 use std::mem;
 
+use amaru_minicbor_extra::encode_optional;
+
 #[cfg(any(test, feature = "test-utils"))]
 use crate::to_cbor;
 use crate::{
@@ -32,73 +34,50 @@ use crate::{
 // 6: governance updates, prior to Conway.
 // 10: has somewhat never existed, or existed but was removed without having been used.
 // 12: same
-#[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, serde::Serialize, serde::Deserialize)]
-#[cbor(map)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TransactionBody {
-    #[cbor(skip)]
     hash: Hash<{ TransactionBody::HASH_SIZE }>,
 
-    #[cbor(skip)]
-    original_size: u64,
+    original_bytes: Bytes,
 
-    #[n(0)]
     pub inputs: Set<TransactionInput>,
 
-    #[n(1)]
     pub outputs: Vec<MemoizedTransactionOutput>,
 
-    #[n(2)]
     pub fee: Lovelace,
 
-    #[n(3)]
     pub validity_interval_end: Option<Slot>,
 
-    #[n(4)]
     pub certificates: Option<NonEmptySet<Certificate>>,
 
-    #[n(5)]
     pub withdrawals: Option<NonEmptyKeyValuePairs<RewardAccount, Lovelace>>,
 
-    #[n(7)]
     pub auxiliary_data_hash: Option<Bytes>,
 
-    #[n(8)]
     pub validity_interval_start: Option<Slot>,
 
-    #[n(9)]
     pub mint: Option<NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
 
-    #[n(11)]
     pub script_data_hash: Option<Hash<32>>,
 
-    #[n(13)]
     pub collateral: Option<NonEmptySet<TransactionInput>>,
 
-    #[n(14)]
     pub required_signers: Option<NonEmptySet<Hash<KEY>>>,
 
-    #[n(15)]
     pub network_id: Option<NetworkId>,
 
-    #[n(16)]
     pub collateral_return: Option<MemoizedTransactionOutput>,
 
-    #[n(17)]
     pub total_collateral: Option<Lovelace>,
 
-    #[n(18)]
     pub reference_inputs: Option<NonEmptySet<TransactionInput>>,
 
-    #[n(19)]
     pub votes: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 
-    #[n(20)]
     pub proposals: Option<NonEmptySet<Proposal>>,
 
-    #[n(21)]
     pub treasury_value: Option<Lovelace>,
 
-    #[n(22)]
     pub donation: Option<PositiveCoin>,
 }
 
@@ -115,7 +94,7 @@ impl TransactionBody {
 
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
-        self.original_size
+        self.original_bytes.len() as u64
     }
 
     pub fn validity_interval(&self) -> ValidityInterval {
@@ -139,8 +118,8 @@ impl TransactionBody {
 
         let bytes = to_cbor(&body);
 
-        body.original_size = bytes.len() as u64;
         body.hash = Hasher::<{ 8 * Self::HASH_SIZE }>::hash(&bytes[..]);
+        body.original_bytes = Bytes::from(bytes);
 
         body
     }
@@ -150,7 +129,7 @@ impl Default for TransactionBody {
     fn default() -> Self {
         Self {
             hash: NULL_HASH32,
-            original_size: 0,
+            original_bytes: Bytes::from(Vec::new()),
             inputs: Set::from(vec![]),
             outputs: vec![],
             fee: 0,
@@ -172,6 +151,44 @@ impl Default for TransactionBody {
             treasury_value: None,
             donation: None,
         }
+    }
+}
+
+impl<C> cbor::Encode<C> for TransactionBody {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        if !self.original_bytes.is_empty() {
+            return e.writer_mut().write_all(&self.original_bytes[..]).map_err(cbor::encode::Error::write);
+        }
+
+        e.begin_map()?;
+        e.u8(0)?.encode_with(&self.inputs, ctx)?;
+        e.u8(1)?.encode_with(&self.outputs, ctx)?;
+        e.u8(2)?.encode_with(self.fee, ctx)?;
+
+        encode_optional(e, ctx, 3, &self.validity_interval_end)?;
+        encode_optional(e, ctx, 4, &self.certificates)?;
+        encode_optional(e, ctx, 5, &self.withdrawals)?;
+        encode_optional(e, ctx, 7, &self.auxiliary_data_hash)?;
+        encode_optional(e, ctx, 8, &self.validity_interval_start)?;
+        encode_optional(e, ctx, 9, &self.mint)?;
+        encode_optional(e, ctx, 11, &self.script_data_hash)?;
+        encode_optional(e, ctx, 13, &self.collateral)?;
+        encode_optional(e, ctx, 14, &self.required_signers)?;
+        encode_optional(e, ctx, 15, &self.network_id)?;
+        encode_optional(e, ctx, 16, &self.collateral_return)?;
+        encode_optional(e, ctx, 17, &self.total_collateral)?;
+        encode_optional(e, ctx, 18, &self.reference_inputs)?;
+        encode_optional(e, ctx, 19, &self.votes)?;
+        encode_optional(e, ctx, 20, &self.proposals)?;
+        encode_optional(e, ctx, 21, &self.treasury_value)?;
+        encode_optional(e, ctx, 22, &self.donation)?;
+        e.end()?;
+
+        Ok(())
     }
 }
 
@@ -251,7 +268,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
 
         Ok(TransactionBody {
             hash: Hasher::<{ TransactionBody::HASH_SIZE * 8 }>::hash(&original_bytes[start_position..end_position]),
-            original_size: (end_position - start_position) as u64, // from usize
+            original_bytes: Bytes::from(original_bytes[start_position..end_position].to_vec()),
             inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?,
             outputs: expect_field(mem::take(&mut state.required.outputs), 1, "outputs")?,
             fee: expect_field(mem::take(&mut state.required.fee), 2, "fee")?,
@@ -287,7 +304,30 @@ mod tests {
     use test_case::test_case;
 
     use super::TransactionBody;
-    use crate::cbor;
+    use crate::{RawBlock, Transaction, cbor, hash, to_cbor};
+
+    #[test]
+    fn body_id_matches_on_chain_hash() {
+        let raw_block = RawBlock::from(include_bytes!(
+            "../../tests/data/cbor.decode/block/b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698/sample.cbor"
+        ) as &[u8]);
+        let serialized_tx = raw_block.transactions().unwrap().next().unwrap();
+        let tx: Transaction = cbor::decode(&serialized_tx).unwrap();
+
+        assert_eq!(tx.body.id(), hash!("43f396b0d5c55e34b507cfe9964672586370cc09912a4790488fba4079f96429"));
+    }
+
+    #[test]
+    fn body_id_preserved_through_cbor_roundtrip() {
+        let raw_block = RawBlock::from(include_bytes!(
+            "../../tests/data/cbor.decode/block/b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698/sample.cbor"
+        ) as &[u8]);
+        let serialized_tx = raw_block.transactions().unwrap().next().unwrap();
+        let tx: Transaction = cbor::decode(&serialized_tx).unwrap();
+
+        let round_tripped: Transaction = cbor::decode(&to_cbor(&tx)).unwrap();
+        assert_eq!(round_tripped.body.id(), tx.body.id());
+    }
 
     macro_rules! fixture {
         // Allowed eras

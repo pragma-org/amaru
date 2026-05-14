@@ -65,7 +65,42 @@ impl<'b, C> cbor::Decode<'b, C> for EraParams {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod proxy {
+    use std::time::Duration;
+
+    use serde::Deserialize;
+
+    use super::EraParams;
+    use crate::{EraName, utils::serde::HasProxy};
+
+    /// Fixture JSON shape: camelCase fields, with `slotLengthMs` as a plain integer.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct EraParamsProxy {
+        epoch_size_slots: u64,
+        slot_length_ms: u64,
+        era_name: EraName,
+    }
+
+    impl From<EraParamsProxy> for EraParams {
+        fn from(p: EraParamsProxy) -> Self {
+            EraParams {
+                epoch_size_slots: p.epoch_size_slots,
+                slot_length: Duration::from_millis(p.slot_length_ms),
+                era_name: p.era_name,
+            }
+        }
+    }
+
+    impl HasProxy for EraParams {
+        type Proxy = EraParamsProxy;
+    }
+}
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {

@@ -15,18 +15,7 @@ SCHEMAS_FILE="${DOCS_DIR}/traces-schema.json"
 trap "rm -f ${SCHEMAS_JSON}" EXIT
 
 # Ensure the amaru binary is up to date
-AMARU_BIN="${REPO_ROOT}/target/release/amaru"
-echo "Building amaru binary if needed..." >&2
-cd "$REPO_ROOT"
-cargo build --bin amaru --release --quiet
-cd - > /dev/null
-
-if [ ! -f "$AMARU_BIN" ]; then
-  echo "Error: Failed to build amaru binary" >&2
-  exit 1
-fi
-
-"$AMARU_BIN" dump-traces-schema 2> "${SCHEMAS_JSON}" || {
+cargo run --quiet --bin amaru -- dump-traces-schema 2> "${SCHEMAS_JSON}" || {
   echo "Error generating schemas:" >&2
   cat "${SCHEMAS_JSON}" >&2
   exit 1
@@ -67,9 +56,9 @@ ENTRY
   # Add details for each span (in sorted order by name)
   jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | .value.name" "${SCHEMAS_JSON}" | while read -r name; do
     SPAN_DATA=$(jq -r ".definitions | to_entries[] | select(.value.target == \"${target}\" and .value.name == \"${name}\") | .value" "${SCHEMAS_JSON}")
-    
+
     HAS_FIELDS=$(echo "$SPAN_DATA" | jq -r '.properties | keys | length')
-    
+
     if [ "$HAS_FIELDS" -gt 0 ]; then
       cat >> "${OUTPUT_FILE}" << ENTRY
 
@@ -78,7 +67,7 @@ ENTRY
 | field | type | required |
 | --- | --- | --- |
 ENTRY
-      
+
       # Get all properties and show with required flag
       echo "$SPAN_DATA" | jq -r '.properties | to_entries[] | .key' | while read -r field; do
         FIELD_TYPE=$(echo "$SPAN_DATA" | jq -r ".properties[\"${field}\"].type")
@@ -86,7 +75,7 @@ ENTRY
         REQUIRED_BADGE=$([ "$IS_REQUIRED" = "true" ] && echo "✓" || echo "")
         echo "| \`${field}\` | \`${FIELD_TYPE}\` | ${REQUIRED_BADGE} |" >> "${OUTPUT_FILE}"
       done
-      
+
       echo "" >> "${OUTPUT_FILE}"
       echo "</details>" >> "${OUTPUT_FILE}"
     fi

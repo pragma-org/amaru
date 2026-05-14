@@ -19,12 +19,13 @@ use std::{
 
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{
-    BlockHeader, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction,
+    BlockHeader, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction,
     cardano::network_block::make_encoded_block,
 };
+use amaru_ledger::store::{Columns, GovernanceActivity, Store, TransactionalContext};
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, TxId, in_memory_consensus_store::InMemConsensusStore};
-use amaru_stores::in_memory::MemoryStore;
+use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
@@ -255,19 +256,46 @@ impl NodeTestConfig {
 
         config.listen_address = self.listen_address.clone();
 
-        // Create the ledger store and set its tip to match the chain store's anchor.
+        // Bootstrap a temp RocksDB ledger store whose tip matches the chain store's anchor.
         // This ensures that build_node's initialize_chain_store won't reset the
         // chain store's best_chain_hash (only the anchor will be set, which is already
         // the same as the ledger tip).
-        let ledger_store = MemoryStore::new(self.era_history().clone(), self.protocol_parameters()?.clone());
         let chain_anchor = self
             .chain_store
             .load_header(&self.chain_store.get_anchor_hash())
             .map(|h| h.point())
             .unwrap_or(Point::Origin);
-        ledger_store.set_tip(chain_anchor);
 
-        config.ledger_store = StoreType::InMem(ledger_store);
+        // The tempdir is leaked so it survives for the duration of the test process;
+        // Config (and the Ledger it bootstraps) only sees the path.
+        let ledger_dir = tempfile::tempdir()?.keep();
+        let ledger_store_config = RocksDbConfig::new(ledger_dir);
+        {
+            let store = RocksDB::empty(&ledger_store_config)?;
+            let mut governance_activity = GovernanceActivity { consecutive_dormant_epochs: 0 };
+            let pp = self.protocol_parameters()?;
+            let tx = store.create_transaction();
+            tx.save(
+                self.era_history(),
+                pp,
+                &mut governance_activity,
+                &chain_anchor,
+                None,
+                Columns::empty(),
+                Columns::empty(),
+                std::iter::empty(),
+            )?;
+            tx.set_protocol_parameters(pp)?;
+            tx.set_governance_activity(&governance_activity)?;
+            tx.commit()?;
+            // initial_stake_distributions needs snapshots at most_recent, most_recent - 1, and
+            // most_recent - 2; take three so that for_epoch(0) and for_epoch(1) both succeed.
+            store.next_snapshot(Epoch::from(0u64))?;
+            store.next_snapshot(Epoch::from(1u64))?;
+            store.next_snapshot(Epoch::from(2u64))?;
+        }
+
+        config.ledger_store = ledger_store_config;
         config.chain_store = StoreType::InMem(self.chain_store.clone());
         Ok(config)
     }

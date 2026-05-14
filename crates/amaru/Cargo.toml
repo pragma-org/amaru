@@ -54,6 +54,7 @@ serde.workspace = true
 serde_json.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "fs",
@@ -93,7 +94,6 @@ mithril = ["dep:amaru-mithril"]
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 insta = { workspace = true, features = ["json"] }
-tempfile.workspace = true
 test-case.workspace = true
 rocksdb.workspace = true
 quote.workspace = true

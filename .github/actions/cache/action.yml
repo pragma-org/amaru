@@ -1,0 +1,66 @@
+name: cache
+
+description: Restore/save Rust cache
+
+inputs:
+  mode:
+    description: 'Cache mode: READ or WRITE; default to READ on branches and WRITE on main.'
+    default: 'READ'
+  suffix:
+    description: 'An optional suffix to add to the cache name, to have multiple different cache on same arch and OS.'
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Configure env
+      shell: bash
+      run: |
+        echo "CACHE_PRIMARY_KEY=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}-$(/bin/date -u '+%Y%m%d-%H%M%S')" >> "$GITHUB_ENV"
+        echo "CACHE_RESTORE_KEY_1=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}" >> "$GITHUB_ENV"
+        echo "CACHE_RESTORE_KEY_2=cargo-${{ runner.arch }}-${{ runner.os }}" >> "$GITHUB_ENV"
+        {
+          echo 'RUST_CACHE_PATHS<<EOF'
+          echo '~/.cargo/bin/'
+          echo '~/.cargo/registry/index/'
+          echo '~/.cargo/registry/cache/'
+          echo '~/.cargo/git/db/'
+          echo 'target/'
+          echo 'EOF'
+        } >> "$GITHUB_ENV"
+
+    # Only read from an existing cache. We tightly control who can write to
+    # the cache (here, only workflow executing on 'main') for mostly two
+    # reasons:
+    #
+    # 1. It avoid concurrency conflicts where multiple parallel job would have
+    #    grabbed the same cache and then both try to write a new update.
+    #
+    # 2. It prevents one PR from interfering with other PRs; if someone is working
+    #    with a new set of dependencies, it would constantly push caches that would
+    #    force other to rebuild. It's annoying.
+    - name: Read cache
+      if: ${{ inputs.mode == 'READ' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ env.RUST_CACHE_PATHS }}
+        key: ${{ env.CACHE_PRIMARY_KEY }}
+        restore-keys: |
+          ${{ env.CACHE_RESTORE_KEY_1 }}
+          ${{ env.CACHE_RESTORE_KEY_2 }}
+
+    # Invalidate and rewrite the cache. Note that because the primary key holds
+    # a timestamp, there will never be a cache hit here. It's not a bug, it's a
+    # feature. Those cache have a tendency to grow large, because `rustc`
+    # accumulates stuff over time.
+    #
+    # So, when we build on `main/`, we always build without cache, to rewrite a
+    # clean, pruned one for PRs. The timestamp allows to keep caches
+    # alphabetically sorted for a given prefix; which ensures they're used in
+    # priority (and thus, let github evicts the others).
+    - name: Write cache
+      if: ${{ inputs.mode == 'WRITE' }}
+      uses: actions/cache@v5
+      with:
+        path: ${{ env.RUST_CACHE_PATHS }}
+        key: ${{ env.CACHE_PRIMARY_KEY }}

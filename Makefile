@@ -74,14 +74,6 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 build: ## &build Compile for $BUILD_PROFILE
 	cargo build --profile $(BUILD_PROFILE) $(ARGS)
 
-build-examples: ## &build Build all examples
-	@for dir in $(wildcard examples/*/.); do \
-		if [ -f $$dir/Makefile ]; then \
-			echo "Building $$dir"; \
-			$(MAKE) -C $$dir || exit; \
-		fi; \
-	done
-
 sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
@@ -94,8 +86,7 @@ serve-traces-doc: generate-traces-doc ## &build Regenerate traces docs and serve
 	@python3 -m http.server $(TRACES_PORT) --directory docs
 
 validate-trace-schemas: ## &test Validate generated trace schemas against docs/traces-schema.json
-	@cargo build --bin amaru --quiet
-	@./target/debug/amaru dump-traces-schema 2> /tmp/schemas-current.json
+	@cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
 	@./scripts/unused-schemas
 	@set -eu; \
 	jq -S 'walk(if type == "object" then del(.private) else . end)' docs/traces-schema.json > /tmp/expected.json; \
@@ -164,7 +155,6 @@ all-ci-checks: ## &test Run all CI checks
 	@cargo clippy-amaru
 	@cargo test --workspace --all-targets
 	@cargo test --doc
-	@$(MAKE) build-examples
 	@$(MAKE) coverage-lconv
 
 fetch-data: ## &test Fetch epoch data (dreps, pools, accounts, ...) from a Haskell node

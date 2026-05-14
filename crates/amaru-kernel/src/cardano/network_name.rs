@@ -97,6 +97,15 @@ impl From<NetworkName> for Network {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl<'de> serde::Deserialize<'de> for NetworkName {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use std::str::FromStr;
+        let s = String::deserialize(d)?;
+        NetworkName::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 impl NetworkName {
     pub fn to_network_magic(self) -> NetworkMagic {
         match self {

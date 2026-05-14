@@ -452,6 +452,7 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 mod tests {
     use std::sync::Arc;
 
+    use amaru_kernel::to_cbor;
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
 
@@ -795,9 +796,8 @@ mod tests {
     }
 
     fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
-        let default_transaction_size = 49;
         InitiatorAction::SendReplyTxIds(
-            ids.iter().map(|id| (TxId::from(&txs[*id]), default_transaction_size)).collect(),
+            ids.iter().map(|id| (TxId::from(&txs[*id]), to_cbor(&txs[*id]).len() as u32)).collect(),
         )
     }
 

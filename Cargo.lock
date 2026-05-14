@@ -228,6 +228,7 @@ dependencies = [
  "once_cell",
  "proptest",
  "serde",
+ "tempfile",
  "test-case",
  "thiserror 2.0.17",
  "toml",
