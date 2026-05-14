@@ -19,7 +19,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, HasExUnits, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
+    Block, EraHistory, ExUnits, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, TransactionId,
     TransactionPointer, size::BLOCK_BODY,
 };
 use amaru_observability::trace_span;
@@ -37,6 +37,7 @@ pub mod body_size;
 pub mod ex_units;
 pub mod header_size;
 pub mod header_version;
+pub mod ref_scripts_size;
 
 #[derive(Debug, Error)]
 pub enum TransactionInvalid {
@@ -52,6 +53,7 @@ pub enum InvalidBlockDetails {
     HeaderSizeTooBig { supplied: u64, max: u64 },
     InvalidBodyHash { header: Hash<BLOCK_BODY>, actual: Hash<BLOCK_BODY> },
     HeaderProtVerTooHigh { header_major: u64, max_major: u64 },
+    RefScriptSizeTooBig { provided: u64, allowed: u64 },
     Transaction { transaction_hash: TransactionId, transaction_index: u32, violation: TransactionInvalid },
 }
 
@@ -88,6 +90,12 @@ impl Display for InvalidBlockDetails {
             }
             InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major } => {
                 write!(f, "Header protocol version too high: {} > {}", header_major, max_major)
+            }
+            InvalidBlockDetails::RefScriptSizeTooBig { provided, allowed } => {
+                write!(
+                    f,
+                    "reference scripts total bytes exceeds per-block limit: (provided {provided}, allowed {allowed})",
+                )
             }
             InvalidBlockDetails::Transaction { transaction_hash, transaction_index, violation } => {
                 write!(f, "Transaction {} at index {} is invalid: {}", transaction_hash, transaction_index, violation)
@@ -192,7 +200,13 @@ where
 
     with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
 
-    with_block_context(ex_units::block_ex_units_valid(block.ex_units(), protocol_params))?;
+    with_block_context(ex_units::block_ex_units_valid(&block, protocol_params))?;
+
+    with_block_context(ref_scripts_size::block_ref_scripts_size_valid(
+        block.transaction_bodies.iter().flat_map(|tx| tx.reference_inputs.as_deref().unwrap_or(&[])),
+        context,
+        protocol_params,
+    ))?;
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)

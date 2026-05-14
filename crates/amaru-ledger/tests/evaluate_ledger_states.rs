@@ -202,6 +202,13 @@ pub mod tests {
                 transaction_index: ix,
             };
 
+            // NOTE: Transaction Size Calculation:
+            //
+            // As noted in block.rs, the transaction size is calcualted from an encoded 3-element list, not including the is_valid byte.
+            // We don't have that here since the fixtures encode individual transactions, instead of blocks.
+            // While the exact bytes aren't the same (the header should be 0x83 instead of 0x84), the is_valid boolean is exactly one byte.
+            // So, by subtracting one, we get the expected value.
+            let tx_size = (tx_bytes.len() - 1) as u64;
             // Run the transaction against the imported ledger state
             let result = transaction::phase_one::execute(
                 &mut validation_context,
@@ -214,7 +221,7 @@ pub mod tests {
                 tx.body,
                 &tx_witness_set,
                 tx_auxiliary_data,
-                tx_bytes.len() as u64,
+                tx_size,
             );
 
             match result {

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrType, Address, AddressError, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose, TransactionInput,
-    cbor, transaction_input_to_string,
+    AddrType, Address, AddressError, HasScriptHash, MemoizedDatum, ProtocolParameters, RequiredScript, ScriptPurpose,
+    TransactionInput, cardano::memoized::script_size, cbor, transaction_input_to_string,
 };
 use thiserror::Error;
 
@@ -37,13 +37,16 @@ pub enum InvalidInputs {
     EmptyInputSet,
     #[error("invalid Byron address payload at input {}: {error}", transaction_input_to_string(input))]
     InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
+    #[error("reference scripts total bytes exceeds per-tx limit: (provided {provided}, allowed {allowed})")]
+    RefScriptSizeTooBig { provided: u64, allowed: u64 },
 }
 
 pub fn execute<C>(
     context: &mut C,
     inputs: &[TransactionInput],
     reference_inputs: Option<&[TransactionInput]>,
-) -> Result<(), InvalidInputs>
+    protocol_parameters: &ProtocolParameters,
+) -> Result<u64, InvalidInputs>
 where
     C: UtxoSlice + WitnessSlice,
 {
@@ -52,6 +55,7 @@ where
     }
 
     let mut intersection = Vec::new();
+    let mut ref_scripts_size: u64 = 0;
 
     if let Some(reference_inputs) = reference_inputs {
         for reference_input in reference_inputs {
@@ -64,7 +68,7 @@ where
             let output =
                 context.lookup(reference_input).ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
 
-            let script_ref = output.script.as_ref().map(|s| s.script_hash());
+            let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
 
             match &output.datum {
                 MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), reference_input.clone()),
@@ -74,14 +78,20 @@ where
                 MemoizedDatum::None => (),
             };
 
-            if let Some(script_hash) = script_ref {
-                context.acknowledge_script(script_hash, reference_input.clone())
+            if let Some((script_hash, script_size)) = script_ref {
+                ref_scripts_size = ref_scripts_size.saturating_add(script_size);
+                context.acknowledge_script(script_hash, reference_input.clone());
             }
         }
     }
 
     if !intersection.is_empty() {
         return Err(InvalidInputs::NonDisjointRefInputs { intersection });
+    }
+
+    let allowed = protocol_parameters.max_ref_script_size_per_tx as u64;
+    if ref_scripts_size > allowed {
+        return Err(InvalidInputs::RefScriptSizeTooBig { provided: ref_scripts_size, allowed });
     }
 
     /*
@@ -140,12 +150,14 @@ where
         }
     }
 
-    Ok(())
+    Ok(ref_scripts_size)
 }
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{TransactionBody, include_cbor, include_json, json};
+    use amaru_kernel::{
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor, include_json, json,
+    };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -161,6 +173,7 @@ mod tests {
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -168,6 +181,15 @@ mod tests {
                 fixture_context!($hash, $variant),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
                 include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
+                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            )
+        };
+        ($hash:literal, $pp:expr) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+                $pp,
             )
         };
     }
@@ -203,13 +225,33 @@ mod tests {
         matches Err(InvalidInputs::UnknownInput(..));
         "unknown reference input"
     )]
+    #[test_case(fixture!(
+        "3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1",
+        ProtocolParameters {
+            max_ref_script_size_per_tx: 0,
+            ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
+        }
+    ) => matches Err(InvalidInputs::RefScriptSizeTooBig { provided, allowed: 0 }) if provided > 0;
+        "reference script size too big"
+    )]
     fn inputs(
-        (ctx, tx, expected_traces): (AssertPreparationContext, TransactionBody, Vec<json::Value>),
+        (ctx, tx, expected_traces, protocol_parameters): (
+            AssertPreparationContext,
+            TransactionBody,
+            Vec<json::Value>,
+            ProtocolParameters,
+        ),
     ) -> Result<(), InvalidInputs> {
         assert_trace(
             move || {
                 let mut validation_context = AssertValidationContext::from(ctx);
-                super::execute(&mut validation_context, &tx.inputs, tx.reference_inputs.as_deref())
+                super::execute(
+                    &mut validation_context,
+                    &tx.inputs,
+                    tx.reference_inputs.as_deref(),
+                    &protocol_parameters,
+                )
+                .map(|_| ())
             },
             expected_traces,
         )
