@@ -166,47 +166,6 @@ execAndMeasureSpaceChange() {
     printSavedSpace "$before" "$title"
 }
 
-# Remove large packages
-# REF: https://github.com/apache/flink/blob/master/tools/azure-pipelines/free_disk_space.sh
-cleanPackages() {
-    local packages=(
-        '^aspnetcore-.*'
-        '^dotnet-.*'
-        '^mongodb-.*'
-        'firefox'
-        'libgl1-mesa-dri'
-        'mono-devel'
-        'php.*'
-    )
-
-    if isGitHubRunner; then
-        packages+=(
-            azure-cli
-        )
-
-        if isX86; then
-            packages+=(
-                'google-chrome-stable'
-                'google-cloud-cli'
-                'google-cloud-sdk'
-                'powershell'
-            )
-        fi
-    else
-        packages+=(
-            'google-chrome-stable'
-        )
-    fi
-
-    WAIT_DPKG_LOCK="-o DPkg::Lock::Timeout=60"
-    sudo apt-get ${WAIT_DPKG_LOCK} -qq remove -y --fix-missing "${packages[@]}"
-
-    sudo apt-get ${WAIT_DPKG_LOCK} autoremove -y \
-        || echo "::warning::The command [sudo apt-get autoremove -y] failed"
-    sudo apt-get ${WAIT_DPKG_LOCK} clean \
-        || echo "::warning::The command [sudo apt-get clean] failed"
-}
-
 # Remove Docker images.
 # Ubuntu 22 runners have docker images already installed.
 # They aren't present in ubuntu 24 runners.
@@ -217,22 +176,13 @@ cleanDocker() {
     sudo docker image prune --all --force || true
 }
 
-# Remove Swap storage
-cleanSwap() {
-    sudo swapoff -a || true
-    sudo rm -rf /mnt/swapfile || true
-    free -h
-}
-
 # Display initial disk space stats
 
 AVAILABLE_INITIAL=$(getAvailableSpace)
 
 printDF "BEFORE CLEAN-UP:"
 echo ""
-execAndMeasureSpaceChange cleanPackages "Unused packages"
 execAndMeasureSpaceChange cleanDocker "Docker images"
-execAndMeasureSpaceChange cleanSwap "Swap storage"
 execAndMeasureSpaceChange removeUnusedFilesAndDirs "Unused files and directories"
 
 # Output saved space statistic
