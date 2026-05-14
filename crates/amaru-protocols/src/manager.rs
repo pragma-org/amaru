@@ -162,7 +162,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::ADD_PEER, peer = peer.to_string());
                 let _guard = _span.enter();
                 match manager.peers.get_mut(&peer) {
-                    Some(ConnectionState::Connected { .. } | ConnectionState::Scheduled) => {
+                    Some(ConnectionState::Connected(..) | ConnectionState::Scheduled) => {
                         tracing::info!(%peer, "discarding connection request, already connected or scheduled");
                         return manager;
                     }
@@ -181,7 +181,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::CONNECT, peer = peer.to_string());
                 let _guard = _span.enter();
                 let entry = match manager.peers.get_mut(&peer) {
-                    Some(ConnectionState::Connected { .. }) => {
+                    Some(ConnectionState::Connected(..)) => {
                         tracing::debug!(%peer, "discarding connection request, already connected");
                         return manager;
                     }
@@ -212,7 +212,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 let _span = trace_span!(amaru_observability::amaru::protocols::manager::ACCEPTED, peer = peer.to_string(), conn_id = conn_id.to_string());
                 let _guard = _span.enter();
                 match manager.peers.get(&peer) {
-                    Some(ConnectionState::Connected { .. }) => {
+                    Some(ConnectionState::Connected(..)) => {
                         tracing::debug!(%peer, "already connected. Closing the newly accepted connection");
                         close_connection(&eff, &peer, conn_id).await;
                         return manager;
@@ -261,7 +261,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     ConnectionState::Connected(conn_id_new, ..) if *conn_id_new != conn_id => {
                         tracing::debug!(%peer, "previously terminated connection closed");
                     }
-                    ConnectionState::Connected { .. } => {
+                    ConnectionState::Connected(..) => {
                         if role == Role::Initiator {
                             tracing::info!(%peer, reconnecting_in=?manager.config.reconnect_delay, "initiator connection died, scheduling reconnect");
                             eff.schedule_after(ManagerMessage::Connect(peer), manager.config.reconnect_delay).await;

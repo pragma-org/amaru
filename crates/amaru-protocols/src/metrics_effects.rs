@@ -1,4 +1,4 @@
-// Copyright 2026 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,10 +17,14 @@ use std::sync::Arc;
 use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 
+/// Metrics operations available to a stage. This allows a stage to record a MetricsEvent that
+/// will be collected via OpenTelemetry.
+/// This trait can have mock implementations for unit testing a stage.
 pub trait MetricsOps: Clone + Send {
     fn record(&self, event: MetricsEvent) -> BoxFuture<'static, ()>;
 }
 
+/// Implementation of MetricsOps using pure_stage::Effects.
 pub struct Metrics<'a, T>(&'a Effects<T>);
 
 impl<'a, T> Clone for Metrics<'a, T> {
@@ -40,6 +44,8 @@ impl<T: SendData + Sync> MetricsOps for Metrics<'_, T> {
         self.0.external(RecordMetricsEffect::new(event))
     }
 }
+
+// EXTERNAL EFFECTS DEFINITIONS
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordMetricsEffect {
@@ -61,10 +67,22 @@ impl ExternalEffect for RecordMetricsEffect {
             if let Ok(meter) = resources.get::<ResourceMeter>() {
                 self.event.record_to_meter(&meter);
             }
+            // No-op if there is no meter, since metrics collecting is optional
         })
     }
 }
 
 impl ExternalEffectAPI for RecordMetricsEffect {
     type Response = ();
+}
+
+#[test]
+fn record_metrics_cbor_roundtrip() {
+    use amaru_metrics::ledger::LedgerMetrics;
+    use pure_stage::serde::{from_cbor, to_cbor};
+
+    let event = RecordMetricsEffect::new(MetricsEvent::LedgerMetrics(LedgerMetrics::default()));
+    let cbor = to_cbor(&event);
+    let decoded = from_cbor::<RecordMetricsEffect>(&cbor).expect("Failed to decode metrics event");
+    assert_eq!(event, decoded);
 }
