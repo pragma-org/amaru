@@ -43,30 +43,26 @@ jobs:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             title: x86_64/linux
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             title: aarch64/linux
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
           - runner: macos-15
             target: aarch64-apple-darwin
             title: aarch64/macos
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
           - runner: windows-2025
             target: x86_64-pc-windows-msvc
             title: x86_64/windows
             command: test --tests --workspace --profile dev-debug
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
 
           - runner: ubuntu-24.04
             target: wasm32-unknown-unknown
             title: wasm32
             packages: -p amaru-consensus -p amaru-ledger -p pure-stage
             command: build
-            cache_mode: READ_ONLY
+            cache_mode: READ
             setup: rustup target add wasm32-unknown-unknown
 
           # When targetting RISC-V, the uplc-turbo crate fails to compile.
@@ -77,7 +73,7 @@ jobs:
             packages: -p amaru-ledger
             extra-args: +$RUST_NIGHTLY_TOOLCHAIN -Zbuild-std=std,panic_abort
             command: build
-            cache_mode: READ_ONLY
+            cache_mode: READ
             setup: |
               rustup component add rust-src --toolchain "$RUST_NIGHTLY_TOOLCHAIN"
               curl -L -o riscv32-glibc-llvm.tar.xz \
@@ -95,14 +91,14 @@ jobs:
           submodules: true
       - uses: ./.github/actions/cache
         with:
-          mode: ${{ matrix.environments.cache_mode }}
+          mode: ${{ matrix.environments.cache_mode || '' }}
       - name: Run build
         shell: bash
         run: |
           set -e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
           SCOPE="${{ matrix.environments.packages || '' }}"
-          COMMAND="${{ matrix.environments.command  || 'test --workspace --all-targets' }}"
+          COMMAND="${{ matrix.environments.command  || 'test --workspace' }}"
 
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
             echo "Running setup command: ${{ matrix.environments.setup }}"
@@ -110,9 +106,6 @@ jobs:
           fi
 
           cargo $EXTRA_ARGS $COMMAND $SCOPE --locked --target ${{ matrix.environments.target }}
-
-          # Run doc tests separately as --doc can't be used with --all-targets
-          cargo test --doc
 
       - name: Upload test artifacts on failure
         if: failure()
@@ -141,7 +134,6 @@ jobs:
       - uses: ./.github/actions/cache
         with:
           suffix: "-coverage"
-          mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
@@ -185,7 +177,6 @@ jobs:
       - uses: ./.github/actions/cache
         with:
           suffix: "-bench"
-          mode: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
       - name: Run amaru-consensus benches
         shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"
@@ -222,8 +213,6 @@ jobs:
         with:
           name: schema-diff
           path: /tmp/schemas.diff
-      - name: Build amaru release binary
-        run: cargo build --bin amaru --quiet
       - name: Generate current TRACES.md
         run: |
           ./scripts/generate-traces-doc
