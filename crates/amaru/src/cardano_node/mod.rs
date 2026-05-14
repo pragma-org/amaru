@@ -278,8 +278,11 @@ fn decode_node_pool_map<T>(
 pub(crate) fn decode_node_accounts(
     d: &mut cbor::Decoder<'_>,
 ) -> Result<BTreeMap<StakeCredential, Account>, cbor::decode::Error> {
+    d.array()?;
     let accounts: BTreeMap<StakeCredential, NodeAccount> = d.decode()?;
     let mut pointers: BTreeMap<StakeCredential, Set<(u64, u64, u64)>> = d.decode()?;
+    d.skip()?; // dsFutureGenDelegs
+    d.skip()?; // dsGenDelegs
 
     Ok(accounts
         .into_iter()

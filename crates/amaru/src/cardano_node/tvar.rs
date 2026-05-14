@@ -78,10 +78,7 @@ where
         network,
         with_progress,
         decode_node_pool_state,
-        0,
         decode_node_accounts,
-        2,
-        false,
     )?;
 
     import_utxo_from_tvar(utxo_file, db, with_progress, &point, &era_history, network)?;

@@ -78,14 +78,6 @@ fn decode_initial_snapshot_prefix(
     Ok(epoch)
 }
 
-fn skip_fields(d: &mut cbor::Decoder<'_>, count: usize) -> Result<(), cbor::decode::Error> {
-    for _ in 0..count {
-        d.skip()?;
-    }
-
-    Ok(())
-}
-
 /// (Partially) decode a cardano-node `NewEpochState` payload.
 ///
 /// -> <https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345>
@@ -106,12 +98,9 @@ pub fn import_initial_snapshot(
         (BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>),
         cbor::decode::Error,
     >,
-    pool_state_tail_skips: usize,
     decode_accounts: for<'a> fn(
         &mut cbor::Decoder<'a>,
     ) -> Result<BTreeMap<StakeCredential, Account>, cbor::decode::Error>,
-    delegation_state_tail_skips: usize,
-    has_rewards: bool,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
     let mut decoder = LazyDecoder::new(reader);
     let tip = point.slot_or_default();
@@ -172,21 +161,8 @@ pub fn import_initial_snapshot(
     import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
         .map_err(|err| format!("import pool state: {err}"))?;
 
-    decoder
-        .with_decoder(|d| Ok(skip_fields(d, pool_state_tail_skips)?))
-        .map_err(|err| format!("skip pool state tail: {err}"))?;
-
-    let accounts = decoder
-        .with_decoder(|d| {
-            // Epoch State / Ledger State / Cert State / Delegation state
-            d.array()?;
-            Ok(decode_accounts(d)?)
-        })
-        .map_err(|err| format!("decode accounts: {err}"))?;
-
-    decoder
-        .with_decoder(|d| Ok(skip_fields(d, delegation_state_tail_skips)?))
-        .map_err(|err| format!("skip delegation state tail: {err}"))?;
+    let accounts =
+        decoder.with_decoder(|d| Ok(decode_accounts(d)?)).map_err(|err| format!("decode accounts: {err}"))?;
 
     skip_embedded_utxo(&mut decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
 
@@ -274,82 +250,50 @@ pub fn import_initial_snapshot(
     decoder.skip()?; // Epoch State / Snapshots / Fee
     decoder.skip()?; // Epoch State / NonMyopic
 
-    if has_rewards {
-        let (delta_treasury, delta_reserves): (i64, i64) = decoder.with_decoder(|d| {
-            // Rewards Update
-            d.array()?;
-            d.array()?;
-            assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
-            d.array()?;
+    let is_complete = decoder
+        .with_decoder(|d| {
+            let mut probe = d.probe();
+            let is_complete = (|| -> Option<()> {
+                probe.array().ok()?;
+                probe.array().ok()?;
+                (probe.u32().ok()? == 1).then_some(())
+            })()
+            .is_some();
 
-            Ok((d.decode()?, d.decode()?))
-        })?;
+            if is_complete {
+                d.array()?;
+                d.array()?;
+                d.u32()?;
+                d.array()?;
+            }
 
-        let mut rewards: BTreeMap<StakeCredential, Set<Reward>> = decoder.decode()?;
+            Ok(is_complete)
+        })
+        .map_err(|err| format!("decode rewards update: {err}"))?;
 
+    let (delta_treasury, delta_reserves, mut rewards, delta_fees) = if is_complete {
+        let delta_treasury: i64 = decoder.decode()?;
+        let delta_reserves: i64 = decoder.decode()?;
+        let rewards: BTreeMap<StakeCredential, Set<Reward>> = decoder.decode()?;
         let delta_fees: i64 = decoder.decode()?;
-
-        // NonMyopic
         decoder.skip()?;
-
-        import_accounts(db, &with_progress, point, era_history, &protocol_parameters, accounts, &mut rewards)?;
-
-        let unclaimed_rewards = rewards
-            .into_iter()
-            .fold(0, |total, (_, rewards)| total + rewards.into_iter().fold(0, |inner, r| inner + r.amount));
-
-        import_pots(
-            db,
-            (treasury + delta_treasury) as u64 + unclaimed_rewards,
-            (reserves - delta_reserves) as u64,
-            (fees - delta_fees) as u64,
-        )?;
+        (delta_treasury, delta_reserves, rewards, delta_fees)
     } else {
-        let is_complete = decoder
-            .with_decoder(|d| {
-                let mut probe = d.probe();
-                let is_complete = (|| -> Option<()> {
-                    probe.array().ok()?;
-                    probe.array().ok()?;
-                    (probe.u32().ok()? == 1).then_some(())
-                })()
-                .is_some();
+        (0_i64, 0_i64, BTreeMap::new(), 0_i64)
+    };
 
-                if is_complete {
-                    d.array()?;
-                    d.array()?;
-                    d.u32()?;
-                    d.array()?;
-                }
+    import_accounts(db, &with_progress, point, era_history, &protocol_parameters, accounts, &mut rewards)?;
 
-                Ok(is_complete)
-            })
-            .map_err(|err| format!("decode rewards update: {err}"))?;
+    let unclaimed_rewards = rewards
+        .into_iter()
+        .fold(0_u64, |total, (_, rewards)| total + rewards.into_iter().fold(0, |inner, reward| inner + reward.amount));
 
-        let (delta_treasury, delta_reserves, mut rewards, delta_fees) = if is_complete {
-            let delta_treasury: i64 = decoder.decode()?;
-            let delta_reserves: i64 = decoder.decode()?;
-            let rewards: BTreeMap<StakeCredential, Set<Reward>> = decoder.decode()?;
-            let delta_fees: i64 = decoder.decode()?;
-            decoder.skip()?;
-            (delta_treasury, delta_reserves, rewards, delta_fees)
-        } else {
-            (0_i64, 0_i64, BTreeMap::new(), 0_i64)
-        };
-
-        import_accounts(db, &with_progress, point, era_history, &protocol_parameters, accounts, &mut rewards)?;
-
-        let unclaimed_rewards = rewards.into_iter().fold(0_u64, |total, (_, rewards)| {
-            total + rewards.into_iter().fold(0, |inner, reward| inner + reward.amount)
-        });
-
-        import_pots(
-            db,
-            (treasury + delta_treasury) as u64 + unclaimed_rewards,
-            (reserves - delta_reserves) as u64,
-            (fees - delta_fees) as u64,
-        )?;
-    }
+    import_pots(
+        db,
+        (treasury + delta_treasury) as u64 + unclaimed_rewards,
+        (reserves - delta_reserves) as u64,
+        (fees - delta_fees) as u64,
+    )?;
 
     // NOTE(INITIAL_BOOTSTRAP):
     //
