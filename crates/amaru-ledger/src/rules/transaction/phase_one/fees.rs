@@ -101,14 +101,14 @@ fn compute_min_fee(tx_size: u64, witness_set: &WitnessSet, ref_scripts_size: u64
 ///
 /// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/libs/cardano-ledger-core/src/Cardano/Ledger/Plutus/ExUnits.hs#L182>
 fn plutus_exec_fee(units: ExUnits, prices: &ExUnitPrices) -> Lovelace {
-    let mem_den = u128::from(prices.mem_price.denominator);
-    let step_den = u128::from(prices.step_price.denominator);
+    let mem_den = prices.mem_price.denominator;
+    let step_den = prices.step_price.denominator;
     if mem_den == 0 || step_den == 0 {
         return 0;
     }
 
-    let mem_num = u128::from(units.mem).saturating_mul(u128::from(prices.mem_price.numerator));
-    let step_num = u128::from(units.steps).saturating_mul(u128::from(prices.step_price.numerator));
+    let mem_num = units.mem.saturating_mul(prices.mem_price.numerator);
+    let step_num = units.steps.saturating_mul(prices.step_price.numerator);
 
     let denom = mem_den.saturating_mul(step_den);
     if denom == 0 {
@@ -116,8 +116,7 @@ fn plutus_exec_fee(units: ExUnits, prices: &ExUnitPrices) -> Lovelace {
     }
 
     let total_num = mem_num.saturating_mul(step_den).saturating_add(step_num.saturating_mul(mem_den));
-    let raw = total_num.saturating_add(denom - 1) / denom;
-    u64::try_from(raw).unwrap_or(u64::MAX)
+    total_num.saturating_add(denom - 1) / denom
 }
 
 /// Tiered reference-script fee.
@@ -132,58 +131,54 @@ fn tier_ref_script_fee(size: u64, stride: u64, base_rate: &RationalNumber, multi
         return 0;
     }
 
-    let mut acc_num: u128 = 0;
-    let mut acc_den: u128 = 1;
-
-    let mut rate_num = u128::from(base_rate.numerator);
-    let mut rate_den = u128::from(base_rate.denominator);
-
-    let mult_num = u128::from(multiplier.numerator);
-    let mult_den = u128::from(multiplier.denominator);
-
-    let mut remaining = size;
-
-    while remaining >= stride {
-        let term_num = u128::from(stride).saturating_mul(rate_num);
-        (acc_num, acc_den) = rational_add(acc_num, acc_den, term_num, rate_den);
-        remaining -= stride;
-
-        rate_num = rate_num.saturating_mul(mult_num);
-        rate_den = rate_den.saturating_mul(mult_den);
-        let g = gcd(rate_num, rate_den);
-        if g > 1 {
-            rate_num /= g;
-            rate_den /= g;
-        }
-    }
-
-    if remaining > 0 {
-        let term_num = u128::from(remaining).saturating_mul(rate_num);
-        (acc_num, acc_den) = rational_add(acc_num, acc_den, term_num, rate_den);
-    }
+    let (acc_num, acc_den) = sum_tiers(
+        size,
+        stride,
+        (base_rate.numerator, base_rate.denominator),
+        (multiplier.numerator, multiplier.denominator),
+        (0, 1),
+    );
 
     if acc_den == 0 {
         return 0;
     }
-    let result = acc_num / acc_den;
-    u64::try_from(result).unwrap_or(u64::MAX)
+    acc_num / acc_den
+}
+
+fn sum_tiers(remaining: u64, stride: u64, rate: (u64, u64), mult: (u64, u64), acc: (u64, u64)) -> (u64, u64) {
+    let (rate_num, rate_den) = rate;
+    if remaining < stride {
+        if remaining == 0 {
+            return acc;
+        }
+        let term = (remaining.saturating_mul(rate_num), rate_den);
+        return rational_add(acc, term);
+    }
+
+    let term = (stride.saturating_mul(rate_num), rate_den);
+    let acc = rational_add(acc, term);
+
+    let (mult_num, mult_den) = mult;
+    let next_num = rate_num.saturating_mul(mult_num);
+    let next_den = rate_den.saturating_mul(mult_den);
+    let g = gcd(next_num, next_den);
+    let next_rate = if g > 1 { (next_num / g, next_den / g) } else { (next_num, next_den) };
+
+    sum_tiers(remaining - stride, stride, next_rate, mult, acc)
 }
 
 /// `a/b + c/d`, reduced by GCD.
-fn rational_add(a: u128, b: u128, c: u128, d: u128) -> (u128, u128) {
-    let num = a.saturating_mul(d).saturating_add(c.saturating_mul(b));
-    let den = b.saturating_mul(d);
+fn rational_add(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
+    let (a_num, a_den) = a;
+    let (b_num, b_den) = b;
+    let num = a_num.saturating_mul(b_den).saturating_add(b_num.saturating_mul(a_den));
+    let den = a_den.saturating_mul(b_den);
     let g = gcd(num, den);
     if g > 1 { (num / g, den / g) } else { (num, den) }
 }
 
-fn gcd(mut a: u128, mut b: u128) -> u128 {
-    while b != 0 {
-        let t = b;
-        b = a % b;
-        a = t;
-    }
-    a
+fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 #[cfg(test)]
