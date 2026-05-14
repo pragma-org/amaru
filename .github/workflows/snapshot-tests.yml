@@ -144,8 +144,7 @@ jobs:
       - name: Reclaim Disk Space
         run: |
           chmod +x ./scripts/cleanup-runner.sh
-          ./scripts/cleanup-runner.sh 1>cleanup-runner.log 2>&1 &
-          echo $! > cleanup-runner.pid
+          ./scripts/cleanup-runner.sh
 
       - name: Download (Haskell) cardano-node's db
         shell: bash
