@@ -62,8 +62,6 @@ jobs:
         with:
           submodules: true
 
-      - uses: ./.github/actions/cache
-
       - name: build metadata
         id: meta
         shell: bash
