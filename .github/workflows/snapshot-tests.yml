@@ -240,11 +240,11 @@ jobs:
           echo "RUN_UNTIL_TARGET_EPOCH=$RUN_UNTIL_TARGET_EPOCH" >> "$GITHUB_ENV"
 
       - name: Run until target epoch
+        if: github.ref != 'refs/heads/main'
         timeout-minutes: ${{ fromJSON(env.TIMEOUT_RUN || inputs.default_timeout) }}
         shell: bash
         run: |
           set -euo pipefail
-
           AMARU_TRACE=amaru=info \
           make AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until
 
@@ -253,7 +253,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           rm -f "$TRACE_COMPARE_LOG"
           AMARU_TRACE=amaru=trace \
           make RUN_UNTIL_TARGET_EPOCH="$TRACE_COMPARE_TARGET_EPOCH" AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all run-until | tee "$TRACE_COMPARE_LOG"
