@@ -51,7 +51,7 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
 
 use ProtocolError::*;
-use amaru_kernel::{Transaction, TxId, utils::string::display_collection};
+use amaru_kernel::{Transaction, TransactionId, utils::string::display_collection};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -189,7 +189,7 @@ impl ProtocolState<Initiator> for State {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InitiatorAction {
-    SendReplyTxIds(Vec<(TxId, u32)>),
+    SendReplyTxIds(Vec<(TransactionId, u32)>),
     SendReplyTxs(Vec<Transaction>),
     Error(ProtocolError),
     Done,
@@ -212,7 +212,7 @@ impl Display for InitiatorAction {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
     RequestTxIds { ack: u16, req: u16, blocking: Blocking },
-    RequestTxs(Vec<TxId>),
+    RequestTxs(Vec<TransactionId>),
 }
 
 impl InitiatorResult {
@@ -244,7 +244,7 @@ impl Display for InitiatorResult {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TxSubmissionInitiator {
     /// What we’ve already advertised but has not yet been fully acked.
-    window: VecDeque<(TxId, MempoolSeqNo)>,
+    window: VecDeque<(TransactionId, MempoolSeqNo)>,
     /// Last seq_no we have ever pulled from the mempool for this peer.
     /// None if we have not pulled anything yet.
     last_seq: Option<MempoolSeqNo>,
@@ -362,7 +362,7 @@ impl TxSubmissionInitiator {
     async fn request_txs(
         &mut self,
         mempool: &dyn AsyncMempool,
-        tx_ids: Vec<TxId>,
+        tx_ids: Vec<TransactionId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         tracing::debug!(tx_ids = display_collection(&tx_ids), "received RequestTxs");
         if tx_ids.is_empty() {
@@ -395,7 +395,7 @@ impl TxSubmissionInitiator {
         &mut self,
         mempool: &dyn AsyncMempool,
         required_next: u16,
-    ) -> anyhow::Result<Vec<(TxId, u32)>> {
+    ) -> anyhow::Result<Vec<(TransactionId, u32)>> {
         let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next).await;
         let result = tx_ids.clone().into_iter().map(|(tx_id, tx_size, _)| (tx_id, tx_size)).collect();
         self.update(tx_ids);
@@ -410,7 +410,7 @@ impl TxSubmissionInitiator {
     }
 
     /// We update our window with tx ids retrieved from the mempool and just sent to the server.
-    fn update(&mut self, tx_ids: Vec<(TxId, u32, MempoolSeqNo)>) {
+    fn update(&mut self, tx_ids: Vec<(TransactionId, u32, MempoolSeqNo)>) {
         for (tx_id, _size, seq_no) in tx_ids {
             self.window.push_back((tx_id, seq_no));
             self.last_seq = Some(seq_no);

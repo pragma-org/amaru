@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Transaction, TxId};
+use amaru_kernel::{Transaction, TransactionId};
 use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin};
 use pure_stage::StageRef;
 
@@ -45,6 +45,6 @@ pub enum MempoolMsg {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MempoolInsertError {
-    pub tx_id: TxId,
+    pub tx_id: TransactionId,
     pub error: MempoolError,
 }

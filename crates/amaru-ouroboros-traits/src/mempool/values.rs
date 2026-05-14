@@ -17,7 +17,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use amaru_kernel::{Peer, TxId};
+use amaru_kernel::{Peer, TransactionId};
 use serde::{Deserialize, Serialize};
 
 /// Origin of a transaction being inserted into the mempool:
@@ -51,20 +51,20 @@ impl Display for MempoolSeqNo {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxInsertResult {
-    Accepted { tx_id: TxId, seq_no: MempoolSeqNo },
-    Rejected { tx_id: TxId, reason: TxRejectReason },
+    Accepted { tx_id: TransactionId, seq_no: MempoolSeqNo },
+    Rejected { tx_id: TransactionId, reason: TxRejectReason },
 }
 
 impl TxInsertResult {
-    pub fn accepted(tx_id: TxId, seq_no: MempoolSeqNo) -> Self {
+    pub fn accepted(tx_id: TransactionId, seq_no: MempoolSeqNo) -> Self {
         Self::Accepted { tx_id, seq_no }
     }
 
-    pub fn rejected(tx_id: TxId, reason: TxRejectReason) -> Self {
+    pub fn rejected(tx_id: TransactionId, reason: TxRejectReason) -> Self {
         Self::Rejected { tx_id, reason }
     }
 
-    pub fn tx_id(&self) -> &TxId {
+    pub fn tx_id(&self) -> &TransactionId {
         match self {
             Self::Accepted { tx_id, .. } => tx_id,
             Self::Rejected { tx_id, .. } => tx_id,

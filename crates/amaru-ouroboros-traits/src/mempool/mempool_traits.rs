@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::TxId;
+use amaru_kernel::TransactionId;
 
 use crate::mempool::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin};
 
@@ -49,18 +49,18 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError>;
 
     /// Retrieve a transaction by its id.
-    fn get_tx(&self, tx_id: &TxId) -> Option<Tx>;
+    fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx>;
 
     /// Return true if the mempool contains a transaction with the given id.
-    fn contains(&self, tx_id: &TxId) -> bool {
+    fn contains(&self, tx_id: &TransactionId) -> bool {
         self.get_tx(tx_id).is_some()
     }
 
     /// Retrieve a list of transaction ids from a given sequence number (inclusive), up to a given limit.
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)>;
+    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)>;
 
     /// Retrieve a list of transactions for the given ids.
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx>;
+    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<Tx>;
 
     /// Get the last assigned sequence number in the mempool.
     fn last_seq_no(&self) -> MempoolSeqNo;

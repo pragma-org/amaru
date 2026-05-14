@@ -81,7 +81,7 @@ where
         }
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
-        let id = ProposalId { transaction_id: transaction.0, action_index: proposal_index as u32 };
+        let id = ProposalId { transaction_id: *transaction.0.as_ref(), action_index: proposal_index as u32 };
         context.acknowledge(id, pointer, proposal)
     }
 
@@ -268,7 +268,8 @@ mod tests {
     use std::mem;
 
     use amaru_kernel::{
-        EraHistory, NetworkName, Slot, TransactionBody, TransactionPointer, include_cbor, include_json, json,
+        EraHistory, HasTransactionId, NetworkName, Slot, TransactionBody, TransactionPointer, include_cbor,
+        include_json, json,
     };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
@@ -314,7 +315,7 @@ mod tests {
                     amaru_kernel::Network::Testnet,
                     &amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
                     <&EraHistory>::from(NetworkName::Preprod),
-                    (tx.id(), tx_pointer),
+                    (tx.tx_id(), tx_pointer),
                     mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
                 )
                 .expect("validation should not fail for this fixture")

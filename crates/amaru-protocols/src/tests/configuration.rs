@@ -15,7 +15,7 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction, TxId, any_headers_chain_with_root,
+    BlockHeader, HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction, TransactionId, any_headers_chain_with_root,
     cardano::network_block::make_network_block, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
@@ -141,6 +141,6 @@ pub const RESPONDER_TXS_NB: u64 = 10;
 pub const INITIATOR_TXS_NB: u64 = 10;
 
 /// By construction we return the same tx ids as the ones created in the function above
-pub(super) fn get_tx_ids() -> Vec<TxId> {
+pub(super) fn get_tx_ids() -> Vec<TransactionId> {
     create_transactions(RESPONDER_TXS_NB).into_iter().map(|tx| tx.tx_id()).collect()
 }

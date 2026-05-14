@@ -19,7 +19,7 @@ use std::{
 
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{
-    BlockHeader, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction, TxId,
+    BlockHeader, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction, TransactionId,
     cardano::network_block::make_encoded_block,
 };
 use amaru_ledger::store::{Columns, GovernanceActivity, Store, TransactionalContext};
@@ -308,6 +308,6 @@ pub const RESPONDER_TXS_NB: usize = 10;
 pub const INITIATOR_TXS_NB: usize = 10;
 
 /// By construction we return the same tx ids as the ones created in the function above
-pub fn get_tx_ids() -> Vec<TxId> {
+pub fn get_tx_ids() -> Vec<TransactionId> {
     create_transactions(RESPONDER_TXS_NB).into_iter().map(|tx| tx.tx_id()).collect()
 }

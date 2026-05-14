@@ -12,14 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fmt,
-    fmt::{Display, Formatter},
-};
-
-use pallas_crypto::hash::Hash;
-
-use crate::{AuxiliaryData, TransactionBody, TransactionId, WitnessSet, cardano::hash::size::TRANSACTION_BODY, cbor};
+use crate::{AuxiliaryData, TransactionBody, TransactionId, WitnessSet, cbor};
 
 // TODO:
 //
@@ -39,53 +32,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn tx_id(&self) -> TxId {
-        TxId(self.body.id())
-    }
-}
-
-/// Identifier for a transaction. This is the hash of the transaction body bytes.
-/// It encapsulates the TransactionId to be completely opaque to the structure of the
-/// transaction identifier.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub struct TxId(TransactionId);
-
-impl TxId {
-    pub fn new(id: TransactionId) -> TxId {
-        TxId(id)
-    }
-}
-
-impl cbor::Encode<()> for TxId {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        _ctx: &mut (),
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.encode(self.0)?;
-        Ok(())
-    }
-}
-
-impl<'b> cbor::Decode<'b, ()> for TxId {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
-        let hash = Hash::<{ TRANSACTION_BODY }>::decode(d, _ctx)?;
-        Ok(TxId(hash))
-    }
-}
-
-impl Display for TxId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.0.as_slice()))
-    }
-}
-
-pub trait HasTxId {
-    fn tx_id(&self) -> TxId;
-}
-
-impl HasTxId for Transaction {
-    fn tx_id(&self) -> TxId {
-        self.tx_id()
+    pub fn tx_id(&self) -> TransactionId {
+        TransactionId::new(self.body.id())
     }
 }

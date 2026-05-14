@@ -14,7 +14,7 @@
 
 use std::fmt::{Display, Formatter};
 
-use amaru_kernel::TxId;
+use amaru_kernel::TransactionId;
 use amaru_ouroboros_traits::MempoolError;
 use serde::{Deserialize, Serialize};
 
@@ -36,15 +36,15 @@ pub enum ProtocolError {
     NonBlockingRequestMadeWhenAllTxsAcknowledged,
     NoAckOrReqTxIdsRequested,
     NoTxsRequested,
-    UnadvertisedTransactionIdsRequested(Vec<TxId>),
-    UnknownTxsRequested(Vec<TxId>),
-    DuplicateTxIds(Vec<TxId>),
+    UnadvertisedTransactionIdsRequested(Vec<TransactionId>),
+    UnknownTxsRequested(Vec<TransactionId>),
+    DuplicateTxIds(Vec<TransactionId>),
     MaxOutstandingTxIdsRequested(u16, u16),
     TooManyAcknowledgedTxs(u16, u16),
     TooManyTxIdsReceived(usize, usize, usize),
     ReceivedTxsExceedsBatchSize(usize, usize),
-    SomeReceivedTxsNotInFlight(Vec<TxId>),
-    MempoolInsertFailed(TxId, MempoolError),
+    SomeReceivedTxsNotInFlight(Vec<TransactionId>),
+    MempoolInsertFailed(TransactionId, MempoolError),
     MempoolBatchInsertFailedTimedout,
 }
 

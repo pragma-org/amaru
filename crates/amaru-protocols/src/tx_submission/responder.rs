@@ -19,7 +19,7 @@ use std::{
 };
 
 use ProtocolError::*;
-use amaru_kernel::{Transaction, TxId};
+use amaru_kernel::{Transaction, TransactionId};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo};
 use amaru_ouroboros_traits::{TxInsertResult, TxOrigin, TxRejectReason};
@@ -145,7 +145,7 @@ impl ProtocolState<Responder> for State {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderResult {
     Init,
-    ReplyTxIds(Vec<(TxId, u32)>),
+    ReplyTxIds(Vec<(TransactionId, u32)>),
     ReplyTxs(Vec<Transaction>),
     Done,
 }
@@ -179,15 +179,15 @@ pub struct TxSubmissionResponder {
     /// Responder parameters: batch sizes, window sizes, etc.
     params: ResponderParams,
     /// All tx_ids advertised but not yet acked (and their size).
-    window: VecDeque<(TxId, u32)>,
+    window: VecDeque<(TransactionId, u32)>,
     /// Fetched tx ids that were fully processed, even if they were rejected.
-    processed_fetch_set: BTreeSet<TxId>,
+    processed_fetch_set: BTreeSet<TransactionId>,
     /// Tx ids we want to fetch but haven't yet requested.
-    pending_fetch: VecDeque<TxId>,
+    pending_fetch: VecDeque<TransactionId>,
     /// Then as a set for quick lookup when processing received ids.
     /// This is kept in sync with `inflight_fetch_queue`. When we receive a tx body,
     /// we pop it from the front of the queue and remove it from the set.
-    inflight_fetch_set: BTreeSet<TxId>,
+    inflight_fetch_set: BTreeSet<TransactionId>,
     /// The origin of the transactions we are fetching.
     origin: TxOrigin,
     muxer: StageRef<MuxMessage>,
@@ -225,7 +225,7 @@ impl TxSubmissionResponder {
     async fn process_tx_ids_reply(
         &mut self,
         mempool: &dyn AsyncMempool,
-        tx_ids: Vec<(TxId, u32)>,
+        tx_ids: Vec<(TransactionId, u32)>,
     ) -> anyhow::Result<Option<ResponderAction>> {
         if self.window.len() + tx_ids.len() > self.params.max_window.into() {
             return protocol_error(TooManyTxIdsReceived(
@@ -312,7 +312,7 @@ impl TxSubmissionResponder {
 
     /// Register received tx ids, adding them to the window and to the pending fetch list
     /// if they are not already in the mempool.
-    async fn received_tx_ids(&mut self, mempool: &dyn AsyncMempool, tx_ids: Vec<(TxId, u32)>) {
+    async fn received_tx_ids(&mut self, mempool: &dyn AsyncMempool, tx_ids: Vec<(TransactionId, u32)>) {
         for (tx_id, size) in tx_ids {
             // We add the tx id to the window to acknowledge it on the next round.
             self.window.push_back((tx_id, size));
@@ -325,7 +325,7 @@ impl TxSubmissionResponder {
     }
 
     /// Prepare a batch of tx ids for the txs to request.
-    fn txs_to_request(&mut self) -> Vec<TxId> {
+    fn txs_to_request(&mut self) -> Vec<TransactionId> {
         let mut tx_ids = Vec::new();
 
         while tx_ids.len() < self.params.fetch_batch.into() {
@@ -353,7 +353,7 @@ impl TxSubmissionResponder {
             return Ok(Some(action));
         }
 
-        let tx_ids: Vec<TxId> = txs.iter().map(|tx| tx.tx_id()).collect();
+        let tx_ids: Vec<TransactionId> = txs.iter().map(|tx| tx.tx_id()).collect();
         for tx_id in &tx_ids {
             self.inflight_fetch_set.remove(tx_id);
         }
@@ -468,7 +468,7 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionResponder {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResponderAction {
     SendRequestTxIds { ack: u16, req: u16, blocking: Blocking },
-    SendRequestTxs(Vec<TxId>),
+    SendRequestTxs(Vec<TransactionId>),
     Error(ProtocolError),
 }
 
@@ -775,15 +775,15 @@ mod tests {
             Err(MempoolError::new(self.message))
         }
 
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
+        fn get_tx(&self, _tx_id: &TransactionId) -> Option<Transaction> {
             None
         }
 
-        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
             vec![]
         }
 
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
+        fn get_txs_for_ids(&self, _ids: &[TransactionId]) -> Vec<Transaction> {
             vec![]
         }
 
@@ -793,7 +793,7 @@ mod tests {
     }
 
     struct MockMempool {
-        results: std::sync::Mutex<BTreeMap<TxId, TxInsertResult>>,
+        results: std::sync::Mutex<BTreeMap<TransactionId, TxInsertResult>>,
     }
 
     impl MockMempool {
@@ -815,20 +815,20 @@ mod tests {
                 .expect("missing insert result for mock mempool test"))
         }
 
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
+        fn get_tx(&self, _tx_id: &TransactionId) -> Option<Transaction> {
             None
         }
 
-        fn contains(&self, tx_id: &TxId) -> bool {
+        fn contains(&self, tx_id: &TransactionId) -> bool {
             let _ = tx_id;
             false
         }
 
-        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
             vec![]
         }
 
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
+        fn get_txs_for_ids(&self, _ids: &[TransactionId]) -> Vec<Transaction> {
             vec![]
         }
 

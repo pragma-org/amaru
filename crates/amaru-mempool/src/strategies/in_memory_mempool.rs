@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{TxId, cardano::transaction::HasTxId, cbor, to_cbor};
+use amaru_kernel::{HasTransactionId, TransactionId, cbor, to_cbor};
 use amaru_ouroboros_traits::{
     MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool, mempool::Mempool,
 };
@@ -48,8 +48,8 @@ impl<Tx> InMemoryMempool<Tx> {
 #[derive(Debug)]
 struct MempoolInner<Tx> {
     next_seq: u64,
-    entries_by_id: BTreeMap<TxId, MempoolEntry<Tx>>,
-    entries_by_seq: BTreeMap<MempoolSeqNo, TxId>,
+    entries_by_id: BTreeMap<TransactionId, MempoolEntry<Tx>>,
+    entries_by_seq: BTreeMap<MempoolSeqNo, TransactionId>,
 }
 
 impl<Tx> Default for MempoolInner<Tx> {
@@ -58,7 +58,7 @@ impl<Tx> Default for MempoolInner<Tx> {
     }
 }
 
-impl<Tx: HasTxId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
+impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
     /// Inserts a new transaction into the mempool.
     /// The transaction id is a hash of the transaction body.
     fn insert(
@@ -66,7 +66,7 @@ impl<Tx: HasTxId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
         config: &MempoolConfig,
         tx: Tx,
         tx_origin: TxOrigin,
-    ) -> Result<(TxId, MempoolSeqNo), TxRejectReason> {
+    ) -> Result<(TransactionId, MempoolSeqNo), TxRejectReason> {
         if let Some(max_txs) = config.max_txs
             && self.entries_by_id.len() >= max_txs
         {
@@ -90,13 +90,13 @@ impl<Tx: HasTxId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
     }
 
     /// Retrieves a transaction by its id.
-    fn get_tx(&self, tx_id: &TxId) -> Option<Tx> {
+    fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx> {
         self.entries_by_id.get(tx_id).map(|entry| entry.tx.clone())
     }
 
     /// Retrieves all the transaction ids since a given sequence number, up to a limit.
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
-        let mut result: Vec<(TxId, u32, MempoolSeqNo)> = self
+    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
+        let mut result: Vec<(TransactionId, u32, MempoolSeqNo)> = self
             .entries_by_seq
             .range(from_seq..)
             .take(limit as usize)
@@ -112,9 +112,9 @@ impl<Tx: HasTxId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
     }
 
     /// Retrieves transactions for the given ids, sorted by their sequence number.
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
+    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<Tx> {
         // Make sure that the result are sorted by seq_no
-        let mut result: Vec<(&TxId, &MempoolEntry<Tx>)> =
+        let mut result: Vec<(&TransactionId, &MempoolEntry<Tx>)> =
             self.entries_by_id.iter().filter(|(key, _)| ids.contains(*key)).collect();
         result.sort_by_key(|(_, entry)| entry.seq_no);
         result.into_iter().map(|(_, entry)| entry.tx.clone()).collect()
@@ -124,7 +124,7 @@ impl<Tx: HasTxId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MempoolEntry<Tx> {
     seq_no: MempoolSeqNo,
-    tx_id: TxId,
+    tx_id: TransactionId,
     tx: Tx,
     tx_size: u32,
     origin: TxOrigin,
@@ -142,7 +142,9 @@ impl MempoolConfig {
     }
 }
 
-impl<Tx: Send + Sync + 'static + HasTxId + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx> for InMemoryMempool<Tx> {
+impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx>
+    for InMemoryMempool<Tx>
+{
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, amaru_ouroboros_traits::MempoolError> {
         let tx_id = tx.tx_id();
         let mut inner = self.inner.write();
@@ -153,15 +155,15 @@ impl<Tx: Send + Sync + 'static + HasTxId + cbor::Encode<()> + Clone> TxSubmissio
         })
     }
 
-    fn get_tx(&self, tx_id: &TxId) -> Option<Tx> {
+    fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx> {
         self.inner.read().get_tx(tx_id)
     }
 
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
         self.inner.read().tx_ids_since(from_seq, limit)
     }
 
-    fn get_txs_for_ids(&self, ids: &[TxId]) -> Vec<Tx> {
+    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<Tx> {
         self.inner.read().get_txs_for_ids(ids)
     }
 
@@ -170,7 +172,7 @@ impl<Tx: Send + Sync + 'static + HasTxId + cbor::Encode<()> + Clone> TxSubmissio
     }
 }
 
-impl<Tx: Send + Sync + 'static + HasTxId + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
+impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
     fn take(&self) -> Vec<Tx> {
         let mut inner = self.inner.write();
         let entries = mem::take(&mut inner.entries_by_id);
@@ -244,9 +246,9 @@ mod tests {
         }
     }
 
-    impl HasTxId for Tx {
-        fn tx_id(&self) -> TxId {
-            TxId::new(Hasher::<{ TRANSACTION_BODY * 8 }>::hash_cbor(self))
+    impl HasTransactionId for Tx {
+        fn tx_id(&self) -> TransactionId {
+            TransactionId::new(Hasher::<{ TRANSACTION_BODY * 8 }>::hash_cbor(self))
         }
     }
 }

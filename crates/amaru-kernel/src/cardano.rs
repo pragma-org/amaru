@@ -99,6 +99,7 @@ pub mod stake_credential_kind;
 pub mod tip;
 pub mod transaction;
 pub mod transaction_body;
+pub(crate) mod transaction_id;
 pub mod transaction_input;
 pub mod transaction_pointer;
 pub mod validity_interval;

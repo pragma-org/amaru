@@ -15,8 +15,8 @@
 use std::{collections::BTreeMap, fmt};
 
 use amaru_kernel::{
-    EraHistory, NetworkName, ProtocolParameters, TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
-    cbor, decode_plutus_script, to_cbor, transaction_input_to_string,
+    EraHistory, HasTransactionId, NetworkName, ProtocolParameters, TransactionBody, TransactionInput,
+    TransactionPointer, WitnessSet, cbor, decode_plutus_script, to_cbor, transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
@@ -112,7 +112,7 @@ where
     let tx_info = TxInfo::new(
         transaction_body,
         transaction_witness_set,
-        transaction_body.id(),
+        transaction_body.tx_id(),
         &utxos,
         &pointer.slot,
         *network,
