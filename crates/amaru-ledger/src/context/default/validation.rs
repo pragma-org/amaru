@@ -361,7 +361,7 @@ impl BalanceSlice for DefaultValidationContext {
         self.balance += mint;
     }
 
-    fn balance(&self) -> &Balance {
-        &self.balance
+    fn balance(&mut self) -> Balance {
+        mem::take(&mut self.balance)
     }
 }
