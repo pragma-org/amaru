@@ -265,8 +265,8 @@ pub trait BalanceSlice {
     /// Add a lovelace amount to the balance accumulator.
     fn add_produced_lovelace(&mut self, amount: Lovelace);
 
-    /// Contribute a signed `Mint` to the * side of. Positive entries
-    /// represent newly minted tokens (consumed input value), negative entries represent burns.
+    /// Add a signed `Mint` to the balance accumulator. Positive entries
+    /// represent newly minted tokens, negative entries represent burns.
     fn add_mint(&mut self, mint: &Mint);
 
     /// The current total balance.
