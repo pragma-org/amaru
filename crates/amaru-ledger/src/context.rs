@@ -21,7 +21,8 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
+    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Value, Vote, Voter,
+    cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
@@ -35,7 +36,15 @@ pub use default::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
-    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + ProposalsSlice
+    PotsSlice
+    + UtxoSlice
+    + PoolsSlice
+    + AccountsSlice
+    + DRepsSlice
+    + CommitteeSlice
+    + WitnessSlice
+    + ProposalsSlice
+    + BalanceSlice
 {
     type FinalState;
 }
@@ -330,6 +339,28 @@ pub trait ProposalsSlice {
 /// An interface to help constructing the concrete ProposalsSlice ahead of time.
 pub trait PrepareProposalsSlice<'a> {
     fn require_proposal(&'_ mut self, id: &'a ProposalId);
+}
+
+// Value Preservation
+// -------------------------------------------------------------------------------------------------
+
+/// An interface for accumulating the running total of value produced and consumed by a
+/// transaction. A valid transaction should have a balance of zero.
+pub trait BalanceSlice {
+    /// Subtract a value to the balance accumulator.
+    fn add_consumed(&mut self, value: &Value);
+
+    /// Add a value to the balance accumulator.
+    fn add_produced(&mut self, value: &Value);
+
+    /// Subtract a lovelace amount to the balance accumulator.
+    fn add_consumed_lovelace(&mut self, amount: Lovelace);
+
+    /// Add a lovelace amount to the balance accumulator.
+    fn add_produced_lovelace(&mut self, amount: Lovelace);
+
+    /// The current total balance
+    fn balance(&self) -> &Balance;
 }
 
 // Witnesses

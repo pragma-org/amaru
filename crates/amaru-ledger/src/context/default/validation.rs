@@ -21,16 +21,17 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
-        blanket_known_datums, blanket_known_scripts,
+        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+        PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
+        WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
@@ -52,6 +53,7 @@ pub struct DefaultValidationContext {
     required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<DATUM>>,
     required_bootstrap_roots: BTreeSet<Hash<28>>,
+    balance: Balance,
 }
 
 impl DefaultValidationContext {
@@ -79,6 +81,7 @@ impl DefaultValidationContext {
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_roots: BTreeSet::default(),
+            balance: Balance::default(),
         }
     }
 }
@@ -437,6 +440,28 @@ impl WitnessSlice for DefaultValidationContext {
     fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
+    }
+}
+
+impl BalanceSlice for DefaultValidationContext {
+    fn add_consumed(&mut self, value: &Value) {
+        self.balance -= value;
+    }
+
+    fn add_produced(&mut self, value: &Value) {
+        self.balance += value;
+    }
+
+    fn add_consumed_lovelace(&mut self, amount: Lovelace) {
+        self.balance -= &Value::Coin(amount);
+    }
+
+    fn add_produced_lovelace(&mut self, amount: Lovelace) {
+        self.balance += &Value::Coin(amount);
+    }
+
+    fn balance(&self) -> &Balance {
+        &self.balance
     }
 }
 
