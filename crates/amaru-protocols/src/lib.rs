@@ -23,6 +23,7 @@ pub mod handshake;
 pub mod keepalive;
 pub mod manager;
 pub mod mempool_effects;
+pub mod metrics_effects;
 pub mod mux;
 pub mod network_effects;
 pub mod protocol;

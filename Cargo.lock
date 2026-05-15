@@ -383,6 +383,7 @@ version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-mempool",
+ "amaru-metrics",
  "amaru-network",
  "amaru-observability",
  "amaru-ouroboros",
