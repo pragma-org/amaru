@@ -1,20 +1,52 @@
 #!/usr/bin/env bash
 
-# Extracts the latest adopted slot from an Amaru JSON trace log.
+# Extracts the latest adopted slot from an Amaru log.
 adopted_slot_from_log() {
   local log="$1"
   [[ -f "$log" ]] || { echo ""; return; }
-  local line
-  line="$(
+  local slot
+  slot="$(
     tail -n "${AMARU_SYNC_LOG_TAIL_LINES:-20000}" "$log" 2>/dev/null \
-      | LC_ALL=C awk '/"adopted tip"/ { line = $0 } END { if (line != "") print line }'
+      | LC_ALL=C awk '
+          /adopted tip/ {
+            if (match($0, /"tip\.slot":"?[0-9]+"?/)) {
+              slot = substr($0, RSTART, RLENGTH)
+              sub(/^"tip\.slot":"?/, "", slot)
+              sub(/"?$/, "", slot)
+            } else if (match($0, /tip\.slot=[0-9]+/)) {
+              slot = substr($0, RSTART + 9, RLENGTH - 9)
+            }
+          }
+          slot == "" && /build_ledger/ {
+            if (match($0, /tip\.slot=[0-9]+/)) {
+              initial_slot = substr($0, RSTART + 9, RLENGTH - 9)
+            }
+          }
+          END { if (slot != "") print slot; else if (initial_slot != "") print initial_slot }
+        '
   )"
-  if [[ -z "$line" ]]; then
-    line="$(
-      LC_ALL=C awk '/"adopted tip"/ { line = $0 } END { if (line != "") print line }' "$log" 2>/dev/null
+  if [[ -z "$slot" ]]; then
+    slot="$(
+      LC_ALL=C awk '
+        /adopted tip/ {
+          if (match($0, /"tip\.slot":"?[0-9]+"?/)) {
+            slot = substr($0, RSTART, RLENGTH)
+            sub(/^"tip\.slot":"?/, "", slot)
+            sub(/"?$/, "", slot)
+          } else if (match($0, /tip\.slot=[0-9]+/)) {
+            slot = substr($0, RSTART + 9, RLENGTH - 9)
+          }
+        }
+        slot == "" && /build_ledger/ {
+          if (match($0, /tip\.slot=[0-9]+/)) {
+            initial_slot = substr($0, RSTART + 9, RLENGTH - 9)
+          }
+        }
+        END { if (slot != "") print slot; else if (initial_slot != "") print initial_slot }
+      ' "$log" 2>/dev/null
     )"
   fi
-  sed -nE 's/.*"tip\.slot":"([0-9]+)".*/\1/p' <<< "$line" || true
+  echo "$slot"
 }
 
 # Reads the latest adopted slot from the middle Amaru log.
@@ -38,13 +70,33 @@ sync_gap() {
   echo "$gap"
 }
 
+sync_poll_interval_seconds() {
+  echo "${TX_SYNC_POLL_INTERVAL_SECONDS:-15}"
+}
+
+eta_hint() {
+  local remaining="$1" observed_slots="$2" observed_seconds="$3" poll_interval="$4"
+  local rate eta
+  if (( observed_slots <= observed_seconds )); then
+    return 0
+  fi
+  rate=$(( observed_slots - observed_seconds ))
+  eta=$(( (remaining * observed_seconds + rate - 1) / rate ))
+  if (( eta < poll_interval )); then
+    printf ' eta<%ss' "$poll_interval"
+  else
+    printf ' eta=%ss' "$eta"
+  fi
+}
+
 # Waits until both Amaru nodes are within the configured slot tolerance.
 wait_for_amaru_sync_to_cardano_node() {
   local tolerance="$TX_SYNC_SLOT_TOLERANCE"
   local timeout="$TX_SYNC_TIMEOUT_SECONDS"
-  local magic start now tip middle downstream middle_gap downstream_gap elapsed prev_middle prev_down prev_t rate eta
+  local magic start now tip middle downstream middle_gap downstream_gap elapsed prev_middle prev_down prev_t poll_interval eta
   magic="$(network_magic)"
   wait_for_cardano_socket
+  poll_interval="$(sync_poll_interval_seconds)"
   start="$(date +%s)"
   prev_middle=""
   prev_down=""
@@ -69,12 +121,7 @@ wait_for_amaru_sync_to_cardano_node() {
         if (( downstream_gap > max_gap )); then
           max_gap="$downstream_gap"
         fi
-        if (( d_slots > d_secs )); then
-          rate=$(( (d_slots - d_secs) ))
-          if (( rate > 0 )); then
-            eta=" eta=$(( max_gap * d_secs / rate ))s"
-          fi
-        fi
+        eta="$(eta_hint "$max_gap" "$d_slots" "$d_secs" "$poll_interval")"
       fi
       printf '[submit-tx] elapsed=%ss cardano=%s middle=%s middle_gap=%s downstream=%s downstream_gap=%s%s\n' "$elapsed" "$tip" "$middle" "$middle_gap" "$downstream" "$downstream_gap" "$eta"
       if (( middle_gap <= tolerance && downstream_gap <= tolerance )); then
@@ -90,14 +137,15 @@ wait_for_amaru_sync_to_cardano_node() {
     if (( elapsed > timeout )); then
       die "Amaru nodes did not catch up to cardano-node within ${timeout}s (last middle gap: ${middle_gap:-unknown}, downstream gap: ${downstream_gap:-unknown})"
     fi
-    sleep 15
+    sleep "$poll_interval"
   done
 }
 
 wait_for_downstream_slot() {
   local target_slot="$1"
   local timeout="$TX_SYNC_TIMEOUT_SECONDS"
-  local start now elapsed downstream remaining prev_down prev_t rate eta
+  local start now elapsed downstream remaining prev_down prev_t poll_interval eta
+  poll_interval="$(sync_poll_interval_seconds)"
   start="$(date +%s)"
   prev_down=""
   prev_t=""
@@ -117,12 +165,7 @@ wait_for_downstream_slot() {
         local d_slots d_secs
         d_slots=$(( downstream - prev_down ))
         d_secs=$(( now - prev_t ))
-        if (( d_slots > d_secs )); then
-          rate=$(( d_slots - d_secs ))
-          if (( rate > 0 )); then
-            eta=" eta=$(( remaining * d_secs / rate ))s"
-          fi
-        fi
+        eta="$(eta_hint "$remaining" "$d_slots" "$d_secs" "$poll_interval")"
       fi
       printf '[submit-tx] elapsed=%ss target=%s downstream=%s remaining=%s%s\n' "$elapsed" "$target_slot" "$downstream" "$remaining" "$eta"
       prev_down="$downstream"
@@ -133,6 +176,6 @@ wait_for_downstream_slot() {
     if (( elapsed > timeout )); then
       die "downstream Amaru did not reach selected input availability slot ${target_slot} within ${timeout}s (last downstream slot: ${downstream:-unknown})"
     fi
-    sleep 15
+    sleep "$poll_interval"
   done
 }

@@ -13,6 +13,7 @@ exporters:
     endpoint: "tempo:4317"
     tls:
       insecure: true
+  nop:
 
 processors:
   batch:
@@ -44,3 +45,7 @@ service:
     metrics:
       receivers: [otlp, spanmetrics]
       exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [nop]
