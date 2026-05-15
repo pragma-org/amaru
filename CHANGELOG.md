@@ -45,6 +45,7 @@ Other guiding principles:
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
 - **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
 - **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
+- **amaru**: add a demo showcasing `amaru` as a relay node supporting both chainsync (to synchronize downstream nodes) and txsubmission (to diffuse transactions upstream). ([#1029][])
 
 ### Fixed
 
@@ -161,5 +162,6 @@ Other guiding principles:
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
 [#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
+[#1029]: https://github.com/pragma-org/amaru/pull/1029
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033

@@ -65,6 +65,10 @@ data/**/blocks/**
 # Relay demos data
 scripts/demos/*/run/**
 
+# Payment signing keys generated for the relay demos; the committed demo keys
+# remain tracked, this only prevents committing new ones by accident
+scripts/demos/*/keys/**/*.skey
+
 /.opencode/
 data/*/epoch-snapshots/
 
