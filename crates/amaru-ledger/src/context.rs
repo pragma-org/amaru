@@ -367,7 +367,7 @@ pub trait BalanceSlice {
     fn add_mint(&mut self, mint: &Mint);
 
     /// The current total balance.
-    fn balance(&self) -> &Balance;
+    fn balance(&mut self) -> Balance;
 }
 
 // Witnesses
