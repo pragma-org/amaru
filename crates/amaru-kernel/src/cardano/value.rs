@@ -66,6 +66,9 @@ impl<'a> From<&'a NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<
     }
 }
 
+/// Signed multi-asset bundle as it appears on `TransactionBody.mint`
+pub type Mint = NonEmptyKeyValuePairs<PolicyId, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>;
+
 /// A signed representation of a value, including a multiasset and lovelace.
 ///
 /// Unlike [`Value`], entries here may be negative; allowing it to be used in value comparisons.
@@ -195,6 +198,18 @@ impl SubAssign<&Value> for Balance {
                         positive_to_i64(qty).checked_neg().unwrap_or_else(|| unreachable!("cannot negate i64::MIN"));
                     self.apply_delta((*policy, name.clone()), neg);
                 }
+            }
+        }
+    }
+}
+
+/// Apply a signed `Mint`: each `(policy, asset, signed_qty)` entry is added to the balance with
+/// its sign preserved. Positive mints require outputs, negative mints require inputs.
+impl AddAssign<&Mint> for Balance {
+    fn add_assign(&mut self, mint: &Mint) {
+        for (policy, assets) in mint.iter() {
+            for (name, qty) in assets.iter() {
+                self.apply_delta((*policy, name.clone()), i64::from(qty));
             }
         }
     }

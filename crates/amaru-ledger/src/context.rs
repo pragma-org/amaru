@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{
     Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
     ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
@@ -347,10 +347,10 @@ pub trait PrepareProposalsSlice<'a> {
 /// An interface for accumulating the running total of value produced and consumed by a
 /// transaction. A valid transaction should have a balance of zero.
 pub trait BalanceSlice {
-    /// Subtract a value to the balance accumulator.
+    /// Subtract a non-negative [`Value`] to the balance accumulator.
     fn add_consumed(&mut self, value: &Value);
 
-    /// Add a value to the balance accumulator.
+    /// Add a non-negative [`Value`] to the balance accumulator.
     fn add_produced(&mut self, value: &Value);
 
     /// Subtract a lovelace amount to the balance accumulator.
@@ -359,7 +359,11 @@ pub trait BalanceSlice {
     /// Add a lovelace amount to the balance accumulator.
     fn add_produced_lovelace(&mut self, amount: Lovelace);
 
-    /// The current total balance
+    /// Contribute a signed `Mint` to the * side of. Positive entries
+    /// represent newly minted tokens (consumed input value), negative entries represent burns.
+    fn add_mint(&mut self, mint: &Mint);
+
+    /// The current total balance.
     fn balance(&self) -> &Balance;
 }
 

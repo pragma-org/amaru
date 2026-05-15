@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{
     Anchor, AsHash, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
     ProposalPointer, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Value,
     Vote, Voter, VoterKind,
     cardano::value::Balance,
@@ -366,19 +366,23 @@ impl WitnessSlice for AssertValidationContext {
 
 impl BalanceSlice for AssertValidationContext {
     fn add_consumed(&mut self, value: &Value) {
-        self.balance -= value;
-    }
-
-    fn add_produced(&mut self, value: &Value) {
         self.balance += value;
     }
 
+    fn add_produced(&mut self, value: &Value) {
+        self.balance -= value;
+    }
+
     fn add_consumed_lovelace(&mut self, amount: Lovelace) {
-        self.balance -= &Value::Coin(amount);
+        self.balance += &Value::Coin(amount);
     }
 
     fn add_produced_lovelace(&mut self, amount: Lovelace) {
-        self.balance += &Value::Coin(amount);
+        self.balance -= &Value::Coin(amount);
+    }
+
+    fn add_mint(&mut self, mint: &Mint) {
+        self.balance += mint;
     }
 
     fn balance(&self) -> &Balance {

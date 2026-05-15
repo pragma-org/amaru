@@ -19,7 +19,7 @@ use amaru_kernel::{
 use num::{BigUint, Zero};
 
 use crate::{
-    context::{PotsSlice, UtxoSlice},
+    context::{BalanceSlice, PotsSlice, UtxoSlice},
     summary::{SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
 };
 
@@ -56,7 +56,7 @@ pub(crate) fn execute<C>(
     collateral_return: Option<&MemoizedTransactionOutput>,
 ) -> Result<(), InvalidFees>
 where
-    C: UtxoSlice + PotsSlice,
+    C: UtxoSlice + PotsSlice + BalanceSlice,
 {
     let minimum = compute_min_fee(tx_size, witness_set, ref_scripts_size, pp);
     if fees < minimum {
@@ -65,6 +65,7 @@ where
 
     if is_valid {
         context.add_fees(fees);
+        context.add_produced_lovelace(fees);
         return Ok(());
     }
 
