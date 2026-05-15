@@ -14,7 +14,7 @@
 
 use std::{slice, sync::Arc};
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, Epoch, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage::RequestNext},
     manager::ManagerMessage,
@@ -23,11 +23,11 @@ use pure_stage::trace_buffer::TraceEntry;
 use tracing::Level;
 
 use crate::stages::track_peers::{
+    PendingValidation, TrackPeersMsg,
     test_setup::{
-        assert_trace, build_store, make_block_header, setup, setup_with_validation, te_has_header, te_load_tip,
-        te_send, te_store_header, te_validate_header, test_prep, FailingHeaderValidation, TransientHeaderValidation,
+        FailingHeaderValidation, TransientHeaderValidation, assert_trace, build_store, make_block_header, setup,
+        setup_with_validation, te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
     },
-    TrackPeersMsg,
 };
 
 #[test]
@@ -520,7 +520,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
 #[test]
 fn test_roll_forward_transient_validation_failure_keeps_peer() {
     // When a header cannot be validated because the stake distribution needed for its validation
-    // is not yet available, we should not remove the peer.
+    // is not yet available, we should keep the peer and queue the header for retry.
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
@@ -532,6 +532,7 @@ fn test_roll_forward_transient_validation_failure_keeps_peer() {
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.tip()),
     });
 
+    let missing_epoch = Epoch::from(286);
     let mut state = prep.state.clone();
     state.insert_peer(peer.clone(), parent.tip(), header.tip());
 
@@ -548,17 +549,23 @@ fn test_roll_forward_transient_validation_failure_keeps_peer() {
     let (running, _guards, mut logs) = setup_with_validation(
         &prep.rt_handle(),
         state.clone(),
-        msg,
+        msg.clone(),
         build_store(&[]),
-        Arc::new(TransientHeaderValidation { epoch: amaru_kernel::Epoch::from(286) }),
+        Arc::new(TransientHeaderValidation { epoch: missing_epoch }),
     );
 
-    assert!(state.upstream.contains_key(&peer));
-
-    // A transient failure should produce a DEBUG log when the stake distribution is not yet
-    // available — and *no* WARN or ERROR, so the peer is not dropped or flagged.
     logs.assert_and_remove(Level::DEBUG, &["chain_sync.validate_header.pending_stake_distribution"])
         .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+
+    assert_trace(
+        &running,
+        &[
+            TraceEntry::state("tp-1", Box::new(state)),
+            TraceEntry::input("tp-1", Box::new(msg)),
+            te_validate_header("tp-1", header.clone()),
+            TraceEntry::state("tp-1", Box::new(expected)),
+        ],
+    );
 }
 
 #[test]
