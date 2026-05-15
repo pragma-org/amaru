@@ -121,7 +121,7 @@ where
     // In order for a collateral balance to be valid it must:
     //    - have no multiassets and
     //    - have a nonnegative coin value
-    if !balance.coin() >= 0 && !balance.has_assets() {
+    if balance.coin() < 0 || balance.has_assets() {
         return Err(InvalidCollateral::ValueNotConserved(balance));
     }
 
