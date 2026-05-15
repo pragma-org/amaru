@@ -21,8 +21,8 @@ use thiserror::Error;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, RegisterError,
-        UnregisterError, UpdateError, WitnessSlice,
+        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+        RegisterError, UnregisterError, UpdateError, WitnessSlice,
     },
     store::GovernanceActivity,
 };
@@ -82,7 +82,7 @@ pub(crate) fn execute<C>(
     certificates: Option<NonEmptySet<Certificate>>,
 ) -> Result<(), InvalidCertificates>
 where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice,
+    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
 {
     certificates.map(|xs| xs.to_vec()).unwrap_or_default().into_iter().enumerate().try_for_each(
         |(certificate_index, certificate)| {
@@ -110,7 +110,7 @@ fn execute_one<C>(
     certificate: Certificate,
 ) -> Result<(), InvalidCertificates>
 where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice,
+    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
 {
     // Promote a ScriptHash into a RequiredScript, with additional context needed to defer the
     // validation of the script.
@@ -161,6 +161,12 @@ where
 
             let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
             PoolsSlice::register(context, params, pointer);
+
+            // TODO: only charge a deposit on first-time registration
+            //
+            // re-registration of an existing pool keeps the original deposit.
+            // resolving this requires PoolsSlice::lookup to be wired so we can detect whether the pool already exists.
+            context.add_produced_lovelace(protocol_parameters.stake_pool_deposit);
             Ok(())
         }
 
@@ -192,6 +198,7 @@ where
                 credential,
                 AccountState { deposit: protocol_parameters.stake_credential_deposit, pool: None, drep: None },
             )?;
+            context.add_produced_lovelace(protocol_parameters.stake_credential_deposit);
             Ok(())
         }
 
@@ -214,15 +221,33 @@ where
             }
 
             AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None })?;
+            context.add_produced_lovelace(deposit);
             Ok(())
         }
 
-        Certificate::StakeDeregistration(credential) | Certificate::UnReg(credential, _) => {
+        Certificate::StakeDeregistration(credential) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
             AccountsSlice::unregister(context, credential);
+            // TODO: Refund should be the historical AccountState.deposit
+            //
+            // It is possible that the historical AccountState.deposit does not match the current pp.stake_credential_deposit due to a pp update.
+            // We are approtimating the current pp here, which is acceptable since it has always been the current value.
+            //
+            // Handling this correctly requires the AccountSlice::lookup to be wired up
+            context.add_consumed_lovelace(protocol_parameters.stake_credential_deposit);
+            Ok(())
+        }
+
+        Certificate::UnReg(credential, refund) => {
+            match credential {
+                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
+            AccountsSlice::unregister(context, credential);
+            context.add_consumed_lovelace(refund);
             Ok(())
         }
 
@@ -259,6 +284,7 @@ where
                 DRepRegistration { deposit, registered_at: pointer, valid_until },
                 Option::from(anchor),
             )?;
+            context.add_produced_lovelace(deposit);
             Ok(())
         }
 
@@ -268,6 +294,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
             DRepsSlice::unregister(context, drep, refund, pointer);
+            context.add_consumed_lovelace(refund);
             Ok(())
         }
 

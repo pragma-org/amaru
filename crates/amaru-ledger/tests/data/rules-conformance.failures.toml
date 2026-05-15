@@ -25,8 +25,6 @@
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Delegate stake/Delegate unregistered stake credentials" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Delegate vote/Delegate vote of registered stake credentials to unregistered drep" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Delegate vote/Delegate vote of unregistered stake credentials" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Unregister stake credentials/When not registered" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Unregister stake credentials/With incorrect deposit" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/DELEG/Unregister stake credentials/With non-zero reward balance" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/ENACT/Committee enactment/CC re-election" = 'Expected success, got failure: invalid certificates: invalid cc member hot credential delegation: unknown source entity: AddrKeyhash(Hash<28>("8ed8575d4f9cc0a89bc1616ab75923ae07b19d23e8bd69586f3b76b1"))'
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Constitution proposals/rejected for/empty PrevGovId after the first constitution was enacted" = "Expected failure, got success"
@@ -44,9 +42,7 @@
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Voting/VotersDoNotExist" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Withdrawals/Fails for empty withdrawals" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [5e7d655d8036173ee03b3548d5b7b023f21366eabc4045653d4c3efd]"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOV/Withdrawals/Fails predicate when treasury withdrawal has nonexistent return address" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOVCERT/fails for/invalid refund provided with DRep deregistration cert" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOVCERT/fails for/registering a resigned CC member hotkey" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7]"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOVCERT/fails for/unregistering a nonexistent DRep" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/GOVCERT/succeeds for/resigning a non-CC key" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/RATIFY/Voting/Active voting stake/DRep/Rewards contribute to active voting stake even in the absence of StakeDistr" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 918, must satisfy 45 < epoch <= 50"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/RATIFY/Voting/Active voting stake/StakePool/Rewards contribute to active voting stake even in the absence of StakeDistr" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 918, must satisfy 45 < epoch <= 50"
@@ -73,7 +69,5 @@
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/UTXOS/Conway features fail in Plutusdescribe v1 and v2/Unsupported Fields/VotingProcedures/V2" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/UTXOS/fails when using inline datums for PlutusV1" = "Expected failure, got success"
 "eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/UTXOS/Gov policy scripts/alwaysFails Plutus govPolicy does not validate" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/UTXOS/PlutusV3 Initialization/Updating CostModels and setting the govPolicy afterwards succeeds" = 'Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: PlutusV3'
-"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/UTXOS/PlutusV3 Initialization/Updating CostModels with alwaysFails govPolicy does not validate" = 'Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: PlutusV3'
-"eras/conway/impl/dump/Conway/Imp/MaryImpSpec/UTXO/ShelleyUtxoPredFailure/ValueNotConservedUTxO" = "Expected failure, got success"
-"eras/conway/impl/dump/Conway/Imp/ShelleyImpSpec/UTXO/ShelleyUtxoPredFailure/ValueNotConservedUTxO" = "Expected failure, got success"
+"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/UTXOS/PlutusV3 Initialization/Updating CostModels and setting the govPolicy afterwards succeeds" = "Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: PlutusV3"
+"eras/conway/impl/dump/Conway/Imp/ConwayImpSpec - Version 10/UTXOS/PlutusV3 Initialization/Updating CostModels with alwaysFails govPolicy does not validate" = "Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: PlutusV3"

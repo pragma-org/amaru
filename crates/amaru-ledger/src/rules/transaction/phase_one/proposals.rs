@@ -19,7 +19,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{ProposalsSlice, WitnessSlice};
+use crate::context::{BalanceSlice, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -66,7 +66,7 @@ pub(crate) fn execute<C>(
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
-    C: ProposalsSlice + WitnessSlice,
+    C: ProposalsSlice + WitnessSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
         validate_proposal(&proposal, network, protocol_parameters, era_history, transaction.1)?;
@@ -79,6 +79,8 @@ where
                 datum: MemoizedDatum::None,
             });
         }
+
+        context.add_produced_lovelace(proposal.deposit);
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
         let id = ProposalId { transaction_id: *transaction.0.as_ref(), action_index: proposal_index as u32 };

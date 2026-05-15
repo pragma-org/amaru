@@ -16,13 +16,13 @@ use amaru_kernel::{
     AssetName, Hash, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt, RequiredScript, ScriptPurpose, size::SCRIPT,
 };
 
-use crate::context::{UtxoSlice, WitnessSlice};
+use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
 pub fn execute<C>(
     context: &mut C,
     mint: Option<&NonEmptyKeyValuePairs<Hash<SCRIPT>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
 ) where
-    C: UtxoSlice + WitnessSlice,
+    C: UtxoSlice + WitnessSlice + BalanceSlice,
 {
     if let Some(mint) = mint {
         let mut indices: Vec<usize> = (0..mint.len()).collect();
@@ -37,6 +37,8 @@ pub fn execute<C>(
                 datum: MemoizedDatum::None,
             })
         }
+
+        context.add_mint(mint);
     }
 }
 

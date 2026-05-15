@@ -126,7 +126,8 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Withdrawals(_)
             | PhaseOneError::Scripts(_)
             | PhaseOneError::Collateral(_)
-            | PhaseOneError::Proposals(_) => unreachable!("no predicate mapping yet for {err}"),
+            | PhaseOneError::Proposals(_)
+            | PhaseOneError::ValueNotPreserved(_) => unreachable!("no predicate mapping yet for {err}"),
         }
     }
 }
