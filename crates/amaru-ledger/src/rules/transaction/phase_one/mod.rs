@@ -243,7 +243,7 @@ where
     )?;
 
     if let Some(donation) = transaction_body.donation {
-        context.add_produced_lovelace(donation.into());
+        context.produce_lovelace(donation.into());
     }
 
     // NOTE: Value preservation

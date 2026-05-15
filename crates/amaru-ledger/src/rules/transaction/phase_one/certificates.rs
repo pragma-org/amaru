@@ -166,7 +166,7 @@ where
             //
             // re-registration of an existing pool keeps the original deposit.
             // resolving this requires PoolsSlice::lookup to be wired so we can detect whether the pool already exists.
-            context.add_produced_lovelace(protocol_parameters.stake_pool_deposit);
+            context.produce_lovelace(protocol_parameters.stake_pool_deposit);
             Ok(())
         }
 
@@ -203,7 +203,7 @@ where
                     rewards: 0,
                 },
             )?;
-            context.add_produced_lovelace(protocol_parameters.stake_credential_deposit);
+            context.produce_lovelace(protocol_parameters.stake_credential_deposit);
             Ok(())
         }
 
@@ -226,7 +226,7 @@ where
             }
 
             AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None, rewards: 0 })?;
-            context.add_produced_lovelace(deposit);
+            context.produce_lovelace(deposit);
             Ok(())
         }
 
@@ -242,7 +242,7 @@ where
             // We are approtimating the current pp here, which is acceptable since it has always been the current value.
             //
             // Handling this correctly requires the AccountSlice::lookup to be wired up
-            context.add_consumed_lovelace(protocol_parameters.stake_credential_deposit);
+            context.consume_lovelace(protocol_parameters.stake_credential_deposit);
             Ok(())
         }
 
@@ -252,7 +252,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
             AccountsSlice::unregister(context, credential);
-            context.add_consumed_lovelace(refund);
+            context.consume_lovelace(refund);
             Ok(())
         }
 
@@ -286,7 +286,7 @@ where
                 DRepRegistration { deposit, registered_at: pointer, valid_until },
                 Option::from(anchor),
             )?;
-            context.add_produced_lovelace(deposit);
+            context.produce_lovelace(deposit);
             Ok(())
         }
 
@@ -296,7 +296,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
             DRepsSlice::unregister(context, drep, refund, pointer);
-            context.add_consumed_lovelace(refund);
+            context.consume_lovelace(refund);
             Ok(())
         }
 
