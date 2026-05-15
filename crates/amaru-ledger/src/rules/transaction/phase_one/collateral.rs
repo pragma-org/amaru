@@ -12,114 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    fmt::{self},
-};
-
 use amaru_kernel::{
-    AddrType, Address, AddressError, HasOwnership, Hash, MemoizedTransactionOutput, MemoizedValue, ProtocolParameters,
-    StakeCredential, TransactionInput, Value, cbor, is_locked_by_script, transaction_input_to_string,
+    AddrType, Address, AddressError, HasOwnership, Hash, MemoizedTransactionOutput, ProtocolParameters,
+    StakeCredential, TransactionInput, cardano::value::Balance, cbor, is_locked_by_script, transaction_input_to_string,
 };
 use thiserror::Error;
 
 use crate::context::{UtxoSlice, WitnessSlice};
-
-/*
-* CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
-* The value of everything should be zero in this struct, otherwise value is not conserved.
-* We allow negative values here so that we are able to display them in an error message
-*
-* TODO: This type and its methods shouldn't exists, and should be merged with Value.
-*/
-#[derive(Debug)]
-pub struct CollateralBalance {
-    pub coin: i64,
-    pub multiasset: BTreeMap<Vec<u8>, i64>,
-}
-
-impl fmt::Display for CollateralBalance {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "({}, [{}])",
-            self.coin,
-            self.multiasset
-                .iter()
-                .map(|(asset_id, value)| format!("{}: {}", hex::encode(asset_id), value))
-                .collect::<Vec<String>>()
-                .join(",")
-        )
-    }
-}
-
-impl CollateralBalance {
-    fn empty() -> Self {
-        Self { coin: 0, multiasset: BTreeMap::new() }
-    }
-
-    fn sub(&mut self, other: Self) {
-        self.coin -= other.coin;
-
-        for (key, value) in other.multiasset {
-            self.multiasset.entry(key).and_modify(|v| *v -= value).or_insert(-value);
-        }
-
-        self.multiasset.retain(|_, v| *v != 0);
-    }
-
-    fn add_output_value(&mut self, output: &MemoizedTransactionOutput) {
-        let output_balance: CollateralBalance = (&output.value).into();
-
-        self.coin += output_balance.coin;
-        for (key, value) in output_balance.multiasset {
-            self.multiasset.entry(key).and_modify(|v| *v += value).or_insert(value);
-        }
-    }
-
-    /// This method returns `True` if the `CollateralBalance` is considered "valid".
-    ///
-    /// A `True` return value doesn't mean that other related checks (IncorrectTotalCollateral, InsufficientBalance) can be skipped.
-    ///
-    ///
-    /// In order for `CollateralBalance` to be "valid" it must:
-    ///    - have no multiassets and,
-    ///    - have a nonnegative coin value.
-    fn is_valid(&self) -> bool {
-        self.multiasset.is_empty() && self.coin >= 0
-    }
-}
-
-impl From<Option<&MemoizedTransactionOutput>> for CollateralBalance {
-    fn from(value: Option<&MemoizedTransactionOutput>) -> Self {
-        match value {
-            Some(output) => CollateralBalance::from(&output.value),
-            None => CollateralBalance::empty(),
-        }
-    }
-}
-
-impl From<&MemoizedValue> for CollateralBalance {
-    fn from(value: &MemoizedValue) -> Self {
-        match value.as_ref() {
-            Value::Multiasset(coin, multiasset) => {
-                let map = multiasset
-                    .iter()
-                    .flat_map(|(policy, assets)| {
-                        assets.iter().map(|(asset_name, quantity)| {
-                            let key = [policy.as_ref(), asset_name.as_ref()].concat();
-
-                            (key, u64::from(quantity) as i64)
-                        })
-                    })
-                    .collect::<BTreeMap<_, _>>();
-
-                Self { coin: *coin as i64, multiasset: map }
-            }
-            Value::Coin(coin) => Self { coin: *coin as i64, multiasset: BTreeMap::new() },
-        }
-    }
-}
 
 enum CollateralWitness {
     VKey(Hash<28>),
@@ -135,15 +34,15 @@ pub enum InvalidCollateral {
     #[error("a collateral input is locked at a script address: {}", transaction_input_to_string(.0))]
     LockedAtScriptAddress(TransactionInput),
     #[error("total collateral value is insufficient: provided: {provided} required: {required}")]
-    InsufficientBalance { provided: u64, required: u64 },
+    InsufficientBalance { provided: i64, required: u64 },
     #[error(
         "total collateral field (expected) does not equal actual collateral (provided): provided: {provided} expected: {expected} "
     )]
-    IncorrectTotalCollateral { provided: u64, expected: u64 },
+    IncorrectTotalCollateral { provided: i64, expected: u64 },
     #[error("No collateral was provided, but collateral is required")]
     NoCollateral,
     #[error("collateral has non-zero delta: {0}")]
-    ValueNotConserved(CollateralBalance),
+    ValueNotConserved(Balance),
     #[error("invalid Byron address payload at collateral input {}: {error}", transaction_input_to_string(input))]
     InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
 }
@@ -165,7 +64,7 @@ where
 {
     let collaterals = collaterals.filter(|c| !c.is_empty()).ok_or(InvalidCollateral::NoCollateral)?;
 
-    let mut balance = CollateralBalance::empty();
+    let mut balance = Balance::empty();
 
     let allowed = protocol_parameters.max_collateral_inputs as usize;
     let provided = collaterals.len();
@@ -174,13 +73,14 @@ where
     }
 
     for collateral in collaterals.iter() {
-        let output = context.lookup(collateral).ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
+        let collateral_input =
+            context.lookup(collateral).ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
 
-        if is_locked_by_script(&output.address) {
+        if is_locked_by_script(&collateral_input.address) {
             return Err(InvalidCollateral::LockedAtScriptAddress(collateral.clone()));
         }
 
-        let witness = match &output.address {
+        let witness = match &collateral_input.address {
             Address::Shelley(addr) => match addr.owner() {
                 StakeCredential::AddrKeyhash(hash) => CollateralWitness::VKey(hash),
                 StakeCredential::ScriptHash(_) => unreachable!("already rejected by is_locked_by_script"),
@@ -206,7 +106,7 @@ where
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         };
 
-        balance.add_output_value(output);
+        balance += collateral_input.value.as_ref();
 
         match witness {
             CollateralWitness::VKey(hash) => context.require_vkey_witness(hash),
@@ -214,27 +114,30 @@ where
         }
     }
 
-    let collateral_return_balance = CollateralBalance::from(collateral_return);
+    if let Some(collateral_return) = collateral_return {
+        balance -= collateral_return.value.as_ref();
+    }
 
-    balance.sub(collateral_return_balance);
-
-    if !balance.is_valid() {
+    // In order for a collateral balance to be valid it must:
+    //    - have no multiassets and
+    //    - have a nonnegative coin value
+    if !balance.coin() >= 0 && !balance.has_assets() {
         return Err(InvalidCollateral::ValueNotConserved(balance));
     }
 
     let required = fee * protocol_parameters.collateral_percentage as u64;
-    if balance.coin as i128 * 100 < required as i128 {
+    if balance.coin() as i128 * 100 < required as i128 {
         return Err(InvalidCollateral::InsufficientBalance {
-            provided: balance.coin as u64,
+            provided: balance.coin(),
             required: required.div_ceil(100),
         });
     }
 
     if let Some(expected_balance) = tx_collateral
-        && expected_balance != balance.coin as u64
+        && expected_balance != balance.coin() as u64
     {
         return Err(InvalidCollateral::IncorrectTotalCollateral {
-            provided: balance.coin as u64,
+            provided: balance.coin(),
             expected: expected_balance,
         });
     }
