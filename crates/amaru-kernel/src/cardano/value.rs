@@ -65,10 +65,10 @@ impl Balance {
     }
 
     pub fn has_assets(&self) -> bool {
-        self.multiasset.is_empty()
+        !self.multiasset.is_empty()
     }
     pub fn is_zero(&self) -> bool {
-        self.coin == 0 && self.has_assets()
+        self.coin == 0 && !self.has_assets()
     }
 
     fn add_coin(&mut self, amount: u64) {
