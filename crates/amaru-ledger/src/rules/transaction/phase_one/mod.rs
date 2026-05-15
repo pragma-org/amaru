@@ -245,14 +245,14 @@ where
     if let Some(donation) = transaction_body.donation {
         context.produce_lovelace(donation.into());
     }
-
     // NOTE: Value preservation
     //
     // In the case of a valid transaction, the balance must be zero.
     // However, when the transaction is invalid, this check is skipped. That is because
     // the `CollateralReturnOverflow` logic enforces value preservation for collateral return.
-    if is_valid && !context.balance().is_zero() {
-        return Err(PhaseOneError::ValueNotPreserved(context.balance().clone()));
+    let transaction_balance = context.balance();
+    if is_valid && !transaction_balance.is_zero() {
+        return Err(PhaseOneError::ValueNotPreserved(transaction_balance));
     }
 
     // At last, consume inputs
