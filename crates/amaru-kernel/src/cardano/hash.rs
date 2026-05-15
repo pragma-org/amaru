@@ -48,8 +48,6 @@ pub type HeaderHash = Hash<{ size::HEADER }>;
 
 pub type PoolId = Hash<{ size::POOL_COLD_KEY }>;
 
-pub type TransactionId = Hash<{ size::TRANSACTION_BODY }>;
-
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------

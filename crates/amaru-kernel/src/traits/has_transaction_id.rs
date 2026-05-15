@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2024 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,6 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod in_memory_mempool;
+use crate::{Transaction, TransactionBody, TransactionId};
 
-pub use in_memory_mempool::*;
+pub trait HasTransactionId {
+    fn tx_id(&self) -> TransactionId;
+}
+
+impl HasTransactionId for Transaction {
+    fn tx_id(&self) -> TransactionId {
+        self.tx_id()
+    }
+}
+
+impl HasTransactionId for TransactionBody {
+    fn tx_id(&self) -> TransactionId {
+        TransactionId::new(self.id())
+    }
+}

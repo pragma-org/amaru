@@ -14,8 +14,7 @@
 
 use std::fmt::Display;
 
-use amaru_kernel::{NonEmptyBytes, Transaction, cbor, to_cbor};
-use amaru_ouroboros_traits::TxId;
+use amaru_kernel::{NonEmptyBytes, Transaction, TransactionId, cbor, to_cbor};
 
 use crate::tx_submission::Blocking;
 
@@ -26,8 +25,8 @@ pub enum Message {
     Init,
     RequestTxIdsBlocking(u16, u16),
     RequestTxIdsNonBlocking(u16, u16),
-    RequestTxs(Vec<TxId>),
-    ReplyTxIds(Vec<(TxId, u32)>),
+    RequestTxs(Vec<TransactionId>),
+    ReplyTxIds(Vec<(TransactionId, u32)>),
     ReplyTxs(Vec<Transaction>),
     Done,
 }
@@ -208,7 +207,7 @@ impl Display for Message {
                 write!(
                     f,
                     "ReplyTxs(txs: [{}])",
-                    txs.iter().map(|tx| format!("{}", TxId::from(tx))).collect::<Vec<_>>().join(", ")
+                    txs.iter().map(|tx| format!("{}", tx.tx_id())).collect::<Vec<_>>().join(", ")
                 )
             }
             Message::Done => write!(f, "Done"),
@@ -235,7 +234,7 @@ mod tests {
 
     mod tx_id {
         use super::*;
-        prop_cbor_roundtrip!(TxId, any_tx_id());
+        prop_cbor_roundtrip!(TransactionId, any_tx_id());
     }
     mod message {
         use super::*;
@@ -251,8 +250,8 @@ mod tests {
     prop_compose! {
         pub fn any_tx_id()(
             bytes in any::<[u8; 32]>(),
-        ) -> TxId {
-            TxId::new(Hash::new(bytes))
+        ) -> TransactionId {
+            TransactionId::new(Hash::new(bytes))
         }
     }
 
@@ -271,13 +270,13 @@ mod tests {
     }
 
     prop_compose! {
-        fn any_tx_id_and_sizes_vec()(ids in vec(any_tx_id(), 0..20), sizes in vec(any::<u32>(), 0..20)) -> Vec<(TxId, u32)> {
+        fn any_tx_id_and_sizes_vec()(ids in vec(any_tx_id(), 0..20), sizes in vec(any::<u32>(), 0..20)) -> Vec<(TransactionId, u32)> {
             ids.iter().zip(sizes).map(|(id, size)| (*id, size)).collect()
         }
     }
 
     prop_compose! {
-        fn any_tx_id_vec()(ids in prop::collection::vec(any_tx_id(), 0..20)) -> Vec<TxId> {
+        fn any_tx_id_vec()(ids in prop::collection::vec(any_tx_id(), 0..20)) -> Vec<TransactionId> {
             ids
         }
     }

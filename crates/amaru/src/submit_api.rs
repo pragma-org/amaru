@@ -133,11 +133,11 @@ mod tests {
     };
 
     use amaru_consensus::{effects::ResourceTxValidation, stages::mempool::MempoolStageState};
-    use amaru_kernel::{RawBlock, Transaction};
+    use amaru_kernel::{RawBlock, Transaction, TransactionId};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
-        MempoolError, MempoolSeqNo, MockCanValidateTxs, TransactionValidationError, TxId, TxInsertResult, TxOrigin,
+        MempoolError, MempoolSeqNo, MockCanValidateTxs, TransactionValidationError, TxInsertResult, TxOrigin,
         TxSubmissionMempool,
     };
     use axum::{
@@ -161,7 +161,7 @@ mod tests {
         let (addr, _shutdown) = start_test_server().await?;
 
         let tx = create_transaction(0);
-        let expected_tx_id = TxId::from(&tx);
+        let expected_tx_id = tx.tx_id();
         let body = amaru_kernel::to_cbor(&tx);
 
         let resp = submit_tx(addr, body).await?;
@@ -179,7 +179,7 @@ mod tests {
 
         let body = serialized_transaction()?;
         let expected_tx: Transaction = minicbor::decode(&body)?;
-        let expected_tx_id = TxId::from(&expected_tx);
+        let expected_tx_id = expected_tx.tx_id();
         assert_eq!(expected_tx_id.to_string(), TX_ID);
 
         let resp = submit_tx(addr, body).await?;
@@ -315,7 +315,7 @@ mod tests {
     fn decode_test_transaction() {
         let body = serialized_transaction().expect("a serialized transaction");
         let expected_tx: Transaction = minicbor::decode(&body).expect("a decoded transaction");
-        let expected_tx_id = TxId::from(&expected_tx);
+        let expected_tx_id = expected_tx.tx_id();
         assert_eq!(expected_tx_id.to_string(), TX_ID);
     }
 
@@ -394,7 +394,7 @@ mod tests {
     // This transaction is reconstructed from the transaction contained in the real preprod
     // block fixture `b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698`
     // (slot 70175999, block height 2671560).
-    const TX_ID: &str = "afc873a7f1a58c2188c6c610f394798d05474907e4c1c70cf2588101ff38144f";
+    const TX_ID: &str = "43f396b0d5c5";
 
     /// Return a serialized transaction extracted from an actual block
     fn serialized_transaction() -> anyhow::Result<Vec<u8>> {
@@ -421,19 +421,19 @@ mod tests {
             if self.attempts.fetch_add(1, Ordering::Relaxed) == 0 {
                 Err(MempoolError::new("temporary failure"))
             } else {
-                Ok(TxInsertResult::accepted(TxId::from(&tx), MempoolSeqNo(1)))
+                Ok(TxInsertResult::accepted(tx.tx_id(), MempoolSeqNo(1)))
             }
         }
 
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
+        fn get_tx(&self, _tx_id: &TransactionId) -> Option<Transaction> {
             None
         }
 
-        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
+        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
             vec![]
         }
 
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
+        fn get_txs_for_ids(&self, _ids: &[TransactionId]) -> Vec<Transaction> {
             vec![]
         }
 

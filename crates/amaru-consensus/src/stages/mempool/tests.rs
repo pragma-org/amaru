@@ -16,9 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::Transaction;
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::{
-    MempoolMsg, MempoolSeqNo, TransactionValidationError, TxId, TxInsertResult, TxOrigin, TxRejectReason,
-};
+use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::StageRef;
 use tokio::runtime::Builder;
 use tracing::Level;
@@ -83,11 +81,11 @@ fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
 
 fn expected_results(txs: &[Transaction]) -> Vec<TxInsertResult> {
     vec![
-        TxInsertResult::accepted(TxId::from(&txs[0]), MempoolSeqNo(1)),
+        TxInsertResult::accepted(txs[0].tx_id(), MempoolSeqNo(1)),
         TxInsertResult::rejected(
-            TxId::from(&txs[1]),
+            txs[1].tx_id(),
             TxRejectReason::Invalid(anyhow::anyhow!("transaction rejected for testing").into()),
         ),
-        TxInsertResult::rejected(TxId::from(&txs[2]), TxRejectReason::Duplicate),
+        TxInsertResult::rejected(txs[2].tx_id(), TxRejectReason::Duplicate),
     ]
 }
