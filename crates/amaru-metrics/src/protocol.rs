@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
@@ -21,6 +21,48 @@ use opentelemetry::KeyValue;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{Counter, Gauge};
 use crate::{Meter, MetricRecorder, MetricsEvent};
+
+// Uses ObservableGauge rather than Gauge: the callback output replaces the previous
+// observation set each collection cycle, so only the current label set is ever exported.
+// A synchronous Gauge would accumulate every distinct label combination seen since startup.
+//
+// `state` and `gauge` must be `'static` at the call site: `state` is the shared cell
+// read by the callback; `gauge` keeps the handle alive (dropping it deregisters the callback).
+#[cfg(not(target_arch = "wasm32"))]
+fn update_observable_gauge<T>(
+    state: &'static OnceLock<Arc<Mutex<Option<T>>>>,
+    gauge: &'static OnceLock<opentelemetry::metrics::ObservableGauge<u64>>,
+    meter: &Meter,
+    name: &'static str,
+    description: &'static str,
+    current: T,
+    attrs: impl Fn(&T) -> Vec<KeyValue> + Send + Sync + 'static,
+) where
+    T: Clone + Send + 'static,
+{
+    let state_ref = state.get_or_init(|| {
+        let shared: Arc<Mutex<Option<T>>> = Arc::new(Mutex::new(None));
+        let shared_cb = shared.clone();
+        gauge.get_or_init(|| {
+            meter
+                .u64_observable_gauge(name)
+                .with_description(description)
+                .with_callback(move |observer| {
+                    if let Ok(guard) = shared_cb.lock()
+                        && let Some(value) = guard.as_ref()
+                    {
+                        observer.observe(1, &attrs(value));
+                    }
+                })
+                .build()
+        });
+        shared
+    });
+
+    if let Ok(mut guard) = state_ref.lock() {
+        *guard = Some(current);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ProtocolMetrics {
@@ -134,19 +176,23 @@ impl MetricRecorder for TipBlockMetrics {
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for TipBlockMetrics {
     fn record_to_meter(&self, meter: &Meter) {
-        static TIP_BLOCK: OnceLock<Gauge<u64>> = OnceLock::new();
+        static CURRENT_TIP: OnceLock<Arc<Mutex<Option<TipBlockMetrics>>>> = OnceLock::new();
+        static TIP_BLOCK_GAUGE: OnceLock<opentelemetry::metrics::ObservableGauge<u64>> = OnceLock::new();
 
-        let tip_block = TIP_BLOCK.get_or_init(|| {
-            meter.u64_gauge("cardano_node_metrics_tipBlock").with_description("current chain tip block info").build()
-        });
-
-        tip_block.record(
-            1,
-            &[
-                KeyValue::new("hash", self.hash.clone()),
-                KeyValue::new("parent_hash", self.parent_hash.clone()),
-                KeyValue::new("issuer_verification_key_hash", self.issuer_verification_key_hash.clone()),
-            ],
+        update_observable_gauge(
+            &CURRENT_TIP,
+            &TIP_BLOCK_GAUGE,
+            meter,
+            "cardano_node_metrics_tipBlock",
+            "current chain tip block info",
+            self.clone(),
+            |tip| {
+                vec![
+                    KeyValue::new("hash", tip.hash.clone()),
+                    KeyValue::new("parent_hash", tip.parent_hash.clone()),
+                    KeyValue::new("issuer_verification_key_hash", tip.issuer_verification_key_hash.clone()),
+                ]
+            },
         );
     }
 }
