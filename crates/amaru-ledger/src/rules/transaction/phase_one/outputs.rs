@@ -98,7 +98,7 @@ where
         }
 
         if let Some(input) = construct_utxo(position as u64) {
-            context.add_produced(output.value.as_ref());
+            context.produce_value(output.value.as_ref());
             context.produce(input, output);
         }
     }
