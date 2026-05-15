@@ -19,15 +19,26 @@ runs:
         echo "CACHE_PRIMARY_KEY=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}-$(/bin/date -u '+%Y%m%d-%H%M%S')" >> "$GITHUB_ENV"
         echo "CACHE_RESTORE_KEY_1=cargo-${{ runner.arch }}-${{ runner.os }}${{ inputs.suffix }}" >> "$GITHUB_ENV"
         echo "CACHE_RESTORE_KEY_2=cargo-${{ runner.arch }}-${{ runner.os }}" >> "$GITHUB_ENV"
-        {
-          echo 'RUST_CACHE_PATHS<<EOF'
-          echo '~/.cargo/bin/'
-          echo '~/.cargo/registry/index/'
-          echo '~/.cargo/registry/cache/'
-          echo '~/.cargo/git/db/'
-          echo 'target/'
-          echo 'EOF'
-        } >> "$GITHUB_ENV"
+        if [[ "${{ runner.os }}" == "Linux" ]]; then
+          {
+            echo 'RUST_CACHE_PATHS<<EOF'
+            echo '~/.cargo/bin/'
+            echo '~/.cargo/registry/index/'
+            echo '~/.cargo/registry/cache/'
+            echo '~/.cargo/git/db/'
+            echo 'target/'
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+        else
+          {
+            echo 'RUST_CACHE_PATHS<<EOF'
+            echo '~/.cargo/registry/index/'
+            echo '~/.cargo/registry/cache/'
+            echo '~/.cargo/git/db/'
+            echo 'target/'
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+        fi
 
     # Only read from an existing cache. We tightly control who can write to
     # the cache (here, only workflow executing on 'main') for mostly two

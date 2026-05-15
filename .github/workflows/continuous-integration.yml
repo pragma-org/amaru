@@ -33,100 +33,71 @@ permissions:
   actions: write
 
 jobs:
-  build:
-    name: Build ${{ matrix.environments.title }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        environments:
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            title: x86_64/linux
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+  build-linux-x86_64:
+    name: Build/Test x86_64/linux
+    uses: ./.github/workflows/template-cargo-test.yml
+    with:
+      runner: ubuntu-24.04
+      target: x86_64-unknown-linux-gnu
+      cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
 
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            title: aarch64/linux
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+  build-linux-aarch64:
+    name: Build/Test aarch64/linux
+    uses: ./.github/workflows/template-cargo-test.yml
+    with:
+      runner: ubuntu-24.04-arm
+      target: aarch64-unknown-linux-gnu
+      cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
 
-          - runner: macos-15
-            target: aarch64-apple-darwin
-            title: aarch64/macos
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+  build-macos-aarch64:
+    name: Build/Test aarch64/macos
+    uses: ./.github/workflows/template-cargo-test.yml
+    with:
+      runner: macos-15
+      target: aarch64-apple-darwin
+      cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
 
-          - runner: windows-2025
-            target: x86_64-pc-windows-msvc
-            title: x86_64/windows
-            command: test --tests --workspace --profile dev-debug
-            cache_mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+  build-windows-x86_64:
+    name: Build/Test x86_64/windows
+    uses: ./.github/workflows/template-cargo-test.yml
+    with:
+      runner: windows-2025
+      target: x86_64-pc-windows-msvc
+      command: test --tests --workspace --profile dev-debug
+      cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
 
-          - runner: ubuntu-24.04
-            target: wasm32-unknown-unknown
-            title: wasm32
-            packages: -p amaru-consensus -p amaru-ledger -p pure-stage
-            command: build
-            cache_mode: READ
-            setup: rustup target add wasm32-unknown-unknown
+  build-wasm32:
+    name: Build wasm32
+    needs: [build-linux-x86_64]
+    uses: ./.github/workflows/template-cargo-test.yml
+    with:
+      runner: ubuntu-24.04
+      target: wasm32-unknown-unknown
+      command: build -p amaru-consensus -p amaru-ledger -p pure-stage
+      cache-mode: READ
+      setup: rustup target add wasm32-unknown-unknown
 
-          # When targetting RISC-V, the uplc-turbo crate fails to compile.
-          # Providing the specific RISC-V gnu clang compiler to Rust allows it to build
-          - runner: ubuntu-24.04
-            target: riscv32gc-unknown-linux-gnu
-            title: riscv32
-            packages: -p amaru-ledger
-            extra-args: +$RUST_NIGHTLY_TOOLCHAIN -Zbuild-std=std,panic_abort
-            command: build
-            cache_mode: READ
-            setup: |
-              rustup component add rust-src --toolchain "$RUST_NIGHTLY_TOOLCHAIN"
-              curl -L -o riscv32-glibc-llvm.tar.xz \
-                "https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.11.04/riscv32-glibc-ubuntu-24.04-llvm.tar.xz"
-              tar -xvf riscv32-glibc-llvm.tar.xz
-              export CC_riscv32gc_unknown_linux_gnu="$(pwd)/riscv/bin/riscv32-unknown-linux-gnu-clang"
-
-    runs-on: ${{ matrix.environments.runner }}
-    steps:
-      - name: Support longpaths
-        run: git config --system core.longpaths true
-        if: contains(matrix.environments.runner, 'windows')
-      - uses: actions/checkout@v6
-        with:
-          submodules: true
-      - uses: ./.github/actions/cache
-        with:
-          mode: ${{ matrix.environments.cache_mode }}
-      - name: Run build
-        shell: bash
-        run: |
-          set -e
-          EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
-          SCOPE="${{ matrix.environments.packages || '' }}"
-          COMMAND="${{ matrix.environments.command || 'test --workspace' }}"
-
-          if [[ -n "${{ matrix.environments.setup }}" ]]; then
-            echo "Running setup command: ${{ matrix.environments.setup }}"
-            ${{ matrix.environments.setup }}
-          fi
-
-          cargo $EXTRA_ARGS $COMMAND $SCOPE --locked --target ${{ matrix.environments.target }}
-
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: failed-simulation-data
-          path: simulation/amaru-sim/test-data
-
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: failed-simulation-data
-          path: simulation/amaru-sim/test-data
+  build-riscv:
+    name: Build riscv
+    needs: [build-linux-x86_64]
+    uses: ./.github/workflows/template-cargo-test.yml
+    with:
+      runner: ubuntu-24.04
+      target: riscv32gc-unknown-linux-gnu
+      command: +$RUST_NIGHTLY_TOOLCHAIN -Zbuild-std=std,panic_abort build -p amaru-ledger
+      cache-mode: READ
+      setup: |
+        # When targetting RISC-V, the uplc-turbo crate fails to compile.
+        # Providing the specific RISC-V gnu clang compiler to Rust allows it to build
+        rustup component add rust-src --toolchain "$RUST_NIGHTLY_TOOLCHAIN"
+        curl -L -o riscv32-glibc-llvm.tar.xz \
+          "https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.11.04/riscv32-glibc-ubuntu-24.04-llvm.tar.xz"
+        tar -xvf riscv32-glibc-llvm.tar.xz
+        export CC_riscv32gc_unknown_linux_gnu="$(pwd)/riscv/bin/riscv32-unknown-linux-gnu-clang"
 
   coverage:
     name: Test coverage
+    needs: [build-linux-x86_64]
     runs-on: ubuntu-24.04
     if: ${{ !github.event.pull_request.draft }}
     env:
@@ -136,9 +107,6 @@ jobs:
         with:
           submodules: True
       - uses: ./.github/actions/cache
-        with:
-          suffix: "-coverage"
-          mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
@@ -157,9 +125,9 @@ jobs:
           files: lcov.info
 
   snapshots:
-    name: End-to-end snapshot tests
+    name: Compare ledger epoch snapshots
     if: ${{ !github.event.pull_request.draft }}
-    uses: ./.github/workflows/snapshot-tests.yml
+    uses: ./.github/workflows/template-ledger-epoch-snapshots.yml
     with:
       use_fixed_epoch: true
       default_timeout: 30
@@ -175,20 +143,19 @@ jobs:
       CARDANO_NODE_BUCKET_NAME: ${{ secrets.CARDANO_NODE_BUCKET_NAME }}
 
   benches:
-    name: Benches
+    name: Bench
+    needs: [build-linux-x86_64]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache
-        with:
-          suffix: "-bench"
-          mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
-      - name: Run amaru-consensus benches
+      - name: benches headers_tree
         shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"
 
   cli:
-    name: Test the CLI
+    name: Test Command-line
+    needs: [build-linux-x86_64]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -205,8 +172,9 @@ jobs:
         shell: bash
         run: FORCE_COLOR=true ./bash_unit cli-tests/test_*
 
-  validate-schemas:
-    name: Validate Trace Schemas and Documentation
+  trace-schemas:
+    name: Test trace schemas & documentation
+    needs: [build-linux-x86_64]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
