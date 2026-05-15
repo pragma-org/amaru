@@ -1,0 +1,75 @@
+version: "0.5"
+
+log_level: info
+
+processes:
+  1-mithril-refresh:
+    description: Refresh the Amaru chain and ledger databases from the latest Mithril snapshot.
+    command: ./process-compose.sh run mithril-refresh
+
+  2-setup:
+    description: Validate configuration and copy refreshed Amaru databases into isolated run directories.
+    command: ./process-compose.sh run setup
+    depends_on:
+      1-mithril-refresh:
+        condition: process_completed_successfully
+
+  cardano-upstream:
+    description: Run the upstream Haskell cardano-node using the configured preprod node config.
+    command: ./process-compose.sh run cardano-upstream
+    readiness_probe:
+      exec:
+        command: ./process-compose.sh ready cardano-upstream
+      initial_delay_seconds: 1
+      period_seconds: 2
+      timeout_seconds: 5
+      failure_threshold: 900
+    depends_on:
+      2-setup:
+        condition: process_completed_successfully
+
+  amaru-middle:
+    description: Run the middle Amaru relay, connected upstream to cardano-node and listening for downstream peers.
+    command: ./process-compose.sh run amaru-middle
+    ready_log_line: '"message":"listening"'
+    depends_on:
+      2-setup:
+        condition: process_completed_successfully
+      cardano-upstream:
+        condition: process_healthy
+
+  amaru-downstream:
+    description: Run the downstream Amaru relay, connected to amaru-middle and exposing the local submit API.
+    command: ./process-compose.sh run amaru-downstream
+    readiness_probe:
+      exec:
+        command: ./process-compose.sh ready amaru-downstream
+      initial_delay_seconds: 1
+      period_seconds: 2
+      timeout_seconds: 3
+      failure_threshold: 900
+    depends_on:
+      2-setup:
+        condition: process_completed_successfully
+      amaru-middle:
+        condition: process_log_ready
+
+  watch:
+    description: Follow relay logs and highlight connection, sync, mempool, transaction, warning, and error events.
+    command: ./process-compose.sh run watch
+    depends_on:
+      2-setup:
+        condition: process_completed_successfully
+
+  submit-tx:
+    description: Generate signed runtime transactions from the configured payment key and submit them downstream.
+    command: ./process-compose.sh run submit-tx
+    depends_on:
+      2-setup:
+        condition: process_completed_successfully
+      cardano-upstream:
+        condition: process_healthy
+      amaru-middle:
+        condition: process_log_ready
+      amaru-downstream:
+        condition: process_healthy

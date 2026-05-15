@@ -35,6 +35,12 @@ die() { echo "error: $*" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+require_cardano_node() {
+  [[ -n "$CARDANO_NODE" ]] || die "CARDANO_NODE must be set (path to cardano-node executable)"
+  [[ -f "$CARDANO_NODE" ]] || die "CARDANO_NODE must point to the executable file, not a directory: $CARDANO_NODE"
+  [[ -x "$CARDANO_NODE" ]] || die "CARDANO_NODE is not executable: $CARDANO_NODE"
+}
+
 tmux_new_session() {
   tmux new-session -d -s "$SESSION" -c "$AMARU_DIR" -n nodes
   tmux set-option -t "$SESSION" remain-on-exit on
@@ -159,8 +165,7 @@ EOF
 # ---------- main ----------
 start() {
   have tmux || die "tmux not found"
-  [[ -n "$CARDANO_NODE" ]] || die "CARDANO_NODE must be set (path to cardano-node executable)"
-  [[ -x "$CARDANO_NODE" ]] || die "CARDANO_NODE is not executable: $CARDANO_NODE"
+  require_cardano_node
   [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set (directory with config.json, topology.json, etc.)"
   [[ -d "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR does not exist: $CARDANO_NODE_CONFIG_DIR"
   [[ -f "$CARDANO_NODE_CONFIG_DIR/config.json" ]] || die "config.json not found in $CARDANO_NODE_CONFIG_DIR"
@@ -241,8 +246,7 @@ restart_pane() {
 
 restart() {
   local pane="${1:?usage: $0 restart <cardano-upstream|amaru-upstream|amaru-center|amaru-downstream|cardano-downstream>}"
-  [[ -n "$CARDANO_NODE" ]] || die "CARDANO_NODE must be set (path to cardano-node executable)"
-  [[ -x "$CARDANO_NODE" ]] || die "CARDANO_NODE is not executable: $CARDANO_NODE"
+  require_cardano_node
   [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set"
   [[ -d "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR does not exist: $CARDANO_NODE_CONFIG_DIR"
   [[ -n "$CARDANO_NODE_DOWNSTREAM_CONFIG_DIR" ]] || die "CARDANO_NODE_DOWNSTREAM_CONFIG_DIR must be set"

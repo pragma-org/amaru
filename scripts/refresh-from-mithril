@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AMARU_DIR="${AMARU_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
+NETWORK="${AMARU_NETWORK:-preprod}"
+BUILD_PROFILE="${BUILD_PROFILE:-release}"
+STAGING_DIR="${STAGING_DIR:-$AMARU_DIR/run/mithril-refresh}"
+SNAPSHOTS_DIR="${AMARU_MITHRIL_SNAPSHOTS_DIR:-$AMARU_DIR/mithril-snapshots}"
+TARGET_CHAIN_DIR="${AMARU_CHAIN_DIR:-$AMARU_DIR/chain.$NETWORK.db}"
+TARGET_LEDGER_DIR="${AMARU_LEDGER_DIR:-$AMARU_DIR/ledger.$NETWORK.db}"
+INSTALL="${INSTALL:-false}"
+REPLACE_EXISTING="${REPLACE_EXISTING:-false}"
+FORCE_REFRESH="${FORCE_REFRESH:-false}"
+METADATA_FILE_NAME=".mithril-refresh.json"
+WORK_DIR="${WORK_DIR:-$STAGING_DIR.in-progress}"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+truthy() {
+  case "${1:-}" in
+    1 | true | TRUE | yes | YES | on | ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+mithril_aggregator_endpoint() {
+  case "$NETWORK" in
+    mainnet) echo "https://aggregator.release-mainnet.api.mithril.network/aggregator" ;;
+    preprod) echo "https://aggregator.release-preprod.api.mithril.network/aggregator" ;;
+    preview) echo "https://aggregator.testing-preview.api.mithril.network/aggregator" ;;
+    *) die "Mithril not supported for network: $NETWORK" ;;
+  esac
+}
+
+latest_mithril_snapshot() {
+  curl -fsSL "$(mithril_aggregator_endpoint)/artifact/cardano-database" | jq -c '.[0]'
+}
+
+metadata_matches_latest() {
+  local metadata_file="$1"
+
+  [[ -f "$metadata_file" ]] || return 1
+  jq -e \
+    --arg network "$NETWORK" \
+    --arg hash "$LATEST_SNAPSHOT_HASH" \
+    '.network == $network and .snapshot.hash == $hash' \
+    "$metadata_file" >/dev/null
+}
+
+write_metadata() {
+  local metadata_file="$1" refreshed_at
+  refreshed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq -n \
+    --arg network "$NETWORK" \
+    --arg build_profile "$BUILD_PROFILE" \
+    --arg refreshed_at "$refreshed_at" \
+    --argjson snapshot "$LATEST_SNAPSHOT_JSON" \
+    '{network: $network, build_profile: $build_profile, refreshed_at: $refreshed_at, snapshot: $snapshot}' \
+    > "$metadata_file"
+}
+
+install_dir() {
+  local source="$1" target="$2" backup
+
+  if [[ -e "$target" ]]; then
+    truthy "$REPLACE_EXISTING" || die "$target already exists; set REPLACE_EXISTING=true to replace it"
+    backup="$target.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+    mv "$target" "$backup"
+    echo "[mithril-refresh] backed up $target to $backup"
+  fi
+
+  mv "$source" "$target"
+  echo "[mithril-refresh] installed $target"
+}
+
+replace_dir() {
+  local source="$1" target="$2" backup
+
+  if [[ -e "$target" ]]; then
+    backup="$target.backup.$(date -u +%Y%m%dT%H%M%SZ)"
+    mv "$target" "$backup"
+    echo "[mithril-refresh] backed up $target to $backup"
+  fi
+
+  mv "$source" "$target"
+  echo "[mithril-refresh] installed $target"
+}
+
+bootstrap_refresh() {
+  local chain_dir="$1" ledger_dir="$2" root_dir="$3"
+
+  echo "[mithril-refresh] bootstrapping $NETWORK into $root_dir"
+  cargo run --profile "$BUILD_PROFILE" -- bootstrap \
+    --network "$NETWORK" \
+    --chain-dir "$chain_dir" \
+    --ledger-dir "$ledger_dir" \
+    --force
+}
+
+sync_refresh() {
+  local chain_dir="$1" ledger_dir="$2"
+
+  echo "[mithril-refresh] downloading latest Mithril snapshot and packaging immutable blocks"
+  cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- mithril \
+    --network "$NETWORK" \
+    --ledger-dir "$ledger_dir" \
+    --snapshots-dir "$SNAPSHOTS_DIR"
+
+  echo "[mithril-refresh] syncing Amaru chain and ledger databases from packaged blocks"
+  cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- sync \
+    --network "$NETWORK" \
+    --chain-dir "$chain_dir" \
+    --ledger-dir "$ledger_dir"
+}
+
+cd "$AMARU_DIR"
+
+have curl || die "curl not found"
+have jq || die "jq not found"
+
+[[ -n "$STAGING_DIR" && "$STAGING_DIR" != "/" ]] || die "unsafe STAGING_DIR: $STAGING_DIR"
+[[ -n "$WORK_DIR" && "$WORK_DIR" != "/" ]] || die "unsafe WORK_DIR: $WORK_DIR"
+
+STAGING_CHAIN_DIR="$STAGING_DIR/chain.$NETWORK.db"
+STAGING_LEDGER_DIR="$STAGING_DIR/ledger.$NETWORK.db"
+STAGING_METADATA_FILE="$STAGING_DIR/$METADATA_FILE_NAME"
+TARGET_METADATA_FILE="$TARGET_CHAIN_DIR$METADATA_FILE_NAME"
+WORK_CHAIN_DIR="$WORK_DIR/chain.$NETWORK.db"
+WORK_LEDGER_DIR="$WORK_DIR/ledger.$NETWORK.db"
+WORK_METADATA_FILE="$WORK_DIR/$METADATA_FILE_NAME"
+
+echo "[mithril-refresh] checking latest Mithril snapshot for $NETWORK"
+LATEST_SNAPSHOT_JSON="$(latest_mithril_snapshot)"
+LATEST_SNAPSHOT_HASH="$(jq -r '.hash' <<< "$LATEST_SNAPSHOT_JSON")"
+LATEST_SNAPSHOT_CREATED_AT="$(jq -r '.created_at // "unknown"' <<< "$LATEST_SNAPSHOT_JSON")"
+LATEST_IMMUTABLE_FILE_NUMBER="$(jq -r '.beacon.immutable_file_number // "unknown"' <<< "$LATEST_SNAPSHOT_JSON")"
+echo "[mithril-refresh] latest snapshot: $LATEST_SNAPSHOT_HASH (immutable $LATEST_IMMUTABLE_FILE_NUMBER, created $LATEST_SNAPSHOT_CREATED_AT)"
+
+if ! truthy "$FORCE_REFRESH"; then
+  if truthy "$INSTALL"; then
+    if [[ -d "$TARGET_CHAIN_DIR" && -d "$TARGET_LEDGER_DIR" ]] && metadata_matches_latest "$TARGET_METADATA_FILE"; then
+      echo "[mithril-refresh] already refreshed from latest Mithril snapshot; skipping"
+      exit 0
+    fi
+  elif [[ -d "$STAGING_CHAIN_DIR" && -d "$STAGING_LEDGER_DIR" ]] && metadata_matches_latest "$STAGING_METADATA_FILE"; then
+    echo "[mithril-refresh] already refreshed from latest Mithril snapshot; skipping"
+    exit 0
+  fi
+fi
+
+mkdir -p "$SNAPSHOTS_DIR"
+
+if ! truthy "$INSTALL" &&
+  ! truthy "$FORCE_REFRESH" &&
+  [[ -d "$STAGING_CHAIN_DIR" && -d "$STAGING_LEDGER_DIR" && -f "$STAGING_METADATA_FILE" ]]; then
+  echo "[mithril-refresh] updating existing refreshed databases in place"
+  sync_refresh "$STAGING_CHAIN_DIR" "$STAGING_LEDGER_DIR"
+  write_metadata "$STAGING_METADATA_FILE"
+  echo "[mithril-refresh] refreshed databases:"
+  echo "  chain:  $STAGING_CHAIN_DIR"
+  echo "  ledger: $STAGING_LEDGER_DIR"
+elif truthy "$INSTALL"; then
+  rm -rf "$STAGING_DIR"
+  mkdir -p "$STAGING_DIR"
+  bootstrap_refresh "$STAGING_CHAIN_DIR" "$STAGING_LEDGER_DIR" "$STAGING_DIR"
+  sync_refresh "$STAGING_CHAIN_DIR" "$STAGING_LEDGER_DIR"
+
+  echo "[mithril-refresh] refreshed databases:"
+  echo "  chain:  $STAGING_CHAIN_DIR"
+  echo "  ledger: $STAGING_LEDGER_DIR"
+  install_dir "$STAGING_CHAIN_DIR" "$TARGET_CHAIN_DIR"
+  install_dir "$STAGING_LEDGER_DIR" "$TARGET_LEDGER_DIR"
+  write_metadata "$TARGET_METADATA_FILE"
+else
+  rm -rf "$WORK_DIR"
+  mkdir -p "$WORK_DIR"
+  bootstrap_refresh "$WORK_CHAIN_DIR" "$WORK_LEDGER_DIR" "$WORK_DIR"
+  sync_refresh "$WORK_CHAIN_DIR" "$WORK_LEDGER_DIR"
+  write_metadata "$WORK_METADATA_FILE"
+
+  echo "[mithril-refresh] refreshed databases:"
+  echo "  chain:  $WORK_CHAIN_DIR"
+  echo "  ledger: $WORK_LEDGER_DIR"
+  replace_dir "$WORK_DIR" "$STAGING_DIR"
+  echo "[mithril-refresh] not installing; set INSTALL=true to move them into:"
+  echo "  chain:  $TARGET_CHAIN_DIR"
+  echo "  ledger: $TARGET_LEDGER_DIR"
+fi
