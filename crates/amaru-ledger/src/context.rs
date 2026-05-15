@@ -24,7 +24,8 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
     MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 pub use default::*;
@@ -33,7 +34,15 @@ use crate::state::diff_bind;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
-    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + ProposalsSlice
+    PotsSlice
+    + UtxoSlice
+    + PoolsSlice
+    + AccountsSlice
+    + DRepsSlice
+    + CommitteeSlice
+    + WitnessSlice
+    + ProposalsSlice
+    + BalanceSlice
 {
     type FinalState;
 }
@@ -236,6 +245,28 @@ pub trait ProposalsSlice {
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
+}
+
+// Value Preservation
+// -------------------------------------------------------------------------------------------------
+
+/// An interface for accumulating the running total of value produced and consumed by a
+/// transaction. A valid transaction should have a balance of zero.
+pub trait BalanceSlice {
+    /// Subtract a value to the balance accumulator.
+    fn add_consumed(&mut self, value: &Value);
+
+    /// Add a value to the balance accumulator.
+    fn add_produced(&mut self, value: &Value);
+
+    /// Subtract a lovelace amount to the balance accumulator.
+    fn add_consumed_lovelace(&mut self, amount: Lovelace);
+
+    /// Add a lovelace amount to the balance accumulator.
+    fn add_produced_lovelace(&mut self, amount: Lovelace);
+
+    /// The current total balance
+    fn balance(&self) -> &Balance;
 }
 
 // Witnesses
