@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
+    fmt::{self, Display, Formatter},
     ops::{AddAssign, SubAssign},
 };
 
@@ -30,9 +31,39 @@ pub struct Balance {
     multiasset: BTreeMap<(PolicyId, AssetName), i64>,
 }
 
+impl Display for Balance {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "({}, [{}])",
+            self.coin,
+            self.multiasset
+                .iter()
+                .map(|((policy, asset_name), value)| format!(
+                    "{}: {}",
+                    hex::encode([policy.as_ref(), asset_name.as_ref()].concat()),
+                    value
+                ))
+                .collect::<Vec<String>>()
+                .join(",")
+        )
+    }
+}
+
 impl Balance {
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn coin(&self) -> i64 {
+        self.coin
+    }
+
+    pub fn has_assets(&self) -> bool {
+        self.multiasset.is_empty()
+    }
     pub fn is_zero(&self) -> bool {
-        self.coin == 0 && self.multiasset.is_empty()
+        self.coin == 0 && self.has_assets()
     }
 
     fn add_coin(&mut self, amount: u64) {
