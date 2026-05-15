@@ -1,6 +1,7 @@
 version: "0.5"
 
 log_level: info
+log_length: 50000
 
 processes:
   1-mithril-refresh:
@@ -14,7 +15,7 @@ processes:
       1-mithril-refresh:
         condition: process_completed_successfully
 
-  cardano-upstream:
+  3-cardano-node:
     description: Run the upstream Haskell cardano-node using the configured preprod node config.
     command: ./process-compose.sh run cardano-upstream
     readiness_probe:
@@ -28,17 +29,23 @@ processes:
       2-setup:
         condition: process_completed_successfully
 
-  amaru-middle:
+  4-amaru-middle:
     description: Run the middle Amaru relay, connected upstream to cardano-node and listening for downstream peers.
     command: ./process-compose.sh run amaru-middle
-    ready_log_line: '"message":"listening"'
+    readiness_probe:
+      exec:
+        command: ./process-compose.sh ready amaru-middle
+      initial_delay_seconds: 1
+      period_seconds: 2
+      timeout_seconds: 3
+      failure_threshold: 900
     depends_on:
       2-setup:
         condition: process_completed_successfully
-      cardano-upstream:
+      3-cardano-node:
         condition: process_healthy
 
-  amaru-downstream:
+  5-amaru-downstream:
     description: Run the downstream Amaru relay, connected to amaru-middle and exposing the local submit API.
     command: ./process-compose.sh run amaru-downstream
     readiness_probe:
@@ -51,25 +58,38 @@ processes:
     depends_on:
       2-setup:
         condition: process_completed_successfully
-      amaru-middle:
-        condition: process_log_ready
+      4-amaru-middle:
+        condition: process_healthy
 
-  watch:
-    description: Follow relay logs and highlight connection, sync, mempool, transaction, warning, and error events.
-    command: ./process-compose.sh run watch
-    depends_on:
-      2-setup:
-        condition: process_completed_successfully
-
-  submit-tx:
+  6-submit-tx:
     description: Generate signed runtime transactions from the configured payment key and submit them downstream.
     command: ./process-compose.sh run submit-tx
     depends_on:
       2-setup:
         condition: process_completed_successfully
-      cardano-upstream:
+      3-cardano-node:
         condition: process_healthy
-      amaru-middle:
-        condition: process_log_ready
-      amaru-downstream:
+      4-amaru-middle:
         condition: process_healthy
+      5-amaru-downstream:
+        condition: process_healthy
+
+  7-refuel-submit-wallet:
+    description: Consolidate the demo payment wallet into clean UTxOs for concurrent submit-tx runs.
+    command: ./process-compose.sh run refuel-submit-wallet
+    disabled: true
+    depends_on:
+      3-cardano-node:
+        condition: process_healthy
+
+  8-telemetry:
+    description: Open Grafana Tempo traces and Prometheus metrics for Amaru in the browser.
+    command: ./process-compose.sh run telemetry-open
+    disabled: true
+
+  9-watch:
+    description: Follow relay logs and highlight connection, sync, mempool, transaction, warning, and error events.
+    command: ./process-compose.sh run watch
+    depends_on:
+      2-setup:
+        condition: process_completed_successfully

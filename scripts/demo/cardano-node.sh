@@ -24,6 +24,23 @@ network_magic() {
   fi
 }
 
+cardano_node_requires_network_magic() {
+  [[ -n "$CARDANO_TESTNET_MAGIC" ]] && return 0
+  if have jq && [[ -f "$(cardano_node_config_file)" ]]; then
+    [[ "$(jq -r '.RequiresNetworkMagic // "RequiresMagic"' "$(cardano_node_config_file)")" != "RequiresNoMagic" ]]
+  else
+    return 0
+  fi
+}
+
+cardano_cli_network_args() {
+  if cardano_node_requires_network_magic; then
+    printf '%s\n' --testnet-magic "$(network_magic)"
+  else
+    printf '%s\n' --mainnet
+  fi
+}
+
 cardano_node_config_file() {
   echo "${CARDANO_NODE_CONFIG_FILE:-$CARDANO_NODE_CONFIG_DIR/config.json}"
 }
@@ -95,9 +112,8 @@ wait_for_cardano_query() {
 cardano_node_tip_slot() {
   local socket
   socket="$(cardano_node_socket_file)"
-  local magic="$1"
   "$CARDANO_CLI" conway query tip \
-    --testnet-magic "$magic" \
+    $(cardano_cli_network_args) \
     --socket-path "$socket" \
     | jq -r '.slot // empty'
 }

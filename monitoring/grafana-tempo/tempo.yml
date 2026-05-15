@@ -50,6 +50,8 @@ storage:
 
 overrides:
   defaults:
+    global:
+      max_bytes_per_trace: 64000000 # header-hash traces can intentionally collect many spans in demos
     metrics_generator:
       processors: [service-graphs, span-metrics, local-blocks] # enables metrics generator
       generate_native_histograms: both
