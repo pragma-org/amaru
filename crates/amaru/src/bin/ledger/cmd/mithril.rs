@@ -430,7 +430,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let tail_archive = latest_archive(&existing_archives);
 
     // Determine the chunk to start from
-    let resume_point = resume_point_for_archives(&existing_archives);
+    let mut resume_point = resume_point_for_archives(&existing_archives);
+    if resume_point == Point::Origin {
+        resume_point = tip;
+    }
 
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
     let from_chunk = from_chunk_for_resume_point(latest_chunk, resume_point);

@@ -69,7 +69,8 @@ fn insert_batch_returns_one_result_per_transaction() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["transaction rejected by mempool", "transaction rejected for testing"])
+    logs.assert_and_remove(Level::INFO, &["transaction accepted into mempool"])
+        .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "transaction rejected for testing"])
         .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "Transaction is a duplicate"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
