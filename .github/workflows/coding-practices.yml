@@ -36,8 +36,6 @@ jobs:
               - "crates/**/Cargo.lock"
 
   unused-dependencies:
-    needs: changes
-    if: ${{ needs.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

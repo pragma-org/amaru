@@ -290,7 +290,11 @@ pub async fn best_tip_from_store(store: &Store) -> anyhow::Result<Option<(BlockH
 
 /// Return the point of the parent of `header`, or `Point::Origin` if it has no parent.
 /// The parent header must be present in the store otherwise the stage is terminated.
-async fn load_parent_point(eff: &Effects<SelectChainMsg>, store: Store, header: &BlockHeader) -> Point {
+pub async fn load_parent_point<T: Send + Sync + 'static>(
+    eff: &Effects<T>,
+    store: Store,
+    header: &BlockHeader,
+) -> Point {
     if let Some(parent) = header.parent() {
         store
             .load_tip(&parent)

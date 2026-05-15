@@ -45,5 +45,8 @@ pub use has_ex_units::*;
 pub mod has_redeemers;
 pub use has_redeemers::*;
 
+pub mod has_transaction_id;
+pub use has_transaction_id::*;
+
 pub mod to_bytes;
 pub use to_bytes::*;

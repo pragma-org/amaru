@@ -69,7 +69,7 @@ pub fn execute(
 
     let mut invalid_witnesses = vec![];
     vkey_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_slice())
+        verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_ref().as_slice())
             .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
     });
 
@@ -79,7 +79,7 @@ pub fn execute(
 
     let mut invalid_witnesses = vec![];
     bootstrap_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.public_key, &witness.signature, transaction_id.as_slice())
+        verify_ed25519_signature(&witness.public_key, &witness.signature, transaction_id.as_ref().as_slice())
             .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
     });
 
@@ -92,7 +92,9 @@ pub fn execute(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{InvalidEd25519Signature, TransactionBody, WitnessSet, hash, include_cbor, include_json, json};
+    use amaru_kernel::{
+        HasTransactionId, InvalidEd25519Signature, TransactionBody, WitnessSet, hash, include_cbor, include_json, json,
+    };
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -106,14 +108,14 @@ mod tests {
         ($hash:literal) => {
             (
                 fixture_context!($hash),
-                hash!($hash),
+                TransactionId::new(hash!($hash)),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
             )
         };
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
-                hash!($hash),
+                TransactionId::new(hash!($hash)),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
             )
         };
@@ -238,7 +240,7 @@ mod tests {
             || {
                 super::execute(
                     &mut ctx,
-                    tx.id(),
+                    tx.tx_id(),
                     witness_set.bootstrap_witness.as_deref(),
                     witness_set.vkeywitness.as_deref(),
                 )

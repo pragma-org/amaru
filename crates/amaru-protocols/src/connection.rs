@@ -259,8 +259,15 @@ async fn do_handshake(
     };
 
     let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
-    let tx_submission =
-        register_tx_submission(*role, muxer.clone(), &eff, TxOrigin::Remote(peer.clone()), mempool_stage.clone()).await;
+    let tx_submission = register_tx_submission(
+        *role,
+        muxer.clone(),
+        &eff,
+        TxOrigin::Remote(peer.clone()),
+        mempool_stage.clone(),
+        era_history.clone(),
+    )
+    .await;
 
     if *role == Role::Initiator {
         let chainsync_initiator = register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;

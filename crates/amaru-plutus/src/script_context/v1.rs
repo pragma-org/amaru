@@ -305,7 +305,7 @@ mod tests {
                 let tx_info = TxInfo::new(
                     &transaction.body,
                     &transaction.witnesses,
-                    transaction.body.id(),
+                    transaction.tx_id(),
                     &utxos,
                     &0.into(),
                     network,
