@@ -1,0 +1,79 @@
+name: template-cargo-test
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_LOG: error
+  # NOTE: Unused below, but necessary if caller references it.
+  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-04-17
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "Runner to use for the workflow; one of: ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025"
+        required: true
+        type: string
+
+      target:
+        description: "Rust target to use (e.g. x86_64-unknown-linux-gnu)"
+        required: true
+        type: string
+
+      cache-mode:
+        description: "Behaviour for the cache: 'READ' or 'WRITE'"
+        required: true
+        type: string
+
+      command:
+        description: "Command override instead of the default 'test --workspace'. DO NOT include --locked or --target"
+        required: false
+        type: string
+        default: "test --workspace"
+
+      setup:
+        description: "Additional setup command to run prior to build."
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  cargo-test:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 90
+    steps:
+      - name: Support longpaths
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: ./.github/actions/cache
+        with:
+          mode: ${{ inputs.cache-mode }}
+
+      - name: Run build
+        shell: bash
+        run: |
+          set -e
+
+          if [[ -n "${{ inputs.setup }}" ]]; then
+            echo "Running setup command: ${{ inputs.setup }}"
+            ${{ inputs.setup }}
+          fi
+
+          COMMAND="${{ inputs.command }}"
+
+          cargo $COMMAND --locked --target "${{ inputs.target }}"
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failed-simulation-data
+          path: simulation/amaru-sim/test-data

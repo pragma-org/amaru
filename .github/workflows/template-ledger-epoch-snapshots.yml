@@ -1,4 +1,4 @@
-name: Snapshot Tests
+name: template-ledger-epoch-snapshots
 
 on:
   workflow_call:
@@ -206,7 +206,7 @@ jobs:
           make import-nonces
 
       - uses: actions/cache/save@v5
-        if: steps.cache-ledger-db.outputs.cache-hit == ''
+        if: steps.cache-ledger-db.outputs.cache-hit == '' && github.ref == 'refs/heads/main'
         with:
           path: ./ledger.${{ matrix.network.name }}.db
           key: ledger-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
