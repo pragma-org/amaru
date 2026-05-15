@@ -15,11 +15,12 @@
 use std::{
     collections::{BTreeSet, VecDeque},
     fmt::Display,
+    sync::Arc,
     time::Duration,
 };
 
 use ProtocolError::*;
-use amaru_kernel::{Transaction, TransactionId};
+use amaru_kernel::{EraHistory, Transaction, TransactionId};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo};
 use amaru_ouroboros_traits::{TxInsertResult, TxOrigin, TxRejectReason};
@@ -32,7 +33,7 @@ use crate::{
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, miniprotocol, outcome,
     },
-    tx_submission::{Blocking, Message, ProtocolError, ResponderParams, State},
+    tx_submission::{Blocking, EraTaggedTxId, Message, ProtocolError, ResponderParams, State},
 };
 
 pub const MEMPOOL_INSERT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -113,10 +114,14 @@ impl ProtocolState<Responder> for State {
         let _guard = _span.enter();
         Ok(match (self, input) {
             (State::Init, Message::Init) => (outcome().result(ResponderResult::Init), State::Idle),
-            (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tx_ids)) => {
+            (State::TxIdsBlocking | State::TxIdsNonBlocking, Message::ReplyTxIds(tagged_ids)) => {
+                let tx_ids = tagged_ids.into_iter().map(|(t, size)| (t.id, size)).collect();
                 (outcome().result(ResponderResult::ReplyTxIds(tx_ids)), State::Idle)
             }
-            (State::Txs, Message::ReplyTxs(txs)) => (outcome().result(ResponderResult::ReplyTxs(txs)), State::Idle),
+            (State::Txs, Message::ReplyTxs(tagged_txs)) => {
+                let txs = tagged_txs.into_iter().map(|t| t.tx).collect();
+                (outcome().result(ResponderResult::ReplyTxs(txs)), State::Idle)
+            }
             (State::TxIdsBlocking, Message::Done) => (outcome().result(ResponderResult::Done), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -193,6 +198,8 @@ pub struct TxSubmissionResponder {
     muxer: StageRef<MuxMessage>,
     /// Reference to the mempool stage for batch transaction insertion.
     mempool_stage: StageRef<MempoolMsg>,
+    /// Era history used to derive the current era tag for outgoing wire messages.
+    era_history: Arc<EraHistory>,
 }
 
 impl TxSubmissionResponder {
@@ -201,6 +208,7 @@ impl TxSubmissionResponder {
         params: ResponderParams,
         origin: TxOrigin,
         mempool_stage: StageRef<MempoolMsg>,
+        era_history: Arc<EraHistory>,
     ) -> (State, Self) {
         (
             State::Init,
@@ -213,6 +221,7 @@ impl TxSubmissionResponder {
                 origin,
                 muxer,
                 mempool_stage,
+                era_history,
             },
         )
     }
@@ -241,7 +250,9 @@ impl TxSubmissionResponder {
             let (ack, req, blocking) = self.request_tx_ids(mempool).await;
             Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
         } else {
-            Ok(Some(ResponderAction::SendRequestTxs(txs)))
+            let era = self.era_history.current_era_tag();
+            let tagged = txs.into_iter().map(|id| EraTaggedTxId { era, id }).collect();
+            Ok(Some(ResponderAction::SendRequestTxs(tagged)))
         }
     }
 
@@ -465,10 +476,14 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionResponder {
     }
 }
 
+/// Actions produced by the responder stage.
+///
+/// `SendRequestTxs` carries a list of [`EraTaggedTxId`]s — each id is tagged with the era
+/// the responder will request it in.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResponderAction {
     SendRequestTxIds { ack: u16, req: u16, blocking: Blocking },
-    SendRequestTxs(Vec<TransactionId>),
+    SendRequestTxs(Vec<EraTaggedTxId>),
     Error(ProtocolError),
 }
 
@@ -509,7 +524,7 @@ mod tests {
 
     use std::{collections::BTreeMap, sync::Arc};
 
-    use amaru_kernel::Transaction;
+    use amaru_kernel::{EraName, TESTNET_ERA_HISTORY, Transaction};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::{
         MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
@@ -518,6 +533,10 @@ mod tests {
 
     use super::*;
     use crate::tx_submission::{assert_actions_eq, tests::create_transactions};
+
+    fn test_era() -> EraName {
+        TESTNET_ERA_HISTORY.current_era_tag()
+    }
 
     #[tokio::test]
     async fn test_responder() -> anyhow::Result<()> {
@@ -696,6 +715,7 @@ mod tests {
                 ResponderParams::default(),
                 TxOrigin::Local,
                 StageRef::blackhole(),
+                Arc::new(TESTNET_ERA_HISTORY.clone()),
             )
             .1,
             mempool,
@@ -752,7 +772,9 @@ mod tests {
     }
 
     fn request_txs(txs: &[Transaction], ids: &[usize]) -> ResponderAction {
-        ResponderAction::SendRequestTxs(ids.iter().map(|id| txs[*id].tx_id()).collect())
+        let era = test_era();
+        let payload: Vec<EraTaggedTxId> = ids.iter().map(|id| EraTaggedTxId { era, id: txs[*id].tx_id() }).collect();
+        ResponderAction::SendRequestTxs(payload)
     }
 
     fn error_action(error: ProtocolError) -> ResponderAction {

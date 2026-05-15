@@ -630,6 +630,15 @@ impl EraHistory {
         let era_index = self.slot_to_era_index(slot)?;
         Ok(self.eras[era_index].params.era_name)
     }
+
+    /// Return the era tag of the currently active era (the last era in the history).
+    ///
+    /// The last era is the one without an upper bound and corresponds to the era the
+    /// network is currently in.
+    pub fn current_era_tag(&self) -> EraName {
+        #[expect(clippy::expect_used)]
+        self.eras.last().expect("EraHistory cannot be empty").params.era_name
+    }
 }
 
 /// Compute the time in milliseconds between the start of the system and the given slot.
