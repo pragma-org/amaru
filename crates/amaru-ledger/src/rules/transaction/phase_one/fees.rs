@@ -14,7 +14,7 @@
 
 use amaru_kernel::{HasLovelace, Lovelace, MemoizedTransactionOutput, TransactionInput};
 
-use crate::context::{PotsSlice, UtxoSlice};
+use crate::context::{BalanceSlice, PotsSlice, UtxoSlice};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
@@ -34,10 +34,11 @@ pub(crate) fn execute<C>(
     collateral_return: Option<&MemoizedTransactionOutput>,
 ) -> Result<(), InvalidFees>
 where
-    C: UtxoSlice + PotsSlice,
+    C: UtxoSlice + PotsSlice + BalanceSlice,
 {
     if is_valid {
         context.add_fees(fees);
+        context.add_produced_lovelace(fees);
         return Ok(());
     }
 
