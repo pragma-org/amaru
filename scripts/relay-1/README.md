@@ -14,7 +14,9 @@ port: 3001           peer: 3001        peer: 4001
 
 - A `cardano-node` executable (installed via package manager, built from source, etc.)
 - A `cardano-cli` executable on `PATH`, or set `CARDANO_CLI`, when generating transactions at runtime
+- `jq`
 - A directory with cardano-node configuration files (`config.json`, `topology.json`)
+- Docker, when using the built-in telemetry stack
 - The amaru node checked-out from https://github.com/pragma-org/amaru
 - Refreshed demo databases, created automatically by `./process-compose.sh up`
 
@@ -44,6 +46,16 @@ The following environment variables configure the demo:
 | `TX_OUTPUT_LOVELACE`            | No       | 1000000                                  | Lovelace sent to the self-transfer output             |
 | `TX_FEE_BUFFER_LOVELACE`        | No       | 300000                                   | Fee buffer used to skip UTxOs that are too small      |
 | `TX_CHANGE_BUFFER_LOVELACE`     | No       | 900000                                   | Change buffer used to keep change above min UTxO      |
+| `CLEAR_SUBMIT_TX_CLAIMS_ON_START` | No     | `true`                                   | Clear stale submit-tx UTxO claims when replica 0 starts |
+| `START_TELEMETRY`               | No       | `true`                                   | Start Grafana, Tempo, Prometheus, and the OTLP collector before the demo |
+| `TELEMETRY_GRAFANA_URL`         | No       | `http://localhost`                       | Grafana URL opened by `telemetry-open`                |
+| `TELEMETRY_PROMETHEUS_URL`      | No       | `http://localhost:9090`                  | Prometheus URL opened by `telemetry-open`             |
+| `AMARU_MIDDLE_WITH_OPEN_TELEMETRY` | No    | `true`                                   | Export OpenTelemetry traces and metrics from `amaru-middle` |
+| `AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY` | No | `false`                                  | Export OpenTelemetry traces and metrics from `amaru-downstream` |
+| `AMARU_MIDDLE_TRACE`            | No       | `info,amaru::stores::consensus=trace,amaru::mempool=trace` | Trace filter for `amaru-middle` telemetry |
+| `AMARU_DOWNSTREAM_TRACE`        | No       | `info`                                   | Trace filter for `amaru-downstream` telemetry/logs |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`   | No       | `http://localhost:4317`                  | OTLP/gRPC endpoint for traces and logs                |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | No | `http://localhost:4318/v1/metrics`       | OTLP/HTTP endpoint for metrics                        |
 
 The `CARDANO_NODE_CONFIG_DIR` should contain:
 
@@ -61,9 +73,19 @@ export CARDANO_NODE_CONFIG_DIR=/path/to/config-dir
 ./process-compose.sh status  # check process status
 ```
 
-Running `./process-compose.sh up` opens the process-compose TUI, refreshes the Amaru databases from Mithril, prepares
-the isolated run directories, and starts the 3 nodes. Use the wrapper or run `process-compose -f process-compose.yaml up`
-from this directory so that the configured process dependencies are used.
+Running `./process-compose.sh up` starts the Grafana/Tempo/Prometheus telemetry stack, opens the process-compose TUI,
+refreshes the Amaru databases from Mithril, prepares the isolated run directories, and starts the 3 nodes. Use the
+wrapper instead of running `process-compose` directly so telemetry and the configured process dependencies are used.
+Set `START_TELEMETRY=false` to keep the demo in node-only mode.
+
+Only `amaru-middle` exports OpenTelemetry by default, using the service name `amaru-middle`. The downstream relay still
+emits JSON traces to the Process Compose logs, but does not export OpenTelemetry unless
+`AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY=true` is set.
+
+The middle node enables trace-level telemetry for `amaru::stores::consensus` and `amaru::mempool`, so the demo captures
+new-header storage traces and transaction mempool traces without enabling trace-level telemetry for every subsystem.
+
+Use `AMARU_MIDDLE_WITH_OPEN_TELEMETRY=false` if you want JSON logs only.
 
 To refresh the Amaru chain and ledger databases from the latest Mithril snapshot before starting the demo:
 
@@ -115,7 +137,51 @@ The configured processes are:
 - `amaru-middle`
 - `amaru-downstream`
 - `watch`
+- `telemetry-open` (disabled by default; start it manually from the TUI to open telemetry tabs)
 - `submit-tx`
+
+## Telemetry
+
+The demo uses the [Grafana + Tempo + Prometheus](../../monitoring/grafana-tempo) stack:
+
+- Grafana: [http://localhost](http://localhost)
+- Prometheus: [http://localhost:9090](http://localhost:9090)
+- OTLP collector: `localhost:4317` for traces/logs and `localhost:4318/v1/metrics` for metrics
+
+Start the telemetry stack without starting the relay nodes:
+
+```bash
+./process-compose.sh telemetry-up
+```
+
+Open the useful browser tabs for the demo:
+
+```bash
+./process-compose.sh telemetry-open
+```
+
+This opens:
+
+- Grafana Explore on Tempo, auto-refreshing every 5 seconds, for recent `amaru-middle` `store_header` traces, which show
+  the middle node receiving and storing new headers.
+- Grafana Explore on Tempo, auto-refreshing every 5 seconds, for recent `amaru-middle` `tx_received` and `tx_accepted`
+  traces, which show transactions pulled from downstream into the middle node mempool.
+- Grafana Explore on Prometheus, auto-refreshing every 5 seconds, with
+  `sum by (origin, result) (cardano_node_metrics_mempoolTxInsertionsNum_int_total{exported_job="amaru-middle"}) or vector(0)`,
+  which shows transaction insertion attempts by origin and result in near real time.
+
+After the middle relay has synced a few blocks or accepted submitted transactions, the tabs should update automatically.
+The header trace tab should populate during normal chain sync. The transaction trace and metric tabs populate after
+`submit-tx` submits a transaction to the downstream node and the middle node pulls it into its mempool.
+
+The Process Compose TUI also lists a disabled `telemetry-open` process. It does not run during startup; start or restart
+that process from the TUI when you want to open the telemetry tabs during the live demo.
+
+Stop the telemetry stack:
+
+```bash
+./process-compose.sh telemetry-down
+```
 
 ## Transaction Submission
 
@@ -238,9 +304,10 @@ from the downstream Amaru node.
 available UTxO that can cover the transaction before building, and writes generated transaction files under its own
 `run/generated/submit-tx-*` directory. Accepted
 transaction claims are kept for the current run because cardano-node may still show the spent input until the ledger
-catches up. Restart the full demo setup to clear stale claims. Set `TX_GENERATED_COUNT` only when you intentionally want
-each replica to build multiple transactions. If more replicas are started than there are spendable UTxOs, the extra
-replicas log that there is nothing to submit and exit successfully.
+catches up. Restarting `submit-tx` clears stale claims by default when replica 0 starts; set
+`CLEAR_SUBMIT_TX_CLAIMS_ON_START=false` to keep claims across `submit-tx` restarts. Set `TX_GENERATED_COUNT` only when
+you intentionally want each replica to build multiple transactions. If more replicas are started than there are
+spendable UTxOs, the extra replicas log that there is nothing to submit and exit successfully.
 
 The `watch` process marks transaction-path events with a cyan `>>> TX >>>` prefix. This covers transaction generation,
 Submit API HTTP 202 responses, downstream and middle Amaru mempool acceptance, upstream cardano-node

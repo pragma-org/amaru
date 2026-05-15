@@ -18,6 +18,18 @@ AMARU_CHAIN_SOURCE_DIR="${AMARU_CHAIN_SOURCE_DIR:-$DEFAULT_AMARU_CHAIN_SOURCE_DI
 AMARU_LEDGER_SOURCE_DIR="${AMARU_LEDGER_SOURCE_DIR:-$DEFAULT_AMARU_LEDGER_SOURCE_DIR}"
 TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-$SCRIPT_DIR/keys/payment.skey}"
 TX_WAIT_FOR_SYNC="${TX_WAIT_FOR_SYNC:-true}"
+CLEAR_SUBMIT_TX_CLAIMS_ON_START="${CLEAR_SUBMIT_TX_CLAIMS_ON_START:-true}"
+START_TELEMETRY="${START_TELEMETRY:-true}"
+TELEMETRY_COMPOSE_FILE="${TELEMETRY_COMPOSE_FILE:-$AMARU_DIR/monitoring/grafana-tempo/docker-compose.yml}"
+TELEMETRY_GRAFANA_URL="${TELEMETRY_GRAFANA_URL:-http://localhost}"
+TELEMETRY_PROMETHEUS_URL="${TELEMETRY_PROMETHEUS_URL:-http://localhost:9090}"
+OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4317}"
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-http://localhost:4318/v1/metrics}"
+AMARU_MIDDLE_WITH_OPEN_TELEMETRY="${AMARU_MIDDLE_WITH_OPEN_TELEMETRY:-true}"
+AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY="${AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY:-false}"
+AMARU_MIDDLE_OTEL_SERVICE_NAME="${AMARU_MIDDLE_OTEL_SERVICE_NAME:-amaru-middle}"
+AMARU_MIDDLE_TRACE="${AMARU_MIDDLE_TRACE:-info,amaru::stores::consensus=trace,amaru::mempool=trace}"
+AMARU_DOWNSTREAM_TRACE="${AMARU_DOWNSTREAM_TRACE:-info}"
 
 CARDANO_NODE="${CARDANO_NODE:-}"
 CARDANO_NODE_CONFIG_DIR="${CARDANO_NODE_CONFIG_DIR:-}"
@@ -31,6 +43,7 @@ UPSTREAM_PORT="${UPSTREAM_PORT:-3001}"
 LISTEN_PORT="${LISTEN_PORT:-4001}"
 DOWNSTREAM_LISTEN_PORT="${DOWNSTREAM_LISTEN_PORT:-4002}"
 DOWNSTREAM_SUBMIT_API_ADDRESS="${DOWNSTREAM_SUBMIT_API_ADDRESS:-127.0.0.1:8091}"
+AMARU_MIDDLE_OTEL_SERVICE_INSTANCE_ID="${AMARU_MIDDLE_OTEL_SERVICE_INSTANCE_ID:-relay-1-middle-$LISTEN_PORT}"
 
 . "$AMARU_DIR/scripts/demo/common.sh"
 . "$AMARU_DIR/scripts/demo/cardano-node.sh"
@@ -163,7 +176,12 @@ run_cardano_upstream() {
 
 run_amaru_middle() {
   cd "$AMARU_DIR"
-  export AMARU_TRACE=info
+  export AMARU_WITH_OPEN_TELEMETRY="$AMARU_MIDDLE_WITH_OPEN_TELEMETRY"
+  export AMARU_TRACE="$AMARU_MIDDLE_TRACE"
+  export OTEL_SERVICE_NAME="$AMARU_MIDDLE_OTEL_SERVICE_NAME"
+  export OTEL_SERVICE_INSTANCE_ID="$AMARU_MIDDLE_OTEL_SERVICE_INSTANCE_ID"
+  export OTEL_EXPORTER_OTLP_ENDPOINT
+  export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
   ulimit -n 65536
   ensure_amaru_node_binary
   "$(amaru_node_binary)" --with-json-traces run \
@@ -176,7 +194,8 @@ run_amaru_middle() {
 
 run_amaru_downstream() {
   cd "$AMARU_DIR"
-  export AMARU_TRACE=info
+  export AMARU_WITH_OPEN_TELEMETRY="$AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY"
+  export AMARU_TRACE="$AMARU_DOWNSTREAM_TRACE"
   ulimit -n 65536
   ensure_amaru_node_binary
   "$(amaru_node_binary)" --with-json-traces run \
@@ -288,7 +307,112 @@ run_watch() {
 }
 
 run_submit_tx() {
+  local replica_num="${PC_REPLICA_NUM:-0}"
+  if truthy "$CLEAR_SUBMIT_TX_CLAIMS_ON_START" && [[ "$replica_num" =~ ^0+$ ]]; then
+    echo "[submit-tx] clearing stale submit-tx claims from $RUNDIR/generated/submit-tx-claims"
+    rm -rf "$RUNDIR/generated/submit-tx-claims"
+  fi
   generate_submit
+}
+
+telemetry_compose() {
+  have docker || die "docker not found; install Docker or set START_TELEMETRY=false"
+  [[ -f "$TELEMETRY_COMPOSE_FILE" ]] || die "telemetry compose file not found: $TELEMETRY_COMPOSE_FILE"
+  docker compose -f "$TELEMETRY_COMPOSE_FILE" "$@"
+}
+
+telemetry_up() {
+  if ! truthy "$START_TELEMETRY"; then
+    echo "[telemetry] skipped because START_TELEMETRY=false"
+    return 0
+  fi
+
+  echo "[telemetry] starting Grafana, Tempo, Prometheus, and the OTLP collector..."
+  telemetry_compose up -d
+  echo "[telemetry] Grafana: $TELEMETRY_GRAFANA_URL"
+  echo "[telemetry] Prometheus: $TELEMETRY_PROMETHEUS_URL"
+}
+
+telemetry_down() {
+  telemetry_compose down
+}
+
+urlencode() {
+  if have jq; then
+    jq -nr --arg value "$1" '$value|@uri'
+  else
+    die "jq not found; cannot encode telemetry URLs"
+  fi
+}
+
+grafana_trace_url() {
+  local pane_id="$1" query="$2" panes
+  panes="$(
+    jq -cn \
+      --arg pane_id "$pane_id" \
+      --arg query "$query" \
+      '{
+        ($pane_id): {
+          datasource: "tempo",
+          queries: [
+            {
+              refId: "A",
+              datasource: {type: "tempo", uid: "tempo"},
+              queryType: "traceql",
+              query: $query
+            }
+          ],
+          range: {from: "now-15m", to: "now"}
+        }
+      }'
+  )"
+  printf '%s/explore?orgId=1&schemaVersion=1&refresh=5s&panes=%s\n' "$TELEMETRY_GRAFANA_URL" "$(urlencode "$panes")"
+}
+
+grafana_metric_url() {
+  local query="$1"
+  local panes
+  panes="$(
+    jq -cn \
+      --arg query "$query" \
+      '{
+        metrics: {
+          datasource: "prometheus",
+          queries: [
+            {
+              refId: "A",
+              datasource: {type: "prometheus", uid: "prometheus"},
+              expr: $query,
+              range: true,
+              instant: false
+            }
+          ],
+          range: {from: "now-15m", to: "now"}
+        }
+      }'
+  )"
+  printf '%s/explore?orgId=1&schemaVersion=1&refresh=5s&panes=%s\n' "$TELEMETRY_GRAFANA_URL" "$(urlencode "$panes")"
+}
+
+telemetry_urls() {
+  grafana_trace_url "headers" '{ resource.service.name = "amaru-middle" && name = "store_header" }'
+  grafana_trace_url "transactions" '{ resource.service.name = "amaru-middle" && (name = "tx_received" || name = "tx_accepted") }'
+  grafana_metric_url 'sum by (origin, result) (cardano_node_metrics_mempoolTxInsertionsNum_int_total{exported_job="amaru-middle"}) or vector(0)'
+}
+
+open_telemetry() {
+  local url
+  if have open; then
+    telemetry_urls | while IFS= read -r url; do
+      open "$url"
+    done
+  elif have xdg-open; then
+    telemetry_urls | while IFS= read -r url; do
+      xdg-open "$url"
+    done
+  else
+    telemetry_urls
+  fi
 }
 
 validate_up() {
@@ -301,6 +425,7 @@ validate_up() {
 up() {
   have process-compose || die "process-compose not found"
   validate_up
+  telemetry_up
   cd "$SCRIPT_DIR"
   exec process-compose -f process-compose.yaml up
 }
@@ -309,6 +434,9 @@ down() {
   have process-compose || die "process-compose not found"
   cd "$SCRIPT_DIR"
   process-compose down
+  if truthy "$START_TELEMETRY"; then
+    telemetry_down
+  fi
 }
 
 status() {
@@ -323,6 +451,10 @@ case "${1:-up}" in
   down | stop) down ;;
   status) status ;;
   setup) setup ;;
+  telemetry-up) telemetry_up ;;
+  telemetry-down) telemetry_down ;;
+  telemetry-open | open-telemetry) open_telemetry ;;
+  telemetry-urls) telemetry_urls ;;
   run)
     case "${2:-}" in
       mithril-refresh) run_mithril_refresh ;;
@@ -331,8 +463,9 @@ case "${1:-up}" in
       amaru-middle) run_amaru_middle ;;
       amaru-downstream) run_amaru_downstream ;;
       watch) run_watch ;;
+      telemetry-open) open_telemetry ;;
       submit-tx) run_submit_tx; exit $? ;;
-      *) die "usage: $0 run {mithril-refresh|setup|cardano-upstream|amaru-middle|amaru-downstream|watch|submit-tx}" ;;
+      *) die "usage: $0 run {mithril-refresh|setup|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx}" ;;
     esac
     ;;
   ready)

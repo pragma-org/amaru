@@ -39,6 +39,7 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_USERS_DEFAULT_THEME=light
       - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
     ports:
       - "80:3000"

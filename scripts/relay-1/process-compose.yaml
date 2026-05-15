@@ -61,6 +61,11 @@ processes:
       2-setup:
         condition: process_completed_successfully
 
+  telemetry-open:
+    description: Open Grafana Tempo traces and Prometheus metrics for amaru-middle in the browser.
+    command: ./process-compose.sh run telemetry-open
+    disabled: true
+
   submit-tx:
     description: Generate signed runtime transactions from the configured payment key and submit them downstream.
     command: ./process-compose.sh run submit-tx
