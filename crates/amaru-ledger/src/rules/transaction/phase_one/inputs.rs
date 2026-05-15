@@ -143,7 +143,7 @@ where
             context.acknowledge_script(script_hash, input.clone());
         }
 
-        context.add_consumed(&consumed_value);
+        context.consume_value(&consumed_value);
     }
 
     Ok(())

@@ -341,19 +341,19 @@ impl WitnessSlice for DefaultValidationContext {
 }
 
 impl BalanceSlice for DefaultValidationContext {
-    fn add_consumed(&mut self, value: &Value) {
+    fn consume_value(&mut self, value: &Value) {
         self.balance += value;
     }
 
-    fn add_produced(&mut self, value: &Value) {
+    fn produce_value(&mut self, value: &Value) {
         self.balance -= value;
     }
 
-    fn add_consumed_lovelace(&mut self, amount: Lovelace) {
+    fn consume_lovelace(&mut self, amount: Lovelace) {
         self.balance += &Value::Coin(amount);
     }
 
-    fn add_produced_lovelace(&mut self, amount: Lovelace) {
+    fn produce_lovelace(&mut self, amount: Lovelace) {
         self.balance -= &Value::Coin(amount);
     }
 

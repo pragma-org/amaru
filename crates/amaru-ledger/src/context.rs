@@ -252,18 +252,21 @@ pub trait ProposalsSlice {
 
 /// An interface for accumulating the running total of value produced and consumed by a
 /// transaction. A valid transaction should have a balance of zero.
+///
+/// A negative balance means there is more value in the "right-hand side" (outputs + fees + treasury donation + negative mints)
+/// A positive balance means there is more value in the "left-hand side" (inputs + refunds + positive mints)
 pub trait BalanceSlice {
-    /// Subtract a non-negative [`Value`] to the balance accumulator.
-    fn add_consumed(&mut self, value: &Value);
-
     /// Add a non-negative [`Value`] to the balance accumulator.
-    fn add_produced(&mut self, value: &Value);
+    fn consume_value(&mut self, value: &Value);
 
-    /// Subtract a lovelace amount to the balance accumulator.
-    fn add_consumed_lovelace(&mut self, amount: Lovelace);
+    /// Subtract a non-negative [`Value`] to the balance accumulator.
+    fn produce_value(&mut self, value: &Value);
 
     /// Add a lovelace amount to the balance accumulator.
-    fn add_produced_lovelace(&mut self, amount: Lovelace);
+    fn consume_lovelace(&mut self, amount: Lovelace);
+
+    /// Subtract a lovelace amount to the balance accumulator.
+    fn produce_lovelace(&mut self, amount: Lovelace);
 
     /// Add a signed `Mint` to the balance accumulator. Positive entries
     /// represent newly minted tokens, negative entries represent burns.

@@ -80,7 +80,7 @@ where
                     amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 };
 
-                context.add_consumed_lovelace(amount);
+                context.consume_lovelace(amount);
                 context.withdraw_from(credential);
             });
     }

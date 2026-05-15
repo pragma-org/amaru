@@ -38,7 +38,7 @@ where
 {
     if is_valid {
         context.add_fees(fees);
-        context.add_produced_lovelace(fees);
+        context.produce_lovelace(fees);
         return Ok(());
     }
 
