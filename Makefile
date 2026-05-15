@@ -21,7 +21,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas
+.PHONY: help bootstrap start import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas sync-from-mithril refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -62,6 +62,9 @@ build: ## &build Compile for $BUILD_PROFILE
 sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
+
+refresh: ## &start Refresh chain and ledger databases from the latest Mithril snapshot
+	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(BUILD_PROFILE)" INSTALL=true REPLACE_EXISTING=true ./scripts/refresh-from-mithril
 
 generate-traces-doc: ## &build Generate documentation for Amaru's tracing spans
 	@./scripts/generate-traces-doc
