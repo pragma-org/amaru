@@ -190,7 +190,7 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ledger-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
+          key: ledger-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
@@ -209,7 +209,7 @@ jobs:
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.${{ matrix.network.name }}.db
-          key: ledger-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
+          key: ledger-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Retrieve latest epoch if needed
         if: env.RUN_UNTIL_TARGET_EPOCH == ''
