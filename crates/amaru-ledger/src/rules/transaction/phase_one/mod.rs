@@ -16,7 +16,7 @@ use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
     AuxiliaryData, EraHistory, HasTransactionId, Network, NetworkId, NetworkName, ProtocolParameters, TransactionBody,
-    TransactionInput, TransactionPointer, WitnessSet,
+    TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance,
 };
 use thiserror::Error;
 
@@ -106,6 +106,9 @@ pub enum PhaseOneError {
 
     #[error("invalid transaction validity interval: {0}")]
     ValidityInterval(#[from] InvalidValidityInterval),
+
+    #[error("value not preserved: balance = {0}")]
+    ValueNotPreserved(Balance),
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -238,6 +241,19 @@ where
         protocol_parameters,
         transaction_body.script_data_hash,
     )?;
+
+    if let Some(donation) = transaction_body.donation {
+        context.add_produced_lovelace(donation.into());
+    }
+
+    // NOTE: Value preservation
+    //
+    // In the case of a valid transaction, the balance must be zero.
+    // However, when the transaction is invalid, this check is skipped. That is because
+    // the `CollateralReturnOverflow` logic enforces value preservation for collateral return.
+    if is_valid && !context.balance().is_zero() {
+        return Err(PhaseOneError::ValueNotPreserved(context.balance().clone()));
+    }
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {
