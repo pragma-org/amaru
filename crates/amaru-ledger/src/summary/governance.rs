@@ -19,7 +19,10 @@ use amaru_kernel::{
     TransactionPointer, expect_stake_credential,
 };
 
-use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
+use crate::{
+    epoch_transition::GovernanceActivity,
+    store::{Snapshot, StoreError, columns::dreps},
+};
 
 #[derive(Debug)]
 pub struct GovernanceSummary {

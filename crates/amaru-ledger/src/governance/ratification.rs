@@ -18,17 +18,17 @@ use std::{
 };
 
 use amaru_kernel::{
-    Ballot, ComparableProposalId, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace, PoolId,
-    ProtocolParameters, RationalNumber, StakeCredential, Vote, Voter,
+    Ballot, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
+    PoolId, ProtocolParameters, StakeCredential, Vote, Voter,
 };
-use amaru_observability::trace_span;
+use amaru_observability::info_span;
 use num::Zero;
-use tracing::{Span, field, info};
+use tracing::{Span, field};
 
 use crate::{
     state::StakeDistributionView,
-    store::{StoreError, TransactionalContext, columns::proposals},
-    summary::{SafeRatio, stake_distribution::StakeDistribution},
+    store::{Snapshot, StoreError},
+    summary::{SafeRatio, into_safe_ratio, stake_distribution::StakeDistribution},
 };
 
 mod constitutional_committee;
@@ -51,7 +51,7 @@ mod proposals_tree;
 
 /// All informations needed to ratify votes.
 pub struct RatificationContext<'distr> {
-    /// The epoch that just ended.
+    /// The epoch for which this context is for.
     pub epoch: Epoch,
 
     /// The *current* (live! not from the stake distr snapshot) value of the treasury
@@ -63,9 +63,21 @@ pub struct RatificationContext<'distr> {
     /// Last enacted protocol parameters for this epoch.
     pub protocol_parameters: ProtocolParameters,
 
+    /// All proposals that have been pruned due to ratification or conflict.
+    pub pruned_proposals: BTreeSet<Rc<ComparableProposalId>>,
+
+    /// Enacted withdrawals during this round of ratification.
+    pub withdrawals: BTreeMap<StakeCredential, Lovelace>,
+
     /// The current constitutional committee, if any. No committee signals a state of
     /// no-confidence.
     pub constitutional_committee: Option<ConstitutionalCommittee>,
+
+    /// An update that occured on the constitutional committee
+    pub constitutional_committee_update: Option<CommitteeUpdate>,
+
+    /// A new constitution that has been voted and approved, if any.
+    pub new_constitution: Option<Constitution>,
 
     /// All latest votes indexed by proposals and voters.
     pub votes: BTreeMap<ComparableProposalId, Vec<(Voter, Ballot)>>,
@@ -80,118 +92,132 @@ pub enum RatificationInternalError {
     InternalForestEnactmentError(#[from] ProposalsEnactError<ComparableProposalId>),
 }
 
-pub struct RatificationResult<'distr, S> {
-    pub context: RatificationContext<'distr>,
-    pub store_updates: Vec<StoreUpdate<'distr, S>>,
-    pub pruned_proposals: BTreeSet<Rc<ComparableProposalId>>,
-}
-
-pub type StoreUpdate<'distr, S> = Box<dyn FnOnce(&S, &RatificationContext<'distr>) -> Result<(), StoreError>>;
-
 impl<'distr> RatificationContext<'distr> {
-    pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
-        mut self,
+    pub fn new(
+        snapshot: impl Snapshot,
+        stake_distribution: StakeDistributionView<'distr>,
+        protocol_parameters: ProtocolParameters,
+        treasury: Lovelace,
+    ) -> Result<Self, StoreError> {
+        info_span!(amaru_observability::amaru::ledger::state::RATIFICATION_CONTEXT_NEW).in_scope(|| {
+            let constitutional_committee = match snapshot.constitutional_committee()? {
+                ConstitutionalCommitteeStatus::NoConfidence => None,
+                ConstitutionalCommitteeStatus::Trusted { threshold } => {
+                    let members = snapshot
+                        .iter_cc_members()?
+                        .filter_map(|(cold_credential, row)| {
+                            row.valid_until.map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
+                        })
+                        .collect();
+
+                    Some(ConstitutionalCommittee::new(into_safe_ratio(&threshold), members))
+                }
+            };
+
+            // FIXME: votes entirely stored in-memory
+            //
+            // This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
+            // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
+            // require much memory; but it becomes a potential attack vector.
+            //
+            // We must avoid loading ALL votes in memory at once. Especially since we do not prune
+            // votes at the moment...
+            let votes = snapshot.iter_votes()?.fold(BTreeMap::new(), |mut votes, (k, v)| {
+                votes.entry(k.proposal).or_insert_with(Vec::new).push((k.voter, v));
+                votes
+            });
+
+            Ok(RatificationContext {
+                // Ratification happens with one epoch of delay, and at the next epoch transition. So,
+                // if we ratify votes that happened in epoch `e`, the ratification is done during the
+                // transition from `e + 1` to `e + 2`; but it is done "as if" it was happening at the
+                // beginning of epoch `e + 1`. So, the epoch we consider for DRep mandates and proposal
+                // expiry is the one from after the snapshot.
+                epoch: snapshot.epoch() + 1,
+                treasury,
+                stake_distribution,
+                protocol_parameters,
+                pruned_proposals: BTreeSet::new(),
+                withdrawals: BTreeMap::new(),
+                constitutional_committee,
+                constitutional_committee_update: None,
+                new_constitution: None,
+                votes,
+            })
+        })
+    }
+
+    pub fn ratify_proposals(
+        &mut self,
         era_history: &EraHistory,
-        proposals: Vec<(ComparableProposalId, proposals::Row)>,
+        proposals: Vec<(Rc<ComparableProposalId>, CandidateProposal)>,
         roots: ProposalsRootsRc,
-    ) -> Result<RatificationResult<'distr, S>, RatificationInternalError> {
-        let _span = trace_span!(
-            INFO,
+    ) -> Result<ProposalsRootsRc, RatificationInternalError> {
+        info_span!(
             amaru_observability::amaru::ledger::governance::RATIFY_PROPOSALS,
             roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
             roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
             roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
             roots_constitution = opt_root(roots.constitution.as_deref())
-        );
-        let _guard = _span.enter();
+        )
+        .in_scope(|| {
+            // A forest (i.e. a multitude of trees) that tracks what proposals needs to be ratified,
+            // in what order and what are the relationships between proposals; such that, when a
+            // proposal is enacted, conflicting proposals (those pointing at the same parent) are
+            // pruned.
+            let mut forest = ProposalsForest::new(self.epoch, &roots, self.treasury).drain(era_history, proposals)?;
 
-        // A forest (i.e. a multitude of trees) that tracks what proposals needs to be ratified,
-        // in what order and what are the relationships between proposals; such that, when a
-        // proposal is enacted, conflicting proposals (those pointing at the same parent) are
-        // pruned.
-        let mut forest = ProposalsForest::new(self.epoch, &roots, self.treasury).drain(era_history, proposals)?;
+            // A mutable compass to navigate the forest. This compass holds the tiny bit of mutable
+            // state we need to iterate over the forest; but without introducing a mutable borrow on
+            // the forest. This allows to interleave updates on the forest when needed.
+            //
+            // Any update on the forest invalidate the compass, which must be replaced to continue
+            // iterating.
+            let mut compass = forest.new_compass();
 
-        // A mutable compass to navigate the forest. This compass holds the tiny bit of mutable
-        // state we need to iterate over the forest; but without introducing a mutable borrow on
-        // the forest. This allows to interleave updates on the forest when needed.
-        //
-        // Any update on the forest invalidate the compass, which must be replaced to continue
-        // iterating.
-        let mut compass = forest.new_compass();
+            loop {
+                // The inner block limits the lifetime of the immutable borrow(s) on forest; so that we
+                // can then borrow the forest as immutable when a proposal gets ratified.
+                let ratified: Option<(Rc<ComparableProposalId>, ProposalEnum)> = {
+                    let Some((id, (proposal, _))) = compass.next(&forest, &self.protocol_parameters) else {
+                        break;
+                    };
 
-        // We collect updates to be done on the store while enacting proposals. The updates aren't
-        // executed, but stashed for later. This allows processing proposals in a pure fashion,
-        // while accumulating changes to be done on the store.
-        let mut store_updates: Vec<StoreUpdate<'distr, S>> = Vec::new();
+                    Self::new_ratify_span(&id, proposal).in_scope(|| {
+                        if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution) {
+                            // NOTE: The .clone() on the proposal is necessary so we can drop the
+                            // immutable borrow on the forest. It only happens when a proposal is
+                            // ratified, though.
+                            //
+                            // The .clone() on the id is cheap, because it's an Rc.
+                            Some((id.clone(), proposal.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                }; // <-- immutable borrows of `forest` end here
 
-        // We also accumulate proposals that get pruned due to other proposals being enacted. Those
-        // proposals are obsolete, and must be removed from the database.
-        let mut pruned_proposals: BTreeSet<Rc<ComparableProposalId>> = BTreeSet::new();
-
-        loop {
-            // The inner block limits the lifetime of the immutable borrow(s) on forest; so that we
-            // can then borrow the forest as immutable when a proposal gets ratified.
-            let ratified: Option<(Rc<ComparableProposalId>, ProposalEnum)> = {
-                let Some((id, (proposal, _))) = compass.next(&forest, &self.protocol_parameters) else {
-                    break;
-                };
-
-                Self::new_ratify_span(&id, proposal).in_scope(|| {
-                    if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution) {
-                        // NOTE: The .clone() on the proposal is necessary so we can drop the
-                        // immutable borrow on the forest. It only happens when a proposal is
-                        // ratified, though.
-                        //
-                        // The .clone() on the id is cheap, because it's an Rc.
-                        Some((id.clone(), proposal.clone()))
-                    } else {
-                        None
-                    }
-                })
-            }; // <-- immutable borrows of `forest` end here
-
-            if let Some((id, proposal)) = ratified {
-                self.enact_proposal(
-                    id,
-                    proposal,
-                    &mut forest,
-                    &mut compass,
-                    &mut pruned_proposals,
-                    &mut store_updates,
-                )?;
+                if let Some((id, proposal)) = ratified {
+                    self.enact_proposal(id, proposal, &mut forest, &mut compass)?;
+                }
             }
-        }
 
-        // Ensures that the treasury is properly depleted, if necessary.
-        let total_withdrawn = self.treasury - forest.treasury();
-        if total_withdrawn > 0 {
-            store_updates.push(Box::new(move |db, _ctx| {
-                db.with_pots(|mut pots| {
-                    pots.borrow_mut().treasury -= total_withdrawn;
-                })
-            }));
-        }
-
-        // Finally, replace the roots in the store. Note that this is pretty much a no-op when no
-        // proposals are ratified; but it's just one db key/value update.
-        let new_roots = forest.roots();
-        store_updates.push(Box::new(move |db, _ctx| db.set_proposals_roots(&new_roots)));
-
-        Ok(RatificationResult { context: self, store_updates, pruned_proposals })
+            // Finally, replace the roots in the store. Note that this is pretty much a no-op when no
+            // proposals are ratified; but it's just one db key/value update.
+            Ok(forest.roots())
+        })
     }
 
     /// Apply the effect of a (now-approved) proposal to both the current state (i.e. self), and
     /// the persistent store. Note that updates to the store are actually happening *after*, once
     /// the ratification procedure is fully done. So we only stash updates, in order (as some
     /// updates may override some previous update in the same ratification).
-    fn enact_proposal<'store, S: TransactionalContext<'store>>(
+    fn enact_proposal(
         &mut self,
         id: Rc<ComparableProposalId>,
         proposal: ProposalEnum,
         forest: &mut ProposalsForest,
         compass: &mut ProposalsForestCompass,
-        pruned_proposals: &mut BTreeSet<Rc<ComparableProposalId>>,
-        store_updates: &mut Vec<StoreUpdate<'distr, S>>,
     ) -> Result<(), RatificationInternalError> {
         Self::new_enact_span(&id, &proposal).in_scope(|| -> Result<(), RatificationInternalError> {
             let mut now_obsolete = forest.enact(id, &proposal, compass)?;
@@ -201,98 +227,48 @@ impl<'distr> RatificationContext<'distr> {
                 now_obsolete.iter().map(|id| id.to_compact_string()).collect::<Vec<_>>().join(", "),
             );
 
-            pruned_proposals.append(&mut now_obsolete);
+            self.pruned_proposals.append(&mut now_obsolete);
 
             match proposal {
                 ProposalEnum::ProtocolParameters(params_update, _parent) => {
                     self.protocol_parameters.update(params_update);
-                    store_updates.push(Box::new(|db, ctx| db.set_protocol_parameters(&ctx.protocol_parameters)));
                 }
 
                 ProposalEnum::HardFork(protocol_version, _parent) => {
                     self.protocol_parameters.protocol_version = protocol_version;
-                    store_updates.push(Box::new(|db, ctx| db.set_protocol_parameters(&ctx.protocol_parameters)));
                 }
 
-                ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _parent) => {
-                    self.constitutional_committee = None;
-                    store_updates.push(Box::new(|db, _ctx| {
-                        db.update_constitutional_committee(
-                            &ConstitutionalCommitteeStatus::NoConfidence,
-                            BTreeMap::new(),
-                            BTreeSet::new(),
-                        )?;
+                ProposalEnum::ConstitutionalCommittee(update, _parent) => {
+                    match update.clone() {
+                        CommitteeUpdate::NoConfidence => {
+                            self.constitutional_committee = None;
+                        }
+                        CommitteeUpdate::ChangeMembers { removed, added, threshold } => {
+                            let added_as_inactive = added
+                                .iter()
+                                .map(|(cold_cred, valid_until)| (cold_cred.clone(), (None, *valid_until)))
+                                .collect();
 
-                        db.with_cc_members(|iterator| {
-                            // NOTE: CC members are not deleted when entering no confidence
-                            // mode. They are simply marked as inactive.
-                            //
-                            // In particular, their hot<->cold bindings are preserved.
-                            for (_, mut row) in iterator {
-                                if let Some(cc_member) = row.borrow_mut() {
-                                    cc_member.valid_until = None;
-                                }
+                            if let Some(committee) = &mut self.constitutional_committee {
+                                committee.update(threshold, added_as_inactive, removed.iter().collect());
+                            } else {
+                                self.constitutional_committee =
+                                    Some(ConstitutionalCommittee::new(threshold, added_as_inactive));
                             }
-                        })?;
-
-                        Ok(())
-                    }))
-                }
-
-                ProposalEnum::ConstitutionalCommittee(
-                    CommitteeUpdate::ChangeMembers { removed, added, threshold },
-                    _parent,
-                ) => {
-                    let committee_status = ConstitutionalCommitteeStatus::Trusted {
-                        threshold: RationalNumber {
-                            numerator: threshold
-                                .numer()
-                                .try_into()
-                                .unwrap_or_else(|e| unreachable!("threshold numerator larger than u64?!: {e}")),
-                            denominator: threshold
-                                .denom()
-                                .try_into()
-                                .unwrap_or_else(|e| unreachable!("threshold numerator larger than u64?!: {e}")),
-                        },
-                    };
-
-                    let added_as_inactive = added
-                        .iter()
-                        .map(|(cold_cred, valid_until)| (cold_cred.clone(), (None, *valid_until)))
-                        .collect();
-
-                    if let Some(committee) = &mut self.constitutional_committee {
-                        committee.update(threshold, added_as_inactive, removed.iter().collect());
-                    } else {
-                        self.constitutional_committee =
-                            Some(ConstitutionalCommittee::new(threshold, added_as_inactive));
+                        }
                     }
 
-                    store_updates.push(Box::new(move |db, _ctx| {
-                        db.update_constitutional_committee(&committee_status, added, removed)
-                    }))
+                    self.constitutional_committee_update = Some(update);
                 }
 
                 ProposalEnum::Constitution(constitution, _parent) => {
-                    store_updates.push(Box::new(move |db, _ctx| db.set_constitution(&constitution)))
+                    self.new_constitution = Some(constitution);
                 }
 
                 ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
-                    store_updates.push(Box::new(move |db, _ctx| {
-                        let leftovers = withdrawals.into_iter().try_fold::<_, _, Result<_, StoreError>>(
-                            0,
-                            |leftovers, (account, magic_internet_money)| {
-                                Ok(leftovers + db.refund(&account, magic_internet_money)?)
-                            },
-                        )?;
-
-                        if leftovers > 0 {
-                            info!(%leftovers, "withdrawn into treasury");
-                            db.with_pots(|mut pots| pots.borrow_mut().treasury += leftovers)?;
-                        }
-
-                        Ok(())
-                    }));
+                    for (credential, amount) in withdrawals.into_iter() {
+                        self.withdrawals.entry(credential).and_modify(|balance| *balance += amount).or_insert(amount);
+                    }
                 }
 
                 ProposalEnum::Orphan(OrphanProposal::NicePoll) => {
@@ -313,7 +289,7 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        trace_span!(
+        info_span!(
             amaru_observability::amaru::ledger::governance::RATIFYING,
             proposal_id = id.to_compact_string(),
             proposal_kind = proposal.display_kind().to_string(),

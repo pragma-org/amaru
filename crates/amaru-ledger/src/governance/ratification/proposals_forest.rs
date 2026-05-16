@@ -32,7 +32,7 @@ use super::{
     proposals_roots::ProposalsRootsRc,
     proposals_tree::{ProposalsTree, Sibling},
 };
-use crate::{store::columns::proposals, summary::into_safe_ratio};
+use crate::summary::into_safe_ratio;
 
 #[derive(Debug, Clone)]
 pub struct ProposalsForest {
@@ -103,19 +103,19 @@ impl ProposalsForest {
     pub fn drain(
         mut self,
         era_history: &'_ EraHistory,
-        mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
+        mut proposals: Vec<(Rc<ComparableProposalId>, CandidateProposal)>,
     ) -> Result<Self, ProposalsInsertError<ComparableProposalId>> {
         let current_epoch = self.current_epoch;
 
         proposals.drain(..).try_fold::<_, _, Result<_, ProposalsInsertError<_>>>(&mut self, |forest, (id, row)| {
-            // There shouldn't be any invalid proposals left at this point.
+            // There shouldn't be any expired proposals left at this point.
             assert!(
                 row.valid_until + 1 >= current_epoch,
                 "proposal {id:?} is expired (ratification epoch = {current_epoch}) but was \
                         drained into the forest: {row:?}",
             );
 
-            forest.insert(era_history, id, row.proposed_in, row.proposal.gov_action)?;
+            forest.insert(era_history, id, row.proposed_in, row.governance_action)?;
 
             Ok(forest)
         })?;
@@ -137,13 +137,11 @@ impl ProposalsForest {
     pub fn insert(
         &mut self,
         era_history: &'_ EraHistory,
-        id: ComparableProposalId,
+        id: Rc<ComparableProposalId>,
         proposed_in: ProposalPointer,
         proposal: GovernanceAction,
     ) -> Result<(), ProposalsInsertError<ComparableProposalId>> {
         use amaru_kernel::GovernanceAction::*;
-
-        let id = Rc::new(id);
 
         let mut insert = |proposal| -> Result<(), ProposalsInsertError<ComparableProposalId>> {
             priority_insert(&mut self.sequence, id.clone(), (&proposed_in, &proposal), &self.proposals);
@@ -667,6 +665,13 @@ impl fmt::Display for ProposalsForest {
     }
 }
 
+#[derive(Debug)]
+pub struct CandidateProposal {
+    pub valid_until: Epoch,
+    pub proposed_in: ProposalPointer,
+    pub governance_action: GovernanceAction,
+}
+
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -792,7 +797,7 @@ mod tests {
                 action = set_parent(action, select(&parents, parent));
             }
 
-            forest.insert(&ERA_HISTORY, id, pointer, action).unwrap();
+            forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action).unwrap();
 
             let size_after = check_invariants(&forest);
 
@@ -982,7 +987,7 @@ mod tests {
             action in any_gov_action(),
             proposed_in in any_proposal_pointer(u64::MAX),
         ) {
-            let _ = forest.insert(&ERA_HISTORY, root, proposed_in, action);
+            let _ = forest.insert(&ERA_HISTORY, Rc::new(root), proposed_in, action);
         }
     }
 
@@ -1161,7 +1166,7 @@ mod tests {
                             std::iter::empty().chain(protocol_parameters.1).chain(orphan).for_each(
                                 |(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, id.clone(), pointer, action.clone()).unwrap();
+                                    forest.insert(&ERA_HISTORY, Rc::new(id.clone()), pointer, action.clone()).unwrap();
                                 },
                             );
                         } else {
@@ -1173,7 +1178,7 @@ mod tests {
                                 .chain(orphan)
                                 .for_each(|(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, id.clone(), pointer, action.clone()).unwrap();
+                                    forest.insert(&ERA_HISTORY, Rc::new(id.clone()), pointer, action.clone()).unwrap();
                                 });
                         }
 

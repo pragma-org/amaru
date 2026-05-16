@@ -19,3 +19,17 @@ mod schemas;
 // Re-export the macros for convenient use
 pub use amaru_observability_macros::{define_schemas, trace_record, trace_span};
 pub use schemas::*;
+
+#[macro_export]
+macro_rules! debug_span {
+    ($($rest:tt)*) => {
+        $crate::trace_span!(DEBUG, $($rest)*)
+    };
+}
+
+#[macro_export]
+macro_rules! info_span {
+    ($($rest:tt)*) => {
+        $crate::trace_span!(INFO, $($rest)*)
+    };
+}

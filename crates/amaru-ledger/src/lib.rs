@@ -19,6 +19,7 @@
 pub mod block_validator;
 pub mod bootstrap;
 pub mod context;
+pub mod epoch_transition;
 pub mod governance;
 pub mod registered_relay_addrs;
 pub mod rules;

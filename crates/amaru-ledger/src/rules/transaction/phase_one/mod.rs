@@ -21,8 +21,8 @@ use amaru_kernel::{
 use thiserror::Error;
 
 use crate::{
-    context::ValidationContext, rules::transaction::phase_one::outputs::SupplementalDatumPolicy,
-    store::GovernanceActivity,
+    context::ValidationContext, epoch_transition::GovernanceActivity,
+    rules::transaction::phase_one::outputs::SupplementalDatumPolicy,
 };
 
 pub mod certificates;
