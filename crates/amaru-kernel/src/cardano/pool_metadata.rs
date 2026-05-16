@@ -13,3 +13,12 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::PoolMetadata;
+
+use crate::Nullable;
+
+pub fn fmt(metadata: &Nullable<PoolMetadata>) -> String {
+    match metadata {
+        Nullable::Null | Nullable::Undefined => "ø".to_string(),
+        Nullable::Some(PoolMetadata { url, hash }) => format!("({}) {url}", &hex::encode(hash)[0..12]),
+    }
+}

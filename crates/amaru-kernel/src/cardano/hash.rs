@@ -58,6 +58,28 @@ pub const NULL_HASH32: Hash<32> = Hash::new([0; 32]);
 
 pub const ORIGIN_HASH: Hash<{ size::HEADER }> = NULL_HASH32;
 
+// -----------------------------------------------------------------------------
+// Display
+// -----------------------------------------------------------------------------
+
+pub fn fmt<const N: usize>(hashes: &[Hash<N>]) -> String {
+    let mut out = String::new();
+
+    for (i, hash) in hashes.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+
+        out.push_str(&format!("{hash}").as_str()[0..12])
+    }
+
+    out
+}
+
+// -----------------------------------------------------------------------------
+// Test
+// -----------------------------------------------------------------------------
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
