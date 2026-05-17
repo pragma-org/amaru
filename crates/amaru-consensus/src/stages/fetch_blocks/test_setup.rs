@@ -24,19 +24,16 @@ use amaru_protocols::store_effects::{
     StoreBlockEffect,
 };
 use pure_stage::{
-    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef, TerminationReason,
-    simulation::{SimulationBuilder, SimulationRunning},
-    trace_buffer::{TraceBuffer, TraceEntry},
+    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
+    simulation::SimulationRunning, trace_buffer::TraceEntry,
 };
 use tokio::runtime::{Builder, Runtime};
-use tracing::Level;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
 use crate::stages::{
     block_source::BlockSourceMsg,
     select_chain::SelectChainMsg,
-    test_utils::{BufferWriter, Logs},
+    test_utils::{Logs, run_simulation},
 };
 
 pub fn test_peer() -> Peer {
@@ -121,6 +118,7 @@ impl TestPrep {
 pub fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<FetchBlocks>().boxed(),
+        pure_stage::register_data_deserializer::<Cleanup>().boxed(),
         pure_stage::register_data_deserializer::<FetchBlocksMsg>().boxed(),
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
@@ -159,29 +157,24 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
-    let writer = BufferWriter::new();
-    let mut logs = writer.clone();
-
-    let sub = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .set_default();
-    logs.set_guard(sub);
-
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
-    network.resources().put::<ResourceHeaderStore>(prep.store.clone());
-
-    let fb = network.stage("fb", stage);
-    let fb = network.wire_up(fb, prep.state.clone());
-    network.preload(&fb, [msg]).unwrap();
-
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(prep.rt.handle());
-
-    (running, guards, logs.logs())
+    run_simulation(
+        prep.rt.handle(),
+        guards,
+        |network| {
+            let fb = network.stage("fb", stage);
+            let fb = network.wire_up(fb, prep.state.clone());
+            network.preload(&fb, [msg]).unwrap();
+        },
+        |resources| {
+            resources.put::<ResourceHeaderStore>(prep.store.clone());
+        },
+        |_running| {
+            // No additional external effect overrides needed for basic fetch_blocks tests.
+            // Virtual child stages are enabled by default in run_simulation.
+        },
+    )
 }
 
 pub fn te_find_missing_blocks(at_stage: &str, start: HeaderHash, limit: usize) -> TraceEntry {
@@ -190,14 +183,6 @@ pub fn te_find_missing_blocks(at_stage: &str, start: HeaderHash, limit: usize) -
 
 pub fn te_store_block(at_stage: &str, hash: HeaderHash, block: amaru_kernel::RawBlock) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreBlockEffect::new(&hash, block))))
-}
-
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
-    TraceEntry::suspend(pure_stage::Effect::send(from, to, Box::new(msg)))
-}
-
-pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
-    TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
 }
 
 pub fn te_schedule(at_stage: impl AsRef<str>, msg: impl pure_stage::SendData, schedule_id: ScheduleId) -> TraceEntry {
@@ -214,19 +199,4 @@ pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) ->
 
 pub fn te_clock(instant: Instant) -> TraceEntry {
     TraceEntry::Clock(instant)
-}
-
-pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
-    TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
 }

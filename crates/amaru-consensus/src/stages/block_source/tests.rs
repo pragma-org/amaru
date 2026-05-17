@@ -214,6 +214,7 @@ fn test_block_received_after_invalid_same_peer_no_second_fault() {
             te_send(BS, "invalid_sink", PeerSelectionMsg::Adversarial(Peer::new("alice"))),
             te_state(BS, &after_invalid),
             te_input(BS, &m3),
+            te_send(BS, "invalid_sink", PeerSelectionMsg::Adversarial(Peer::new("alice"))),
             te_state(BS, &after_invalid),
         ],
     );

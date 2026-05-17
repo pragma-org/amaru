@@ -22,16 +22,12 @@ use amaru_protocols::store_effects::{
     UnvalidatedAncestorHashesEffect,
 };
 use pure_stage::{
-    DeserializerGuards, Effect, StageGraph, StageRef,
-    simulation::{SimulationBuilder, SimulationRunning},
-    trace_buffer::{TraceBuffer, TraceEntry},
+    DeserializerGuards, Effect, StageGraph, StageRef, simulation::SimulationRunning, trace_buffer::TraceEntry,
 };
 use tokio::runtime::{Builder, Runtime};
-use tracing::Level;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
-use crate::stages::test_utils::{BufferWriter, Logs};
+use crate::stages::test_utils::{Logs, run_simulation};
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
     BlockHeader::from(make_header(block_number, slot, parent))
@@ -150,29 +146,22 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: SelectChainMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
-    let writer = BufferWriter::new();
-    let mut logs = writer.clone();
-
-    let sub = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .set_default();
-    logs.set_guard(sub);
-
-    let guards = register_guards();
-
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
-    network.resources().put::<ResourceHeaderStore>(prep.store.clone());
-
-    let sc = network.stage("sc", stage);
-    let sc = network.wire_up(sc, prep.state.clone());
-    network.preload(&sc, [msg]).unwrap();
-
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(prep.rt.handle());
-
-    (running, guards, logs.logs())
+    run_simulation(
+        prep.rt.handle(),
+        register_guards(),
+        |network| {
+            let sc = network.stage("sc", stage);
+            let sc = network.wire_up(sc, prep.state.clone());
+            network.preload(&sc, [msg]).unwrap();
+        },
+        |resources| {
+            resources.put::<ResourceHeaderStore>(prep.store.clone());
+        },
+        |_running| {
+            // No external effect overrides needed for most select_chain tests.
+            // Virtual child stages are enabled by default in run_simulation.
+        },
+    )
 }
 
 pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> TraceEntry {

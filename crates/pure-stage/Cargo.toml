@@ -25,6 +25,7 @@ erased-serde.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 parking_lot.workspace = true
+pretty_assertions.workspace = true
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive", "alloc", "rc"] }
 serde_json.workspace = true
@@ -41,7 +42,6 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 ignored = ["getrandom"]
 
 [dev-dependencies]
-pretty_assertions = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time", "rt-multi-thread"] }
 
 [lints]

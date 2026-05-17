@@ -262,3 +262,69 @@ fn test_fork_not_better_no_switch() {
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
+
+/// Incoming tip is strictly shorter than current best → early return, no header loads, no adopt.
+#[test]
+fn test_incoming_shorter_than_current_best() {
+    let mut prep = test_prep(2);
+    prep.store_headers(&prep.headers.main_chain());
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_best_chain(prep.headers.h3.clone()); // height 4
+
+    let msg = prep.headers.h2.tip(); // height 3 < 4
+    let (running, _guards, mut logs) = setup(&prep, msg);
+
+    assert_trace(
+        &running,
+        &[
+            te_state("ac-1", &prep.state),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            te_state("ac-1", &prep.state),
+        ],
+    );
+
+    logs.assert_and_remove(Level::DEBUG, &["incoming tip shorter than current best, skipping"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// First tip adoption when current best is Origin (no current best header) → direct roll_forward, drag anchor, send.
+#[test]
+fn test_first_tip_from_origin() {
+    let prep = test_prep(2);
+    // Do not call set_best_chain; state starts with Origin.
+    // Store only the first real header we will adopt.
+    prep.store_headers(&[&prep.headers.h1]);
+    // No need to set anchor for the very first adoption; drag will handle it.
+
+    let msg = prep.headers.h1.tip();
+    let (running, _guards, mut logs) = setup(&prep, msg);
+
+    let mut expected = prep.state.clone();
+    expected.current_best_tip = msg;
+    expected.suppressed = 1;
+
+    assert_trace(
+        &running,
+        &[
+            te_state("ac-1", &prep.state),
+            te_input("ac-1", &AdoptChainMsg::new(msg, BlockHeight::new(0))),
+            te_load_header("ac-1", msg.hash()),
+            // current_best load is skipped because point == Origin
+            te_roll_forward_chain("ac-1", msg.point()),
+            te_find_anchor_at_height("ac-1", BlockHeight::new(0)), // 2 - 2 saturating
+            te_clock("ac-1"),
+            te_send("ac-1", "downstream", ManagerMessage::NewTip(msg)),
+            te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(msg)),
+            te_state("ac-1", &expected),
+        ],
+    );
+
+    // Verify store: best chain now points to h1, anchor likely at Origin or h0 depending on find_anchor_at_height(0)
+    assert_eq!(prep.store.get_best_chain_hash(), prep.headers.h1.hash());
+
+    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}

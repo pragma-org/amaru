@@ -29,6 +29,7 @@ mod stagegraph;
 mod time;
 pub mod tokio;
 pub mod trace_buffer;
+pub mod trace_match;
 mod types;
 
 pub mod simulation;
@@ -48,5 +49,9 @@ pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
 pub use trace_buffer::TerminationReason;
+pub use trace_match::{
+    TraceMatch, assert_trace_contains, assert_trace_does_not_contain, assert_trace_match, tm_add_stage, tm_input,
+    tm_send, tm_state, tm_terminate, tm_terminated,
+};
 pub use types::{BLACKHOLE_NAME, BoxFuture, Name, OrTerminateWith, SendData, TryInStage, Void, err, warn};
 pub use typetag;

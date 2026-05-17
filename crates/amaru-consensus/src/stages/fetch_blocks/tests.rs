@@ -16,17 +16,21 @@ use std::time::Duration;
 
 use amaru_kernel::BlockHeight;
 use amaru_ouroboros_traits::MissingBlocks;
-use pure_stage::{Instant, ScheduleIds, trace_buffer::TerminationReason};
+use amaru_protocols::manager::ManagerMessage;
+use pure_stage::{
+    Instant, ScheduleIds, assert_trace_contains, tm_add_stage, trace_buffer::TerminationReason,
+    trace_match::tm_wire_stage_state,
+};
 use tracing::Level;
 
 use super::*;
 use crate::stages::{
     block_source::BlockSourceMsg,
     fetch_blocks::test_setup::{
-        TestPrep, assert_trace, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_schedule, te_send,
-        te_store_block, te_terminate, te_terminated, test_peer, test_prep,
+        TestPrep, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_schedule, te_store_block, test_peer,
+        test_prep,
     },
-    test_utils::{te_input, te_state},
+    test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated, tm_state},
 };
 
 #[test]
@@ -223,4 +227,154 @@ fn test_block2_received() {
         Level::WARN,
         Level::ERROR,
     ]);
+}
+
+// ---------------------------------------------------------------------------
+// Additional comprehensive stage tests using selective trace matching
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_new_tip_find_missing_blocks_error() {
+    let prep = test_prep();
+    let tip = prep.headers.h2.tip();
+    let parent = prep.headers.h1.point();
+    let msg = FetchBlocksMsg::NewTip(tip, parent);
+
+    // We trigger the error path from find_missing_blocks (in this harness it surfaces
+    // similarly to the StartHeaderNotFound case and leads to termination).
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &msg).into(),
+            te_find_missing_blocks("fb-1", tip.hash(), 25).into(),
+            te_terminate("fb-1").into(),
+            te_terminated("fb-1", TerminationReason::Voluntary).into(),
+        ],
+    );
+
+    logs.assert_and_remove(Level::ERROR, &["failed to load initial header"])
+        .assert_and_remove(Level::INFO, &["terminated"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_block_point_mismatch() {
+    let mut prep = test_prep();
+    // Expect h2 directly after h0 (so first() == h2). Sending h1 will pass the parent check
+    // (parent of h1 is h0) but fail the point check (h1 != h2).
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h2.point()]),
+        1,
+        prep.schedule_at(Duration::from_secs(5)),
+    );
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1]);
+    prep.set_anchor(prep.headers.h0.hash());
+
+    // Send h1 — correct parent for current boundary, but not the expected next point.
+    let msg = FetchBlocksMsg::Block(test_peer(), TestPrep::network_block(&prep.headers.h1));
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &msg).into(),
+            te_send(
+                "fb-1",
+                "block_source",
+                BlockSourceMsg::BlockReceived { peer: test_peer(), tip: prep.headers.h1.tip() },
+            )
+            .into(),
+        ],
+    );
+
+    logs.assert_and_remove(Level::WARN, &["block point mismatch"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_block_straggler_no_outstanding_missing() {
+    let prep = test_prep();
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1]);
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let msg = FetchBlocksMsg::Block(test_peer(), TestPrep::network_block(&prep.headers.h1));
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &msg).into(),
+            te_send(
+                "fb-1",
+                "block_source",
+                BlockSourceMsg::BlockReceived { peer: test_peer(), tip: prep.headers.h1.tip() },
+            )
+            .into(),
+        ],
+    );
+
+    logs.assert_and_remove(Level::WARN, &["received block with no outstanding missing blocks"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_timeout_stale_is_ignored() {
+    let mut prep = test_prep();
+    let schedule_id = prep.schedule_at(Duration::from_secs(5));
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
+        5, // current req_id is 5
+        schedule_id,
+    );
+
+    // Send a stale timeout for a different req_id
+    let msg = FetchBlocksMsg::Timeout(3);
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(&running, &[te_input("fb-1", &msg).into()]);
+
+    logs.assert_no_remaining_at([Level::ERROR]);
+}
+
+#[test]
+fn test_first_message_wires_cleanup_replies_child() {
+    let mut prep = test_prep();
+    prep.state.cleanup_replies = StageRef::blackhole();
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
+    let tip = prep.headers.h2.tip();
+    let parent = prep.headers.h1.point();
+    let msg = FetchBlocksMsg::NewTip(tip, parent);
+
+    let (running, _guards, _logs) = setup(&prep, msg.clone());
+
+    // On the first message the stage wires up the cleanup_replies child.
+    // We assert its creation using selective matching on the generated name.
+    assert_trace_contains(
+        &running,
+        &[
+            tm_add_stage("fb-1", "cleanup_replies"),
+            tm_wire_stage_state(
+                "fb-1",
+                "cleanup_replies",
+                Cleanup::new(
+                    StageRef::named_for_tests("fb-1"),
+                    StageRef::named_for_tests("block_source"),
+                    StageRef::named_for_tests("peer_selection"),
+                ),
+            ),
+            tm_state(
+                "fb-1",
+                |s: &FetchBlocks| s.cleanup_replies.name().as_str().contains("cleanup_replies"),
+                "state with cleanup_replies child",
+            ),
+        ],
+    );
 }

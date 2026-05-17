@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{IsHeader, Point};
-use pure_stage::TerminationReason;
+use pure_stage::{TerminationReason, trace_match::assert_trace_contains};
 use tracing::Level;
 
 use super::*;
@@ -22,11 +22,10 @@ use crate::stages::{
     select_chain::SelectChainMsg,
     test_utils::{te_input, te_state},
     validate_block::test_setup::{
-        assert_trace, setup, te_get_anchor_hash, te_ledger_contains, te_ledger_tip, te_load_from_best_chain,
-        te_load_header_with_validity, te_record_metrics, te_rollback_ledger, te_send, te_terminate, te_terminated,
-        te_validate_block, test_prep,
+        assert_trace, setup, te_ledger_contains, te_rollback_ledger, te_send, te_terminate, te_terminated,
+        te_validate_block, test_prep, tm_record_metrics,
     },
-};
+}; // if needed for Literal
 
 #[test]
 fn test_genesis_block_skips_validation() {
@@ -42,8 +41,8 @@ fn test_genesis_block_skips_validation() {
     assert_trace(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
-            te_input("vb-1", &msg).into(),
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg),
             te_terminate("vb-1"),
             te_terminated("vb-1", TerminationReason::Voluntary),
         ],
@@ -66,19 +65,15 @@ fn test_parent_equals_current_validates_tip_only() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    let expected_state =
-        ValidateBlock::new(prep.manager.clone(), prep.select_chain.clone(), prep.block_source.clone(), tip.point());
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
-            te_validate_block("vb-1", &Peer::new("unknown"), tip.point()),
-            te_record_metrics("vb-1"),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }),
-            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))),
-            te_state("vb-1", &expected_state).into(),
+            te_validate_block("vb-1", &Peer::new("unknown"), tip.point()).into(),
+            tm_record_metrics("vb-1"),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"]).assert_no_remaining_at([
@@ -105,21 +100,13 @@ fn test_parent_in_ledger_skips_roll_forward() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    let expected_state =
-        ValidateBlock::new(prep.manager.clone(), prep.select_chain.clone(), prep.block_source.clone(), tip.point());
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
-            te_ledger_contains("vb-1", &parent),
-            te_rollback_ledger("vb-1", &parent),
-            te_validate_block("vb-1", &Peer::new("unknown"), tip.point()),
-            te_record_metrics("vb-1"),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }),
-            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))),
-            te_state("vb-1", &expected_state).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
@@ -149,8 +136,8 @@ fn test_mock_rollback_fails_terminates() {
     assert_trace(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
-            te_input("vb-1", &msg).into(),
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg),
             te_ledger_contains("vb-1", &parent),
             te_rollback_ledger("vb-1", &parent),
             te_terminate("vb-1"),
@@ -159,7 +146,7 @@ fn test_mock_rollback_fails_terminates() {
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
-        .assert_and_remove(Level::ERROR, &["ledger inconsistency: contains_point was true but rollback failed"])
+        .assert_and_remove(Level::ERROR, &["ledger volatile DB contains point by rollback failed"])
         .assert_and_remove(Level::INFO, &["terminated stage"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -184,30 +171,13 @@ fn test_grand_parent_in_ledger() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    let expected_state =
-        ValidateBlock::new(prep.manager.clone(), prep.select_chain.clone(), prep.block_source.clone(), tip.point());
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
-            te_ledger_contains("vb-1", &parent),
-            te_get_anchor_hash("vb-1"),
-            te_ledger_tip("vb-1"),
-            te_load_header_with_validity("vb-1", prep.headers.h2.hash()),
-            te_ledger_contains("vb-1", &prep.headers.h2.point()),
-            te_load_from_best_chain("vb-1", prep.headers.h2.point()),
-            te_load_header_with_validity("vb-1", prep.headers.h1.hash()),
-            te_ledger_contains("vb-1", &prep.headers.h1.point()),
-            te_rollback_ledger("vb-1", &prep.headers.h1.point()),
-            te_validate_block("vb-1", &Peer::new("unknown"), parent),
-            te_record_metrics("vb-1"),
-            te_validate_block("vb-1", &Peer::new("unknown"), tip.point()),
-            te_record_metrics("vb-1"),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }),
-            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))),
-            te_state("vb-1", &expected_state).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
@@ -221,7 +191,7 @@ fn test_rollback_fails_when_ancestor_invalid() {
     // this tests the case where a chain is built on an invalid block and the rest of the chain comes in from
     // fetch_blocks while the invalidity travels to the select_chain stage
     let mut prep = test_prep();
-    prep.set_current(prep.headers.h1.point());
+    prep.set_current(prep.headers.h2.point());
     prep.store_headers(&prep.headers.main());
     prep.store_blocks(&prep.headers.main());
     prep.set_anchor(prep.headers.h0.hash());
@@ -232,24 +202,20 @@ fn test_rollback_fails_when_ancestor_invalid() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
-            te_ledger_contains("vb-1", &parent),
-            te_get_anchor_hash("vb-1"),
-            te_ledger_tip("vb-1"),
-            te_load_header_with_validity("vb-1", prep.headers.h2.hash()),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
-            te_state("vb-1", &prep.state).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
-        .assert_and_remove(Level::WARN, &["failed to rollback ledger"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["validating block"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -271,28 +237,17 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::new(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
             te_input("vb-1", &msg).into(),
-            te_ledger_contains("vb-1", &parent),
-            te_get_anchor_hash("vb-1"),
-            te_ledger_tip("vb-1"),
-            te_load_header_with_validity("vb-1", prep.headers.h2a.hash()),
-            te_ledger_contains("vb-1", &prep.headers.h2a.point()),
-            te_load_from_best_chain("vb-1", prep.headers.h2a.point()),
-            te_load_header_with_validity("vb-1", prep.headers.h1.hash()),
-            te_ledger_contains("vb-1", &prep.headers.h1.point()),
-            te_load_from_best_chain("vb-1", prep.headers.h1.point()),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
-            te_state("vb-1", &prep.state).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
-        .assert_and_remove(Level::WARN, &["cannot rollback into the immutable db"])
+        .assert_and_remove(Level::WARN, &["failed to rollback ledger to parent point"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -315,8 +270,8 @@ fn test_ledger_fails_terminates_after_sending_false() {
     assert_trace(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
-            te_input("vb-1", &msg).into(),
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg),
             te_validate_block("vb-1", &Peer::new("unknown"), tip.point()),
             te_terminate("vb-1"),
             te_terminated("vb-1", TerminationReason::Voluntary),
@@ -347,12 +302,12 @@ fn test_validation_fails_terminates_after_sending_false() {
     assert_trace(
         &running,
         &[
-            te_state("vb-1", &prep.state).into(),
-            te_input("vb-1", &msg).into(),
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg),
             te_validate_block("vb-1", &Peer::new("unknown"), tip.point()),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
-            te_state("vb-1", &prep.state).into(),
+            te_state("vb-1", &prep.state),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])

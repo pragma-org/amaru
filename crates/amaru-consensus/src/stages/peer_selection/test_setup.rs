@@ -19,18 +19,34 @@ use amaru_ouroboros_traits::validators::blocks::can_validate_blocks::BlockValida
 use amaru_protocols::manager::ManagerMessage;
 use pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
-    simulation::{SimulationBuilder, SimulationRunning, running::OverrideResult},
-    trace_buffer::{TraceBuffer, TraceEntry},
+    simulation::SimulationRunning, trace_buffer::TraceEntry,
 };
 use tokio::runtime::{Builder, Runtime};
-use tracing::Level;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
+pub use crate::stages::test_utils::TraceMatch;
 use crate::{
     effects::{RegisteredRelaySocketAddrsEffect, TipEffect, VolatileTipEffect},
-    stages::test_utils::{BufferWriter, Logs},
+    stages::test_utils::{Logs, run_simulation},
 };
+
+/// Matches an `AddStage` effect whose generated name starts with the given prefix.
+/// Useful for testing first-message child wiring when the simulation appends a suffix
+/// (e.g. "peer-selection/ledger-check-2").
+pub fn tm_add_stage_starts_with(prefix: &str) -> TraceMatch<'static> {
+    let prefix = prefix.to_string();
+    let description = format!("AddStage name starts with {}", prefix);
+    TraceMatch::Property(
+        Box::new(move |e: &TraceEntry| {
+            if let TraceEntry::Suspend(Effect::AddStage { name, .. }) = e {
+                name.as_str().starts_with(&prefix)
+            } else {
+                false
+            }
+        }),
+        description,
+    )
+}
 
 pub const COOLDOWN_SECS: u64 = 1;
 
@@ -63,18 +79,14 @@ impl TestPrep {
     }
 }
 
-pub fn test_prep_static(static_names: &[&str]) -> TestPrep {
+pub fn test_prep(static_names: &[&str]) -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
     let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| Peer::new(n)).collect();
     let state = PeerSelection::new(manager, static_peers, 3, 10, COOLDOWN_SECS);
     TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
 }
 
-pub fn test_prep_no_static() -> TestPrep {
-    test_prep_static(&[])
-}
-
-fn register_guards() -> DeserializerGuards {
+pub fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<PeerSelection>().boxed(),
         pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
@@ -91,40 +103,38 @@ pub fn setup_preload(
     prep: &TestPrep,
     messages: impl IntoIterator<Item = PeerSelectionMsg>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    let writer = BufferWriter::new();
-    let mut logs = writer.clone();
-
-    let sub = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .set_default();
-    logs.set_guard(sub);
-
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
-    let ps = network.stage("ps", stage);
-    let ps = network.wire_up(ps, prep.state.clone());
-    network.preload(&ps, messages).unwrap();
+    run_simulation(
+        prep.rt.handle(),
+        guards,
+        |network| {
+            let ps = network.stage("ps", stage);
+            let ps = network.wire_up(ps, prep.state.clone());
+            network.preload(&ps, messages).unwrap();
+        },
+        |_resources| {
+            // Resources (if any) would go here. Ledger effects are overridden below.
+        },
+        |running| {
+            running.use_virtual_child_stages(true);
 
-    let mut running = network.run();
-
-    // Override ledger external effects so the internal ledger-check stage created by
-    // Initialize does not require any Ledger resource.
-    running.override_external_effect::<VolatileTipEffect>(usize::MAX, |_| {
-        OverrideResult::Handled(Box::new(Option::<amaru_kernel::Tip>::None))
-    });
-    running.override_external_effect::<TipEffect>(usize::MAX, |_| {
-        OverrideResult::Handled(Box::new(amaru_kernel::Tip::origin()))
-    });
-    running.override_external_effect::<RegisteredRelaySocketAddrsEffect>(usize::MAX, |_| {
-        OverrideResult::Handled(Box::new(Ok::<BTreeSet<SocketAddr>, BlockValidationError>(BTreeSet::new())))
-    });
-
-    running.run_until_blocked_incl_effects(prep.rt.handle());
-
-    (running, guards, logs.logs())
+            // Override ledger external effects so the internal "peer-selection/ledger-check"
+            // child created on Initialize does not require a real Ledger resource.
+            running.override_external_effect::<VolatileTipEffect>(usize::MAX, |_| {
+                pure_stage::simulation::running::OverrideResult::Handled(Box::new(Option::<amaru_kernel::Tip>::None))
+            });
+            running.override_external_effect::<TipEffect>(usize::MAX, |_| {
+                pure_stage::simulation::running::OverrideResult::Handled(Box::new(amaru_kernel::Tip::origin()))
+            });
+            running.override_external_effect::<RegisteredRelaySocketAddrsEffect>(usize::MAX, |_| {
+                pure_stage::simulation::running::OverrideResult::Handled(Box::new(Ok::<
+                    BTreeSet<SocketAddr>,
+                    BlockValidationError,
+                >(BTreeSet::new())))
+            });
+        },
+    )
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl pure_stage::SendData) -> TraceEntry {
@@ -145,15 +155,4 @@ pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) ->
 
 pub fn te_clock(instant: Instant) -> TraceEntry {
     TraceEntry::Clock(instant)
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
 }

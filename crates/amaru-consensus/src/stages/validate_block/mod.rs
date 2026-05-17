@@ -150,7 +150,7 @@ async fn roll_back_to_ancestor(
     eff: &Effects<ValidateBlockMsg>,
     parent: Point,
 ) -> Result<(Point, Vec<Point>), ValidationFailed> {
-    if ledger.contains_point(&parent).await {
+    if ledger.contains_volatile_point(&parent).await {
         ledger
             .rollback(&Peer::new("unknown"), &parent, opentelemetry::Context::current())
             .or_terminate_with(eff, async move |error| {
@@ -161,7 +161,7 @@ async fn roll_back_to_ancestor(
     }
 
     // search will abort at this point
-    let ledger_tip = ledger.tip().await.point();
+    let ledger_tip = ledger.immutable_tip().await.point();
     let mut current_hash = parent.hash();
     let mut forward_points = Vec::new();
     // pseudo-peer because here we don't know which peer the block came from
@@ -189,7 +189,7 @@ async fn roll_back_to_ancestor(
             .into());
         }
 
-        if ledger.contains_point(&current_point).await {
+        if ledger.contains_volatile_point(&current_point).await {
             forward_points.reverse();
             ledger.rollback(&Peer::new(""), &current_point, opentelemetry::Context::current()).or_terminate_with(eff, async move |error| {
                 tracing::error!(point = %current_point, %error, "ledger volatile DB contains point but rollback failed");

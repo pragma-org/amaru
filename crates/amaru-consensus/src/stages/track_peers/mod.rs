@@ -38,11 +38,7 @@ use crate::{
 /// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
 pub(super) async fn ledger_applied_block_height<T: pure_stage::SendData + Sync>(eff: &Effects<T>) -> BlockHeight {
     let ledger = Ledger::new(eff.clone());
-    let tip = match ledger.volatile_tip().await {
-        Some(tip) => tip,
-        None => ledger.tip().await,
-    };
-    tip.block_height()
+    ledger.volatile_tip().await.block_height()
 }
 
 /// This is the state of the [`stage`] that tracks peers from whom we are receiving headers.
@@ -138,10 +134,10 @@ impl TrackPeers {
         &self,
         peer: &Peer,
         variant: EraName,
-        header: BlockHeader,
+        header: &BlockHeader,
         tip: Tip,
         ledger: &Ledger,
-    ) -> Result<(BlockHeader, Point), ConsensusError> {
+    ) -> Result<Point, ConsensusError> {
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
             return Err(ConsensusError::EraNameMismatch { from_raw_header: variant, from_slot: era_name });
@@ -179,10 +175,10 @@ impl TrackPeers {
         // TODO: check that slot time is within the permissible clock skew
 
         ledger
-            .validate_header(&header, Span::current().context())
+            .validate_header(header, Span::current().context())
             .await
             .map_err(|e| ConsensusError::InvalidHeader(header.point(), e))?;
-        Ok((header, per_peer.current.point()))
+        Ok(per_peer.current.point())
     }
 
     async fn roll_forward(
@@ -197,12 +193,11 @@ impl TrackPeers {
         };
         per_peer.current = header.tip();
         per_peer.highest = tip;
-        let tip = header.tip();
         if store.has_header(&header.hash()).await {
             Ok(None)
         } else {
             store.store_header(&header).await.map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
-            Ok(Some(tip))
+            Ok(Some(per_peer.current))
         }
     }
 
@@ -241,9 +236,9 @@ impl TrackPeers {
 
         let ledger = Ledger::new(eff.clone());
         let store = Store::new(eff.clone());
-        let header = self.validate_header(&peer, variant, header, tip, &ledger).await;
-        let (header, parent) = match header {
-            Ok(header) => header,
+        let result = self.validate_header(&peer, variant, &header, tip, &ledger).await;
+        let parent = match result {
+            Ok(parent) => parent,
             Err(error) => {
                 tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                 self.upstream.remove(&peer);
@@ -252,10 +247,15 @@ impl TrackPeers {
             }
         };
 
-        let tip_point = header.point();
-        let tip = self.roll_forward(&peer, header, tip, &store).await;
-        let tip = match tip {
-            Ok(tip) => tip,
+        let current_point = header.point();
+        match self.roll_forward(&peer, header, tip, &store).await {
+            Ok(Some(tip)) => {
+                tracing::debug!(%peer, tip = %tip.point(), "roll forward with new header");
+                eff.send(&self.downstream, (tip, parent)).await;
+            }
+            Ok(None) => {
+                tracing::debug!(%peer, tip = %current_point, "roll forward, header already stored");
+            }
             Err(error) => {
                 tracing::error!(%error, %peer, "chain_sync.store_header.failed");
                 self.upstream.remove(&peer);
@@ -263,13 +263,6 @@ impl TrackPeers {
                 return;
             }
         };
-
-        if let Some(tip) = tip {
-            tracing::debug!(%peer, tip = %tip.point(), "roll forward with new header");
-            eff.send(&self.downstream, (tip, parent)).await;
-        } else {
-            tracing::debug!(%peer, tip = %tip_point, "roll forward, header already stored");
-        }
 
         if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
             self.ensure_defer_req_next_stage(&eff).await;

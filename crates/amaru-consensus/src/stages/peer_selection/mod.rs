@@ -153,6 +153,7 @@ impl PeerSelection {
                 .cloned()
                 .choose_multiple(&mut rand::rng(), target_upstream_peers - outbound_peers);
             for peer in candidates {
+                tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
                 eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
                 self.outbound_peers.insert(peer, PeerState::Connecting);
             }
@@ -168,6 +169,7 @@ impl PeerSelection {
                 .cloned()
                 .choose_multiple(&mut rand::rng(), target_upstream_peers - outbound_peers);
             for peer in candidates {
+                tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
                 eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
                 self.outbound_peers.insert(peer, PeerState::Connecting);
             }
@@ -183,7 +185,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::AddPeer(p.clone())).await;
                 state.outbound_peers.insert(p.clone(), PeerState::Connecting);
             }
-            // NOTE: no supervision, failure in ledger-check tears down the node.
+            // NOTE: no supervision, failure in ledger-check shall tear down the node.
             let ledger_check = eff
                 .wire_up(
                     eff.stage("peer-selection/ledger-check", get_ledger_candidates).await,
@@ -201,14 +203,20 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::AddPeer(peer) => {
-            if let Some(schedule_id) = state.cooldown_timers.remove(&peer) {
-                tracing::info!(%peer, was_banned = true, "peer_selection.add_peer");
+            let was_banned = if let Some(schedule_id) = state.cooldown_timers.remove(&peer) {
                 eff.cancel_schedule(schedule_id).await;
+                true
             } else {
-                tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
+                false
+            };
+
+            if !state.outbound_peers.contains_key(&peer) {
+                tracing::info!(%peer, was_banned, "peer_selection.add_peer");
+                eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
+                state.outbound_peers.insert(peer, PeerState::Connecting);
+            } else {
+                tracing::info!(%peer, "not adding peer because already added");
             }
-            eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
-            state.outbound_peers.insert(peer, PeerState::Connecting);
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Inbound) => {
             if state.inbound_peers.len() >= state.target_downstream_peers {
@@ -244,7 +252,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
         }
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound) => {
-            match state.inbound_peers.entry(peer.clone()) {
+            match state.outbound_peers.entry(peer.clone()) {
                 Entry::Occupied(entry) => {
                     let old = entry.get();
                     match old {
@@ -288,19 +296,15 @@ impl LedgerCheck {
 #[tracing::instrument(level = "info", skip_all, fields(last_height = %state.last_height))]
 async fn get_ledger_candidates(mut state: LedgerCheck, _msg: (), eff: Effects<()>) -> LedgerCheck {
     let ledger = Ledger::new(eff.clone());
-    let current_height = if let Some(tip) = ledger.volatile_tip().await {
-        tip.block_height()
-    } else {
-        ledger.tip().await.block_height()
-    };
+    let current_height = ledger.volatile_tip().await.block_height();
     if current_height < state.last_height + state.min_height_change {
         return reschedule_check(state, eff).await;
     }
     let ledger_entries = ledger.registered_relay_socket_addrs().await;
     let ledger_entries = match ledger_entries {
         Ok(entries) => entries,
-        Err(e) => {
-            tracing::warn!(%e, "failed to get ledger entries");
+        Err(error) => {
+            tracing::warn!(%error, "failed to get ledger entries");
             return reschedule_check(state, eff).await;
         }
     };

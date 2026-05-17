@@ -72,18 +72,6 @@ impl Configuration {
         self
     }
 
-    #[expect(dead_code)]
-    pub(super) fn with_chain_store(mut self, chain_store: Arc<dyn ChainStore<BlockHeader>>) -> Self {
-        self.chain_store = chain_store;
-        self
-    }
-
-    #[expect(dead_code)]
-    pub(super) fn with_mempool(mut self, mempool: Arc<InMemoryMempool<Transaction>>) -> Self {
-        self.mempool = mempool;
-        self
-    }
-
     pub(super) fn with_txs(self, txs_nb: u64) -> Self {
         create_transactions_in_mempool(self.mempool.clone(), txs_nb);
         self

@@ -1855,33 +1855,6 @@ pub mod test {
         basedir
     }
 
-    // creates a sample db at the given path, populating with some data
-    // this function exists to make it easy to test DB migration:
-    //
-    // 1. create a sample DB with the old version
-    // 2. run migration code
-    // 3. check that the data is still there and correct
-    #[expect(dead_code)]
-    fn create_sample_db(path: &Path) {
-        let db = initialise_test_rw_store(path);
-        let chain = run_strategy(any_headers_chain(10));
-        for header in &chain {
-            let block = RawBlock::from(random_bytes(32).as_slice());
-            db.store_header(header).unwrap();
-            <RocksDBStore as ChainStore<BlockHeader>>::store_block(&db, &header.hash(), &block).unwrap();
-            let nonces = Nonces {
-                active: Nonce::from(random_bytes(32).as_slice()),
-                evolving: Nonce::from(random_bytes(32).as_slice()),
-                candidate: Nonce::from(random_bytes(32).as_slice()),
-                tail: header.parent().unwrap_or(ORIGIN_HASH),
-                epoch: Default::default(),
-            };
-            <RocksDBStore as ChainStore<BlockHeader>>::put_nonces(&db, &header.hash(), &nonces).unwrap();
-        }
-        <RocksDBStore as ChainStore<BlockHeader>>::set_anchor_hash(&db, &chain[1].hash()).unwrap();
-        <RocksDBStore as ChainStore<BlockHeader>>::set_best_chain_hash(&db, &chain[9].hash()).unwrap();
-    }
-
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
         // try first with in-memory store
         let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());

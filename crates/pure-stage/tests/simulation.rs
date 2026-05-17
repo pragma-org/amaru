@@ -623,3 +623,98 @@ fn create_stage_within_stage() {
         ]
     );
 }
+
+/// Test that `use_virtual_child_stages(true)` allows a parent stage to successfully execute
+/// `eff.stage(...)` + `eff.wire_up(...)` (effects are recorded, parent receives the StageRef
+/// and can send to it), while preventing the child stage from actually being materialized
+/// in the simulation. This is the recommended mode for unit-testing parent stages that
+/// dynamically create helper/child stages.
+#[test]
+fn virtual_child_stages() {
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ParentState {
+        child_ref: Option<StageRef<u32>>,
+        output: StageRef<u32>,
+    }
+
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct ChildState {
+        value: u32,
+        output: StageRef<u32>,
+    }
+
+    let trace_buffer = TraceBuffer::new_shared(1, 1000000);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+
+    let parent = network.stage("parent", async |mut state: ParentState, msg: u32, eff| {
+        if state.child_ref.is_none() {
+            let child = eff
+                .stage("child", async |mut state: ChildState, msg: u32, eff| {
+                    // If this child transition ever executed, it would send to the output.
+                    state.value += msg;
+                    eff.send(&state.output, state.value).await;
+                    state
+                })
+                .await;
+
+            let child_ref = eff.wire_up(child, ChildState { value: 0, output: state.output.clone() }).await;
+            state.child_ref = Some(child_ref);
+        }
+
+        if let Some(ref child) = state.child_ref {
+            eff.send(child, msg).await;
+        }
+
+        state
+    });
+
+    let (output, mut rx) = network.output("output", 10);
+    let parent = network.wire_up(parent, ParentState { child_ref: None, output: output.clone() });
+
+    let mut running = network.run();
+    running.use_virtual_child_stages(true);
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    // Kick off the parent with a message that will trigger child creation + a send to the child.
+    running.enqueue_msg(&parent, [42u32]);
+    running.resume_receive(&parent).unwrap();
+
+    // Run the simulation using the high-level automatic driver (the style used by consensus tests).
+    running.run_until_blocked_or_time_incl_effects(Instant::at_offset(Duration::from_secs(1)), rt.handle());
+
+    // Because the child was virtual, its logic never ran → nothing reached the output.
+    assert!(rx.drain().collect::<Vec<_>>().is_empty(), "virtual child must not produce any output");
+
+    // Inspect the trace to verify the parent's creation effects were recorded.
+    let trace = trace_buffer.lock().hydrate_without_timestamps();
+
+    let has_add_stage = trace.iter().any(|e| matches!(e, TraceEntry::Suspend(Effect::AddStage { .. })));
+    assert!(has_add_stage, "expected AddStage effect to be recorded");
+
+    let has_wire_stage = trace.iter().any(|e| matches!(e, TraceEntry::Suspend(Effect::WireStage { .. })));
+    assert!(has_wire_stage, "expected WireStage effect to be recorded");
+
+    // The child's initial state should still have been pushed to the trace (via push_state).
+    let has_child_state =
+        trace.iter().any(|e| matches!(e, TraceEntry::State { stage, .. } if stage.as_str().starts_with("child")));
+    assert!(has_child_state, "child's initial state should be recorded even in virtual mode");
+
+    // Crucially, the child itself should never have become runnable (no Input for it).
+    let child_inputs = trace
+        .iter()
+        .filter(|e| if let TraceEntry::Input { stage, .. } = e { stage.as_str().starts_with("child") } else { false })
+        .count();
+    assert_eq!(child_inputs, 0, "virtual child must never receive an input");
+
+    // The parent *did* attempt to send a message to the virtual child ref (this send is visible in the trace).
+    let has_send_to_child = trace.iter().any(|e| {
+        if let TraceEntry::Suspend(Effect::Send { to, .. }) = e { to.as_str().starts_with("child") } else { false }
+    });
+    assert!(has_send_to_child, "parent should have sent to the virtual child ref");
+
+    // The parent continued executing after the virtual wire_up (we see a later state snapshot for it).
+    let has_later_parent_state =
+        trace.iter().rev().any(|e| matches!(e, TraceEntry::State { stage, .. } if stage == parent.name()));
+    assert!(has_later_parent_state, "parent should have continued and recorded state after the virtual wire_up");
+}

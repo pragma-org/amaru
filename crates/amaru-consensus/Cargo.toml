@@ -18,7 +18,7 @@ categories.workspace = true
 [features]
 default = []
 profiling = ["dep:pprof"]
-test-utils = ["proptest", "dep:rand", "serde_json"]
+test-utils = ["proptest", "serde_json"]
 
 [dependencies]
 async-trait.workspace = true
@@ -28,7 +28,7 @@ itertools.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
 proptest = { workspace = true, optional = true }
-rand = { workspace = true, optional = true }
+rand = { workspace = true }
 rayon.workspace = true
 serde_json = { workspace = true, optional = true }
 serde.workspace = true
@@ -48,6 +48,7 @@ pure-stage.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
+pallas-primitives.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 rand.workspace = true

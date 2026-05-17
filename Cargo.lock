@@ -134,6 +134,7 @@ dependencies = [
  "hex",
  "itertools 0.14.0",
  "opentelemetry",
+ "pallas-primitives",
  "parking_lot",
  "pprof",
  "pretty_assertions",

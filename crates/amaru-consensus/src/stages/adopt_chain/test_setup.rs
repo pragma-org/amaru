@@ -25,18 +25,16 @@ use amaru_protocols::store_effects::{
     SetAnchorHashEffect, SwitchToForkEffect,
 };
 use pure_stage::{
-    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
-    simulation::{SimulationBuilder, SimulationRunning},
-    trace_buffer::{TraceBuffer, TraceEntry},
+    DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason, simulation::SimulationRunning,
+    trace_buffer::TraceEntry,
 };
 use tokio::runtime::{Builder, Runtime};
-use tracing::Level;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
+pub use crate::stages::test_utils::assert_trace;
 use crate::stages::{
     block_source::BlockSourceMsg,
-    test_utils::{BufferWriter, Logs},
+    test_utils::{Logs, run_simulation},
 };
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -71,7 +69,6 @@ pub struct HeaderTree {
     pub h3a: BlockHeader,
 }
 
-#[allow(dead_code)]
 impl HeaderTree {
     pub fn new() -> Self {
         let h0 = make_block_header(1, 1, None);
@@ -86,10 +83,6 @@ impl HeaderTree {
 
     pub fn main_chain(&self) -> [&BlockHeader; 5] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h4]
-    }
-
-    pub fn fork_chain(&self) -> [&BlockHeader; 3] {
-        [&self.h0, &self.h1, &self.h2a]
     }
 
     pub fn all(&self) -> [&BlockHeader; 7] {
@@ -164,30 +157,25 @@ pub fn test_prep(consensus_security_param: u64) -> TestPrep {
     }
 }
 
-pub fn setup(prep: &TestPrep, msg: Tip) -> (SimulationRunning, DeserializerGuards, Logs) {
-    let writer = BufferWriter::new();
-    let mut logs = writer.clone();
-
-    let sub = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .set_default();
-    logs.set_guard(sub);
-
+pub fn setup(prep: &TestPrep, tip: Tip) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
-    network.resources().put::<ResourceHeaderStore>(prep.store.clone());
-
-    let ac = network.stage("ac", stage);
-    let ac = network.wire_up(ac, prep.state.clone());
-    network.preload(&ac, [AdoptChainMsg::new(msg, BlockHeight::new(0))]).unwrap();
-
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(prep.rt.handle());
-
-    (running, guards, logs.logs())
+    run_simulation(
+        prep.rt.handle(),
+        guards,
+        |network| {
+            let ac = network.stage("ac", stage);
+            let ac = network.wire_up(ac, prep.state.clone());
+            network.preload(&ac, [AdoptChainMsg::new(tip, BlockHeight::new(0))]).unwrap();
+        },
+        |resources| {
+            resources.put::<ResourceHeaderStore>(prep.store.clone());
+        },
+        |_running| {
+            // Virtual child stages are enabled by default (recommended for all stage tests).
+            // adopt_chain does not create child stages.
+        },
+    )
 }
 
 pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
@@ -228,15 +216,4 @@ pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
 
 pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
     TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
 }
