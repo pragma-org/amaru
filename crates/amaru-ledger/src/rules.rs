@@ -15,6 +15,8 @@
 use std::{fmt, fmt::Display};
 
 use amaru_kernel::{Block, TransactionBody};
+#[cfg(test)]
+use amaru_observability::TraceContext;
 use amaru_observability::trace_span;
 pub use block::execute as validate_block;
 
@@ -112,6 +114,7 @@ pub(crate) mod tests {
             <&EraHistory>::from(NetworkName::Preprod),
             GovernanceActivity { consecutive_dormant_epochs: 0 },
             block,
+            &TraceContext::none(),
         );
 
         assert!(matches!(results, BlockValidation::Valid(())));
@@ -140,6 +143,7 @@ pub(crate) mod tests {
             <&EraHistory>::from(NetworkName::Preprod),
             GovernanceActivity { consecutive_dormant_epochs: 0 },
             block,
+            &TraceContext::none(),
         );
 
         assert!(matches!(results, BlockValidation::Invalid(_, _, InvalidBlockDetails::HeaderSizeTooBig { .. })))

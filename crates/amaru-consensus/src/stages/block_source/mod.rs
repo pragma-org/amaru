@@ -15,8 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{BlockHeight, Peer, Point, Tip};
+use amaru_observability::TraceContext;
 use pure_stage::{Effects, StageRef};
-use tracing::field;
+use tracing::{Instrument, field};
 
 use crate::stages::peer_selection::PeerSelectionMsg;
 
@@ -99,9 +100,37 @@ impl BlockValidity {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BlockSourceMsg {
-    BlockReceived { peer: Peer, tip: Tip },
-    Validation { valid: bool, point: Point },
-    AdoptedTip(Tip),
+    BlockReceived {
+        peer: Peer,
+        tip: Tip,
+        #[serde(skip, default)]
+        context: TraceContext,
+    },
+    Validation {
+        valid: bool,
+        point: Point,
+        #[serde(skip, default)]
+        context: TraceContext,
+    },
+    AdoptedTip(Tip, #[serde(skip, default)] TraceContext),
+}
+
+impl BlockSourceMsg {
+    pub fn message_type(&self) -> &'static str {
+        match self {
+            BlockSourceMsg::BlockReceived { .. } => "BlockReceived",
+            BlockSourceMsg::Validation { .. } => "Validation",
+            BlockSourceMsg::AdoptedTip(..) => "AdoptedTip",
+        }
+    }
+
+    pub fn context(&self) -> TraceContext {
+        match self {
+            BlockSourceMsg::BlockReceived { context, .. } => context.clone(),
+            BlockSourceMsg::Validation { context, .. } => context.clone(),
+            BlockSourceMsg::AdoptedTip(_, ctx) => ctx.clone(),
+        }
+    }
 }
 
 impl BlockSource {
@@ -172,18 +201,28 @@ impl BlockSource {
 /// It tracks which peers have sent which blocks, and if a block is deemed invalid,
 /// it reports all peers that sent that block as adversarial to the peer selection stage.
 pub async fn stage(mut state: BlockSource, msg: BlockSourceMsg, eff: Effects<BlockSourceMsg>) -> BlockSource {
-    match msg {
-        BlockSourceMsg::BlockReceived { peer, tip } => {
-            state.on_block_received(peer, tip, &eff).await;
+    let span = amaru_observability::trace_span!(
+        parent_context: &msg.context(),
+        amaru_observability::amaru::consensus::BLOCK_SOURCE,
+        message_type = msg.message_type()
+    );
+
+    async move {
+        match msg {
+            BlockSourceMsg::BlockReceived { peer, tip, .. } => {
+                state.on_block_received(peer, tip, &eff).await;
+            }
+            BlockSourceMsg::Validation { valid, point, .. } => {
+                state.on_validation(valid, point, &eff).await;
+            }
+            BlockSourceMsg::AdoptedTip(tip, _) => {
+                state.on_adopted_tip(tip);
+            }
         }
-        BlockSourceMsg::Validation { valid, point } => {
-            state.on_validation(valid, point, &eff).await;
-        }
-        BlockSourceMsg::AdoptedTip(tip) => {
-            state.on_adopted_tip(tip);
-        }
+        state
     }
-    state
+    .instrument(span)
+    .await
 }
 
 #[cfg(test)]

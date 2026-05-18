@@ -17,7 +17,7 @@ use std::{fs, path::PathBuf};
 use amaru_kernel::{
     BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER, to_cbor,
 };
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
 use rocksdb::{
     DB, DBCommon, DBIteratorWithThreadMode, DBPinnableSlice, IteratorMode, OptimisticTransactionDB, Options,
@@ -581,8 +581,9 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         })
     }
 
-    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        let _span = trace_span!(
+    fn roll_forward_chain(&self, point: &Point, context: &TraceContext) -> Result<(), StoreError> {
+        let span = trace_span!(
+            parent_context: context,
             amaru_observability::amaru::stores::consensus::ROLL_FORWARD_CHAIN,
             hash = point.hash(),
             slot = u64::from(point.slot_or_default()),
@@ -590,7 +591,7 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
             db_operation_name = "put".to_string(),
             db_collection_name = "chain".to_string()
         );
-        let _guard = _span.enter();
+        let _guard = span.enter();
 
         self.with_transaction(|tx| {
             let slot = u64::from(point.slot_or_default()).to_be_bytes();
@@ -864,7 +865,7 @@ pub mod test {
             let chain = populate_db(store.clone());
             let root = run_strategy(any_header_with_parent(chain[0].hash()));
 
-            store.roll_forward_chain(&root.point()).expect("should roll forward successfully");
+            store.roll_forward_chain(&root.point(), &TraceContext::none()).expect("should roll forward successfully");
 
             assert_eq!(store.load_from_best_chain(&root.point()), Some(root.hash()));
             assert_eq!(store.get_best_chain_hash(), root.hash());
@@ -877,7 +878,9 @@ pub mod test {
             let chain = populate_db(store.clone());
             let new_tip = run_strategy(any_header_with_parent(chain[9].hash()));
 
-            store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
+            store
+                .roll_forward_chain(&new_tip.point(), &TraceContext::none())
+                .expect("should roll forward successfully");
 
             assert_eq!(store.load_from_best_chain(&new_tip.point()), Some(new_tip.hash()));
             assert_eq!(store.get_best_chain_hash(), new_tip.hash());
@@ -1149,7 +1152,7 @@ pub mod test {
             let chain = run_strategy(any_headers_chain(10));
             for header in chain.iter() {
                 store.store_header(header).unwrap();
-                store.roll_forward_chain(&header.point()).unwrap();
+                store.roll_forward_chain(&header.point(), &TraceContext::none()).unwrap();
             }
             assert_eq!(store.get_anchor_hash(), ORIGIN_HASH);
 
@@ -1277,7 +1280,7 @@ pub mod test {
             for slot in 0..=100 {
                 let header = BlockHeader::from(make_header(slot + 1, slot, parent));
                 store.store_header(&header).unwrap();
-                store.roll_forward_chain(&header.point()).unwrap();
+                store.roll_forward_chain(&header.point(), &TraceContext::none()).unwrap();
                 parent = Some(header.hash());
             }
 
@@ -1354,7 +1357,9 @@ pub mod test {
                 let new_tip = BlockHeader::from(make_header(next_slot, next_slot, Some(tip.hash())));
 
                 store.store_header(&new_tip).expect("should store header successfully");
-                store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
+                store
+                    .roll_forward_chain(&new_tip.point(), &TraceContext::none())
+                    .expect("should roll forward successfully");
                 assert_eq!(snapshot.get_best_chain_hash(), best_chain_hash);
                 assert_eq!(snapshot.retrieve_best_chain(), best_chain);
                 assert_eq!(snapshot.load_from_best_chain(&new_tip.point()), None);
@@ -1838,7 +1843,7 @@ pub mod test {
     ) {
         for header in headers {
             store.store_header(header).unwrap();
-            store.roll_forward_chain(&header.point()).unwrap();
+            store.roll_forward_chain(&header.point(), &TraceContext::none()).unwrap();
         }
     }
 
@@ -1849,7 +1854,7 @@ pub mod test {
         store.set_anchor_hash(&chain[0].hash()).expect("should set anchor hash successfully");
 
         for header in chain.iter() {
-            store.roll_forward_chain(&header.point()).expect("should roll forward successfully");
+            store.roll_forward_chain(&header.point(), &TraceContext::none()).expect("should roll forward successfully");
             store.store_header(header).expect("should store header successfully");
         }
         chain

@@ -167,6 +167,7 @@ impl CanValidateBlocks for MockBlockValidator {
         &self,
         point: &Point,
         _block: amaru_kernel::Block,
+        _ctx: amaru_observability::TraceContext,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut inner = self.inner.lock();
         if inner.ledger_fails.contains(point) {
@@ -251,7 +252,7 @@ impl TestPrep {
     }
 
     pub fn roll_forward_chain(&self, point: Point) {
-        self.store.roll_forward_chain(&point).unwrap();
+        self.store.roll_forward_chain(&point, &amaru_observability::TraceContext::none()).unwrap();
     }
 }
 
@@ -320,8 +321,10 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
 }
 
 pub fn te_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceEntry {
-    let ctx = opentelemetry::Context::current();
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point, ctx))))
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(ValidateBlockEffect::new(peer, &point, TraceContext::none())),
+    ))
 }
 
 pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceEntry {
@@ -331,7 +334,7 @@ pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceEntry {
 pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(RollbackBlockEffect::new(&Peer::new("unknown"), point, opentelemetry::Context::current())),
+        Box::new(RollbackBlockEffect::new(&Peer::new("unknown"), point, TraceContext::none())),
     ))
 }
 

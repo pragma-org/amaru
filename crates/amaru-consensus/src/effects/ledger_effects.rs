@@ -14,14 +14,14 @@
 
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
-use amaru_kernel::{BlockHeader, EraHistory, IgnoreEq, Peer, Point, Tip, Transaction};
+use amaru_kernel::{BlockHeader, EraHistory, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
+use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
     TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
-use opentelemetry::trace::FutureExt;
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 
 /// Ledger operations available to a stage.
@@ -32,21 +32,21 @@ pub trait LedgerOps: Send + Sync {
     fn validate_header(
         &self,
         header: &BlockHeader,
-        ctx: opentelemetry::Context,
+        ctx: TraceContext,
     ) -> BoxFuture<'static, Result<(), HeaderValidationError>>;
 
     fn validate_block(
         &self,
         peer: &Peer,
         point: &Point,
-        ctx: opentelemetry::Context,
+        ctx: TraceContext,
     ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
     fn rollback(
         &self,
         peer: &Peer,
         point: &Point,
-        ctx: opentelemetry::Context,
+        ctx: TraceContext,
     ) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>>;
 
     fn contains_volatile_point(&self, point: &Point) -> BoxFuture<'static, bool>;
@@ -83,7 +83,7 @@ impl LedgerOps for Ledger {
     fn validate_header(
         &self,
         header: &BlockHeader,
-        ctx: opentelemetry::Context,
+        ctx: TraceContext,
     ) -> BoxFuture<'static, Result<(), HeaderValidationError>> {
         self.effects.external(ValidateHeaderEffect::new(header, ctx))
     }
@@ -92,7 +92,7 @@ impl LedgerOps for Ledger {
         &self,
         peer: &Peer,
         point: &Point,
-        ctx: opentelemetry::Context,
+        ctx: TraceContext,
     ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
         self.effects.external(ValidateBlockEffect::new(peer, point, ctx))
     }
@@ -101,7 +101,7 @@ impl LedgerOps for Ledger {
         &self,
         peer: &Peer,
         point: &Point,
-        ctx: opentelemetry::Context,
+        ctx: TraceContext,
     ) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>> {
         self.effects.external(RollbackBlockEffect::new(peer, point, ctx))
     }
@@ -171,12 +171,12 @@ pub struct ValidateBlockEffect {
     peer: Peer,
     point: Point,
     #[serde(skip)]
-    ctx: IgnoreEq<opentelemetry::Context>,
+    ctx: TraceContext,
 }
 
 impl ValidateBlockEffect {
-    pub fn new(peer: &Peer, point: &Point, ctx: opentelemetry::Context) -> Self {
-        Self { peer: peer.clone(), point: *point, ctx: ctx.into() }
+    pub fn new(peer: &Peer, point: &Point, ctx: TraceContext) -> Self {
+        Self { peer: peer.clone(), point: *point, ctx }
     }
 }
 
@@ -184,26 +184,23 @@ impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let Self { peer: _peer, point, ctx } = *self;
-        Self::wrap(
-            async move {
-                let store = resources
-                    .get::<ResourceHeaderStore>()
-                    .expect("ValidateBlockEffect requires a ResourceHeaderStore resource")
-                    .clone();
-                let block = store
-                    .load_block(&point.hash())
-                    .map_err(|e| BlockValidationError::new(e.into()))?
-                    .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?
-                    .decode()
-                    .map_err(|e| BlockValidationError::new(e.into()))?;
-                let validator = resources
-                    .get::<ResourceBlockValidation>()
-                    .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
-                    .clone();
-                validator.roll_forward_block(&point, block).await
-            }
-            .with_context(ctx.0),
-        )
+        Self::wrap(async move {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("ValidateBlockEffect requires a ResourceHeaderStore resource")
+                .clone();
+            let block = store
+                .load_block(&point.hash())
+                .map_err(|e| BlockValidationError::new(e.into()))?
+                .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?
+                .decode()
+                .map_err(|e| BlockValidationError::new(e.into()))?;
+            let validator = resources
+                .get::<ResourceBlockValidation>()
+                .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
+                .clone();
+            validator.roll_forward_block(&point, block, ctx).await
+        })
     }
 }
 
@@ -215,12 +212,12 @@ impl ExternalEffectAPI for ValidateBlockEffect {
 pub struct ValidateHeaderEffect {
     header: BlockHeader,
     #[serde(skip)]
-    ctx: IgnoreEq<opentelemetry::Context>,
+    ctx: TraceContext,
 }
 
 impl ValidateHeaderEffect {
-    pub fn new(header: &BlockHeader, ctx: opentelemetry::Context) -> Self {
-        Self { header: header.clone(), ctx: ctx.into() }
+    pub fn new(header: &BlockHeader, ctx: TraceContext) -> Self {
+        Self { header: header.clone(), ctx }
     }
 }
 
@@ -228,7 +225,7 @@ impl ExternalEffect for ValidateHeaderEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let _guard = self.ctx.0.attach();
+            let _guard = self.ctx.context().attach();
             let validator = resources
                 .get::<ResourceHeaderValidation>()
                 .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
@@ -247,12 +244,12 @@ pub struct RollbackBlockEffect {
     peer: Peer,
     point: Point,
     #[serde(skip)]
-    ctx: IgnoreEq<opentelemetry::Context>,
+    ctx: TraceContext,
 }
 
 impl RollbackBlockEffect {
-    pub fn new(peer: &Peer, point: &Point, ctx: opentelemetry::Context) -> Self {
-        Self { peer: peer.clone(), point: *point, ctx: ctx.into() }
+    pub fn new(peer: &Peer, point: &Point, ctx: TraceContext) -> Self {
+        Self { peer: peer.clone(), point: *point, ctx }
     }
 }
 
@@ -260,7 +257,7 @@ impl ExternalEffect for RollbackBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let _guard = self.ctx.0.attach();
+            let _guard = self.ctx.context().attach();
             let validator = resources
                 .get::<ResourceBlockValidation>()
                 .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")

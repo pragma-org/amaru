@@ -31,6 +31,7 @@ tracing.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-metrics.workspace = true
+amaru-observability.workspace = true
 
 [dev-dependencies]
 amaru-kernel = { workspace = true, features = ["test-utils"] }

@@ -84,7 +84,7 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
     mempool.insert(tx_1.clone(), TxOrigin::Local).unwrap();
     mempool.insert(tx_2.clone(), TxOrigin::Local).unwrap();
     let prep = TestPrep {
-        msg: MempoolMsg::NewTip(amaru_kernel::Tip::origin()),
+        msg: MempoolMsg::NewTip(amaru_kernel::Tip::origin(), amaru_observability::TraceContext::none()),
         rt: Builder::new_current_thread().build().unwrap(),
         mempool: mempool.clone(),
         validator: Arc::new(reject_tx_1),

@@ -23,6 +23,7 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
+use amaru_observability::TraceContext;
 use thiserror::Error;
 
 use crate::{
@@ -562,7 +563,7 @@ where
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError>;
 
     /// Roll forward the best chain to the given point and set the best chain hash to that point.
-    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;
+    fn roll_forward_chain(&self, point: &Point, context: &TraceContext) -> Result<(), StoreError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -16,6 +16,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 use amaru_kernel::{Block, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
+use amaru_observability::TraceContext;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -25,6 +26,7 @@ pub trait CanValidateBlocks: Send + Sync {
         &self,
         point: &Point,
         block: Block,
+        ctx: TraceContext,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;

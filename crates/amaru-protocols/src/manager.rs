@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 use tracing::Instrument;
@@ -83,9 +83,11 @@ pub enum ManagerMessage {
         through: Point,
         cr: StageRef<Blocks2>,
         id: u64,
+        #[serde(skip, default)]
+        context: TraceContext,
     },
     /// Advertise this new tip to all downstream peers.
-    NewTip(Tip),
+    NewTip(Tip, #[serde(skip, default)] TraceContext),
     /// INTERNAL message sent by the connect handler stage after attempting a connection.
     ConnectionResult(Peer, Result<ConnectionId, ConnectError>),
     /// INTERNAL message sent from the connection stage only!
@@ -117,7 +119,7 @@ impl ManagerMessage {
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
             ManagerMessage::FetchBlocks2 { .. } => "FetchBlocks2",
-            ManagerMessage::NewTip(_) => "NewTip",
+            ManagerMessage::NewTip(..) => "NewTip",
             ManagerMessage::ConnectionResult(..) => "ConnectionResult",
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
             ManagerMessage::Accepted(..) => "Accepted",
@@ -583,6 +585,7 @@ impl Manager {
         through: Point,
         cr: StageRef<Blocks2>,
         id: u64,
+        context: TraceContext,
         eff: &Effects<ManagerMessage>,
     ) {
         tracing::debug!(?from, ?through, "fetching blocks");
@@ -591,7 +594,11 @@ impl Manager {
             if !conn.may_initiate {
                 continue;
             }
-            eff.send(&conn.stage, ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id }).await;
+            eff.send(
+                &conn.stage,
+                ConnectionMessage::FetchBlocks2 { from, through, cr: cr.clone(), id, context: context.clone() },
+            )
+            .await;
             sent += 1;
         }
         if sent == 0 {
@@ -612,7 +619,26 @@ impl Manager {
 /// A peer can be added right after being removed even though the socket will be closed asynchronously.
 pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
     let message_type = msg.message_type().to_string();
-    let span = trace_span!(amaru_observability::amaru::protocols::manager::MANAGER_STAGE, message_type = message_type);
+    let span = match &msg {
+        ManagerMessage::FetchBlocks2 { context, .. } => trace_span!(
+            parent_context: context,
+            amaru_observability::amaru::protocols::manager::MANAGER_STAGE,
+            message_type = message_type
+        ),
+        ManagerMessage::AddPeer(_)
+        | ManagerMessage::RemovePeer(_)
+        | ManagerMessage::Disconnect(..)
+        | ManagerMessage::Listen(_)
+        | ManagerMessage::FetchBlocks { .. }
+        | ManagerMessage::NewTip(..)
+        | ManagerMessage::ConnectionResult(..)
+        | ManagerMessage::ConnectionDied(..)
+        | ManagerMessage::Accepted(..)
+        | ManagerMessage::HandshakeComplete { .. } => {
+            trace_span!(amaru_observability::amaru::protocols::manager::MANAGER_STAGE, message_type = message_type)
+        }
+    };
+    let stage_context = TraceContext::from_span(&span);
 
     async move {
         match msg {
@@ -680,13 +706,13 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;
             }
-            ManagerMessage::NewTip(tip) => {
+            ManagerMessage::NewTip(tip, context) => {
                 for conn in manager.connections.values() {
-                    eff.send(&conn.stage, ConnectionMessage::NewTip(tip)).await;
+                    eff.send(&conn.stage, ConnectionMessage::NewTip(tip, context.clone())).await;
                 }
             }
-            ManagerMessage::FetchBlocks2 { from, through, cr, id } => {
-                manager.fetch_blocks(from, through, cr, id, &eff).await;
+            ManagerMessage::FetchBlocks2 { from, through, cr, id, context: _ } => {
+                manager.fetch_blocks(from, through, cr, id, stage_context, &eff).await;
             }
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;

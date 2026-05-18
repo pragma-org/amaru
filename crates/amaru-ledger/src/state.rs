@@ -27,7 +27,7 @@ use amaru_kernel::{
     TransactionInput, TransactionPointer, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::{info_span, trace_span};
+use amaru_observability::{TraceContext, info_span, trace_span};
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
@@ -700,8 +700,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         point: &Point,
         block: Block,
         arena_pool: &ArenaPool,
+        ctx: &TraceContext,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
-        trace_span!(amaru_observability::amaru::ledger::state::ROLL_FORWARD).in_scope(|| {
+        trace_span!(parent_context: ctx, amaru_observability::amaru::ledger::state::ROLL_FORWARD).in_scope(|| {
             let block_height = block.header.header_body.block_number;
 
             trace_block_transactions(point, block_height, &block);
@@ -728,6 +729,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 self.era_history(),
                 self.governance_activity(),
                 block,
+                ctx,
             )?;
 
             // 5. Record new volatile state
@@ -963,6 +965,7 @@ impl HasStakeDistribution for StakeDistributionObserver {
     }
 }
 
+/// This trace provides transaction ids that were provided by a given block
 fn trace_block_transactions(point: &Point, block_height: u64, block: &Block) {
     let tx_count = block.transaction_bodies.len();
 

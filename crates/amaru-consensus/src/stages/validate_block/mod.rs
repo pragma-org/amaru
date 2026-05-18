@@ -14,9 +14,11 @@
 
 use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
+use amaru_observability::TraceContext;
 use amaru_ouroboros::BlockValidationError;
 use amaru_protocols::store_effects::Store;
 use pure_stage::{Effects, OrTerminateWith, StageRef, TryInStage};
+use tracing::Instrument;
 
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
@@ -77,98 +79,150 @@ pub struct ValidateBlockMsg {
     tip: Tip,
     parent: Point,
     max_block_height: BlockHeight,
+    #[serde(skip, default)]
+    context: TraceContext,
 }
 
 impl ValidateBlockMsg {
-    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight) -> Self {
-        Self { tip, parent, max_block_height }
+    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight, context: TraceContext) -> Self {
+        Self { tip, parent, max_block_height, context }
     }
 }
 
 pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects<ValidateBlockMsg>) -> ValidateBlock {
-    if msg.parent == Point::Origin {
-        tracing::error!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "cannot start from genesis block");
-        return eff.terminate().await;
-    }
+    let ValidateBlockMsg { tip, parent, max_block_height, context: parent_context } = msg;
+    let span = amaru_observability::trace_span!(
+        parent_context: &parent_context,
+        amaru_observability::amaru::consensus::VALIDATE_BLOCK,
+        hash = tip.hash(),
+        slot = tip.slot().as_u64(),
+        block_height = tip.block_height().as_u64()
+    );
+    let context = TraceContext::from_span(&span);
 
-    state.max_block_height = msg.max_block_height.max(state.max_block_height);
+    async move {
+        if parent == Point::Origin {
+            tracing::error!(parent = %parent, current = %state.current, tip = %tip.point(), "cannot start from genesis block");
+            return eff.terminate().await;
+        }
 
-    let ledger = Ledger::new(eff.clone());
-    let store = Store::new(eff.clone());
-    tracing::debug!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "validating block");
+        state.max_block_height = max_block_height.max(state.max_block_height);
 
-    // NOTE: rollback/roll-forward only ever pass blocks that have already been validated
-    // Therefore, validation results always refer to `msg.tip`.
+        let ledger = Ledger::new(eff.clone());
+        let store = Store::new(eff.clone());
+        tracing::debug!(parent = %parent, current = %state.current, tip = %tip.point(), "validating block");
 
-    if msg.parent != state.current {
-        // step 1: roll back to some known point
-        // (this could be further back than the parent when switching forks)
-        tracing::info!(parent = %msg.parent, current = %state.current, "rolling back ledger to common ancestor point");
-        let (point, forward_points) = match roll_back_to_ancestor(&ledger, &store, &eff, msg.parent).await {
-            Ok(x) => x,
-            Err(err) => {
-                // NOTE: we only get peer errors here, all local failures are already handled
-                tracing::warn!(error = %err.error, parent = %msg.parent, "failed to rollback ledger to parent point");
-                eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
-                eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() })
+        // NOTE: rollback/roll-forward only ever pass blocks that have already been validated
+        // Therefore, validation results always refer to `tip`.
+
+        if parent != state.current {
+            // step 1: roll back to some known point
+            // (this could be further back than the parent when switching forks)
+            tracing::info!(parent = %parent, current = %state.current, "rolling back ledger to common ancestor point");
+            let (point, forward_points) = match roll_back_to_ancestor(&ledger, &store, &eff, parent).await {
+                Ok(x) => x,
+                Err(err) => {
+                    // NOTE: we only get peer errors here, all local failures are already handled
+                    tracing::warn!(error = %err.error, parent = %parent, "failed to rollback ledger to parent point");
+                    eff.send(
+                        &state.select_chain,
+                        SelectChainMsg::BlockValidationResult(tip, false, parent_context.clone()),
+                    )
                     .await;
-                return state;
-            }
-        };
-        state.current = point;
-        // step 2: roll forward to the parent point if needed
-        // (none of the ancestors is already known to be invalid, as ensured above)
-        tracing::info!(parent = %msg.parent, current = %state.current, points = %forward_points.len(), "rolling forward ledger to reach parent");
-        let to_do = forward_points.len();
-        let mut done = 0;
-        for point in forward_points {
-            tracing::debug!(%point, "validating block (roll forward)");
-            match validate(point, &ledger, &eff).await {
-                Ok(metrics) => {
-                    Metrics::new(&eff).record(metrics.into()).await;
-                    state.current = point;
-                }
-                Err(error) => {
-                    tracing::error!(%error, %point, "invalid block while spooling forward (this may be okay right after node restart)");
-                    eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
-                    eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() })
-                        .await;
+                    eff.send(
+                        &state.block_source,
+                        BlockSourceMsg::Validation {
+                            valid: false,
+                            point: tip.point(),
+                            context: parent_context.clone(),
+                        },
+                    )
+                    .await;
                     return state;
                 }
+            };
+            state.current = point;
+            // step 2: roll forward to the parent point if needed
+            // (none of the ancestors is already known to be invalid, as ensured above)
+            tracing::info!(parent = %parent, current = %state.current, points = %forward_points.len(), "rolling forward ledger to reach parent");
+            let to_do = forward_points.len();
+            let mut done = 0;
+            for point in forward_points {
+                tracing::debug!(%point, "validating block (roll forward)");
+                match validate(point, &ledger, &eff, &context).await {
+                    Ok(metrics) => {
+                        Metrics::new(&eff).record(metrics.into()).await;
+                        state.current = point;
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, %point, "invalid block while spooling forward (this may be okay right after node restart)");
+                        eff.send(
+                            &state.select_chain,
+                            SelectChainMsg::BlockValidationResult(tip, false, parent_context.clone()),
+                        )
+                        .await;
+                        eff.send(
+                            &state.block_source,
+                            BlockSourceMsg::Validation {
+                                valid: false,
+                                point: tip.point(),
+                                context: parent_context.clone(),
+                            },
+                        )
+                        .await;
+                        return state;
+                    }
+                }
+                done += 1;
+                if done % 100 == 0 {
+                    tracing::info!(%done, %to_do, "rolling forward ledger to reach parent");
+                }
             }
-            done += 1;
-            if done % 100 == 0 {
-                tracing::info!(%done, %to_do, "rolling forward ledger to reach parent");
+        }
+
+        match validate(tip.point(), &ledger, &eff, &context).await {
+            Ok(metrics) => {
+                Metrics::new(&eff).record(metrics.into()).await;
+                eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(tip, true, parent_context.clone()))
+                    .await;
+                eff.send(
+                    &state.block_source,
+                    BlockSourceMsg::Validation { valid: true, point: tip.point(), context: parent_context.clone() },
+                )
+                .await;
+                eff.send(&state.adopt_chain, AdoptChainMsg::new(tip, state.max_block_height, parent_context.clone()))
+                    .await;
+                state.current = tip.point();
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, point = %tip.point(), "invalid block");
+                eff.send(
+                    &state.select_chain,
+                    SelectChainMsg::BlockValidationResult(tip, false, parent_context.clone()),
+                )
+                .await;
+                eff.send(
+                    &state.block_source,
+                    BlockSourceMsg::Validation { valid: false, point: tip.point(), context: parent_context.clone() },
+                )
+                .await;
             }
         }
-    }
 
-    match validate(msg.tip.point(), &ledger, &eff).await {
-        Ok(metrics) => {
-            Metrics::new(&eff).record(metrics.into()).await;
-            eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
-            eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }).await;
-            eff.send(&state.adopt_chain, AdoptChainMsg::new(msg.tip, state.max_block_height)).await;
-            state.current = msg.tip.point();
-        }
-        Err(error) => {
-            tracing::warn!(error = %error, point = %msg.tip.point(), "invalid block");
-            eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
-            eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() }).await;
-        }
+        state
     }
-
-    state
+    .instrument(span)
+    .await
 }
 
 async fn validate(
     point: Point,
     ledger: &Ledger,
     eff: &Effects<ValidateBlockMsg>,
+    context: &TraceContext,
 ) -> Result<LedgerMetrics, BlockValidationError> {
-    let ctx = opentelemetry::Context::current();
     ledger
-        .validate_block(&Peer::new("unknown"), &point, ctx)
+        .validate_block(&Peer::new("unknown"), &point, context.clone())
         .or_terminate_with(eff, async |error| {
             tracing::error!(error = %error, %point, "failed to validate block");
         })
@@ -184,7 +238,7 @@ async fn roll_back_to_ancestor(
     if ledger.contains_volatile_point(&parent).await {
         tracing::debug!(hash = %parent, "ledger contains parent point");
         ledger
-            .rollback(&Peer::new("unknown"), &parent, opentelemetry::Context::current())
+            .rollback(&Peer::new("unknown"), &parent, TraceContext::none())
             .or_terminate_with(eff, async move |error| {
                 tracing::error!(point = %parent, %error, "ledger volatile DB contains point by rollback failed");
             })
@@ -223,7 +277,7 @@ async fn roll_back_to_ancestor(
 
         if current_point == ledger_tip || ledger.contains_volatile_point(&current_point).await {
             forward_points.reverse();
-            ledger.rollback(&Peer::new(""), &current_point, opentelemetry::Context::current()).or_terminate_with(eff, async move |error| {
+            ledger.rollback(&Peer::new(""), &current_point, TraceContext::none()).or_terminate_with(eff, async move |error| {
                 tracing::error!(point = %current_point, %error, "ledger volatile DB contains point but rollback failed");
             }).await;
             return Ok((current_point, forward_points));

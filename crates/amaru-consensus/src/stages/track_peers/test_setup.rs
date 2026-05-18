@@ -14,7 +14,8 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
+use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, make_header};
+use amaru_observability::TraceContext;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
     CanValidateHeaders, ChainStore, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders,
@@ -26,7 +27,6 @@ use amaru_protocols::{
     store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
 };
 use anyhow::anyhow;
-use opentelemetry::Context;
 use pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef, TraceMatch,
     simulation::{SimulationRunning, running::OverrideResult},
@@ -99,7 +99,7 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
 }
 
 pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, TraceContext::none()))))
 }
 
 pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
@@ -111,7 +111,7 @@ pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
 }
 
 pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header, TraceContext::none()))))
 }
 
 pub fn tm_store_header(at_stage: &str) -> TraceMatch<'_> {
@@ -137,6 +137,7 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
         pure_stage::register_data_deserializer::<DeferReqNext>().boxed(),
         pure_stage::register_data_deserializer::<DeferReqNextMsg>().boxed(),
+        pure_stage::register_data_deserializer::<TipCandidate>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),

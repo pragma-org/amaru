@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 use tracing::Instrument;
@@ -113,9 +113,20 @@ pub enum ConnectionMessage {
     Initialize,
     Disconnect,
     Handshake(HandshakeResult),
-    FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks> },
-    NewTip(Tip),
-    FetchBlocks2 { from: Point, through: Point, id: u64, cr: StageRef<Blocks2> },
+    FetchBlocks {
+        from: Point,
+        through: Point,
+        cr: StageRef<Blocks>,
+    },
+    NewTip(Tip, #[serde(skip, default)] TraceContext),
+    FetchBlocks2 {
+        from: Point,
+        through: Point,
+        id: u64,
+        cr: StageRef<Blocks2>,
+        #[serde(skip, default)]
+        context: TraceContext,
+    },
     // LATER: make full duplex, etc.
 }
 
@@ -126,7 +137,7 @@ impl ConnectionMessage {
             ConnectionMessage::Disconnect => "Disconnect",
             ConnectionMessage::Handshake(_) => "Handshake",
             ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
-            ConnectionMessage::NewTip(_) => "NewTip",
+            ConnectionMessage::NewTip(..) => "NewTip",
             ConnectionMessage::FetchBlocks2 { .. } => "FetchBlocks2",
         }
     }
@@ -141,6 +152,28 @@ pub async fn stage(
     let conn_id = params.conn_id.to_string();
     let peer = params.peer.to_string();
     let role = format!("{:?}", params.role);
+    let span = match &msg {
+        ConnectionMessage::FetchBlocks2 { context, .. } => trace_span!(
+            parent_context: context,
+            amaru_observability::amaru::protocols::connection::CONNECTION_STAGE,
+            message_type = message_type,
+            conn_id = conn_id,
+            peer = peer,
+            role = role
+        ),
+        ConnectionMessage::Initialize
+        | ConnectionMessage::Disconnect
+        | ConnectionMessage::Handshake(_)
+        | ConnectionMessage::FetchBlocks { .. }
+        | ConnectionMessage::NewTip(..) => trace_span!(
+            amaru_observability::amaru::protocols::connection::CONNECTION_STAGE,
+            message_type = message_type,
+            conn_id = conn_id,
+            peer = peer,
+            role = role
+        ),
+    };
+    let stage_context = TraceContext::from_span(&span);
 
     async move {
         let state = match (state, msg) {
@@ -153,16 +186,20 @@ pub async fn stage(
                 eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, cr }).await;
                 State::Initiator(s)
             }
-            (State::Responder(s), ConnectionMessage::NewTip(tip)) => {
-                eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip)).await;
+            (State::Responder(s), ConnectionMessage::NewTip(tip, context)) => {
+                eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip, context)).await;
                 State::Responder(s)
             }
-            (State::Initiator(s), ConnectionMessage::NewTip(_)) => {
+            (State::Initiator(s), ConnectionMessage::NewTip(..)) => {
                 // don't propagate new tip messages when using the initiator side of a connection.
                 State::Initiator(s)
             }
-            (State::Initiator(s), ConnectionMessage::FetchBlocks2 { from, through, id, cr }) => {
-                eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange2 { from, through, id, cr }).await;
+            (State::Initiator(s), ConnectionMessage::FetchBlocks2 { from, through, id, cr, context: _ }) => {
+                eff.send(
+                    &s.blockfetch_initiator,
+                    BlockFetchMessage::RequestRange2 { from, through, id, cr, context: stage_context },
+                )
+                .await;
                 State::Initiator(s)
             }
             (
@@ -176,7 +213,7 @@ pub async fn stage(
                 eff.schedule_after(msg, params.config.reconnect_delay).await;
                 state
             }
-            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::NewTip(_)) => {
+            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::NewTip(..)) => {
                 // The peer might be still connecting. Reschedule the NewTip message.
                 eff.schedule_after(msg, params.config.reconnect_delay).await;
                 state
@@ -185,13 +222,7 @@ pub async fn stage(
         };
         Connection { params, state }
     }
-    .instrument(trace_span!(
-        amaru_observability::amaru::protocols::connection::CONNECTION_STAGE,
-        message_type = message_type,
-        conn_id = conn_id,
-        peer = peer,
-        role = role
-    ))
+    .instrument(span)
     .await
 }
 
@@ -365,10 +396,9 @@ mod tests {
     }
 
     fn new_tip_in_disconnected_state_reschedules(connection_state: State) {
-        assert_message_reschedules_in_disconnected_state(
-            connection_state,
-            |_| ConnectionMessage::NewTip(Tip::origin()),
-        );
+        assert_message_reschedules_in_disconnected_state(connection_state, |_| {
+            ConnectionMessage::NewTip(Tip::origin(), TraceContext::none())
+        });
     }
 
     fn assert_message_reschedules_in_disconnected_state(

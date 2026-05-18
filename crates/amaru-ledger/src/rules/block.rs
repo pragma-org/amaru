@@ -22,7 +22,7 @@ use amaru_kernel::{
     Block, EraHistory, ExUnits, HasExUnits, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, Transaction,
     TransactionId, TransactionPointer, size::BLOCK_BODY,
 };
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
@@ -181,6 +181,7 @@ impl<A, E> Residual<A> for BlockValidationResidual<E> {
     type TryType = BlockValidation<A, E>;
 }
 
+#[expect(clippy::too_many_arguments)]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
     arena_pool: &ArenaPool,
@@ -189,11 +190,15 @@ pub fn execute<C, S: From<C>>(
     era_history: &EraHistory,
     governance_activity: GovernanceActivity,
     block: Block,
+    parent_context: &TraceContext,
 ) -> BlockValidation<(), anyhow::Error>
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
-    let _span = trace_span!(amaru_observability::amaru::ledger::state::VALIDATE_BLOCK);
+    let _span = trace_span!(
+        parent_context: parent_context,
+        amaru_observability::amaru::ledger::state::VALIDATE_BLOCK
+    );
     let _guard = _span.enter();
 
     let slot = Slot::from(block.header.header_body.slot);

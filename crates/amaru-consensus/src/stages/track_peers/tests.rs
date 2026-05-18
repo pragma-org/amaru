@@ -15,6 +15,7 @@
 use std::{slice, sync::Arc};
 
 use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
+use amaru_observability::TraceContext;
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
 };
@@ -26,6 +27,7 @@ use tracing::Level;
 
 use crate::stages::{
     peer_selection::PeerSelectionMsg,
+    select_chain::TipCandidate,
     test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
     track_peers::{
         DeferReqNextMsg, TrackPeers, TrackPeersMsg,
@@ -302,7 +304,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
             te_store_header("tp-1", header.clone()),
-            te_send("tp-1", "downstream", (header.tip(), parent.point())),
+            te_send("tp-1", "downstream", TipCandidate::new(header.tip(), parent.point(), TraceContext::none())),
             te_state("tp-1", &expected),
         ],
     );

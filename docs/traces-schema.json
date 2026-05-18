@@ -4,6 +4,367 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
+    "amaru::consensus::ADOPT_CHAIN": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "adopt_chain",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Adopt a validated tip as the new best chain",
+      "public": true
+    },
+    "amaru::consensus::BLOCK_SOURCE": {
+      "type": "object",
+      "properties": {
+        "message_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_type"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "block_source",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Block-source stage handling one message (BlockReceived / Validation / AdoptedTip).",
+      "public": true
+    },
+    "amaru::consensus::DECODE_HEADER": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "peer"
+      ],
+      "optional": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "name": "decode_header",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Decode header from raw bytes",
+      "public": true
+    },
+    "amaru::consensus::FETCH_BLOCKS": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "through": {
+          "type": "string"
+        },
+        "from_slot": {
+          "type": "integer"
+        },
+        "through_slot": {
+          "type": "integer"
+        },
+        "missing_blocks": {
+          "type": "integer"
+        },
+        "request_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "through",
+        "from_slot",
+        "through_slot",
+        "missing_blocks",
+        "request_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch_blocks",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Fetch a range of blocks corresponding to selected headers",
+      "public": true
+    },
+    "amaru::consensus::FORWARD_HEADER": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forward_header",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Forward a newly adopted header downstream",
+      "public": true
+    },
+    "amaru::consensus::MEMPOOL_STAGE": {
+      "type": "object",
+      "properties": {
+        "message_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_type"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mempool_stage",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Mempool stage handling one message (NewTip / Insert / Wait / Subscribe).",
+      "public": true
+    },
+    "amaru::consensus::PROCESS_BLOCK": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "process_block",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Process the fetched block corresponding to a header",
+      "public": true
+    },
+    "amaru::consensus::RECOVER_STORED_BLOCKS": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recover_stored_blocks",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Recover stored blocks whose validation status was not persisted before shutdown",
+      "public": true
+    },
+    "amaru::consensus::ROLL_BACKWARD": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "current": {
+          "type": "string"
+        },
+        "highest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "current",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_backward",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Roll-backward event received from a peer.",
+      "public": true
+    },
+    "amaru::consensus::ROLL_FORWARD": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string"
+        },
+        "highest": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "variant",
+        "highest"
+      ],
+      "optional": [
+        "hash",
+        "slot",
+        "block_height"
+      ],
+      "additionalProperties": false,
+      "name": "roll_forward",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Process a chain-sync roll-forward event.",
+      "public": true
+    },
+    "amaru::consensus::SELECT_CHAIN": {
+      "type": "object",
+      "properties": {
+        "message_type": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "message_type"
+      ],
+      "optional": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "name": "select_chain",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Select the best candidate tip among incoming headers",
+      "public": true
+    },
+    "amaru::consensus::TRACK_PEERS": {
+      "type": "object",
+      "properties": {
+        "message_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_type"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "track_peers",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Track-peers stage handling one upstream chain-sync message.",
+      "public": true
+    },
+    "amaru::consensus::VALIDATE_BLOCK": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_block",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Validate the block corresponding to a header",
+      "public": true
+    },
+    "amaru::consensus::VALIDATE_HEADER": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hash",
+        "slot",
+        "block_height"
+      ],
+      "optional": [
+        "valid"
+      ],
+      "additionalProperties": false,
+      "name": "validate_header",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Validate a received header",
+      "public": true
+    },
     "amaru::ledger::context::ADD_FEES": {
       "type": "object",
       "properties": {

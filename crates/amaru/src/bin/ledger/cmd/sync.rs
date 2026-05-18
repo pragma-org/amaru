@@ -28,6 +28,7 @@ use amaru_kernel::{
     cardano::network_block::NetworkBlock, to_cbor,
 };
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_observability::TraceContext;
 use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
@@ -180,7 +181,7 @@ async fn process_block(
 
     // Verify block content
     block_validator
-        .roll_forward_block(&point, block)
+        .roll_forward_block(&point, block, TraceContext::none())
         .await
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?;

@@ -387,7 +387,7 @@ pub mod tests {
             if i != 2 {
                 // Skip storing header for index 2
                 store.store_header(h).unwrap();
-                store.roll_forward_chain(&h.point()).unwrap();
+                store.roll_forward_chain(&h.point(), &amaru_observability::TraceContext::none()).unwrap();
                 let raw_block = RawBlock::from(&[1u8, 2, 3][..]);
                 store.store_block(&h.hash(), &raw_block).unwrap();
             }
@@ -498,7 +498,7 @@ pub mod tests {
         store.set_anchor_hash(&headers[0].hash()).unwrap();
         for h in &headers {
             store.store_header(h).unwrap();
-            store.roll_forward_chain(&h.point()).unwrap();
+            store.roll_forward_chain(&h.point(), &amaru_observability::TraceContext::none()).unwrap();
         }
         (store, headers)
     }

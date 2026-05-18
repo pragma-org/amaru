@@ -18,6 +18,7 @@ use std::{
 };
 
 use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, RawBlock};
+use amaru_observability::TraceContext;
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
 
@@ -200,7 +201,7 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
     }
 
     #[expect(clippy::unwrap_used)]
-    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+    fn roll_forward_chain(&self, point: &Point, _context: &TraceContext) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.chain.push(*point);
         inner.best_chain = point.hash();

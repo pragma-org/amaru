@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Peer, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
+    BlockHeader, HeaderHash, Peer, RawBlock, TESTNET_ERA_HISTORY,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
 use amaru_ouroboros_traits::{ChainStore, MissingBlocks, StoreError, in_memory_consensus_store::InMemConsensusStore};
@@ -35,6 +35,7 @@ use crate::stages::{
     block_source::BlockSourceMsg,
     select_chain::SelectChainMsg,
     test_utils::{Logs, run_simulation},
+    validate_block::ValidateBlockMsg,
 };
 
 pub fn test_peer() -> Peer {
@@ -130,7 +131,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<amaru_kernel::Peer>().boxed(),
         pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
-        pure_stage::register_data_deserializer::<(Tip, Point, BlockHeight)>().boxed(),
+        pure_stage::register_data_deserializer::<ValidateBlockMsg>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasBlockEffect>().boxed(),
@@ -215,7 +216,7 @@ pub fn te_unvalidated_ancestor_hashes(at_stage: &str, start: HeaderHash) -> Trac
 }
 
 pub fn te_store_block(at_stage: &str, hash: HeaderHash, block: amaru_kernel::RawBlock) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreBlockEffect::new(&hash, block))))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreBlockEffect::new(&hash, block, TraceContext::none()))))
 }
 
 pub fn te_schedule(at_stage: impl AsRef<str>, msg: impl pure_stage::SendData, schedule_id: ScheduleId) -> TraceEntry {

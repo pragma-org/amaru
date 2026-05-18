@@ -5,6 +5,161 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
+## target: `amaru::consensus`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `adopt_chain` | `TRACE` | public | Adopt a validated tip as the new best chain | hash, slot, block_height |  |
+| `block_source` | `TRACE` | public | Block-source stage handling one message (BlockReceived / Validation / AdoptedTip). | message_type |  |
+| `decode_header` | `TRACE` | public | Decode header from raw bytes | peer | hash |
+| `fetch_blocks` | `TRACE` | public | Fetch a range of blocks corresponding to selected headers | from, through, from_slot, through_slot, missing_blocks, request_id |  |
+| `forward_header` | `TRACE` | public | Forward a newly adopted header downstream | hash, slot, block_height |  |
+| `mempool_stage` | `TRACE` | public | Mempool stage handling one message (NewTip / Insert / Wait / Subscribe). | message_type |  |
+| `process_block` | `TRACE` | public | Process the fetched block corresponding to a header | hash, slot |  |
+| `recover_stored_blocks` | `TRACE` | public | Recover stored blocks whose validation status was not persisted before shutdown | hash |  |
+| `roll_backward` | `TRACE` | public | Roll-backward event received from a peer. | peer, current, highest |  |
+| `roll_forward` | `TRACE` | public | Process a chain-sync roll-forward event. | peer, variant, highest | hash, slot, block_height |
+| `select_chain` | `TRACE` | public | Select the best candidate tip among incoming headers | message_type | hash |
+| `track_peers` | `TRACE` | public | Track-peers stage handling one upstream chain-sync message. | message_type |  |
+| `validate_block` | `TRACE` | public | Validate the block corresponding to a header | hash, slot, block_height |  |
+| `validate_header` | `TRACE` | public | Validate a received header | hash, slot, block_height | valid |
+
+<details><summary>span: `adopt_chain`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `block_source`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `message_type` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `decode_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `hash` | `string` |  |
+
+</details>
+
+<details><summary>span: `fetch_blocks`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from` | `string` | ✓ |
+| `through` | `string` | ✓ |
+| `from_slot` | `integer` | ✓ |
+| `through_slot` | `integer` | ✓ |
+| `missing_blocks` | `integer` | ✓ |
+| `request_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `forward_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `mempool_stage`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `message_type` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `process_block`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `recover_stored_blocks`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `roll_backward`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `current` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `roll_forward`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `variant` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+| `hash` | `string` |  |
+| `slot` | `integer` |  |
+| `block_height` | `integer` |  |
+
+</details>
+
+<details><summary>span: `select_chain`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `message_type` | `string` | ✓ |
+| `hash` | `string` |  |
+
+</details>
+
+<details><summary>span: `track_peers`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `message_type` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `validate_block`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `validate_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+| `valid` | `boolean` |  |
+
+</details>
+
 ## target: `amaru::ledger::context`
 
 | name | level | public | description | required fields | optional fields |

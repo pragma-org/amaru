@@ -19,6 +19,7 @@ use amaru_consensus::{
     headers_tree::data_generation::Action,
 };
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
+use amaru_observability::TraceContext;
 use amaru_ouroboros::{
     ConnectionsResource, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
 };
@@ -146,13 +147,13 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
         Action::RollForward { header, .. } => {
             tracing::info!(point = %header.point(), "rollforward");
             store
-                .store_header(header)
+                .store_header(header, &TraceContext::none())
                 .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot store the header {}: {e:?}. The seed is {seed}", &header);
                 })
                 .await;
             store
-                .roll_forward_chain(&header.point())
+                .roll_forward_chain(&header.point(), &TraceContext::none())
                 .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot rollforward chain: {e:?}. The seed is {seed}");
                 })
@@ -162,7 +163,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
         Action::Rollback { rollback_point, .. } => {
             tracing::info!(point = %rollback_point, "rollback");
             store
-                .switch_to_fork(rollback_point, &NonEmptyVec::singleton(*rollback_point))
+                .switch_to_fork(rollback_point, &NonEmptyVec::singleton(*rollback_point), &TraceContext::none())
                 .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot rollback the chain to {}: {e:?}. The seed is {seed}", &rollback_point,);
                 })
@@ -176,7 +177,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
             tracing::error!("Cannot set the best chain: {e:?}. The seed is {seed}");
         })
         .await;
-    eff.send(manager_stage, ManagerMessage::NewTip(tip)).await;
+    eff.send(manager_stage, ManagerMessage::NewTip(tip, TraceContext::none())).await;
     state
 }
 

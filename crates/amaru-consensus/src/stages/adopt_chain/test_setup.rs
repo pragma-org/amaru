@@ -18,6 +18,7 @@ use amaru_kernel::{
     BlockHeader, BlockHeight, HeaderHash, NonEmptyVec, Point, TESTNET_ERA_HISTORY, Tip,
     cardano::network_block::make_encoded_block, make_header, make_header_with_op_cert_seq,
 };
+use amaru_observability::TraceContext;
 use amaru_ouroboros::{MempoolMsg, StoreError};
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
@@ -124,7 +125,7 @@ impl TestPrep {
         let mut ancestors = self.store.ancestors(header).collect::<Vec<_>>();
         ancestors.reverse();
         for header in ancestors {
-            self.store.roll_forward_chain(&header.point()).unwrap();
+            self.store.roll_forward_chain(&header.point(), &TraceContext::none()).unwrap();
         }
     }
 }
@@ -204,11 +205,14 @@ pub fn te_set_anchor_hash(at_stage: &str, hash: HeaderHash) -> TraceEntry {
 }
 
 pub fn te_switch_to_fork(at_stage: &str, fork_point: Point, forward_points: NonEmptyVec<Point>) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(fork_point, forward_points))))
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(SwitchToForkEffect::new(fork_point, forward_points, TraceContext::none())),
+    ))
 }
 
 pub fn te_roll_forward_chain(at_stage: &str, point: Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(RollForwardChainEffect::new(point))))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(RollForwardChainEffect::new(point, TraceContext::none()))))
 }
 
 pub fn te_find_ancestor_on_best_chain(at_stage: &str, hash: HeaderHash) -> TraceEntry {

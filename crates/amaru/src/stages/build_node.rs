@@ -25,6 +25,7 @@ use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, GlobalParameter
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
+use amaru_observability::TraceContext;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, HasStakeDistribution, MempoolMsg, ResourceMempool};
 use amaru_protocols::{
     manager::ManagerMessage,
@@ -195,7 +196,7 @@ fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<
         tracing::info!(anchor = %ledger_tip, "first initialization - setting anchor and best chain");
         chain_store.set_anchor_hash(&ledger_tip.hash())?;
         chain_store.set_block_valid(&ledger_tip.hash(), true)?;
-        chain_store.roll_forward_chain(&ledger_tip)?;
+        chain_store.roll_forward_chain(&ledger_tip, &TraceContext::none())?;
     }
 
     Ok(chain_store)

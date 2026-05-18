@@ -37,7 +37,7 @@ pub async fn slow_manager_stage(manager: Manager, msg: ManagerMessage, eff: Effe
         ManagerMessage::HandshakeComplete { .. } => {}
         ManagerMessage::FetchBlocks { .. } => {}
         ManagerMessage::Listen(_) => {}
-        ManagerMessage::NewTip(_) => {}
+        ManagerMessage::NewTip(..) => {}
         ManagerMessage::FetchBlocks2 { .. } => {}
         ManagerMessage::ConnectionResult(..) => {}
     }

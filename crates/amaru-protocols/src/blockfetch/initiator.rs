@@ -17,9 +17,10 @@ use std::{collections::VecDeque, mem, sync::Arc};
 use amaru_kernel::{
     EraHistory, IsHeader, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes,
 };
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_ouroboros::ConnectionId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use tracing::Instrument;
 
 use crate::{
     blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
@@ -58,7 +59,7 @@ impl std::fmt::Debug for Blocks {
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks2 {
     NoBlocks(u64),
-    Block(u64, Peer, NetworkBlock),
+    Block(u64, Peer, NetworkBlock, #[serde(skip, default)] TraceContext),
     Done(u64),
 }
 
@@ -66,7 +67,7 @@ impl std::fmt::Debug for Blocks2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoBlocks(height) => f.debug_tuple("NoBlocks").field(height).finish(),
-            Self::Block(height, peer, block) => {
+            Self::Block(height, peer, block, _) => {
                 f.debug_tuple("Block").field(height).field(peer).field(&debug_bytes(block.as_slice(), 80)).finish()
             }
             Self::Done(height) => f.debug_tuple("Done").field(height).finish(),
@@ -77,14 +78,25 @@ impl std::fmt::Debug for Blocks2 {
 /// Message that can be sent by an internal stage to request blocks for range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
-    RequestRange { from: Point, through: Point, cr: StageRef<Blocks> },
-    RequestRange2 { from: Point, through: Point, id: u64, cr: StageRef<Blocks2> },
+    RequestRange {
+        from: Point,
+        through: Point,
+        cr: StageRef<Blocks>,
+    },
+    RequestRange2 {
+        from: Point,
+        through: Point,
+        id: u64,
+        cr: StageRef<Blocks2>,
+        #[serde(skip, default)]
+        context: TraceContext,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Resp {
     V1(StageRef<Blocks>),
-    V2(u64, StageRef<Blocks2>),
+    V2(u64, StageRef<Blocks2>, #[serde(skip, default)] TraceContext),
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -239,13 +251,13 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 self.queue.push_back((from, through, Resp::V1(cr)));
                 Ok((action, self))
             }
-            BlockFetchMessage::RequestRange2 { from, through, id, cr } => {
+            BlockFetchMessage::RequestRange2 { from, through, id, cr, context } => {
                 let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
                 if self.queue.len() > 1 {
                     tracing::debug!(peer = %self.peer, "dropping request for slow peer");
                 }
                 self.queue.truncate(1);
-                self.queue.push_back((from, through, Resp::V2(id, cr)));
+                self.queue.push_back((from, through, Resp::V2(id, cr, context)));
                 Ok((action, self))
             }
         }
@@ -258,63 +270,74 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_PROTOCOL,
-            message_type = input.message_type()
-        );
-        let _guard = _span.enter();
-        let queued = match input {
-            InitiatorResult::Initialize => None,
-            InitiatorResult::NoBlocks => {
-                let (_, _, cr) = self.queue.pop_front().expect("queue must not be empty");
-                match cr {
-                    Resp::V1(cr) => eff.send(&cr, Blocks { blocks: Vec::new() }).await,
-                    Resp::V2(id, cr) => eff.send(&cr, Blocks2::NoBlocks(id)).await,
-                }
-                self.queue.front()
-            }
-            InitiatorResult::Block(body) => {
-                if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
-                    if let Some((_, _, Resp::V2(id, cr))) = self.queue.front() {
-                        // must send NetworkBlock unchanged to the local stage for storage, otherwise validation breaks
-                        eff.send(cr, Blocks2::Block(*id, self.peer.clone(), network_block)).await;
-                    } else if self.blocks.len() < MAX_FETCHED_BLOCKS {
-                        self.blocks.push(network_block);
-                    } else {
-                        tracing::warn!(
-                            "the responder sent more {MAX_FETCHED_BLOCKS} blocks; terminating the connection"
-                        );
-                        return eff.terminate().await;
+        let span = match self.queue.front() {
+            Some((_, _, Resp::V2(_, _, context))) => trace_span!(
+                parent_context: context,
+                amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_PROTOCOL,
+                message_type = input.message_type()
+            ),
+            _ => trace_span!(
+                amaru_observability::amaru::protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_PROTOCOL,
+                message_type = input.message_type()
+            ),
+        };
+        async move {
+            let queued = match input {
+                InitiatorResult::Initialize => None,
+                InitiatorResult::NoBlocks => {
+                    let (_, _, cr) = self.queue.pop_front().expect("queue must not be empty");
+                    match cr {
+                        Resp::V1(cr) => eff.send(&cr, Blocks { blocks: Vec::new() }).await,
+                        Resp::V2(id, cr, _) => eff.send(&cr, Blocks2::NoBlocks(id)).await,
                     }
-                } else {
-                    tracing::warn!(bytes = body.len(), "received invalid block CBOR; terminating the connection");
-                    return eff.terminate().await;
+                    self.queue.front()
                 }
-                None
-            }
-            InitiatorResult::Done => {
-                let (from, through, cr) = self.queue.pop_front().expect("queue must not be empty");
-                match cr {
-                    Resp::V1(cr) => {
-                        let blocks = mem::take(&mut self.blocks);
-                        if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
-                            eff.send(&cr, Blocks { blocks }).await;
+                InitiatorResult::Block(body) => {
+                    if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
+                        if let Some((_, _, Resp::V2(id, cr, context))) = self.queue.front() {
+                            // must send NetworkBlock unchanged to the local stage for storage, otherwise validation breaks
+                            eff.send(cr, Blocks2::Block(*id, self.peer.clone(), network_block, context.clone())).await;
+                        } else if self.blocks.len() < MAX_FETCHED_BLOCKS {
+                            self.blocks.push(network_block);
                         } else {
                             tracing::warn!(
-                                ?from,
-                                ?through,
-                                "received blocks do not form a valid range; terminating the connection"
+                                "the responder sent more {MAX_FETCHED_BLOCKS} blocks; terminating the connection"
                             );
                             return eff.terminate().await;
                         }
+                    } else {
+                        tracing::warn!(bytes = body.len(), "received invalid block CBOR; terminating the connection");
+                        return eff.terminate().await;
                     }
-                    Resp::V2(id, cr) => eff.send(&cr, Blocks2::Done(id)).await,
+                    None
                 }
-                self.queue.front()
-            }
-        };
-        let action = queued.map(|(from, through, _)| InitiatorAction::RequestRange { from: *from, through: *through });
-        Ok((action, self))
+                InitiatorResult::Done => {
+                    let (from, through, cr) = self.queue.pop_front().expect("queue must not be empty");
+                    match cr {
+                        Resp::V1(cr) => {
+                            let blocks = mem::take(&mut self.blocks);
+                            if is_valid_block_range(self.era_history.as_ref(), &blocks, from, through) {
+                                eff.send(&cr, Blocks { blocks }).await;
+                            } else {
+                                tracing::warn!(
+                                    ?from,
+                                    ?through,
+                                    "received blocks do not form a valid range; terminating the connection"
+                                );
+                                return eff.terminate().await;
+                            }
+                        }
+                        Resp::V2(id, cr, _) => eff.send(&cr, Blocks2::Done(id)).await,
+                    }
+                    self.queue.front()
+                }
+            };
+            let action =
+                queued.map(|(from, through, _)| InitiatorAction::RequestRange { from: *from, through: *through });
+            Ok((action, self))
+        }
+        .instrument(span)
+        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {

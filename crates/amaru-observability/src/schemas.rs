@@ -30,27 +30,112 @@ pub const CERTIFICATE_TARGET: &str = "amaru::ledger::context::default::validatio
 define_schemas! {
     amaru {
         consensus {
-            validate_header {
+            /// Track-peers stage handling one upstream chain-sync message.
+            public TRACK_PEERS {
+                required message_type: String
+            }
 
-            /// Evolve the nonce based on header
-            EVOLVE_NONCE {
+            /// Roll-backward event received from a peer.
+            public ROLL_BACKWARD {
+                required peer: String
+                required current: String
+                required highest: String
+            }
+
+            /// Decode header from raw bytes
+            public DECODE_HEADER {
+                required peer: String
+                optional hash: amaru_kernel::HeaderHash
+            }
+
+            /// Process a chain-sync roll-forward event.
+            public ROLL_FORWARD {
+                required peer: String
+                required variant: String
+                required highest: String
+                optional hash: amaru_kernel::HeaderHash
+                optional slot: u64
+                optional block_height: u64
+            }
+
+            /// Validate a received header
+            public VALIDATE_HEADER {
+                required hash: amaru_kernel::HeaderHash
+                required slot: u64
+                required block_height: u64
+                optional valid: bool
+            }
+
+            validate_header {
+                /// Evolve the nonce based on header
+                EVOLVE_NONCE {
+                    required hash: amaru_kernel::HeaderHash
+                }
+
+                /// Validate header cryptographic properties
+                VALIDATE {
+                    required issuer_key: amaru_kernel::Bytes
+                }
+            }
+
+            /// Fetch a range of blocks corresponding to selected headers
+            public FETCH_BLOCKS {
+                required from: String
+                required through: String
+                required from_slot: u64
+                required through_slot: u64
+                required missing_blocks: usize
+                required request_id: u64
+            }
+
+            /// Recover stored blocks whose validation status was not persisted before shutdown
+            public RECOVER_STORED_BLOCKS {
                 required hash: amaru_kernel::HeaderHash
             }
 
-            /// Validate header cryptographic properties
-            VALIDATE {
-                required issuer_key: amaru_kernel::Bytes
+            /// Process the fetched block corresponding to a header
+            public PROCESS_BLOCK {
+                required hash: amaru_kernel::HeaderHash
+                required slot: u64
             }
-        }
 
-        // Chain sync operations
-        chain_sync {
-            /// Decode header from raw bytes
-            DECODE_HEADER {
-                required peer: String
+            /// Validate the block corresponding to a header
+            public VALIDATE_BLOCK {
+                required hash: amaru_kernel::HeaderHash
+                required slot: u64
+                required block_height: u64
+            }
+
+            /// Forward a newly adopted header downstream
+            public FORWARD_HEADER {
+                required hash: amaru_kernel::HeaderHash
+                required slot: u64
+                required block_height: u64
+            }
+
+            /// Select the best candidate tip among incoming headers
+            public SELECT_CHAIN {
+                required message_type: String
+                optional hash: amaru_kernel::HeaderHash
+            }
+
+            /// Adopt a validated tip as the new best chain
+            public ADOPT_CHAIN {
+                required hash: amaru_kernel::HeaderHash
+                required slot: u64
+                required block_height: u64
+            }
+
+            /// Mempool stage handling one message (NewTip / Insert / Wait / Subscribe).
+            public MEMPOOL_STAGE {
+                required message_type: String
+            }
+
+            /// Block-source stage handling one message (BlockReceived / Validation / AdoptedTip).
+            public BLOCK_SOURCE {
+                required message_type: String
             }
         }
-    }
 
     network {
         connection {

@@ -15,6 +15,7 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Peer, Point, Tip, make_header};
+use amaru_observability::TraceContext;
 use tracing::Level;
 
 use super::{
@@ -40,7 +41,11 @@ fn tip_adopted(h: u64) -> Tip {
 fn test_block_received_inserts_pending() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
+    let m = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
     let mut expected = prep.state.clone();
     expected.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
@@ -52,8 +57,16 @@ fn test_block_received_inserts_pending() {
 fn test_block_received_merges_second_peer() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
-    let m2 = BlockSourceMsg::BlockReceived { peer: Peer::new("bob"), tip: Tip::new(p, BlockHeight::from(50)) };
+    let m1 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
+    let m2 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("bob"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
     let mut expected = prep.state.clone();
     expected.by_point.insert(
         p,
@@ -82,8 +95,12 @@ fn test_block_received_merges_second_peer() {
 fn test_validation_valid_marks_known_point() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
-    let m2 = BlockSourceMsg::Validation { valid: true, point: p };
+    let m1 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
+    let m2 = BlockSourceMsg::Validation { valid: true, point: p, context: TraceContext::none() };
     let mut expected = prep.state.clone();
     expected.by_point.insert(p, BlockValidity::Valid(BlockHeight::from(50)));
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone()]);
@@ -109,7 +126,7 @@ fn test_validation_valid_marks_known_point() {
 fn test_validation_valid_unknown_point_is_noop() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(99);
-    let m = BlockSourceMsg::Validation { valid: true, point: p };
+    let m = BlockSourceMsg::Validation { valid: true, point: p, context: TraceContext::none() };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
     logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
@@ -119,9 +136,17 @@ fn test_validation_valid_unknown_point_is_noop() {
 fn test_validation_invalid_faults_each_peer() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
-    let m2 = BlockSourceMsg::BlockReceived { peer: Peer::new("bob"), tip: Tip::new(p, BlockHeight::from(50)) };
-    let m3 = BlockSourceMsg::Validation { valid: false, point: p };
+    let m1 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
+    let m2 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("bob"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
+    let m3 = BlockSourceMsg::Validation { valid: false, point: p, context: TraceContext::none() };
     let mut after_pending_bob = prep.state.clone();
     after_pending_bob
         .by_point
@@ -155,7 +180,7 @@ fn test_validation_invalid_faults_each_peer() {
 fn test_validation_invalid_without_provenance_sends_nothing() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(77);
-    let m = BlockSourceMsg::Validation { valid: false, point: p };
+    let m = BlockSourceMsg::Validation { valid: false, point: p, context: TraceContext::none() };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
     logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
@@ -165,9 +190,17 @@ fn test_validation_invalid_without_provenance_sends_nothing() {
 fn test_block_received_after_invalid_new_peer_faults() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
-    let m2 = BlockSourceMsg::Validation { valid: false, point: p };
-    let m3 = BlockSourceMsg::BlockReceived { peer: Peer::new("carol"), tip: Tip::new(p, BlockHeight::from(50)) };
+    let m1 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
+    let m2 = BlockSourceMsg::Validation { valid: false, point: p, context: TraceContext::none() };
+    let m3 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("carol"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
     let mut after_alice = prep.state.clone();
     after_alice.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
     let mut after_invalid = prep.state.clone();
@@ -196,9 +229,17 @@ fn test_block_received_after_invalid_new_peer_faults() {
 fn test_block_received_after_invalid_same_peer_no_second_fault() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
-    let m2 = BlockSourceMsg::Validation { valid: false, point: p };
-    let m3 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
+    let m1 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
+    let m2 = BlockSourceMsg::Validation { valid: false, point: p, context: TraceContext::none() };
+    let m3 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
     let mut after_alice = prep.state.clone();
     after_alice.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
     let mut after_invalid = prep.state.clone();
@@ -225,7 +266,11 @@ fn test_block_received_after_invalid_same_peer_no_second_fault() {
 fn test_block_received_pruned_when_below_adopted_window() {
     let prep = test_prep(tip_adopted(100), 10);
     let p = point_n(50);
-    let m = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
+    let m = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
     logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
@@ -235,8 +280,12 @@ fn test_block_received_pruned_when_below_adopted_window() {
 fn test_adopted_tip_prunes_entries_far_below() {
     let prep = test_prep(tip_adopted(100), 100);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: Tip::new(p, BlockHeight::from(50)) };
-    let m2 = BlockSourceMsg::AdoptedTip(tip_adopted(200));
+    let m1 = BlockSourceMsg::BlockReceived {
+        peer: Peer::new("alice"),
+        tip: Tip::new(p, BlockHeight::from(50)),
+        context: TraceContext::none(),
+    };
+    let m2 = BlockSourceMsg::AdoptedTip(tip_adopted(200), TraceContext::none());
     let mut after_recv = prep.state.clone();
     after_recv.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
     let mut after_adopt = prep.state.clone();
@@ -259,7 +308,7 @@ fn test_adopted_tip_prunes_entries_far_below() {
 #[test]
 fn test_adopted_tip_updates_only() {
     let prep = test_prep(tip_adopted(100), 1000);
-    let m = BlockSourceMsg::AdoptedTip(tip_adopted(150));
+    let m = BlockSourceMsg::AdoptedTip(tip_adopted(150), TraceContext::none());
     let mut expected = prep.state.clone();
     expected.adopted_tip = tip_adopted(150);
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));

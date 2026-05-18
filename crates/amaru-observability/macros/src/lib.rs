@@ -130,8 +130,9 @@ pub fn trace_record(input: TokenStream) -> TokenStream {
 /// # Syntax
 ///
 /// ```text
-/// trace_span!(SCHEMA, field = value, ...);           // TRACE-level span (default)
-/// trace_span!(LEVEL, SCHEMA, field = value, ...);    // Custom level span
+/// trace_span!(SCHEMA, field = value, ...);                            // TRACE-level span (default)
+/// trace_span!(LEVEL, SCHEMA, field = value, ...);                     // Custom level span
+/// trace_span!(parent_context: &ctx, SCHEMA, field = value, ...);      // Parent from TraceContext-like value
 /// ```
 ///
 /// # Example
@@ -140,6 +141,7 @@ pub fn trace_record(input: TokenStream) -> TokenStream {
 /// trace_span!(operations::database::OPENING_CHAIN_DB, path = "...")
 /// trace_span!(DEBUG, ledger::state::APPLY_BLOCK, point_slot = 1024)
 /// trace_span!(INFO, consensus::VALIDATE_HEADER)
+/// trace_span!(parent_context: &ctx, consensus::VALIDATE_HEADER)
 /// ```
 #[proc_macro]
 pub fn trace_span(input: TokenStream) -> TokenStream {

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Tip, Transaction, TransactionId};
+use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::StageRef;
 
@@ -37,8 +38,30 @@ pub enum MempoolMsg {
     WaitForAtLeast { seq_no: MempoolSeqNo, caller: StageRef<()> },
     Insert { tx: Box<Transaction>, origin: TxOrigin, caller: StageRef<Result<TxInsertResult, MempoolError>> },
     InsertBatch { txs: Vec<Transaction>, origin: TxOrigin, caller: StageRef<Result<Vec<TxInsertResult>, MempoolError>> },
-    NewTip(Tip),
+    NewTip(Tip, #[serde(skip, default)] TraceContext),
     SubscribeCapacity { caller: StageRef<()> },
+}
+
+impl MempoolMsg {
+    pub fn message_type(&self) -> &'static str {
+        match self {
+            MempoolMsg::WaitForAtLeast { .. } => "WaitForAtLeast",
+            MempoolMsg::Insert { .. } => "Insert",
+            MempoolMsg::InsertBatch { .. } => "InsertBatch",
+            MempoolMsg::NewTip(..) => "NewTip",
+            MempoolMsg::SubscribeCapacity { .. } => "SubscribeCapacity",
+        }
+    }
+
+    pub fn context(&self) -> TraceContext {
+        match self {
+            MempoolMsg::NewTip(_, ctx) => ctx.clone(),
+            MempoolMsg::WaitForAtLeast { .. }
+            | MempoolMsg::Insert { .. }
+            | MempoolMsg::InsertBatch { .. }
+            | MempoolMsg::SubscribeCapacity { .. } => TraceContext::none(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

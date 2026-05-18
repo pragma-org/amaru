@@ -16,6 +16,7 @@ use std::{collections::BTreeSet, net::SocketAddr};
 
 use amaru_kernel::{Block, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
+use amaru_observability::TraceContext;
 
 use crate::{CanValidateBlocks, HasStakePools, can_validate_blocks::BlockValidationError};
 
@@ -29,6 +30,7 @@ impl CanValidateBlocks for MockCanValidateBlocks {
         &self,
         _point: &Point,
         _block: Block,
+        _ctx: TraceContext,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         Ok(Ok(Default::default()))
     }

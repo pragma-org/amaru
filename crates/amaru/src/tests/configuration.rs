@@ -27,6 +27,7 @@ use amaru_ledger::{
     store::{Columns, Store, TransactionalContext},
 };
 use amaru_mempool::InMemoryMempool;
+use amaru_observability::TraceContext;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, in_memory_consensus_store::InMemConsensusStore};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use anyhow::anyhow;
@@ -234,7 +235,7 @@ impl NodeTestConfig {
             );
             self.chain_store.store_header(header).unwrap();
             self.chain_store.store_block(&header.hash(), &make_encoded_block(header, self.era_history())).unwrap();
-            self.chain_store.roll_forward_chain(&header.point()).unwrap();
+            self.chain_store.roll_forward_chain(&header.point(), &TraceContext::none()).unwrap();
         }
 
         if let Some(header) = headers.first() {

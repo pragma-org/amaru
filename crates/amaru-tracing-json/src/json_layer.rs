@@ -30,9 +30,7 @@ where
     let mut trace_id = None;
 
     dispatcher::get_default(|dispatch| {
-        let mut extensions = span.extensions_mut();
-
-        if let Some(otel_context) = get_otel_context(&mut extensions, dispatch) {
+        if let Some(otel_context) = get_otel_context(&span.id(), dispatch) {
             let otel_span = otel_context.span();
             let span_context = otel_span.span_context();
 

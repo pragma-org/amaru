@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{HeaderHash, IsHeader, Point, RawBlock};
+use amaru_observability::TraceContext;
 use parking_lot::Mutex;
 
 use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
@@ -43,7 +44,8 @@ struct Overrides<H> {
     set_block_valid: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash, bool) -> Result<(), StoreError> + Send>>,
     put_nonces: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash, &Nonces) -> Result<(), StoreError> + Send>>,
     switch_to_fork: Option<Box<dyn FnMut(&dyn ChainStore<H>, &Point, &[Point]) -> Result<(), StoreError> + Send>>,
-    roll_forward_chain: Option<Box<dyn FnMut(&dyn ChainStore<H>, &Point) -> Result<(), StoreError> + Send>>,
+    roll_forward_chain:
+        Option<Box<dyn FnMut(&dyn ChainStore<H>, &Point, &TraceContext) -> Result<(), StoreError> + Send>>,
 }
 
 impl<H> Default for Overrides<H> {
@@ -248,7 +250,7 @@ impl<H: IsHeader + Send + Sync + 'static> OverridingChainStoreBuilder<H> {
 
     pub fn with_roll_forward_chain<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn ChainStore<H>, &Point) -> Result<(), StoreError> + Send + 'static,
+        F: FnMut(&dyn ChainStore<H>, &Point, &TraceContext) -> Result<(), StoreError> + Send + 'static,
     {
         self.overrides.roll_forward_chain = Some(Box::new(f));
         self
@@ -500,11 +502,11 @@ impl<H: IsHeader + Send + Sync + 'static> ChainStore<H> for OverridingChainStore
         }
     }
 
-    fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
+    fn roll_forward_chain(&self, point: &Point, context: &TraceContext) -> Result<(), StoreError> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.roll_forward_chain {
-            Some(f) => f(self.inner.as_ref(), point),
-            None => self.inner.roll_forward_chain(point),
+            Some(f) => f(self.inner.as_ref(), point, context),
+            None => self.inner.roll_forward_chain(point, context),
         }
     }
 }
@@ -547,7 +549,7 @@ mod tests {
             let parent = headers.last().map(BlockHeader::hash);
             let header = BlockHeader::from(make_header((i + 1) as u64, (i + 1) as u64, parent));
             store.store_header(&header).unwrap();
-            store.roll_forward_chain(&header.point()).unwrap();
+            store.roll_forward_chain(&header.point(), &TraceContext::none()).unwrap();
             headers.push(header);
         }
         headers

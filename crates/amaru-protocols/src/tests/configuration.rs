@@ -19,6 +19,7 @@ use amaru_kernel::{
     cardano::network_block::make_network_block, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
+use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 
 use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
@@ -117,7 +118,7 @@ fn initialize_chain_store(chain_length: usize, chain_store: &dyn ChainStore<Bloc
 
     for header in headers.iter() {
         chain_store.store_header(header)?;
-        chain_store.roll_forward_chain(&header.point())?;
+        chain_store.roll_forward_chain(&header.point(), &TraceContext::none())?;
         tracing::info!("storing block for header {}", header.point());
         let network_block = make_network_block(header, &PREPROD_ERA_HISTORY);
         chain_store.store_block(&header.hash(), &network_block.raw_block())?;
