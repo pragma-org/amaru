@@ -77,9 +77,10 @@ pub fn build_stage_graph(
                     direction,
                 )
             }
-            PeerSelectionNotify::Disconnected { peer, conn_id, direction, role: _, reason: _ } => {
-                PeerSelectionMsg::Disconnected(peer, conn_id, direction)
+            PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry } => {
+                PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
             }
+            PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
         });
 
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);

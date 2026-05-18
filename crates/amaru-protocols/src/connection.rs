@@ -268,6 +268,7 @@ async fn do_handshake(
         manager,
         ManagerMessage::HandshakeComplete {
             peer: peer.clone(),
+            stage: eff.me(),
             conn_id: *conn_id,
             role: *role,
             full_duplex_capable,

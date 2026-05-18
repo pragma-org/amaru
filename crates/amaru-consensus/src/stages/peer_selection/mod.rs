@@ -36,7 +36,7 @@ pub struct PeerSelection {
     ledger_candidates: BTreeSet<Peer>,
     peer_removal_cooldown: Duration,
     cooldown_timers: BTreeMap<Peer, ScheduleId>,
-    inbound_peers: BTreeMap<Peer, PeerState>,
+    inbound_peers: BTreeMap<Peer, Connection>,
     outbound_peers: BTreeMap<Peer, PeerState>,
 }
 
@@ -79,9 +79,9 @@ pub enum PeerSelectionMsg {
     /// This may be a downstream peer or the successful result of a connection attempt.
     Connected(Peer, Connection, ConnectionDirection),
     /// A peer has disconnected and the peer_selection stage can stop tracking it.
-    ///
-    /// This is also the message sent when a connection attempt fails.
-    Disconnected(Peer, ConnectionId, ConnectionDirection),
+    Disconnected(Peer, ConnectionId, ConnectionDirection, bool),
+    /// A (re)connection attempt has failed, the Manager has removed this peer.
+    ConnectFailed(Peer),
     /// Internal message from ledger check with new candidates.
     LedgerCheckCandidates(BTreeSet<Peer>),
 }
@@ -224,8 +224,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, connection.id)).await;
                 return state;
             }
-            let old = state.inbound_peers.insert(peer.clone(), PeerState::Connected(connection));
-            if let Some(PeerState::Connected(conn)) = old {
+            let old = state.inbound_peers.insert(peer.clone(), connection);
+            if let Some(conn) = old {
                 tracing::info!(%peer, ?conn, "inbound connection replaced by peer");
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, conn.id)).await;
             }
@@ -237,38 +237,25 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, conn.id)).await;
             }
         }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound) => {
-            match state.inbound_peers.entry(peer) {
-                Entry::Occupied(entry) => {
-                    let old = entry.get();
-                    if let PeerState::Connected(conn) = old
-                        && conn.id == conn_id
-                    {
-                        entry.remove();
-                    }
-                }
-
-                Entry::Vacant(_) => {}
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound, _) => {
+            if let Entry::Occupied(entry) = state.inbound_peers.entry(peer)
+                && entry.get().id == conn_id
+            {
+                entry.remove();
             }
         }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound) => {
-            match state.outbound_peers.entry(peer.clone()) {
-                Entry::Occupied(entry) => {
-                    let old = entry.get();
-                    match old {
-                        PeerState::Connected(conn) => {
-                            if conn.id == conn_id {
-                                entry.remove();
-                            }
-                        }
-                        PeerState::Connecting => {
-                            // NOTE: this is a connection error, use the shorter cooldown period
-                            state.cool_down(peer, &eff, true).await;
-                        }
-                    }
-                }
-                Entry::Vacant(_) => {}
+        PeerSelectionMsg::Disconnected(_, _, ConnectionDirection::Outbound, will_retry) if will_retry => {}
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, _) => {
+            if let Entry::Occupied(entry) = state.outbound_peers.entry(peer.clone())
+                && let PeerState::Connected(conn) = entry.get()
+                && conn.id == conn_id
+            {
+                entry.remove();
+                state.regulate_peers(&eff).await;
             }
+        }
+        PeerSelectionMsg::ConnectFailed(peer) => {
+            state.outbound_peers.remove(&peer);
             state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::LedgerCheckCandidates(candidates) => {

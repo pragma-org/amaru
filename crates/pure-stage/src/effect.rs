@@ -407,6 +407,26 @@ impl<M> Effects<M> {
 
         StageRef::new(name)
     }
+
+    #[expect(clippy::future_not_send)]
+    pub async fn ensure_child<Msg, St, F, Fut>(
+        &self,
+        child: &mut StageRef<Msg>,
+        name: &str,
+        stage: F,
+        state: impl FnOnce() -> St,
+    ) where
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
+    {
+        if child.is_blackhole() {
+            let build_ref = self.stage(name, stage).await;
+            let child_ref = self.wire_up(build_ref, state()).await;
+            *child = child_ref;
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -250,7 +250,7 @@ fn test_connected_inbound_success() {
     let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Inbound);
     let after = {
         let mut s = state.clone();
-        s.inbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+        s.inbound_peers.insert(p.clone(), conn());
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -265,13 +265,13 @@ fn test_connected_inbound_too_many() {
     let state = prep.state.clone();
     let mut state_full = state.clone();
     for i in 0..10u8 {
-        state_full.inbound_peers.insert(TestPrep::peer(&format!("1.1.1.{i}:1")), PeerState::Connected(conn()));
+        state_full.inbound_peers.insert(TestPrep::peer(&format!("1.1.1.{i}:1")), conn());
     }
     let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Inbound);
     let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
     let after = {
         let mut s = state.clone();
-        s.inbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+        s.inbound_peers.insert(p.clone(), conn());
         s
     };
     assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &after)]);
@@ -300,8 +300,8 @@ fn test_disconnected_inbound() {
     let p = TestPrep::peer("1.1.1.1:1");
     let state = prep.state.clone();
     let mut state_with_peer = state.clone();
-    state_with_peer.inbound_peers.insert(p.clone(), PeerState::Connected(conn()));
-    let msg = PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Inbound);
+    state_with_peer.inbound_peers.insert(p.clone(), conn());
+    let msg = PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Inbound, false);
     let after = {
         let mut s = state_with_peer.clone();
         s.inbound_peers.remove(&p);
@@ -319,7 +319,7 @@ fn test_disconnected_outbound_connecting_schedules_cooldown() {
     let state = prep.state.clone();
     let mut state_conn = state.clone();
     state_conn.outbound_peers.insert(p.clone(), PeerState::Connecting);
-    let msg = PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound);
+    let msg = PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound, true);
     let sid = first_schedule_id();
     let _after = {
         let mut s = state_conn.clone();
@@ -395,7 +395,7 @@ fn test_adversarial_twice_cancels_and_reschedules() {
 fn test_adversarial_inbound_only() {
     let mut prep = test_prep(&[]);
     let p = TestPrep::peer("9.9.9.9:9");
-    prep.state.inbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+    prep.state.inbound_peers.insert(p.clone(), conn());
 
     let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::Adversarial(p.clone()));
 
@@ -431,8 +431,10 @@ fn test_disconnected_outbound_connected_normal() {
         s
     };
 
-    let (running, _guards, mut logs) =
-        setup(&prep, PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound));
+    let (running, _guards, mut logs) = setup(
+        &prep,
+        PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound, false),
+    );
 
     // te_input + final state (normal outbound Connected disconnect removes the peer, no short ban)
     assert_trace_contains(
@@ -440,7 +442,12 @@ fn test_disconnected_outbound_connected_normal() {
         &[
             te_input(
                 "ps-1",
-                &PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound),
+                &PeerSelectionMsg::Disconnected(
+                    p.clone(),
+                    ConnectionId::initial(),
+                    ConnectionDirection::Outbound,
+                    false,
+                ),
             )
             .into(),
             tm_state(
@@ -556,11 +563,13 @@ fn test_regulate_skips_peers_in_cooldown() {
 fn test_disconnected_outbound_peer_also_in_inbound() {
     let mut prep = test_prep(&[]);
     let p = TestPrep::peer("7.7.7.7:7");
-    prep.state.inbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+    prep.state.inbound_peers.insert(p.clone(), conn());
     prep.state.outbound_peers.insert(p.clone(), PeerState::Connected(conn()));
 
-    let (running, _guards, mut logs) =
-        setup(&prep, PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound));
+    let (running, _guards, mut logs) = setup(
+        &prep,
+        PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound, false),
+    );
 
     // te_input + final state (no RemovePeer expected for the inbound side)
     assert_trace_contains(
@@ -568,7 +577,12 @@ fn test_disconnected_outbound_peer_also_in_inbound() {
         &[
             te_input(
                 "ps-1",
-                &PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound),
+                &PeerSelectionMsg::Disconnected(
+                    p.clone(),
+                    ConnectionId::initial(),
+                    ConnectionDirection::Outbound,
+                    false,
+                ),
             )
             .into(),
             tm_state(
