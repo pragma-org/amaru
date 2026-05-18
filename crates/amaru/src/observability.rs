@@ -19,7 +19,7 @@ use std::{
     io::{self, IsTerminal},
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use opentelemetry::trace::TracerProvider;
@@ -49,6 +49,8 @@ const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace,pure_stage=trace,amaru_protocols=warn,amaru_consensus=info";
 
 const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
+
+const OTEL_METRIC_EXPORT_INTERVAL_MS_VAR: &str = "OTEL_METRIC_EXPORT_INTERVAL_MS";
 
 // -----------------------------------------------------------------------------
 // TracingSubscriber
@@ -341,7 +343,11 @@ pub fn setup_open_telemetry(
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
 
-    let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build();
+    let mut metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter);
+    if let Some(interval) = metric_export_interval() {
+        metric_reader = metric_reader.with_interval(interval);
+    }
+    let metric_reader = metric_reader.build();
 
     let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(metric_reader)
@@ -505,6 +511,23 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
         }
     };
     (ThrottledEnvFilter::new(filter, OTEL_ERROR_THROTTLE_MS), warning)
+}
+
+fn metric_export_interval() -> Option<Duration> {
+    let value = var(OTEL_METRIC_EXPORT_INTERVAL_MS_VAR).ok()?;
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    match value.parse::<u64>() {
+        Ok(0) => None,
+        Ok(ms) => Some(Duration::from_millis(ms)),
+        Err(_) => {
+            warn!(variable = OTEL_METRIC_EXPORT_INTERVAL_MS_VAR, value, "invalid OpenTelemetry metric export interval");
+            None
+        }
+    }
 }
 
 pub fn setup_observability(
