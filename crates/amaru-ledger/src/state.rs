@@ -210,7 +210,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use < S, HS > {
+    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
         StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
     }
 
@@ -378,7 +378,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 // the ledger if we don't.
                 rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
             )
-                .map_err(StateError::Storage)?;
+            .map_err(StateError::Storage)?;
         }
         batch.commit()?;
 
@@ -516,7 +516,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn resolve_inputs<'a>(
         &'_ self,
         ongoing_state: &VolatileState,
-        inputs: impl Iterator<Item=&'a TransactionInput>,
+        inputs: impl Iterator<Item = &'a TransactionInput>,
     ) -> Result<Vec<(TransactionInput, Option<MemoizedTransactionOutput>)>, StoreError> {
         let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_INPUTS);
         let _guard = _span.enter();
@@ -722,12 +722,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     Ok(epoch) => epoch,
                     Err(_) => 0.into(),
                 }
-                    .into();
+                .into();
                 let slot_in_epoch = match self.era_history().slot_in_epoch(slot, slot) {
                     Ok(slot) => slot,
                     Err(_) => 0.into(),
                 }
-                    .into();
+                .into();
 
                 let slot: u64 = slot.into();
 
@@ -739,7 +739,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 let metrics = LedgerMetrics {
                     block_height,
-                    txs_processed,
                     slot,
                     slot_in_epoch,
                     epoch,
@@ -988,7 +987,7 @@ pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Res
 /// Return deposits back to reward accounts.
 pub fn refund_many<'store>(
     db: &impl TransactionalContext<'store>,
-    mut refunds: impl Iterator<Item=(StakeCredential, Lovelace)>,
+    mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
 ) -> Result<(), StateError> {
     let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
         debug!(
@@ -1252,12 +1251,10 @@ fn trace_invalid_block(point: &Point, block_height: u64, violation: &rules::bloc
 pub enum BackwardError {
     /// The ledger has been instructed to rollback to an unknown point. This should be impossible
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
-    #[error("error rolling back to unknown point at {rollback_point}; current ledger tip is at {tip}"
-    )]
+    #[error("error rolling back to unknown point at {rollback_point}; current ledger tip is at {tip}")]
     UnknownRollbackPoint { rollback_point: Point, tip: Point },
 
-    #[error("cannot roll back to a point {rollback_point} in the future of the current ledger tip {tip}"
-    )]
+    #[error("cannot roll back to a point {rollback_point} in the future of the current ledger tip {tip}")]
     RollbackPointInFuture { rollback_point: Point, tip: Point },
 }
 
