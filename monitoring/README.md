@@ -4,6 +4,7 @@ This document summarizes the various details regarding to monitoring Amaru. As a
 
 We provide example configurations using different compositions of tools:
 
+- [Basic](./basic) _(OTLP collector only, Prometheus optional)_
 - [Jaeger + Prometheus](./jaeger) _(simple)_
 - [Grafana + Tempo + Prometheus](./grafana-tempo) _(more advanced)_
 
@@ -55,9 +56,26 @@ For example `amaru[find_intersection]=trace` will filter all `spans` and `events
 
 Filters can be provided as a sequence of `,`-separated values. Right-most filters take precedence. A usual pattern is to first define a global filter and override it with specific target. For example, `error,amaru::ledger::store=debug` will exclude any event below the `error` severity except those targetting `amaru::ledger::store` which will show up to the `debug` severity.
 
-## Spans
+## Basic
 
-A trace is a collection of spans logically connected together. A span represents a unit of work or operation in the system.
+The [basic](./basic) setup runs an OTLP collector that accepts spans and logs (gRPC, port 4317) and metrics (HTTP, port 4318) and exposes a Prometheus-compatible scrape endpoint on port 8889.
+
+```bash
+cd monitoring/basic
+docker compose up
+```
+
+Once running, metrics are available at `http://localhost:8889/metrics`.
+
+Prometheus itself is optional and included as a profile. To also start it:
+
+```bash
+docker compose --profile prometheus up
+```
+
+Now prometheus UI is also accessible at `http://localhost:9090`.
+
+## Spans
 
 ### Span Format
 
