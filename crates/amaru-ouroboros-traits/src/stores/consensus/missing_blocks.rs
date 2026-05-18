@@ -49,6 +49,10 @@ impl MissingBlocks {
         Some((self.missing.front()?, self.missing.back()?))
     }
 
+    pub fn points(&self) -> impl Iterator<Item = Point> + '_ {
+        self.missing.iter().copied()
+    }
+
     pub fn nb_missing_blocks(&self) -> usize {
         self.missing.len()
     }

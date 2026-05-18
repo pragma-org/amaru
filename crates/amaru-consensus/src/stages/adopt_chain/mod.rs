@@ -20,7 +20,7 @@ use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 
-use crate::stages::select_chain::cmp_tip;
+use crate::{span::TraceContext, stages::select_chain::cmp_tip};
 
 /// This stage receives validated chains in the form of a Tip and decides
 /// whether to adopt that tip as the new downstream tip.
@@ -68,17 +68,19 @@ impl AdoptChain {
 pub struct AdoptChainMsg {
     tip: Tip,
     max_block_height: BlockHeight,
+    #[serde(skip, default)]
+    context: TraceContext,
 }
 
 impl AdoptChainMsg {
-    pub fn new(tip: Tip, max_block_height: BlockHeight) -> Self {
-        Self { tip, max_block_height }
+    pub fn new(tip: Tip, max_block_height: BlockHeight, context: TraceContext) -> Self {
+        Self { tip, max_block_height, context }
     }
 }
 
 pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<AdoptChainMsg>) -> AdoptChain {
     state.max_block_height = msg.max_block_height.max(state.max_block_height);
-    let AdoptChainMsg { tip: msg, .. } = msg;
+    let AdoptChainMsg { tip: msg, context, .. } = msg;
 
     if msg.block_height() < state.current_best_tip.block_height() {
         tracing::debug!(tip = %msg, current_best_tip = %state.current_best_tip, "incoming tip shorter than current best, skipping");
@@ -113,14 +115,14 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
     }
 
     if let Some(current_best) = current_best.as_ref() {
-        adopt_tip(&store, &incoming_header, current_best)
+        adopt_tip(&store, &incoming_header, current_best, &context)
             .or_terminate_with(&eff, async |error| {
                 tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
             })
             .await;
     } else {
         store
-            .roll_forward_chain(&incoming_header.point())
+            .roll_forward_chain_with_context(&incoming_header.point(), context.clone())
             .or_terminate_with(&eff, async |error| {
                 tracing::error!(error = %error, tip = %msg, "failed to adopt first tip");
             })
@@ -144,7 +146,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         state.suppressed += 1;
     }
     eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
-    eff.send(&state.downstream, ManagerMessage::NewTip(msg)).await;
+    eff.send(&state.downstream, ManagerMessage::NewTip(msg, context)).await;
     state.current_best_tip = msg;
     state
 }
@@ -154,9 +156,10 @@ async fn adopt_tip(
     store: &Store,
     incoming_header: &BlockHeader,
     current_best: &BlockHeader,
+    context: &TraceContext,
 ) -> Result<AdoptTipResult, StoreError> {
     if incoming_header.parent() == Some(current_best.hash()) {
-        store.roll_forward_chain(&incoming_header.point()).await?;
+        store.roll_forward_chain_with_context(&incoming_header.point(), context.clone()).await?;
         return Ok(AdoptTipResult::BestChainRolledForward);
     }
 
@@ -164,7 +167,7 @@ async fn adopt_tip(
         FindAncestorOnBestChainResult::StartHeaderNotFound => Ok(AdoptTipResult::HeaderNotFound),
         FindAncestorOnBestChainResult::NotFound => Ok(AdoptTipResult::AncestorOnBestChainNotFound),
         FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
-            store.switch_to_fork(&fork_point, &forward_points).await?;
+            store.switch_to_fork_with_context(&fork_point, &forward_points, context.clone()).await?;
             Ok(AdoptTipResult::BestChainSwitched)
         }
     }

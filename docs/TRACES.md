@@ -5,6 +5,106 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
+## target: `amaru::consensus`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `decode_header` | `TRACE` | public | Decode header from raw bytes | peer | hash |
+| `fetch_block` | `TRACE` | public | Fetch the block corresponding to a header | hash, point, slot | fetch_block_skip_reason |
+| `forward_header` | `TRACE` | public | Forward a newly adopted header downstream | hash, point, slot, block_height |  |
+| `process_block` | `TRACE` | public | Process the fetched block corresponding to a header | hash, point, slot, block_height |  |
+| `process_header` | `TRACE` | public | Process a decoded header across consensus stages. | hash, point, slot, block_height |  |
+| `recover_stored_blocks` | `TRACE` | public | Recover stored blocks whose validation status was not persisted before shutdown | hash, point, slot, block_height |  |
+| `validate_block` | `TRACE` | public | Validate the block corresponding to a header | hash, point, slot, block_height |  |
+| `validate_header` | `TRACE` | public | Validate a received header | hash, point, slot, block_height | valid |
+
+<details><summary>span: `decode_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `hash` | `string` |  |
+
+</details>
+
+<details><summary>span: `fetch_block`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `fetch_block_skip_reason` | `string` |  |
+
+</details>
+
+<details><summary>span: `forward_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `process_block`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `process_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `recover_stored_blocks`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `validate_block`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `validate_header`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+| `valid` | `boolean` |  |
+
+</details>
+
 ## target: `amaru::ledger::context`
 
 | name | level | public | description | required fields | optional fields |

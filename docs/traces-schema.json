@@ -4,6 +4,253 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
+    "amaru::consensus::DECODE_HEADER": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "peer"
+      ],
+      "optional": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "name": "decode_header",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Decode header from raw bytes",
+      "public": true
+    },
+    "amaru::consensus::FETCH_BLOCK": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "point": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "fetch_block_skip_reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash",
+        "point",
+        "slot"
+      ],
+      "optional": [
+        "fetch_block_skip_reason"
+      ],
+      "additionalProperties": false,
+      "name": "fetch_block",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Fetch the block corresponding to a header",
+      "public": true
+    },
+    "amaru::consensus::FORWARD_HEADER": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "point": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "point",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forward_header",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Forward a newly adopted header downstream",
+      "public": true
+    },
+    "amaru::consensus::PROCESS_BLOCK": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "point": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "point",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "process_block",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Process the fetched block corresponding to a header",
+      "public": true
+    },
+    "amaru::consensus::PROCESS_HEADER": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "point": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "point",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "process_header",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Process a decoded header across consensus stages.",
+      "public": true
+    },
+    "amaru::consensus::RECOVER_STORED_BLOCKS": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "point": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "point",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recover_stored_blocks",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Recover stored blocks whose validation status was not persisted before shutdown",
+      "public": true
+    },
+    "amaru::consensus::VALIDATE_BLOCK": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "point": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "point",
+        "slot",
+        "block_height"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_block",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Validate the block corresponding to a header",
+      "public": true
+    },
+    "amaru::consensus::VALIDATE_HEADER": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "point": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hash",
+        "point",
+        "slot",
+        "block_height"
+      ],
+      "optional": [
+        "valid"
+      ],
+      "additionalProperties": false,
+      "name": "validate_header",
+      "level": "TRACE",
+      "target": "amaru::consensus",
+      "description": "Validate a received header",
+      "public": true
+    },
     "amaru::ledger::context::ADD_FEES": {
       "type": "object",
       "properties": {

@@ -112,6 +112,7 @@ pub(crate) mod tests {
             <&EraHistory>::from(NetworkName::Preprod),
             &GovernanceActivity { consecutive_dormant_epochs: 0 },
             block,
+            &opentelemetry::Context::new(),
         );
 
         assert!(matches!(results, BlockValidation::Valid(())));
@@ -140,6 +141,7 @@ pub(crate) mod tests {
             <&EraHistory>::from(NetworkName::Preprod),
             &GovernanceActivity { consecutive_dormant_epochs: 0 },
             block,
+            &opentelemetry::Context::new(),
         );
 
         assert!(matches!(results, BlockValidation::Invalid(_, _, InvalidBlockDetails::HeaderSizeTooBig { .. })))

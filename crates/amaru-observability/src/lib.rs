@@ -13,9 +13,11 @@
 // limitations under the License.
 
 pub mod registry;
+pub mod span;
 // Include the schemas module which uses define_schemas! to generate
 // the amaru module with all schema constants and validation macros
 mod schemas;
 // Re-export the macros for convenient use
 pub use amaru_observability_macros::{define_schemas, trace_record, trace_span};
 pub use schemas::*;
+pub use span::TraceContext;

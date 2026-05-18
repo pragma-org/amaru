@@ -22,11 +22,14 @@ use amaru_protocols::{
 use pure_stage::trace_buffer::TraceEntry;
 use tracing::Level;
 
-use crate::stages::track_peers::{
-    TrackPeersMsg,
-    test_setup::{
-        FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
-        te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
+use crate::stages::{
+    select_chain::HeaderTrace,
+    track_peers::{
+        TrackPeersMsg,
+        test_setup::{
+            FailingHeaderValidation, assert_trace, build_store, make_block_header, setup, setup_with_validation,
+            te_has_header, te_load_tip, te_send, te_store_header, te_validate_header, test_prep,
+        },
     },
 };
 
@@ -308,7 +311,11 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
             te_store_header("tp-1", header.clone()),
-            te_send("tp-1", "downstream", (header.tip(), parent.point())),
+            te_send(
+                "tp-1",
+                "downstream",
+                HeaderTrace::new(header.tip(), parent.point(), crate::span::TraceContext::none()),
+            ),
             TraceEntry::state("tp-1", Box::new(expected)),
         ],
     );

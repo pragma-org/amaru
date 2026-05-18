@@ -14,12 +14,15 @@
 
 use std::{hint::black_box, time::Duration};
 
-use amaru_consensus::stages::{
-    adopt_chain::AdoptChainMsg,
-    fetch_blocks::FetchBlocksMsg,
-    select_chain::SelectChainMsg,
-    track_peers::{DeferReqNextMsg, TrackPeersMsg},
-    validate_block::ValidateBlockMsg,
+use amaru_consensus::{
+    span::TraceContext,
+    stages::{
+        adopt_chain::AdoptChainMsg,
+        fetch_blocks::FetchBlocksMsg,
+        select_chain::{HeaderTrace, SelectChainMsg},
+        track_peers::{DeferReqNextMsg, TrackPeersMsg},
+        validate_block::ValidateBlockMsg,
+    },
 };
 use amaru_kernel::{
     BlockHeader, BlockHeight, EraName, Point, TESTNET_ERA_HISTORY, Tip, any_header_hash,
@@ -40,19 +43,19 @@ fn stage_msgs(c: &mut Criterion) {
     let bh = BlockHeight::from(123_456_789);
     let tip = Tip::new(point, bh);
 
-    let msg = ValidateBlockMsg::new(tip, point, bh);
+    let msg = ValidateBlockMsg::new(tip, point, bh, TraceContext::none());
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("ValidateBlockMsg", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = AdoptChainMsg::new(tip, bh);
+    let msg = AdoptChainMsg::new(tip, bh, TraceContext::none());
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("AdoptChainMsg", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = SelectChainMsg::TipFromUpstream(tip, point);
+    let msg = SelectChainMsg::TipFromUpstream(HeaderTrace::new(tip, point, TraceContext::none()));
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::TipFromUpstream", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = SelectChainMsg::BlockValidationResult(tip, true);
+    let msg = SelectChainMsg::BlockValidationResult(tip, true, TraceContext::none());
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::BlockValidationResult", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
@@ -60,7 +63,7 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::FetchNextFrom", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = FetchBlocksMsg::NewTip(tip, point);
+    let msg = FetchBlocksMsg::NewTip(HeaderTrace::new(tip, point, TraceContext::none()));
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::NewTip", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 

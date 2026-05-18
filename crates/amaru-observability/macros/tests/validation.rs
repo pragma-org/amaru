@@ -127,6 +127,26 @@ mod required_fields {
     }
 }
 
+mod parent_context {
+    use super::*;
+
+    struct TestTraceContext(opentelemetry::Context);
+
+    impl TestTraceContext {
+        fn context(&self) -> opentelemetry::Context {
+            self.0.clone()
+        }
+    }
+
+    /// Any struct with a `context` method returning an opentelemetry Context can be passed to create
+    /// the parent context of a span.
+    #[test]
+    fn trace_span_accepts_parent_context() {
+        let context = TestTraceContext(opentelemetry::Context::new());
+        let _span = trace_span!(parent_context: &context, ledger::state::APPLY_BLOCK, point_slot = 1);
+    }
+}
+
 mod optional_fields {
     use super::*;
 

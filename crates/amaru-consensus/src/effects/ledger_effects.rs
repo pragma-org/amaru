@@ -186,6 +186,8 @@ impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let Self { peer: _peer, point, ctx } = *self;
+        let ctx = ctx.0;
+        let parent_context = ctx.clone();
         Self::wrap(
             async move {
                 let store = resources
@@ -202,9 +204,9 @@ impl ExternalEffect for ValidateBlockEffect {
                     .get::<ResourceBlockValidation>()
                     .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
                     .clone();
-                validator.roll_forward_block(&point, block).await
+                validator.roll_forward_block(&point, block, parent_context).await
             }
-            .with_context(ctx.0),
+            .with_context(ctx),
         )
     }
 }

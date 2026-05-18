@@ -374,6 +374,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 /// trace_span!(operations::database::OPENING_CHAIN_DB, path = "...")
 /// trace_span!(DEBUG, ledger::state::APPLY_BLOCK, block_size = 1024)
 /// trace_span!(INFO, consensus::VALIDATE)
+/// trace_span!(parent_context: &ctx, consensus::VALIDATE)
 /// ```
 pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     if crate::is_trace_no_emit() {
@@ -388,9 +389,14 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
     struct TraceSpanArgs {
         level: Option<syn::Ident>,
-        parent: Option<syn::Expr>,
+        parent: Option<TraceSpanParent>,
         schema_path: syn::Path,
         fields: Vec<TraceSpanField>,
+    }
+
+    enum TraceSpanParent {
+        Span(syn::Expr),
+        Context(syn::Expr),
     }
 
     enum TraceSpanFormatter {
@@ -438,7 +444,14 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                         input.parse::<Token![:]>()?;
                         let parent_expr: syn::Expr = input.parse()?;
                         input.parse::<Token![,]>()?;
-                        Some(parent_expr)
+                        Some(TraceSpanParent::Span(parent_expr))
+                    }
+                    Ok(ident) if ident == "parent_context" && checkpoint.peek(Token![:]) => {
+                        let _: syn::Ident = input.parse()?;
+                        input.parse::<Token![:]>()?;
+                        let parent_expr: syn::Expr = input.parse()?;
+                        input.parse::<Token![,]>()?;
+                        Some(TraceSpanParent::Context(parent_expr))
                     }
                     _ => None,
                 }
@@ -595,8 +608,17 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     let required_fields_check = generate_required_fields_check(&meta, &required_field_names);
 
     let instrument_macro_ident = make_ident(&make_instrument_macro_name(&categories, &meta.schema_name));
+    let span_parent = match &args.parent {
+        Some(TraceSpanParent::Span(parent_expr)) => Some(parent_expr),
+        Some(TraceSpanParent::Context(_)) | None => None,
+    };
+    let parent_context_expr = match &args.parent {
+        Some(TraceSpanParent::Context(parent_expr)) => Some(parent_expr),
+        Some(TraceSpanParent::Span(_)) | None => None,
+    };
+
     let span_expr = if level_str == "trace" {
-        if let Some(parent_expr) = &args.parent {
+        if let Some(parent_expr) = span_parent {
             meta.macro_call_expr(
                 &instrument_macro_ident,
                 quote! { parent = #parent_expr, values = &__amaru_span_values[..] },
@@ -612,7 +634,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             "error" => quote! { tracing::Level::ERROR },
             _ => quote! { tracing::Level::TRACE },
         };
-        if let Some(parent_expr) = &args.parent {
+        if let Some(parent_expr) = span_parent {
             meta.macro_call_expr(
                 &instrument_macro_ident,
                 quote! { parent = #parent_expr, level = #level_const, values = &__amaru_span_values[..] },
@@ -624,6 +646,28 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             )
         }
     };
+    let parent_context_attachment = parent_context_expr
+        .map(|parent_expr| {
+            quote! {
+                {
+                    let __amaru_parent_context = #parent_expr;
+                    let __amaru_otel_context = __amaru_parent_context.context();
+                    let __amaru_has_valid_parent = {
+                        use ::opentelemetry::trace::TraceContextExt as _;
+                        __amaru_otel_context.span().span_context().is_valid()
+                    };
+                    {
+                        use ::tracing_opentelemetry::OpenTelemetrySpanExt as _;
+                        if let ::std::result::Result::Err(error) = #span_name.set_parent(__amaru_otel_context)
+                            && __amaru_has_valid_parent
+                        {
+                            ::tracing::warn!(%error, "failed to set span parent context");
+                        }
+                    }
+                }
+            }
+        })
+        .unwrap_or_else(|| quote! {});
 
     let expanded = wrap_in_module_validator(
         &meta,
@@ -646,6 +690,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                 #(#assign_calls)*
 
                 let #span_name = #span_expr;
+                #parent_context_attachment
 
                 #span_name
             }

@@ -23,9 +23,9 @@ use std::{
 
 use amaru_kernel::{
     AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory, EraHistoryError,
-    GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters,
-    Slot, StakeCredential, StakeCredentialKind, Tip, Transaction, TransactionInput, TransactionPointer,
-    expect_stake_credential, to_cbor,
+    GlobalParameters, HasTransactionId, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId,
+    ProtocolParameters, Slot, StakeCredential, StakeCredentialKind, Tip, Transaction, TransactionInput,
+    TransactionPointer, expect_stake_credential, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::trace_span;
@@ -210,7 +210,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use < S, HS > {
+    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
         StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
     }
 
@@ -378,7 +378,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 // the ledger if we don't.
                 rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
             )
-                .map_err(StateError::Storage)?;
+            .map_err(StateError::Storage)?;
         }
         batch.commit()?;
 
@@ -516,7 +516,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn resolve_inputs<'a>(
         &'_ self,
         ongoing_state: &VolatileState,
-        inputs: impl Iterator<Item=&'a TransactionInput>,
+        inputs: impl Iterator<Item = &'a TransactionInput>,
     ) -> Result<Vec<(TransactionInput, Option<MemoizedTransactionOutput>)>, StoreError> {
         let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_INPUTS);
         let _guard = _span.enter();
@@ -684,6 +684,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         point: &Point,
         block: Block,
         arena_pool: &ArenaPool,
+        ctx: &opentelemetry::Context,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         let _span = trace_span!(amaru_observability::amaru::ledger::state::ROLL_FORWARD);
         let _guard = _span.enter();
@@ -707,9 +708,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             self.era_history(),
             self.governance_activity(),
             block,
+            ctx,
         ) {
             BlockValidation::Err(err) => BlockValidation::Err(err),
-            BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
+            BlockValidation::Invalid(slot, id, err) => {
+                trace_invalid_block(point, block_height, &err);
+                BlockValidation::Invalid(slot, id, err)
+            }
             BlockValidation::Valid(()) => {
                 trace!(target: EVENT_TARGET, %point, block_height, tx_count, "block transactions validated");
 
@@ -719,12 +724,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     Ok(epoch) => epoch,
                     Err(_) => 0.into(),
                 }
-                    .into();
+                .into();
                 let slot_in_epoch = match self.era_history().slot_in_epoch(slot, slot) {
                     Ok(slot) => slot,
                     Err(_) => 0.into(),
                 }
-                    .into();
+                .into();
 
                 let slot: u64 = slot.into();
 
@@ -736,7 +741,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 let metrics = LedgerMetrics {
                     block_height,
-                    txs_processed,
                     slot,
                     slot_in_epoch,
                     epoch,
@@ -985,7 +989,7 @@ pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Res
 /// Return deposits back to reward accounts.
 pub fn refund_many<'store>(
     db: &impl TransactionalContext<'store>,
-    mut refunds: impl Iterator<Item=(StakeCredential, Lovelace)>,
+    mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
 ) -> Result<(), StateError> {
     let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
         debug!(
@@ -1222,6 +1226,28 @@ impl HasStakeDistribution for StakeDistributionObserver {
     }
 }
 
+/// This trace provides transaction ids that were provided by a given block
+fn trace_block_transactions(point: &Point, block_height: u64, block: &Block) {
+    if !tracing::enabled!(target: EVENT_TARGET, tracing::Level::TRACE) {
+        return;
+    }
+
+    let tx_count = block.transaction_bodies.len();
+    trace!(target: EVENT_TARGET, %point, block_height, tx_count, "block transactions found");
+    for (tx_index, body) in block.transaction_bodies.iter().enumerate() {
+        let tx_id = body.tx_id();
+        trace!(target: EVENT_TARGET, %point, block_height, tx_index, tx_id = %tx_id, "transaction found in block");
+    }
+}
+
+/// This trace shows which transactions were invalid in a given block
+fn trace_invalid_block(point: &Point, block_height: u64, violation: &rules::block::InvalidBlockDetails) {
+    trace!(target: EVENT_TARGET, %point, block_height, %violation, "block transactions invalid");
+    if let rules::block::InvalidBlockDetails::Transaction { transaction_id, transaction_index, violation } = violation {
+        trace!(target: EVENT_TARGET, %point, block_height, tx_index = %transaction_index, tx_id = %transaction_id, %violation, "transaction invalid in block");
+    }
+}
+
 // Errors
 // ----------------------------------------------------------------------------
 
@@ -1229,12 +1255,10 @@ impl HasStakeDistribution for StakeDistributionObserver {
 pub enum BackwardError {
     /// The ledger has been instructed to rollback to an unknown point. This should be impossible
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
-    #[error("error rolling back to unknown point at {rollback_point}; current ledger tip is at {tip}"
-    )]
+    #[error("error rolling back to unknown point at {rollback_point}; current ledger tip is at {tip}")]
     UnknownRollbackPoint { rollback_point: Point, tip: Point },
 
-    #[error("cannot roll back to a point {rollback_point} in the future of the current ledger tip {tip}"
-    )]
+    #[error("cannot roll back to a point {rollback_point} in the future of the current ledger tip {tip}")]
     RollbackPointInFuture { rollback_point: Point, tip: Point },
 }
 

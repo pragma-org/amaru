@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
+use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, make_header};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
     CanValidateHeaders, ChainStore, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders,
@@ -41,7 +41,10 @@ use crate::{
         ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect,
         VolatileTipEffect,
     },
-    stages::test_utils::{BufferWriter, Logs},
+    stages::{
+        select_chain::HeaderTrace,
+        test_utils::{BufferWriter, Logs},
+    },
 };
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
@@ -116,8 +119,7 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<TrackPeersMsg>().boxed(),
         pure_stage::register_data_deserializer::<InitiatorMessage>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
-        pure_stage::register_data_deserializer::<Tip>().boxed(),
-        pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
+        pure_stage::register_data_deserializer::<HeaderTrace>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),

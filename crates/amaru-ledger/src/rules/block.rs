@@ -177,11 +177,15 @@ pub fn execute<C, S: From<C>>(
     era_history: &EraHistory,
     governance_activity: &GovernanceActivity,
     block: Block,
+    parent_context: &opentelemetry::Context,
 ) -> BlockValidation<(), anyhow::Error>
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
-    let _span = trace_span!(amaru_observability::amaru::ledger::state::VALIDATE_BLOCK);
+    let _span = trace_span!(
+        parent_context: &TraceParentContext(parent_context),
+        amaru_observability::amaru::ledger::state::VALIDATE_BLOCK
+    );
     let _guard = _span.enter();
 
     let slot = Slot::from(block.header.header_body.slot);
@@ -233,6 +237,14 @@ where
     }
 
     BlockValidation::Valid(())
+}
+
+struct TraceParentContext<'a>(&'a opentelemetry::Context);
+
+impl TraceParentContext<'_> {
+    fn context(&self) -> opentelemetry::Context {
+        self.0.clone()
+    }
 }
 
 /// Validate a single transaction against a validation context.

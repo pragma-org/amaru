@@ -26,10 +26,12 @@ anyhow.workspace = true
 async-trait.workspace = true
 hex.workspace = true
 num.workspace = true
+opentelemetry.workspace = true
 proptest = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tracing-opentelemetry.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true

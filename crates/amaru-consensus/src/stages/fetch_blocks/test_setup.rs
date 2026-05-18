@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
+    BlockHeader, HeaderHash, RawBlock, TESTNET_ERA_HISTORY,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
 use amaru_ouroboros_traits::{ChainStore, MissingBlocks, StoreError, in_memory_consensus_store::InMemConsensusStore};
@@ -37,6 +37,7 @@ use super::*;
 use crate::stages::{
     select_chain::SelectChainMsg,
     test_utils::{BufferWriter, Logs},
+    validate_block::ValidateBlockMsg,
 };
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -125,7 +126,7 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
-        pure_stage::register_data_deserializer::<(Tip, Point, BlockHeight)>().boxed(),
+        pure_stage::register_data_deserializer::<ValidateBlockMsg>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasBlockEffect>().boxed(),

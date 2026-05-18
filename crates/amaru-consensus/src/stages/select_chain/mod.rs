@@ -19,9 +19,43 @@ use amaru_protocols::store_effects::Store;
 use anyhow::anyhow;
 use pure_stage::{Effects, OrTerminateWith, StageRef};
 
+use crate::span::TraceContext;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HeaderTrace {
+    pub tip: Tip,
+    pub parent: Point,
+    #[serde(skip, default)]
+    pub context: TraceContext,
+    #[serde(skip, default)]
+    pub contexts: BTreeMap<HeaderHash, TraceContext>,
+}
+
+impl HeaderTrace {
+    pub fn new(tip: Tip, parent: Point, context: TraceContext) -> Self {
+        let contexts = BTreeMap::from([(tip.hash(), context.clone())]);
+        Self { tip, parent, context, contexts }
+    }
+
+    pub fn with_contexts(
+        tip: Tip,
+        parent: Point,
+        context: TraceContext,
+        contexts: BTreeMap<HeaderHash, TraceContext>,
+    ) -> Self {
+        Self { tip, parent, context, contexts }
+    }
+}
+
+impl PartialEq for HeaderTrace {
+    fn eq(&self, other: &Self) -> bool {
+        self.tip == other.tip && self.parent == other.parent
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SelectChain {
-    downstream: StageRef<(Tip, Point)>,
+    downstream: StageRef<HeaderTrace>,
     /// Maps all block tree tips to the list of headers whose blocks are yet to be validated
     /// (oldest first)
     tips: BTreeMap<HeaderHash, Vec<HeaderHash>>,
@@ -29,22 +63,39 @@ pub struct SelectChain {
     best_tip: Option<BlockHeader>,
     /// Whether the downstream stage has sent a FetchNextFrom message that has not yet been responded to.
     may_fetch_blocks: bool,
+    #[serde(skip, default)]
+    contexts: BTreeMap<HeaderHash, TraceContext>,
 }
 
 impl SelectChain {
-    pub fn new(downstream: StageRef<(Tip, Point)>) -> Self {
-        Self { downstream, best_tip: None, tips: BTreeMap::new(), may_fetch_blocks: false }
+    pub fn new(downstream: StageRef<HeaderTrace>) -> Self {
+        Self { downstream, best_tip: None, tips: BTreeMap::new(), may_fetch_blocks: false, contexts: BTreeMap::new() }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SelectChainMsg {
     Initialize,
-    TipFromUpstream(Tip, Point),
-    BlockValidationResult(Tip, bool),
+    TipFromUpstream(HeaderTrace),
+    BlockValidationResult(Tip, bool, #[serde(skip, default)] TraceContext),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
     FetchNextFrom(Point),
+}
+
+impl PartialEq for SelectChainMsg {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Initialize, Self::Initialize) => true,
+            (Self::TipFromUpstream(left), Self::TipFromUpstream(right)) => left == right,
+            (
+                Self::BlockValidationResult(left_tip, left_valid, _),
+                Self::BlockValidationResult(right_tip, right_valid, _),
+            ) => left_tip == right_tip && left_valid == right_valid,
+            (Self::FetchNextFrom(left), Self::FetchNextFrom(right)) => left == right,
+            _ => false,
+        }
+    }
 }
 
 pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<SelectChainMsg>) -> SelectChain {
@@ -58,9 +109,9 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             });
             state
         }
-        SelectChainMsg::TipFromUpstream(tip, parent) => state.handle_tip_from_upstream(tip, parent, eff).await,
-        SelectChainMsg::BlockValidationResult(point, valid) => {
-            state.handle_block_validation_result(point, valid, eff).await
+        SelectChainMsg::TipFromUpstream(header_trace) => state.handle_tip_from_upstream(header_trace, eff).await,
+        SelectChainMsg::BlockValidationResult(point, valid, span) => {
+            state.handle_block_validation_result(point, valid, span, eff).await
         }
         SelectChainMsg::FetchNextFrom(point) => state.handle_fetch_next_from(point, eff).await,
     }
@@ -71,7 +122,12 @@ impl SelectChain {
     ///
     /// The `tip` and `parent` refer to headers that are guaranteed to be stored in the chain store
     /// by the track_peers stage.
-    async fn handle_tip_from_upstream(mut self, tip: Tip, parent: Point, eff: Effects<SelectChainMsg>) -> SelectChain {
+    async fn handle_tip_from_upstream(
+        mut self,
+        header_trace: HeaderTrace,
+        eff: Effects<SelectChainMsg>,
+    ) -> SelectChain {
+        let HeaderTrace { tip, parent, context, contexts } = header_trace;
         let store = Store::new(eff.clone());
 
         let Some((header, valid)) = store.load_header_with_validity(&tip.hash()).await else {
@@ -110,12 +166,19 @@ impl SelectChain {
             }
         }
 
-        if self.tips.contains_key(&tip.hash()) && cmp_tip(Some(&header), self.best_tip.as_ref()) == Ordering::Greater {
-            let best_tip = self.best_tip.map(|h| h.point()).unwrap_or(Point::Origin);
+        let tip_is_candidate = self.tips.contains_key(&tip.hash());
+        if tip_is_candidate {
+            self.contexts.extend(contexts);
+            self.contexts.insert(tip.hash(), context.clone());
+        }
+
+        if tip_is_candidate && cmp_tip(Some(&header), self.best_tip.as_ref()) == Ordering::Greater {
+            let best_tip = self.best_tip.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
             tracing::debug!(tip = %tip.point(), height = %tip.block_height(), %best_tip, "new best tip candidate");
             if self.may_fetch_blocks {
                 self.may_fetch_blocks = false;
-                eff.send(&self.downstream, (tip, parent)).await;
+                let contexts = self.contexts_for_tip(tip.hash());
+                eff.send(&self.downstream, HeaderTrace::with_contexts(tip, parent, context.clone(), contexts)).await;
             }
             self.best_tip = Some(header);
         }
@@ -126,6 +189,7 @@ impl SelectChain {
         mut self,
         tip: Tip,
         valid: bool,
+        context: TraceContext,
         eff: Effects<SelectChainMsg>,
     ) -> SelectChain {
         let store = Store::new(eff.clone());
@@ -143,6 +207,7 @@ impl SelectChain {
 
         if valid {
             let h = tip.hash();
+            self.contexts.remove(&h);
             self.tips.values_mut().for_each(|v| {
                 if let Some(idx) = v.iter().position(|hash| hash == &h) {
                     v.drain(0..=idx);
@@ -152,7 +217,12 @@ impl SelectChain {
             // remove all tips depending on the invalid block
             // (if a peer sends further headers on this chain, we will ignore them)
             let prev_tips = self.tips.len();
+            let removed_hashes: Vec<_> =
+                self.tips.values().filter(|v| v.first() == Some(&tip.hash())).flatten().copied().collect();
             self.tips.retain(|_k, v| v.first() != Some(&tip.hash()));
+            removed_hashes.into_iter().for_each(|hash| {
+                self.contexts.remove(&hash);
+            });
             let removed = prev_tips - self.tips.len();
 
             if let Some(best_tip) = &self.best_tip
@@ -166,7 +236,13 @@ impl SelectChain {
                         let parent = load_parent_point(&eff, store, &new_best_tip).await;
                         if self.may_fetch_blocks {
                             self.may_fetch_blocks = false;
-                            eff.send(&self.downstream, (new_best_tip.tip(), parent)).await;
+                            let context = self.contexts.get(&new_best_tip.hash()).cloned().unwrap_or(context);
+                            let contexts = self.contexts_for_tip(new_best_tip.hash());
+                            eff.send(
+                                &self.downstream,
+                                HeaderTrace::with_contexts(new_best_tip.tip(), parent, context, contexts),
+                            )
+                            .await;
                         }
                         self.tips.insert(new_best_tip.hash(), to_validate);
                         self.best_tip = Some(new_best_tip);
@@ -214,11 +290,22 @@ impl SelectChain {
                 Point::Origin
             };
             tracing::debug!(tip = %best_tip.point(), %parent, "resuming block fetching");
-            eff.send(&self.downstream, (best_tip.tip(), parent)).await;
+            let context = self.contexts.get(&best_tip.hash()).cloned().unwrap_or_else(TraceContext::none);
+            let contexts = self.contexts_for_tip(best_tip.hash());
+            eff.send(&self.downstream, HeaderTrace::with_contexts(best_tip.tip(), parent, context, contexts)).await;
         } else {
             self.may_fetch_blocks = true;
         }
         self
+    }
+
+    fn contexts_for_tip(&self, tip: HeaderHash) -> BTreeMap<HeaderHash, TraceContext> {
+        self.tips
+            .get(&tip)
+            .into_iter()
+            .flat_map(|hashes| hashes.iter())
+            .filter_map(|hash| self.contexts.get(hash).cloned().map(|context| (*hash, context)))
+            .collect()
     }
 }
 

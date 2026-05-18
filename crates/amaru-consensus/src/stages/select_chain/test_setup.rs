@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{BlockHeader, HeaderHash, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
@@ -87,7 +87,7 @@ impl HeaderTree {
 pub struct TestPrep {
     pub state: SelectChain,
     pub rt: Runtime,
-    pub downstream: StageRef<(Tip, Point)>,
+    pub downstream: StageRef<HeaderTrace>,
     pub headers: HeaderTree,
     pub store: Arc<dyn ChainStore<BlockHeader>>,
 }
@@ -120,8 +120,7 @@ pub fn register_guards() -> DeserializerGuards {
     vec![
         pure_stage::register_data_deserializer::<SelectChain>().boxed(),
         pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
-        pure_stage::register_data_deserializer::<Tip>().boxed(),
-        pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
+        pure_stage::register_data_deserializer::<HeaderTrace>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),

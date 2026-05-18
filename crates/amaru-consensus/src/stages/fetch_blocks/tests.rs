@@ -26,6 +26,7 @@ use crate::stages::{
         te_terminated, te_unvalidated_ancestor_hashes, test_prep,
     },
     test_utils::{te_input, te_state},
+    validate_block::ValidateBlockMsg,
 };
 
 #[test]
@@ -34,7 +35,7 @@ fn test_new_tip_load_header_fails() {
     // Tip h2 but store has no headers - load will fail
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = FetchBlocksMsg::NewTip(tip, parent);
+    let msg = FetchBlocksMsg::NewTip(HeaderTrace::new(tip, parent, crate::span::TraceContext::none()));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -63,7 +64,7 @@ fn test_new_tip_no_blocks_to_fetch() {
 
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = FetchBlocksMsg::NewTip(tip, parent);
+    let msg = FetchBlocksMsg::NewTip(HeaderTrace::new(tip, parent, crate::span::TraceContext::none()));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -113,10 +114,28 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
             te_load_header("fb-1", prep.headers.h1.hash(), false),
             te_load_tip("fb-1", prep.headers.h0.hash()),
             te_has_block("fb-1", prep.headers.h1.hash()),
-            te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(3))),
+            te_send(
+                "fb-1",
+                "downstream",
+                ValidateBlockMsg::new(
+                    prep.headers.h1.tip(),
+                    prep.headers.h0.point(),
+                    BlockHeight::from(3),
+                    crate::span::TraceContext::none(),
+                ),
+            ),
             te_load_header("fb-1", prep.headers.h2.hash(), false),
             te_has_block("fb-1", prep.headers.h2.hash()),
-            te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(3))),
+            te_send(
+                "fb-1",
+                "downstream",
+                ValidateBlockMsg::new(
+                    prep.headers.h2.tip(),
+                    prep.headers.h1.point(),
+                    BlockHeight::from(3),
+                    crate::span::TraceContext::none(),
+                ),
+            ),
             te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h2.point())),
             te_state("fb-1", &expected),
         ],
@@ -137,7 +156,9 @@ fn test_new_tip_blocks_to_fetch() {
 
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = FetchBlocksMsg::NewTip(tip, parent);
+    let msg = FetchBlocksMsg::NewTip(HeaderTrace::new(tip, parent, crate::span::TraceContext::none()));
+    let persisted_msg =
+        FetchBlocksMsg::NewTip(HeaderTrace::with_contexts(tip, parent, TraceContext::none(), Default::default()));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let timeout_at = Instant::at_offset(Duration::from_secs(5));
@@ -158,7 +179,7 @@ fn test_new_tip_blocks_to_fetch() {
         &running,
         &[
             te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
+            te_input("fb-1", &persisted_msg),
             te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_send(
                 "fb-1",
@@ -208,7 +229,16 @@ fn test_block_received() {
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
             te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
-            te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(0))),
+            te_send(
+                "fb-1",
+                "downstream",
+                ValidateBlockMsg::new(
+                    prep.headers.h1.tip(),
+                    prep.headers.h0.point(),
+                    BlockHeight::from(0),
+                    crate::span::TraceContext::none(),
+                ),
+            ),
             te_state("fb-1", &expected),
         ],
     );
@@ -246,7 +276,16 @@ fn test_block2_received() {
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
             te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
-            te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(0))),
+            te_send(
+                "fb-1",
+                "downstream",
+                ValidateBlockMsg::new(
+                    prep.headers.h2.tip(),
+                    prep.headers.h1.point(),
+                    BlockHeight::from(0),
+                    crate::span::TraceContext::none(),
+                ),
+            ),
             te_cancel_schedule("fb-1", schedule_id),
             te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h2.point())),
             te_state("fb-1", &expected),

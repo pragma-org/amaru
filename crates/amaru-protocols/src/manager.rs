@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_metrics::protocol::ConnectionManagerMetrics;
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
 use tracing::Instrument;
@@ -59,7 +59,7 @@ pub enum ManagerMessage {
         cr: StageRef<Blocks2>,
         id: u64,
     },
-    NewTip(Tip),
+    NewTip(Tip, #[serde(skip, default)] TraceContext),
 }
 
 impl ManagerMessage {
@@ -73,7 +73,7 @@ impl ManagerMessage {
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
             ManagerMessage::FetchBlocks2 { .. } => "FetchBlocks2",
-            ManagerMessage::NewTip(_) => "NewTip",
+            ManagerMessage::NewTip(..) => "NewTip",
         }
     }
 }
@@ -323,10 +323,10 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     }
                 }
             }
-            ManagerMessage::NewTip(tip) => {
+            ManagerMessage::NewTip(tip, context) => {
                 for conn in manager.peers.values() {
                     if let ConnectionState::Connected(_, _, connection) = conn {
-                        eff.send(connection, ConnectionMessage::NewTip(tip)).await;
+                        eff.send(connection, ConnectionMessage::NewTip(tip, context.clone())).await;
                     }
                 }
             }

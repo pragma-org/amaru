@@ -29,6 +29,7 @@ impl CanValidateBlocks for MockCanValidateBlocks {
         &self,
         _point: &Point,
         _block: Block,
+        _ctx: opentelemetry::Context,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         Ok(Ok(Default::default()))
     }

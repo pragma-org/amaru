@@ -171,6 +171,7 @@ impl CanValidateBlocks for MockBlockValidator {
         &self,
         point: &Point,
         _block: amaru_kernel::Block,
+        _ctx: opentelemetry::Context,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut inner = self.inner.lock();
         if inner.ledger_fails.contains(point) {
