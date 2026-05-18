@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg, ToSocketAddrs};
-use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
+use pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 use tracing::Instrument;
 
 use crate::{
@@ -192,10 +192,13 @@ enum OutboundState {
     },
 }
 
+const MAX_OUTBOUND_DEATHS_TRACKED: usize = 2;
+
 #[derive(Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PeerState {
     outbound: OutboundState,
     inbound: Option<ConnectionId>,
+    outbound_death_times: [Option<Instant>; MAX_OUTBOUND_DEATHS_TRACKED],
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -298,7 +301,9 @@ impl Manager {
                 tracing::debug!(%peer, "discarding connection request, already connected");
                 return;
             }
-            Some(PeerState { outbound: OutboundState::Scheduled { retries }, inbound }) => (inbound.is_some(), retries),
+            Some(PeerState { outbound: OutboundState::Scheduled { retries }, inbound, .. }) => {
+                (inbound.is_some(), retries)
+            }
             None | Some(PeerState { outbound: OutboundState::None, .. }) => {
                 tracing::debug!(%peer, "discarding connection request, not added");
                 return;
@@ -523,9 +528,25 @@ impl Manager {
                 ConnectionDirection::Outbound => {
                     assert_eq!(peer_state.outbound, OutboundState::Connected { conn_id });
                     assert_eq!(role, Role::Initiator);
-                    tracing::info!(%peer, "outbound connection died, scheduling reconnect");
-                    peer_state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
-                    self.connect(peer.clone(), false, eff).await;
+                    let now = eff.clock().await;
+                    let times = &mut peer_state.outbound_death_times;
+                    // rotate to the left, so the oldest is in last position, then replace last with current time
+                    times.rotate_left(1);
+                    if let Some(oldest) = times[const { MAX_OUTBOUND_DEATHS_TRACKED - 1 }].replace(now)
+                        && now.saturating_since(oldest) < self.config.three_strike_window
+                    {
+                        tracing::info!(%peer, "outbound connection died; three strikes within window, suppressing retries");
+                        if peer_state.inbound.is_none() {
+                            self.peers.remove(&peer);
+                        } else {
+                            peer_state.outbound = OutboundState::None;
+                        }
+                        eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer: peer.clone() }).await;
+                    } else {
+                        tracing::info!(%peer, "outbound connection died, scheduling reconnect");
+                        peer_state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
+                        self.connect(peer.clone(), false, eff).await;
+                    }
                 }
             }
             eff.send(
@@ -702,5 +723,6 @@ pub fn register_deserializers() -> DeserializerGuards {
         register_data_deserializer::<Manager>().boxed(),
         register_data_deserializer::<ManagerMessage>().boxed(),
         register_data_deserializer::<PeerSelectionNotify>().boxed(),
+        register_data_deserializer::<Instant>().boxed(),
     ]
 }
