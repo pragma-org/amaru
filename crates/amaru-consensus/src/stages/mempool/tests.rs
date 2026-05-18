@@ -28,12 +28,9 @@ use tracing::Level;
 use crate::stages::{
     mempool::{
         MempoolStageState,
-        test_setup::{
-            TestPrep, create_transaction, setup, te_insert, te_mempool_state, te_record_metrics, te_send,
-            te_validate_tx,
-        },
+        test_setup::{TestPrep, create_transaction, setup, te_insert, te_mempool_state, te_send, te_validate_tx},
     },
-    test_utils::{assert_trace, te_input, te_state},
+    test_utils::{assert_trace, te_input, te_record_metrics, te_state},
 };
 
 #[test]

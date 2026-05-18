@@ -19,7 +19,7 @@ use std::{collections::BTreeMap, time::Duration};
 use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
 };
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_record, trace_span};
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     store_effects::Store,
@@ -33,6 +33,7 @@ use super::peer_selection::PeerSelectionMsg;
 use crate::{
     effects::{Ledger, LedgerOps},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
+    stages::select_chain::HeaderTrace,
 };
 
 /// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
@@ -154,7 +155,7 @@ pub struct TrackPeers {
     era_history: EraHistory,
     upstream: BTreeMap<Peer, PerPeer>,
     peer_selection: StageRef<PeerSelectionMsg>,
-    downstream: StageRef<(Tip, Point)>,
+    downstream: StageRef<HeaderTrace>,
     consensus_security_parameter: u64,
     /// Lazily populated via [`Effects::stage`](pure_stage::Effects::stage) on first deferred `RequestNext`.
     defer_req_next: StageRef<DeferReqNextMsg>,
@@ -195,7 +196,7 @@ impl TrackPeers {
     pub fn new(
         era_history: EraHistory,
         peer_selection: StageRef<PeerSelectionMsg>,
-        downstream: StageRef<(Tip, Point)>,
+        downstream: StageRef<HeaderTrace>,
         consensus_security_parameter: u64,
         defer_req_next_poll_ms: u64,
     ) -> Self {
@@ -239,16 +240,30 @@ impl TrackPeers {
         header: &BlockHeader,
         tip: Tip,
         ledger: &Ledger,
+        context: &TraceContext,
     ) -> Result<Point, ConsensusError> {
+        let span = trace_span!(
+            parent_context: context,
+            amaru_observability::amaru::consensus::VALIDATE_HEADER,
+            hash = header.hash(),
+            point = header.point().to_string(),
+            slot = header.slot().as_u64(),
+            block_height = header.block_height().as_u64()
+        );
+        let _guard = span.enter();
+
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
+            trace_record!(amaru_observability::amaru::consensus::VALIDATE_HEADER, valid = false);
             return Err(ConsensusError::EraNameMismatch { from_raw_header: variant, from_slot: era_name });
         }
 
         let Some(per_peer) = self.upstream.get(peer) else {
+            trace_record!(amaru_observability::amaru::consensus::VALIDATE_HEADER, valid = false);
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         };
         if header.parent_hash().unwrap_or(ORIGIN_HASH) != per_peer.current.hash() {
+            trace_record!(amaru_observability::amaru::consensus::VALIDATE_HEADER, valid = false);
             return Err(ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
                 peer: peer.clone(),
                 forwarded: header.point(),
@@ -257,6 +272,7 @@ impl TrackPeers {
             })));
         }
         if header.block_height() != per_peer.current.block_height() + 1 {
+            trace_record!(amaru_observability::amaru::consensus::VALIDATE_HEADER, valid = false);
             return Err(ConsensusError::InvalidHeaderHeight {
                 actual: header.block_height(),
                 expected: per_peer.current.block_height() + 1,
@@ -267,6 +283,7 @@ impl TrackPeers {
         let highest = tip.point();
         // check that slot time progresses monotonically
         if header.slot() <= per_peer.current.slot() {
+            trace_record!(amaru_observability::amaru::consensus::VALIDATE_HEADER, valid = false);
             return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                 actual: header.point(),
                 parent: per_peer.current.point(),
@@ -276,10 +293,11 @@ impl TrackPeers {
 
         // TODO: check that slot time is within the permissible clock skew
 
-        ledger
-            .validate_header(header, Span::current().context())
-            .await
-            .map_err(|e| ConsensusError::InvalidHeader(header.point(), e))?;
+        ledger.validate_header(header, Span::current().context()).await.map_err(|e| {
+            trace_record!(amaru_observability::amaru::consensus::VALIDATE_HEADER, valid = false);
+            ConsensusError::InvalidHeader(header.point(), e)
+        })?;
+        trace_record!(amaru_observability::amaru::consensus::VALIDATE_HEADER, valid = true);
         Ok(per_peer.current.point())
     }
 
@@ -289,6 +307,7 @@ impl TrackPeers {
         header: BlockHeader,
         tip: Tip,
         store: &Store,
+        context: &TraceContext,
     ) -> Result<Option<Tip>, ConsensusError> {
         let Some(per_peer) = self.upstream.get_mut(peer) else {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
@@ -298,7 +317,10 @@ impl TrackPeers {
         if store.has_header(&header.hash()).await {
             Ok(None)
         } else {
-            store.store_header(&header).await.map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
+            store
+                .store_header_with_context(&header, context.clone())
+                .await
+                .map_err(|e| ConsensusError::StoreHeaderFailed(header.hash(), e))?;
             Ok(Some(per_peer.current))
         }
     }
@@ -330,6 +352,7 @@ impl TrackPeers {
         header: BlockHeader,
         tip: Tip,
         mode: RollForwardMode,
+        context: TraceContext,
         eff: Effects<TrackPeersMsg>,
     ) {
         if matches!(mode, RollForwardMode::PipelineRequestNext) {
@@ -338,7 +361,7 @@ impl TrackPeers {
 
         let ledger = Ledger::new(eff.clone());
         let store = Store::new(eff.clone());
-        let result = self.validate_header(&peer, variant, &header, tip, &ledger).await;
+        let result = self.validate_header(&peer, variant, &header, tip, &ledger, &context).await;
         let parent = match result {
             Ok(parent) => parent,
             Err(error) => {
@@ -350,10 +373,10 @@ impl TrackPeers {
         };
 
         let current_point = header.point();
-        match self.roll_forward(&peer, header, tip, &store).await {
+        match self.roll_forward(&peer, header, tip, &store, &context).await {
             Ok(Some(tip)) => {
                 tracing::debug!(%peer, tip = %tip.point(), "roll forward with new header");
-                eff.send(&self.downstream, (tip, parent)).await;
+                eff.send(&self.downstream, HeaderTrace::new(tip, parent, context.clone())).await;
             }
             Ok(None) => {
                 tracing::debug!(%peer, tip = %current_point, "roll forward, header already stored");
@@ -404,9 +427,9 @@ impl TrackPeers {
                 tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
 
                 let variant = header_content.variant;
-                let probe = decode_header(header_content, &peer);
-                let header = match probe {
-                    Ok(h) => h,
+                let block_header = decode_header(header_content, &peer);
+                let (header, decode_context) = match block_header {
+                    Ok(header) => header,
                     Err(error) => {
                         tracing::error!(%error, %peer, "chain_sync.decode_header.failed");
                         self.upstream.remove(&peer);
@@ -414,30 +437,42 @@ impl TrackPeers {
                         return;
                     }
                 };
+                let span = trace_span!(
+                    parent_context: &decode_context,
+                    amaru_observability::amaru::consensus::PROCESS_HEADER,
+                    hash = header.hash(),
+                    point = header.point().to_string(),
+                    slot = header.slot().as_u64(),
+                    block_height = header.block_height().as_u64()
+                );
+                let mode = {
+                    let _guard = span.enter();
 
-                let min_ledger_height = header.block_height() - self.consensus_security_parameter;
-                if min_ledger_height > self.ledger_applied_block_height
-                    && let now = eff.clock().await
-                    && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
-                        || self.ledger_applied_block_height == BlockHeight::from(0))
-                {
-                    self.ledger_last_checked_at = now;
-                    self.ledger_applied_block_height = ledger_applied_block_height(&eff).await;
-                }
-                let mode = if self.ledger_applied_block_height < min_ledger_height {
-                    tracing::debug!(
-                        %peer,
-                        header_height = %header.block_height(),
-                        ledger_height = %self.ledger_applied_block_height,
-                        limit = %min_ledger_height,
-                        "track_peers.defer_request_next",
-                    );
-                    RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
-                } else {
-                    RollForwardMode::PipelineRequestNext
+                    let min_ledger_height = header.block_height() - self.consensus_security_parameter;
+                    if min_ledger_height > self.ledger_applied_block_height
+                        && let now = eff.clock().await
+                        && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
+                            || self.ledger_applied_block_height == BlockHeight::from(0))
+                    {
+                        self.ledger_last_checked_at = now;
+                        self.ledger_applied_block_height = ledger_applied_block_height(&eff).await;
+                    }
+                    if self.ledger_applied_block_height < min_ledger_height {
+                        tracing::debug!(
+                            %peer,
+                            header_height = %header.block_height(),
+                            ledger_height = %self.ledger_applied_block_height,
+                            limit = %min_ledger_height,
+                            "track_peers.defer_request_next",
+                        );
+                        RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
+                    } else {
+                        RollForwardMode::PipelineRequestNext
+                    }
                 };
 
-                self.execute_roll_forward(peer, handler, variant, header, tip, mode, eff).await;
+                let header_context = TraceContext::from_span(&span);
+                self.execute_roll_forward(peer, handler, variant, header, tip, mode, header_context, eff).await;
             }
             RollBackward(current, tip) => {
                 tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
@@ -454,15 +489,17 @@ impl TrackPeers {
     }
 }
 
-pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<BlockHeader, ConsensusError> {
-    let _span = trace_span!(amaru_observability::amaru::consensus::chain_sync::DECODE_HEADER, peer = peer.to_string());
+pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<(BlockHeader, TraceContext), ConsensusError> {
+    let _span = trace_span!(amaru_observability::amaru::consensus::DECODE_HEADER, peer = peer.to_string());
     let _guard = _span.enter();
     // need to list all the variants supported by the current Amaru implementation
     if !matches!(raw_header.variant, EraName::Conway) {
         return Err(ConsensusError::InvalidHeaderVariant(raw_header.variant));
     }
-    from_cbor_no_leftovers(&raw_header.cbor)
-        .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.cbor, reason: reason.to_string() })
+    let header: BlockHeader = from_cbor_no_leftovers(&raw_header.cbor)
+        .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.cbor, reason: reason.to_string() })?;
+    trace_record!(amaru_observability::amaru::consensus::DECODE_HEADER, hash = header.hash());
+    Ok((header, TraceContext::from_span(&_span)))
 }
 
 #[cfg(test)]

@@ -36,7 +36,7 @@ fn test_incoming_tip_not_in_store() {
     prep.set_best_chain(prep.headers.h1.clone());
 
     let tip = prep.headers.h3.tip(); // h3 not in store
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0), TraceContext::none());
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
@@ -62,7 +62,7 @@ fn test_current_best_not_loadable() {
     prep.state.current_best_tip = missing_current_best;
 
     let tip = prep.headers.h3.tip();
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0), TraceContext::none());
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
@@ -89,7 +89,7 @@ fn test_incoming_not_better_than_current_best() {
     prep.set_best_chain(prep.headers.h3.clone());
 
     let tip = prep.headers.h3a.tip(); // h3a has same height as h3 but lower op_cert_seq
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0), TraceContext::none());
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
@@ -118,7 +118,7 @@ fn test_extension_adopts_and_sends() {
     prep.set_best_chain(prep.headers.h2.clone());
 
     let tip = prep.headers.h3.tip();
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0), TraceContext::none());
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
     let mut expected = prep.state.clone();
@@ -136,7 +136,7 @@ fn test_extension_adopts_and_sends() {
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
-            te_send("ac-1", "downstream", ManagerMessage::NewTip(tip)),
+            te_send("ac-1", "downstream", ManagerMessage::NewTip(tip, TraceContext::none())),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
             te_state("ac-1", &expected),
         ],
@@ -164,7 +164,7 @@ fn test_fork_switch_adopts_and_sends() {
     prep.set_best_chain(prep.headers.h2.clone());
 
     let tip = prep.headers.h3a.tip(); // h3a has height 4 > h2's 3, so it wins
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0), TraceContext::none());
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
     let mut expected = prep.state.clone();
@@ -187,7 +187,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
-            te_send("ac-1", "downstream", ManagerMessage::NewTip(tip)),
+            te_send("ac-1", "downstream", ManagerMessage::NewTip(tip, TraceContext::none())),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
             te_state("ac-1", &expected),
         ],
@@ -213,7 +213,7 @@ fn test_fork_switch_opcert_hacked() {
     prep.set_best_chain(prep.headers.h2a.clone());
 
     let tip = prep.headers.h2.tip(); // h2 is newer opcert seq no
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0), TraceContext::none());
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
     let mut expected = prep.state.clone();
@@ -231,7 +231,7 @@ fn test_fork_switch_opcert_hacked() {
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_clock("ac-1"),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
-            te_send("ac-1", "downstream", ManagerMessage::NewTip(tip)),
+            te_send("ac-1", "downstream", ManagerMessage::NewTip(tip, TraceContext::none())),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
             te_state("ac-1", &expected),
         ],
@@ -256,7 +256,7 @@ fn test_fork_not_better_no_switch() {
     prep.set_best_chain(prep.headers.h2.clone());
 
     let tip = prep.headers.h2.tip();
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0), TraceContext::none());
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
     assert_trace(

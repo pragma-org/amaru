@@ -12,19 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
 };
+use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
+use tracing::Instrument;
 
 use crate::stages::{
     block_source::BlockSourceMsg,
     peer_selection::PeerSelectionMsg,
-    select_chain::{SelectChainMsg, load_parent_point},
+    select_chain::{HeaderTrace, SelectChainMsg, load_parent_point},
+    validate_block::ValidateBlockMsg,
 };
 
 // TODO make configurable
@@ -98,9 +101,10 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 /// - No direct interaction with validate results (one-way downstream); no header validation performed here (assumes requested ranges; minimal structural checks only).
 ///
 /// The `stage()` fn ensures the child then dispatches the 4 msg variants to the impl methods and returns updated state. All error paths that cannot continue call `eff.terminate()`.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FetchBlocks {
-    downstream: StageRef<(Tip, Point, BlockHeight)>,
+    downstream: StageRef<ValidateBlockMsg>,
     req_id: u64,
     missing: Option<MissingBlocks>,
     upstream: StageRef<SelectChainMsg>,
@@ -110,11 +114,28 @@ pub struct FetchBlocks {
     cleanup_replies: StageRef<Blocks2>,
     timeout: Option<ScheduleId>,
     block_height: BlockHeight,
+    #[serde(skip, default)]
+    header_context: TraceContext,
+    #[serde(skip, default)]
+    header_contexts: BTreeMap<HeaderHash, TraceContext>,
+}
+
+impl PartialEq for FetchBlocks {
+    fn eq(&self, other: &Self) -> bool {
+        self.downstream == other.downstream
+            && self.req_id == other.req_id
+            && self.missing == other.missing
+            && self.upstream == other.upstream
+            && self.manager == other.manager
+            && self.cleanup_replies == other.cleanup_replies
+            && self.timeout == other.timeout
+            && self.block_height == other.block_height
+    }
 }
 
 impl FetchBlocks {
     pub fn new(
-        downstream: StageRef<(Tip, Point, BlockHeight)>,
+        downstream: StageRef<ValidateBlockMsg>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         block_source: StageRef<BlockSourceMsg>,
@@ -131,13 +152,15 @@ impl FetchBlocks {
             cleanup_replies: StageRef::blackhole(),
             timeout: None,
             block_height: BlockHeight::from(0),
+            header_context: TraceContext::none(),
+            header_contexts: BTreeMap::new(),
         }
     }
 
     /// Constructor for tests: use a mock cleanup_replies stage instead of wiring the real one.
     #[cfg(test)]
     pub fn for_tests(
-        downstream: StageRef<(Tip, Point, BlockHeight)>,
+        downstream: StageRef<ValidateBlockMsg>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         block_source: StageRef<BlockSourceMsg>,
@@ -155,11 +178,16 @@ impl FetchBlocks {
             cleanup_replies,
             timeout: None,
             block_height: BlockHeight::from(0),
+            header_context: TraceContext::none(),
+            header_contexts: BTreeMap::new(),
         }
     }
 
-    pub async fn new_tip(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
+    pub async fn new_tip(&mut self, header_trace: HeaderTrace, eff: Effects<FetchBlocksMsg>) {
+        let HeaderTrace { tip, parent, context, contexts } = header_trace;
         self.block_height = tip.block_height().max(self.block_height);
+        self.header_context = context;
+        self.header_contexts = contexts;
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
         assert!(
@@ -197,6 +225,7 @@ impl FetchBlocks {
         self.block_height = best_tip.block_height().max(self.block_height);
         let tip = best_tip.tip();
         tracing::debug!(tip = %tip.point(), "recovering stored blocks");
+        let recovery_context = recover_stored_blocks_context(tip);
 
         let mut parent: Option<Point> = None;
         for hash in unvalidated {
@@ -212,7 +241,9 @@ impl FetchBlocks {
             match store.has_block(&hash).await {
                 Ok(true) => {
                     tracing::debug!(point = %tip.point(), "validating stored block");
-                    eff.send(&self.downstream, (tip, block_parent, self.block_height)).await;
+                    let context = recovered_process_block_context(&recovery_context, tip);
+                    eff.send(&self.downstream, ValidateBlockMsg::new(tip, block_parent, self.block_height, context))
+                        .await;
                     parent = Some(tip.point());
                 }
                 Ok(false) => {
@@ -250,23 +281,28 @@ impl FetchBlocks {
             }
         }
         let Some(missing) = self.missing.as_ref() else {
+            self.emit_skipped_fetch_block_span(tip, "boundary_not_found");
             return;
         };
 
         match missing.from_to() {
             None => {
                 self.missing = None;
+                self.emit_skipped_fetch_block_span(tip, "blocks_already_available");
                 tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
                 eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
             }
             Some((from, to)) => {
-                tracing::debug!(%from, %to, length = missing.nb_missing_blocks(), "requesting blocks");
+                let from = *from;
+                let to = *to;
+                let length = missing.nb_missing_blocks();
+                tracing::debug!(%from, %to, length, "requesting blocks");
                 self.req_id += 1;
                 eff.send(
                     &self.manager,
                     ManagerMessage::FetchBlocks2 {
-                        from: *from,
-                        through: *to,
+                        from,
+                        through: to,
                         id: self.req_id,
                         cr: self.cleanup_replies.clone(),
                     },
@@ -276,6 +312,20 @@ impl FetchBlocks {
                 self.timeout = Some(timeout);
             }
         }
+    }
+
+    fn emit_skipped_fetch_block_span(&self, tip: Tip, reason: &str) {
+        let hash = tip.hash();
+        let context = self.header_contexts.get(&hash).unwrap_or(&self.header_context);
+        let span = amaru_observability::trace_span!(
+            parent_context: context,
+            amaru_observability::amaru::consensus::FETCH_BLOCK,
+            hash = hash,
+            point = tip.point().to_string(),
+            slot = tip.slot().as_u64(),
+            fetch_block_skip_reason = reason.to_string()
+        );
+        let _guard = span.enter();
     }
 
     pub async fn block(&mut self, peer: Peer, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
@@ -289,46 +339,72 @@ impl FetchBlocks {
         };
         let header = BlockHeader::from(&block.header);
         let point = header.point();
-        tracing::debug!(%point, "received block");
-
-        // check that body belongs to header
-        if header.header().header_body.block_body_hash != block.body_hash() {
-            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
-            tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
-            return;
-        }
-        let Some(missing) = self.missing.as_mut() else {
-            tracing::debug!(%peer, "received straggler block");
-            return;
-        };
-        if header.parent_hash() != Some(missing.boundary().hash()) {
-            // this happens for stragglers when fetching from multiple peers
-            tracing::debug!(expected = %missing.boundary().hash(), actual = %header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
-            return;
-        }
-        if Some(point) != missing.first() {
-            let expected = missing.first().map(|p| p.to_string()).unwrap_or("none".to_string());
-            tracing::warn!(%expected, actual = ?point, "block point mismatch");
-            return;
-        }
-
-        store
-            .store_block(&point.hash(), &network_block.raw_block())
-            .or_terminate_with(&eff, async |error| {
-                tracing::error!(%error, "failed to store block");
-            })
-            .await;
         let tip = Tip::new(point, block.header.header_body.block_number.into());
-        eff.send(&self.downstream, (tip, missing.boundary(), self.block_height)).await;
+        let context = self.header_contexts.get(&point.hash()).cloned().unwrap_or_else(|| self.header_context.clone());
+        let fetch_span = amaru_observability::trace_span!(
+            parent_context: &context,
+            amaru_observability::amaru::consensus::FETCH_BLOCK,
+            hash = point.hash(),
+            point = point.to_string(),
+            slot = point.slot_or_default().as_u64()
+        );
+        let fetch_block_context = TraceContext::from_span(&fetch_span);
+        let span = amaru_observability::trace_span!(
+            parent_context: &fetch_block_context,
+            amaru_observability::amaru::consensus::PROCESS_BLOCK,
+            hash = point.hash(),
+            point = point.to_string(),
+            slot = point.slot_or_default().as_u64(),
+            block_height = tip.block_height().as_u64()
+        );
+        let process_block_context = TraceContext::from_span(&span);
 
-        missing.shift_one_block();
-        if missing.is_empty() {
-            self.missing = None;
-            if let Some(timeout) = self.timeout.take() {
-                eff.cancel_schedule(timeout).await;
+        async {
+            tracing::debug!(%point, "received block");
+
+            // check that body belongs to header
+            if header.header().header_body.block_body_hash != block.body_hash() {
+                eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
+                tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
+                return;
             }
-            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
+            let Some(missing) = self.missing.as_mut() else {
+                tracing::debug!(%peer, "received straggler block");
+                return;
+            };
+            if header.parent_hash() != Some(missing.boundary().hash()) {
+                // this happens for stragglers when fetching from multiple peers
+                tracing::debug!(expected = %missing.boundary().hash(), actual = %header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
+                return;
+            }
+            if Some(point) != missing.first() {
+                let expected = missing.first().map(|p| p.to_string()).unwrap_or("none".to_string());
+                tracing::warn!(%expected, actual = ?point, "block point mismatch");
+                return;
+            }
+
+            let boundary = missing.boundary();
+            let downstream = self.downstream.clone();
+            let block_height = self.block_height;
+            store
+                .store_block_with_context(&point.hash(), &network_block.raw_block(), process_block_context.clone())
+                .or_terminate_with(&eff, async |error| {
+                    tracing::error!(%error, "failed to store block");
+                })
+                .await;
+            eff.send(&downstream, ValidateBlockMsg::new(tip, boundary, block_height, process_block_context)).await;
+
+            missing.shift_one_block();
+            if missing.is_empty() {
+                self.missing = None;
+                if let Some(timeout) = self.timeout.take() {
+                    eff.cancel_schedule(timeout).await;
+                }
+                eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
+            }
         }
+        .instrument(span)
+        .await;
     }
 
     pub async fn timeout(&mut self, req_id: u64, eff: Effects<FetchBlocksMsg>) {
@@ -349,7 +425,7 @@ impl FetchBlocks {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
-    NewTip(Tip, Point),
+    NewTip(HeaderTrace),
     RecoverStoredBlocks(HeaderHash),
     Block(Peer, NetworkBlock),
     Timeout(u64),
@@ -361,7 +437,7 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     })
     .await;
     match msg {
-        FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
+        FetchBlocksMsg::NewTip(header_trace) => state.new_tip(header_trace, eff).await,
         FetchBlocksMsg::RecoverStoredBlocks(best_hash) => state.recover_stored_blocks(eff, best_hash).await,
         FetchBlocksMsg::Block(peer, block) => state.block(peer, block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
@@ -385,6 +461,29 @@ impl Cleanup {
     ) -> Self {
         Self { curr_id: 0, fetch, block_source, peer_selection }
     }
+}
+
+fn recover_stored_blocks_context(tip: Tip) -> TraceContext {
+    let span = amaru_observability::trace_span!(
+        amaru_observability::amaru::consensus::RECOVER_STORED_BLOCKS,
+        hash = tip.hash(),
+        point = tip.point().to_string(),
+        slot = tip.slot().as_u64(),
+        block_height = tip.block_height().as_u64()
+    );
+    TraceContext::from_span(&span)
+}
+
+fn recovered_process_block_context(parent_context: &TraceContext, tip: Tip) -> TraceContext {
+    let span = amaru_observability::trace_span!(
+        parent_context: parent_context,
+        amaru_observability::amaru::consensus::PROCESS_BLOCK,
+        hash = tip.hash(),
+        point = tip.point().to_string(),
+        slot = tip.slot().as_u64(),
+        block_height = tip.block_height().as_u64()
+    );
+    TraceContext::from_span(&span)
 }
 
 /// Ensure that straggling block replies do not clog the mailbox of the fetch stage.

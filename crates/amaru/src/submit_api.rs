@@ -127,12 +127,9 @@ fn text_response(status: StatusCode, body: impl Into<String>) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::SocketAddr,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     use amaru_consensus::{
@@ -151,58 +148,57 @@ mod tests {
         body::{Bytes, to_bytes},
         extract::State,
         http::HeaderMap,
+        response::Response,
     };
     use pure_stage::{
         Sender, StageGraph,
         tokio::{TokioBuilder, TokioRunning},
     };
-    use reqwest::{Response, header::CONTENT_TYPE};
+    use reqwest::header::CONTENT_TYPE;
     use tokio::runtime::Handle;
-    use tokio_util::sync::CancellationToken;
 
-    use super::start;
     use crate::tests::test_data::create_transaction;
 
     #[tokio::test]
     async fn test_successful_submission() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let sender = make_test_mempool_sender();
 
         let tx = create_transaction(0);
         let expected_tx_id = tx.tx_id();
         let body = amaru_kernel::to_cbor(&tx);
 
-        let resp = submit_tx(addr, body).await?;
+        let resp = submit_tx(sender, body).await?;
         assert_eq!(resp.status(), 202);
         assert_eq!(resp.headers()[CONTENT_TYPE], "application/json");
 
-        let text = resp.text().await?;
+        let text = response_text(resp).await?;
         assert_eq!(text, format!("\"{expected_tx_id}\""));
         Ok(())
     }
 
     #[tokio::test]
     async fn test_submission_of_with_transaction_extracted_from_existing_block() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let sender = make_test_mempool_sender();
 
         let body = serialized_transaction()?;
         let expected_tx: Transaction = minicbor::decode(&body)?;
         let expected_tx_id = expected_tx.tx_id();
         assert_eq!(expected_tx_id.to_string(), TX_ID);
 
-        let resp = submit_tx(addr, body).await?;
+        let resp = submit_tx(sender, body).await?;
         assert_eq!(resp.status(), 202);
         assert_eq!(resp.headers()[CONTENT_TYPE], "application/json");
 
-        let text = resp.text().await?;
+        let text = response_text(resp).await?;
         assert_eq!(text, format!("\"{expected_tx_id}\""));
         Ok(())
     }
 
     #[tokio::test]
     async fn test_invalid_cbor() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let sender = make_test_mempool_sender();
 
-        let resp = submit_tx(addr, vec![0xDE, 0xAD, 0xBE, 0xEF]).await?;
+        let resp = submit_tx(sender, vec![0xDE, 0xAD, 0xBE, 0xEF]).await?;
         assert_eq!(resp.status(), 400);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
         Ok(())
@@ -210,17 +206,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_duplicate_transaction() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let sender = make_test_mempool_sender();
 
         let tx = create_transaction(0);
         let body = amaru_kernel::to_cbor(&tx);
 
         // First submission should succeed
-        let resp = submit_tx(addr, body.clone()).await?;
+        let resp = submit_tx(sender.clone(), body.clone()).await?;
         assert_eq!(resp.status(), 202);
 
         // Second submission should fail
-        let resp = submit_tx(addr, body).await?;
+        let resp = submit_tx(sender, body).await?;
         assert_eq!(resp.status(), 409);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
         Ok(())
@@ -234,12 +230,12 @@ mod tests {
         let max_bytes = to_cbor(&first).len() as u64;
         let mempool: Arc<dyn TxSubmissionMempool<Transaction>> =
             Arc::new(InMemoryMempool::<Transaction>::new(MempoolConfig::default().with_max_bytes(max_bytes)));
-        let (addr, _shutdown) = start_test_server_with_mempool(mempool).await?;
+        let sender = make_mempool_sender(mempool, Arc::new(MockCanValidateTxs));
 
-        let resp = submit_tx(addr, amaru_kernel::to_cbor(&first)).await?;
+        let resp = submit_tx(sender.clone(), amaru_kernel::to_cbor(&first)).await?;
         assert_eq!(resp.status(), 202);
 
-        let resp = submit_tx(addr, amaru_kernel::to_cbor(&second)).await?;
+        let resp = submit_tx(sender, amaru_kernel::to_cbor(&second)).await?;
         assert_eq!(resp.status(), 503);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
         Ok(())
@@ -249,14 +245,13 @@ mod tests {
     async fn test_validation_failure() -> anyhow::Result<()> {
         let mempool: Arc<dyn amaru_ouroboros_traits::TxSubmissionMempool<Transaction>> =
             Arc::new(InMemoryMempool::new(Default::default()));
-        let (addr, _shutdown) =
-            start_test_server_with_mempool_and_validator(mempool, Arc::new(reject_transactions)).await?;
+        let sender = make_mempool_sender(mempool, Arc::new(reject_transactions));
 
         let tx = create_transaction(0);
-        let resp = submit_tx(addr, amaru_kernel::to_cbor(&tx)).await?;
+        let resp = submit_tx(sender, amaru_kernel::to_cbor(&tx)).await?;
         assert_eq!(resp.status(), 400);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
-        assert_eq!(resp.text().await?, "transaction rejected for testing");
+        assert_eq!(response_text(resp).await?, "transaction rejected for testing");
         Ok(())
     }
 
@@ -308,9 +303,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_wrong_content_type() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let sender = make_test_mempool_sender();
 
-        let resp = submit_tx_with_content_type(addr, "application/json", "{}").await?;
+        let resp = submit_tx_with_content_type(sender, "application/json", "{}").await?;
         assert_eq!(resp.status(), 415);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
         Ok(())
@@ -318,12 +313,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_content_type_with_charset_is_accepted() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let sender = make_test_mempool_sender();
 
         let tx = create_transaction(0);
         let body = amaru_kernel::to_cbor(&tx);
 
-        let resp = submit_tx_with_content_type(addr, "application/cbor; charset=binary", body).await?;
+        let resp = submit_tx_with_content_type(sender, "application/cbor; charset=binary", body).await?;
         assert_eq!(resp.status(), 202);
         assert_eq!(resp.headers()[CONTENT_TYPE], "application/json");
         Ok(())
@@ -340,26 +335,9 @@ mod tests {
 
     // HELPERS
 
-    async fn start_test_server() -> anyhow::Result<(SocketAddr, CancellationToken)> {
+    fn make_test_mempool_sender() -> Sender<MempoolMsg> {
         let mempool: Arc<dyn TxSubmissionMempool<Transaction>> = Arc::new(InMemoryMempool::<Transaction>::default());
-        start_test_server_with_mempool(mempool).await
-    }
-
-    async fn start_test_server_with_mempool(
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
-    ) -> anyhow::Result<(SocketAddr, CancellationToken)> {
-        start_test_server_with_mempool_and_validator(mempool, Arc::new(MockCanValidateTxs)).await
-    }
-
-    async fn start_test_server_with_mempool_and_validator(
-        mempool: Arc<dyn TxSubmissionMempool<Transaction>>,
-        validator: ResourceTxValidation,
-    ) -> anyhow::Result<(SocketAddr, CancellationToken)> {
-        let sender = make_mempool_sender(mempool, validator);
-        let shutdown = CancellationToken::new();
-        let addr: SocketAddr = "127.0.0.1:0".parse()?;
-        let (_handle, local_addr) = start(addr, sender, shutdown.clone()).await?;
-        Ok((local_addr, shutdown))
+        make_mempool_sender(mempool, Arc::new(MockCanValidateTxs))
     }
 
     fn make_mempool_sender(
@@ -393,26 +371,23 @@ mod tests {
         Err(anyhow::anyhow!("transaction rejected for testing").into())
     }
 
-    async fn submit_tx(addr: SocketAddr, body: impl Into<reqwest::Body>) -> anyhow::Result<Response> {
-        submit_tx_with_content_type(addr, "application/cbor", body).await
+    async fn submit_tx(sender: Sender<MempoolMsg>, body: impl Into<Bytes>) -> anyhow::Result<Response> {
+        submit_tx_with_content_type(sender, "application/cbor", body).await
     }
 
     async fn submit_tx_with_content_type(
-        addr: SocketAddr,
+        sender: Sender<MempoolMsg>,
         content_type: &str,
-        body: impl Into<reqwest::Body>,
+        body: impl Into<Bytes>,
     ) -> anyhow::Result<Response> {
-        reqwest::Client::new()
-            .post(submit_tx_url(addr))
-            .header("Content-Type", content_type)
-            .body(body)
-            .send()
-            .await
-            .map_err(Into::into)
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, content_type.parse()?);
+        Ok(super::submit_tx(State(sender), headers, body.into()).await)
     }
 
-    fn submit_tx_url(addr: SocketAddr) -> String {
-        format!("http://{addr}/api/submit/tx")
+    async fn response_text(response: Response) -> anyhow::Result<String> {
+        let bytes = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(String::from_utf8(bytes.to_vec())?)
     }
 
     // This transaction is reconstructed from the transaction contained in the real preprod

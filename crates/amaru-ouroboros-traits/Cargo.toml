@@ -22,6 +22,7 @@ test-utils = ["dep:rand"]
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+opentelemetry.workspace = true
 parking_lot.workspace = true
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }

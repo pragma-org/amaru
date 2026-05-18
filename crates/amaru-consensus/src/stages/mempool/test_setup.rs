@@ -15,7 +15,6 @@
 use amaru_kernel::{
     Hash, NetworkName, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY,
 };
-use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
 use amaru_ouroboros::{MempoolMsg, MockCanValidateBlocks, ResourceMempool, TxInsertResult, TxOrigin};
 use amaru_ouroboros_traits::MempoolError;
 use amaru_protocols::store_effects::ResourceParameters;
@@ -121,13 +120,6 @@ pub fn te_mempool_state(at_stage: &str) -> TraceEntry {
         value,
     }));
     TraceEntry::suspend(Effect::external(at_stage, effect))
-}
-
-pub fn te_record_metrics(at_stage: &str, metrics: MempoolMetrics) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(RecordMetricsEffect::new(MetricsEvent::MempoolMetrics(metrics))),
-    ))
 }
 
 pub fn create_transaction(input_index: usize) -> Transaction {

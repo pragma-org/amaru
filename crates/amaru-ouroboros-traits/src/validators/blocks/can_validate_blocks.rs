@@ -25,6 +25,7 @@ pub trait CanValidateBlocks: Send + Sync {
         &self,
         point: &Point,
         block: Block,
+        ctx: opentelemetry::Context,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;

@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
+use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
     Nonces, SampleAncestorPointsResult, StoreError,
@@ -108,8 +109,25 @@ impl Store {
         self.effects.external(StoreHeaderEffect::new(header.clone()))
     }
 
+    pub fn store_header_with_context(
+        &self,
+        header: &BlockHeader,
+        context: TraceContext,
+    ) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(StoreHeaderEffect::new_with_context(header.clone(), context))
+    }
+
     pub fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> BoxFuture<'static, Result<(), StoreError>> {
         self.effects.external(StoreBlockEffect::new(hash, block.clone()))
+    }
+
+    pub fn store_block_with_context(
+        &self,
+        hash: &HeaderHash,
+        block: &RawBlock,
+        context: TraceContext,
+    ) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(StoreBlockEffect::new_with_context(hash, block.clone(), context))
     }
 
     pub fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> BoxFuture<'static, Result<(), StoreError>> {
@@ -124,8 +142,25 @@ impl Store {
         self.effects.external(SwitchToForkEffect::new(*fork_point, forward_points.clone()))
     }
 
+    pub fn switch_to_fork_with_context(
+        &self,
+        fork_point: &Point,
+        forward_points: &NonEmptyVec<Point>,
+        context: TraceContext,
+    ) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(SwitchToForkEffect::new_with_context(*fork_point, forward_points.clone(), context))
+    }
+
     pub fn roll_forward_chain(&self, point: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
         self.effects.external(RollForwardChainEffect::new(*point))
+    }
+
+    pub fn roll_forward_chain_with_context(
+        &self,
+        point: &Point,
+        context: TraceContext,
+    ) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(RollForwardChainEffect::new_with_context(*point, context))
     }
 
     pub fn load_tip(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Tip>> {
@@ -214,11 +249,17 @@ pub fn register_deserializers() -> DeserializerGuards {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StoreHeaderEffect {
     header: BlockHeader,
+    #[serde(skip, default)]
+    context: TraceContext,
 }
 
 impl StoreHeaderEffect {
     pub fn new(header: BlockHeader) -> Self {
-        Self { header }
+        Self::new_with_context(header, TraceContext::none())
+    }
+
+    pub fn new_with_context(header: BlockHeader, context: TraceContext) -> Self {
+        Self { header, context }
     }
 }
 
@@ -228,7 +269,7 @@ impl ExternalEffect for StoreHeaderEffect {
         Self::wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("StoreHeaderEffect requires a chain store").clone();
-            store.store_header(&self.header)
+            with_trace_context(&self.context, || store.store_header(&self.header))
         })
     }
 }
@@ -241,11 +282,17 @@ impl ExternalEffectAPI for StoreHeaderEffect {
 pub struct StoreBlockEffect {
     hash: HeaderHash,
     block: RawBlock,
+    #[serde(skip, default)]
+    context: TraceContext,
 }
 
 impl StoreBlockEffect {
     pub fn new(hash: &HeaderHash, block: RawBlock) -> Self {
-        Self { hash: *hash, block }
+        Self::new_with_context(hash, block, TraceContext::none())
+    }
+
+    pub fn new_with_context(hash: &HeaderHash, block: RawBlock, context: TraceContext) -> Self {
+        Self { hash: *hash, block, context }
     }
 }
 
@@ -255,7 +302,7 @@ impl ExternalEffect for StoreBlockEffect {
         Self::wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("StoreBlockEffect requires a chain store").clone();
-            store.store_block(&self.hash, &self.block)
+            with_trace_context(&self.context, || store.store_block(&self.hash, &self.block))
         })
     }
 }
@@ -733,11 +780,17 @@ impl ExternalEffectAPI for GetNoncesEffect {
 pub struct SwitchToForkEffect {
     fork_point: Point,
     forward_points: NonEmptyVec<Point>,
+    #[serde(skip, default)]
+    context: TraceContext,
 }
 
 impl SwitchToForkEffect {
     pub fn new(fork_point: Point, forward_points: NonEmptyVec<Point>) -> Self {
-        Self { fork_point, forward_points }
+        Self::new_with_context(fork_point, forward_points, TraceContext::none())
+    }
+
+    pub fn new_with_context(fork_point: Point, forward_points: NonEmptyVec<Point>, context: TraceContext) -> Self {
+        Self { fork_point, forward_points, context }
     }
 }
 
@@ -747,7 +800,7 @@ impl ExternalEffect for SwitchToForkEffect {
         Self::wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("SwitchToForkEffect requires a chain store").clone();
-            store.switch_to_fork(&self.fork_point, &self.forward_points)
+            with_trace_context(&self.context, || store.switch_to_fork(&self.fork_point, &self.forward_points))
         })
     }
 }
@@ -759,11 +812,17 @@ impl ExternalEffectAPI for SwitchToForkEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RollForwardChainEffect {
     point: Point,
+    #[serde(skip, default)]
+    context: TraceContext,
 }
 
 impl RollForwardChainEffect {
     pub fn new(point: Point) -> Self {
-        Self { point }
+        Self::new_with_context(point, TraceContext::none())
+    }
+
+    pub fn new_with_context(point: Point, context: TraceContext) -> Self {
+        Self { point, context }
     }
 }
 
@@ -773,13 +832,18 @@ impl ExternalEffect for RollForwardChainEffect {
         Self::wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("RollForwardChainEffect requires a chain store").clone();
-            store.roll_forward_chain(&self.point)
+            with_trace_context(&self.context, || store.roll_forward_chain(&self.point))
         })
     }
 }
 
 impl ExternalEffectAPI for RollForwardChainEffect {
     type Response = Result<(), StoreError>;
+}
+
+fn with_trace_context<T>(context: &TraceContext, action: impl FnOnce() -> T) -> T {
+    let _guard = context.context().attach();
+    action()
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

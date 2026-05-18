@@ -22,7 +22,7 @@ use amaru_consensus::stages::{
     peer_selection::{self, PeerSelection, PeerSelectionMsg},
     select_chain::{self, SelectChain, SelectChainMsg},
     track_peers::{self, TrackPeers, TrackPeersMsg},
-    validate_block::{self, ValidateBlock, ValidateBlockMsg},
+    validate_block::{self, ValidateBlock},
 };
 use amaru_kernel::{EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
 use amaru_ouroboros::MempoolMsg;
@@ -124,15 +124,11 @@ pub fn build_stage_graph(
             ledger_tip.point(),
         ),
     );
-    let validate_block_input =
-        stage_graph.contramap(validate_block, "validate_block_input", |(tip, parent, max_block_height)| {
-            ValidateBlockMsg::new(tip, parent, max_block_height)
-        });
 
     let fetch_blocks = stage_graph.wire_up(
         fetch_blocks,
         FetchBlocks::new(
-            validate_block_input,
+            validate_block.without_state(),
             select_chain.sender(),
             manager.sender(),
             block_source_sender,
@@ -145,16 +141,14 @@ pub fn build_stage_graph(
         .preload(&fetch_blocks, [FetchBlocksMsg::RecoverStoredBlocks(best_hash)])
         .expect("fetch blocks recovery message must be preloaded");
 
-    let fetch_blocks_input =
-        stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |(tip, parent)| FetchBlocksMsg::NewTip(tip, parent));
+    let fetch_blocks_input = stage_graph.contramap(fetch_blocks, "fetch_blocks_input", FetchBlocksMsg::NewTip);
 
     let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));
     #[expect(clippy::expect_used)]
     stage_graph
         .preload(&select_chain, [SelectChainMsg::Initialize(best_hash)])
         .expect("initialization message must be preloaded");
-    let select_chain_input = stage_graph
-        .contramap(select_chain, "select_chain_input", |(tip, parent)| SelectChainMsg::TipFromUpstream(tip, parent));
+    let select_chain_input = stage_graph.contramap(select_chain, "select_chain_input", SelectChainMsg::TipFromUpstream);
 
     let track_peers = stage_graph.wire_up(
         track_peers,

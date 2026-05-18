@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 use tracing::Instrument;
@@ -85,7 +85,7 @@ pub enum ManagerMessage {
         id: u64,
     },
     /// Advertise this new tip to all downstream peers.
-    NewTip(Tip),
+    NewTip(Tip, #[serde(skip, default)] TraceContext),
     /// INTERNAL message sent by the connect handler stage after attempting a connection.
     ConnectionResult(Peer, Result<ConnectionId, ConnectError>),
     /// INTERNAL message sent from the connection stage only!
@@ -117,7 +117,7 @@ impl ManagerMessage {
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
             ManagerMessage::FetchBlocks2 { .. } => "FetchBlocks2",
-            ManagerMessage::NewTip(_) => "NewTip",
+            ManagerMessage::NewTip(..) => "NewTip",
             ManagerMessage::ConnectionResult(..) => "ConnectionResult",
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
             ManagerMessage::Accepted(..) => "Accepted",
@@ -680,9 +680,9 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;
             }
-            ManagerMessage::NewTip(tip) => {
+            ManagerMessage::NewTip(tip, context) => {
                 for conn in manager.connections.values() {
-                    eff.send(&conn.stage, ConnectionMessage::NewTip(tip)).await;
+                    eff.send(&conn.stage, ConnectionMessage::NewTip(tip, context.clone())).await;
                 }
             }
             ManagerMessage::FetchBlocks2 { from, through, cr, id } => {

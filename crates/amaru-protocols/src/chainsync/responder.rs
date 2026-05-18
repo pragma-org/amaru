@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{EraName, Peer, Point, Tip};
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, trace_span};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use anyhow::{Context, anyhow, ensure};
@@ -44,7 +44,7 @@ pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
-    NewTip(Tip),
+    NewTip(Tip, #[serde(skip, default)] TraceContext),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -77,13 +77,24 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
-            ResponderMessage::NewTip(tip) => {
-                tracing::trace!(%tip, "New tip");
-                self.upstream = tip;
-                let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
-                    .await
-                    .context("failed to get next header")?;
-                Ok((action, self))
+            ResponderMessage::NewTip(tip, context) => {
+                async {
+                    tracing::trace!(%tip, "New tip");
+                    self.upstream = tip;
+                    let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                        .await
+                        .context("failed to get next header")?;
+                    Ok((action, self))
+                }
+                .instrument(trace_span!(
+                    parent_context: &context,
+                    amaru_observability::amaru::consensus::FORWARD_HEADER,
+                    hash = tip.hash(),
+                    point = tip.point().to_string(),
+                    slot = tip.slot().as_u64(),
+                    block_height = tip.block_height().as_u64()
+                ))
+                .await
             }
         }
     }

@@ -14,6 +14,8 @@
 
 use std::{any::type_name, collections::BTreeSet, fmt, io, sync::Arc};
 
+use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
+use amaru_protocols::metrics_effects::RecordMetricsEffect;
 use parking_lot::Mutex;
 use pure_stage::{
     DeserializerGuards, Effect, Name, Resources, SendData, StageGraph, TerminationReason,
@@ -172,6 +174,13 @@ pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
 
 pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
     TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
+}
+
+pub fn te_record_metrics(at_stage: &str, metrics: MempoolMetrics) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(RecordMetricsEffect::new(MetricsEvent::MempoolMetrics(metrics))),
+    ))
 }
 
 #[track_caller]

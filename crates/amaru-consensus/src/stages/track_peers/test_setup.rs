@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
+use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, make_header};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
     CanValidateHeaders, ChainStore, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders,
@@ -137,6 +137,7 @@ fn register_guards() -> DeserializerGuards {
         pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
         pure_stage::register_data_deserializer::<DeferReqNext>().boxed(),
         pure_stage::register_data_deserializer::<DeferReqNextMsg>().boxed(),
+        pure_stage::register_data_deserializer::<HeaderTrace>().boxed(),
         pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),

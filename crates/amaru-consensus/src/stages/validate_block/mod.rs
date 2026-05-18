@@ -14,6 +14,7 @@
 
 use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
+use amaru_observability::TraceContext;
 use amaru_ouroboros::BlockValidationError;
 use amaru_protocols::store_effects::Store;
 use pure_stage::{Effects, OrTerminateWith, StageRef, TryInStage};
@@ -77,15 +78,28 @@ pub struct ValidateBlockMsg {
     tip: Tip,
     parent: Point,
     max_block_height: BlockHeight,
+    #[serde(skip, default)]
+    context: TraceContext,
 }
 
 impl ValidateBlockMsg {
-    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight) -> Self {
-        Self { tip, parent, max_block_height }
+    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight, context: TraceContext) -> Self {
+        Self { tip, parent, max_block_height, context }
     }
 }
 
 pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects<ValidateBlockMsg>) -> ValidateBlock {
+    let span = amaru_observability::trace_span!(
+        parent_context: &msg.context,
+        amaru_observability::amaru::consensus::VALIDATE_BLOCK,
+        hash = msg.tip.hash(),
+        point = msg.tip.point().to_string(),
+        slot = msg.tip.slot().as_u64(),
+        block_height = msg.tip.block_height().as_u64()
+    );
+    let _guard = span.enter();
+    let context = TraceContext::from_span(&span);
+
     if msg.parent == Point::Origin {
         tracing::error!(parent = %msg.parent, current = %state.current, tip = %msg.tip.point(), "cannot start from genesis block");
         return eff.terminate().await;
@@ -109,7 +123,8 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
             Err(err) => {
                 // NOTE: we only get peer errors here, all local failures are already handled
                 tracing::warn!(error = %err.error, parent = %msg.parent, "failed to rollback ledger to parent point");
-                eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+                eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false, context.clone()))
+                    .await;
                 eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() })
                     .await;
                 return state;
@@ -123,14 +138,18 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         let mut done = 0;
         for point in forward_points {
             tracing::debug!(%point, "validating block (roll forward)");
-            match validate(point, &ledger, &eff).await {
+            match validate(point, &ledger, &eff, &context).await {
                 Ok(metrics) => {
                     Metrics::new(&eff).record(metrics.into()).await;
                     state.current = point;
                 }
                 Err(error) => {
                     tracing::error!(%error, %point, "invalid block while spooling forward (this may be okay right after node restart)");
-                    eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+                    eff.send(
+                        &state.select_chain,
+                        SelectChainMsg::BlockValidationResult(msg.tip, false, context.clone()),
+                    )
+                    .await;
                     eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() })
                         .await;
                     return state;
@@ -143,17 +162,17 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         }
     }
 
-    match validate(msg.tip.point(), &ledger, &eff).await {
+    match validate(msg.tip.point(), &ledger, &eff, &context).await {
         Ok(metrics) => {
             Metrics::new(&eff).record(metrics.into()).await;
-            eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
+            eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, true, context.clone())).await;
             eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }).await;
-            eff.send(&state.adopt_chain, AdoptChainMsg::new(msg.tip, state.max_block_height)).await;
+            eff.send(&state.adopt_chain, AdoptChainMsg::new(msg.tip, state.max_block_height, context.clone())).await;
             state.current = msg.tip.point();
         }
         Err(error) => {
             tracing::warn!(error = %error, point = %msg.tip.point(), "invalid block");
-            eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+            eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false, context.clone())).await;
             eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() }).await;
         }
     }
@@ -165,10 +184,10 @@ async fn validate(
     point: Point,
     ledger: &Ledger,
     eff: &Effects<ValidateBlockMsg>,
+    context: &TraceContext,
 ) -> Result<LedgerMetrics, BlockValidationError> {
-    let ctx = opentelemetry::Context::current();
     ledger
-        .validate_block(&Peer::new("unknown"), &point, ctx)
+        .validate_block(&Peer::new("unknown"), &point, context.context())
         .or_terminate_with(eff, async |error| {
             tracing::error!(error = %error, %point, "failed to validate block");
         })

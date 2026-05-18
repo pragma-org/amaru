@@ -176,7 +176,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
             tracing::error!("Cannot set the best chain: {e:?}. The seed is {seed}");
         })
         .await;
-    eff.send(manager_stage, ManagerMessage::NewTip(tip)).await;
+    eff.send(manager_stage, ManagerMessage::NewTip(tip, amaru_observability::TraceContext::none())).await;
     state
 }
 
