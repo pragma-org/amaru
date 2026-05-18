@@ -1,0 +1,7 @@
+services:
+  otlp-collector:
+    command: ["--config", "/etc/otlp-collector-forward.yml"]
+    volumes:
+      - "./otlp-collector-forward.yml:/etc/otlp-collector-forward.yml"
+    environment:
+      - OTLP_FORWARD_ENDPOINT=${OTLP_FORWARD_ENDPOINT:-host.docker.internal:4319}

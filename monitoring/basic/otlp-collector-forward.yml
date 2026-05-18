@@ -1,0 +1,28 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    add_metric_suffixes: false
+  otlp/forward:
+    endpoint: "${env:OTLP_FORWARD_ENDPOINT}"
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus, otlp/forward]
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/forward]
+    logs:
+      receivers: [otlp]
+      exporters: [otlp/forward]

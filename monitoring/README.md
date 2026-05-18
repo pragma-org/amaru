@@ -75,6 +75,20 @@ docker compose --profile prometheus up
 
 Now prometheus UI is also accessible at `http://localhost:9090`.
 
+### Forwarding traces and logs to another OTLP backend
+
+By default, traces and logs are only printed to the collector's console output. To bridge them to an external OTLP-compatible backend (e.g. Jaeger, Grafana Tempo, a remote collector), use the `docker-compose.forward.yml` override:
+
+```bash
+# default downstream endpoint (localhost:4319)
+docker compose -f docker-compose.yml -f docker-compose.forward.yml up
+
+# custom downstream endpoint
+OTLP_FORWARD_ENDPOINT=myhost:4317 docker compose -f docker-compose.yml -f docker-compose.forward.yml up
+```
+
+`OTLP_FORWARD_ENDPOINT` controls where traces and logs are forwarded (gRPC, no TLS). It defaults to `host.docker.internal:4319` when not set, which resolves to the host machine from inside the collector container (macOS/Windows). On Linux, use `172.17.0.1:4319` or add `--add-host=host.docker.internal:host-gateway` to the service.
+
 ## Spans
 
 ### Span Format
