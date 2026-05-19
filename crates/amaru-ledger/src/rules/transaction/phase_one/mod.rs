@@ -276,7 +276,7 @@ mod tests {
     use test_case::test_case;
 
     use super::fixture::{Expected, Fixture, Predicate};
-    use crate::context::DefaultValidationContext;
+    use crate::context::{DefaultValidationContext, WitnessSlice};
 
     macro_rules! fixture {
         ($path:literal) => {
@@ -335,6 +335,13 @@ mod tests {
             fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
 
         let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
+
+        // Mirror block::execute: body.required_signers is pushed into the witness slice before
+        // phase-one runs, so the conformance harness must do the same to faithfully test that
+        // predicate path.
+        for vk_hash in tx.body.required_signers.as_deref().unwrap_or(&[]) {
+            ctx.require_vkey_witness(*vk_hash);
+        }
 
         let result = super::execute(
             &mut ctx,
