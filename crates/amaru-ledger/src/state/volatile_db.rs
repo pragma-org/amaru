@@ -71,6 +71,10 @@ impl VolatileDB {
         self.cache.utxo.produced.get(input)
     }
 
+    pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
+        self.cache.utxo.consumed.contains(input)
+    }
+
     pub fn contains(&self, point: &Point) -> bool {
         self.sequence.binary_search_by_key(point, |state| state.anchor.0.point()).is_ok()
     }
@@ -201,6 +205,10 @@ impl VolatileState {
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.utxo.produced.get(input)
+    }
+
+    pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
+        self.utxo.consumed.contains(input)
     }
 }
 
@@ -454,6 +462,38 @@ mod tests {
         assert_eq!(db.len(), 3, "All elements should be retained");
     }
 
+    #[test]
+    fn test_consumed_input_is_tracked() {
+        let input = test_input(1);
+        let mut state = create_test_state(10, 1);
+        state.state.utxo.consume(input.clone());
+
+        let mut db = VolatileDB::default();
+        db.push_back(state);
+
+        assert!(db.has_consumed_input(&input));
+        assert!(db.resolve_input(&input).is_none());
+    }
+
+    #[test]
+    fn test_rollback_removes_consumed_input_from_cache() {
+        let input = test_input(1);
+        let mut db = VolatileDB::default();
+        let first = create_test_state(10, 1);
+        let first_point = first.anchor.0.point();
+        db.push_back(first);
+
+        let mut second = create_test_state(20, 2);
+        second.state.utxo.consume(input.clone());
+        db.push_back(second);
+
+        assert!(db.has_consumed_input(&input));
+
+        db.rollback_to(&first_point).unwrap();
+
+        assert!(!db.has_consumed_input(&input));
+    }
+
     // HELPERS
 
     fn create_test_state(slot: u64, pool_id: u8) -> AnchoredVolatileState {
@@ -472,5 +512,9 @@ mod tests {
 
         assert_eq!(db.len(), 3);
         db
+    }
+
+    fn test_input(tag: u8) -> TransactionInput {
+        TransactionInput { transaction_id: Hash::new([tag; 32]), index: 0 }
     }
 }
