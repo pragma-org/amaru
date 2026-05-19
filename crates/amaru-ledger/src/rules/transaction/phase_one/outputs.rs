@@ -30,7 +30,7 @@ mod inherent_value;
 #[derive(Debug, Error)]
 #[error("invalid transaction outputs: [{}]", display_collection(invalid_outputs))]
 pub struct InvalidOutputs {
-    invalid_outputs: Vec<WithPosition<InvalidOutput>>,
+    pub(crate) invalid_outputs: Vec<WithPosition<InvalidOutput>>,
 }
 
 #[derive(Debug, Error)]

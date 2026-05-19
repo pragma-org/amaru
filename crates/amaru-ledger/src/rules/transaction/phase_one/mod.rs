@@ -323,6 +323,9 @@ mod tests {
     #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
     #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
+    #[test_case(fixture!("fail/BabbageOutputTooSmallUTxO/0"); "output below minimum lovelace")]
+    #[test_case(fixture!("fail/OutputTooBigUTxO/0"); "output value larger than maxValueSize")]
+    #[test_case(fixture!("fail/WrongNetworkInTxOutput/0"); "output address on wrong network")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 

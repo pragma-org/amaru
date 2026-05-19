@@ -22,9 +22,13 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    rules::transaction::phase_one::{
-        InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals,
-        PhaseOneError,
+    rules::{
+        WithPosition,
+        transaction::phase_one::{
+            InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals,
+            PhaseOneError,
+            outputs::{InvalidOutput, InvalidOutputs},
+        },
     },
     store::GovernanceActivity,
 };
@@ -75,6 +79,7 @@ impl<'de> Deserialize<'de> for Expected {
 #[serde(tag = "predicate")]
 pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,
+    BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
     ConflictingMetadataHash,
     InputSetEmptyUTxO,
@@ -83,9 +88,11 @@ pub(super) enum Predicate {
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
     MissingVKeyWitnessesUTXOW,
+    OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
     WrongNetworkInTxBody,
+    WrongNetworkInTxOutput,
     WrongNetworkWithdrawal,
 }
 
@@ -117,10 +124,15 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::OutsideValidityIntervalUTxO
             }
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideForecast(_)) => Predicate::OutsideForecast,
+            PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
+                [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
+                [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,
+                [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
+                _ => unreachable!("no predicate mapping yet for {err}"),
+            },
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
-            | PhaseOneError::Outputs(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Fees(_)
             | PhaseOneError::Withdrawals(_)
