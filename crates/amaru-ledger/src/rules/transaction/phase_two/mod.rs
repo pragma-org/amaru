@@ -201,6 +201,8 @@ where
 
             let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
 
+            let cost_model = cost_model_for_evaluator(plutus_version, cost_model);
+
             let result = program.eval_with_params(&arena, plutus_version, cost_model, uplc_budget);
 
             match plutus_version {
@@ -257,6 +259,17 @@ where
     }
 }
 
+fn cost_model_for_evaluator(plutus_version: PlutusVersion, cost_model: &[i64]) -> &[i64] {
+    const PLUTUS_V3_SUPPORTED_COST_MODEL_LEN: usize = 297;
+
+    match plutus_version {
+        PlutusVersion::V3 if cost_model.len() > PLUTUS_V3_SUPPORTED_COST_MODEL_LEN => {
+            &cost_model[..PLUTUS_V3_SUPPORTED_COST_MODEL_LEN]
+        }
+        PlutusVersion::V1 | PlutusVersion::V2 | PlutusVersion::V3 => cost_model,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::BTreeMap, sync::LazyLock};
@@ -266,6 +279,7 @@ mod tests {
         include_cbor,
     };
     use amaru_plutus::arena_pool::ArenaPool;
+    use amaru_uplc::machine::PlutusVersion;
     use anyhow::{Context, Result};
 
     use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
@@ -338,5 +352,13 @@ mod tests {
         ];
 
         default_execute_phase_two(NetworkName::Mainnet, fixture!("tx.cbor"), resolved_inputs.into_iter())
+    }
+
+    #[test]
+    fn plutus_v3_cost_model_ignores_unsupported_tail() {
+        let cost_model = (0..350).collect::<Vec<_>>();
+
+        assert_eq!(super::cost_model_for_evaluator(PlutusVersion::V3, &cost_model), &cost_model[..297]);
+        assert_eq!(super::cost_model_for_evaluator(PlutusVersion::V2, &cost_model), &cost_model[..]);
     }
 }
