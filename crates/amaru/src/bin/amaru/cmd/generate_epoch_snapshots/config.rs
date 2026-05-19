@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
     error::Error,
     fs, io,
     path::{Path, PathBuf},
@@ -24,16 +23,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use super::repo_root;
-
-const DEFAULT_DB_ANALYSER_IMAGE: &str = "amaru-db-analyser-resume";
-const DEFAULT_DB_ANALYSER_REF: &str = "9510ebee3a2319944de4967940e140af0878016e";
-const DOCKER_ENV_FILE_NAME: &str = ".env";
 const OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL: &str = "https://book.world.dev.cardano.org/environments";
-
-pub(super) struct DbAnalyserBuildConfig {
-    pub(super) image: String,
-    pub(super) git_ref: String,
-}
 
 #[derive(Debug, Deserialize)]
 pub(super) struct CardanoNodeConfigManifest {
@@ -72,61 +62,6 @@ impl CardanoNodeConfigManifest {
 
         files
     }
-}
-
-pub(super) fn resolve_db_analyser_build_config() -> Result<DbAnalyserBuildConfig, Box<dyn Error>> {
-    let env_path = docker_env_path();
-    let env_values = read_dotenv_values(&env_path)?;
-    let image = dotenv_value(&env_values, &["DB_ANALYSER_IMAGE", "AMARU_DB_ANALYSER_IMAGE"])
-        .unwrap_or_else(|| DEFAULT_DB_ANALYSER_IMAGE.to_string());
-    let git_ref = dotenv_value(&env_values, &["OUROBOROS_CONSENSUS_REF", "DB_ANALYSER_REF", "AMARU_DB_ANALYSER_REF"])
-        .unwrap_or_else(|| DEFAULT_DB_ANALYSER_REF.to_string());
-
-    info!(env_file = %env_path.display(), image = %image, git_ref, "using db-analyser build configuration");
-
-    Ok(DbAnalyserBuildConfig { image, git_ref })
-}
-
-fn docker_env_path() -> PathBuf {
-    repo_root().join("docker").join(DOCKER_ENV_FILE_NAME)
-}
-
-fn read_dotenv_values(path: &Path) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
-    if !path.is_file() {
-        return Ok(BTreeMap::new());
-    }
-
-    let mut values = BTreeMap::new();
-    for (line_number, raw_line) in fs::read_to_string(path)?.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        let line = line.strip_prefix("export ").unwrap_or(line);
-        let (key, value) = line
-            .split_once('=')
-            .ok_or_else(|| format!("invalid dotenv entry at {}:{}", path.display(), line_number + 1))?;
-        values.insert(key.trim().to_string(), strip_optional_quotes(value.trim()).to_string());
-    }
-
-    Ok(values)
-}
-
-pub(super) fn dotenv_value(values: &BTreeMap<String, String>, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| values.get(*key).cloned())
-}
-
-pub(super) fn strip_optional_quotes(value: &str) -> &str {
-    if value.len() >= 2 {
-        let quoted_with_double = value.starts_with('"') && value.ends_with('"');
-        let quoted_with_single = value.starts_with('\'') && value.ends_with('\'');
-        if quoted_with_double || quoted_with_single {
-            return &value[1..value.len() - 1];
-        }
-    }
-
-    value
 }
 
 pub(super) async fn resolve_config_dir(

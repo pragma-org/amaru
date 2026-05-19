@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    env,
     fs,
     io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
@@ -23,51 +24,59 @@ use std::{
 
 use tracing::{info, warn};
 
-use super::{config::DbAnalyserBuildConfig, repo_root};
-
 const DB_ANALYSER_PROGRESS_REPORT_INTERVAL_SECS: f64 = 30.0;
 
-pub(super) fn ensure_db_analyser_image(
-    db_analyser_build_config: &DbAnalyserBuildConfig,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let image_ref =
-        format!("{}:{}", db_analyser_build_config.image, sanitize_image_tag(&db_analyser_build_config.git_ref));
-    let status = ProcessCommand::new("docker").args(["image", "inspect", image_ref.as_str()]).status()?;
-    if status.success() {
-        info!(image = %image_ref, "reusing cached db-analyser image");
-        return Ok(image_ref);
+pub(super) fn ensure_db_analyser_binary() -> Result<String, Box<dyn std::error::Error>> {
+    let cardano_node_home = env::var("CARDANO_NODE_HOME").map_err(|error| match error {
+        env::VarError::NotPresent => {
+            "CARDANO_NODE_HOME is not set. generate-epoch-snapshots requires db-analyser at CARDANO_NODE_HOME/bin/db-analyser. Set CARDANO_NODE_HOME to your cardano-node installation root (for example: export CARDANO_NODE_HOME=/opt/cardano-node).".to_owned()
+        }
+        env::VarError::NotUnicode(_) => {
+            "CARDANO_NODE_HOME contains non-Unicode data. Set CARDANO_NODE_HOME to a valid Unicode filesystem path that contains bin/db-analyser.".to_owned()
+        }
+    })?;
+
+    let binary = PathBuf::from(&cardano_node_home).join("bin").join("db-analyser");
+    if !binary.is_file() {
+        return Err(format!(
+            "db-analyser was not found at {}. CARDANO_NODE_HOME is set to {} but expected executable at CARDANO_NODE_HOME/bin/db-analyser.",
+            binary.display(),
+            cardano_node_home
+        )
+        .into());
     }
 
-    info!(image = %image_ref, git_ref = %db_analyser_build_config.git_ref, "building db-analyser Docker image");
-    let dockerfile = repo_root().join("docker").join("Dockerfile.db-analyser");
+    let status = ProcessCommand::new(&binary)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 
-    let mut command = ProcessCommand::new("docker");
-    command
-        .arg("build")
-        .arg("-t")
-        .arg(&image_ref)
-        .arg("-f")
-        .arg(&dockerfile)
-        .arg("--build-arg")
-        .arg(format!("OUROBOROS_CONSENSUS_REF={}", db_analyser_build_config.git_ref))
-        .arg(repo_root());
-    run_logged_command(command, "docker-build", None)?;
-
-    Ok(image_ref)
-}
-
-pub(super) fn sanitize_image_tag(input: &str) -> String {
-    input
-        .chars()
-        .map(|character| match character {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '.' | '-' => character,
-            _ => '-',
-        })
-        .collect()
+    match status {
+        Ok(_) => {
+            let binary = binary.to_string_lossy().into_owned();
+            info!(binary = %binary, cardano_node_home, "using db-analyser binary from CARDANO_NODE_HOME/bin");
+            Ok(binary)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Err(format!(
+                "db-analyser was not found at {}. Verify CARDANO_NODE_HOME points to a cardano-node installation that includes bin/db-analyser.",
+                binary.display()
+            )
+            .into())
+        }
+        Err(error) => Err(format!(
+            "failed to execute db-analyser preflight at {}: {}. Ensure the file is executable (for example: chmod +x {}).",
+            binary.display(),
+            error,
+            binary.display()
+        )
+        .into()),
+    }
 }
 
 pub(super) fn run_db_analyser(
-    image: &str,
+    binary: &str,
     config_dir: &Path,
     db_dir: &Path,
     target_slot: u64,
@@ -76,21 +85,12 @@ pub(super) fn run_db_analyser(
     let config_dir = config_dir.canonicalize()?;
     let db_dir = db_dir.canonicalize()?;
 
-    let mut command = ProcessCommand::new("docker");
+    let mut command = ProcessCommand::new(binary);
     command
-        .arg("run")
-        .arg("--rm")
-        .arg("--security-opt")
-        .arg("seccomp=unconfined")
-        .arg("-v")
-        .arg(format!("{}:/config:ro", config_dir.display()))
-        .arg("-v")
-        .arg(format!("{}:/db", db_dir.display()))
-        .arg(image)
         .arg("--config")
-        .arg("/config/config.json")
+        .arg(config_dir.join("config.json"))
         .arg("--db")
-        .arg("/db")
+        .arg(db_dir)
         .arg("--in-mem");
 
     if let Some(analyse_from) = analyse_from {

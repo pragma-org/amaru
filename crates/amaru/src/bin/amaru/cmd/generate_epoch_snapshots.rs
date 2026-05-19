@@ -33,8 +33,8 @@ use archive::{
     archive_path_for_target, existing_archive_paths, existing_snapshot_paths, materialize_snapshot,
     snapshot_path_for_target, write_epoch_metadata, write_snapshot_archive,
 };
-use config::{resolve_config_dir, resolve_db_analyser_build_config};
-use db_analyser::{ensure_db_analyser_image, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
+use config::resolve_config_dir;
+use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::fetch_last_block_for_epoch;
 
 #[derive(Debug, Parser)]
@@ -172,8 +172,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     info!(from_chunk, target_dir = %cardano_db_dir.display(), "synchronizing cardano-db from Mithril");
     download_from_mithril(network, cardano_db_dir.clone(), from_chunk).await?;
 
-    let db_analyser_build_config = resolve_db_analyser_build_config()?;
-    let db_analyser_image = ensure_db_analyser_image(&db_analyser_build_config)?;
+    let db_analyser_binary = ensure_db_analyser_binary()?;
     let mut previous_snapshot_slot = None;
 
     for mut target in pending_targets {
@@ -192,7 +191,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                     analyse_from,
                     "creating ledger snapshot with db-analyser"
                 );
-                run_db_analyser(&db_analyser_image, &config_dir, &cardano_db_dir, target.slot, analyse_from)?;
+                run_db_analyser(&db_analyser_binary, &config_dir, &cardano_db_dir, target.slot, analyse_from)?;
                 exact_snapshot_dir(&ledger_snapshot_dir, target.slot)
                     .ok_or_else(|| format!("db-analyser did not create snapshot directory for slot {}", target.slot))?
             }
@@ -257,7 +256,7 @@ pub(super) fn repo_root() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fs, path::Path};
+    use std::{fs, path::Path};
 
     use amaru_kernel::NetworkName;
     use tempfile::TempDir;
@@ -269,10 +268,9 @@ mod tests {
             snapshot_path_for_target, write_snapshot_archive,
         },
         bootstrap_target_epochs,
-        config::{dotenv_value, strip_optional_quotes},
         db_analyser::{
             latest_snapshot_slot_at_or_before, parse_db_analyser_progress_line, parse_snapshot_slot_dir_name,
-            sanitize_image_tag, select_analyse_from_slot,
+            select_analyse_from_slot,
         },
         default_snapshot_output_dir,
     };
@@ -467,29 +465,4 @@ mod tests {
         assert!(archive_path.is_file());
     }
 
-    #[test]
-    fn sanitize_image_tag_only_keeps_docker_safe_characters() {
-        let sanitized = sanitize_image_tag("refs/heads/main");
-        assert_eq!(sanitized, "refs-heads-main");
-    }
-
-    #[test]
-    fn dotenv_value_prefers_first_present_key() {
-        let values = BTreeMap::from([
-            ("DB_ANALYSER_IMAGE".to_string(), "custom-image".to_string()),
-            ("AMARU_DB_ANALYSER_IMAGE".to_string(), "legacy-image".to_string()),
-        ]);
-
-        assert_eq!(
-            dotenv_value(&values, &["DB_ANALYSER_IMAGE", "AMARU_DB_ANALYSER_IMAGE"]),
-            Some("custom-image".to_string())
-        );
-    }
-
-    #[test]
-    fn strip_optional_quotes_removes_matching_wrappers() {
-        assert_eq!(strip_optional_quotes("\"value\""), "value");
-        assert_eq!(strip_optional_quotes("'value'"), "value");
-        assert_eq!(strip_optional_quotes("value"), "value");
-    }
 }
