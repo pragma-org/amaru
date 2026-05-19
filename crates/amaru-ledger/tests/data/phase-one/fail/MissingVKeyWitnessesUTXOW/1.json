@@ -1,0 +1,30 @@
+{
+  "title": "MissingVKeyWitnessesUTXOW",
+  "description": "Body declares a required_signers entry whose key is not present in the witness set (the input's own vkey is also missing). Exercises the body.required_signers contribution to required-keys, which is distinct from the input-driven path covered by fixture 0.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
+        "output": "a200581d6091de07fed8a2b52a92686dd68bb2b8d443d6d42089cf508259774675011a004c4b40"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400ed9010281581c000000000000000000000000000000000000000000000000000000000f00a0f5f6",
+  "expected": {
+    "predicate": "MissingVKeyWitnessesUTXOW"
+  }
+}
