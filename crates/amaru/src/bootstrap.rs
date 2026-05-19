@@ -20,12 +20,18 @@ use std::{
     time::Duration,
 };
 
-use amaru_kernel::{BlockHeader, Epoch, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, from_cbor};
-use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
+use amaru_kernel::{
+    BlockHeader, Epoch, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, from_cbor,
+};
+use amaru_ledger::{
+    bootstrap::import_initial_snapshot,
+    store::{EpochTransitionProgress, Store, TransactionalContext},
+};
 use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_ouroboros::{ChainStore, Nonces};
 use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
+use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
@@ -34,13 +40,17 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tar::Archive;
 use tokio::{
     fs::{self, File},
-    io::AsyncWriteExt,
+    io::{AsyncWriteExt, BufReader},
     time::timeout,
 };
+use tokio_util::io::StreamReader;
 use tracing::{error, info};
 
 use crate::{
-    cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
+    cardano_node::{
+        ParsedStateSnapshot, decode_node_accounts, decode_node_pool_state, parse_state_snapshot_with_nonces,
+        tvar::import_snapshot_from_tvar,
+    },
     default_snapshots_dir, get_bootstrap_file,
 };
 
@@ -112,9 +122,18 @@ fn snapshot_directory_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf
     snapshots_dir.join(&snapshot.point)
 }
 
+fn snapshot_file_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
+    snapshots_dir.join(format!("{}.cbor", snapshot.point))
+}
+
 fn resolve_snapshot_path(snapshots_dir: &Path, snapshot: &Snapshot) -> Option<PathBuf> {
     let directory = snapshot_directory_path(snapshots_dir, snapshot);
-    node_snapshot_paths(&directory).map(|_| directory)
+    if node_snapshot_paths(&directory).is_some() {
+        return Some(directory);
+    }
+
+    let file = snapshot_file_path(snapshots_dir, snapshot);
+    is_cbor_snapshot_file(&file).then_some(file)
 }
 
 fn snapshot_hash(snapshot: &Snapshot) -> Result<HeaderHash, Box<dyn Error>> {
@@ -180,13 +199,17 @@ fn select_bootstrap_snapshots(
 }
 
 fn initial_nonces_from_snapshot(
-    snapshot_dir: &Path,
+    snapshot_path: &Path,
     network: NetworkName,
     tail: HeaderHash,
 ) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
-    let snapshot_paths = node_snapshot_paths(snapshot_dir)
-        .ok_or_else(|| BootstrapError::MissingSnapshotDirectory(snapshot_dir.into()))?;
-    let bytes = std::fs::read(snapshot_paths.state)?;
+    let bytes = if let Some(snapshot_paths) = node_snapshot_paths(snapshot_path) {
+        std::fs::read(snapshot_paths.state)?
+    } else if is_cbor_snapshot_file(snapshot_path) {
+        std::fs::read(snapshot_path)?
+    } else {
+        return Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot_path.to_path_buf())));
+    };
 
     let (parsed_snapshot, initial_nonces) =
         parse_state_snapshot_with_nonces(minicbor::Decoder::new(&bytes), &network, tail)?;
@@ -312,8 +335,11 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
 
     for snapshot in snapshots {
         let snapshot_dir = snapshot_directory_path(snapshots_dir, snapshot);
+        let snapshot_file = snapshot_file_path(snapshots_dir, snapshot);
         if !should_download_snapshot(snapshots_dir, snapshot) {
-            info!(snapshot = %snapshot_dir.display(), "snapshot directory already exists, skipping download");
+            let snapshot_path = resolve_snapshot_path(snapshots_dir, snapshot)
+                .unwrap_or_else(|| snapshot_directory_path(snapshots_dir, snapshot));
+            info!(snapshot = %snapshot_path.display(), "snapshot already exists, skipping download");
             continue;
         }
 
@@ -322,20 +348,27 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
             fs::remove_dir_all(&snapshot_dir).await?;
         }
 
+        if snapshot_file.exists() && !is_cbor_snapshot_file(&snapshot_file) {
+            info!(snapshot = %snapshot_file.display(), "snapshot file exists but is not a valid cbor snapshot, removing it");
+            fs::remove_file(&snapshot_file).await?;
+        }
+
         info!(epoch = %snapshot.epoch, point = %snapshot.point, "downloading snapshot");
+
+        if snapshot.url.ends_with(".cbor.gz") {
+            let (tmp_path, mut file) = create_partial_file(&snapshot_file).await?;
+            download_gzip_to_file(&mut file, response_from_snapshot(&client, snapshot).await?).await?;
+            file.sync_all().await?;
+            drop(file);
+            fs::rename(&tmp_path, &snapshot_file).await?;
+            info!(snapshot = %snapshot_file.display(), "downloaded snapshot");
+            continue;
+        }
 
         let archive_path = snapshots_dir.join(format!("{}.download.partial", snapshot.point));
         let extract_path = snapshots_dir.join(format!(".{}.extract.partial", snapshot.point));
 
-        let response = client
-            .get(&snapshot.url)
-            .send()
-            .await
-            .map_err(|err| BootstrapError::DownloadError(snapshot.url.clone(), err))?;
-
-        if !response.status().is_success() {
-            return Err(BootstrapError::DownloadInvalidStatusCode(snapshot.url.clone(), response.status()));
-        }
+        let response = response_from_snapshot(&client, snapshot).await?;
 
         let mut file = File::create(&archive_path).await?;
         download_to_file(&mut file, response).await?;
@@ -356,12 +389,44 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
     Ok(())
 }
 
+async fn response_from_snapshot(
+    client: &reqwest::Client,
+    snapshot: &Snapshot,
+) -> Result<reqwest::Response, BootstrapError> {
+    let response = client
+        .get(&snapshot.url)
+        .send()
+        .await
+        .map_err(|err| BootstrapError::DownloadError(snapshot.url.clone(), err))?;
+
+    if !response.status().is_success() {
+        return Err(BootstrapError::DownloadInvalidStatusCode(snapshot.url.clone(), response.status()));
+    }
+
+    Ok(response)
+}
+
+async fn create_partial_file(target_path: &Path) -> Result<(PathBuf, File), BootstrapError> {
+    let tmp_path = target_path.with_extension("partial");
+    let file = File::create(&tmp_path).await?;
+    Ok((tmp_path, file))
+}
+
 async fn download_to_file(file: &mut File, response: reqwest::Response) -> Result<(), BootstrapError> {
     let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.try_next().await.map_err(io::Error::other)? {
         file.write_all(&chunk).await?;
     }
+
+    Ok(())
+}
+
+async fn download_gzip_to_file(file: &mut File, response: reqwest::Response) -> Result<(), BootstrapError> {
+    let raw_stream_reader = StreamReader::new(response.bytes_stream().map_err(io::Error::other));
+    let buffered_reader = BufReader::new(raw_stream_reader);
+    let mut decoded_stream = AsyncGzipDecoder::new(buffered_reader);
+    tokio::io::copy(&mut decoded_stream, file).await?;
 
     Ok(())
 }
@@ -565,7 +630,11 @@ pub async fn import_snapshots(
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("expected cardano-node InMem snapshot directory with `state` and `tables/tvar`: {0}")]
+    #[error("malformed snapshot point in file name: {0}")]
+    MalformedDate(String),
+    #[error("invalid snapshot file: {0}")]
+    InvalidSnapshotFile(PathBuf),
+    #[error("expected cardano-node InMem snapshot directory with `state` and `tables/tvar`, or a `.cbor` snapshot file: {0}")]
     UnsupportedSnapshotPath(PathBuf),
 }
 
@@ -594,7 +663,71 @@ async fn import_snapshot_with_optional_nonces(
         return import_node_snapshot_dir(network, snapshot, &paths, ledger_dir, nonce_tail).await;
     }
 
+    if is_cbor_snapshot_file(snapshot) {
+        return import_cbor_snapshot_file(network, snapshot, ledger_dir, nonce_tail).await;
+    }
+
     Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf())))
+}
+
+#[expect(clippy::unwrap_used)]
+async fn import_cbor_snapshot_file(
+    network: NetworkName,
+    snapshot: &Path,
+    ledger_dir: &Path,
+    nonce_tail: Option<HeaderHash>,
+) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
+    info!(snapshot=%snapshot.display(), "Importing CBOR snapshot");
+
+    let point = Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap())
+        .map_err(ImportError::MalformedDate)?;
+    let dir = snapshot.parent().ok_or_else(|| ImportError::InvalidSnapshotFile(snapshot.to_path_buf()))?;
+    let era_history = make_era_history(dir, &point, network)?;
+    let initial_nonces = if let Some(tail) = nonce_tail {
+        let bytes = std::fs::read(snapshot)?;
+        let (_, initial_nonces) = parse_state_snapshot_with_nonces(minicbor::Decoder::new(&bytes), &network, tail)?;
+        Some(initial_nonces)
+    } else {
+        None
+    };
+
+    std::fs::create_dir_all(ledger_dir)?;
+
+    if std::fs::exists(ledger_dir.join("live"))? {
+        std::fs::remove_dir_all(ledger_dir.join("live"))?;
+    }
+
+    let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
+    let mut file = std::fs::File::open(snapshot)?;
+
+    let builder = std::thread::Builder::new().stack_size(10_000_000);
+    let (db, epoch) = builder
+        .spawn(move || {
+            import_initial_snapshot(
+                &db,
+                &mut file,
+                &point,
+                &era_history,
+                network,
+                new_terminal_progress_bar,
+                decode_node_pool_state,
+                decode_node_accounts,
+            )
+            .map_err(|e| e.to_string())
+            .map(|epoch| (db, epoch))
+        })
+        .unwrap()
+        .join()
+        .unwrap()?;
+
+    db.next_snapshot(epoch)?;
+
+    let transaction = db.create_transaction();
+    transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
+    transaction.commit()?;
+
+    info!(epoch=%epoch, snapshot=%snapshot.display(), "Imported CBOR snapshot");
+    Ok(ImportedSnapshot { epoch, initial_nonces })
 }
 
 #[expect(clippy::unwrap_used)]
@@ -662,6 +795,25 @@ fn node_snapshot_paths(path: &Path) -> Option<NodeSnapshotPaths> {
     if state.is_file() && utxo.is_file() { Some(NodeSnapshotPaths { state, utxo }) } else { None }
 }
 
+fn is_cbor_snapshot_file(path: &Path) -> bool {
+    path.is_file() && path.extension().and_then(|extension| extension.to_str()) == Some("cbor")
+}
+
+fn make_era_history(dir: &Path, point: &Point, network: NetworkName) -> Result<EraHistory, Box<dyn std::error::Error>> {
+    match network {
+        NetworkName::Testnet(_) => {
+            let filename = format!("history.{}.{}.json", point.slot_or_default(), point.hash());
+            let history_file = dir.join(filename);
+            if !history_file.is_file() {
+                return Err(format!("cannot import testnet era history from {}", history_file.display()).into());
+            }
+
+            Ok(serde_json::from_slice(&std::fs::read(&history_file)?)?)
+        }
+        NetworkName::Mainnet | NetworkName::Preprod | NetworkName::Preview => Ok(<&EraHistory>::from(network).clone()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{path::PathBuf, time::Duration};
@@ -670,8 +822,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, bootstrap_parent_points, node_snapshot_paths, select_bootstrap_snapshots, should_download_snapshot,
-        snapshot_epoch, sort_snapshots_by_slot,
+        Snapshot, bootstrap_parent_points, is_cbor_snapshot_file, node_snapshot_paths, select_bootstrap_snapshots,
+        should_download_snapshot, snapshot_epoch, sort_snapshots_by_slot,
     };
     use crate::cardano_node::ParsedStateSnapshot;
 
@@ -757,6 +909,23 @@ mod tests {
         std::fs::write(snapshot_dir.join("state"), b"state").unwrap();
         std::fs::write(snapshot_dir.join("tables").join("tvar"), b"utxo").unwrap();
 
+        assert!(!should_download_snapshot(snapshots_dir, &snapshot));
+    }
+
+    #[test]
+    fn should_not_download_existing_cbor_snapshot_file() {
+        let temp_dir = tempdir().unwrap();
+        let snapshots_dir = temp_dir.path();
+        let snapshot = Snapshot {
+            epoch: Epoch::from(163_u64),
+            point: "69206375.hash".to_string(),
+            url: "https://example.com/69206375.hash.cbor.gz".to_string(),
+            parent_point: None,
+        };
+        let snapshot_file = snapshots_dir.join("69206375.hash.cbor");
+        std::fs::write(&snapshot_file, b"snapshot").unwrap();
+
+        assert!(is_cbor_snapshot_file(&snapshot_file));
         assert!(!should_download_snapshot(snapshots_dir, &snapshot));
     }
 
