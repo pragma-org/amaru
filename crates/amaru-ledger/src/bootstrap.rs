@@ -54,6 +54,16 @@ enum InitialSnapshotFormatError {
     MissingPreviousBlocksMap,
 }
 
+fn format_pool_state_decode_error(error: Box<dyn std::error::Error>) -> String {
+    let error = error.to_string();
+
+    if error.contains("node pool vrf key hashes") && error.contains("Invalid hash size") {
+        return "snapshot uses an older unsupported pool/account encoding; regenerate snapshots with amaru generate-epoch-snapshots (db-analyser).".to_owned();
+    }
+
+    format!("decode pool state: {error}")
+}
+
 fn decode_initial_snapshot_prefix(
     d: &mut cbor::Decoder<'_>,
     expected_epoch: Epoch,
@@ -157,7 +167,7 @@ pub fn import_initial_snapshot(
 
     let (pools, pools_updates, pools_retirements) = decoder
         .with_decoder(|d| Ok(decode_pool_state(d, network)?))
-        .map_err(|err| format!("decode pool state: {err}"))?;
+        .map_err(format_pool_state_decode_error)?;
     import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
         .map_err(|err| format!("import pool state: {err}"))?;
 
