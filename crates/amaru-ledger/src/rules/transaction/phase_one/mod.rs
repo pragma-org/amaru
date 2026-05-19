@@ -322,6 +322,7 @@ mod tests {
     #[test_case(fixture!("pass/reference-input"); "tx with resolvable reference input")]
     #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
+    #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
