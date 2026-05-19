@@ -1148,14 +1148,27 @@ mod tests {
 
     #[test]
     fn dropping_transaction_does_not_leak_ongoing_flag() {
-        let tmp_dir = TempDir::new().expect("failed to create temp dir");
-        let store = RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into())).expect("failed to open store");
+        let tmp_dir = TempDir::new().unwrap();
+        let store = RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into())).unwrap();
 
         // Open a transaction and drop it without committing or rolling back.
         drop(store.create_transaction());
 
         // Since the previous transaction is dropped and has been properly cleared, we should be able
         // to create a new one.
+        let _ = store.create_transaction();
+    }
+
+    /// `with_transaction` rolls back the transaction on `Err`.
+    #[test]
+    fn with_transaction_rolls_back_on_err() {
+        let tmp_dir = TempDir::new().unwrap();
+        let store = RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into())).unwrap();
+
+        let outcome: Result<(), StoreError> = store.with_transaction(|_tx| Err(StoreError::Send));
+        assert!(matches!(outcome, Err(StoreError::Send)));
+
+        // The previous transaction is properly closed so we should be able to create a new one.
         let _ = store.create_transaction();
     }
 

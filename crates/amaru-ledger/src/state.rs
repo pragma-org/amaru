@@ -318,10 +318,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
             now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
-        let batch = db.create_transaction();
-
-        batch
-            .save(
+        db.with_transaction::<_, StateError>(|batch| {
+            batch.save(
                 &self.era_history,
                 &self.protocol_parameters,
                 &mut self.governance_activity,
@@ -330,24 +328,23 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 add,
                 remove,
                 withdrawals,
-            )
-            .and_then(|()| {
-                batch.with_pots(|mut row| {
-                    row.borrow_mut().fees += fees;
-                })?;
+            )?;
 
-                // Reset the epoch transition progress once we've successfully applied the first
-                // block of the next epoch.
-                if epoch_transitioning {
-                    let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
-                    if !success {
-                        unreachable!("epoch transition reset did not succeed after first block!")
-                    }
+            batch.with_pots(|mut row| {
+                row.borrow_mut().fees += fees;
+            })?;
+
+            // Reset the epoch transition progress once we've successfully applied the first
+            // block of the next epoch.
+            if epoch_transitioning {
+                let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
+                if !success {
+                    unreachable!("epoch transition reset did not succeed after first block!")
                 }
+            }
 
-                batch.commit()
-            })
-            .map_err(StateError::Storage)?;
+            Ok(())
+        })?;
 
         Ok(())
     }
@@ -368,71 +365,72 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let _guard = _span.enter();
 
         // ---------------------------------------------------------------------------- End of epoch
-        let batch = db.create_transaction();
-        let should_end_epoch = batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
-        if should_end_epoch {
-            end_epoch(
-                &batch,
-                // FIXME: This should eventually be an '.await', as we always expect to *eventually*
-                // have some rewards summary being available. There's no way to continue progressing
-                // the ledger if we don't.
-                rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
-            )
-            .map_err(StateError::Storage)?;
-        }
-        batch.commit()?;
+        db.with_transaction::<_, StateError>(|batch| {
+            let should_end_epoch = batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
+            if should_end_epoch {
+                end_epoch(
+                    batch,
+                    // FIXME: This should eventually be an '.await', as we always expect to *eventually*
+                    // have some rewards summary being available. There's no way to continue progressing
+                    // the ledger if we don't.
+                    rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
+                )
+                .map_err(StateError::Storage)?;
+            }
+            Ok(())
+        })?;
 
         // -------------------------------------------------------------------------------- Snapshot
-        let batch = db.create_transaction();
-        let should_snapshot = batch.try_epoch_transition(
-            Some(EpochTransitionProgress::EpochEnded),
-            Some(EpochTransitionProgress::SnapshotTaken),
-        )?;
-        let treasury = if should_snapshot {
-            let treasury = db.pots()?.treasury;
-            db.next_snapshot(next_epoch - 1)?;
-            Ok::<_, StateError>(treasury)
-        } else {
-            Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
-        }?;
-        batch.commit()?;
+        let treasury = db.with_transaction::<_, StateError>(|batch| {
+            let should_snapshot = batch.try_epoch_transition(
+                Some(EpochTransitionProgress::EpochEnded),
+                Some(EpochTransitionProgress::SnapshotTaken),
+            )?;
+            if should_snapshot {
+                let treasury = batch.pots()?.treasury;
+                db.next_snapshot(next_epoch - 1)?;
+                Ok(treasury)
+            } else {
+                Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
+            }
+        })?;
         snapshots.prune(next_epoch - MIN_LEDGER_SNAPSHOTS)?;
 
         // -------------------------------------------------------------------------- Start of epoch
-        let batch = db.create_transaction();
-        let should_begin_epoch = batch.try_epoch_transition(
-            Some(EpochTransitionProgress::SnapshotTaken),
-            Some(EpochTransitionProgress::EpochStarted),
-        )?;
+        let protocol_parameters = db.with_transaction::<_, StateError>(|batch| {
+            let should_begin_epoch = batch.try_epoch_transition(
+                Some(EpochTransitionProgress::SnapshotTaken),
+                Some(EpochTransitionProgress::EpochStarted),
+            )?;
 
-        let ratification_context = new_ratification_context(
-            self.snapshots.for_epoch(next_epoch - 2)?,
-            self.stake_distribution(next_epoch - 2)?,
-            self.protocol_parameters.clone(),
-            treasury,
-        )?;
+            let ratification_context = new_ratification_context(
+                self.snapshots.for_epoch(next_epoch - 2)?,
+                self.stake_distribution(next_epoch - 2)?,
+                self.protocol_parameters.clone(),
+                treasury,
+            )?;
 
-        let protocol_parameters = if should_begin_epoch {
-            begin_epoch(
-                &batch,
-                next_epoch,
-                &self.era_history,
-                ratification_context,
-                // Get all proposals to ratify / enact. Note that, even though the ratification happens
-                // with an epoch of delay (and thus, using data from a snapshot), we always use the most
-                // recent set of proposals available. While recently submitted proposals won't have any
-                // votes, they might still end up being pruned due to a previous proposal being enacted.
-                //
-                // FIXME: We shouldn't collect all proposals here, but provides iterators for the
-                // ratification step to go over them lazily.
-                db.iter_proposals()?.collect::<Vec<_>>(),
-                db.proposals_roots()?,
-                &self.protocol_parameters,
-            )
-        } else {
-            Ok(db.protocol_parameters()?)
-        }?;
-        batch.commit()?;
+            if should_begin_epoch {
+                Ok(begin_epoch(
+                    batch,
+                    next_epoch,
+                    &self.era_history,
+                    ratification_context,
+                    // Get all proposals to ratify / enact. Note that, even though the ratification happens
+                    // with an epoch of delay (and thus, using data from a snapshot), we always use the most
+                    // recent set of proposals available. While recently submitted proposals won't have any
+                    // votes, they might still end up being pruned due to a previous proposal being enacted.
+                    //
+                    // FIXME: We shouldn't collect all proposals here, but provides iterators for the
+                    // ratification step to go over them lazily.
+                    batch.iter_proposals()?.collect::<Vec<_>>(),
+                    batch.proposals_roots()?,
+                    &self.protocol_parameters,
+                )?)
+            } else {
+                Ok(batch.protocol_parameters()?)
+            }
+        })?;
 
         Ok(protocol_parameters)
     }
