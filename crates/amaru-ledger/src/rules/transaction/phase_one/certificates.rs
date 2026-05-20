@@ -24,7 +24,7 @@ use crate::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, RegisterError,
         UnregisterError, UpdateError, WitnessSlice,
     },
-    store::GovernanceActivity,
+    epoch_transition::GovernanceActivity,
 };
 
 #[derive(Debug, Error)]

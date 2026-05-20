@@ -47,6 +47,7 @@ use columns::*;
 use thiserror::Error;
 
 use crate::{
+    epoch_transition::GovernanceActivity,
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     summary::Pots,
 };
@@ -114,40 +115,6 @@ pub enum EpochTransitionProgress {
     SnapshotTaken,
     #[n(2)]
     EpochStarted,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, cbor::Decode)]
-pub struct GovernanceActivity {
-    #[n(0)]
-    pub consecutive_dormant_epochs: u32,
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-pub use governance_activity_proxy::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-mod governance_activity_proxy {
-    use amaru_kernel::utils::serde::HasProxy;
-    use serde::Deserialize;
-
-    use super::GovernanceActivity;
-
-    /// Fixture JSON shape `{ "numDormantEpochs": <u32> }`.
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct GovernanceActivityProxy {
-        num_dormant_epochs: u32,
-    }
-
-    impl From<GovernanceActivityProxy> for GovernanceActivity {
-        fn from(p: GovernanceActivityProxy) -> Self {
-            GovernanceActivity { consecutive_dormant_epochs: p.num_dormant_epochs }
-        }
-    }
-
-    impl HasProxy for GovernanceActivity {
-        type Proxy = GovernanceActivityProxy;
-    }
 }
 
 // Snapshot

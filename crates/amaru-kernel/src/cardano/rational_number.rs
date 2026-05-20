@@ -16,6 +16,10 @@ pub use pallas_primitives::RationalNumber;
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
+pub fn fmt(r: &RationalNumber) -> String {
+    format!("{}/{}", r.numerator, r.denominator)
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use proptest::prelude::*;

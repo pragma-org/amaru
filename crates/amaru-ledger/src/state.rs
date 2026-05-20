@@ -15,19 +15,19 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeSet, VecDeque},
     net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use amaru_kernel::{
-    AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory, EraHistoryError,
-    GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters,
-    Slot, StakeCredential, StakeCredentialKind, Tip, TransactionInput, expect_stake_credential,
+    AsHash, Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, Hash, Hasher, Lovelace,
+    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, StakeCredential,
+    StakeCredentialKind, Tip, TransactionInput,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::trace_span;
+use amaru_observability::{info_span, trace_span};
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::{Context, anyhow};
@@ -39,21 +39,15 @@ pub use volatile_db::VolatileState;
 use crate::{
     context,
     context::DefaultValidationContext,
-    governance::ratification::{self, RatificationContext},
+    epoch_transition,
+    epoch_transition::{GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, RewardsState},
+    governance::ratification::RatificationContext,
     rules,
     rules::block::BlockValidation,
-    state::{
-        ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
-        volatile_db::{StoreUpdate, VolatileDB},
-    },
-    store::{
-        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext,
-        columns::{pools, proposals},
-    },
+    state::volatile_db::{StoreUpdate, VolatileDB},
+    store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
         governance::{self, GovernanceSummary},
-        into_safe_ratio,
         rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
     },
@@ -103,7 +97,18 @@ where
     /// hold onto the epoch boundary. In the epoch boundary, the stake distribution becomes
     /// available for the leader schedule verification, whereas the stake distribution previously
     /// used for leader schedule is moved as rewards stake.
-    rewards_summary: Option<RewardsSummary>,
+    rewards: RewardsState,
+
+    /// Computed pools updates that are pending application to the stable store. The value is only
+    /// `Some` during the first `k` blocks of an epoch since this corresponds to the unstable part
+    /// of an epoch.
+    ///
+    /// When present, they must be taken into account when creating the ledger validation context.
+    pools_updates: Option<PoolsEpochTransitionUpdates>,
+
+    /// The result of an epoch boundary ratification, stashed temporarily until it is stable enough
+    /// to persist in the stable storage.
+    governance_updates: Option<GovernanceUpdates>,
 
     /// A (shared) collection of the latest stake distributions. Those are used both during rewards
     /// calculations, and for leader schedule verification.
@@ -192,7 +197,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             //     views of the volatile DB on-disk to be able to restore them quickly.
             volatile: VolatileDB::default(),
 
-            rewards_summary: None,
+            rewards: RewardsState::NotReady,
+
+            pools_updates: None,
+
+            governance_updates: None,
 
             stake_distributions: Arc::new(Mutex::new(stake_distributions)),
 
@@ -265,251 +274,213 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[expect(clippy::unwrap_used)]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
-        let _span = trace_span!(
+        trace_span!(
             amaru_observability::amaru::ledger::state::APPLY_BLOCK,
             point_slot = u64::from(now_stable.anchor.0.slot())
-        );
-        let _guard = _span.enter();
+        )
+        .in_scope(|| {
+            let stable_tip_slot = now_stable.anchor.0.slot();
 
-        let stable_tip_slot = now_stable.anchor.0.slot();
+            let current_epoch = self
+                .era_history
+                .slot_to_epoch(stable_tip_slot, stable_tip_slot)
+                .map_err(|e| StateError::ErrorComputingEpoch(stable_tip_slot, e))?;
 
-        let mut db = self.stable.lock().unwrap();
+            // Persist changes for this block
+            let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
+                now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
-        let latest_stored_tip = db.tip().map_err(StateError::Storage)?;
-        let latest_stored_tip_slot = latest_stored_tip.slot_or_default();
+            let db = self.stable.lock().unwrap();
 
-        let current_epoch = self
-            .era_history
-            .slot_to_epoch(stable_tip_slot, stable_tip_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(stable_tip_slot, e))?;
+            let batch = db.create_transaction();
 
-        let latest_stored_epoch = self
-            .era_history
-            .slot_to_epoch(latest_stored_tip_slot, stable_tip_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(latest_stored_tip_slot, e))?;
-
-        let epoch_transitioning = current_epoch > latest_stored_epoch;
-
-        // The volatile sequence may contain points belonging to two epochs.
-        //
-        // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
-        // epoch than the previously applied block (i.e. the tip of the stable storage).
-        if epoch_transitioning {
-            let old_protocol_version = self.protocol_parameters.protocol_version;
-
-            let rewards_summary = self.rewards_summary.take();
-
-            let protocol_parameters =
-                self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
-
-            self.protocol_parameters = protocol_parameters;
-            self.governance_activity = db.governance_activity()?;
-
-            if old_protocol_version != self.protocol_parameters.protocol_version {
-                info!(
-                    from = old_protocol_version.0,
-                    to = self.protocol_parameters.protocol_version.0,
-                    "protocol.upgrade"
+            batch
+                .save(
+                    &self.era_history,
+                    &self.protocol_parameters,
+                    &mut self.governance_activity,
+                    &stable_point,
+                    Some(&stable_issuer),
+                    add,
+                    remove,
+                    withdrawals,
                 )
+                .and_then(|()| {
+                    batch.with_pots(|mut row| {
+                        row.borrow_mut().fees += fees;
+                    })?;
+
+                    batch.commit()
+                })
+                .map_err(StateError::Storage)?;
+
+            Ok(())
+        })
+    }
+
+    /// Check whether the next state should cause an epoch transition. This is the case when it
+    /// corresponds to a block in a different (next) epoch, in which case, we must first transition
+    /// into the new epoch before the block can be validated.
+    fn try_epoch_transition(&mut self, next_tip: Tip) -> Result<(), StateError> {
+        if let Some(current_tip) = self.volatile_tip() {
+            // NOTE: calculating current epoch from slot on block application.
+            //
+            // This is only safe provided the next_tip is within the foreseeable window. If this isn't
+            // the case, it's a clear signal of something going very wrong in the consensus/networking
+            // pipeline feeding blocks to the ledger since they'd be attempting to feed a block that is
+            // many day after the last applied block!
+            let unsafe_slot_to_epoch = |era_history: &EraHistory, slot: Slot| -> Epoch {
+                era_history
+                    .slot_to_epoch_unchecked_horizon(slot)
+                    .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from tip ({slot:?}): {e:?}"))
+            };
+
+            let current_epoch = unsafe_slot_to_epoch(&self.era_history, current_tip.slot());
+            let next_epoch = unsafe_slot_to_epoch(&self.era_history, next_tip.slot());
+
+            if next_epoch > current_epoch {
+                let old_protocol_version = self.protocol_parameters.protocol_version;
+
+                self.epoch_transition(next_epoch)?;
+
+                if old_protocol_version != self.protocol_parameters.protocol_version {
+                    info!(
+                        from = old_protocol_version.0,
+                        to = self.protocol_parameters.protocol_version.0,
+                        "protocol.upgrade"
+                    )
+                }
             }
         }
-
-        // Persist changes for this block
-        let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
-            now_stable.into_store_update(current_epoch, &self.protocol_parameters);
-
-        let batch = db.create_transaction();
-
-        batch
-            .save(
-                &self.era_history,
-                &self.protocol_parameters,
-                &mut self.governance_activity,
-                &stable_point,
-                Some(&stable_issuer),
-                add,
-                remove,
-                withdrawals,
-            )
-            .and_then(|()| {
-                batch.with_pots(|mut row| {
-                    row.borrow_mut().fees += fees;
-                })?;
-
-                // Reset the epoch transition progress once we've successfully applied the first
-                // block of the next epoch.
-                if epoch_transitioning {
-                    let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
-                    if !success {
-                        unreachable!("epoch transition reset did not succeed after first block!")
-                    }
-                }
-
-                batch.commit()
-            })
-            .map_err(StateError::Storage)?;
 
         Ok(())
     }
 
-    fn epoch_transition(
-        &self,
-        db: &mut impl Store,
-        snapshots: &impl HistoricalStores,
-        next_epoch: Epoch,
-        rewards_summary: Option<RewardsSummary>,
-    ) -> Result<ProtocolParameters, StateError> {
-        let _span = trace_span!(
-            INFO,
+    fn epoch_transition(&mut self, next_epoch: Epoch) -> Result<(), StateError> {
+        info_span!(
             amaru_observability::amaru::ledger::state::EPOCH_TRANSITION,
             from = u64::from(next_epoch - 1),
             into = u64::from(next_epoch)
-        );
-        let _guard = _span.enter();
+        )
+        .in_scope(|| {
+            let db = self.stable.lock().unwrap();
 
-        // ---------------------------------------------------------------------------- End of epoch
-        let batch = db.create_transaction();
-        let should_end_epoch = batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
-        if should_end_epoch {
-            end_epoch(
-                &batch,
+            let rewards_payouts = epoch_transition::end_epoch(
+                &*db,
                 // FIXME: This should eventually be an '.await', as we always expect to *eventually*
                 // have some rewards summary being available. There's no way to continue progressing
                 // the ledger if we don't.
-                rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
-            )
-            .map_err(StateError::Storage)?;
-        }
-        batch.commit()?;
+                self.rewards.take().ok_or(StateError::RewardsSummaryNotReady)?,
+            )?;
 
-        // -------------------------------------------------------------------------------- Snapshot
-        let batch = db.create_transaction();
-        let should_snapshot = batch.try_epoch_transition(
-            Some(EpochTransitionProgress::EpochEnded),
-            Some(EpochTransitionProgress::SnapshotTaken),
-        )?;
-        let treasury = if should_snapshot {
-            let treasury = db.pots()?.treasury;
-            db.next_snapshot(next_epoch - 1)?;
-            Ok::<_, StateError>(treasury)
-        } else {
-            Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
-        }?;
-        batch.commit()?;
-        snapshots.prune(next_epoch - MIN_LEDGER_SNAPSHOTS)?;
-
-        // -------------------------------------------------------------------------- Start of epoch
-        let batch = db.create_transaction();
-        let should_begin_epoch = batch.try_epoch_transition(
-            Some(EpochTransitionProgress::SnapshotTaken),
-            Some(EpochTransitionProgress::EpochStarted),
-        )?;
-
-        let ratification_context = new_ratification_context(
-            self.snapshots.for_epoch(next_epoch - 2)?,
-            self.stake_distribution(next_epoch - 2)?,
-            self.protocol_parameters.clone(),
-            treasury,
-        )?;
-
-        let protocol_parameters = if should_begin_epoch {
-            begin_epoch(
-                &batch,
-                next_epoch,
-                &self.era_history,
-                ratification_context,
-                // Get all proposals to ratify / enact. Note that, even though the ratification happens
-                // with an epoch of delay (and thus, using data from a snapshot), we always use the most
-                // recent set of proposals available. While recently submitted proposals won't have any
-                // votes, they might still end up being pruned due to a previous proposal being enacted.
+            let ratification_context = RatificationContext::new(
+                self.snapshots.for_epoch(next_epoch - 2)?,
+                self.stake_distribution(next_epoch - 2)?,
+                // TODO: Pass in a mutable ref?
+                self.protocol_parameters.clone(),
+                // NOTE: ratification treasury value
                 //
-                // FIXME: We shouldn't collect all proposals here, but provides iterators for the
-                // ratification step to go over them lazily.
-                db.iter_proposals()?.collect::<Vec<_>>(),
-                db.proposals_roots()?,
-                &self.protocol_parameters,
-            )
-        } else {
-            Ok(db.protocol_parameters()?)
-        }?;
-        batch.commit()?;
+                // Ratification occurs after rewards have been paid out; and thus, uses the value
+                // of the treasury that already includes any unpaid rewards.
+                db.pots()?.treasury + rewards_payouts.treasury(),
+            )?;
 
-        Ok(protocol_parameters)
+            let (pools_updates, governance_updates) =
+                epoch_transition::begin_epoch(&*db, next_epoch, &self.era_history, ratification_context)?;
+
+            self.rewards = RewardsState::Effective(rewards_payouts);
+            self.pools_updates = Some(pools_updates);
+            self.governance_updates = Some(governance_updates);
+
+            Ok(())
+        })
     }
 
     #[expect(clippy::unwrap_used)]
     fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::COMPUTE_REWARDS);
-        let _guard = _span.enter();
+        trace_span!(amaru_observability::amaru::ledger::state::COMPUTE_REWARDS).in_scope(|| {
+            let mut stake_distributions = self.stake_distributions.lock().unwrap();
+            let stake_distribution =
+                stake_distributions.pop_back().ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
 
-        let mut stake_distributions = self.stake_distributions.lock().unwrap();
-        let stake_distribution =
-            stake_distributions.pop_back().ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
+            let epoch = stake_distribution.epoch + 2;
 
-        let epoch = stake_distribution.epoch + 2;
+            let snapshot = self.snapshots.for_epoch(epoch)?;
+            let rewards_summary =
+                RewardsSummary::new(&snapshot, stake_distribution, &self.global_parameters, &self.protocol_parameters)
+                    .map_err(StateError::Storage)?;
 
-        let snapshot = self.snapshots.for_epoch(epoch)?;
-        let rewards_summary =
-            RewardsSummary::new(&snapshot, stake_distribution, &self.global_parameters, &self.protocol_parameters)
-                .map_err(StateError::Storage)?;
+            stake_distributions.push_front(compute_stake_distribution(
+                &snapshot,
+                &self.era_history,
+                &self.protocol_parameters,
+            )?);
 
-        stake_distributions.push_front(compute_stake_distribution(
-            &snapshot,
-            &self.era_history,
-            &self.protocol_parameters,
-        )?);
-
-        Ok(rewards_summary)
+            Ok(rewards_summary)
+        })
     }
 
     /// Roll the ledger forward with the given block by applying transactions one by one, in
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
     pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::FORWARD);
-        let _guard = _span.enter();
-        let volatile_len_before = self.volatile.len() as u64;
-        let security_param = self.global_parameters.consensus_security_param as u64;
+        trace_span!(amaru_observability::amaru::ledger::state::FORWARD).in_scope(|| {
+            self.try_epoch_transition(next_state.anchor.0)?;
 
-        // Persist the next now-immutable block, which may not quite exist when we just
-        // bootstrapped the system
-        if self.volatile.len() >= self.global_parameters.consensus_security_param {
-            let now_stable = self
-                .volatile
-                .pop_front()
-                .unwrap_or_else(|| unreachable!("pre-condition: self.volatile.len() >= consensus_security_param"));
+            let volatile_len_before = self.volatile.len() as u64;
+            let security_param = self.global_parameters.consensus_security_param;
 
-            let _span = trace_span!(
-                amaru_observability::amaru::ledger::state::VOLATILE_TO_STABLE,
-                persisted_point = now_stable.anchor.0.to_string(),
-                volatile_len_before = volatile_len_before,
-                volatile_len_after = volatile_len_before.saturating_sub(1),
-                k = security_param
-            );
-            let _guard = _span.enter();
+            // Persist the next now-immutable block, which may not quite exist when we just
+            // bootstrapped the system
+            if self.volatile.len() >= security_param {
+                let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
+                    unreachable!(
+                        "pre-condition: self.volatile.len()={} >= consensus_security_param={}",
+                        self.volatile.len(),
+                        self.global_parameters.consensus_security_param
+                    )
+                });
 
-            self.apply_block(now_stable)?;
-        } else {
-            trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
-        }
+                trace_span!(
+                    amaru_observability::amaru::ledger::state::VOLATILE_TO_STABLE,
+                    persisted_point = now_stable.anchor.0.to_string(),
+                    // TODO: useless fields to VOLATILE_TO_STABLE trace?
+                    //
+                    // The next two fields don't look super useful?
+                    //
+                    // 1. The length of the volatile db always vary by exactly 1 here
+                    // 2. The variation is transient, as it grows again from the 'next_state'
+                    volatile_len_before = volatile_len_before,
+                    volatile_len_after = volatile_len_before.saturating_sub(1),
+                    k = security_param as u64
+                )
+                .in_scope(|| self.apply_block(now_stable))?;
+            } else {
+                trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
+            }
 
-        let tip = next_state.anchor.0.slot();
-        let relative_slot =
-            self.era_history.slot_in_epoch(tip, tip).map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
+            let tip = next_state.anchor.0.slot();
+            let relative_slot =
+                self.era_history.slot_in_epoch(tip, tip).map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
 
-        // Once we reach the stability window, compute rewards unless we've already done so.
-        //
-        // FIXME: compute rewards in a thread, or in a non-blocking manner to carry on with other
-        // tasks while rewards are being computed; they only need to be available at the epoch
-        // boundary.
-        let stability_window = self.global_parameters.stability_window;
-        if self.rewards_summary.is_none() && relative_slot >= stability_window {
-            self.rewards_summary = Some(self.compute_rewards()?);
-        }
+            // Once we reach the stability window, compute rewards unless we've already done so.
+            //
+            // FIXME: Asynchronous rewards calculation
+            //
+            // compute rewards in a thread, or in a non-blocking manner to carry on with other
+            // tasks while rewards are being computed; they only need to be available at the epoch
+            // boundary.
+            let stability_window = self.global_parameters.stability_window;
+            /// FIXME: Flush pools updates, rewards and governance updates to disk; and then begin
+            /// rewards calculation.
+            if matches!(self.rewards, RewardsState::NotReady) && relative_slot >= stability_window {
+                self.rewards = RewardsState::Ready(self.compute_rewards()?);
+            }
 
-        self.volatile.push_back(next_state);
+            self.volatile.push_back(next_state);
 
-        Ok(())
+            Ok(())
+        })
     }
 
     #[expect(clippy::unwrap_used)]
@@ -562,7 +533,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// the full mutex around.
     fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistributionView<'_>, StateError> {
         let guard = self.stake_distributions.lock().map_err(|_| StateError::FailedToAcquireStakeDistrLock)?;
-
         StakeDistributionView::new(guard, epoch)
     }
 
@@ -612,80 +582,84 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         block: Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::ROLL_FORWARD);
-        let _guard = _span.enter();
+        trace_span!(amaru_observability::amaru::ledger::state::ROLL_FORWARD).in_scope(|| {
+            let mut context = match self.create_validation_context(&block) {
+                Ok(context) => context,
+                Err(e) => return BlockValidation::Err(anyhow!(e)),
+            };
 
-        let mut context = match self.create_validation_context(&block) {
-            Ok(context) => context,
-            Err(e) => return BlockValidation::Err(anyhow!(e)),
-        };
+            let block_height = block.header.header_body.block_number;
 
-        let block_height = block.header.header_body.block_number;
-        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-        let prev_hash = block.header.header_body.prev_hash;
-        let txs_processed = block.transaction_bodies.len() as u64;
+            let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
-        match rules::validate_block(
-            &mut context,
-            arena_pool,
-            self.network(),
-            self.protocol_parameters(),
-            self.era_history(),
-            self.governance_activity(),
-            block,
-        ) {
-            BlockValidation::Err(err) => BlockValidation::Err(err),
-            BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
-            BlockValidation::Valid(()) => {
-                let state: VolatileState = context.into();
-                let slot = point.slot_or_default();
-                let epoch = match self.era_history().slot_to_epoch(slot, slot) {
-                    Ok(epoch) => epoch,
-                    Err(_) => 0.into(),
-                }
-                .into();
-                let slot_in_epoch = match self.era_history().slot_in_epoch(slot, slot) {
-                    Ok(slot) => slot,
-                    Err(_) => 0.into(),
-                }
-                .into();
+            let metrics = self.new_metrics(point, &block, issuer);
 
-                let slot: u64 = slot.into();
+            rules::validate_block(
+                &mut context,
+                arena_pool,
+                self.network(),
+                self.protocol_parameters(),
+                self.era_history(),
+                self.governance_activity(),
+                block,
+            )?;
 
-                let density = self.chain_density(point);
+            let state: VolatileState = context.into();
 
-                let current_kes_period = slot.checked_div(self.global_parameters.slots_per_kes_period).unwrap_or(0);
-                let remaining_kes_periods =
-                    (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
+            let tip = Tip::new(*point, block_height.into());
 
-                let metrics = LedgerMetrics {
-                    block_height,
-                    txs_processed,
-                    slot,
-                    slot_in_epoch,
-                    epoch,
-                    density,
-                    current_kes_period,
-                    remaining_kes_periods,
-                    hash: hex::encode(point.hash()),
-                    parent_hash: prev_hash.map(hex::encode).unwrap_or_default(),
-                    issuer_verification_key_hash: hex::encode(issuer),
-                };
-
-                let tip = Tip::new(*point, block_height.into());
-                match self.forward(state.anchor(tip, issuer)) {
-                    Ok(()) => BlockValidation::Valid(metrics),
-                    Err(e) => {
-                        error!(%e, "Failed to roll forward the ledger state");
-                        BlockValidation::Err(anyhow!(e))
-                    }
+            match self.forward(state.anchor(tip, issuer)) {
+                Ok(()) => BlockValidation::Valid(metrics),
+                Err(e) => {
+                    error!(%e, "Failed to roll forward the ledger state");
+                    BlockValidation::Err(anyhow!(e))
                 }
             }
+        })
+    }
+
+    fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
+        let slot = point.slot_or_default();
+
+        let prev_hash = block.header.header_body.prev_hash;
+
+        let block_height = block.header.header_body.block_number;
+
+        let txs_processed = block.transaction_bodies.len() as u64;
+
+        let epoch = self
+            .era_history()
+            .slot_to_epoch(slot, slot)
+            .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from current slot ({slot}): {e}"));
+
+        let slot_in_epoch = self.era_history().slot_in_epoch(slot, slot).unwrap_or_else(|e| {
+            unreachable!("impossible; failed to compute relative slot from current slot ({slot}): {e}")
+        });
+
+        let density = self.chain_density(point);
+
+        let current_kes_period = u64::from(slot).checked_div(self.global_parameters.slots_per_kes_period).unwrap_or(0);
+
+        let remaining_kes_periods =
+            (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
+
+        LedgerMetrics {
+            block_height,
+            txs_processed,
+            slot: u64::from(slot),
+            slot_in_epoch: u64::from(slot_in_epoch),
+            epoch: u64::from(epoch),
+            density,
+            current_kes_period,
+            remaining_kes_periods,
+            block_header_hash: hex::encode(point.hash()),
+            parent_block_header_hash: prev_hash.map(hex::encode).unwrap_or_default(),
+            issuer_verification_key_hash: hex::encode(issuer),
         }
     }
 
     pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
-        trace_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string()).in_scope(
+        info_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string()).in_scope(
             || {
                 // NOTE: Rolling back to the tip of the immutable
                 //
@@ -784,83 +758,14 @@ pub fn compute_stake_distribution(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
-    let _span = trace_span!(
-        INFO,
+    info_span!(
         amaru_observability::amaru::ledger::state::COMPUTE_STAKE_DISTRIBUTION,
         epoch = u64::from(snapshot.epoch())
-    );
-    let _guard = _span.enter();
-
-    StakeDistribution::new(snapshot, protocol_parameters, GovernanceSummary::new(snapshot, era_history)?)
-        .map_err(StateError::Storage)
-}
-
-// Epoch Transitions
-// ----------------------------------------------------------------------------
-
-fn end_epoch<'store>(
-    db: &impl TransactionalContext<'store>,
-    mut rewards_summary: RewardsSummary,
-) -> Result<(), StoreError> {
-    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::END_EPOCH);
-    let _guard = _span.enter();
-
-    // Pay rewards to each account.
-    db.with_accounts(|iterator| {
-        for (account, mut row) in iterator {
-            if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                // The condition avoids the mutable borrow when not needed, which will incur a db
-                // operation.
-                if rewards > 0
-                    && let Some(account) = row.borrow_mut()
-                {
-                    account.rewards += rewards;
-                }
-            }
-        }
-    })?;
-
-    // Adjust treasury and reserves accordingly.
-    db.with_pots(|mut row| {
-        let pots = row.borrow_mut();
-        pots.treasury += rewards_summary.delta_treasury() + rewards_summary.unclaimed_rewards();
-        pots.reserves -= rewards_summary.delta_reserves();
-    })?;
-
-    Ok(())
-}
-
-fn begin_epoch<'store>(
-    db: &impl TransactionalContext<'store>,
-    epoch: Epoch,
-    era_history: &EraHistory,
-    ctx: RatificationContext<'_>,
-    proposals: Vec<(ComparableProposalId, proposals::Row)>,
-    roots: ProposalsRoots,
-    protocol_parameters: &ProtocolParameters,
-) -> Result<ProtocolParameters, StateError> {
-    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::BEGIN_EPOCH);
-    let _guard = _span.enter();
-
-    // Reset counters before the epoch begins.
-    reset_blocks_count(db)?;
-    reset_fees(db)?;
-
-    // Tick pools to compute their new state at the epoch boundary. Notice
-    // how we tick with the _current epoch_ however, but we take the snapshot before
-    // the tick since the actions are only effective once the epoch is crossed.
-    //
-    // FIXME: We also need a mechanism to remove any remaining delegation to pools retired by this
-    // step. The accounts are already filtered out when computing rewards, but if any retired pool
-    // were to re-register, they would automatically be granted the stake associated to their past
-    // delegates.
-    tick_pools(db, epoch, protocol_parameters)?;
-
-    // Ratify and enact proposals at the epoch boundary. Also refund deposit for any proposal that
-    // has expired.
-    let protocol_parameters = tick_proposals(db, epoch, era_history, ctx, proposals, roots)?;
-
-    Ok(protocol_parameters)
+    )
+    .in_scope(|| {
+        StakeDistribution::new(snapshot, protocol_parameters, GovernanceSummary::new(snapshot, era_history)?)
+            .map_err(StateError::Storage)
+    })
 }
 
 // Operations on the state
@@ -912,154 +817,6 @@ pub fn refund_many<'store>(
     }
 
     Ok(())
-}
-
-pub fn tick_pools<'store>(
-    db: &impl TransactionalContext<'store>,
-    epoch: Epoch,
-    protocol_parameters: &ProtocolParameters,
-) -> Result<(), StateError> {
-    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::TICK_POOL);
-    let _guard = _span.enter();
-
-    let mut refunds = Vec::new();
-
-    db.with_pools(|iterator| {
-        for (_, pool) in iterator {
-            if let Some(refund) = pools::Row::tick(pool, epoch) {
-                refunds.push(refund)
-            }
-        }
-    })?;
-
-    refund_many(db, refunds.into_iter().map(|credential| (credential, protocol_parameters.stake_pool_deposit)))
-}
-
-pub fn tick_proposals<'store>(
-    db: &impl TransactionalContext<'store>,
-    epoch: Epoch,
-    era_history: &EraHistory,
-    ctx: RatificationContext<'_>,
-    proposals: Vec<(ComparableProposalId, proposals::Row)>,
-    roots: ProposalsRoots,
-) -> Result<ProtocolParameters, StateError> {
-    let _span = trace_span!(
-        INFO,
-        amaru_observability::amaru::ledger::state::TICK_PROPOSALS,
-        proposals_count = proposals.len() as u64
-    );
-    let _guard = _span.enter();
-
-    let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
-
-    let RatificationResult { context: ctx, store_updates, pruned_proposals } = ctx
-        .ratify_proposals(era_history, proposals, ProposalsRootsRc::from(roots))
-        .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
-
-    store_updates.into_iter().try_for_each(|apply_changes| apply_changes(db, &ctx))?;
-
-    let mut still_active = 0;
-    db.with_proposals(|iterator| {
-        for (key, mut item) in iterator {
-            if let Some(row) = item.borrow() {
-                // This '+2' is worthy of an explanation.
-                //
-                // - `epoch` here designates the _next_ epoch we are transitioning into.
-                //
-                // - So, `epoch - 1` points at the epoch that _just ended_.
-                //
-                // - Proposals "valid_until" epoch `e` means that they expire during the
-                //   transition from `e` to `e + 1`  (they can still be voted on in `e`!)
-                //
-                // - Proposals are processed with an epoch of delay; so a proposal that expires
-                //   in `e` will not be refunded in the transition from `e` to `e+1` but in the
-                //   one from `e+1` to `e+2`.
-                //
-                // So, putting it all together:
-                //
-                // 1. A proposal that is valid until `e` must be refunded in the transition
-                //   from `e+1` to `e+2`;
-                //
-                // 2. `epoch` designates the arrival epoch (i.e. `e+2`);
-                //
-                // Hence: epoch == valid_until + 2
-                if epoch == row.valid_until + 2 || pruned_proposals.contains(&key) {
-                    let key = expect_stake_credential(&row.proposal.reward_account);
-                    refunds
-                        .entry(key)
-                        // NOTE: There may be *multiple* refunds for the same credential.
-                        // So it's important not to simply override the refund value with a
-                        // blind 'insert'.
-                        .and_modify(|entry| *entry += row.proposal.deposit)
-                        .or_insert_with(|| row.proposal.deposit);
-                    *item.borrow_mut() = None;
-                // While proposals are only refunded in e+2, they aren't 'votable' in 'e+1'; thus
-                // they cannot be considered active in e+1.
-                } else if epoch <= row.valid_until {
-                    still_active += 1;
-                }
-            }
-        }
-    })?;
-
-    if still_active == 0 {
-        let mut governance_activity = db.governance_activity()?;
-        governance_activity.consecutive_dormant_epochs += 1;
-        db.set_governance_activity(&governance_activity)?;
-    }
-
-    refund_many(db, refunds.into_iter())?;
-
-    Ok(ctx.protocol_parameters)
-}
-
-fn new_ratification_context<'distr>(
-    snapshot: impl Snapshot,
-    stake_distribution: StakeDistributionView<'distr>,
-    protocol_parameters: ProtocolParameters,
-    treasury: Lovelace,
-) -> Result<RatificationContext<'distr>, StoreError> {
-    let _span = trace_span!(INFO, amaru_observability::amaru::ledger::state::RATIFICATION_CONTEXT_NEW);
-    let _guard = _span.enter();
-
-    let constitutional_committee = match snapshot.constitutional_committee()? {
-        ConstitutionalCommitteeStatus::NoConfidence => None,
-        ConstitutionalCommitteeStatus::Trusted { threshold } => {
-            let members = snapshot
-                .iter_cc_members()?
-                .filter_map(|(cold_credential, row)| {
-                    row.valid_until.map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
-                })
-                .collect();
-
-            Some(ratification::ConstitutionalCommittee::new(into_safe_ratio(&threshold), members))
-        }
-    };
-
-    // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
-    // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
-    // require much memory; but it becomes a potential attack vector.
-    //
-    // So ideally, we should avoid loading votes in memory.
-    let votes = snapshot.iter_votes()?.fold(BTreeMap::new(), |mut votes, (k, v)| {
-        votes.entry(k.proposal).or_insert_with(Vec::new).push((k.voter, v));
-
-        votes
-    });
-
-    Ok(RatificationContext {
-        // Ratification happens with one epoch of delay, and at the next epoch transition. So,
-        // if we ratify votes that happened in epoch `e`, the ratification is done during the
-        // transition from `e + 1` to `e + 2`; but it is done "as if" it was happening at the
-        // beginning of epoch `e + 1`. So, the epoch we consider for DRep mandates and proposal
-        // expiry is the one from after the snapshot.
-        epoch: snapshot.epoch() + 1,
-        treasury,
-        stake_distribution,
-        protocol_parameters,
-        constitutional_committee,
-        votes,
-    })
 }
 
 // StakeDistributionView

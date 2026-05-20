@@ -80,32 +80,35 @@ impl StakeDistribution {
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
 
-        let mut refunds = BTreeMap::new();
+        let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
         let mut pools = db
             .iter_pools()?
             .map(|(pool, row)| {
                 let reward_account = expect_stake_credential(&row.current_params.reward_account);
 
-                // NOTE(POOL_VOTING_STAKE_DISTRIBUTION):
+                // NOTE: Pool voting stake distribution & pool retirements
                 //
                 // We need to tick pool as part of the stake distribution calculation, in order to
                 // know whether a pool will retire in the next epoch. This is because, votes
                 // ratification happens *after* pools reaping, and thus, nullify voting power of
                 // pools that are retiring.
-                pools::Row::tick(
-                    Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
-                        if dropped.is_none() {
-                            // FIXME: Store the deposit with the pool, and ensures the same deposit
-                            // it returned back.
-                            //
-                            // FIXME: Handle the case where there would be more than one refund (in
-                            // case where many pools with a same reward account retire all at
-                            // once).
-                            refunds.insert(reward_account, protocol_parameters.stake_pool_deposit);
-                        }
-                    })),
-                    epoch + 1,
-                );
+
+                // FIXME: rewrite once tick has been rewritten and is ready.
+                //
+                // pools::Row::tick(
+                //     Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
+                //         if dropped.is_none() {
+                //             // FIXME: Store the deposit with the pool, and ensures the same deposit
+                //             // it returned back.
+                //             //
+                //             // FIXME: Handle the case where there would be more than one refund (in
+                //             // case where many pools with a same reward account retire all at
+                //             // once).
+                //             refunds.insert(reward_account, protocol_parameters.stake_pool_deposit);
+                //         }
+                //     })),
+                //     epoch + 1,
+                // );
 
                 (
                     pool,

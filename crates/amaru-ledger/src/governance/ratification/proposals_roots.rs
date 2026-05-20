@@ -28,6 +28,17 @@ pub struct GenericProposalsRoots<T> {
     pub constitution: Option<T>,
 }
 
+impl<T: Clone> GenericProposalsRoots<Rc<T>> {
+    pub fn unwrap_or_clone(self) -> GenericProposalsRoots<T> {
+        GenericProposalsRoots {
+            protocol_parameters: self.protocol_parameters.map(Rc::unwrap_or_clone),
+            hard_fork: self.hard_fork.map(Rc::unwrap_or_clone),
+            constitutional_committee: self.constitutional_committee.map(Rc::unwrap_or_clone),
+            constitution: self.constitution.map(Rc::unwrap_or_clone),
+        }
+    }
+}
+
 impl<T> From<GenericProposalsRoots<T>> for GenericProposalsRoots<Rc<T>> {
     fn from(roots: GenericProposalsRoots<T>) -> Self {
         Self {
@@ -38,6 +49,7 @@ impl<T> From<GenericProposalsRoots<T>> for GenericProposalsRoots<Rc<T>> {
         }
     }
 }
+
 impl<C, T: AsRef<ComparableProposalId>> cbor::encode::Encode<C> for GenericProposalsRoots<T> {
     fn encode<W: cbor::encode::Write>(
         &self,

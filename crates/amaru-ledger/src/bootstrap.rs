@@ -30,9 +30,10 @@ use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
 
 use crate::{
+    epoch_transition::GovernanceActivity,
     governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
-    store::{self, GovernanceActivity, Store, StoreError, TransactionalContext, columns::proposals},
+    store::{self, Store, StoreError, TransactionalContext, columns::proposals},
 };
 
 const BATCH_SIZE: usize = 1000;

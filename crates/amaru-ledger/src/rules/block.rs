@@ -28,8 +28,8 @@ use thiserror::Error;
 
 use crate::{
     context::ValidationContext,
+    epoch_transition::GovernanceActivity,
     rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
-    store::GovernanceActivity,
 };
 
 pub mod body_hash;

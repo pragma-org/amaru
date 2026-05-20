@@ -505,15 +505,19 @@ impl RewardsSummary {
         db: &impl Snapshot,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, StoreError> {
-        let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
-            if let Some(account) = pools::Row::tick(Box::new(BorrowableProxy::new(Some(row), |_| {})), self.epoch + 3)
-                && db.account(&account)?.is_none()
-            {
-                return Ok::<_, StoreError>(leftovers + protocol_parameters.stake_pool_deposit);
-            }
+        let leftovers = 0;
 
-            Ok(leftovers)
-        })?;
+        // FIXME
+        //
+        // let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
+        //     if let Some(account) = pools::Row::tick(Box::new(BorrowableProxy::new(Some(row), |_| {})), self.epoch + 3)
+        //         && db.account(&account)?.is_none()
+        //     {
+        //         return Ok::<_, StoreError>(leftovers + protocol_parameters.stake_pool_deposit);
+        //     }
+        //
+        //     Ok(leftovers)
+        // })?;
 
         self.pots.treasury += leftovers;
 
@@ -605,6 +609,56 @@ impl RewardsSummary {
     /// called last.
     pub fn unclaimed_rewards(&self) -> Lovelace {
         self.accounts.iter().fold(0, |total, (_, rewards)| total + rewards)
+    }
+}
+
+/// A slim version of the rewards summary, which only contains accounts that *actually* are
+/// receiving rewards (i.e. those that still exist at the relevant epoch boundary). It is also
+/// trimmed of the other fields which are no longer necessary to remember at this point.
+#[derive(Debug)]
+pub struct RewardsPayouts {
+    /// Amount to be paid to the reserves
+    reserves: Lovelace,
+
+    /// Amount to be paid to the treasury
+    treasury: Lovelace,
+
+    /// Per-account rewards, determined from their relative stake and their delegatee.
+    accounts: BTreeMap<StakeCredential, Lovelace>,
+}
+
+impl RewardsPayouts {
+    /// Initialize a new objects from an initial treasury and reserves value. Note that unclaimed
+    /// rewards can be added separately.
+    pub fn new(reserves: Lovelace, treasury: Lovelace) -> Self {
+        Self { reserves, treasury, accounts: BTreeMap::new() }
+    }
+
+    /// Amount to be paid to the reserves
+    pub fn reserves(&self) -> Lovelace {
+        self.reserves
+    }
+
+    /// Amount to be paid to the treasury
+    pub fn treasury(&self) -> Lovelace {
+        self.treasury
+    }
+
+    /// Register a new account payout.
+    ///
+    /// /!\ ----- IMPORTANT ------------------------------------------------------------------- /!\
+    ///  ! The caller is expected to be checking that accounts still exist before registering    !
+    ///  ! them for payouts!                                                                     !
+    ///  *---------------------------------------------------------------------------------------*
+    pub fn add_account(&mut self, account: StakeCredential, rewards: Lovelace) {
+        self.accounts.insert(account, rewards);
+    }
+
+    /// Add the portion of the rewards that should be credited to the *treasury*, coming from
+    /// accounts that should have received rewards but no longer existed at the moment of the
+    /// payout.
+    pub fn add_unclaimed_rewards(&mut self, unclaimed_rewards: Lovelace) {
+        self.treasury += unclaimed_rewards;
     }
 }
 

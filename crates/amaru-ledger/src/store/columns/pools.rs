@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{CertificatePointer, Epoch, PoolId, PoolParams, StakeCredential, cbor, expect_stake_credential};
-use tracing::{debug, trace};
+use amaru_kernel::{CertificatePointer, Epoch, PoolId, PoolParams, cbor};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
 
@@ -37,128 +36,9 @@ impl Row {
         Self { registered_at, current_params, future_params: Vec::new() }
     }
 
-    /// Alter a Pool object by applying updates recorded across the epoch. A pool can have two types of
-    /// updates:
-    ///
-    /// 1. Re-registration (effectively adjusting its underlying parameters), which always take effect
-    ///    on the next epoch boundary.
-    ///
-    /// 2. Retirements, which specifies an epoch where the retirement becomes effective.
-    ///
-    /// While we collect all updates as they arrive from blocks, a few rules apply:
-    ///
-    /// a. Any re-registration that comes after a retirement cancels that retirement.
-    /// b. Any retirement that come after a retirement cancels that initial retirement.
-    pub fn tick<'a>(
-        mut row: Box<dyn std::borrow::BorrowMut<Option<Self>> + 'a>,
-        current_epoch: Epoch,
-    ) -> Option<StakeCredential> {
-        let (update, retirement, needs_update) = match row.borrow().as_ref() {
-            None => (None, None, false),
-            Some(pool) => pool.fold_future_params(current_epoch),
-        };
-
-        if needs_update {
-            // This drops the immutable borrow. We avoid cloning inside the fold because we only ever need
-            // to clone the last update. Yet we can't hold onto a reference because we must acquire a
-            // mutable borrow below.
-            let update: Option<PoolParams> = update.cloned();
-
-            let pool: &mut Option<Row> = row.borrow_mut();
-
-            // If the most recent retirement is effective as per the current epoch, we simply drop the
-            // entry. Note that, any re-registration happening after that retirement would cancel it,
-            // which is taken care of in the fold above (returning 'None').
-            if let Some(epoch) = retirement
-                && epoch <= current_epoch
-            {
-                let retiring =
-                    &pool.as_ref().unwrap_or_else(|| unreachable!("pre-condition: needs_update")).current_params;
-
-                let refund = expect_stake_credential(&retiring.reward_account);
-
-                debug!(
-                    target: EVENT_TARGET,
-                    pool = %retiring.id,
-                    "tick.retiring"
-                );
-
-                // NOTE:
-                // Callee shall ensure that all pools are ticked on epoch-boundaries.
-                //
-                // Hence, since:
-                //
-                // 1. Re-registrations can only be scheduled for next epoch;
-                // 2. Re-registrations cancel out any retirement for the same epoch;
-                // 3. Retirements cancel out any retirement scheduled and not yet enacted.
-                //
-                // Then we cannot find a case where a pool retires and still have a
-                // re-registration or another retirement still scheduled. Note that the reason
-                // we enforce this invariant here is because the next action will erase the
-                // pool -- and any remaining updates with it. This would have dramatic
-                // consequences should we still have updates stashed for the future.
-                let last =
-                    pool.as_ref().unwrap_or_else(|| unreachable!("pre-condition: needs_update")).future_params.last();
-
-                assert_eq!(
-                    last,
-                    Some(&(None, current_epoch)),
-                    "invariant violation: most recent retirement is not last certificate: {:?}",
-                    last,
-                );
-
-                *pool = None;
-
-                return Some(refund);
-            }
-
-            // Unwrap is safe here because we know the entry exists. Otherwise we wouldn't have got an
-            // update to begin with!
-            let pool = pool.as_mut().unwrap_or_else(|| unreachable!("pre-condition: needs_update"));
-
-            if let Some(new_params) = update {
-                trace!(
-                    target: EVENT_TARGET,
-                    pool = %pool.current_params.id,
-                    ?new_params,
-                    "tick.updating"
-                );
-                pool.current_params = new_params;
-            }
-
-            // Regardless, always prune future params from those that are now-obsolete.
-            pool.future_params.retain(|(_, epoch)| epoch > &current_epoch);
-        }
-
-        None
-    }
-
-    /// Collapse stake pool future parameters according to the current epoch. The stable DB is at most k
-    /// blocks in the past. So, if a certificate is submitted near the end (i.e. within k blocks) of the
-    /// last epoch, then we could be in a situation where we haven't yet processed the registrations
-    /// (since they're processed with a delay of k blocks) but have already moved into the next epoch.
-    ///
-    /// The function returns any new params becoming active in the 'current_epoch', and the retirement
-    /// status of the pool. Note that the pool can both have new parameters AND a retirement scheduled
-    /// at a later epoch.
-    ///
-    /// The boolean indicates whether any of the future params are now-obsolete as per the
-    /// 'current_epoch'.
-    fn fold_future_params(&self, current_epoch: Epoch) -> (Option<&PoolParams>, Option<Epoch>, bool) {
-        self.future_params.iter().fold(
-            (None, None, false),
-            |(update, retirement, any_now_obsolete), (params, epoch)| match params {
-                Some(params) if epoch <= &current_epoch => (Some(params), None, true),
-                None => {
-                    if epoch <= &current_epoch {
-                        (None, Some(*epoch), true)
-                    } else {
-                        (update, Some(*epoch), any_now_obsolete)
-                    }
-                }
-                Some(..) => (update, retirement, any_now_obsolete),
-            },
-        )
+    /// Returns the pool id
+    pub fn id(&self) -> PoolId {
+        self.current_params.id
     }
 
     #[expect(clippy::panic)]
