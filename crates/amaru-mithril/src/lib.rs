@@ -208,13 +208,17 @@ fn extract_raw_cbor_value<'a>(dec: &mut cbor::Decoder<'a>, input: &'a [u8]) -> R
     Ok(&input[start..end])
 }
 
-pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, cbor::decode::Error> {
+pub fn extract_block_header_cbor(input: &[u8]) -> Result<&[u8], cbor::decode::Error> {
     let mut dec: cbor::Decoder<'_> = cbor::Decoder::new(input);
 
     dec.array()?;
     dec.u8()?;
     dec.array()?;
-    let header_body_cbor = extract_raw_cbor_value(&mut dec, input)?;
+    extract_raw_cbor_value(&mut dec, input)
+}
+
+pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, cbor::decode::Error> {
+    let header_body_cbor = extract_block_header_cbor(input)?;
 
     let header_hash = *Hasher::<256>::hash(header_body_cbor);
     let mut body = cbor::Decoder::new(header_body_cbor);

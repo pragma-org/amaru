@@ -117,6 +117,7 @@ pub enum BootstrapError {
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
+const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
 
 fn snapshot_directory_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
     snapshots_dir.join(&snapshot.point)
@@ -482,7 +483,6 @@ pub async fn bootstrap(
     network: NetworkName,
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
-    peer_address: &str,
     requested_first_epoch: Option<Epoch>,
 ) -> Result<(), Box<dyn Error>> {
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
@@ -515,11 +515,48 @@ pub async fn bootstrap(
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
-    let parent_points = bootstrap_parent_points([first_snapshot, second_snapshot, third_snapshot])?;
-    let headers = fetch_headers_from_points(peer_address, network, &parent_points, BOOTSTRAP_HEADERS_PER_POINT).await?;
+    let headers = load_packaged_headers_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
     import_headers(&chain_db, headers).await?;
 
     Ok(())
+}
+
+fn load_packaged_headers_for_bootstrap(
+    second_snapshot_path: &Path,
+    third_snapshot_path: &Path,
+) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    let mut headers = load_packaged_headers_from_snapshot(second_snapshot_path)?;
+    headers.extend(load_packaged_headers_from_snapshot(third_snapshot_path)?);
+    Ok(headers)
+}
+
+fn load_packaged_headers_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    let headers_file = snapshot_path.join(PACKAGED_HEADERS_FILE_NAME);
+    if !headers_file.is_file() {
+        return Err(format!(
+            "missing packaged bootstrap headers at {}. Re-generate snapshots with `amaru generate-epoch-snapshots`.",
+            headers_file.display()
+        )
+        .into());
+    }
+
+    let hex_headers: Vec<String> = serde_json::from_slice(&std::fs::read(&headers_file)?)?;
+    if hex_headers.len() < BOOTSTRAP_HEADERS_PER_POINT {
+        return Err(format!(
+            "packaged bootstrap headers at {} contain {} headers; expected at least {}.",
+            headers_file.display(),
+            hex_headers.len(),
+            BOOTSTRAP_HEADERS_PER_POINT
+        )
+        .into());
+    }
+
+    let mut headers = Vec::with_capacity(hex_headers.len());
+    for hex_header in hex_headers {
+        headers.push(hex::decode(hex_header)?);
+    }
+
+    Ok(headers)
 }
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
@@ -570,10 +607,9 @@ pub fn store_nonces(
     Ok(())
 }
 
-#[allow(clippy::unwrap_used)]
 pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for header in headers {
-        let block_header: BlockHeader = from_cbor(&header).unwrap();
+        let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
         let hash = block_header.hash();
 
         info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting header");

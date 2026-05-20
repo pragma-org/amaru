@@ -14,12 +14,13 @@
 
 use std::{
     fs,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
 use amaru::{DEFAULT_NETWORK, default_data_dir, default_snapshots_dir};
-use amaru_kernel::NetworkName;
-use amaru_mithril::{download_from_mithril, get_latest_chunk};
+use amaru_kernel::{NetworkName, Point};
+use amaru_mithril::{download_from_mithril, extract_block_header_cbor, get_latest_chunk, parse_header_slot_and_hash};
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -36,6 +37,8 @@ use archive::{
 use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::fetch_last_block_for_epoch;
+
+const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -178,6 +181,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     for mut target in pending_targets {
         let prepared_snapshot_path = snapshot_path_for_target(&snapshot_output_dir, &target);
         let prepared_archive_path = archive_path_for_target(&snapshot_output_dir, &target);
+        let immutable_dir = cardano_db_dir.join("immutable");
         let snapshot_dir = match exact_snapshot_dir(&ledger_snapshot_dir, target.slot) {
             Some(snapshot_dir) => {
                 info!(epoch = target.epoch, slot = target.slot, snapshot = %snapshot_dir.display(), "reusing existing db-analyser snapshot");
@@ -200,6 +204,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
         info!(epoch = target.epoch, slot = target.slot, snapshot = %prepared_snapshot_path.display(), "materializing bootstrap snapshot directory");
         materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
+        let packaged_headers = packaged_headers_for_target(&immutable_dir, target.parent_point.as_deref())?;
+        if !packaged_headers.is_empty() {
+            fs::write(
+                prepared_snapshot_path.join(PACKAGED_HEADERS_FILE_NAME),
+                serde_json::to_vec_pretty(&packaged_headers)?,
+            )?;
+        }
         info!(epoch = target.epoch, slot = target.slot, archive = %prepared_archive_path.display(), "packaging snapshot archive");
         write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
 
@@ -252,6 +263,157 @@ fn bootstrap_target_epochs(epoch: u64) -> Result<[u64; 3], Box<dyn std::error::E
 pub(super) fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.parent().and_then(Path::parent).unwrap_or(manifest_dir.as_path()).to_path_buf()
+}
+
+// Extract exactly the two header CBORs that immediately follow the target parent point.
+// It walks sorted immutable .chunk files using .secondary block offsets, matches the parent hash, then takes the next two headers.
+fn packaged_headers_for_target(
+    immutable_dir: &Path,
+    parent_point: Option<&str>,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let Some(parent_point_str) = parent_point else {
+        return Ok(Vec::new());
+    };
+
+    let parent_point = Point::try_from(parent_point_str)?;
+    let parent_hash = hex::encode(&parent_point.hash());
+
+    let mut chunk_names = list_immutable_chunk_names(immutable_dir)?;
+    chunk_names.sort_unstable();
+
+    let entries = chunk_names
+        .into_iter()
+        .map(|chunk_name| read_chunk_header_entries(immutable_dir, &chunk_name))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let Some(parent_index) = entries.iter().position(|(block_hash, _)| *block_hash == parent_hash) else {
+        return Err(format!("parent point {parent_point} not found in immutable blocks under {}", immutable_dir.display())
+            .into());
+    };
+
+    let headers = entries
+        .into_iter()
+        .skip(parent_index + 1)
+        .map(|(_, header_cbor)| header_cbor)
+        .take(2)
+        .collect::<Vec<_>>();
+
+    if headers.len() < 2 {
+        return Err(format!(
+            "could not package 2 bootstrap headers after parent point {parent_point} (found {} blocks)",
+            headers.len()
+        )
+        .into());
+    }
+
+    Ok(headers)
+}
+
+fn read_chunk_header_entries(
+    immutable_dir: &Path,
+    chunk_name: &str,
+) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+    let chunk_path = immutable_dir.join(format!("{chunk_name}.chunk"));
+    let secondary_path = immutable_dir.join(format!("{chunk_name}.secondary"));
+
+    let offsets = read_secondary_offsets(&secondary_path)?;
+    if offsets.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut chunk_file = fs::File::open(&chunk_path)?;
+    let chunk_len = chunk_file.metadata()?.len();
+
+    let entries = offsets
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(idx, start)| read_chunk_header_entry(&mut chunk_file, &offsets, idx, start, chunk_len, &secondary_path))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    Ok(entries)
+}
+
+fn read_chunk_header_entry(
+    chunk_file: &mut fs::File,
+    offsets: &[u64],
+    idx: usize,
+    start: u64,
+    chunk_len: u64,
+    secondary_path: &Path,
+) -> Result<Option<(String, String)>, Box<dyn std::error::Error>> {
+    let end = offsets.get(idx + 1).copied().unwrap_or(chunk_len);
+    if end < start {
+        return Err(format!(
+            "invalid immutable offsets in {} at index {idx}: start={start}, end={end}",
+            secondary_path.display()
+        )
+        .into());
+    }
+
+    let block_len = end - start;
+    if block_len == 0 {
+        return Ok(None);
+    }
+
+    chunk_file.seek(SeekFrom::Start(start))?;
+    let mut block = vec![0u8; block_len as usize];
+    chunk_file.read_exact(&mut block)?;
+
+    let header = match parse_header_slot_and_hash(&block) {
+        Ok(h) => h,
+        Err(_) => return Ok(None),
+    };
+
+    let header_cbor = extract_block_header_cbor(&block)?;
+    Ok(Some((hex::encode(header.header_hash), hex::encode(header_cbor))))
+}
+
+fn list_immutable_chunk_names(immutable_dir: &Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(immutable_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("chunk") {
+            continue;
+        }
+
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+
+        names.push(stem.to_string());
+    }
+
+    Ok(names)
+}
+
+fn read_secondary_offsets(secondary_path: &Path) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
+    const SECONDARY_ENTRY_SIZE: usize = 56;
+
+    let secondary = fs::read(secondary_path)?;
+    if secondary.len() % SECONDARY_ENTRY_SIZE != 0 {
+        return Err(format!(
+            "invalid immutable secondary index size for {}: {} bytes",
+            secondary_path.display(),
+            secondary.len()
+        )
+        .into());
+    }
+
+    let mut offsets = Vec::with_capacity(secondary.len() / SECONDARY_ENTRY_SIZE);
+    for entry in secondary.chunks_exact(SECONDARY_ENTRY_SIZE) {
+        let block_offset = u64::from_be_bytes(entry[0..8].try_into()?);
+        offsets.push(block_offset);
+    }
+
+    Ok(offsets)
 }
 
 #[cfg(test)]
