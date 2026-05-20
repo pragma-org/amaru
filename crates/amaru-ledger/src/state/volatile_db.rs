@@ -35,18 +35,8 @@ pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";
 // VolatileDB
 // ----------------------------------------------------------------------------
 
-// TODO: Currently, the cache owns data that are also available in the sequence. We could
-// potentially avoid cloning and re-allocation altogether by sharing an allocator and having them
-// both reference from within that allocator (e.g. an arena allocator like bumpalo)
-//
-// Ideally, we would just have the struct be self-referenced, but that isn't possible in Rust and
-// we cannot introduce a lifetime to the VolatileDB (which would bubble up to the State).
-//
-// Another option is to have the cache not own data, but indices onto the sequence. This may
-// require to switch the sequence back to a Vec to allow fast random lookups.
 #[derive(Default)]
 pub struct VolatileDB {
-    cache: VolatileCache,
     sequence: VecDeque<AnchoredVolatileState>,
 }
 
@@ -68,11 +58,19 @@ impl VolatileDB {
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.cache.utxo.produced.get(input)
+        for state in self.sequence.iter().rev() {
+            if state.state.utxo.consumed.contains(input) {
+                return None;
+            }
+            if let Some(output) = state.state.utxo.produced.get(input) {
+                return Some(output);
+            }
+        }
+        None
     }
 
     pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.cache.utxo.consumed.contains(input)
+        self.sequence.iter().any(|state| state.state.utxo.consumed.contains(input))
     }
 
     pub fn contains(&self, point: &Point) -> bool {
@@ -80,22 +78,10 @@ impl VolatileDB {
     }
 
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
-        self.sequence.pop_front().inspect(|state| {
-            // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
-            // remove them from the sequence to prevent the cache from growing out of proportion.
-            for k in state.state.utxo.consumed.iter() {
-                self.cache.utxo.consumed.remove(k);
-            }
-
-            for (k, _) in state.state.utxo.produced.iter() {
-                self.cache.utxo.produced.remove(k);
-            }
-        })
+        self.sequence.pop_front()
     }
 
     pub fn push_back(&mut self, state: AnchoredVolatileState) {
-        // TODO: See NOTE on VolatileDB regarding the .clone()
-        self.cache.merge(state.state.utxo.clone());
         self.sequence.push_back(state);
     }
 
@@ -128,17 +114,12 @@ impl VolatileDB {
             return Err(point);
         }
 
-        // Now we know the target point is within the sequence
-        // Rebuild the cache up to that point
-        let mut cache = VolatileCache::default();
-
-        // Keep all elements with slot <= target_slot
+        // Now we know the target point is within the sequence.
+        // Keep all elements with point <= target point.
         let mut ix = 0;
         let mut found = false;
         for diff in self.sequence.iter() {
             if diff.anchor.0.point() <= *point {
-                // TODO: See NOTE on VolatileDB regarding the .clone()
-                cache.merge(diff.state.utxo.clone());
                 ix += 1;
                 if diff.anchor.0.point() == *point {
                     found = true;
@@ -154,25 +135,7 @@ impl VolatileDB {
         }
 
         self.sequence.truncate(ix);
-        self.cache = cache;
         Ok(())
-    }
-}
-
-// VolatileCache
-// ----------------------------------------------------------------------------
-
-// TODO: At this point, we only need to lookup UTxOs, so the aggregated cache is limited to those.
-// It would be relatively easy to extend to accounts, but it is trickier for pools since
-// DiffEpochReg aren't meant to be mergeable across epochs.
-#[derive(Default)]
-struct VolatileCache {
-    pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
-}
-
-impl VolatileCache {
-    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>) {
-        self.utxo.merge(utxo);
     }
 }
 
