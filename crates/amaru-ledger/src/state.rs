@@ -33,7 +33,7 @@ use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distri
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
 use thiserror::Error;
-use tracing::{Span, debug, error, info, trace};
+use tracing::{Span, debug, error, info, trace, warn};
 use volatile_db::AnchoredVolatileState;
 pub use volatile_db::VolatileState;
 
@@ -326,8 +326,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let batch = db.create_transaction();
 
-        batch
-            .save(
+        let save = (|| {
+            batch.save(
                 &self.era_history,
                 &self.protocol_parameters,
                 &mut self.governance_activity,
@@ -336,24 +336,32 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 add,
                 remove,
                 withdrawals,
-            )
-            .and_then(|()| {
-                batch.with_pots(|mut row| {
-                    row.borrow_mut().fees += fees;
-                })?;
+            )?;
 
-                // Reset the epoch transition progress once we've successfully applied the first
-                // block of the next epoch.
-                if epoch_transitioning {
-                    let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
-                    if !success {
-                        unreachable!("epoch transition reset did not succeed after first block!")
-                    }
+            batch.with_pots(|mut row| {
+                row.borrow_mut().fees += fees;
+            })?;
+
+            // Reset the epoch transition progress once we've successfully applied the first
+            // block of the next epoch.
+            if epoch_transitioning {
+                let success = batch.try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
+                if !success {
+                    unreachable!("epoch transition reset did not succeed after first block!")
                 }
+            }
 
-                batch.commit()
-            })
-            .map_err(StateError::Storage)?;
+            Ok(())
+        })();
+
+        if let Err(error) = save {
+            if let Err(rollback_error) = batch.rollback() {
+                warn!(%rollback_error, "failed to roll back block application transaction");
+            }
+            return Err(StateError::Storage(error));
+        }
+
+        batch.commit().map_err(StateError::Storage)?;
 
         Ok(())
     }
@@ -399,7 +407,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             db.next_snapshot(next_epoch - 1)?;
             Ok::<_, StateError>(treasury)
         } else {
-            Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
+            match snapshots.for_epoch(next_epoch - 1).and_then(|snapshot| snapshot.pots()) {
+                Ok(pots) => Ok(pots.treasury),
+                Err(error) => {
+                    warn!(%error, epoch = %u64::from(next_epoch - 1), "snapshot marked as taken but unavailable; recreating");
+                    db.next_snapshot(next_epoch - 1)?;
+                    Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
+                }
+            }
         }?;
         batch.commit()?;
         snapshots.prune(next_epoch - MIN_LEDGER_SNAPSHOTS)?;
@@ -419,7 +434,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         )?;
 
         let protocol_parameters = if should_begin_epoch {
-            begin_epoch(
+            let begin_epoch = begin_epoch(
                 &batch,
                 next_epoch,
                 &self.era_history,
@@ -434,7 +449,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 db.iter_proposals()?.collect::<Vec<_>>(),
                 db.proposals_roots()?,
                 &self.protocol_parameters,
-            )
+            );
+
+            if let Err(error) = begin_epoch {
+                if let Err(rollback_error) = batch.rollback() {
+                    warn!(%rollback_error, "failed to roll back epoch transition transaction");
+                }
+                return Err(error);
+            }
+
+            begin_epoch
         } else {
             Ok(db.protocol_parameters()?)
         }?;
@@ -482,7 +506,17 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             db.iter_proposals()?.collect::<Vec<_>>(),
             db.proposals_roots()?,
             &self.protocol_parameters,
-        )?;
+        );
+
+        let protocol_parameters = match protocol_parameters {
+            Ok(protocol_parameters) => protocol_parameters,
+            Err(error) => {
+                if let Err(rollback_error) = batch.rollback() {
+                    warn!(%rollback_error, "failed to roll back protocol parameter forecast transaction");
+                }
+                return Err(error);
+            }
+        };
         batch.rollback().map_err(StateError::Storage)?;
 
         self.validation_protocol_parameters = Some((block_epoch, protocol_parameters.clone()));
@@ -501,7 +535,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let epoch = stake_distribution.epoch + 2;
 
-        let snapshot = self.snapshots.for_epoch(epoch)?;
+        let snapshot = match self.snapshots.for_epoch(epoch) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                warn!(%error, epoch = %u64::from(epoch), "snapshot needed for rewards is unavailable; recreating");
+                let db = self.stable.lock().unwrap();
+                db.next_snapshot(epoch)?;
+                self.snapshots.for_epoch(epoch)?
+            }
+        };
         let rewards_summary =
             RewardsSummary::new(&snapshot, stake_distribution, &self.global_parameters, &self.protocol_parameters)
                 .map_err(StateError::Storage)?;
