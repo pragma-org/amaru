@@ -13,7 +13,7 @@ exporters:
   otlp/forward:
     endpoint: "${env:OTLP_FORWARD_ENDPOINT}"
     tls:
-      insecure: true
+      insecure: ${env:OTLP_TLS_INSECURE:-false}
 
 service:
   pipelines:
