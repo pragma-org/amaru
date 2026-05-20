@@ -32,7 +32,7 @@ use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distri
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::{Context, anyhow};
 use thiserror::Error;
-use tracing::{Span, debug, error, info, trace};
+use tracing::{Span, debug, error, info, trace, warn};
 use volatile_db::AnchoredVolatileState;
 pub use volatile_db::VolatileState;
 
@@ -393,7 +393,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             db.next_snapshot(next_epoch - 1)?;
             Ok::<_, StateError>(treasury)
         } else {
-            Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
+            match snapshots.for_epoch(next_epoch - 1).and_then(|snapshot| snapshot.pots()) {
+                Ok(pots) => Ok(pots.treasury),
+                Err(error) => {
+                    warn!(%error, epoch = %u64::from(next_epoch - 1), "snapshot marked as taken but unavailable; recreating");
+                    db.next_snapshot(next_epoch - 1)?;
+                    Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
+                }
+            }
         }?;
         batch.commit()?;
         snapshots.prune(next_epoch - MIN_LEDGER_SNAPSHOTS)?;
@@ -448,7 +455,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let epoch = stake_distribution.epoch + 2;
 
-        let snapshot = self.snapshots.for_epoch(epoch)?;
+        let snapshot = match self.snapshots.for_epoch(epoch) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                warn!(%error, epoch = %u64::from(epoch), "snapshot needed for rewards is unavailable; recreating");
+                let db = self.stable.lock().unwrap();
+                db.next_snapshot(epoch)?;
+                self.snapshots.for_epoch(epoch)?
+            }
+        };
         let rewards_summary =
             RewardsSummary::new(&snapshot, stake_distribution, &self.global_parameters, &self.protocol_parameters)
                 .map_err(StateError::Storage)?;

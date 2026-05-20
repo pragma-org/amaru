@@ -25,14 +25,13 @@ use amaru::{DEFAULT_NETWORK, default_chain_dir, default_data_dir, default_ledger
 use amaru_consensus::store::PraosChainStore;
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point, RawBlock,
-    cardano::network_block::NetworkBlock, to_cbor,
+    cardano::network_block::NetworkBlock,
 };
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
+use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use flate2::read::GzDecoder;
-use rayon::prelude::*;
 use tar::Archive;
 use tracing::info;
 
@@ -156,7 +155,6 @@ async fn load_blocks(
 async fn process_block(
     chain_store: &Arc<dyn ChainStore<BlockHeader>>,
     praos_chain_store: &PraosChainStore<BlockHeader>,
-    consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
     point: Point,
     raw_block: RawBlock,
@@ -166,19 +164,10 @@ async fn process_block(
     let block_header = BlockHeader::from(&block.header);
     chain_store.store_header(&block_header)?;
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
-    let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
+    praos_chain_store.evolve_nonce(&block_header)?;
 
-    // Verify block headers
-    header::assert_all(
-        consensus_parameters,
-        block_header.header(),
-        to_cbor(&block_header.header_body()).as_slice(),
-        Arc::new(block_validator.state.lock().unwrap().view_stake_distribution()),
-        &epoch_nonce.active,
-    )
-    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
-
-    // Verify block content
+    // Archived blocks come from certified Mithril snapshots; replay keeps Praos nonces current
+    // above, then validates and applies ledger state.
     block_validator
         .roll_forward_block(&point, block)
         .await
@@ -195,8 +184,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let era_history: &EraHistory = network.into();
     let global_parameters: &GlobalParameters = network.into();
-    let consensus_parameters =
-        Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
     let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
     let chain_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
@@ -222,15 +209,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 break 'archives;
             }
 
-            process_block(
-                &chain_store,
-                &praos_chain_store,
-                consensus_parameters.clone(),
-                &block_validator,
-                point,
-                raw_block,
-            )
-            .await?;
+            process_block(&chain_store, &praos_chain_store, &block_validator, point, raw_block).await?;
 
             processed += 1;
 
