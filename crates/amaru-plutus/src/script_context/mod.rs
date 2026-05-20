@@ -256,34 +256,35 @@ impl<'a> TxInfo<'a> {
 
         let mut script_table: BTreeMap<OrderedRedeemer<'a>, Script<'a>> = BTreeMap::new();
 
-        let redeemers = Redeemers::new(
-            witness_set
-                .redeemer
-                .as_ref()
-                .map(|redeemers| {
-                    Redeemers::iter_from(redeemers)
-                        .enumerate()
-                        .map(|(ix, redeemer)| {
-                            let purpose = ScriptPurpose::builder(
-                                &redeemer,
-                                &inputs[..],
-                                &mint,
-                                &withdrawals,
-                                &certificates,
-                                &proposal_procedures,
-                                &votes,
-                                &scripts,
-                                &mut script_table,
-                            )
-                            .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
+        let redeemers = witness_set
+            .redeemer
+            .as_ref()
+            .map(|redeemers| {
+                let mut translated = BTreeMap::new();
 
-                            Ok((redeemer, purpose))
-                        })
-                        .collect::<Result<BTreeMap<OrderedRedeemer<'a>, ScriptPurpose<'a>>, TxInfoTranslationError>>()
-                })
-                .transpose()?
-                .unwrap_or_default(),
-        );
+                for (ix, redeemer) in Redeemers::iter_from(redeemers).enumerate() {
+                    let purpose = ScriptPurpose::builder(
+                        &redeemer,
+                        &inputs[..],
+                        &mint,
+                        &withdrawals,
+                        &certificates,
+                        &proposal_procedures,
+                        &votes,
+                        &scripts,
+                        &mut script_table,
+                    )
+                    .ok_or(TxInfoTranslationError::InvalidRedeemer(ix))?;
+
+                    replace_redeemer_key(&mut translated, redeemer, purpose);
+                }
+
+                Ok::<_, TxInfoTranslationError>(translated)
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let redeemers = Redeemers::new(redeemers);
 
         let datums = witness_set.plutus_data.as_ref().map(Datums::from).unwrap_or_default();
 
@@ -374,7 +375,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(StakeCredential::ScriptHash(hash)) = output.address.as_shelley().map(|addr| addr.owner()) {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone(), script.clone());
+                        Self::add_script_to_table(script_table, redeemer, script);
                         ScriptPurpose::Spending(input, ())
                     })
                 } else {
@@ -384,7 +385,7 @@ impl<'a> ScriptPurpose<'a> {
             RedeemerTag::Mint => mint.0.keys().nth(index).copied().and_then(|policy_id| {
                 let script = scripts.get(&policy_id);
                 script.map(|script| {
-                    script_table.insert(redeemer.clone(), script.clone());
+                    Self::add_script_to_table(script_table, redeemer, script);
                     ScriptPurpose::Minting(policy_id)
                 })
             }),
@@ -392,7 +393,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let StakePayload::Script(hash) = stake.0.payload() {
                     let script = scripts.get(hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone(), script.clone());
+                        Self::add_script_to_table(script_table, redeemer, script);
                         ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash))
                     })
                 } else {
@@ -403,7 +404,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let StakeCredential::ScriptHash(hash) = certificate.owner() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone(), script.clone());
+                        Self::add_script_to_table(script_table, redeemer, script);
                         ScriptPurpose::Certifying(index, certificate.clone())
                     })
                 } else {
@@ -414,7 +415,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let StakeCredential::ScriptHash(hash) = voter.owner() {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone(), script.clone());
+                        Self::add_script_to_table(script_table, redeemer, script);
                         ScriptPurpose::Voting(voter)
                     })
                 } else {
@@ -439,7 +440,7 @@ impl<'a> ScriptPurpose<'a> {
                 if let Some(hash) = script_hash {
                     let script = scripts.get(&hash);
                     script.map(|script| {
-                        script_table.insert(redeemer.clone(), script.clone());
+                        Self::add_script_to_table(script_table, redeemer, script);
                         ScriptPurpose::Proposing(index, proposal)
                     })
                 } else {
@@ -459,6 +460,21 @@ impl<'a> ScriptPurpose<'a> {
             ScriptInfo::Proposing(i, p) => ScriptInfo::Proposing(*i, p),
         }
     }
+
+    // Replace the key as well as the value when redeemers are equal, so duplicate
+    // redeemer pointers keep the latest redeemer data.
+    fn add_script_to_table(
+        script_table: &mut BTreeMap<OrderedRedeemer<'a>, Script<'a>>,
+        redeemer: &OrderedRedeemer<'a>,
+        script: &Script<'a>,
+    ) {
+        replace_redeemer_key(script_table, redeemer.clone(), script.clone());
+    }
+}
+
+fn replace_redeemer_key<'a, T>(table: &mut BTreeMap<OrderedRedeemer<'a>, T>, redeemer: OrderedRedeemer<'a>, value: T) {
+    table.remove(&redeemer);
+    table.insert(redeemer, value);
 }
 
 /// A resolved input which includes the output it references.
@@ -1191,6 +1207,28 @@ mod tests {
 
             StakeAddress(new_stake_address(network, delegation))
         })
+    }
+
+    fn spend_redeemer(value: u64) -> OrderedRedeemer<'static> {
+        OrderedRedeemer::from(Redeemer {
+            tag: RedeemerTag::Spend,
+            index: 0,
+            data: <u64 as ToPlutusData<3>>::to_plutus_data(&value).expect("valid redeemer data"),
+            ex_units: ExUnits { mem: value, steps: value },
+        })
+    }
+
+    #[test]
+    fn replace_redeemer_key_replaces_equivalent_redeemer_data() {
+        let mut redeemers = BTreeMap::new();
+
+        replace_redeemer_key(&mut redeemers, spend_redeemer(2), "first");
+        replace_redeemer_key(&mut redeemers, spend_redeemer(3), "second");
+
+        let (redeemer, value) = redeemers.iter().next().expect("redeemer");
+        assert_eq!(redeemers.len(), 1);
+        assert_eq!(*value, "second");
+        assert_eq!(redeemer.ex_units.mem, 3);
     }
 
     #[test]
