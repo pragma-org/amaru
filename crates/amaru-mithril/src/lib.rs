@@ -39,7 +39,6 @@ pub const BLOCKS_PER_ARCHIVE: usize = 20000;
 struct AggregatorDetails {
     endpoint: &'static str,
     verification_key: &'static str,
-    ancillary_verification_key: &'static str,
 }
 
 struct IndicatifFeedbackReceiver {
@@ -131,17 +130,14 @@ fn aggregator_details(network: NetworkName) -> Result<AggregatorDetails, Box<dyn
         NetworkName::Mainnet => Ok(AggregatorDetails {
             endpoint: "https://aggregator.release-mainnet.api.mithril.network/aggregator",
             verification_key: "5b3139312c36362c3134302c3138352c3133382c31312c3233372c3230372c3235302c3134342c32372c322c3138382c33302c31322c38312c3135352c3230342c31302c3137392c37352c32332c3133382c3139362c3231372c352c31342c32302c35372c37392c33392c3137365d",
-            ancillary_verification_key: "5b32332c37312c39362c3133332c34372c3235332c3232362c3133362c3233352c35372c3136342c3130362c3138362c322c32312c32392c3132302c3136332c38392c3132312c3137372c3133382c3230382c3133382c3231342c39392c35382c32322c302c35382c332c36395d",
         }),
         NetworkName::Preprod => Ok(AggregatorDetails {
             endpoint: "https://aggregator.release-preprod.api.mithril.network/aggregator",
             verification_key: "5b3132372c37332c3132342c3136312c362c3133372c3133312c3231332c3230372c3131372c3139382c38352c3137362c3139392c3136322c3234312c36382c3132332c3131392c3134352c31332c3233322c3234332c34392c3232392c322c3234392c3230352c3230352c33392c3233352c34345d",
-            ancillary_verification_key: "5b3138392c3139322c3231362c3135302c3131342c3231362c3233372c3231302c34352c31382c32312c3139362c3230382c3234362c3134362c322c3235322c3234332c3235312c3139372c32382c3135372c3230342c3134352c33302c31342c3232382c3136382c3132392c38332c3133362c33365d",
         }),
         NetworkName::Preview => Ok(AggregatorDetails {
             endpoint: "https://aggregator.testing-preview.api.mithril.network/aggregator",
             verification_key: "5b3132372c37332c3132342c3136312c362c3133372c3133312c3231332c3230372c3131372c3139382c38352c3137362c3139392c3136322c3234312c36382c3132332c3131392c3134352c31332c3233322c3234332c34392c3232392c322c3234392c3230352c3230352c33392c3233352c34345d",
-            ancillary_verification_key: "5b3138392c3139322c3231362c3135302c3131342c3231362c3233372c3231302c34352c31382c32312c3139362c3230382c3234362c3134362c322c3235322c3234332c3235312c3139372c32382c3135372c3230342c3134352c33302c31342c3232382c3136382c3132392c38332c3133362c33365d",
         }),
         NetworkName::Testnet(_) => Err("Mithril is only supported on mainnet, preprod and preview".into()),
     }
@@ -153,9 +149,8 @@ pub async fn download_from_mithril(
     from_chunk: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let progress_bar = MultiProgress::new();
-    let AggregatorDetails { endpoint, verification_key, ancillary_verification_key } = aggregator_details(network)?;
+    let AggregatorDetails { endpoint, verification_key } = aggregator_details(network)?;
     let client = ClientBuilder::aggregator(endpoint, verification_key)
-        .set_ancillary_verification_key(ancillary_verification_key.to_string())
         .with_origin_tag(Some("AMARU".to_string()))
         .add_feedback_receiver(Arc::new(IndicatifFeedbackReceiver::new(&progress_bar)))
         .build()?;
