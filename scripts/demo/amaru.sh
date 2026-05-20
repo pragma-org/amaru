@@ -59,6 +59,35 @@ downstream_adopted_slot() {
   adopted_slot_from_log "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}"
 }
 
+amaru_network_from_log() {
+  local log="$1"
+  [[ -f "$log" ]] || { echo ""; return; }
+  LC_ALL=C awk '
+    {
+      if (match($0, /"network":"[^"]+"/)) {
+        network = substr($0, RSTART, RLENGTH)
+        sub(/^"network":"/, "", network)
+        sub(/"$/, "", network)
+      } else if (match($0, /network="?[A-Za-z0-9_-]+"?/)) {
+        network = substr($0, RSTART, RLENGTH)
+        sub(/^network="?/, "", network)
+        sub(/"?$/, "", network)
+      }
+    }
+    END { if (network != "") print network }
+  ' "$log" 2>/dev/null
+}
+
+validate_amaru_runtime_network() {
+  local log="$1" label="$2" expected="${NETWORK:-}" actual
+  [[ -n "$expected" ]] || return 0
+  actual="$(amaru_network_from_log "$log")"
+  [[ -n "$actual" ]] || return 0
+  if [[ "$actual" != "$expected" ]]; then
+    die "$label Amaru is running on network=$actual, but this command is configured with AMARU_NETWORK=$expected"
+  fi
+}
+
 # Computes the absolute slot distance between two tips.
 sync_gap() {
   local tip="$1"
@@ -96,6 +125,8 @@ wait_for_amaru_sync_to_cardano_node() {
   local magic start now tip middle downstream middle_gap downstream_gap elapsed prev_middle prev_down prev_t poll_interval eta
   magic="$(network_magic)"
   wait_for_cardano_socket
+  validate_amaru_runtime_network "${AMARU_MIDDLE_LOG_FILE:-$LOGDIR/amaru-middle.log}" "middle"
+  validate_amaru_runtime_network "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}" "downstream"
   poll_interval="$(sync_poll_interval_seconds)"
   start="$(date +%s)"
   prev_middle=""
@@ -145,6 +176,7 @@ wait_for_downstream_slot() {
   local target_slot="$1"
   local timeout="$TX_SYNC_TIMEOUT_SECONDS"
   local start now elapsed downstream remaining prev_down prev_t poll_interval eta
+  validate_amaru_runtime_network "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}" "downstream"
   poll_interval="$(sync_poll_interval_seconds)"
   start="$(date +%s)"
   prev_down=""

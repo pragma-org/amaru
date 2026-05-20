@@ -275,7 +275,7 @@ wait_before_submit() {
 generate_submit() {
   require_cardano_cli
   [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set"
-  [[ -n "$TX_PAYMENT_SKEY" ]] || die "TX_PAYMENT_SKEY must be set to a funded preprod payment signing key"
+  [[ -n "$TX_PAYMENT_SKEY" ]] || die "TX_PAYMENT_SKEY must be set to a funded testnet payment signing key"
   [[ -f "$TX_PAYMENT_SKEY" ]] || die "TX_PAYMENT_SKEY does not exist: $TX_PAYMENT_SKEY"
   have jq || die "jq is required to query and select UTxOs"
   have curl || die "curl not found"
@@ -298,6 +298,8 @@ generate_submit() {
   mkdir -p "$tx_dir" "$LOGDIR"
   rm -f "$tx_dir"/tx-* "$tx_dir"/last-response-* "$tx_dir"/protocol-params.json "$tx_dir"/utxo.json "$tx_dir"/payment.vkey 2>/dev/null || true
   exec > >(tee -a "$LOGDIR/submit-tx.log") 2>&1
+  validate_amaru_runtime_network "${AMARU_MIDDLE_LOG_FILE:-$LOGDIR/amaru-middle.log}" "middle"
+  validate_amaru_runtime_network "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}" "downstream"
   initialize_submit_claims "$claim_dir" "$tx_id_dir" "$claim_lock_dir" "$active_dir" "$replica_num"
   trap release_submit_active_replica EXIT
 
@@ -473,17 +475,18 @@ generate_submit() {
 refuel_submit_wallet() {
   require_cardano_cli
   [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set"
-  [[ -n "$TX_PAYMENT_SKEY" ]] || die "TX_PAYMENT_SKEY must be set to a funded preprod payment signing key"
+  [[ -n "$TX_PAYMENT_SKEY" ]] || die "TX_PAYMENT_SKEY must be set to a funded testnet payment signing key"
   [[ -f "$TX_PAYMENT_SKEY" ]] || die "TX_PAYMENT_SKEY does not exist: $TX_PAYMENT_SKEY"
   have jq || die "jq is required to query and select UTxOs"
 
-  local socket magic address tx_dir utxo_file tx_body tx_signed tx_id target_lovelace min_total_lovelace
+  local socket magic address tx_dir utxo_file tx_body tx_signed submit_error_file tx_id target_lovelace min_total_lovelace
   socket="$(cardano_node_socket_file)"
   magic="$(network_magic)"
   tx_dir="$RUNDIR/generated/refuel-submit-wallet"
   utxo_file="$tx_dir/utxo.json"
   tx_body="$tx_dir/refuel.body"
   tx_signed="$tx_dir/refuel.signed"
+  submit_error_file="$tx_dir/refuel-submit.err"
   target_lovelace=$((TX_REFUEL_UTXO_COUNT * TX_REFUEL_OUTPUT_LOVELACE))
   min_total_lovelace=$((target_lovelace + TX_FEE_BUFFER_LOVELACE))
 
@@ -572,10 +575,18 @@ refuel_submit_wallet() {
 
   tx_id="$("$CARDANO_CLI" conway transaction txid --tx-file "$tx_signed" --output-text)"
   echo "[refuel-submit-wallet] submitting refuel transaction tx_id=$tx_id"
-  "$CARDANO_CLI" conway transaction submit \
+  if ! "$CARDANO_CLI" conway transaction submit \
     --testnet-magic "$magic" \
     --socket-path "$socket" \
-    --tx-file "$tx_signed"
+    --tx-file "$tx_signed" 2> "$submit_error_file"; then
+    if grep -qi 'All inputs are spent' "$submit_error_file"; then
+      cat "$submit_error_file"
+      echo "[refuel-submit-wallet] submit input is already spent; continuing as tx_id=$tx_id may already be included"
+    else
+      cat "$submit_error_file"
+      return 1
+    fi
+  fi
 
   clear_submit_claim_state
   echo "[refuel-submit-wallet] cleared submit-tx claim state"

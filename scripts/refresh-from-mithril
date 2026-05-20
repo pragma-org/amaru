@@ -90,6 +90,20 @@ replace_dir() {
   echo "[mithril-refresh] installed $target"
 }
 
+prepare_refresh_dir() {
+  local root_dir="$1" chain_dir="$2" ledger_dir="$3"
+
+  if [[ -d "$chain_dir" && -d "$ledger_dir" ]]; then
+    echo "[mithril-refresh] resuming existing in-progress databases in $root_dir"
+    echo "[mithril-refresh] set FORCE_REFRESH=true to discard them and start from scratch"
+    return
+  fi
+
+  rm -rf "$root_dir"
+  mkdir -p "$root_dir"
+  bootstrap_refresh "$chain_dir" "$ledger_dir" "$root_dir"
+}
+
 bootstrap_refresh() {
   local chain_dir="$1" ledger_dir="$2" root_dir="$3"
 
@@ -104,14 +118,14 @@ bootstrap_refresh() {
 sync_refresh() {
   local chain_dir="$1" ledger_dir="$2"
 
-  echo "[mithril-refresh] downloading latest Mithril snapshot and packaging immutable blocks"
+  echo "[mithril-refresh] downloading missing Mithril immutable chunks and packaging blocks"
   cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- mithril \
     --network "$NETWORK" \
     --ledger-dir "$ledger_dir" \
     --snapshots-dir "$SNAPSHOTS_DIR"
 
   echo "[mithril-refresh] syncing Amaru chain and ledger databases from packaged blocks"
-  cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- sync \
+  AMARU_LEDGER_TRUST_MITHRIL_BLOCKS=true cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- sync \
     --network "$NETWORK" \
     --chain-dir "$chain_dir" \
     --ledger-dir "$ledger_dir"
@@ -164,9 +178,7 @@ if ! truthy "$INSTALL" &&
   echo "  chain:  $STAGING_CHAIN_DIR"
   echo "  ledger: $STAGING_LEDGER_DIR"
 elif truthy "$INSTALL"; then
-  rm -rf "$STAGING_DIR"
-  mkdir -p "$STAGING_DIR"
-  bootstrap_refresh "$STAGING_CHAIN_DIR" "$STAGING_LEDGER_DIR" "$STAGING_DIR"
+  prepare_refresh_dir "$STAGING_DIR" "$STAGING_CHAIN_DIR" "$STAGING_LEDGER_DIR"
   sync_refresh "$STAGING_CHAIN_DIR" "$STAGING_LEDGER_DIR"
 
   echo "[mithril-refresh] refreshed databases:"
@@ -176,9 +188,7 @@ elif truthy "$INSTALL"; then
   install_dir "$STAGING_LEDGER_DIR" "$TARGET_LEDGER_DIR"
   write_metadata "$TARGET_METADATA_FILE"
 else
-  rm -rf "$WORK_DIR"
-  mkdir -p "$WORK_DIR"
-  bootstrap_refresh "$WORK_CHAIN_DIR" "$WORK_LEDGER_DIR" "$WORK_DIR"
+  prepare_refresh_dir "$WORK_DIR" "$WORK_CHAIN_DIR" "$WORK_LEDGER_DIR"
   sync_refresh "$WORK_CHAIN_DIR" "$WORK_LEDGER_DIR"
   write_metadata "$WORK_METADATA_FILE"
 

@@ -1,6 +1,6 @@
 export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
-HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
+HASKELL_NODE_CONFIG_DIR ?= cardano-node-config/$(AMARU_NETWORK)
 RUN_UNTIL_TARGET_EPOCH ?= 182
 HASKELL_NODE_CONFIG_REPOSITORY := https://raw.githubusercontent.com/input-output-hk/cardano-playground
 HASKELL_NODE_CONFIG_DIRECTORY := static/book.play.dev.cardano.org/environments

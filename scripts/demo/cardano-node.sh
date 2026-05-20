@@ -17,11 +17,35 @@ require_cardano_cli() {
 network_magic() {
   if [[ -n "$CARDANO_TESTNET_MAGIC" ]]; then
     echo "$CARDANO_TESTNET_MAGIC"
-  elif have jq && [[ -f "$(cardano_node_config_file)" ]]; then
-    jq -r '.NetworkMagic // 1' "$(cardano_node_config_file)"
-  else
-    echo 1
+    return
   fi
+
+  if have jq && [[ -f "$(cardano_node_config_file)" ]]; then
+    local config_file magic shelley_genesis_file
+    config_file="$(cardano_node_config_file)"
+
+    magic="$(jq -r '.NetworkMagic // empty' "$config_file")"
+    if [[ -n "$magic" ]]; then
+      echo "$magic"
+      return
+    fi
+
+    shelley_genesis_file="$(jq -r '.ShelleyGenesisFile // empty' "$config_file")"
+    if [[ -n "$shelley_genesis_file" ]]; then
+      if [[ "$shelley_genesis_file" != /* ]]; then
+        shelley_genesis_file="$CARDANO_NODE_CONFIG_DIR/$shelley_genesis_file"
+      fi
+      if [[ -f "$shelley_genesis_file" ]]; then
+        magic="$(jq -r '.networkMagic // empty' "$shelley_genesis_file")"
+        if [[ -n "$magic" ]]; then
+          echo "$magic"
+          return
+        fi
+      fi
+    fi
+  fi
+
+  echo 1
 }
 
 cardano_node_config_file() {

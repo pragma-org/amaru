@@ -61,7 +61,14 @@ processes:
       4-amaru-middle:
         condition: process_healthy
 
-  6-submit-tx:
+  6-refuel-submit-wallet:
+    description: Ensure the demo payment wallet has clean UTxOs for concurrent submit-tx runs.
+    command: ./process-compose.sh run refuel-submit-wallet
+    depends_on:
+      3-cardano-node:
+        condition: process_healthy
+
+  7-submit-tx:
     description: Generate signed runtime transactions from the configured payment key and submit them downstream.
     command: ./process-compose.sh run submit-tx
     depends_on:
@@ -73,14 +80,8 @@ processes:
         condition: process_healthy
       5-amaru-downstream:
         condition: process_healthy
-
-  7-refuel-submit-wallet:
-    description: Consolidate the demo payment wallet into clean UTxOs for concurrent submit-tx runs.
-    command: ./process-compose.sh run refuel-submit-wallet
-    disabled: true
-    depends_on:
-      3-cardano-node:
-        condition: process_healthy
+      6-refuel-submit-wallet:
+        condition: process_completed_successfully
 
   8-telemetry:
     description: Open Grafana Tempo traces and Prometheus metrics for Amaru in the browser.

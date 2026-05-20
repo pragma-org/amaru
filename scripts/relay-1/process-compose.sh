@@ -10,13 +10,14 @@ NETWORK="${AMARU_NETWORK:-preprod}"
 BUILD_PROFILE="${BUILD_PROFILE:-dev}"
 REFRESH_FROM_MITHRIL="${REFRESH_FROM_MITHRIL:-true}"
 MITHRIL_REFRESH_DIR="${MITHRIL_REFRESH_DIR:-$RUNDIR/mithril-refresh}"
+MITHRIL_REFRESH_LOG_FILE="${MITHRIL_REFRESH_LOG_FILE:-$LOGDIR/mithril-refresh.log}"
 AMARU_MIDDLE_LOG_FILE="${AMARU_MIDDLE_LOG_FILE:-$LOGDIR/amaru-middle.log}"
 AMARU_DOWNSTREAM_LOG_FILE="${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}"
 DEFAULT_AMARU_CHAIN_SOURCE_DIR="$MITHRIL_REFRESH_DIR/chain.$NETWORK.db"
 DEFAULT_AMARU_LEDGER_SOURCE_DIR="$MITHRIL_REFRESH_DIR/ledger.$NETWORK.db"
 AMARU_CHAIN_SOURCE_DIR="${AMARU_CHAIN_SOURCE_DIR:-$DEFAULT_AMARU_CHAIN_SOURCE_DIR}"
 AMARU_LEDGER_SOURCE_DIR="${AMARU_LEDGER_SOURCE_DIR:-$DEFAULT_AMARU_LEDGER_SOURCE_DIR}"
-TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-$SCRIPT_DIR/keys/payment.skey}"
+TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-$SCRIPT_DIR/keys/$NETWORK/payment.skey}"
 TX_WAIT_FOR_SYNC="${TX_WAIT_FOR_SYNC:-true}"
 CLEAR_SUBMIT_TX_CLAIMS_ON_START="${CLEAR_SUBMIT_TX_CLAIMS_ON_START:-true}"
 START_TELEMETRY="${START_TELEMETRY:-true}"
@@ -32,6 +33,7 @@ AMARU_MIDDLE_WITH_JSON_TRACES="${AMARU_MIDDLE_WITH_JSON_TRACES:-false}"
 AMARU_DOWNSTREAM_WITH_JSON_TRACES="${AMARU_DOWNSTREAM_WITH_JSON_TRACES:-false}"
 AMARU_MIDDLE_LOG="${AMARU_MIDDLE_LOG:-info}"
 AMARU_DOWNSTREAM_LOG="${AMARU_DOWNSTREAM_LOG:-info}"
+AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS="${AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS:-true}"
 AMARU_MIDDLE_OTEL_SERVICE_NAME="${AMARU_MIDDLE_OTEL_SERVICE_NAME:-amaru-middle}"
 AMARU_DOWNSTREAM_OTEL_SERVICE_NAME="${AMARU_DOWNSTREAM_OTEL_SERVICE_NAME:-amaru-downstream}"
 AMARU_MIDDLE_TRACE="${AMARU_MIDDLE_TRACE:-info,amaru::consensus=trace,amaru::stores::consensus=trace,amaru::stores::ledger=trace,amaru::stores::rocksdb=trace,amaru::mempool=trace,amaru::ledger::state=trace,amaru::ledger::context=trace,amaru::ledger::governance=trace,amaru::protocols::manager=trace}"
@@ -64,7 +66,28 @@ validate_config() {
   [[ -f "$(cardano_node_config_file)" ]] || die "cardano-node config file not found: $(cardano_node_config_file)"
   [[ -f "$(cardano_node_topology_file)" ]] || die "cardano-node topology file not found: $(cardano_node_topology_file)"
   [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
+  validate_network_config
   require_configured_tx
+}
+
+expected_network_magic() {
+  case "$NETWORK" in
+    preprod) echo 1 ;;
+    preview) echo 2 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_network_config() {
+  local expected_magic actual_magic
+
+  expected_magic="$(expected_network_magic || true)"
+  [[ -n "$expected_magic" ]] || return 0
+
+  actual_magic="$(network_magic)"
+  if [[ "$actual_magic" != "$expected_magic" ]]; then
+    die "AMARU_NETWORK=$NETWORK expects testnet magic $expected_magic, but CARDANO_NODE_CONFIG_DIR=$CARDANO_NODE_CONFIG_DIR reports magic $actual_magic"
+  fi
 }
 
 validate_amaru_source_databases() {
@@ -158,7 +181,9 @@ database_source_marker_file() {
 
 refresh_from_mithril() {
   cd "$AMARU_DIR"
-  AMARU_NETWORK="$NETWORK" BUILD_PROFILE="$BUILD_PROFILE" STAGING_DIR="$MITHRIL_REFRESH_DIR" INSTALL=false ./scripts/refresh-from-mithril
+  mkdir -p "$(dirname "$MITHRIL_REFRESH_LOG_FILE")"
+  AMARU_NETWORK="$NETWORK" BUILD_PROFILE="$BUILD_PROFILE" STAGING_DIR="$MITHRIL_REFRESH_DIR" INSTALL=false ./scripts/refresh-from-mithril \
+    2>&1 | tee "$MITHRIL_REFRESH_LOG_FILE"
 }
 
 target_profile_dir() {
@@ -200,6 +225,7 @@ run_mithril_refresh() {
 
 run_cardano_upstream() {
   require_cardano_node
+  validate_network_config
   prepare_cardano_node_topology_file
   mkdir -p "$(dirname "$(cardano_node_socket_file)")"
   rm -f "$(cardano_node_socket_file)"
@@ -214,6 +240,7 @@ run_cardano_upstream() {
 
 run_amaru_middle() {
   cd "$AMARU_DIR"
+  validate_network_config
   local trace_arg=""
   if truthy "$AMARU_MIDDLE_WITH_JSON_TRACES"; then
     trace_arg="--with-json-traces"
@@ -221,6 +248,7 @@ run_amaru_middle() {
   export AMARU_WITH_OPEN_TELEMETRY="$AMARU_MIDDLE_WITH_OPEN_TELEMETRY"
   export AMARU_LOG="$AMARU_MIDDLE_LOG"
   export AMARU_TRACE="$AMARU_MIDDLE_TRACE"
+  export AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS
   export OTEL_SERVICE_NAME="$AMARU_MIDDLE_OTEL_SERVICE_NAME"
   export OTEL_SERVICE_INSTANCE_ID="$AMARU_MIDDLE_OTEL_SERVICE_INSTANCE_ID"
   export OTEL_EXPORTER_OTLP_ENDPOINT
@@ -240,6 +268,7 @@ run_amaru_middle() {
 
 run_amaru_downstream() {
   cd "$AMARU_DIR"
+  validate_network_config
   local trace_arg=""
   if truthy "$AMARU_DOWNSTREAM_WITH_JSON_TRACES"; then
     trace_arg="--with-json-traces"
@@ -247,6 +276,7 @@ run_amaru_downstream() {
   export AMARU_WITH_OPEN_TELEMETRY="$AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY"
   export AMARU_LOG="$AMARU_DOWNSTREAM_LOG"
   export AMARU_TRACE="$AMARU_DOWNSTREAM_TRACE"
+  export AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS
   export OTEL_SERVICE_NAME="$AMARU_DOWNSTREAM_OTEL_SERVICE_NAME"
   export OTEL_SERVICE_INSTANCE_ID="$AMARU_DOWNSTREAM_OTEL_SERVICE_INSTANCE_ID"
   export OTEL_EXPORTER_OTLP_ENDPOINT
@@ -410,6 +440,7 @@ run_watch() {
 }
 
 run_submit_tx() {
+  validate_network_config
   generate_submit
 }
 
@@ -419,12 +450,13 @@ restart_submit_tx_replicas() {
   local process
   while IFS= read -r process; do
     case "$process" in
-      6-submit-tx | 6-submit-tx-*) process-compose process restart "$process" ;;
+      7-submit-tx | 7-submit-tx-*) process-compose process restart "$process" ;;
     esac
   done < <(process-compose list)
 }
 
 run_refuel_submit_wallet() {
+  validate_network_config
   refuel_submit_wallet
 }
 
@@ -610,8 +642,8 @@ case "${1:-up}" in
       amaru-downstream | 5-amaru-downstream) run_amaru_downstream ;;
       watch | 9-watch) run_watch ;;
       telemetry-open | telemetry | 8-telemetry) open_telemetry ;;
-      submit-tx | 6-submit-tx) run_submit_tx; exit $? ;;
-      refuel-submit-wallet | refuel-submit-tx | 7-refuel-submit-wallet) run_refuel_submit_wallet; exit $? ;;
+      refuel-submit-wallet | refuel-submit-tx | 6-refuel-submit-wallet) run_refuel_submit_wallet; exit $? ;;
+      submit-tx | 7-submit-tx) run_submit_tx; exit $? ;;
       *) die "usage: $0 run {mithril-refresh|setup|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx|refuel-submit-wallet}" ;;
     esac
     ;;
