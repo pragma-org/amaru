@@ -107,6 +107,8 @@ impl ProposalsForest {
     ) -> Result<Self, ProposalsInsertError<ComparableProposalId>> {
         let current_epoch = self.current_epoch;
 
+        proposals.sort_by_key(|(_, row)| row.proposed_in);
+
         proposals.drain(..).try_fold::<_, _, Result<_, ProposalsInsertError<_>>>(&mut self, |forest, (id, row)| {
             // There shouldn't be any invalid proposals left at this point.
             assert!(
@@ -738,17 +740,21 @@ mod tests {
     };
 
     use amaru_kernel::{
-        ComparableProposalId, Epoch, GovernanceAction, KeyValuePairs, Lovelace, Nullable,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalId, ProposalPointer, ProtocolParameters, RationalNumber, Set,
-        any_comparable_proposal_id, any_constitution, any_gov_action, any_proposal_pointer, any_protocol_params_update,
-        any_protocol_version, any_reward_account,
+        Anchor, ComparableProposalId, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, Nullable,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer,
+        ProtocolParameters, RationalNumber, Set, Slot, TransactionPointer, any_comparable_proposal_id,
+        any_constitution, any_gov_action, any_proposal_pointer, any_protocol_params_update, any_protocol_version,
+        any_reward_account, empty_bytes,
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
 
     use super::ProposalsForest;
-    use crate::governance::ratification::{
-        CommitteeUpdate, OrphanProposal, ProposalEnum, ProposalsRootsRc, any_committee_update, any_proposal_enum,
-        tests::{ERA_HISTORY, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
+    use crate::{
+        governance::ratification::{
+            CommitteeUpdate, OrphanProposal, ProposalEnum, ProposalsRootsRc, any_committee_update, any_proposal_enum,
+            tests::{ERA_HISTORY, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
+        },
+        store::columns::proposals,
     };
 
     const MAX_TREE_SIZE: usize = 8;
@@ -774,6 +780,30 @@ mod tests {
         }
 
         size
+    }
+
+    #[test]
+    fn drain_sorts_proposals_in_parent_child_order() {
+        // proposal_id_1 is lexicographically *greater* than proposal_id_2, so iterating a BTreeMap
+        // keyed by id would yield proposal_id_2 before proposal_id_1.
+        // Yet this test sets up proposal_id_1 as the parent of proposal_id_2,
+        // so the drain should yield proposal_id_1 before proposal_id_2.
+        let proposal_id_1 = make_id(0xff);
+        let proposal_id_2 = make_id(0x01);
+        assert!(proposal_id_1 > proposal_id_2);
+
+        // first hard fork
+        let proposal_1 = make_proposal(Nullable::Null);
+
+        // second hard-fork with `proposal_a` as parent.
+        let proposal_2 = make_proposal(Nullable::Some(proposal_id_1.clone()));
+
+        let proposals =
+            vec![make_row(proposal_id_2.clone(), proposal_2, 20), make_row(proposal_id_1.clone(), proposal_1, 10)];
+
+        let forest = make_forest().drain(&ERA_HISTORY, proposals).unwrap();
+        let sequenced_proposals: Vec<_> = forest.sequence.iter().map(|rc| rc.as_ref().clone()).collect();
+        assert_eq!(sequenced_proposals, vec![proposal_id_1, proposal_id_2]);
     }
 
     proptest! {
@@ -1318,5 +1348,58 @@ mod tests {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str(&self.0.to_string())
         }
+    }
+
+    /// Make a proposal Row
+    fn make_row(
+        proposal_id: ComparableProposalId,
+        proposal: Proposal,
+        slot: u64,
+    ) -> (ComparableProposalId, proposals::Row) {
+        (
+            proposal_id,
+            proposals::Row {
+                proposed_in: ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(slot), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                valid_until: current_epoch(),
+                proposal,
+            },
+        )
+    }
+
+    /// Use a fixed epoch for proposals and proposals forest
+    fn current_epoch() -> Epoch {
+        Epoch::from(MIN_ARBITRARY_EPOCH + 1)
+    }
+
+    /// Make a proposals forest for the "current epoch" above
+    fn make_forest() -> ProposalsForest {
+        ProposalsForest::new(
+            current_epoch(),
+            &ProposalsRootsRc {
+                protocol_parameters: None,
+                hard_fork: None,
+                constitutional_committee: None,
+                constitution: None,
+            },
+            Lovelace::MAX,
+        )
+    }
+
+    /// Make a proposal with an optional parent
+    fn make_proposal(parent: Nullable<ComparableProposalId>) -> Proposal {
+        Proposal {
+            deposit: 0,
+            reward_account: empty_bytes(),
+            gov_action: GovernanceAction::HardForkInitiation(parent.map(ProposalId::from), PROTOCOL_VERSION_10),
+            anchor: Anchor { url: "https://example.com".to_string(), content_hash: Hash::new([0u8; 32]) },
+        }
+    }
+
+    /// Make a simple proposal id based on a hash created from just one byte
+    fn make_id(byte: u8) -> ComparableProposalId {
+        ComparableProposalId::from(ProposalId { transaction_id: Hash::new([byte; 32]), action_index: 0 })
     }
 }
