@@ -4,13 +4,20 @@ log_level: info
 log_length: 50000
 
 processes:
+  0-setup:
+    description: Download local Cardano node tools when CARDANO_NODE_HOME is not configured.
+    command: ./process-compose.sh run setup
+
   1-mithril-refresh:
     description: Refresh the Amaru chain and ledger databases from the latest Mithril snapshot.
     command: ./process-compose.sh run mithril-refresh
+    depends_on:
+      0-setup:
+        condition: process_completed_successfully
 
-  2-setup:
+  2-initialize:
     description: Validate configuration and copy refreshed Amaru databases into isolated run directories.
-    command: ./process-compose.sh run setup
+    command: ./process-compose.sh run initialize
     depends_on:
       1-mithril-refresh:
         condition: process_completed_successfully
@@ -26,7 +33,7 @@ processes:
       timeout_seconds: 5
       failure_threshold: 900
     depends_on:
-      2-setup:
+      2-initialize:
         condition: process_completed_successfully
 
   4-amaru-middle:
@@ -40,7 +47,7 @@ processes:
       timeout_seconds: 3
       failure_threshold: 900
     depends_on:
-      2-setup:
+      2-initialize:
         condition: process_completed_successfully
       3-cardano-node:
         condition: process_healthy
@@ -56,16 +63,23 @@ processes:
       timeout_seconds: 3
       failure_threshold: 900
     depends_on:
-      2-setup:
+      2-initialize:
         condition: process_completed_successfully
       4-amaru-middle:
         condition: process_healthy
 
-  6-submit-tx:
+  6-refuel-submit-wallet:
+    description: Ensure the demo payment wallet has clean UTxOs for concurrent submit-tx runs.
+    command: ./process-compose.sh run refuel-submit-wallet
+    depends_on:
+      3-cardano-node:
+        condition: process_healthy
+
+  7-submit-tx:
     description: Generate signed runtime transactions from the configured payment key and submit them downstream.
     command: ./process-compose.sh run submit-tx
     depends_on:
-      2-setup:
+      2-initialize:
         condition: process_completed_successfully
       3-cardano-node:
         condition: process_healthy
@@ -73,14 +87,8 @@ processes:
         condition: process_healthy
       5-amaru-downstream:
         condition: process_healthy
-
-  7-refuel-submit-wallet:
-    description: Consolidate the demo payment wallet into clean UTxOs for concurrent submit-tx runs.
-    command: ./process-compose.sh run refuel-submit-wallet
-    disabled: true
-    depends_on:
-      3-cardano-node:
-        condition: process_healthy
+      6-refuel-submit-wallet:
+        condition: process_completed_successfully
 
   8-telemetry:
     description: Open Grafana Tempo traces and Prometheus metrics for Amaru in the browser.
@@ -91,5 +99,5 @@ processes:
     description: Follow relay logs and highlight connection, sync, mempool, transaction, warning, and error events.
     command: ./process-compose.sh run watch
     depends_on:
-      2-setup:
+      2-initialize:
         condition: process_completed_successfully

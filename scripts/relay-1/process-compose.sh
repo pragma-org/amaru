@@ -9,7 +9,19 @@ RUNDIR="${RUNDIR:-$SCRIPT_DIR/run}"
 NETWORK="${AMARU_NETWORK:-preprod}"
 BUILD_PROFILE="${BUILD_PROFILE:-dev}"
 REFRESH_FROM_MITHRIL="${REFRESH_FROM_MITHRIL:-true}"
+CARDANO_NODE_INIT_FROM_MITHRIL="${CARDANO_NODE_INIT_FROM_MITHRIL:-true}"
+CARDANO_NODE_RELEASE_VERSION="${CARDANO_NODE_RELEASE_VERSION:-11.0.1}"
+CARDANO_NODE_DOWNLOAD_BASE_URL="${CARDANO_NODE_DOWNLOAD_BASE_URL:-https://github.com/IntersectMBO/cardano-node/releases/download/$CARDANO_NODE_RELEASE_VERSION}"
+DEFAULT_CARDANO_NODE_HOME="$LOGDIR/cardano-node-$CARDANO_NODE_RELEASE_VERSION"
+CARDANO_NODE_HOME_WAS_SET=false
+if [[ -n "${CARDANO_NODE_HOME:-}" ]]; then
+  CARDANO_NODE_HOME_WAS_SET=true
+else
+  CARDANO_NODE_HOME="$DEFAULT_CARDANO_NODE_HOME"
+fi
 MITHRIL_REFRESH_DIR="${MITHRIL_REFRESH_DIR:-$RUNDIR/mithril-refresh}"
+MITHRIL_SNAPSHOTS_DIR="${AMARU_MITHRIL_SNAPSHOTS_DIR:-$AMARU_DIR/mithril-snapshots}"
+MITHRIL_REFRESH_LOG_FILE="${MITHRIL_REFRESH_LOG_FILE:-$LOGDIR/mithril-refresh.log}"
 AMARU_MIDDLE_LOG_FILE="${AMARU_MIDDLE_LOG_FILE:-$LOGDIR/amaru-middle.log}"
 AMARU_DOWNSTREAM_LOG_FILE="${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}"
 DEFAULT_AMARU_CHAIN_SOURCE_DIR="$MITHRIL_REFRESH_DIR/chain.$NETWORK.db"
@@ -62,12 +74,17 @@ AMARU_MIDDLE_WITH_JSON_TRACES="${AMARU_MIDDLE_WITH_JSON_TRACES:-false}"
 AMARU_DOWNSTREAM_WITH_JSON_TRACES="${AMARU_DOWNSTREAM_WITH_JSON_TRACES:-false}"
 AMARU_MIDDLE_LOG="${AMARU_MIDDLE_LOG:-info}"
 AMARU_DOWNSTREAM_LOG="${AMARU_DOWNSTREAM_LOG:-info}"
+AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS="${AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS:-true}"
 AMARU_MIDDLE_OTEL_SERVICE_NAME="${AMARU_MIDDLE_OTEL_SERVICE_NAME:-amaru-middle}"
 AMARU_DOWNSTREAM_OTEL_SERVICE_NAME="${AMARU_DOWNSTREAM_OTEL_SERVICE_NAME:-amaru-downstream}"
 AMARU_MIDDLE_TRACE="${AMARU_MIDDLE_TRACE:-info,amaru::consensus=trace,amaru::stores::consensus=trace,amaru::stores::ledger=trace,amaru::stores::rocksdb=trace,amaru::mempool=trace,amaru::ledger::state=trace,amaru::ledger::context=trace,amaru::ledger::governance=trace,amaru::protocols::manager=trace}"
 AMARU_DOWNSTREAM_TRACE="${AMARU_DOWNSTREAM_TRACE:-info,amaru::consensus=trace,amaru::stores::consensus=trace,amaru::stores::ledger=trace,amaru::stores::rocksdb=trace,amaru::mempool=trace,amaru::ledger::state=trace,amaru::ledger::context=trace,amaru::ledger::governance=trace,amaru::protocols::manager=trace}"
 
-CARDANO_NODE="${CARDANO_NODE:-}"
+if [[ -z "${CARDANO_NODE:-}" ]]; then
+  CARDANO_NODE="$CARDANO_NODE_HOME/bin/cardano-node"
+elif [[ "$CARDANO_NODE_HOME_WAS_SET" == false && ! -x "$CARDANO_NODE" ]]; then
+  CARDANO_NODE="$CARDANO_NODE_HOME/bin/cardano-node"
+fi
 CARDANO_NODE_CONFIG_DIR="${CARDANO_NODE_CONFIG_DIR:-$AMARU_DIR/cardano-node-config/$NETWORK}"
 CARDANO_NODE_CONFIG_FILE="${CARDANO_NODE_CONFIG_FILE:-}"
 CARDANO_NODE_TOPOLOGY_FILE="${CARDANO_NODE_TOPOLOGY_FILE:-}"
@@ -98,11 +115,32 @@ validate_config() {
     [[ -f "$(cardano_node_topology_file)" ]] || die "cardano-node topology file not found: $(cardano_node_topology_file)"
   fi
   [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
+  validate_network_config
   require_configured_tx
 }
 
 public_cardano_upstream_enabled() {
   [[ "$CARDANO_UPSTREAM_MODE" == "public" ]]
+}
+
+expected_network_magic() {
+  case "$NETWORK" in
+    preprod) echo 1 ;;
+    preview) echo 2 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_network_config() {
+  local expected_magic actual_magic
+
+  expected_magic="$(expected_network_magic || true)"
+  [[ -n "$expected_magic" ]] || return 0
+
+  actual_magic="$(network_magic)"
+  if [[ "$actual_magic" != "$expected_magic" ]]; then
+    die "AMARU_NETWORK=$NETWORK expects testnet magic $expected_magic, but CARDANO_NODE_CONFIG_DIR=$CARDANO_NODE_CONFIG_DIR reports magic $actual_magic"
+  fi
 }
 
 validate_amaru_source_databases() {
@@ -117,12 +155,95 @@ validate_amaru_source_databases() {
   fi
 }
 
+cardano_node_archive_platform() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "$os:$arch" in
+    Darwin:arm64) echo "macos-arm64" ;;
+    Darwin:x86_64) echo "macos-amd64" ;;
+    Linux:aarch64 | Linux:arm64) echo "linux-arm64" ;;
+    Linux:x86_64) echo "linux-amd64" ;;
+    *) die "unsupported platform for cardano-node release download: $os/$arch" ;;
+  esac
+}
+
+download_cardano_node_home() {
+  local platform archive_name archive_path checksums_path expected actual
+
+  platform="$(cardano_node_archive_platform)"
+  archive_name="cardano-node-$CARDANO_NODE_RELEASE_VERSION-$platform.tar.gz"
+  archive_path="$LOGDIR/$archive_name"
+  checksums_path="$LOGDIR/cardano-node-$CARDANO_NODE_RELEASE_VERSION-sha256sums.txt"
+
+  have curl || die "curl not found; cannot download cardano-node $CARDANO_NODE_RELEASE_VERSION"
+  have tar || die "tar not found; cannot unpack cardano-node $CARDANO_NODE_RELEASE_VERSION"
+
+  mkdir -p "$LOGDIR"
+  if [[ ! -f "$archive_path" ]]; then
+    echo "[setup] downloading $archive_name"
+    curl -fL "$CARDANO_NODE_DOWNLOAD_BASE_URL/$archive_name" -o "$archive_path"
+  else
+    echo "[setup] using cached $archive_path"
+  fi
+
+  if have shasum; then
+    if [[ ! -f "$checksums_path" ]]; then
+      echo "[setup] downloading cardano-node checksums"
+      curl -fsSL "$CARDANO_NODE_DOWNLOAD_BASE_URL/cardano-node-$CARDANO_NODE_RELEASE_VERSION-sha256sums.txt" -o "$checksums_path"
+    fi
+    expected="$(awk -v name="$archive_name" '$2 == name { print $1 }' "$checksums_path")"
+    [[ -n "$expected" ]] || die "checksum for $archive_name not found in $checksums_path"
+    actual="$(shasum -a 256 "$archive_path" | awk '{ print $1 }')"
+    [[ "$actual" == "$expected" ]] || die "checksum mismatch for $archive_path"
+  fi
+
+  rm -rf "$CARDANO_NODE_HOME.in-progress"
+  mkdir -p "$CARDANO_NODE_HOME.in-progress"
+  tar -xzf "$archive_path" -C "$CARDANO_NODE_HOME.in-progress"
+  rm -rf "$CARDANO_NODE_HOME"
+  mv "$CARDANO_NODE_HOME.in-progress" "$CARDANO_NODE_HOME"
+}
+
+repair_downloaded_cardano_node_home() {
+  if [[ "$(uname -s)" != Darwin || "$CARDANO_NODE_HOME_WAS_SET" == true ]]; then
+    return
+  fi
+
+  have codesign || return
+
+  if "$CARDANO_NODE" --version >/dev/null 2>&1; then
+    return
+  fi
+
+  codesign --force --sign - "$CARDANO_NODE_HOME/bin/cardano-node" "$CARDANO_NODE_HOME/bin/db-analyser"
+}
+
 setup() {
   require_unscaled_process setup
-  require_runtime_processes_stopped setup
+  if [[ "$CARDANO_NODE_HOME_WAS_SET" == true ]]; then
+    echo "[setup] CARDANO_NODE_HOME is set: $CARDANO_NODE_HOME"
+  elif [[ -x "$CARDANO_NODE_HOME/bin/cardano-node" && -x "$CARDANO_NODE_HOME/bin/db-analyser" ]]; then
+    echo "[setup] using existing cardano-node tools in $CARDANO_NODE_HOME"
+  else
+    download_cardano_node_home
+  fi
+
+  [[ -x "$CARDANO_NODE_HOME/bin/db-analyser" ]] || die "db-analyser not found at $CARDANO_NODE_HOME/bin/db-analyser"
+  [[ -x "$CARDANO_NODE" ]] || die "cardano-node not found at $CARDANO_NODE"
+  repair_downloaded_cardano_node_home
+  echo "[setup] cardano-node tools ready in $CARDANO_NODE_HOME"
+}
+
+initialize() {
+  require_unscaled_process initialize
+  require_runtime_processes_stopped initialize
   validate_config
   build_amaru_node_binary
   prepare_run_directories
+  initialize_cardano_node_database
+  echo "[initialize] initialize complete"
 }
 
 require_unscaled_process() {
@@ -141,14 +262,14 @@ require_runtime_processes_stopped() {
 }
 
 prepare_run_directories() {
-  echo "[setup] validating configuration and source databases..."
+  echo "[initialize] validating configuration and source databases..."
   validate_amaru_source_databases
   have rsync || die "rsync not found; cannot synchronize Amaru databases"
-  echo "[setup] ensuring log and run directories exist..."
+  echo "[initialize] ensuring log and run directories exist..."
   ensure_dirs
-  echo "[setup] clearing previous relay logs from $LOGDIR..."
+  echo "[initialize] clearing previous relay logs from $LOGDIR..."
   rm -f "$LOGDIR"/*.log 2>/dev/null || true
-  echo "[setup] clearing previous submit transaction artifacts..."
+  echo "[initialize] clearing previous submit transaction artifacts..."
   rm -rf "$RUNDIR"/generated/submit-tx-* "$RUNDIR/generated/submit-tx-claims" "$RUNDIR/generated/submit-tx-active" 2>/dev/null || true
   rm -f "$RUNDIR"/generated/tx-*.body "$RUNDIR"/generated/tx-*.json "$RUNDIR"/generated/tx-*.cbor 2>/dev/null || true
   rm -f "$RUNDIR/generated/utxo.json" "$RUNDIR/generated/last-response.txt" "$RUNDIR/generated/last-response.txt.status" 2>/dev/null || true
@@ -157,7 +278,39 @@ prepare_run_directories() {
   sync_database_dir "middle ledger" "$AMARU_LEDGER_SOURCE_DIR" "$RUNDIR/amaru/ledger.$NETWORK.db"
   sync_database_dir "downstream chain" "$AMARU_CHAIN_SOURCE_DIR" "$RUNDIR/amaru-downstream/chain.$NETWORK.db"
   sync_database_dir "downstream ledger" "$AMARU_LEDGER_SOURCE_DIR" "$RUNDIR/amaru-downstream/ledger.$NETWORK.db"
-  echo "[setup] setup complete"
+}
+
+initialize_cardano_node_database() {
+  local source_immutable="$MITHRIL_SNAPSHOTS_DIR/$NETWORK/immutable"
+  local target_db="$CARDANO_NODE_CONFIG_DIR/db"
+  local target_marker="$target_db/.relay-1-mithril-source.json"
+  local source_marker="$MITHRIL_REFRESH_DIR/.mithril-refresh.json"
+
+  truthy "$CARDANO_NODE_INIT_FROM_MITHRIL" || return 0
+  public_cardano_upstream_enabled && return 0
+  [[ -d "$source_immutable" ]] || die "Mithril immutable files not found: $source_immutable"
+  [[ -f "$source_marker" ]] || die "Mithril refresh metadata not found: $source_marker"
+  have rsync || die "rsync not found; cannot initialize cardano-node database from Mithril"
+
+  if same_mithril_snapshot_metadata "$source_marker" "$target_marker"; then
+    echo "[initialize] cardano-node database already initialized from latest Mithril snapshot; skipping sync"
+    return 0
+  fi
+
+  echo "[initialize] initializing cardano-node database from Mithril immutable files..."
+  mkdir -p "$target_db"
+  rm -rf "$target_db/ledger" "$target_db/volatile"
+  mkdir -p "$target_db/immutable"
+  rsync -a --delete "$source_immutable"/ "$target_db/immutable"/
+  cp "$source_marker" "$target_marker"
+  echo "[initialize] cardano-node immutable database initialized from $source_immutable"
+  echo "[initialize] cardano-node will rebuild ledger and volatile state on next start"
+}
+
+same_mithril_snapshot_metadata() {
+  local source="$1" target="$2"
+  [[ -f "$source" && -f "$target" ]] || return 1
+  jq -e -s '.[0].network == .[1].network and .[0].snapshot.hash == .[1].snapshot.hash' "$source" "$target" >/dev/null
 }
 
 sync_database_dir() {
@@ -165,11 +318,11 @@ sync_database_dir() {
   source_marker="$(database_source_marker_file "$source")"
   destination_marker="$destination/.relay-1-source.json"
   if [[ -f "$source_marker" && -f "$destination_marker" ]] && cmp -s "$source_marker" "$destination_marker"; then
-    echo "[setup] $label database unchanged; skipping sync"
+    echo "[initialize] $label database unchanged; skipping sync"
     return 0
   fi
 
-  echo "[setup] synchronizing $label database: $source -> $destination"
+  echo "[initialize] synchronizing $label database: $source -> $destination"
   mkdir -p "$destination"
   rsync -a --delete "$source"/ "$destination"/
   if [[ -f "$source_marker" ]]; then
@@ -196,7 +349,17 @@ database_source_marker_file() {
 
 refresh_from_mithril() {
   cd "$AMARU_DIR"
-  AMARU_NETWORK="$NETWORK" BUILD_PROFILE="$BUILD_PROFILE" STAGING_DIR="$MITHRIL_REFRESH_DIR" INSTALL=false ./scripts/refresh-from-mithril
+  mkdir -p "$(dirname "$MITHRIL_REFRESH_LOG_FILE")"
+  AMARU_NETWORK="$NETWORK" \
+    BUILD_PROFILE="$BUILD_PROFILE" \
+    CARDANO_NODE_HOME="$CARDANO_NODE_HOME" \
+    STAGING_DIR="$MITHRIL_REFRESH_DIR" \
+    AMARU_MITHRIL_SNAPSHOTS_DIR="$MITHRIL_SNAPSHOTS_DIR" \
+    INSTALL=false \
+    FORCE_REFRESH="${FORCE_REFRESH:-false}" \
+    BOOTSTRAP_FROM_LATEST_MITHRIL="${BOOTSTRAP_FROM_LATEST_MITHRIL:-true}" \
+    ./scripts/refresh-from-mithril \
+    2>&1 | tee "$MITHRIL_REFRESH_LOG_FILE"
 }
 
 target_profile_dir() {
@@ -213,12 +376,12 @@ amaru_node_binary() {
 
 build_amaru_node_binary() {
   cd "$AMARU_DIR"
-  echo "[setup] building Amaru node binary with BUILD_PROFILE=$BUILD_PROFILE..."
+  echo "[initialize] building Amaru node binary with BUILD_PROFILE=$BUILD_PROFILE..."
   AMARU_NETWORK="$NETWORK" cargo build --profile "$BUILD_PROFILE" --bin amaru
 }
 
 require_amaru_node_binary() {
-  [[ -x "$(amaru_node_binary)" ]] || die "Amaru node binary not found: $(amaru_node_binary); run ./process-compose.sh setup first"
+  [[ -x "$(amaru_node_binary)" ]] || die "Amaru node binary not found: $(amaru_node_binary); run ./process-compose.sh initialize first"
 }
 
 run_mithril_refresh() {
@@ -241,6 +404,7 @@ run_cardano_upstream() {
     die "cardano-upstream is disabled because CARDANO_UPSTREAM_MODE=public"
   fi
   require_cardano_node
+  validate_network_config
   prepare_cardano_node_topology_file
   mkdir -p "$(dirname "$(cardano_node_socket_file)")"
   rm -f "$(cardano_node_socket_file)"
@@ -263,6 +427,7 @@ amaru_middle_peer_address() {
 
 run_amaru_middle() {
   cd "$AMARU_DIR"
+  validate_network_config
   local trace_arg=""
   if truthy "$AMARU_MIDDLE_WITH_JSON_TRACES"; then
     trace_arg="--with-json-traces"
@@ -270,6 +435,7 @@ run_amaru_middle() {
   export AMARU_WITH_OPEN_TELEMETRY="$AMARU_MIDDLE_WITH_OPEN_TELEMETRY"
   export AMARU_LOG="$AMARU_MIDDLE_LOG"
   export AMARU_TRACE="$AMARU_MIDDLE_TRACE"
+  export AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS
   export OTEL_SERVICE_NAME="$AMARU_MIDDLE_OTEL_SERVICE_NAME"
   export OTEL_SERVICE_INSTANCE_ID="$AMARU_MIDDLE_OTEL_SERVICE_INSTANCE_ID"
   export OTEL_EXPORTER_OTLP_ENDPOINT
@@ -289,6 +455,7 @@ run_amaru_middle() {
 
 run_amaru_downstream() {
   cd "$AMARU_DIR"
+  validate_network_config
   local trace_arg=""
   if truthy "$AMARU_DOWNSTREAM_WITH_JSON_TRACES"; then
     trace_arg="--with-json-traces"
@@ -296,6 +463,7 @@ run_amaru_downstream() {
   export AMARU_WITH_OPEN_TELEMETRY="$AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY"
   export AMARU_LOG="$AMARU_DOWNSTREAM_LOG"
   export AMARU_TRACE="$AMARU_DOWNSTREAM_TRACE"
+  export AMARU_CONSENSUS_TRUST_UPSTREAM_HEADERS
   export OTEL_SERVICE_NAME="$AMARU_DOWNSTREAM_OTEL_SERVICE_NAME"
   export OTEL_SERVICE_INSTANCE_ID="$AMARU_DOWNSTREAM_OTEL_SERVICE_INSTANCE_ID"
   export OTEL_EXPORTER_OTLP_ENDPOINT
@@ -459,6 +627,7 @@ run_watch() {
 }
 
 run_submit_tx() {
+  validate_network_config
   generate_submit
 }
 
@@ -468,12 +637,13 @@ restart_submit_tx_replicas() {
   local process
   while IFS= read -r process; do
     case "$process" in
-      6-submit-tx | 6-submit-tx-*) process-compose process restart "$process" ;;
+      7-submit-tx | 7-submit-tx-*) process-compose process restart "$process" ;;
     esac
   done < <(process-compose list)
 }
 
 run_refuel_submit_wallet() {
+  validate_network_config
   refuel_submit_wallet
 }
 
@@ -609,7 +779,15 @@ open_telemetry() {
 }
 
 validate_up() {
-  validate_config
+  [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set (directory with config.json, topology.json, etc.)"
+  [[ -d "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR does not exist: $CARDANO_NODE_CONFIG_DIR"
+  [[ -f "$(cardano_node_config_file)" ]] || die "cardano-node config file not found: $(cardano_node_config_file)"
+  if ! public_cardano_upstream_enabled; then
+    [[ -f "$(cardano_node_topology_file)" ]] || die "cardano-node topology file not found: $(cardano_node_topology_file)"
+  fi
+  [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
+  validate_network_config
+  require_configured_tx
   if ! truthy "$REFRESH_FROM_MITHRIL"; then
     validate_amaru_source_databases
   fi
@@ -625,10 +803,11 @@ process_compose_file() {
   mkdir -p "$(dirname "$generated")"
   awk '
     /^  3-cardano-node:/ { skip_process = 1; next }
-    /^  7-refuel-submit-wallet:/ { skip_process = 1; next }
+    /^  6-refuel-submit-wallet:/ { skip_process = 1; next }
     skip_process && /^  [0-9][^[:space:]]*:/ { skip_process = 0 }
     skip_process { next }
     /^      3-cardano-node:/ { skip_dependency = 1; next }
+    /^      6-refuel-submit-wallet:/ { skip_dependency = 1; next }
     skip_dependency && /^        / { next }
     { skip_dependency = 0; print }
   ' "$SCRIPT_DIR/process-compose.yaml" > "$generated"
@@ -664,6 +843,7 @@ case "${1:-up}" in
   down | stop) down ;;
   status) status ;;
   setup) setup ;;
+  initialize) initialize ;;
   submit-tx-restart-all) restart_submit_tx_replicas ;;
   refuel-submit-wallet | refuel-submit-tx) run_refuel_submit_wallet ;;
   telemetry-up) telemetry_up ;;
@@ -672,16 +852,17 @@ case "${1:-up}" in
   telemetry-urls) telemetry_urls ;;
   run)
     case "${2:-}" in
+      setup | 0-setup) setup ;;
       mithril-refresh | 1-mithril-refresh) run_mithril_refresh ;;
-      setup | 2-setup) setup ;;
+      initialize | 2-initialize | 2-setup) initialize ;;
       cardano-upstream | cardano-node | 3-cardano-node) run_cardano_upstream ;;
       amaru-middle | 4-amaru-middle) run_amaru_middle ;;
       amaru-downstream | 5-amaru-downstream) run_amaru_downstream ;;
       watch | 9-watch) run_watch ;;
       telemetry-open | telemetry | 8-telemetry) open_telemetry ;;
-      submit-tx | 6-submit-tx) run_submit_tx; exit $? ;;
-      refuel-submit-wallet | refuel-submit-tx | 7-refuel-submit-wallet) run_refuel_submit_wallet; exit $? ;;
-      *) die "usage: $0 run {mithril-refresh|setup|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx|refuel-submit-wallet}" ;;
+      refuel-submit-wallet | refuel-submit-tx | 6-refuel-submit-wallet) run_refuel_submit_wallet; exit $? ;;
+      submit-tx | 7-submit-tx) run_submit_tx; exit $? ;;
+      *) die "usage: $0 run {setup|mithril-refresh|initialize|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx|refuel-submit-wallet}" ;;
     esac
     ;;
   ready)
@@ -692,5 +873,5 @@ case "${1:-up}" in
       *) die "usage: $0 ready {cardano-upstream|amaru-middle|amaru-downstream}" ;;
     esac
     ;;
-  *) die "usage: $0 {up|refresh|down|status|setup|submit-tx-restart-all|refuel-submit-wallet|run <process>|ready <process>}" ;;
+  *) die "usage: $0 {up|refresh|down|status|setup|initialize|submit-tx-restart-all|refuel-submit-wallet|run <process>|ready <process>}" ;;
 esac

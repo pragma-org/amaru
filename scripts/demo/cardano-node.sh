@@ -17,11 +17,35 @@ require_cardano_cli() {
 network_magic() {
   if [[ -n "$CARDANO_TESTNET_MAGIC" ]]; then
     echo "$CARDANO_TESTNET_MAGIC"
-  elif have jq && [[ -f "$(cardano_node_config_file)" ]]; then
-    jq -r '.NetworkMagic // 1' "$(cardano_node_config_file)"
-  else
-    echo 1
+    return
   fi
+
+  if have jq && [[ -f "$(cardano_node_config_file)" ]]; then
+    local config_file magic shelley_genesis_file
+    config_file="$(cardano_node_config_file)"
+
+    magic="$(jq -r '.NetworkMagic // empty' "$config_file")"
+    if [[ -n "$magic" ]]; then
+      echo "$magic"
+      return
+    fi
+
+    shelley_genesis_file="$(jq -r '.ShelleyGenesisFile // empty' "$config_file")"
+    if [[ -n "$shelley_genesis_file" ]]; then
+      if [[ "$shelley_genesis_file" != /* ]]; then
+        shelley_genesis_file="$CARDANO_NODE_CONFIG_DIR/$shelley_genesis_file"
+      fi
+      if [[ -f "$shelley_genesis_file" ]]; then
+        magic="$(jq -r '.networkMagic // empty' "$shelley_genesis_file")"
+        if [[ -n "$magic" ]]; then
+          echo "$magic"
+          return
+        fi
+      fi
+    fi
+  fi
+
+  echo 1
 }
 
 cardano_node_requires_network_magic() {
@@ -53,8 +77,12 @@ cardano_node_socket_file() {
   echo "${CARDANO_NODE_SOCKET_FILE:-$CARDANO_NODE_CONFIG_DIR/node.socket}"
 }
 
+cardano_node_bundled_peer_snapshot_file() {
+  echo "$CARDANO_NODE_HOME/share/$NETWORK/peer-snapshot.json"
+}
+
 prepare_cardano_node_topology_file() {
-  local topology peer_snapshot snapshot generated
+  local topology peer_snapshot snapshot bundled_snapshot generated generated_snapshot
   topology="$(cardano_node_topology_file)"
   CARDANO_NODE_EFFECTIVE_TOPOLOGY_FILE="$topology"
 
@@ -69,14 +97,41 @@ prepare_cardano_node_topology_file() {
   if [[ "$snapshot" != /* ]]; then
     snapshot="$CARDANO_NODE_CONFIG_DIR/$snapshot"
   fi
-  [[ -f "$snapshot" ]] || return
+  bundled_snapshot="$(cardano_node_bundled_peer_snapshot_file)"
 
-  if jq -e 'any(.bigLedgerPools[]?.relays[]?; has("domain") and (has("address") | not))' "$snapshot" >/dev/null; then
+  if [[ ! -f "$snapshot" ]]; then
+    if [[ -f "$bundled_snapshot" ]]; then
+      mkdir -p "$RUNDIR/generated"
+      generated="$RUNDIR/generated/cardano-topology.json"
+      generated_snapshot="$RUNDIR/generated/cardano-peer-snapshot.json"
+      cp "$bundled_snapshot" "$generated_snapshot"
+      jq --arg peer_snapshot "$(basename "$generated_snapshot")" '.peerSnapshotFile = $peer_snapshot' "$topology" > "$generated"
+      CARDANO_NODE_EFFECTIVE_TOPOLOGY_FILE="$generated"
+      echo "[cardano-upstream] peer snapshot file not found: $snapshot; using bundled $bundled_snapshot" >&2
+    else
+      mkdir -p "$RUNDIR/generated"
+      generated="$RUNDIR/generated/cardano-topology.json"
+      jq 'del(.peerSnapshotFile)' "$topology" > "$generated"
+      CARDANO_NODE_EFFECTIVE_TOPOLOGY_FILE="$generated"
+      echo "[cardano-upstream] peer snapshot file not found: $snapshot; using $generated without peerSnapshotFile" >&2
+    fi
+    return
+  fi
+
+  if jq -e 'has("version") or any(.bigLedgerPools[]?.relays[]?; has("domain") and (has("address") | not))' "$snapshot" >/dev/null; then
     mkdir -p "$RUNDIR/generated"
     generated="$RUNDIR/generated/cardano-topology.json"
-    jq 'del(.peerSnapshotFile)' "$topology" > "$generated"
-    CARDANO_NODE_EFFECTIVE_TOPOLOGY_FILE="$generated"
-    echo "[cardano-upstream] peer snapshot uses relay domain entries unsupported by this cardano-node; using $generated without peerSnapshotFile" >&2
+    if [[ -f "$bundled_snapshot" ]]; then
+      generated_snapshot="$RUNDIR/generated/cardano-peer-snapshot.json"
+      cp "$bundled_snapshot" "$generated_snapshot"
+      jq --arg peer_snapshot "$(basename "$generated_snapshot")" '.peerSnapshotFile = $peer_snapshot' "$topology" > "$generated"
+      CARDANO_NODE_EFFECTIVE_TOPOLOGY_FILE="$generated"
+      echo "[cardano-upstream] peer snapshot is incompatible with this cardano-node; using bundled $bundled_snapshot" >&2
+    else
+      jq 'del(.peerSnapshotFile)' "$topology" > "$generated"
+      CARDANO_NODE_EFFECTIVE_TOPOLOGY_FILE="$generated"
+      echo "[cardano-upstream] peer snapshot is incompatible with this cardano-node; using $generated without peerSnapshotFile" >&2
+    fi
   fi
 }
 
@@ -100,7 +155,7 @@ wait_for_cardano_query() {
   local magic="$1"
   local timeout="${CARDANO_NODE_QUERY_TIMEOUT_SECONDS:-1800}"
   for (( elapsed = 0; elapsed < timeout; elapsed++ )); do
-    if cardano_node_tip_slot "$magic" >/dev/null 2>&1; then
+    if cardano_node_tip "$magic" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -108,12 +163,34 @@ wait_for_cardano_query() {
   die "cardano-node socket did not answer local queries within ${timeout}s"
 }
 
-# Queries the current Cardano node tip slot.
-cardano_node_tip_slot() {
+wait_for_cardano_sync_progress() {
+  local magic="$1" threshold="${2:-99.9}" timeout="${3:-14400}"
+  local tip progress
+
+  for (( elapsed = 0; elapsed < timeout; elapsed++ )); do
+    if tip="$(cardano_node_tip "$magic" 2>/dev/null)"; then
+      progress="$(jq -r '.syncProgress // "0"' <<< "$tip")"
+      if jq -en --arg progress "$progress" --argjson threshold "$threshold" '($progress | tonumber) >= $threshold' >/dev/null; then
+        return 0
+      fi
+      if ((elapsed % 30 == 0)); then
+        echo "[cardano-upstream] waiting for cardano-node sync progress: ${progress}%/${threshold}%"
+      fi
+    fi
+    sleep 1
+  done
+  die "cardano-node did not reach ${threshold}% sync progress within ${timeout}s"
+}
+
+cardano_node_tip() {
   local socket
   socket="$(cardano_node_socket_file)"
   "$CARDANO_CLI" conway query tip \
     $(cardano_cli_network_args) \
-    --socket-path "$socket" \
-    | jq -r '.slot // empty'
+    --socket-path "$socket"
+}
+
+# Queries the current Cardano node tip slot.
+cardano_node_tip_slot() {
+  cardano_node_tip "$1" | jq -r '.slot // empty'
 }

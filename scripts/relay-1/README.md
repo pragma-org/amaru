@@ -26,7 +26,9 @@ The following environment variables configure the demo:
 
 | Variable                               | Required | Default                                                                                                                                                                                                                                                            | Description                                                              |
 |----------------------------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| `CARDANO_NODE`                         | Required for local upstream | -                                                                                                                                                                                                                                                                  | Path to the cardano-node executable                                      |
+| `CARDANO_NODE`                         | No       | `$CARDANO_NODE_HOME/bin/cardano-node`                                                                                                                                                                                                                              | Path to the cardano-node executable                                      |
+| `CARDANO_NODE_HOME`                    | No       | `/tmp/amaru-relay-1/cardano-node-$CARDANO_NODE_RELEASE_VERSION`                                                                                                                                                                                                    | Directory containing `bin/cardano-node` and `bin/db-analyser`            |
+| `CARDANO_NODE_RELEASE_VERSION`         | No       | `11.0.1`                                                                                                                                                                                                                                                           | cardano-node release downloaded by `0-setup` when `CARDANO_NODE_HOME` is not set |
 | `CARDANO_NODE_CONFIG_DIR`              | No       | `cardano-node-config/$AMARU_NETWORK`                                                                                                                                                                                                                               | Directory containing config.json, topology.json, etc.                    |
 | `CARDANO_NODE_SOCKET_FILE`             | No       | `scripts/relay-1/run/generated/cardano-node.socket`                                                                                                                                                                                                                | Socket path used by the upstream cardano-node                            |
 | `CARDANO_CLI`                          | No       | `cardano-cli` on `PATH`                                                                                                                                                                                                                                            | Path to the cardano-cli executable                                       |
@@ -39,8 +41,8 @@ The following environment variables configure the demo:
 | `BUILD_PROFILE`                        | No       | `dev`                                                                                                                                                                                                                                                              | Cargo profile used for refresh and Amaru nodes                           |
 | `REFRESH_FROM_MITHRIL`                 | No       | `true`                                                                                                                                                                                                                                                             | Refresh Amaru databases from Mithril before startup                      |
 | `MITHRIL_REFRESH_DIR`                  | No       | `scripts/relay-1/run/mithril-refresh`                                                                                                                                                                                                                              | Directory containing refreshed Amaru databases                           |
-| `AMARU_CHAIN_SOURCE_DIR`               | No       | `$MITHRIL_REFRESH_DIR/chain.preprod.db`                                                                                                                                                                                                                            | Source chain DB copied into demo run dirs                                |
-| `AMARU_LEDGER_SOURCE_DIR`              | No       | `$MITHRIL_REFRESH_DIR/ledger.preprod.db`                                                                                                                                                                                                                           | Source ledger DB copied into demo run dirs                               |
+| `AMARU_CHAIN_SOURCE_DIR`               | No       | `$MITHRIL_REFRESH_DIR/chain.$AMARU_NETWORK.db`                                                                                                                                                                                                                     | Source chain DB copied into demo run dirs                                |
+| `AMARU_LEDGER_SOURCE_DIR`              | No       | `$MITHRIL_REFRESH_DIR/ledger.$AMARU_NETWORK.db`                                                                                                                                                                                                                    | Source ledger DB copied into demo run dirs                               |
 | `UPSTREAM_PORT`                        | No       | 3001                                                                                                                                                                                                                                                               | Port for cardano-node listener                                           |
 | `LISTEN_PORT`                          | No       | 4001                                                                                                                                                                                                                                                               | Port for amaru listener (for downstream)                                 |
 | `DOWNSTREAM_LISTEN_PORT`               | No       | 4002                                                                                                                                                                                                                                                               | Port for amaru downstream listener                                       |
@@ -80,13 +82,15 @@ The `CARDANO_NODE_CONFIG_DIR` should contain:
 ## Usage
 
 ```bash
+export AMARU_NETWORK=preprod
 ./process-compose.sh up      # start the demo
 ./process-compose.sh down    # stop the demo
 ./process-compose.sh status  # check process status
 ```
 
 Running `./process-compose.sh up` starts the Grafana/Tempo/Prometheus telemetry stack, opens the process-compose TUI,
-refreshes the Amaru databases from Mithril, prepares the isolated run directories, and starts the relay processes. On
+downloads local cardano-node tools when needed, refreshes the Amaru databases from Mithril, prepares the isolated run
+directories, and starts the relay processes. On
 mainnet, the demo uses a public upstream peer by default and generates a process-compose file without the local
 `cardano-node` process. Use the wrapper instead of running `process-compose` directly so telemetry and the configured
 process dependencies are used.
@@ -114,8 +118,10 @@ To refresh the Amaru chain and ledger databases from the latest Mithril snapshot
 This writes refreshed databases to `scripts/relay-1/run/mithril-refresh`. The demo uses those databases by default and
 copies them into isolated per-node run directories when starting. The refresh records the Mithril snapshot hash in a
 metadata file, so running refresh again exits quickly when those databases already match the latest Mithril snapshot.
-Use `FORCE_REFRESH=true` to rebuild them anyway. The demo refreshes automatically before starting by default. In that
-mode, the refresh runs as the `1-mithril-refresh` process in process-compose, followed by `2-setup`, and the
+Interrupted initial refreshes leave `scripts/relay-1/run/mithril-refresh.in-progress`; the next refresh resumes from
+those databases instead of bootstrapping from scratch. Use `FORCE_REFRESH=true` to rebuild them anyway. The demo
+refreshes automatically before starting by default. In that mode, the refresh runs as the `1-mithril-refresh` process
+in process-compose, followed by `2-initialize`, and the
 long-running
 demo processes wait for those one-shot processes to finish successfully. To skip the automatic refresh and use existing
 databases, set `REFRESH_FROM_MITHRIL=false`:
@@ -124,14 +130,19 @@ databases, set `REFRESH_FROM_MITHRIL=false`:
 REFRESH_FROM_MITHRIL=false ./process-compose.sh up
 ```
 
-Refresh, setup, and the Amaru nodes use `BUILD_PROFILE=dev` by default so local demo iteration rebuilds faster. Setup
+Refresh, initialize, and the Amaru nodes use `BUILD_PROFILE=dev` by default so local demo iteration rebuilds faster. Initialize
 builds the `amaru` node binary once with that profile, and the long-running node processes execute the built binary
 directly instead of invoking `cargo run`. Override `BUILD_PROFILE` only when you intentionally want another Cargo
 profile, for example `BUILD_PROFILE=release`.
 
-### Setup process
+### Setup and Initialize Processes
 
-The `2-setup` process is a one-shot preparation step that runs after `1-mithril-refresh` and before any long-running
+The `0-setup` process is a one-shot tool bootstrap step. When `CARDANO_NODE_HOME` is unset, it downloads the configured
+cardano-node release into `/tmp/amaru-relay-1`, verifies the archive checksum when `shasum` is available, and exposes
+`bin/cardano-node` and `bin/db-analyser` from that temp directory. When `CARDANO_NODE_HOME` is set, it validates that
+the configured directory already contains `bin/db-analyser` and that `CARDANO_NODE` points at an executable.
+
+The `2-initialize` process is a one-shot preparation step that runs after `1-mithril-refresh` and before any long-running
 node
 process starts. It validates the configured cardano-node executable, cardano-node configuration directory, transaction
 generation settings, and Amaru source databases.
@@ -141,27 +152,30 @@ separate isolated directories for `amaru-middle` and `amaru-downstream`. If setu
 Amaru process has run against that isolated copy since then, setup skips synchronizing it again. Once an Amaru node
 starts,
 that copy is marked dirty; the next setup synchronizes it back to the refreshed snapshot and deletes stale destination
-files. The node processes depend on `setup` completing successfully, so a setup failure prevents the demo from starting
+files. The node processes depend on `initialize` completing successfully, so an initialize failure prevents the demo from starting
 with missing or stale run directories.
 
 Process Compose readiness probes then gate relay startup:
 
 - `4-amaru-middle` starts after `3-cardano-node` answers local `cardano-cli query tip` calls.
 - `5-amaru-downstream` starts after `4-amaru-middle` prints its listening log line.
-- `6-submit-tx` starts after `3-cardano-node`, `4-amaru-middle`, and `5-amaru-downstream` are healthy.
+- `6-refuel-submit-wallet` starts after `3-cardano-node` is healthy and prepares clean wallet UTxOs for submit traffic.
+- `7-submit-tx` starts after `3-cardano-node`, `4-amaru-middle`, and `5-amaru-downstream` are healthy and
+  `6-refuel-submit-wallet` has completed successfully.
 
 This removes fixed submit startup sleeps; transaction generation still waits for the selected UTxO to be available in
 the downstream Amaru ledger before submitting.
 
 The configured processes are:
 
+- `0-setup`
 - `1-mithril-refresh`
-- `2-setup`
+- `2-initialize`
 - `3-cardano-node`
 - `4-amaru-middle`
 - `5-amaru-downstream`
-- `6-submit-tx`
-- `7-refuel-submit-wallet` (disabled by default; start it manually from the TUI to rebuild clean submit UTxOs)
+- `6-refuel-submit-wallet`
+- `7-submit-tx`
 - `8-telemetry` (disabled by default; start it manually from the TUI to open telemetry tabs)
 - `9-watch`
 
@@ -227,34 +241,36 @@ export TX_PAYMENT_SKEY=/path/to/payment.skey
 Create a payment key and address:
 
 ```bash
-MAGIC="${CARDANO_TESTNET_MAGIC:-1}"
+NETWORK="${AMARU_NETWORK:-preprod}"
+KEY_DIR="keys/$NETWORK"
+mkdir -p "$KEY_DIR"
+MAGIC="${CARDANO_TESTNET_MAGIC:-$(jq -r '.networkMagic' "$CARDANO_NODE_CONFIG_DIR/shelley-genesis.json")}"
 
 cardano-cli conway address key-gen \
-  --verification-key-file payment.vkey \
-  --signing-key-file payment.skey
+  --verification-key-file "$KEY_DIR/payment.vkey" \
+  --signing-key-file "$KEY_DIR/payment.skey"
 
 cardano-cli conway address build \
-  --payment-verification-key-file payment.vkey \
+  --payment-verification-key-file "$KEY_DIR/payment.vkey" \
   --testnet-magic "$MAGIC" \
-  --out-file payment.addr
+  --out-file "$KEY_DIR/payment.addr"
 ```
 
 Start the demo and wait until `cardano-upstream` is ready. Starting with an empty address is fine; the initial
 `submit-tx` process will log that there is nothing to submit.
 
 ```bash
-export TX_PAYMENT_SKEY="$PWD/payment.skey"
 ./process-compose.sh up
 ```
 
-Fund the generated `payment.addr` on the same preprod network using
+Fund the generated `keys/$AMARU_NETWORK/payment.addr` on the same test network using
 a [test faucet](https://docs.cardano.org/cardano-testnets/tools/faucet). Then query the funded UTxOs from another shell
 in `scripts/relay-1`:
 
 ```bash
-ADDRESS="$(cat payment.addr)"
+ADDRESS="$(cat "keys/${AMARU_NETWORK:-preprod}/payment.addr")"
 SOCKET="${CARDANO_NODE_SOCKET_FILE:-run/generated/cardano-node.socket}"
-MAGIC="${CARDANO_TESTNET_MAGIC:-1}"
+MAGIC="${CARDANO_TESTNET_MAGIC:-$(jq -r '.networkMagic' "$CARDANO_NODE_CONFIG_DIR/shelley-genesis.json")}"
 
 cardano-cli conway query utxo \
   --testnet-magic "$MAGIC" \
@@ -266,11 +282,11 @@ If the faucet gives you one large UTxO, split it into ten 2 ada UTxOs before sca
 the funded transaction input shown by `cardano-cli query utxo`:
 
 ```bash
-ADDRESS="$(cat payment.addr)"
+ADDRESS="$(cat "keys/${AMARU_NETWORK:-preprod}/payment.addr")"
 RUNDIR="${RUNDIR:-run}"
 SOCKET="${CARDANO_NODE_SOCKET_FILE:-run/generated/cardano-node.socket}"
-MAGIC="${CARDANO_TESTNET_MAGIC:-1}"
-SKEY="${TX_PAYMENT_SKEY:-payment.skey}"
+MAGIC="${CARDANO_TESTNET_MAGIC:-$(jq -r '.networkMagic' "$CARDANO_NODE_CONFIG_DIR/shelley-genesis.json")}"
+SKEY="${TX_PAYMENT_SKEY:-keys/${AMARU_NETWORK:-preprod}/payment.skey}"
 TX_IN="replace-with-funded-tx-hash#0"
 
 cardano-cli conway transaction build \
@@ -313,21 +329,23 @@ cardano-cli conway query utxo \
   | jq -r 'to_entries[] | select(.value.value.lovelace == 2000000) | .key'
 ```
 
-After the ten split outputs are visible, scale `6-submit-tx` to ten replicas from the Process Compose TUI or CLI. Each
+After the ten split outputs are visible, scale `7-submit-tx` to ten replicas from the Process Compose TUI or CLI. Each
 replica can then claim a different 2 ada UTxO and submit concurrently.
 
 ```bash
-process-compose process scale 6-submit-tx 10
+process-compose process scale 7-submit-tx 10
 ```
 
-For repeat batches after `6-submit-tx` has already completed once, restart every scaled submit replica so `00` through
+For repeat batches after `7-submit-tx` has already completed once, restart every scaled submit replica so `00` through
 `09` all run again:
 
 ```bash
 ./process-compose.sh submit-tx-restart-all
 ```
 
-After repeated submissions, the payment address accumulates small change outputs. Rebuild it into clean UTxOs with:
+Before `7-submit-tx` starts, `6-refuel-submit-wallet` automatically ensures the payment address has enough clean UTxOs
+for concurrent submit replicas. After repeated submissions, you can also rebuild the wallet into clean UTxOs manually
+with:
 
 ```bash
 ./process-compose.sh refuel-submit-wallet
@@ -342,7 +360,8 @@ exits without submitting a new transaction. Set `TX_REFUEL_FORCE=true` to rebuil
 `TX_REFUEL_SELECTION=smallest` only when you specifically want to consolidate tiny outputs; if the wallet has many tiny
 outputs, increase `TX_REFUEL_MAX_INPUTS`; if the transaction becomes too large, use a fresh funded key instead. Refuel
 logs are written to `/tmp/amaru-relay-1/refuel-submit-wallet.log` by default.
-The Process Compose TUI also lists this as a disabled `7-refuel-submit-wallet` process that can be started manually.
+The Process Compose TUI also lists this as `6-refuel-submit-wallet`; restart it manually when you want to rebuild clean
+submit inputs before another scaled batch.
 
 The transactions must be valid for the downstream node's current ledger state. When accepted, the `watch` process shows
 Submit API, mempool, and tx-submission logs (`RequestTx*` / `ReplyTx*`) as the middle Amaru node pulls the transaction
