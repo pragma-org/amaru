@@ -635,6 +635,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     })
                     .collect();
 
+                // TODO: manage the possibility of having chained transactions submitted to the mempool.
                 if !missing_inputs.is_empty() {
                     return Err(ValidationContextError::MissingInputs { inputs: missing_inputs });
                 }
