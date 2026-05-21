@@ -16,8 +16,11 @@ use std::{fmt, sync::Arc};
 
 use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
 use amaru_observability::trace_span;
-use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::{CanValidateHeaders, ChainStore, HasStakeDistribution, HeaderValidationError, Praos};
+use amaru_ouroboros::praos::{self, header::AssertHeaderError};
+use amaru_ouroboros_traits::{
+    CanValidateHeaders, ChainStore, HasStakeDistribution, HeaderValidationError, Praos,
+    has_stake_distribution::GetPoolError,
+};
 use anyhow::anyhow;
 
 use crate::{errors::ConsensusError, store::PraosChainStore};
@@ -83,12 +86,28 @@ impl ValidateHeader {
             use rayon::prelude::*;
             assertions.into_par_iter().try_for_each(|assert| assert())
         })
-        .map_err(|e| ConsensusError::InvalidHeader(header.point(), HeaderValidationError::new(anyhow!(e))))
+        .map_err(|e| ConsensusError::InvalidHeader(header.point(), into_header_validation_error(e)))
+    }
+}
+
+/// Convert an [`AssertHeaderError`] into a [`HeaderValidationError`], keeping the
+/// "stake distribution not available" case separate so that it can be handled as a transient error.
+#[expect(clippy::wildcard_enum_match_arm)]
+fn into_header_validation_error(error: AssertHeaderError) -> HeaderValidationError {
+    match error {
+        AssertHeaderError::PoolError(GetPoolError::StakeDistributionNotAvailable(epoch)) => {
+            HeaderValidationError::MissingStakeDistribution(epoch)
+        }
+        other => HeaderValidationError::Other(anyhow!(other)),
     }
 }
 
 impl CanValidateHeaders for ValidateHeader {
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn validate_header(&self, header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        self.validate(header).map_err(|e| HeaderValidationError::new(anyhow!(e)))
+        self.validate(header).map_err(|e| match e {
+            ConsensusError::InvalidHeader(_, inner) => inner,
+            other => HeaderValidationError::Other(anyhow!(other)),
+        })
     }
 }
