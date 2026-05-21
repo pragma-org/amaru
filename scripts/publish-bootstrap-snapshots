@@ -7,7 +7,6 @@ network="${AMARU_NETWORK:-preprod}"
 dist_dir="${AMARU_DIST_DIR:-data/${network}/epoch-snapshots}"
 metadata_dir="${dist_dir}/epochs"
 manifest_path="crates/amaru/config/bootstrap/${network}/snapshots.json"
-public_url_base="${BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE:-}"
 
 require_command() {
   local command_name="$1"
@@ -36,10 +35,8 @@ require_env AWS_ACCESS_KEY_ID
 require_env AWS_SECRET_ACCESS_KEY
 require_env BUCKET_NAME
 require_env ENDPOINT
-require_env BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE
 
-public_url_base="${public_url_base%/}"
-export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+public_url_base="${BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE:-${ENDPOINT%/}/${BUCKET_NAME}}"
 
 epochs=("$epoch" "$((epoch + 1))" "$((epoch + 2))")
 metadata_files=()
