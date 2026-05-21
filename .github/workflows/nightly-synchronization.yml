@@ -45,7 +45,12 @@ jobs:
           db-dir: ${{ runner.temp }}/db
           network: ${{ matrix.network }}
           version: ${{ env.OGMIOS_VERSION }}_${{ env.CARDANO_NODE_VERSION }}
-          synchronization-level: ${{ inputs.synchronization-level || 1 }}
+          # FIXME: preview nightly synchronization
+          #
+          # Preview has hark-forked, and so get stuck in synchronization and
+          # won't reach 1 until we update cardano-node / ogmios to be
+          # compatible with protocol version 12.
+          synchronization-level: ${{ inputs.synchronization-level || (matrix.network == 'preview' && 0.99 || 1) }}
 
       - name: 📥 Upload R2 Object
         shell: bash

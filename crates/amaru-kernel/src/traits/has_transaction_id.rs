@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2024 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,24 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(type_alias_impl_trait)]
+use crate::{Transaction, TransactionBody, TransactionId};
 
-pub mod accept;
-pub mod blockfetch;
-pub mod chainsync;
-pub mod connection;
-pub mod deserializers;
-pub mod handshake;
-pub mod keepalive;
-pub mod manager;
-pub mod mempool_effects;
-pub mod metrics_effects;
-pub mod mux;
-pub mod network_effects;
-pub mod protocol;
-pub mod protocol_messages;
-pub mod store_effects;
-pub mod tx_submission;
+pub trait HasTransactionId {
+    fn tx_id(&self) -> TransactionId;
+}
 
-#[cfg(test)]
-mod tests;
+impl HasTransactionId for Transaction {
+    fn tx_id(&self) -> TransactionId {
+        self.tx_id()
+    }
+}
+
+impl HasTransactionId for TransactionBody {
+    fn tx_id(&self) -> TransactionId {
+        TransactionId::new(self.id())
+    }
+}

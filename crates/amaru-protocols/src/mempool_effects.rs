@@ -14,9 +14,9 @@
 
 use std::fmt::Debug;
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Transaction, TransactionId};
 use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin, TxSubmissionMempool};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 use serde::{Deserialize, Serialize};
 
@@ -33,11 +33,15 @@ pub struct MemoryPool<T> {
 
 pub trait AsyncMempool: Send + Sync {
     fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, Result<TxInsertResult, MempoolError>>;
-    fn get_tx(&self, tx_id: TxId) -> BoxFuture<'_, Option<Transaction>>;
-    fn contains(&self, tx_id: TxId) -> BoxFuture<'_, bool>;
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> BoxFuture<'_, Vec<(TxId, u32, MempoolSeqNo)>>;
+    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<Transaction>>;
+    fn contains(&self, tx_id: TransactionId) -> BoxFuture<'_, bool>;
+    fn tx_ids_since(
+        &self,
+        from_seq: MempoolSeqNo,
+        limit: u16,
+    ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>>;
     fn wait_for_at_least(&self, seq_no: MempoolSeqNo) -> BoxFuture<'_, bool>;
-    fn get_txs_for_ids(&self, ids: Vec<TxId>) -> BoxFuture<'_, Vec<Transaction>>;
+    fn get_txs_for_ids(&self, ids: Vec<TransactionId>) -> BoxFuture<'_, Vec<Transaction>>;
 }
 
 impl<T: SendData + Sync + 'static> MemoryPool<T> {
@@ -57,11 +61,11 @@ impl<T: SendData + Sync + 'static> MemoryPool<T> {
         self.external(Insert::new(tx, tx_origin))
     }
 
-    pub fn get_tx(&self, tx_id: &TxId) -> BoxFuture<'static, Option<Transaction>> {
+    pub fn get_tx(&self, tx_id: &TransactionId) -> BoxFuture<'static, Option<Transaction>> {
         self.external(GetTx::new(*tx_id))
     }
 
-    pub fn contains(&self, tx_id: &TxId) -> BoxFuture<'static, bool> {
+    pub fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'static, bool> {
         self.external(ContainsTx::new(*tx_id))
     }
 
@@ -69,7 +73,7 @@ impl<T: SendData + Sync + 'static> MemoryPool<T> {
         &self,
         from_seq: MempoolSeqNo,
         limit: u16,
-    ) -> BoxFuture<'static, Vec<(TxId, u32, MempoolSeqNo)>> {
+    ) -> BoxFuture<'static, Vec<(TransactionId, u32, MempoolSeqNo)>> {
         self.external(TxIdsSince::new(from_seq, limit))
     }
 
@@ -78,7 +82,7 @@ impl<T: SendData + Sync + 'static> MemoryPool<T> {
         Box::pin(async move { mempool.last_seq_no().await >= seq_no })
     }
 
-    pub fn get_txs_for_ids(&self, ids: &[TxId]) -> BoxFuture<'static, Vec<Transaction>> {
+    pub fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'static, Vec<Transaction>> {
         self.external(GetTxsForIds::new(ids))
     }
 
@@ -92,15 +96,19 @@ impl<T: SendData + Sync + 'static> AsyncMempool for MemoryPool<T> {
         MemoryPool::insert(self, tx, tx_origin)
     }
 
-    fn get_tx(&self, tx_id: TxId) -> BoxFuture<'_, Option<Transaction>> {
+    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<Transaction>> {
         MemoryPool::get_tx(self, &tx_id)
     }
 
-    fn contains(&self, tx_id: TxId) -> BoxFuture<'_, bool> {
+    fn contains(&self, tx_id: TransactionId) -> BoxFuture<'_, bool> {
         MemoryPool::contains(self, &tx_id)
     }
 
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> BoxFuture<'_, Vec<(TxId, u32, MempoolSeqNo)>> {
+    fn tx_ids_since(
+        &self,
+        from_seq: MempoolSeqNo,
+        limit: u16,
+    ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
         MemoryPool::tx_ids_since(self, from_seq, limit)
     }
 
@@ -108,7 +116,7 @@ impl<T: SendData + Sync + 'static> AsyncMempool for MemoryPool<T> {
         MemoryPool::wait_for_at_least(self, seq_no)
     }
 
-    fn get_txs_for_ids(&self, ids: Vec<TxId>) -> BoxFuture<'_, Vec<Transaction>> {
+    fn get_txs_for_ids(&self, ids: Vec<TransactionId>) -> BoxFuture<'_, Vec<Transaction>> {
         MemoryPool::get_txs_for_ids(self, &ids)
     }
 }
@@ -118,15 +126,19 @@ impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
         Box::pin(async move { TxSubmissionMempool::insert(self, tx, tx_origin) })
     }
 
-    fn get_tx(&self, tx_id: TxId) -> BoxFuture<'_, Option<Transaction>> {
+    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<Transaction>> {
         Box::pin(async move { TxSubmissionMempool::get_tx(self, &tx_id) })
     }
 
-    fn contains(&self, tx_id: TxId) -> BoxFuture<'_, bool> {
+    fn contains(&self, tx_id: TransactionId) -> BoxFuture<'_, bool> {
         Box::pin(async move { TxSubmissionMempool::contains(self, &tx_id) })
     }
 
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> BoxFuture<'_, Vec<(TxId, u32, MempoolSeqNo)>> {
+    fn tx_ids_since(
+        &self,
+        from_seq: MempoolSeqNo,
+        limit: u16,
+    ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
         Box::pin(async move { TxSubmissionMempool::tx_ids_since(self, from_seq, limit) })
     }
 
@@ -134,7 +146,7 @@ impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
         Box::pin(async move { TxSubmissionMempool::last_seq_no(self) >= seq_no })
     }
 
-    fn get_txs_for_ids(&self, ids: Vec<TxId>) -> BoxFuture<'_, Vec<Transaction>> {
+    fn get_txs_for_ids(&self, ids: Vec<TransactionId>) -> BoxFuture<'_, Vec<Transaction>> {
         Box::pin(async move { TxSubmissionMempool::get_txs_for_ids(self, &ids) })
     }
 }
@@ -169,11 +181,11 @@ impl ExternalEffectAPI for Insert {
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct GetTx {
-    tx_id: TxId,
+    tx_id: TransactionId,
 }
 
 impl GetTx {
-    pub fn new(tx_id: TxId) -> Self {
+    pub fn new(tx_id: TransactionId) -> Self {
         Self { tx_id }
     }
 }
@@ -194,11 +206,11 @@ impl ExternalEffectAPI for GetTx {
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct ContainsTx {
-    tx_id: TxId,
+    tx_id: TransactionId,
 }
 
 impl ContainsTx {
-    pub fn new(tx_id: TxId) -> Self {
+    pub fn new(tx_id: TransactionId) -> Self {
         Self { tx_id }
     }
 }
@@ -240,16 +252,16 @@ impl ExternalEffect for TxIdsSince {
 }
 
 impl ExternalEffectAPI for TxIdsSince {
-    type Response = Vec<(TxId, u32, MempoolSeqNo)>;
+    type Response = Vec<(TransactionId, u32, MempoolSeqNo)>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct GetTxsForIds {
-    tx_ids: Vec<TxId>,
+    tx_ids: Vec<TransactionId>,
 }
 
 impl GetTxsForIds {
-    pub fn new(ids: &[TxId]) -> Self {
+    pub fn new(ids: &[TransactionId]) -> Self {
         Self { tx_ids: ids.to_vec() }
     }
 }
@@ -287,8 +299,8 @@ impl ExternalEffectAPI for LastSeqNo {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Transaction, TransactionBody, WitnessSet};
-    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxId, TxInsertResult, TxOrigin, TxSubmissionMempool};
+    use amaru_kernel::{Transaction, TransactionBody, TransactionId, WitnessSet};
+    use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
@@ -307,18 +319,18 @@ mod tests {
 
     impl TxSubmissionMempool<Transaction> for ConstantMempool {
         fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
-            Ok(TxInsertResult::accepted(TxId::from(&tx), MempoolSeqNo(1)))
+            Ok(TxInsertResult::accepted(tx.tx_id(), MempoolSeqNo(1)))
         }
 
-        fn get_tx(&self, _tx_id: &TxId) -> Option<Transaction> {
+        fn get_tx(&self, _tx_id: &TransactionId) -> Option<Transaction> {
             Some(self.tx.clone())
         }
 
-        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TxId, u32, MempoolSeqNo)> {
-            vec![(TxId::from(&self.tx), 100, MempoolSeqNo(1))]
+        fn tx_ids_since(&self, _from_seq: MempoolSeqNo, _limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
+            vec![(self.tx.tx_id(), 100, MempoolSeqNo(1))]
         }
 
-        fn get_txs_for_ids(&self, _ids: &[TxId]) -> Vec<Transaction> {
+        fn get_txs_for_ids(&self, _ids: &[TransactionId]) -> Vec<Transaction> {
             vec![self.tx.clone()]
         }
 

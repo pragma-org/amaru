@@ -48,13 +48,15 @@
 /// - Only advertised transaction IDs are requested
 /// - Appropriate blocking/non-blocking requests based on acknowledgment state
 use std::collections::VecDeque;
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use ProtocolError::*;
-use amaru_kernel::{Transaction, utils::string::display_collection};
+use amaru_kernel::{EraHistory, Transaction, TransactionId, utils::string::display_collection};
 use amaru_observability::trace_span;
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
-use amaru_ouroboros_traits::TxId;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -64,7 +66,7 @@ use crate::{
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
     },
-    tx_submission::{Blocking, Message, ProtocolError, State},
+    tx_submission::{Blocking, EraTaggedTx, EraTaggedTxId, Message, ProtocolError, State},
 };
 
 const MAX_REQUESTED_TX_IDS: u16 = 10;
@@ -162,8 +164,9 @@ impl ProtocolState<Initiator> for State {
                     State::TxIdsNonBlocking,
                 )
             }
-            (State::Idle, Message::RequestTxs(tx_ids)) => {
-                tracing::debug!(tx_ids_nb = tx_ids.len(), "received RequestTxs");
+            (State::Idle, Message::RequestTxs(tagged_ids)) => {
+                tracing::debug!(tx_ids_nb = tagged_ids.len(), "received RequestTxs");
+                let tx_ids = tagged_ids.into_iter().map(|t| t.id).collect();
                 (outcome().result(InitiatorResult::RequestTxs(tx_ids)), State::Txs)
             }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
@@ -188,10 +191,14 @@ impl ProtocolState<Initiator> for State {
     }
 }
 
+/// Actions produced by the initiator stage.
+///
+/// `SendReplyTxIds` / `SendReplyTxs` carry lists where each item is tagged with the era it
+/// was created in via [`EraTaggedTxId`] / [`EraTaggedTx`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum InitiatorAction {
-    SendReplyTxIds(Vec<(TxId, u32)>),
-    SendReplyTxs(Vec<Transaction>),
+    SendReplyTxIds(Vec<(EraTaggedTxId, u32)>),
+    SendReplyTxs(Vec<EraTaggedTx>),
     Error(ProtocolError),
     Done,
 }
@@ -213,7 +220,7 @@ impl Display for InitiatorAction {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
     RequestTxIds { ack: u16, req: u16, blocking: Blocking },
-    RequestTxs(Vec<TxId>),
+    RequestTxs(Vec<TransactionId>),
 }
 
 impl InitiatorResult {
@@ -245,7 +252,7 @@ impl Display for InitiatorResult {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TxSubmissionInitiator {
     /// What we’ve already advertised but has not yet been fully acked.
-    window: VecDeque<(TxId, MempoolSeqNo)>,
+    window: VecDeque<(TransactionId, MempoolSeqNo)>,
     /// Last seq_no we have ever pulled from the mempool for this peer.
     /// None if we have not pulled anything yet.
     last_seq: Option<MempoolSeqNo>,
@@ -254,10 +261,16 @@ pub struct TxSubmissionInitiator {
     mempool_stage: StageRef<MempoolMsg>,
     wait_for_at_least_callback: StageRef<()>,
     muxer: StageRef<MuxMessage>,
+    /// Era history used to derive the current era tag for outgoing wire messages.
+    era_history: Arc<EraHistory>,
 }
 
 impl TxSubmissionInitiator {
-    pub fn new(muxer: StageRef<MuxMessage>, mempool_stage: StageRef<MempoolMsg>) -> (State, Self) {
+    pub fn new(
+        muxer: StageRef<MuxMessage>,
+        mempool_stage: StageRef<MempoolMsg>,
+        era_history: Arc<EraHistory>,
+    ) -> (State, Self) {
         (
             State::Init,
             Self {
@@ -267,8 +280,21 @@ impl TxSubmissionInitiator {
                 mempool_stage,
                 wait_for_at_least_callback: StageRef::blackhole(),
                 muxer,
+                era_history,
             },
         )
+    }
+
+    /// Wrap each `(tx_id, size)` pair with the current era tag for outgoing wire messages.
+    fn tag_ids(&self, items: Vec<(TransactionId, u32)>) -> Vec<(EraTaggedTxId, u32)> {
+        let era = self.era_history.current_era_tag();
+        items.into_iter().map(|(id, size)| (EraTaggedTxId { era, id }, size)).collect()
+    }
+
+    /// Wrap each transaction with the current era tag for outgoing wire messages.
+    fn tag_txs(&self, items: Vec<Transaction>) -> Vec<EraTaggedTx> {
+        let era = self.era_history.current_era_tag();
+        items.into_iter().map(|tx| EraTaggedTx { era, tx }).collect()
     }
 
     async fn request_tx_ids_blocking(
@@ -334,7 +360,7 @@ impl TxSubmissionInitiator {
         };
 
         let tx_ids = self.get_next_tx_ids(mempool, req).await?;
-        Ok(Some(InitiatorAction::SendReplyTxIds(tx_ids)))
+        Ok(Some(InitiatorAction::SendReplyTxIds(self.tag_ids(tx_ids))))
     }
 
     async fn request_tx_ids_non_blocking(
@@ -357,13 +383,14 @@ impl TxSubmissionInitiator {
 
         // update the window by discarding acknowledged tx ids and update the last_seq
         self.discard(ack);
-        Ok(Some(InitiatorAction::SendReplyTxIds(self.get_next_tx_ids(mempool, req).await?)))
+        let tx_ids = self.get_next_tx_ids(mempool, req).await?;
+        Ok(Some(InitiatorAction::SendReplyTxIds(self.tag_ids(tx_ids))))
     }
 
     async fn request_txs(
         &mut self,
         mempool: &dyn AsyncMempool,
-        tx_ids: Vec<TxId>,
+        tx_ids: Vec<TransactionId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         tracing::debug!(tx_ids = display_collection(&tx_ids), "received RequestTxs");
         if tx_ids.is_empty() {
@@ -376,7 +403,7 @@ impl TxSubmissionInitiator {
         if txs.is_empty() {
             protocol_error(UnknownTxsRequested(tx_ids))
         } else {
-            Ok(Some(InitiatorAction::SendReplyTxs(txs)))
+            Ok(Some(InitiatorAction::SendReplyTxs(self.tag_txs(txs))))
         }
     }
 
@@ -396,7 +423,7 @@ impl TxSubmissionInitiator {
         &mut self,
         mempool: &dyn AsyncMempool,
         required_next: u16,
-    ) -> anyhow::Result<Vec<(TxId, u32)>> {
+    ) -> anyhow::Result<Vec<(TransactionId, u32)>> {
         let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next).await;
         let result = tx_ids.clone().into_iter().map(|(tx_id, tx_size, _)| (tx_id, tx_size)).collect();
         self.update(tx_ids);
@@ -411,7 +438,7 @@ impl TxSubmissionInitiator {
     }
 
     /// We update our window with tx ids retrieved from the mempool and just sent to the server.
-    fn update(&mut self, tx_ids: Vec<(TxId, u32, MempoolSeqNo)>) {
+    fn update(&mut self, tx_ids: Vec<(TransactionId, u32, MempoolSeqNo)>) {
         for (tx_id, _size, seq_no) in tx_ids {
             self.window.push_back((tx_id, seq_no));
             self.last_seq = Some(seq_no);
@@ -452,12 +479,16 @@ impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
 mod tests {
     use std::sync::Arc;
 
-    use amaru_kernel::to_cbor;
+    use amaru_kernel::{EraName, TESTNET_ERA_HISTORY, to_cbor};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
 
     use super::*;
     use crate::tx_submission::{assert_actions_eq, create_transactions_in_mempool, tests::create_transactions};
+
+    fn test_era() -> EraName {
+        TESTNET_ERA_HISTORY.current_era_tag()
+    }
 
     #[tokio::test]
     async fn serve_transactions() -> anyhow::Result<()> {
@@ -565,7 +596,7 @@ mod tests {
             &actions,
             &[
                 reply_tx_ids(&txs, &[0, 1]),
-                error_action(UnadvertisedTransactionIdsRequested(vec![TxId::from(&txs[2]), TxId::from(&txs[3])])),
+                error_action(UnadvertisedTransactionIdsRequested(vec![txs[2].tx_id(), txs[3].tx_id()])),
             ],
         );
         Ok(())
@@ -749,7 +780,12 @@ mod tests {
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         run_stage_and_return_state_with(
-            TxSubmissionInitiator::new(StageRef::named_for_tests("muxer"), StageRef::blackhole()).1,
+            TxSubmissionInitiator::new(
+                StageRef::named_for_tests("muxer"),
+                StageRef::blackhole(),
+                Arc::new(TESTNET_ERA_HISTORY.clone()),
+            )
+            .1,
             mempool,
             results,
         )
@@ -796,13 +832,18 @@ mod tests {
     }
 
     fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
-        InitiatorAction::SendReplyTxIds(
-            ids.iter().map(|id| (TxId::from(&txs[*id]), to_cbor(&txs[*id]).len() as u32)).collect(),
-        )
+        let era = test_era();
+        let pairs: Vec<(EraTaggedTxId, u32)> = ids
+            .iter()
+            .map(|id| (EraTaggedTxId { era, id: txs[*id].tx_id() }, to_cbor(&txs[*id]).len() as u32))
+            .collect();
+        InitiatorAction::SendReplyTxIds(pairs)
     }
 
     fn reply_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
-        InitiatorAction::SendReplyTxs(ids.iter().map(|id| txs[*id].clone()).collect())
+        let era = test_era();
+        let payload: Vec<EraTaggedTx> = ids.iter().map(|id| EraTaggedTx { era, tx: txs[*id].clone() }).collect();
+        InitiatorAction::SendReplyTxs(payload)
     }
 
     fn request_tx_ids(ack: u16, req: u16, blocking: Blocking) -> InitiatorResult {
@@ -814,7 +855,7 @@ mod tests {
     }
 
     fn request_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorResult {
-        InitiatorResult::RequestTxs(ids.iter().map(|id| TxId::from(&txs[*id])).collect())
+        InitiatorResult::RequestTxs(ids.iter().map(|id| txs[*id].tx_id()).collect())
     }
 
     fn error_action(error: ProtocolError) -> InitiatorAction {

@@ -359,7 +359,6 @@ dependencies = [
  "amaru-metrics",
  "anyhow",
  "async-trait",
- "hex",
  "parking_lot",
  "rand 0.9.2",
  "serde",
@@ -396,6 +395,7 @@ version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-mempool",
+ "amaru-metrics",
  "amaru-network",
  "amaru-observability",
  "amaru-ouroboros",

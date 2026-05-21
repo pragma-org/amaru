@@ -15,12 +15,12 @@
 use std::sync::Arc;
 
 use amaru_kernel::Transaction;
-use amaru_ouroboros_traits::{TxId, TxSubmissionMempool};
+use amaru_ouroboros_traits::TxSubmissionMempool;
 
 /// Check that all the given transactions are currently present in the given mempool.
 #[track_caller]
 pub fn expect_transactions(mempool: Arc<dyn TxSubmissionMempool<Transaction>>, txs: Vec<Transaction>) {
-    let tx_ids: Vec<_> = txs.iter().map(TxId::from).collect();
+    let tx_ids: Vec<_> = txs.iter().map(|tx| tx.tx_id()).collect();
     let actual = tx_ids.iter().filter(|tx_id| mempool.contains(tx_id)).collect::<Vec<_>>();
 
     if actual.len() != txs.len() {

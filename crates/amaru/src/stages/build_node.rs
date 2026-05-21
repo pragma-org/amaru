@@ -188,13 +188,14 @@ fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<
         StoreType::RocksDb(ref rocks_db_config) => Arc::new(RocksDBStore::open(rocks_db_config)?),
     };
 
-    if chain_store.get_anchor_hash() == ORIGIN_HASH {
-        tracing::info!(anchor = %ledger_tip, "setting anchor hash");
+    let anchor_hash = chain_store.get_anchor_hash();
+
+    // This corresponds to a bootstrap, we need to correctly initialize the chain store
+    if anchor_hash == ORIGIN_HASH {
+        tracing::info!(anchor = %ledger_tip, "first initialization - setting anchor and best chain");
         chain_store.set_anchor_hash(&ledger_tip.hash())?;
-    }
-    if chain_store.get_best_chain_hash() == ORIGIN_HASH {
-        tracing::info!(best_chain = %ledger_tip, "setting best chain hash");
-        chain_store.set_best_chain_hash(&ledger_tip.hash())?;
+        chain_store.set_block_valid(&ledger_tip.hash(), true)?;
+        chain_store.roll_forward_chain(&ledger_tip)?;
     }
 
     Ok(chain_store)

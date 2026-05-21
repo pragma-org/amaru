@@ -530,16 +530,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // TODO: perform lookup in batch, and possibly within the same transaction as other
         // required data pre-fetch.
         for input in inputs {
-            let output = ongoing_state
-                .resolve_input(input)
-                .cloned()
-                .inspect(|_| resolved_from_context += 1)
-                .or_else(|| self.volatile.resolve_input(input).inspect(|_| resolved_from_volatile += 1).cloned())
-                .map(|output| Ok(Some(output)))
-                .unwrap_or_else(|| {
-                    let db = self.stable.lock().unwrap();
-                    db.utxo(input).inspect(|_| resolved_from_db += 1)
-                })?;
+            let output = if ongoing_state.has_consumed_input(input) || self.volatile.has_consumed_input(input) {
+                Ok(None)
+            } else {
+                ongoing_state
+                    .resolve_input(input)
+                    .cloned()
+                    .inspect(|_| resolved_from_context += 1)
+                    .or_else(|| self.volatile.resolve_input(input).inspect(|_| resolved_from_volatile += 1).cloned())
+                    .map(|output| Ok(Some(output)))
+                    .unwrap_or_else(|| {
+                        let db = self.stable.lock().unwrap();
+                        db.utxo(input).inspect(|_| resolved_from_db += 1)
+                    })
+            }?;
 
             result.push((input.clone(), output));
         }
@@ -618,6 +622,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let block_height = block.header.header_body.block_number;
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+        let prev_hash = block.header.header_body.prev_hash;
         let txs_processed = block.transaction_bodies.len() as u64;
 
         match rules::validate_block(
@@ -645,11 +650,27 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 }
                 .into();
 
-                let slot = slot.into();
+                let slot: u64 = slot.into();
 
                 let density = self.chain_density(point);
 
-                let metrics = LedgerMetrics { block_height, txs_processed, slot, slot_in_epoch, epoch, density };
+                let current_kes_period = slot.checked_div(self.global_parameters.slots_per_kes_period).unwrap_or(0);
+                let remaining_kes_periods =
+                    (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
+
+                let metrics = LedgerMetrics {
+                    block_height,
+                    txs_processed,
+                    slot,
+                    slot_in_epoch,
+                    epoch,
+                    density,
+                    current_kes_period,
+                    remaining_kes_periods,
+                    hash: hex::encode(point.hash()),
+                    parent_hash: prev_hash.map(hex::encode).unwrap_or_default(),
+                    issuer_verification_key_hash: hex::encode(issuer),
+                };
 
                 let tip = Tip::new(*point, block_height.into());
                 match self.forward(state.anchor(tip, issuer)) {

@@ -52,7 +52,7 @@ pub enum InvalidBlockDetails {
     HeaderSizeTooBig { supplied: u64, max: u64 },
     InvalidBodyHash { header: Hash<BLOCK_BODY>, actual: Hash<BLOCK_BODY> },
     HeaderProtVerTooHigh { header_major: u64, max_major: u64 },
-    Transaction { transaction_hash: TransactionId, transaction_index: u32, violation: TransactionInvalid },
+    Transaction { transaction_id: TransactionId, transaction_index: u32, violation: TransactionInvalid },
 }
 
 #[derive(Debug)]
@@ -89,8 +89,8 @@ impl Display for InvalidBlockDetails {
             InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major } => {
                 write!(f, "Header protocol version too high: {} > {}", header_major, max_major)
             }
-            InvalidBlockDetails::Transaction { transaction_hash, transaction_index, violation } => {
-                write!(f, "Transaction {} at index {} is invalid: {}", transaction_hash, transaction_index, violation)
+            InvalidBlockDetails::Transaction { transaction_id, transaction_index, violation } => {
+                write!(f, "Transaction {} at index {} is invalid: {}", transaction_id, transaction_index, violation)
             }
         }
     }
@@ -197,7 +197,7 @@ where
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction, tx_size) in block {
-        let transaction_hash = transaction.body.id();
+        let transaction_id = transaction.tx_id();
 
         transaction.body.required_signers.as_deref().unwrap_or(&[]).iter().for_each(|vk_hash| {
             context.require_vkey_witness(*vk_hash);
@@ -224,7 +224,7 @@ where
             Ok(inputs) => inputs,
             Err(err) => {
                 return with_block_context(Err(InvalidBlockDetails::Transaction {
-                    transaction_hash,
+                    transaction_id,
                     transaction_index: i,
                     violation: err.into(),
                 }));
@@ -243,7 +243,7 @@ where
             &transaction.witnesses,
         ) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
-                transaction_hash,
+                transaction_id,
                 transaction_index: i,
                 violation: e.into(),
             }));

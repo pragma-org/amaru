@@ -67,7 +67,7 @@ pub use cardano::{
     ex_units::{ExUnits, sum_ex_units},
     ex_units_prices::ExUnitPrices,
     governance_action::GovernanceAction,
-    hash::{Hash, Hasher, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, TransactionId, size},
+    hash::{Hash, Hasher, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, size},
     header::Header,
     header_body::HeaderBody,
     int::Int,
@@ -127,6 +127,7 @@ pub use cardano::{
     tip::Tip,
     transaction::Transaction,
     transaction_body::TransactionBody,
+    transaction_id::TransactionId,
     transaction_input::{TransactionInput, transaction_input_to_string},
     transaction_pointer::TransactionPointer,
     validity_interval::ValidityInterval,
@@ -218,8 +219,9 @@ pub mod macros;
 mod traits;
 pub use traits::{
     AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasNetwork, HasOwnership, HasRedeemers,
-    HasScriptHash, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_major_version,
-    has_network, has_ownership, has_redeemers, has_script_hash, is_header, to_bytes,
+    HasScriptHash, HasTransactionId, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace,
+    has_major_version, has_network, has_ownership, has_redeemers, has_script_hash, has_transaction_id, is_header,
+    to_bytes,
 };
 
 pub mod utils;

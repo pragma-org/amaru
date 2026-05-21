@@ -12,15 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AuxiliaryData, TransactionBody, WitnessSet, cbor};
+use crate::{AuxiliaryData, TransactionBody, TransactionId, WitnessSet, cbor};
 
 // TODO:
 //
-// This type is currently mostly unused; transactions in blocks have their constituents separated
-// (i.e. seggregated witnesses). This type would however come in handy as soon as start accepting
-// transactions from an external API.
-//
-// In which case, it'll become interesting to think about what public API we wanna expose. Exposing
+// Think about what public API we wanna expose. Exposing
 // all fields an internals doesn't sound like a good idea and will likely break people's code
 // (including ours) over time.
 #[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, cbor::Decode, serde::Serialize, serde::Deserialize)]
@@ -33,4 +29,10 @@ pub struct Transaction {
     pub is_expected_valid: bool,
     #[n(3)]
     pub auxiliary_data: Option<AuxiliaryData>,
+}
+
+impl Transaction {
+    pub fn tx_id(&self) -> TransactionId {
+        TransactionId::new(self.body.id())
+    }
 }

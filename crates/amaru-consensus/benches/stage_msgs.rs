@@ -64,6 +64,10 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::NewTip", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
+    let msg = FetchBlocksMsg::RecoverStoredBlocks;
+    let msg: Box<dyn SendData> = Box::new(msg);
+    group.bench_function("FetchBlocksMsg::RecoverStoredBlocks", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
+
     let msg = FetchBlocksMsg::Timeout(1000);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::Timeout", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));

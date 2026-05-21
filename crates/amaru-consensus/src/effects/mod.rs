@@ -13,11 +13,10 @@
 // limitations under the License.
 
 mod ledger_effects;
-mod metrics_effects;
 
+pub use amaru_protocols::metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};
 pub use ledger_effects::{
     ContainsPointEffect, Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation,
     ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation, RollbackBlockEffect, TipEffect,
     ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
 };
-pub use metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};

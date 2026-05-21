@@ -291,6 +291,11 @@ where
             .map(|bytes| bytes.as_ref().into()))
     }
 
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        let prefix = [&BLOCK_PREFIX[..], &hash[..]].concat();
+        self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some())
+    }
+
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
         let slot = u64::from(point.slot_or_default()).to_be_bytes();
         self.db.get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), ReadOptions::default()).ok().flatten().and_then(
@@ -621,6 +626,18 @@ pub mod test {
             db.store_block(&hash, &block).unwrap();
             let block2 = db.load_block(&hash).unwrap();
             assert_eq!(Some(block), block2);
+        })
+    }
+
+    #[test]
+    fn rocksdb_chain_store_can_check_if_block_exists() {
+        with_db(|db| {
+            let hash: HeaderHash = random_bytes(32).as_slice().into();
+            let block = RawBlock::from(&*vec![1; 64]);
+
+            assert!(!db.has_block(&hash).unwrap());
+            db.store_block(&hash, &block).unwrap();
+            assert!(db.has_block(&hash).unwrap());
         })
     }
 

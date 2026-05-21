@@ -1,4 +1,4 @@
-name: Snapshot Tests
+name: template-ledger-epoch-snapshots
 
 on:
   workflow_call:
@@ -192,7 +192,7 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached bootstrap databases and recompute them from scratch
           # (i.e. Full bootstrap below).
-          key: bootstrap-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
+          key: bootstrap-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Full bootstrap amaru
         if: steps.cache-bootstrap-dbs.outputs.cache-hit == ''
@@ -201,12 +201,12 @@ jobs:
           make bootstrap
 
       - uses: actions/cache/save@v5
-        if: steps.cache-bootstrap-dbs.outputs.cache-hit == ''
+        if: steps.cache-bootstrap-dbs.outputs.cache-hit == '' && github.ref == 'refs/heads/main'
         with:
           path: |
             ./ledger.${{ matrix.network.name }}.db
             ./chain.${{ matrix.network.name }}.db
-          key: bootstrap-state-${{ runner.os }}-${{ env.LEDGER_CACHE_VERSION }}
+          key: bootstrap-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Retrieve latest epoch if needed
         if: env.RUN_UNTIL_TARGET_EPOCH == ''

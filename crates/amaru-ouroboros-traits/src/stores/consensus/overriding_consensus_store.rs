@@ -33,6 +33,7 @@ struct Overrides<H> {
     load_from_best_chain: Option<Box<dyn FnMut(&dyn ChainStore<H>, &Point) -> Option<HeaderHash> + Send>>,
     next_best_chain: Option<Box<dyn FnMut(&dyn ChainStore<H>, &Point) -> Option<Point> + Send>>,
     load_block: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> Result<Option<RawBlock>, StoreError> + Send>>,
+    has_block: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> Result<bool, StoreError> + Send>>,
     get_nonces: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> Option<Nonces> + Send>>,
     has_header: Option<Box<dyn FnMut(&dyn ChainStore<H>, &HeaderHash) -> bool + Send>>,
     store_header: Option<Box<dyn FnMut(&dyn ChainStore<H>, &H) -> Result<(), StoreError> + Send>>,
@@ -57,6 +58,7 @@ impl<H> Default for Overrides<H> {
             load_from_best_chain: None,
             next_best_chain: None,
             load_block: None,
+            has_block: None,
             get_nonces: None,
             has_header: None,
             store_header: None,
@@ -162,6 +164,14 @@ impl<H: IsHeader + Send + Sync + 'static> OverridingChainStoreBuilder<H> {
         F: FnMut(&dyn ChainStore<H>, &HeaderHash) -> Result<Option<RawBlock>, StoreError> + Send + 'static,
     {
         self.overrides.load_block = Some(Box::new(f));
+        self
+    }
+
+    pub fn with_has_block<F>(mut self, f: F) -> Self
+    where
+        F: FnMut(&dyn ChainStore<H>, &HeaderHash) -> Result<bool, StoreError> + Send + 'static,
+    {
+        self.overrides.has_block = Some(Box::new(f));
         self
     }
 
@@ -315,6 +325,14 @@ impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingCh
         }
     }
 
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        let mut overrides = self.overrides.lock();
+        match &mut overrides.has_block {
+            Some(f) => f(self.inner.as_ref(), hash),
+            None => self.inner.has_block(hash),
+        }
+    }
+
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.get_nonces {
@@ -394,6 +412,14 @@ impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingCh
         match &mut overrides.load_block {
             Some(f) => f(self.parent.inner.as_ref(), hash),
             None => self.inner.load_block(hash),
+        }
+    }
+
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        let mut overrides = self.parent.overrides.lock();
+        match &mut overrides.has_block {
+            Some(f) => f(self.parent.inner.as_ref(), hash),
+            None => self.inner.has_block(hash),
         }
     }
 

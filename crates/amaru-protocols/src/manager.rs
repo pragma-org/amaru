@@ -15,6 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
+use amaru_metrics::protocol::ConnectionManagerMetrics;
 use amaru_observability::trace_span;
 use amaru_ouroboros::{ConnectionId, MempoolMsg, ToSocketAddrs};
 use pure_stage::{DeserializerGuards, Effects, StageRef, register_data_deserializer};
@@ -26,6 +27,7 @@ use crate::{
     blockfetch::{Blocks, Blocks2},
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
+    metrics_effects::{Metrics, MetricsOps},
     network_effects::{Network, NetworkOps},
     protocol::Role,
 };
@@ -277,6 +279,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                         manager.peers.remove(&peer);
                     }
                 }
+                record_connection_metrics(&manager, &eff).await;
             }
             ManagerMessage::FetchBlocks { peer, from, through, cr } => {
                 tracing::trace!(?from, ?through, %peer, "fetching blocks");
@@ -378,6 +381,25 @@ async fn start_connection_stage(
         .await;
     eff.send(&connection, ConnectionMessage::Initialize).await;
     manager.peers.insert(peer, ConnectionState::Connected(conn_id, role, connection));
+    record_connection_metrics(manager, eff).await;
+}
+
+fn connection_manager_metrics(manager: &Manager) -> ConnectionManagerMetrics {
+    let (incoming_connections, outgoing_connections) = manager.peers.values().fold((0, 0), |acc, state| match state {
+        ConnectionState::Connected(_, Role::Responder, _) => (acc.0 + 1, acc.1),
+        ConnectionState::Connected(_, Role::Initiator, _) => (acc.0, acc.1 + 1),
+        ConnectionState::Scheduled | ConnectionState::Disconnecting => acc,
+    });
+
+    ConnectionManagerMetrics {
+        inbound_connections: incoming_connections,
+        outbound_connections: outgoing_connections,
+        unidirectional_connections: incoming_connections + outgoing_connections,
+    }
+}
+
+async fn record_connection_metrics(manager: &Manager, eff: &Effects<ManagerMessage>) {
+    Metrics::new(eff).record(connection_manager_metrics(manager).into()).await;
 }
 
 pub fn register_deserializers() -> DeserializerGuards {

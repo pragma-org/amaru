@@ -15,12 +15,14 @@
 use std::fmt::Debug;
 
 use amaru_kernel::{IsHeader, NonEmptyVec, Point, RawBlock};
+use amaru_metrics::protocol::ServedBlockCountMetrics;
 use amaru_observability::trace_span;
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
     blockfetch::{State, messages::Message},
+    metrics_effects::{Metrics, MetricsOps},
     mux::MuxMessage,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, Responder, StageState, miniprotocol,
@@ -168,6 +170,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
             StreamBlocks::Done => Ok((Some(ResponderAction::BatchDone), self)),
             StreamBlocks::More(points_range) => {
                 let (block, points_range) = points_range.next_block(&store).await?;
+                Metrics::new(eff).record(ServedBlockCountMetrics { count: 1 }.into()).await;
                 // recurse if there are more blocks to fetch or signal that streaming is done
                 if let Some(points_range) = points_range {
                     eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::More(points_range))).await;
