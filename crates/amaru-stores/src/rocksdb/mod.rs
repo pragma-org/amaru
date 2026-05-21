@@ -534,8 +534,19 @@ pub struct RocksDBTransactionalContext<'a> {
     db: Transaction<'a, OptimisticTransactionDB>,
 }
 
+impl Drop for RocksDBTransactionalContext<'_> {
+    fn drop(&mut self) {
+        // If the context is dropped without an explicit commit/rollback then we clear the host flag
+        // so a subsequent create_transaction() call does not panic.
+        if self.host.ongoing_transaction.get() {
+            warn!("RocksDB transactional context dropped without commit/rollback; auto-rolled-back");
+            self.host.transaction_ended();
+        }
+    }
+}
+
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
-    fn commit(self) -> Result<(), StoreError> {
+    fn commit(mut self) -> Result<(), StoreError> {
         let _span = trace_span!(
             amaru::stores::rocksdb::COMMIT,
             db_system_name = "rocksdb".to_string(),
@@ -543,7 +554,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         );
         let _guard = _span.enter();
 
-        let res = self.db.commit().map_err(|err| StoreError::Internal(err.into()));
+        let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
+        let res = transaction.commit().map_err(|err| StoreError::Internal(err.into()));
         self.host.transaction_ended();
         res
     }
@@ -995,7 +1007,7 @@ fn with_prefix_iterator<
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{EraHistory, NetworkName};
-    use amaru_ledger::store::StoreError;
+    use amaru_ledger::store::{Store, StoreError};
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 
@@ -1132,6 +1144,32 @@ mod tests {
     #[ignore]
     fn test_rocksdb_remove_cc_members() {
         unimplemented!()
+    }
+
+    #[test]
+    fn dropping_transaction_does_not_leak_ongoing_flag() {
+        let tmp_dir = TempDir::new().unwrap();
+        let store = RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into())).unwrap();
+
+        // Open a transaction and drop it without committing or rolling back.
+        drop(store.create_transaction());
+
+        // Since the previous transaction is dropped and has been properly cleared, we should be able
+        // to create a new one.
+        let _ = store.create_transaction();
+    }
+
+    /// `with_transaction` rolls back the transaction on `Err`.
+    #[test]
+    fn with_transaction_rolls_back_on_err() {
+        let tmp_dir = TempDir::new().unwrap();
+        let store = RocksDB::empty(&RocksDbConfig::new(tmp_dir.path().into())).unwrap();
+
+        let outcome: Result<(), StoreError> = store.with_transaction(|_tx| Err(StoreError::Send));
+        assert!(matches!(outcome, Err(StoreError::Send)));
+
+        // The previous transaction is properly closed so we should be able to create a new one.
+        let _ = store.create_transaction();
     }
 
     #[test]

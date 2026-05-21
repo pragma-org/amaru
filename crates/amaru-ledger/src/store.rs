@@ -177,7 +177,35 @@ pub trait Store: ReadStore {
     fn next_snapshot(&self, epoch: Epoch) -> Result<()>;
 
     /// Create a new transaction context. This is used to perform updates on the store.
+    ///
+    /// Prefer [`Store::with_transaction`] if you can. It ensures the transaction is
+    /// always either committed or rolled back, removing the risk of leaking an open
+    /// transaction on an early `?` return.
     fn create_transaction(&self) -> Self::Transaction<'_>;
+
+    /// Run `f` inside a transaction:
+    ///
+    /// - On `Ok`, the transaction is committed.
+    /// - On `Err`, the transaction is dropped and auto-rolled-back by its `Drop` impl.
+    ///
+    /// This makes it impossible to leak an open transaction through an early `?` return
+    /// between `create_transaction()` and `commit()`.
+    fn with_transaction<R, E>(
+        &self,
+        f: impl FnOnce(&Self::Transaction<'_>) -> std::result::Result<R, E>,
+    ) -> std::result::Result<R, E>
+    where
+        E: From<StoreError>,
+    {
+        let tx = self.create_transaction();
+        match f(&tx) {
+            Ok(result) => {
+                tx.commit()?;
+                Ok(result)
+            }
+            Err(err) => Err(err),
+        }
+    }
 }
 
 // ReadStore

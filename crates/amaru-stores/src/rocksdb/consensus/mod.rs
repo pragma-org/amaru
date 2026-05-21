@@ -448,13 +448,15 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> f
         let _guard = _span.enter();
 
         let hash = header.hash();
-        let tx = self.db.transaction();
         let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
-        tx.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), [])
-            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-        tx.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header))
-            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-        tx.commit().map_err(|e| StoreError::WriteError { error: e.to_string() })
+
+        self.with_transaction(|tx| {
+            tx.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), [])
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+            tx.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header))
+                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+            Ok(())
+        })
     }
 
     fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError> {
