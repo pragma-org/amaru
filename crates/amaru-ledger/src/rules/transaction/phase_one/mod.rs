@@ -276,7 +276,7 @@ mod tests {
     use test_case::test_case;
 
     use super::fixture::{Expected, Fixture, Predicate};
-    use crate::context::DefaultValidationContext;
+    use crate::context::{DefaultValidationContext, WitnessSlice};
 
     macro_rules! fixture {
         ($path:literal) => {
@@ -293,6 +293,12 @@ mod tests {
     #[test_case(fixture!("pass/simple-transfer"); "simple transfer")]
     #[test_case(fixture!("pass/with-metadata"); "with matching auxiliary data")]
     #[test_case(fixture!("fail/InvalidWitnessesUTXOW/0"); "invalid vkey signature")]
+    #[test_case(fixture!("fail/InvalidWitnessesUTXOW/1"); "vkey witness signature too short")]
+    #[test_case(fixture!("fail/InvalidWitnessesUTXOW/2"); "vkey witness with wrong-sized public key")]
+    #[test_case(fixture!("fail/InvalidWitnessesUTXOW/3"); "bootstrap witness with mismatched signature")]
+    #[test_case(fixture!("fail/InvalidWitnessesUTXOW/4"); "bootstrap witness with signature too short")]
+    #[test_case(fixture!("fail/MissingVKeyWitnessesUTXOW/1"); "required_signers entry without matching witness")]
+    #[test_case(fixture!("fail/MissingVKeyWitnessesUTXOW/2"); "byron input with empty witness set")]
     #[test_case(fixture!("fail/MissingTxBodyMetadataHash/0"); "auxiliary data without body hash")]
     #[test_case(fixture!("fail/MissingTxMetadata/0"); "body hash without auxiliary data")]
     #[test_case(fixture!("fail/ConflictingMetadataHash/0"); "auxiliary data hash mismatch")]
@@ -316,6 +322,10 @@ mod tests {
     #[test_case(fixture!("pass/reference-input"); "tx with resolvable reference input")]
     #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
+    #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
+    #[test_case(fixture!("fail/BabbageOutputTooSmallUTxO/0"); "output below minimum lovelace")]
+    #[test_case(fixture!("fail/OutputTooBigUTxO/0"); "output value larger than maxValueSize")]
+    #[test_case(fixture!("fail/WrongNetworkInTxOutput/0"); "output address on wrong network")]
     fn conformance(fixture: Fixture) {
         let tx_size = fixture.transaction.len() as u64;
 
@@ -328,6 +338,13 @@ mod tests {
             fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
 
         let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
+
+        // Mirror block::execute: body.required_signers is pushed into the witness slice before
+        // phase-one runs, so the conformance harness must do the same to faithfully test that
+        // predicate path.
+        for vk_hash in tx.body.required_signers.as_deref().unwrap_or(&[]) {
+            ctx.require_vkey_witness(*vk_hash);
+        }
 
         let result = super::execute(
             &mut ctx,

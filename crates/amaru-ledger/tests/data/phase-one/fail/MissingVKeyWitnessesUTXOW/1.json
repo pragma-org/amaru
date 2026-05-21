@@ -1,0 +1,30 @@
+{
+  "title": "MissingVKeyWitnessesUTXOW",
+  "description": "Body declares a required_signers entry whose key is not in the witness set. The consumed input is locked to the dev key and the witness set carries a valid signature for it, so the input-vkey requirement is satisfied — required_signers is the only missing key. Exercises the body.required_signers contribution to required-keys in isolation, distinct from the input-driven path covered by fixture 0.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a500d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400ed9010281581c000000000000000000000000000000000000000000000000000000000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840ad80aba142dcebf9c39b15a3e3f2e96aa9ae77aed01a5281b4d06c0b6a4b89fb6959805ad620af338d71874caf77bbdf432a6b5d808f3aba4609f16063fe5905f5f6",
+  "expected": {
+    "predicate": "MissingVKeyWitnessesUTXOW"
+  }
+}

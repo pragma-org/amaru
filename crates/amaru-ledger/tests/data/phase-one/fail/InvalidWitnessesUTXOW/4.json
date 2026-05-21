@@ -1,0 +1,30 @@
+{
+  "title": "InvalidWitnessesUTXOW",
+  "description": "Same shape as InvalidWitnessesUTXOW/3 but the bootstrap signature is encoded with 63 bytes instead of 64. The public-key + chain-code + attributes still hash to the input's bootstrap root, so the required-keys check passes; phase-one must reject on the malformed signature length.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
+        "output": "a200584f82d818584583581c65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8ea201581e581c66e1b3a99eb32c018ee2ffb3de7a95f38cbb131e29701348138511e0024101001a2e1ee14c011a004c4b40"
+      }
+    ],
+    "votingState": {
+      "numDormantEpochs": 0
+    }
+  },
+  "ledgerEnv": {
+    "slot": 0,
+    "txIx": 0
+  },
+  "transaction": "84a400d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400f00a102d9010281845820d59ec5ed32f67079f20d0e0d4146d7f19db515836adeb3956a739b62ff9d489f583fe232bc6acf5af5cee10af8224d5b0b18990239589b00885309efabe5af47ff659fe5bae54991f7ba6fea0c32a445bbf52aaf47b6387e849e51ee150468855d5820b3db22d54df4d54b96cb2cf7c731d643559cd7ddf351943de2e417aef2069d815825a201581e581c66e1b3a99eb32c018ee2ffb3de7a95f38cbb131e29701348138511e0024101f5f6",
+  "expected": {
+    "predicate": "InvalidWitnessesUTXOW"
+  }
+}
