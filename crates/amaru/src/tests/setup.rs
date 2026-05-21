@@ -183,7 +183,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
 /// Add resources depending on the simulation configuration.
 /// For example this function can be used to set a different chain store for the initiator and the responder.
 fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<()> {
-    let block_validation = Arc::new(MockCanValidateBlocks);
+    let block_validation = Arc::new(MockCanValidateBlocks::with_tip(node_config.ledger_tip));
     stage_graph.resources().put::<ResourceBlockValidation>(block_validation.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validation);
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));

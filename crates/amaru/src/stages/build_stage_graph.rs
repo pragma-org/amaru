@@ -80,7 +80,7 @@ pub fn build_stage_graph(
         .wire_up(fetch_blocks, FetchBlocks::new(validate_block_input, select_chain.sender(), manager.sender()));
     #[expect(clippy::expect_used)]
     stage_graph
-        .preload(&fetch_blocks, [FetchBlocksMsg::RecoverStoredBlocks])
+        .preload(&fetch_blocks, [FetchBlocksMsg::Initialize])
         .expect("fetch blocks recovery message must be preloaded");
     let fetch_blocks_input =
         stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |(tip, parent)| FetchBlocksMsg::NewTip(tip, parent));

@@ -60,6 +60,7 @@ pub struct NodeTestConfig {
     pub actions: Vec<Action>,
     pub node_type: NodeType,
     pub network_name: NetworkName,
+    pub ledger_tip: Point,
 }
 
 impl Debug for NodeTestConfig {
@@ -98,6 +99,7 @@ impl Default for NodeTestConfig {
             actions: Vec::new(),
             network_name: NetworkName::Preprod,
             node_type: NodeUnderTest,
+            ledger_tip: Point::Origin,
         }
     }
 }
@@ -221,7 +223,7 @@ impl NodeTestConfig {
     /// - Set the chain anchor and best tip to the first header of the chain.
     ///
     #[expect(clippy::unwrap_used)]
-    pub fn with_validated_blocks(self, headers: Vec<BlockHeader>) -> Self {
+    pub fn with_validated_blocks(mut self, headers: Vec<BlockHeader>) -> Self {
         let _span = self.enter_span();
         for header in headers.iter() {
             tracing::info!(
@@ -239,6 +241,9 @@ impl NodeTestConfig {
             self.chain_store.set_anchor_hash(&header.hash()).unwrap();
             tracing::info!("set the tip to {}", header.point());
             self.chain_store.set_best_chain_hash(&header.hash()).unwrap();
+        }
+        if let Some(last) = headers.last() {
+            self.ledger_tip = last.point();
         }
         self
     }
