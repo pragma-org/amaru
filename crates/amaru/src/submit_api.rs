@@ -139,7 +139,7 @@ mod tests {
         effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation},
         stages::mempool::MempoolStageState,
     };
-    use amaru_kernel::{NetworkName, RawBlock, Transaction, TransactionId, to_cbor};
+    use amaru_kernel::{NetworkName, Point, RawBlock, Transaction, TransactionId, to_cbor};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
@@ -370,7 +370,9 @@ mod tests {
         let global_parameters = <&amaru_kernel::GlobalParameters>::from(NetworkName::Preprod);
         stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
         stage_graph.resources().put::<ResourceEraHistory>(era_history.clone());
-        stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+        stage_graph
+            .resources()
+            .put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks::with_tip(Point::Origin)));
         stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
         stage_graph.resources().put::<ResourceTxValidation>(validator);
         let sender = stage_graph.input(mempool_stage.without_state());

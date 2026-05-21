@@ -19,9 +19,17 @@ use amaru_metrics::ledger::LedgerMetrics;
 
 use crate::{CanValidateBlocks, HasStakePools, can_validate_blocks::BlockValidationError};
 
-/// A fake block validator that always returns the same height.
+/// A fake block validator that reports a configurable ledger tip.
 #[derive(Clone, Debug, Default)]
-pub struct MockCanValidateBlocks;
+pub struct MockCanValidateBlocks {
+    tip: Point,
+}
+
+impl MockCanValidateBlocks {
+    pub fn with_tip(tip: Point) -> Self {
+        Self { tip }
+    }
+}
 
 #[async_trait::async_trait]
 impl CanValidateBlocks for MockCanValidateBlocks {
@@ -42,7 +50,7 @@ impl CanValidateBlocks for MockCanValidateBlocks {
     }
 
     fn tip(&self) -> Point {
-        Point::Origin
+        self.tip
     }
 
     fn volatile_tip(&self) -> Option<Tip> {

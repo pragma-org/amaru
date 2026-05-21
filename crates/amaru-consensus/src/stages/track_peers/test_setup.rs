@@ -202,7 +202,7 @@ fn setup_base(
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());
             resources.put::<ResourceHeaderValidation>(validation);
-            let block_validation = Arc::new(MockCanValidateBlocks);
+            let block_validation = Arc::new(MockCanValidateBlocks::with_tip(Point::Origin));
             resources.put::<ResourceBlockValidation>(block_validation.clone());
             resources.put::<ResourceHasStakePools>(block_validation);
         },

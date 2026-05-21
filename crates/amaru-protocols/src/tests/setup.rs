@@ -75,7 +75,7 @@ pub(super) fn set_resources_with_connections(
     connections: ConnectionsResource,
 ) -> anyhow::Result<()> {
     network.resources().put::<ResourceHeaderStore>(chain_store);
-    let block_validation = Arc::new(MockCanValidateBlocks);
+    let block_validation = Arc::new(MockCanValidateBlocks::default());
     network.resources().put::<ResourceBlockValidation>(block_validation.clone());
     network.resources().put::<ResourceHasStakePools>(block_validation);
     network.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));

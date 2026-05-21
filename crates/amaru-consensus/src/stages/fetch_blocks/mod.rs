@@ -21,10 +21,13 @@ use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
 
-use crate::stages::{
-    block_source::BlockSourceMsg,
-    peer_selection::PeerSelectionMsg,
-    select_chain::{SelectChainMsg, load_parent_point},
+use crate::{
+    effects::{Ledger, LedgerOps},
+    stages::{
+        block_source::BlockSourceMsg,
+        peer_selection::PeerSelectionMsg,
+        select_chain::{SelectChainMsg, load_parent_point},
+    },
 };
 
 // TODO make configurable
@@ -171,9 +174,19 @@ impl FetchBlocks {
         self.request_missing_blocks(tip, parent, eff).await;
     }
 
-    /// Startup-only recovery: resubmit downloaded blocks whose validity was not
-    /// persisted before shutdown, then fetch from the first missing block.
-    pub async fn recover_stored_blocks(&mut self, eff: Effects<FetchBlocksMsg>, best_hash: HeaderHash) {
+    /// Startup initialization.
+    ///
+    /// At runtime, validity in the chain store and the ledger's applied tip
+    /// advance together: `set_block_valid` is only written after the block has
+    /// been applied to the ledger.
+    ///
+    /// But the ledger keeps the last `k` applied blocks in-memory, so after a restart `ledger.tip()`
+    /// is the stable tip and can be up to `k` blocks behind the chain store's validated tip.
+    ///
+    /// This method re-emits those blocks so the ledger can rebuild its
+    /// volatile state. It also covers blocks that were downloaded but not yet
+    /// validated before shutdown.
+    pub async fn initialize(&mut self, eff: Effects<FetchBlocksMsg>, best_hash: HeaderHash) -> anyhow::Result<()> {
         assert!(
             self.missing.is_none(),
             "there shouldn't be any missing blocks when recovering stored blocks: {:?}",
@@ -183,8 +196,9 @@ impl FetchBlocks {
         let store = Store::new(eff.clone());
         if best_hash == ORIGIN_HASH {
             eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(Point::Origin)).await;
-            return;
+            return Ok(());
         }
+
         let best_tip = store
             .load_header(&best_hash)
             .await
@@ -192,14 +206,23 @@ impl FetchBlocks {
                 tracing::error!(hash = %best_hash, "cannot load header for best candidate");
             })
             .await;
-        let unvalidated = store.unvalidated_ancestor_hashes(best_hash).await.0;
 
+        let ledger = Ledger::new(eff.clone());
         self.block_height = best_tip.block_height().max(self.block_height);
-        let tip = best_tip.tip();
-        tracing::debug!(tip = %tip.point(), "recovering stored blocks");
+
+        // Get all header hashes between the best tip and the ledger immutable tip
+        // and either apply/re-apply blocks or download them in order to apply them
+        let ledger_tip = ledger.immutable_tip().await;
+        let to_apply = ancestor_hashes_down_to(&store, best_tip.hash(), ledger_tip.hash()).await?;
+        tracing::debug!(
+            tip = %best_tip.point(),
+            ledger_tip = %ledger_tip.point(),
+            count = to_apply.len(),
+            "download or validate blocks up to the best tip"
+        );
 
         let mut parent: Option<Point> = None;
-        for hash in unvalidated {
+        for hash in to_apply {
             let Some(header) = store.load_header(&hash).await else {
                 tracing::error!(%hash, "failed to load candidate header");
                 return eff.terminate().await;
@@ -217,7 +240,7 @@ impl FetchBlocks {
                 }
                 Ok(false) => {
                     self.request_missing_blocks(tip, block_parent, eff).await;
-                    return;
+                    return Ok(());
                 }
                 Err(error) => {
                     tracing::error!(%error, %hash, "failed to check stored block");
@@ -226,8 +249,9 @@ impl FetchBlocks {
             }
         }
 
-        tracing::info!(tip = %tip.point(), "no blocks to fetch");
-        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
+        tracing::info!(tip = %best_tip.point(), "no blocks to fetch");
+        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(best_tip.point())).await;
+        Ok(())
     }
 
     async fn request_missing_blocks(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
@@ -347,10 +371,37 @@ impl FetchBlocks {
     }
 }
 
+/// Walk parent pointers from `top` toward `bottom`, returning the visited
+/// hashes oldest-first (excluding `bottom` itself).
+async fn ancestor_hashes_down_to(
+    store: &Store,
+    top: HeaderHash,
+    bottom: HeaderHash,
+) -> anyhow::Result<Vec<HeaderHash>> {
+    let mut result = Vec::new();
+    if top == bottom {
+        return Ok(result);
+    }
+    let mut current = top;
+    while current != bottom {
+        let Some(header) = store.load_header(&current).await else {
+            tracing::error!(%current, %bottom, "ancestor walk: header missing");
+            return Err(anyhow::anyhow!("failed to load header"));
+        };
+        result.push(current);
+        match header.parent_hash() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    result.reverse();
+    Ok(result)
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
+    Initialize(HeaderHash),
     NewTip(Tip, Point),
-    RecoverStoredBlocks(HeaderHash),
     Block(Peer, NetworkBlock),
     Timeout(u64),
 }
@@ -361,8 +412,15 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     })
     .await;
     match msg {
+        FetchBlocksMsg::Initialize(best_hash) => {
+            state
+                .initialize(eff.clone(), best_hash)
+                .or_terminate_with(&eff, async |error| {
+                    tracing::error!(%error, %best_hash, "failed to initialize");
+                })
+                .await;
+        }
         FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
-        FetchBlocksMsg::RecoverStoredBlocks(best_hash) => state.recover_stored_blocks(eff, best_hash).await,
         FetchBlocksMsg::Block(peer, block) => state.block(peer, block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
     }

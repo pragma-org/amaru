@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Hash, NetworkName, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY,
+    Hash, NetworkName, Point, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY,
 };
 use amaru_ouroboros::{
     MempoolInsertError, MempoolMsg, MockCanValidateBlocks, ResourceMempool, TxInsertResult, TxOrigin,
@@ -75,7 +75,9 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     let global_parameters = <&amaru_kernel::GlobalParameters>::from(NetworkName::Preprod);
     network.resources().put::<ResourceParameters>(global_parameters.clone());
     network.resources().put::<ResourceEraHistory>(era_history.clone());
-    network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockCanValidateBlocks));
+    network
+        .resources()
+        .put::<ResourceBlockValidation>(std::sync::Arc::new(MockCanValidateBlocks::with_tip(Point::Origin)));
     network.resources().put::<ResourceMempool<Transaction>>(prep.mempool.clone());
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
 

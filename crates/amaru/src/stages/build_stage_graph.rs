@@ -142,7 +142,7 @@ pub fn build_stage_graph(
     // Include main's useful RecoverStoredBlocks preload
     #[expect(clippy::expect_used)]
     stage_graph
-        .preload(&fetch_blocks, [FetchBlocksMsg::RecoverStoredBlocks(best_hash)])
+        .preload(&fetch_blocks, [FetchBlocksMsg::Initialize(best_hash)])
         .expect("fetch blocks recovery message must be preloaded");
 
     let fetch_blocks_input =

@@ -26,8 +26,8 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     fetch_blocks::test_setup::{
-        TestPrep, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_has_block, te_load_header,
-        te_load_tip, te_schedule, te_store_block, te_unvalidated_ancestor_hashes, test_peer, test_prep,
+        TestPrep, setup, setup_with_ledger_tip, te_cancel_schedule, te_clock, te_find_missing_blocks, te_has_block,
+        te_load_header, te_load_tip, te_schedule, te_store_block, te_tip, test_peer, test_prep,
     },
     test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated, tm_state},
 };
@@ -88,7 +88,7 @@ fn test_new_tip_no_blocks_to_fetch() {
 }
 
 #[test]
-fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
+fn test_initialize_with_downloaded_but_unvalidated_blocks() {
     let prep = test_prep();
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
     prep.store_block(&prep.headers.h1);
@@ -96,9 +96,10 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_validity(prep.headers.h0.hash(), true);
 
-    let msg = FetchBlocksMsg::RecoverStoredBlocks(prep.headers.h2.hash());
+    let msg = FetchBlocksMsg::Initialize(prep.headers.h2.hash());
 
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    // The ledger tip is at the anchor
+    let (running, _guards, mut logs) = setup_with_ledger_tip(&prep, msg.clone(), prep.headers.h0.point());
     let expected = prep.state_with_block_height(3);
     assert_trace(
         &running,
@@ -106,7 +107,9 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
             te_load_header("fb-1", prep.headers.h2.hash(), false),
-            te_unvalidated_ancestor_hashes("fb-1", prep.headers.h2.hash()),
+            te_tip("fb-1"),
+            te_load_header("fb-1", prep.headers.h2.hash(), false),
+            te_load_header("fb-1", prep.headers.h1.hash(), false),
             te_load_header("fb-1", prep.headers.h1.hash(), false),
             te_load_tip("fb-1", prep.headers.h0.hash()),
             te_has_block("fb-1", prep.headers.h1.hash()),
@@ -118,7 +121,50 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
             te_state("fb-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["recovering stored blocks"])
+    logs.assert_and_remove(Level::DEBUG, &["download or validate blocks up to the best tip"])
+        .assert_and_remove(Level::DEBUG, &["validating stored block"])
+        .assert_and_remove(Level::DEBUG, &["validating stored block"])
+        .assert_and_remove(Level::INFO, &["no blocks to fetch"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_initialize_to_reapply_downloaded_and_valid_blocks() {
+    let prep = test_prep();
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
+    prep.store_block(&prep.headers.h0);
+    prep.store_block(&prep.headers.h1);
+    prep.store_block(&prep.headers.h2);
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_validity(prep.headers.h0.hash(), true);
+    prep.set_validity(prep.headers.h1.hash(), true);
+    prep.set_validity(prep.headers.h2.hash(), true);
+
+    let msg = FetchBlocksMsg::Initialize(prep.headers.h2.hash());
+
+    let (running, _guards, mut logs) = setup_with_ledger_tip(&prep, msg.clone(), prep.headers.h0.point());
+    let expected = prep.state_with_block_height(3);
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_load_header("fb-1", prep.headers.h2.hash(), false),
+            te_tip("fb-1"),
+            te_load_header("fb-1", prep.headers.h2.hash(), false),
+            te_load_header("fb-1", prep.headers.h1.hash(), false),
+            te_load_header("fb-1", prep.headers.h1.hash(), false),
+            te_load_tip("fb-1", prep.headers.h0.hash()),
+            te_has_block("fb-1", prep.headers.h1.hash()),
+            te_send("fb-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(3))),
+            te_load_header("fb-1", prep.headers.h2.hash(), false),
+            te_has_block("fb-1", prep.headers.h2.hash()),
+            te_send("fb-1", "downstream", (prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(3))),
+            te_send("fb-1", "upstream", SelectChainMsg::FetchNextFrom(prep.headers.h2.point())),
+            te_state("fb-1", &expected),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["download or validate blocks up to the best tip"])
         .assert_and_remove(Level::DEBUG, &["validating stored block"])
         .assert_and_remove(Level::DEBUG, &["validating stored block"])
         .assert_and_remove(Level::INFO, &["no blocks to fetch"])

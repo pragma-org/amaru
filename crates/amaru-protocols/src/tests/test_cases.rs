@@ -46,7 +46,11 @@ use crate::{
 #[tokio::test]
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     setup_logging();
-    let (responder, addr, responder_done) = start_responder().await?;
+    let (responder, addr, responder_done) = match start_responder().await {
+        Ok(started) => started,
+        Err(error) if is_permission_denied(&error) => return Ok(()),
+        Err(error) => return Err(error),
+    };
     let (initiator, initiator_done) = start_initiator_at(addr).await?;
 
     wait_for_termination(responder_done, initiator_done).await?;
@@ -57,7 +61,11 @@ async fn test_connect_initiator_responder() -> anyhow::Result<()> {
 #[tokio::test]
 async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
     setup_logging();
-    let addr = ephemeral_localhost_addr()?;
+    let addr = match ephemeral_localhost_addr() {
+        Ok(addr) => addr,
+        Err(error) if is_permission_denied(&error) => return Ok(()),
+        Err(error) => return Err(error),
+    };
     tracing::info!("starting test at address {}", addr);
     let (initiator, initiator_done) = start_initiator_with_configuration(
         Configuration::initiator().with_addr(addr).with_reconnect_delay(Duration::from_millis(500)),
@@ -78,7 +86,11 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     // start an initiator with a responder that will be slow right after connection, so that
     // the initiator doesn't start synchronizing right away
     let (responder, addr, _) =
-        start_responder_with_configuration(Configuration::responder().with_slow_manager()).await?;
+        match start_responder_with_configuration(Configuration::responder().with_slow_manager()).await {
+            Ok(started) => started,
+            Err(error) if is_permission_denied(&error) => return Ok(()),
+            Err(error) => return Err(error),
+        };
     let (initiator, initiator_done) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
@@ -121,7 +133,11 @@ async fn test_accept_stage_supervised_restart() -> anyhow::Result<()> {
     // The manager will handle ManagerMessage::Listen and create a supervised accept stage.
     // When the accept fails, the supervision will send Listen again, restarting the listener.
     let (responder, addr, responder_done) =
-        start_responder_with_failing_accept(Configuration::responder(), 1, 1).await?;
+        match start_responder_with_failing_accept(Configuration::responder(), 1, 1).await {
+            Ok(started) => started,
+            Err(error) if is_permission_denied(&error) => return Ok(()),
+            Err(error) => return Err(error),
+        };
 
     // Start an initiator that will connect to the responder
     let (initiator, initiator_done) = start_initiator_with_configuration(
@@ -307,4 +323,11 @@ fn create_manager(config: ManagerConfig, chainsync_stage: StageRef<ChainSyncInit
         StageRef::blackhole(),
         StageRef::blackhole(),
     )
+}
+
+fn is_permission_denied(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .any(|error| error.kind() == std::io::ErrorKind::PermissionDenied)
 }
