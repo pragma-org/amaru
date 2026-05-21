@@ -23,9 +23,9 @@ use std::{
 
 use amaru_kernel::{
     AsHash, Block, ComparableProposalId, ConstitutionalCommitteeStatus, Epoch, EraHistory, EraHistoryError,
-    GlobalParameters, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters,
-    Slot, StakeCredential, StakeCredentialKind, Tip, Transaction, TransactionInput, TransactionPointer,
-    expect_stake_credential, to_cbor,
+    GlobalParameters, HasTransactionId, Hasher, Lovelace, MemoizedTransactionOutput, NetworkName, Point, PoolId,
+    ProtocolParameters, Slot, StakeCredential, StakeCredentialKind, Tip, Transaction, TransactionInput,
+    TransactionPointer, expect_stake_credential, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::trace_span;
@@ -660,7 +660,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         arena_pool: &ArenaPool,
     ) -> Result<(), rules::block::TransactionValidationFailed> {
         let mut context = self.create_transaction_validation_context(transaction).map_err(|error| {
-            rules::block::TransactionValidationFailed::Preparation { transaction_hash: transaction.tx_id(), error }
+            rules::block::TransactionValidationFailed::Preparation { transaction_id: transaction.tx_id(), error }
         })?;
         let tx_size = to_cbor(transaction).len() as u64;
         rules::block::validate_transaction(
@@ -697,7 +697,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let block_height = block.header.header_body.block_number;
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let prev_hash = block.header.header_body.prev_hash;
-        let txs_processed = block.transaction_bodies.len() as u64;
+        let tx_count = block.transaction_bodies.len() as u64;
+        trace_block_transactions(point, block_height, &block);
 
         match rules::validate_block(
             &mut context,
@@ -709,8 +710,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             block,
         ) {
             BlockValidation::Err(err) => BlockValidation::Err(err),
-            BlockValidation::Invalid(slot, id, err) => BlockValidation::Invalid(slot, id, err),
+            BlockValidation::Invalid(slot, id, err) => {
+                trace_invalid_block(point, block_height, &err);
+                BlockValidation::Invalid(slot, id, err)
+            }
             BlockValidation::Valid(()) => {
+                trace!(target: EVENT_TARGET, %point, block_height, tx_count, "block transactions validated");
+
                 let state: VolatileState = context.into();
                 let slot = point.slot_or_default();
                 let epoch = match self.era_history().slot_to_epoch(slot, slot) {
@@ -734,7 +740,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 let metrics = LedgerMetrics {
                     block_height,
-                    txs_processed,
                     slot,
                     slot_in_epoch,
                     epoch,
@@ -1217,6 +1222,26 @@ impl HasStakeDistribution for StakeDistributionObserver {
             stake: st.stake,
             active_stake: stake_distribution.active_stake,
         }))
+    }
+}
+
+fn trace_block_transactions(point: &Point, block_height: u64, block: &Block) {
+    if !tracing::enabled!(target: EVENT_TARGET, tracing::Level::TRACE) {
+        return;
+    }
+
+    let tx_count = block.transaction_bodies.len();
+    trace!(target: EVENT_TARGET, %point, block_height, tx_count, "block transactions found");
+    for (tx_index, body) in block.transaction_bodies.iter().enumerate() {
+        let tx_id = body.tx_id();
+        trace!(target: EVENT_TARGET, %point, block_height, tx_index, tx_id = %tx_id, "transaction found in block");
+    }
+}
+
+fn trace_invalid_block(point: &Point, block_height: u64, violation: &rules::block::InvalidBlockDetails) {
+    trace!(target: EVENT_TARGET, %point, block_height, %violation, "block transactions invalid");
+    if let rules::block::InvalidBlockDetails::Transaction { transaction_id, transaction_index, violation } = violation {
+        trace!(target: EVENT_TARGET, %point, block_height, tx_index = %transaction_index, tx_id = %transaction_id, %violation, "transaction invalid in block");
     }
 }
 

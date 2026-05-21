@@ -13,8 +13,9 @@
 // limitations under the License.
 
 pub use crate::metrics::{Counter, Gauge, Meter};
-use crate::{ledger::LedgerMetrics, protocol::ProtocolMetrics};
+use crate::{ledger::LedgerMetrics, mempool::MempoolMetrics, protocol::ProtocolMetrics};
 pub mod ledger;
+pub mod mempool;
 pub mod metrics;
 pub mod protocol;
 
@@ -23,6 +24,7 @@ pub const METRICS_METER_NAME: &str = "cardano_node_metrics";
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MetricsEvent {
     LedgerMetrics(LedgerMetrics),
+    MempoolMetrics(MempoolMetrics),
     ProtocolMetrics(ProtocolMetrics),
 }
 
@@ -34,6 +36,7 @@ impl MetricRecorder for MetricsEvent {
     fn record_to_meter(&self, meter: &Meter) {
         match self {
             MetricsEvent::LedgerMetrics(ledger_metrics) => ledger_metrics.record_to_meter(meter),
+            MetricsEvent::MempoolMetrics(mempool_metrics) => mempool_metrics.record_to_meter(meter),
             MetricsEvent::ProtocolMetrics(protocol_metrics) => protocol_metrics.record_to_meter(meter),
         }
     }

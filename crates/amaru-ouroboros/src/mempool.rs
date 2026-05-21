@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Tip, Transaction, TransactionId};
-use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin};
+use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::StageRef;
 
 /// Messages accepted by the mempool stage.
@@ -34,28 +34,15 @@ use pure_stage::StageRef;
 /// still need capacity after being notified.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMsg {
-    WaitForAtLeast {
-        seq_no: MempoolSeqNo,
-        caller: StageRef<()>,
-    },
-    Insert {
-        tx: Box<Transaction>,
-        origin: TxOrigin,
-        caller: StageRef<Result<TxInsertResult, MempoolInsertError>>,
-    },
-    InsertBatch {
-        txs: Vec<Transaction>,
-        origin: TxOrigin,
-        caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertError>>,
-    },
+    WaitForAtLeast { seq_no: MempoolSeqNo, caller: StageRef<()> },
+    Insert { tx: Box<Transaction>, origin: TxOrigin, caller: StageRef<Result<TxInsertResult, MempoolError>> },
+    InsertBatch { txs: Vec<Transaction>, origin: TxOrigin, caller: StageRef<Result<Vec<TxInsertResult>, MempoolError>> },
     NewTip(Tip),
-    SubscribeCapacity {
-        caller: StageRef<()>,
-    },
+    SubscribeCapacity { caller: StageRef<()> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct MempoolInsertError {
+pub struct MempoolInsertResult {
     pub tx_id: TransactionId,
-    pub error: MempoolError,
+    pub rejected: Option<TxRejectReason>,
 }

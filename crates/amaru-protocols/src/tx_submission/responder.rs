@@ -23,7 +23,7 @@ use ProtocolError::*;
 use TerminationCause::*;
 use amaru_kernel::{EraHistory, Transaction, TransactionId, to_cbor};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{MempoolInsertError, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -490,12 +490,9 @@ impl TxSubmissionResponder {
         {
             None => {
                 tracing::error!("mempool stage did not respond to InsertBatch within timeout");
-                return terminate(MempoolStageUnavailable);
+                return terminate(MempoolBatchInsertFailedTimedout);
             }
-            Some(Err(MempoolInsertError { tx_id, error })) => {
-                tracing::error!(%tx_id, %error, "mempool stage failed to process InsertBatch");
-                return terminate(MempoolStageUnavailable);
-            }
+            Some(Err(error)) => return terminate(MempoolInsertFailed(error)),
             Some(Ok(results)) => {
                 // Individual transaction rejection are just logged
                 for result in results {
@@ -744,12 +741,12 @@ pub enum TxSubmissionMsg {
     Insert {
         tx: Box<Transaction>,
         origin: TxOrigin,
-        caller: StageRef<Result<TxInsertResult, MempoolInsertError>>,
+        caller: StageRef<Result<TxInsertResult, MempoolInsertResult>>,
     },
     InsertBatch {
         txs: Vec<Transaction>,
         origin: TxOrigin,
-        caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertError>>,
+        caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertResult>>,
     },
 }
 
