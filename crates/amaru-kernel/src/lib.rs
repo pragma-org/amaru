@@ -87,7 +87,6 @@ pub use cardano::{
     network_name::NetworkName,
     non_zero_int::NonZeroInt,
     nonce::{Nonce, parse_nonce},
-    ordered_redeemer::OrderedRedeemer,
     peer::Peer,
     plutus_data::{PlutusData, PlutusDataSet},
     plutus_script::{PlutusScript, decode_plutus_script},
