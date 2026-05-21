@@ -36,7 +36,14 @@ require_env AWS_SECRET_ACCESS_KEY
 require_env BUCKET_NAME
 require_env ENDPOINT
 
-public_url_base="${BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE:-${ENDPOINT%/}/${BUCKET_NAME}}"
+if [ -n "${BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE:-}" ]; then
+  public_url_base="${BOOTSTRAP_SNAPSHOT_PUBLIC_URL_BASE}"
+elif [[ "$ENDPOINT" =~ ^https://([a-z0-9]+)\.r2\.cloudflarestorage\.com/?$ ]]; then
+  # Cloudflare R2 S3 endpoints are private APIs; bootstrap URLs must use the public r2.dev hostname.
+  public_url_base="https://pub-${BASH_REMATCH[1]}.r2.dev"
+else
+  public_url_base="${ENDPOINT%/}/${BUCKET_NAME}"
+fi
 
 epochs=("$epoch" "$((epoch + 1))" "$((epoch + 2))")
 metadata_files=()
