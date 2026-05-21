@@ -2,16 +2,18 @@
   {
     "epoch": 163,
     "point": "69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912",
-    "url": "https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor.gz"
+    "url": "https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.tar.gz"
   },
   {
     "epoch": 164,
     "point": "69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7",
-    "url": "https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor.gz"
+    "url": "https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.tar.gz",
+    "parent_point": "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2"
   },
   {
     "epoch": 165,
     "point": "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
-    "url": "https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor.gz"
+    "url": "https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.tar.gz",
+    "parent_point": "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c"
   }
 ]

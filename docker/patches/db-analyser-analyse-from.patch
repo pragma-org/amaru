@@ -1,0 +1,59 @@
+diff --git a/ouroboros-consensus-cardano/src/unstable-cardano-tools/Cardano/Tools/DBAnalyser/Run.hs b/ouroboros-consensus-cardano/src/unstable-cardano-tools/Cardano/Tools/DBAnalyser/Run.hs
+index 24885de7e..8e95e6e43 100644
+--- a/ouroboros-consensus-cardano/src/unstable-cardano-tools/Cardano/Tools/DBAnalyser/Run.hs
++++ b/ouroboros-consensus-cardano/src/unstable-cardano-tools/Cardano/Tools/DBAnalyser/Run.hs
+@@ -71,11 +71,12 @@ openLedgerDB ::
+   , LedgerDB.LedgerSupportsLedgerDB blk
+   ) =>
+   Complete LedgerDB.LedgerDbArgs IO blk ->
++  Point blk ->
+   IO
+     ( LedgerDB.LedgerDB' IO blk
+     , LedgerDB.TestInternals' IO blk
+     )
+-openLedgerDB args =
++openLedgerDB args replayGoal =
+   runWithTempRegistry $
+     (,()) <$> do
+       (ldb, od) <- case LedgerDB.lgrBackendArgs args of
+@@ -88,7 +89,7 @@ openLedgerDB args =
+                   (\_ -> pure (error "no stream"))
+                   snapManager
+                   (LedgerDB.praosGetVolatileSuffix $ LedgerDB.ledgerDbCfgSecParam $ LedgerDB.lgrConfig args)
+-           in lift $ LedgerDB.openDBInternal args initDb snapManager emptyStream genesisPoint
++           in lift $ LedgerDB.openDBInternal args initDb snapManager emptyStream replayGoal
+         LedgerDB.LedgerDbBackendArgsV2 (LedgerDB.V2.SomeBackendArgs bArgs) -> do
+           res <-
+             LedgerDB.V2.mkResources
+@@ -110,7 +111,7 @@ openLedgerDB args =
+                   snapManager
+                   (LedgerDB.praosGetVolatileSuffix $ LedgerDB.ledgerDbCfgSecParam $ LedgerDB.lgrConfig args)
+                   res
+-          lift $ LedgerDB.openDBInternal args initDb snapManager emptyStream genesisPoint
++          lift $ LedgerDB.openDBInternal args initDb snapManager emptyStream replayGoal
+       pure (ldb, od)
+ 
+ emptyStream :: Applicative m => ImmutableDB.StreamAPI m blk a
+@@ -200,16 +201,18 @@ analyse dbaConfig args =
+ 
+     withImmutableDB immutableDbArgs $ \(immutableDB, internal) -> do
+       SomeAnalysis (Proxy :: Proxy startFrom) ana <- pure $ runAnalysis analysis
+-      startFrom <- case sing :: Sing startFrom of
+-        SStartFromPoint ->
+-          FromPoint <$> case startSlot of
++      let getAnalysisStartPoint :: IO (Point blk)
++          getAnalysisStartPoint = case startSlot of
+             Origin -> pure GenesisPoint
+             NotOrigin slot ->
+               ImmutableDB.getHashForSlot internal slot >>= \case
+                 Just hash -> pure $ BlockPoint slot hash
+                 Nothing -> fail $ "No block with given slot in the ImmutableDB: " <> show slot
++      analysisStartPoint <- getAnalysisStartPoint
++      startFrom <- case sing :: Sing startFrom of
++        SStartFromPoint -> pure $ FromPoint analysisStartPoint
+         SStartFromLedgerState -> do
+-          (ledgerDB, intLedgerDB) <- openLedgerDB ldbArgs
++          (ledgerDB, intLedgerDB) <- openLedgerDB ldbArgs analysisStartPoint
+           -- This marker divides the "loading" phase of the program, where the
+           -- system is principally occupied with reading snapshot data from
+           -- disk, from the "processing" phase, where we are streaming blocks

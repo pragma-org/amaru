@@ -31,8 +31,12 @@ pub struct LazyDecoder<'a> {
 impl<'a> LazyDecoder<'a> {
     const CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2MiB, chosen at random by fair dice roll
 
+    pub fn new(reader: &'a mut dyn Read) -> Self {
+        Self { reader, bytes: Vec::with_capacity(Self::CHUNK_SIZE) }
+    }
+
     pub fn from_file(file: &'a mut fs::File) -> Self {
-        Self { reader: file, bytes: Vec::with_capacity(Self::CHUNK_SIZE) }
+        Self::new(file)
     }
 
     /// Consumes enough bytes and skip the next CBOR element.

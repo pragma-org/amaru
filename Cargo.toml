@@ -104,6 +104,7 @@ amaru-iter-borrow = { path = "crates/amaru-iter-borrow", version = "0.1.2" }
 amaru-kernel = { path = "crates/amaru-kernel", version = "0.1.2" }
 amaru-ledger = { path = "crates/amaru-ledger", version = "0.1.2" }
 amaru-mempool = { path = "crates/amaru-mempool", version = "0.1.2" }
+amaru-mithril = { path = "crates/amaru-mithril", version = "0.1.2" }
 amaru-metrics = { path = "crates/amaru-metrics", version = "0.1.2" }
 amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra", version = "0.1.2" }
 amaru-network = { path = "crates/amaru-network", version = "0.1.2" }

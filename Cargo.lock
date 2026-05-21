@@ -64,6 +64,7 @@ dependencies = [
  "amaru-ledger",
  "amaru-mempool",
  "amaru-metrics",
+ "amaru-mithril",
  "amaru-network",
  "amaru-observability",
  "amaru-ouroboros",
@@ -74,7 +75,6 @@ dependencies = [
  "amaru-stores",
  "anyhow",
  "async-compression",
- "async-trait",
  "axum",
  "built",
  "clap",
@@ -82,11 +82,9 @@ dependencies = [
  "futures-util",
  "hex",
  "include_dir",
- "indicatif",
  "indoc",
  "insta",
  "minicbor",
- "mithril-client",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
@@ -262,6 +260,20 @@ name = "amaru-minicbor-extra"
 version = "0.1.2"
 dependencies = [
  "minicbor",
+ "tracing",
+]
+
+[[package]]
+name = "amaru-mithril"
+version = "0.1.2"
+dependencies = [
+ "amaru-kernel",
+ "async-trait",
+ "flate2",
+ "indicatif",
+ "mithril-client",
+ "tar",
+ "tokio",
  "tracing",
 ]
 
@@ -613,13 +625,12 @@ checksum = "cbada39b42413d4db3d9460f6e791702490c40f72924378a1b6fc1a4181188fd"
 
 [[package]]
 name = "async-compression"
-version = "0.4.36"
+version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98ec5f6c2f8bc326c994cb9e241cc257ddaba9afa8555a43cffbb5dd86efaa37"
+checksum = "e79b3f8a79cccc2898f31920fc69f304859b3bd567490f75ebf51ae1c792a9ac"
 dependencies = [
  "compression-codecs",
  "compression-core",
- "futures-core",
  "pin-project-lite",
  "tokio",
 ]
@@ -1122,9 +1133,9 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "compression-codecs"
-version = "0.4.35"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0f7ac3e5b97fdce45e8922fb05cae2c37f7bbd63d30dd94821dacfd8f3f2bf2"
+checksum = "ce2548391e9c1929c21bf6aa2680af86fe4c1b33e6cea9ac1cfeec0bd11218cf"
 dependencies = [
  "compression-core",
  "flate2",
@@ -1133,9 +1144,9 @@ dependencies = [
 
 [[package]]
 name = "compression-core"
-version = "0.4.31"
+version = "0.4.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75984efb6ed102a0d42db99afb6c1948f0380d1d91808d5529916e6c08b49d8d"
+checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 
 [[package]]
 name = "condtype"

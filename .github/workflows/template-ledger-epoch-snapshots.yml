@@ -181,35 +181,32 @@ jobs:
         run: |
           cargo test --profile $BUILD_PROFILE --no-run -p amaru
 
-      - name: Cache Amaru's ledger.${{ matrix.network.name }}.db
-        id: cache-ledger-db
+      - name: Cache Amaru's bootstrap DBs
+        id: cache-bootstrap-dbs
         uses: actions/cache/restore@v4
         with:
-          path: ./ledger.${{ matrix.network.name }}.db
-          # If the ledger store serialisation format changes and become
+          path: |
+            ./ledger.${{ matrix.network.name }}.db
+            ./chain.${{ matrix.network.name }}.db
+          # If the ledger or chain store serialisation format changes and become
           # incompatible, it is necessary to bump the index below to invalidate
-          # the cached ledger snapshots, and recompute them from the CBOR ones
-          # (i.e. Full bootstrap below)
-          key: ledger-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
+          # the cached bootstrap databases and recompute them from scratch
+          # (i.e. Full bootstrap below).
+          key: bootstrap-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Full bootstrap amaru
-        if: steps.cache-ledger-db.outputs.cache-hit == ''
+        if: steps.cache-bootstrap-dbs.outputs.cache-hit == ''
         shell: bash
         run: |
           make bootstrap
 
-      - name: Light bootstrap amaru
-        if: steps.cache-ledger-db.outputs.cache-hit != ''
-        shell: bash
-        run: |
-          make import-headers
-          make import-nonces
-
       - uses: actions/cache/save@v5
-        if: steps.cache-ledger-db.outputs.cache-hit == '' && github.ref == 'refs/heads/main'
+        if: steps.cache-bootstrap-dbs.outputs.cache-hit == '' && github.ref == 'refs/heads/main'
         with:
-          path: ./ledger.${{ matrix.network.name }}.db
-          key: ledger-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
+          path: |
+            ./ledger.${{ matrix.network.name }}.db
+            ./chain.${{ matrix.network.name }}.db
+          key: bootstrap-state-${{ runner.os }}-${{ matrix.network.name }}-${{ env.LEDGER_CACHE_VERSION }}
 
       - name: Retrieve latest epoch if needed
         if: env.RUN_UNTIL_TARGET_EPOCH == ''

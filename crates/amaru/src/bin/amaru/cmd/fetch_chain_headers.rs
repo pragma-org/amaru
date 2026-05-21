@@ -14,22 +14,19 @@
 
 use std::{
     error::Error,
+    fs,
     fs::File,
     io::Write,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
-use amaru::{DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS, bootstrap::BootstrapError, get_bootstrap_file};
-use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Peer, Point, from_cbor};
-use amaru_network::chain_sync_client::ChainSyncClient;
-use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
+use amaru::{
+    DEFAULT_NETWORK, DEFAULT_PEER_ADDRESS,
+    bootstrap::{BOOTSTRAP_HEADERS_PER_POINT, default_bootstrap_parent_points, fetch_headers_from_points},
+};
+use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point, from_cbor};
 use clap::{ArgAction, Parser};
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
-use tokio::time::timeout;
-use tracing::{error, info};
-
-use crate::cmd::{WorkerError, connect_to_peer};
+use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -93,16 +90,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    let points: Vec<String> = if args.parent.is_empty() {
-        let headers_file_name = "headers.json";
-        let content = get_bootstrap_file(network, headers_file_name)?
-            .ok_or(BootstrapError::MissingConfigFile(headers_file_name.into()))?;
-        serde_json::from_slice(&content)?
+    let points = if args.parent.is_empty() {
+        default_bootstrap_parent_points(network)?
     } else {
-        args.parent
+        args.parent.iter().map(|point| Point::try_from(point.as_str())).collect::<Result<Vec<_>, _>>()?
     };
 
-    fetch_headers_for_network(network, &args.headers_dir, &args.peer_address, points).await?;
+    fetch_headers_for_network(network, &args.headers_dir, &args.peer_address, &points).await?;
 
     Ok(())
 }
@@ -111,155 +105,24 @@ async fn fetch_headers_for_network(
     network: NetworkName,
     headers_dir: &Path,
     peer_address: &str,
-    points: Vec<String>,
+    points: &[Point],
 ) -> Result<(), Box<dyn Error>> {
-    let mut initial_headers = Vec::new();
-    for point in points {
-        let point = Point::try_from(point.as_str())?;
-        initial_headers.push(point);
-    }
-    for hdr in initial_headers {
-        // FIXME: why do we only fetch 2 headers for each header listed in the
-        // config file? The 2 headers make sense, but why starting from more than
-        // one header?
-        const NUM_HEADERS_TO_FETCH: usize = 2;
-        fetch_headers(peer_address, network, headers_dir, hdr, NUM_HEADERS_TO_FETCH).await?;
+    let headers = fetch_headers_from_points(peer_address, network, points, BOOTSTRAP_HEADERS_PER_POINT).await?;
+    write_headers(headers_dir, headers)
+}
+
+fn write_headers(headers_dir: &Path, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+    fs::create_dir_all(headers_dir)?;
+
+    for header in headers {
+        let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode fetched block header")?;
+        let hash = block_header.hash();
+        let slot = block_header.slot();
+        let filename = format!("header.{}.{}.cbor", slot, hex::encode(hash));
+        let filepath = headers_dir.join(filename);
+        let mut file = File::create(&filepath)?;
+        file.write_all(&header)?;
     }
 
     Ok(())
-}
-
-pub(crate) async fn fetch_headers(
-    peer_address: &str,
-    network: NetworkName,
-    headers_dir: &Path,
-    point: Point,
-    max: usize,
-) -> Result<(), Box<dyn Error>> {
-    let peer_client = connect_to_peer(peer_address, &network).await?;
-    let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
-    client.find_intersection().await?;
-
-    let mut count = 0;
-    let mut progress: Option<Box<dyn ProgressBar>> = None;
-
-    loop {
-        let what = if client.has_agency() {
-            request_next_block(&mut client, headers_dir, &mut count, &mut progress, max).await?
-        } else {
-            await_for_next_block(&mut client, headers_dir, &mut count, &mut progress, max).await?
-        };
-        match what {
-            Continue => continue,
-            Stop => {
-                if let Some(progress) = progress {
-                    progress.clear()
-                }
-                break;
-            }
-        }
-    }
-    info!(total = count, "header_fetched");
-    Ok(())
-}
-enum What {
-    Continue,
-    Stop,
-}
-
-use What::*;
-
-async fn request_next_block(
-    client: &mut ChainSyncClient,
-    headers_dir: &Path,
-    count: &mut usize,
-    progress: &mut Option<Box<dyn ProgressBar>>,
-    max: usize,
-) -> Result<What, WorkerError> {
-    let next = client.request_next().await.map_err(|err| {
-        tracing::warn!(%err, "request next failed");
-        WorkerError::Restart
-    })?;
-    handle_response(headers_dir, next, count, progress, max)
-}
-
-async fn await_for_next_block(
-    client: &mut ChainSyncClient,
-    headers_dir: &Path,
-    count: &mut usize,
-    progress: &mut Option<Box<dyn ProgressBar>>,
-    max: usize,
-) -> Result<What, WorkerError> {
-    match timeout(Duration::from_secs(1), client.await_next()).await {
-        Ok(result) => result
-            .map_err(|_| WorkerError::Recv)
-            .and_then(|next| handle_response(headers_dir, next, count, progress, max)),
-        Err(_) => Err(WorkerError::Retry)?,
-    }
-}
-
-#[allow(clippy::unwrap_used)]
-fn handle_response(
-    headers_dir: &Path,
-    next: NextResponse<HeaderContent>,
-    count: &mut usize,
-    progress: &mut Option<Box<dyn ProgressBar>>,
-    max: usize,
-) -> Result<What, WorkerError> {
-    match next {
-        NextResponse::RollForward(content, tip) => {
-            let header: BlockHeader = from_cbor(&content.cbor).unwrap();
-            let hash = header.hash();
-            let slot = header.slot();
-
-            let filename = format!("header.{}.{}.cbor", slot, hex::encode(hash));
-
-            std::fs::create_dir_all(headers_dir)
-                .inspect_err(|reason| {
-                    error!(
-                        dir = %headers_dir.display(),
-                        reason = %reason,
-                        "Failed to create headers directory"
-                    )
-                })
-                .map_err(|_| WorkerError::Panic)?;
-
-            let filepath = headers_dir.join(&filename);
-
-            let mut file = File::create(&filepath)
-                .inspect_err(|reason| {
-                    error!(
-                        file = %filepath.display(),
-                        reason = %reason,
-                        "Failed to create file",
-                    )
-                })
-                .map_err(|_| WorkerError::Panic)?;
-
-            file.write_all(&content.cbor).map_err(|_| WorkerError::Panic)?;
-
-            *count += 1;
-
-            let slot = header.slot();
-            let tip_slot = tip.0.slot_or_default();
-
-            if let Some(progress) = progress {
-                progress.tick(1)
-            }
-
-            if *count >= max || slot.as_u64() == tip_slot { Ok(Stop) } else { Ok(Continue) }
-        }
-        #[allow(clippy::unwrap_used)]
-        NextResponse::RollBackward(point, tip) => {
-            info!(?point, ?tip, "roll_backward");
-            if progress.is_none() {
-                *progress = Some(new_terminal_progress_bar(
-                    max,
-                    " fetching headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)",
-                ));
-            }
-            Ok(Continue)
-        }
-        NextResponse::Await => Ok(Continue),
-    }
 }
