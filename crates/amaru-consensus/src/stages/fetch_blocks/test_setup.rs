@@ -12,13 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
+    Block, BlockHeader, HeaderHash, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
-use amaru_ouroboros_traits::{ChainStore, MissingBlocks, StoreError, in_memory_consensus_store::InMemConsensusStore};
+use amaru_metrics::ledger::LedgerMetrics;
+use amaru_ouroboros_traits::{
+    BlockValidationError, CanValidateBlocks, ChainStore, HasStakePools, MissingBlocks, StoreError,
+    in_memory_consensus_store::InMemConsensusStore,
+};
 use amaru_protocols::store_effects::{
     FindMissingBlocksEffect, GetAnchorHashEffect, GetChildrenEffect, HasBlockEffect, LoadHeaderEffect,
     LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, StoreBlockEffect,
@@ -34,9 +38,12 @@ use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
-use crate::stages::{
-    select_chain::SelectChainMsg,
-    test_utils::{BufferWriter, Logs},
+use crate::{
+    effects::{ResourceBlockValidation, ResourceHasStakePools, TipEffect, VolatileTipEffect},
+    stages::{
+        select_chain::SelectChainMsg,
+        test_utils::{BufferWriter, Logs},
+    },
 };
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -135,9 +142,57 @@ pub fn register_guards() -> DeserializerGuards {
         pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
         pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
         pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
+        pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
         pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
     ]
+}
+
+/// `CanValidateBlocks` implementation that returns the same tip
+#[derive(Clone, Debug, Default)]
+pub struct FixedTipBlocks {
+    pub tip_point: Point,
+}
+
+impl FixedTipBlocks {
+    pub fn new(tip_point: Point) -> Self {
+        Self { tip_point }
+    }
+}
+
+#[async_trait::async_trait]
+impl CanValidateBlocks for FixedTipBlocks {
+    async fn roll_forward_block(
+        &self,
+        _point: &Point,
+        _block: Block,
+    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+        Ok(Ok(Default::default()))
+    }
+
+    fn rollback_block(&self, _to: &Point) -> Result<(), BlockValidationError> {
+        Ok(())
+    }
+
+    fn contains_point(&self, _point: &Point) -> bool {
+        true
+    }
+
+    fn tip(&self) -> Point {
+        self.tip_point
+    }
+
+    fn volatile_tip(&self) -> Option<Tip> {
+        None
+    }
+}
+
+#[async_trait::async_trait]
+impl HasStakePools for FixedTipBlocks {
+    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+        Ok(BTreeSet::new())
+    }
 }
 
 /// Creates test prep with mocked cleanup_replies (named dummy StageRef).
@@ -159,6 +214,14 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_with_ledger_tip(prep, msg, Point::Origin)
+}
+
+pub fn setup_with_ledger_tip(
+    prep: &TestPrep,
+    msg: FetchBlocksMsg,
+    ledger_tip: Point,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
     let writer = BufferWriter::new();
     let mut logs = writer.clone();
 
@@ -173,6 +236,9 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
 
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
     network.resources().put::<ResourceHeaderStore>(prep.store.clone());
+    let block_validation = Arc::new(FixedTipBlocks::new(ledger_tip));
+    network.resources().put::<ResourceBlockValidation>(block_validation.clone());
+    network.resources().put::<ResourceHasStakePools>(block_validation);
 
     let fb = network.stage("fb", stage);
     let fb = network.wire_up(fb, prep.state.clone());
@@ -213,6 +279,10 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> 
 
 pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
+}
+
+pub fn te_tip(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(TipEffect)))
 }
 
 pub fn te_unvalidated_ancestor_hashes(at_stage: &str, start: HeaderHash) -> TraceEntry {

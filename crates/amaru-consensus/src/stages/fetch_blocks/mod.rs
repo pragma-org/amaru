@@ -14,12 +14,17 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, ORIGIN_HASH, Point, Tip, cardano::network_block::NetworkBlock};
+use amaru_kernel::{
+    BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tip, cardano::network_block::NetworkBlock,
+};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks2, manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef};
 
-use crate::stages::select_chain::{SelectChainMsg, best_tip_from_store, load_parent_point};
+use crate::{
+    effects::{Ledger, LedgerOps},
+    stages::select_chain::{SelectChainMsg, best_tip_from_store, load_parent_point},
+};
 
 // TODO make configurable
 const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
@@ -87,9 +92,19 @@ impl FetchBlocks {
         self.request_missing_blocks(tip, parent, eff).await;
     }
 
-    /// Startup-only recovery: resubmit downloaded blocks whose validity was not
-    /// persisted before shutdown, then fetch from the first missing block.
-    pub async fn recover_stored_blocks(&mut self, eff: Effects<FetchBlocksMsg>) {
+    /// Startup initialization.
+    ///
+    /// At runtime, validity in the chain store and the ledger's applied tip
+    /// advance together: `set_block_valid` is only written after the block has
+    /// been applied to the ledger.
+    ///
+    /// But the ledger keeps the last `k` applied blocks in-memory, so after a restart `ledger.tip()`
+    /// is the stable tip and can be up to `k` blocks behind the chain store's validated tip.
+    ///
+    /// This method re-emits those blocks so the ledger can rebuild its
+    /// volatile state. It also covers blocks that were downloaded but not yet
+    /// validated before shutdown.
+    pub async fn initialize(&mut self, eff: Effects<FetchBlocksMsg>) {
         assert!(
             self.missing.is_none(),
             "there shouldn't be any missing blocks when recovering stored blocks: {:?}",
@@ -97,8 +112,14 @@ impl FetchBlocks {
         );
 
         let store = Store::new(eff.clone());
-        let (best_tip, unvalidated) = match best_tip_from_store(&store).await {
-            Ok(Some(candidate)) => candidate,
+        let ledger = Ledger::new(eff.clone());
+
+        // The best tip so far. In its list of ancestors there might be
+        //  - Valid blocks.
+        //  - Downloaded but not yet validated blocks.
+        //  - Non-downloaded blocks.
+        let best_tip = match best_tip_from_store(&store).await {
+            Ok(Some((best_tip, _unvalidated))) => best_tip,
             Ok(None) => {
                 eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(Point::Origin)).await;
                 return;
@@ -111,10 +132,20 @@ impl FetchBlocks {
 
         self.block_height = best_tip.block_height().max(self.block_height);
         let tip = best_tip.tip();
-        tracing::debug!(tip = %tip.point(), "recovering stored blocks");
+
+        // Get all header hashes between the best tip and the ledger tip
+        // and either apply/re-apply blocks or download them in order to apply them
+        let ledger_tip = ledger.tip().await;
+        let to_apply = ancestor_hashes_down_to(&store, best_tip.hash(), ledger_tip.hash()).await;
+        tracing::debug!(
+            tip = %tip.point(),
+            ledger_tip = %ledger_tip.point(),
+            count = to_apply.len(),
+            "download or validate blocks up to the best tip"
+        );
 
         let mut parent: Option<Point> = None;
-        for hash in unvalidated {
+        for hash in to_apply {
             let Some(header) = store.load_header(&hash).await else {
                 tracing::error!(%hash, "failed to load candidate header");
                 return eff.terminate().await;
@@ -262,10 +293,38 @@ impl FetchBlocks {
     }
 }
 
+/// Walk parent pointers from `top` toward `bottom`, returning the visited
+/// hashes oldest-first (excluding `bottom` itself). Stops if the walk reaches
+/// the chain-store anchor or the origin, or if a header is missing.
+async fn ancestor_hashes_down_to(store: &Store, top: HeaderHash, bottom: HeaderHash) -> Vec<HeaderHash> {
+    if top == bottom {
+        return Vec::new();
+    }
+    let anchor_hash = store.get_anchor_hash().await;
+    let mut result = Vec::new();
+    let mut current = top;
+    while current != bottom && current != anchor_hash && current != ORIGIN_HASH {
+        let Some(header) = store.load_header(&current).await else {
+            tracing::warn!(%current, %bottom, "ancestor walk: header missing");
+            break;
+        };
+        result.push(current);
+        match header.parent_hash() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    if current != bottom {
+        tracing::warn!(%top, %bottom, walked = result.len(), "ancestor walk did not reach the ledger tip");
+    }
+    result.reverse();
+    result
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
+    Initialize,
     NewTip(Tip, Point),
-    RecoverStoredBlocks,
     Block(NetworkBlock),
     Timeout(u64),
 }
@@ -276,8 +335,8 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
         state.cleanup_replies = eff.wire_up(stage, (0, eff.me())).await;
     }
     match msg {
+        FetchBlocksMsg::Initialize => state.initialize(eff).await,
         FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
-        FetchBlocksMsg::RecoverStoredBlocks => state.recover_stored_blocks(eff).await,
         FetchBlocksMsg::Block(block) => state.block(block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
     }
