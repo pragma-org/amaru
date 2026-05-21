@@ -19,18 +19,19 @@ use std::{
 
 use amaru_kernel::{
     Anchor, AsHash, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, StakeCredential, StakeCredentialKind, TransactionInput, Vote, Voter, VoterKind,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    RequiredScript, StakeCredential, StakeCredentialKind, TransactionInput, Value, Vote, Voter, VoterKind,
+    cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
 use amaru_observability::trace_span;
 
 use crate::context::{
-    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
-    RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
-    blanket_known_scripts,
+    AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+    PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice,
+    ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+    blanket_known_datums, blanket_known_scripts,
 };
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -54,6 +55,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
             known_datums: BTreeMap::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_roots: BTreeSet::default(),
+            balance: Balance::default(),
         }
     }
 }
@@ -105,6 +107,8 @@ pub struct AssertValidationContext {
     required_supplemental_datums: BTreeSet<Hash<DATUM>>,
     #[serde(default)]
     required_bootstrap_roots: BTreeSet<Hash<28>>,
+    #[serde(default)]
+    balance: Balance,
 }
 
 impl ValidationContext for AssertValidationContext {
@@ -315,5 +319,31 @@ impl WitnessSlice for AssertValidationContext {
     fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
+    }
+}
+
+impl BalanceSlice for AssertValidationContext {
+    fn consume_value(&mut self, value: &Value) {
+        self.balance += value;
+    }
+
+    fn produce_value(&mut self, value: &Value) {
+        self.balance -= value;
+    }
+
+    fn consume_lovelace(&mut self, amount: Lovelace) {
+        self.balance += &Value::Coin(amount);
+    }
+
+    fn produce_lovelace(&mut self, amount: Lovelace) {
+        self.balance -= &Value::Coin(amount);
+    }
+
+    fn add_mint(&mut self, mint: &Mint) {
+        self.balance += mint;
+    }
+
+    fn balance(&mut self) -> Balance {
+        mem::take(&mut self.balance)
     }
 }

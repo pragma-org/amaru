@@ -21,7 +21,7 @@ use amaru_uplc::{arena::Arena, machine::PlutusVersion};
 use thiserror::Error;
 
 use crate::{
-    context::{UtxoSlice, WitnessSlice},
+    context::{BalanceSlice, UtxoSlice, WitnessSlice},
     rules::{WithPosition, transaction::phase_one::scripts::validate_plutus_script},
 };
 
@@ -70,7 +70,7 @@ pub fn execute<C>(
     construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
-    C: WitnessSlice + UtxoSlice,
+    C: WitnessSlice + UtxoSlice + BalanceSlice,
 {
     let mut invalid_outputs = Vec::new();
     // TODO: we should not be allocating a new arena here, instead using a shared pool, such as the one we use for phase 2 validation.
@@ -98,6 +98,7 @@ where
         }
 
         if let Some(input) = construct_utxo(position as u64) {
+            context.produce_value(output.value.as_ref());
             context.produce(input, output);
         }
     }

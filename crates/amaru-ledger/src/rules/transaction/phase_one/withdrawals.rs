@@ -20,7 +20,7 @@ use amaru_kernel::{
 use thiserror::Error;
 
 use crate::{
-    context::{AccountsSlice, WitnessSlice},
+    context::{AccountsSlice, BalanceSlice, WitnessSlice},
     rules::TransactionField,
 };
 
@@ -40,7 +40,7 @@ pub(crate) fn execute<C>(
     network: Network,
 ) -> Result<(), InvalidWithdrawals>
 where
-    C: WitnessSlice + AccountsSlice,
+    C: WitnessSlice + AccountsSlice + BalanceSlice,
 {
     if let Some(withdrawals) = withdrawals {
         withdrawals
@@ -69,7 +69,7 @@ where
             .collect::<Result<BTreeMap<_, _>, _>>()?
             .into_iter()
             .enumerate()
-            .for_each(|(position, (credential, _))| {
+            .for_each(|(position, (credential, amount))| {
                 match credential {
                     amaru_kernel::StakeCredential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
                         hash,
@@ -80,6 +80,7 @@ where
                     amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 };
 
+                context.consume_lovelace(amount);
                 context.withdraw_from(credential);
             });
     }

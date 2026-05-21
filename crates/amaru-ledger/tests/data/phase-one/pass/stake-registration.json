@@ -1,6 +1,6 @@
 {
   "title": "stake-registration",
-  "description": "The transaction body carries one Conway `Reg(credential, deposit)` cert. The stake credential is the same key-hash as the input's payment key, so the existing vkey witness satisfies both required signers. The deposit (2_000_000) matches protocolParameters.stakeCredentialDeposit. Opens conformance coverage on certificates::execute (Reg arm + AccountsSlice::register).",
+  "description": "The transaction body carries one Conway `Reg(credential, deposit)` cert. The stake credential is the same key-hash as the input's payment key, so the existing vkey witness satisfies both required signers. The deposit (2_000_000) matches protocolParameters.stakeCredentialDeposit. The input UTxO covers output, fee, and deposit.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
@@ -12,7 +12,7 @@
     "utxo": [
       {
         "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
-        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a006acfc0ff"
       }
     ],
     "votingState": {

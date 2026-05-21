@@ -23,8 +23,9 @@ use std::{
 
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 pub use default::*;
@@ -33,7 +34,15 @@ use crate::state::diff_bind;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
-    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + ProposalsSlice
+    PotsSlice
+    + UtxoSlice
+    + PoolsSlice
+    + AccountsSlice
+    + DRepsSlice
+    + CommitteeSlice
+    + WitnessSlice
+    + ProposalsSlice
+    + BalanceSlice
 {
     type FinalState;
 }
@@ -236,6 +245,35 @@ pub trait ProposalsSlice {
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
+}
+
+// Value Preservation
+// -------------------------------------------------------------------------------------------------
+
+/// An interface for accumulating the running total of value produced and consumed by a
+/// transaction. A valid transaction should have a balance of zero.
+///
+/// A negative balance means there is more value in the "right-hand side" (outputs + fees + treasury donation + negative mints)
+/// A positive balance means there is more value in the "left-hand side" (inputs + refunds + positive mints)
+pub trait BalanceSlice {
+    /// Add a non-negative [`Value`] to the balance accumulator.
+    fn consume_value(&mut self, value: &Value);
+
+    /// Subtract a non-negative [`Value`] to the balance accumulator.
+    fn produce_value(&mut self, value: &Value);
+
+    /// Add a lovelace amount to the balance accumulator.
+    fn consume_lovelace(&mut self, amount: Lovelace);
+
+    /// Subtract a lovelace amount to the balance accumulator.
+    fn produce_lovelace(&mut self, amount: Lovelace);
+
+    /// Add a signed `Mint` to the balance accumulator. Positive entries
+    /// represent newly minted tokens, negative entries represent burns.
+    fn add_mint(&mut self, mint: &Mint);
+
+    /// The current total balance.
+    fn balance(&mut self) -> Balance;
 }
 
 // Witnesses

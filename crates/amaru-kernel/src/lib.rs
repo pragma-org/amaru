@@ -130,7 +130,7 @@ pub use cardano::{
     transaction_input::{TransactionInput, transaction_input_to_string},
     transaction_pointer::TransactionPointer,
     validity_interval::ValidityInterval,
-    value::Value,
+    value::{Mint, Multiasset, Value},
     vkey_witness::{InvalidEd25519Signature, VKeyWitness, verify_ed25519_signature},
     vote::Vote,
     voter::Voter,
