@@ -165,9 +165,8 @@ pub fn import_initial_snapshot(
         Ok(governance_activity)
     })?;
 
-    let (pools, pools_updates, pools_retirements) = decoder
-        .with_decoder(|d| Ok(decode_pool_state(d, network)?))
-        .map_err(format_pool_state_decode_error)?;
+    let (pools, pools_updates, pools_retirements) =
+        decoder.with_decoder(|d| Ok(decode_pool_state(d, network)?)).map_err(format_pool_state_decode_error)?;
     import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
         .map_err(|err| format!("import pool state: {err}"))?;
 

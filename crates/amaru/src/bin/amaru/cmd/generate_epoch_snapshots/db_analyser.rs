@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use std::{
-    env,
-    fs,
+    env, fs,
     io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Command as ProcessCommand, Stdio},
@@ -46,11 +45,7 @@ pub(super) fn ensure_db_analyser_binary() -> Result<String, Box<dyn std::error::
         .into());
     }
 
-    let status = ProcessCommand::new(&binary)
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    let status = ProcessCommand::new(&binary).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status();
 
     match status {
         Ok(_) => {
@@ -86,12 +81,7 @@ pub(super) fn run_db_analyser(
     let db_dir = db_dir.canonicalize()?;
 
     let mut command = ProcessCommand::new(binary);
-    command
-        .arg("--config")
-        .arg(config_dir.join("config.json"))
-        .arg("--db")
-        .arg(db_dir)
-        .arg("--in-mem");
+    command.arg("--config").arg(config_dir.join("config.json")).arg("--db").arg(db_dir).arg("--in-mem");
 
     if let Some(analyse_from) = analyse_from {
         command.arg("--analyse-from").arg(analyse_from.to_string());

@@ -670,7 +670,9 @@ pub enum ImportError {
     MalformedDate(String),
     #[error("invalid snapshot file: {0}")]
     InvalidSnapshotFile(PathBuf),
-    #[error("expected cardano-node InMem snapshot directory with `state` and `tables/tvar`, or a `.cbor` snapshot file: {0}")]
+    #[error(
+        "expected cardano-node InMem snapshot directory with `state` and `tables/tvar`, or a `.cbor` snapshot file: {0}"
+    )]
     UnsupportedSnapshotPath(PathBuf),
 }
 
@@ -715,8 +717,8 @@ async fn import_cbor_snapshot_file(
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     info!(snapshot=%snapshot.display(), "Importing CBOR snapshot");
 
-    let point = Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap())
-        .map_err(ImportError::MalformedDate)?;
+    let point =
+        Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap()).map_err(ImportError::MalformedDate)?;
     let dir = snapshot.parent().ok_or_else(|| ImportError::InvalidSnapshotFile(snapshot.to_path_buf()))?;
     let era_history = make_era_history(dir, &point, network)?;
     let initial_nonces = if let Some(tail) = nonce_tail {

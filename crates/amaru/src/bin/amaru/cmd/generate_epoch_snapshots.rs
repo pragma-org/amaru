@@ -276,7 +276,7 @@ fn packaged_headers_for_target(
     };
 
     let parent_point = Point::try_from(parent_point_str)?;
-    let parent_hash = hex::encode(&parent_point.hash());
+    let parent_hash = hex::encode(parent_point.hash());
 
     let mut chunk_names = list_immutable_chunk_names(immutable_dir)?;
     chunk_names.sort_unstable();
@@ -290,16 +290,15 @@ fn packaged_headers_for_target(
         .collect::<Vec<_>>();
 
     let Some(parent_index) = entries.iter().position(|(block_hash, _)| *block_hash == parent_hash) else {
-        return Err(format!("parent point {parent_point} not found in immutable blocks under {}", immutable_dir.display())
-            .into());
+        return Err(format!(
+            "parent point {parent_point} not found in immutable blocks under {}",
+            immutable_dir.display()
+        )
+        .into());
     };
 
-    let headers = entries
-        .into_iter()
-        .skip(parent_index + 1)
-        .map(|(_, header_cbor)| header_cbor)
-        .take(2)
-        .collect::<Vec<_>>();
+    let headers =
+        entries.into_iter().skip(parent_index + 1).map(|(_, header_cbor)| header_cbor).take(2).collect::<Vec<_>>();
 
     if headers.len() < 2 {
         return Err(format!(
@@ -626,5 +625,4 @@ mod tests {
 
         assert!(archive_path.is_file());
     }
-
 }
