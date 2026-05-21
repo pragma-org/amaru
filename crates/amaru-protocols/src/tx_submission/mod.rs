@@ -32,8 +32,8 @@ use std::sync::Arc;
 use amaru_kernel::EraHistory;
 use amaru_ouroboros::{MempoolMsg, TxOrigin};
 pub use initiator::initiator;
-use pure_stage::{Effects, StageRef, Void};
-pub use responder::{MEMPOOL_INSERT_TIMEOUT, ResponderResult, TxSubmissionMsg, responder};
+use pure_stage::{Effects, StageRef};
+pub use responder::{ResponderLocalIn, ResponderResult, TxSubmissionMsg, responder};
 #[cfg(test)]
 pub use tests::*;
 
@@ -77,6 +77,7 @@ pub async fn register_tx_submission(
     eff: &Effects<ConnectionMessage>,
     origin: TxOrigin,
     mempool_stage: StageRef<MempoolMsg>,
+    params: ResponderParams,
     era_history: Arc<EraHistory>,
 ) -> StageRef<mux::HandlerMessage> {
     let tx_submission = if role == Role::Initiator {
@@ -84,15 +85,10 @@ pub async fn register_tx_submission(
         let tx_submission = eff.wire_up(eff.stage("tx_submission", initiator::initiator()).await, (state, stage)).await;
         eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<initiator::InitiatorLocalIn>::Network).await
     } else {
-        let (state, stage) = responder::TxSubmissionResponder::new(
-            muxer.clone(),
-            ResponderParams::new(2, 3),
-            origin,
-            mempool_stage,
-            era_history,
-        );
+        let (state, stage) =
+            responder::TxSubmissionResponder::new(muxer.clone(), params, origin, mempool_stage, era_history);
         let tx_submission = eff.wire_up(eff.stage("tx_submission", responder::responder()).await, (state, stage)).await;
-        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<Void>::Network).await
+        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<ResponderLocalIn>::Network).await
     };
 
     eff.send(

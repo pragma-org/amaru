@@ -239,7 +239,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
 }
 
 async fn do_handshake(
-    Params { role, peer, conn_id, era_history, mempool_stage, .. }: &Params,
+    Params { role, peer, conn_id, era_history, mempool_stage, config, .. }: &Params,
     muxer: StageRef<MuxMessage>,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     handshake: StageRef<Inputs<Void>>,
@@ -265,6 +265,7 @@ async fn do_handshake(
         &eff,
         TxOrigin::Remote(peer.clone()),
         mempool_stage.clone(),
+        config.tx_submission_params,
         era_history.clone(),
     )
     .await;

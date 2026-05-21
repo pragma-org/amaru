@@ -17,6 +17,6 @@ mod ledger_effects;
 pub use amaru_protocols::metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};
 pub use ledger_effects::{
     ContainsPointEffect, Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation,
-    ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation, RollbackBlockEffect, TipEffect,
-    ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
+    ResourceEraHistory, ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation, RollbackBlockEffect,
+    TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
 };
