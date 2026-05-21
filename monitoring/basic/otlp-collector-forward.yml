@@ -10,17 +10,19 @@ exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
     add_metric_suffixes: false
-  debug:
-    verbosity: basic
+  otlp/forward:
+    endpoint: "${env:OTLP_FORWARD_ENDPOINT}"
+    tls:
+      insecure: ${env:OTLP_TLS_INSECURE:-false}
 
 service:
   pipelines:
     metrics:
       receivers: [otlp]
-      exporters: [prometheus]
+      exporters: [prometheus, otlp/forward]
     traces:
       receivers: [otlp]
-      exporters: [debug]
+      exporters: [otlp/forward]
     logs:
       receivers: [otlp]
-      exporters: [debug]
+      exporters: [otlp/forward]
