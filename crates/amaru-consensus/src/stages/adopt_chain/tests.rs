@@ -26,6 +26,7 @@ use crate::stages::{
         te_clock, te_find_anchor_at_height, te_roll_forward_chain, te_send, te_set_anchor_hash, te_switch_to_fork,
     },
     test_utils::{te_input, te_state},
+    track_peers::TrackPeersMsg,
 };
 
 /// Incoming tip not in store -> terminate.
@@ -137,6 +138,7 @@ fn test_extension_adopts_and_sends() {
             te_clock("ac-1"),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(tip)),
+            te_send("ac-1", "track_peers", TrackPeersMsg::BlockApplied(tip)),
             te_state("ac-1", &expected),
         ],
     );
@@ -187,6 +189,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_clock("ac-1"),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(tip)),
+            te_send("ac-1", "track_peers", TrackPeersMsg::BlockApplied(tip)),
             te_state("ac-1", &expected),
         ],
     );
@@ -230,6 +233,7 @@ fn test_fork_switch_opcert_hacked() {
             te_clock("ac-1"),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::NewTip(tip)),
+            te_send("ac-1", "track_peers", TrackPeersMsg::BlockApplied(tip)),
             te_state("ac-1", &expected),
         ],
     );

@@ -20,7 +20,7 @@ use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 
-use crate::stages::select_chain::cmp_tip;
+use crate::stages::{select_chain::cmp_tip, track_peers::TrackPeersMsg};
 
 /// This stage receives validated chains in the form of a Tip and decides
 /// whether to adopt that tip as the new downstream tip.
@@ -37,6 +37,7 @@ use crate::stages::select_chain::cmp_tip;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AdoptChain {
     downstream: StageRef<ManagerMessage>,
+    track_peers: StageRef<TrackPeersMsg>,
     mempool: StageRef<MempoolMsg>,
     consensus_security_param: u64,
     current_best_tip: Tip,
@@ -48,12 +49,14 @@ pub struct AdoptChain {
 impl AdoptChain {
     pub fn new(
         downstream: StageRef<ManagerMessage>,
+        track_peers: StageRef<TrackPeersMsg>,
         mempool: StageRef<MempoolMsg>,
         consensus_security_param: u64,
         current_best_tip: Tip,
     ) -> Self {
         Self {
             downstream,
+            track_peers,
             mempool,
             consensus_security_param,
             current_best_tip,
@@ -145,6 +148,8 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
     }
     eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
     eff.send(&state.downstream, ManagerMessage::NewTip(msg)).await;
+    // Tell track_peers that a block has been applied so it can wake any deferred header validations.
+    eff.send(&state.track_peers, TrackPeersMsg::BlockApplied(msg)).await;
     state.current_best_tip = msg;
     state
 }
