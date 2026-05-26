@@ -407,7 +407,7 @@ mod tests {
     // This transaction is reconstructed from the transaction contained in the real preprod
     // block fixture `b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698`
     // (slot 70175999, block height 2671560).
-    const TX_ID: &str = "43f396b0d5c5";
+    const TX_ID: &str = "43f396b0d5c55e34b507cfe9964672586370cc09912a4790488fba4079f96429";
 
     /// Return a serialized transaction extracted from an actual block
     fn serialized_transaction() -> anyhow::Result<Vec<u8>> {

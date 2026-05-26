@@ -58,7 +58,6 @@ impl<'b> cbor::Decode<'b, ()> for TransactionId {
 
 impl Display for TransactionId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        // 6 first bytes = 12 characters
-        write!(f, "{}", hex::encode(&self.0.as_slice()[..6]))
+        write!(f, "{}", hex::encode(&self.0))
     }
 }
