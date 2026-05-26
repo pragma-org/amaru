@@ -57,6 +57,10 @@ const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";
 static BOOTSTRAP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/bootstrap");
 
 fn source_bootstrap_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os(env_vars::BOOTSTRAP_CONFIG_DIR) {
+        return PathBuf::from(path);
+    }
+
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/bootstrap")
 }
 
@@ -137,6 +141,9 @@ pub mod value_names {
 
 /// Environment variables used across command-line options.
 pub mod env_vars {
+    /// Runtime bootstrap config directory override.
+    pub const BOOTSTRAP_CONFIG_DIR: &str = "AMARU_BOOTSTRAP_CONFIG_DIR";
+
     /// --cardano-node-config-dir
     pub const CARDANO_NODE_CONFIG_DIR: &str = "AMARU_CARDANO_NODE_CONFIG_DIR";
 
