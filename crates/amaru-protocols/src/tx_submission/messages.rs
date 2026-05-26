@@ -14,7 +14,9 @@
 
 use std::fmt::Display;
 
-use amaru_kernel::{EraName, NonEmptyBytes, Transaction, TransactionId, cbor, to_cbor};
+use amaru_kernel::{
+    EraName, NonEmptyBytes, Transaction, TransactionId, cbor, to_cbor, utils::string::display_collection,
+};
 
 use crate::tx_submission::Blocking;
 
@@ -355,7 +357,7 @@ impl Display for Message {
                     f,
                     "ReplyTxIds(ids: [{}])",
                     ids.iter()
-                        .map(|(tagged, size)| format!("({}/{}, {})", tagged.era, tagged.id, size))
+                        .map(|(tagged, size)| format!("({}/{}, {})", tagged.era, tagged.id.short(), size))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
@@ -364,17 +366,18 @@ impl Display for Message {
                 write!(
                     f,
                     "RequestTxs(ids: [{}])",
-                    ids.iter().map(|tagged| format!("{}/{}", tagged.era, tagged.id)).collect::<Vec<_>>().join(", ")
+                    display_collection(ids.iter().map(|tagged| format!("{}/{}", tagged.era, tagged.id.short())))
                 )
             }
             Message::ReplyTxs(txs) => {
                 write!(
                     f,
                     "ReplyTxs(txs: [{}])",
-                    txs.iter()
-                        .map(|tagged| format!("{}/{}", tagged.era, tagged.tx.tx_id()))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    display_collection(txs.iter().map(|tagged| format!(
+                        "{}/{}",
+                        tagged.era,
+                        tagged.tx.tx_id().short()
+                    )))
                 )
             }
             Message::Done => write!(f, "Done"),

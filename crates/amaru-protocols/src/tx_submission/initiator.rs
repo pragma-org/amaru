@@ -253,11 +253,7 @@ impl Display for InitiatorResult {
                 write!(f, "RequestTxIds(ack: {}, req: {}, blocking: {:?})", ack, req, blocking)
             }
             InitiatorResult::RequestTxs(tx_ids) => {
-                write!(
-                    f,
-                    "RequestTxs(ids: [{}])",
-                    tx_ids.iter().map(|id| format!("{}", id)).collect::<Vec<_>>().join(", ")
-                )
+                write!(f, "RequestTxs(ids: [{}])", display_collection(tx_ids.iter().map(|id| id.short())))
             }
         }
     }
@@ -418,7 +414,7 @@ impl TxSubmissionInitiator {
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<TransactionId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        tracing::debug!(tx_ids = display_collection(&tx_ids), "received RequestTxs");
+        tracing::debug!(tx_ids = display_collection(tx_ids.iter().map(|id| id.short())), "received RequestTxs");
         // Return an error if the peer asked for a tx_id that was not advertised.
         let unavailable: Vec<&TransactionId> =
             tx_ids.iter().filter(|id| !self.window.iter().any(|(wid, _)| wid == *id)).collect();

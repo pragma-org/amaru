@@ -30,6 +30,12 @@ impl TransactionId {
     pub fn new(id: Hash<{ TRANSACTION_BODY }>) -> TransactionId {
         TransactionId(id)
     }
+
+    /// Returns a short hex representation (first 6 bytes / 12 chars) suitable for log lines
+    /// and multi-id collection rendering where the full hash would be too noisy.
+    pub fn short(&self) -> String {
+        hex::encode(&self.0.as_slice()[..6])
+    }
 }
 
 impl AsRef<Hash<{ TRANSACTION_BODY }>> for TransactionId {
@@ -58,6 +64,6 @@ impl<'b> cbor::Decode<'b, ()> for TransactionId {
 
 impl Display for TransactionId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(&self.0))
+        write!(f, "{}", hex::encode(self.0))
     }
 }

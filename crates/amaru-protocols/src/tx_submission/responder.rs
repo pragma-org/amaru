@@ -728,7 +728,15 @@ impl Display for ResponderAction {
                 write!(f, "SendRequestTxIds(ack: {}, req: {}, blocking: {:?})", ack, req, blocking)
             }
             ResponderAction::SendRequestTxs(tx_ids) => {
-                write!(f, "SendRequestTxs(tx_ids: {:?})", tx_ids)
+                write!(
+                    f,
+                    "SendRequestTxs(tx_ids: [{}])",
+                    tx_ids
+                        .iter()
+                        .map(|tagged| format!("{}/{}", tagged.era, tagged.id.short()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             ResponderAction::Error(cause) => write!(f, "Error({})", cause),
         }
