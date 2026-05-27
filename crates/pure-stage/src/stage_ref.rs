@@ -26,11 +26,7 @@ pub struct StageBuildRef<Msg, St, RefAux> {
 impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     /// Derive the handle that can later be used for sending messages to this stage.
     pub fn sender(&self) -> StageRef<Msg> {
-        StageRef {
-            name: self.name.clone(),
-            extra: None,
-            _ph: StageRefPhantom::default(),
-        }
+        StageRef { name: self.name.clone(), extra: None, _ph: StageRefPhantom::default() }
     }
 }
 
@@ -64,11 +60,7 @@ impl<Msg> Eq for StageRef<Msg> {}
 
 impl<Msg> Clone for StageRef<Msg> {
     fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            extra: self.extra.clone(),
-            _ph: StageRefPhantom::default(),
-        }
+        Self { name: self.name.clone(), extra: self.extra.clone(), _ph: StageRefPhantom::default() }
     }
 }
 
@@ -98,16 +90,10 @@ impl<Msg> AsRef<str> for StageRef<Msg> {
 
 impl<Msg> StageRef<Msg> {
     pub(crate) fn new(name: Name) -> Self {
-        const {
-            // this needs to be in some non-dead code, no matter where
-            crate::types::is_send::<Self>();
-            crate::types::is_sync::<Self>();
-        }
-        Self {
-            name,
-            extra: None,
-            _ph: StageRefPhantom::default(),
-        }
+        // this needs to be in some non-dead code, no matter where
+        crate::types::is_send::<StageRef<Msg>>();
+        crate::types::is_sync::<StageRef<Msg>>();
+        Self { name, extra: None, _ph: StageRefPhantom::default() }
     }
 
     pub(crate) fn with_extra(self, extra: Arc<dyn Any + Send + Sync>) -> Self {

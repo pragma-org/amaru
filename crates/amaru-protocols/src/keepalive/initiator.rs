@@ -94,13 +94,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
 
         async move {
             self.cookie = input.cookie.next();
-            let delay = if u16::from(input.cookie) == 0 {
-                // this is only for the very first keep-alive message, which the Haskell node expects within the first
-                // five seconds
-                Duration::from_secs(1)
-            } else {
-                Duration::from_secs(30)
-            };
+            let delay = delay_from(input.cookie);
             eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
             Ok((None, self))
         }
@@ -113,6 +107,16 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
         &self.muxer
+    }
+}
+
+fn delay_from(cookie: Cookie) -> Duration {
+    if u16::from(cookie) == 0 {
+        // this is only for the very first keep-alive message, which the Haskell node expects within the first
+        // five seconds
+        Duration::from_secs(1)
+    } else {
+        Duration::from_secs(30)
     }
 }
 
@@ -156,10 +160,10 @@ impl ProtocolState<Initiator> for State {
 #[derive(Debug)]
 pub enum InitiatorAction {
     SendKeepAlive(Cookie),
+    Done,
 }
 
 #[cfg(test)]
-#[expect(clippy::wildcard_enum_match_arm)]
 pub mod tests {
     use crate::{
         keepalive::{State, initiator::InitiatorAction, messages::Message},
@@ -170,6 +174,7 @@ pub mod tests {
     fn test_initiator_protocol() {
         crate::keepalive::spec::<Initiator>().check(State::Idle, |msg| match msg {
             Message::KeepAlive(cookie) => Some(InitiatorAction::SendKeepAlive(*cookie)),
+            Message::Done => Some(InitiatorAction::Done),
             _ => None,
         });
     }

@@ -35,6 +35,7 @@ pub fn register_deserializers() -> pure_stage::DeserializerGuards {
 pub enum State {
     Idle,
     Waiting,
+    Done,
 }
 
 pub fn spec<R: crate::protocol::RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
@@ -42,13 +43,13 @@ where
     State: ProtocolState<R, WireMsg = Message>,
 {
     let mut spec = crate::protocol::ProtoSpec::default();
-    let keep_alive = || Message::KeepAlive(Cookie::new());
-    let response_keep_alive = || Message::ResponseKeepAlive(Cookie::new());
+    let keep_alive = Message::KeepAlive(Cookie::new());
+    let response_keep_alive = Message::ResponseKeepAlive(Cookie::new());
+    let done = Message::Done;
 
-    // Initiator sends KeepAlive from Idle, transitions to Waiting
-    spec.init(State::Idle, keep_alive(), State::Waiting);
-    // Initiator receives ResponseKeepAlive in Waiting, transitions to Idle
-    spec.resp(State::Waiting, response_keep_alive(), State::Idle);
+    spec.init(State::Idle, keep_alive, State::Waiting);
+    spec.resp(State::Waiting, response_keep_alive, State::Idle);
+    spec.init(State::Idle, done, State::Done);
 
     spec
 }

@@ -14,12 +14,14 @@
 
 #[macro_use]
 pub mod internals {
-    use crate::{ExternalEffect, SendData, StageRef};
     use std::{
         any::{Any, type_name},
         fmt,
         marker::PhantomData,
+        time::Duration,
     };
+
+    use crate::{ExternalEffect, SendData, StageRef};
 
     macro_rules! make_states {
         ($($init:ident),+; $($other:ident),+) => {
@@ -169,17 +171,35 @@ pub mod internals {
         }
     }
 
+    pub struct Optional<E: Effect>(PhantomData<E>);
+    impl<E: Effect> Effect for Optional<E> {
+        fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "Optional<")?;
+            E::fmt(f)?;
+            write!(f, ">")
+        }
+    }
+
+    pub struct Repeat<E: Effect, const MIN: usize, const MAX: usize>(PhantomData<E>);
+    impl<E: Effect, const MIN: usize, const MAX: usize> Effect for Repeat<E, MIN, MAX> {
+        fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "Repeat<")?;
+            E::fmt(f)?;
+            write!(f, ", {}, {}>", MIN, MAX)
+        }
+    }
+
     pub trait Effect {
         fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result;
     }
 
     pub trait Transition<S: State>: State {
         type Eff: Sequence;
-        fn start<M>(self, eff: &crate::Effects<M>) -> Effects<M, Self::Eff, S>
+        fn start<M>(self, eff: crate::Effects<M>) -> Behaviour<M, Self::Eff, S>
         where
             Self: Sized,
         {
-            Effects::new(eff, S::MAKE(Marker(Private)))
+            Behaviour::new(eff, S::MAKE(Marker(Private)))
         }
 
         fn to_string() -> String {
@@ -189,41 +209,54 @@ pub mod internals {
                     E::fmt(f)
                 }
             }
-            format!(
-                "{} -> {} -> {}",
-                Self::NAME,
-                D::<Self::Eff>(PhantomData),
-                S::NAME
-            )
+            format!("{} -> {} -> {}", Self::NAME, D::<Self::Eff>(PhantomData), S::NAME)
         }
     }
 
-    pub struct Effects<M, Eff, S> {
+    pub struct Behaviour<M, Eff, S> {
         effects: crate::Effects<M>,
         next: S,
         _ph: PhantomData<(Eff, S)>,
     }
 
-    impl<M, Eff, S: State> Effects<M, Eff, S> {
-        fn new(effects: &crate::Effects<M>, next: S) -> Self {
-            Self {
-                effects: effects.clone(),
-                next,
-                _ph: PhantomData,
-            }
+    impl<M, Eff, S: State> Behaviour<M, Eff, S> {
+        fn new(effects: crate::Effects<M>, next: S) -> Self {
+            Self { effects, next, _ph: PhantomData }
         }
 
-        pub async fn send<T: SendData, E>(self, target: &StageRef<T>, msg: T) -> Effects<M, E, S>
+        pub async fn send<T: SendData, E>(self, target: &StageRef<T>, msg: T) -> Behaviour<M, E, S>
         where
             Eff: Sequence<Head = Send<T>, Tail = E>,
         {
             let send = self.effects.send(target, msg);
             send.await;
-            Effects {
-                effects: self.effects,
-                next: self.next,
-                _ph: PhantomData,
-            }
+            Behaviour { effects: self.effects, next: self.next, _ph: PhantomData }
+        }
+
+        pub async fn wait<E>(self, delay: Duration) -> Behaviour<M, E, S>
+        where
+            Eff: Sequence<Head = Wait, Tail = E>,
+        {
+            self.effects.wait(delay).await;
+            Behaviour { effects: self.effects, next: self.next, _ph: PhantomData }
+        }
+
+        pub fn unroll<E: Effect, const MIN: usize, const MAX: usize, Tail>(
+            self,
+        ) -> Behaviour<M, Cons<E, Cons<Repeat<E, { MIN.saturating_sub(1) }, { sub_one(MAX) }>, Tail>>, S>
+        where
+            Eff: Sequence<Head = Repeat<E, MIN, MAX>, Tail = Tail>,
+        {
+            let _x = const { MAX.checked_sub(1).expect("MAX must be positive") };
+
+            Behaviour { effects: self.effects, next: self.next, _ph: PhantomData }
+        }
+
+        pub fn end_loop<E: Effect, Tail, const MAX: usize>(self) -> Behaviour<M, Tail, S>
+        where
+            Eff: Sequence<Head = Repeat<E, 0, MAX>, Tail = Tail>,
+        {
+            Behaviour { effects: self.effects, next: self.next, _ph: PhantomData }
         }
 
         pub fn finish(self) -> S
@@ -233,13 +266,27 @@ pub mod internals {
             self.next
         }
     }
+
+    #[cfg(clippy)]
+    #[expect(clippy::panic)]
+    pub const fn sub_one(n: usize) -> usize {
+        if n > 0 {
+            n - 1
+        } else {
+            panic!("MAX must be positive; use `cargo build` to get error location.");
+        }
+    }
+    #[cfg(not(clippy))]
+    pub const fn sub_one(n: usize) -> usize {
+        n.saturating_sub(1)
+    }
 }
 
 use internals::{Cons, InitialState, Marker, Nil, NotInitialState, State, Transition};
 
 #[allow(unused)]
 mod chainsync {
-    use super::internals::{Receive, Send};
+    use super::internals::{Receive, Repeat, Send, Wait};
 
     // First declare the states, with initial state(s) before the semicolon.
     make_states!(Idle; Intersect, Done, CanAwait, MustSend);
@@ -248,7 +295,7 @@ mod chainsync {
     // Note that this is a toy example using the structure of the chainsync
     // protocol, but we don’t have the message types available here.
 
-    transition!(Idle => Intersect: effects!(Send<String>, Send<u8>));
+    transition!(Idle => Intersect: effects!(Send<String>, Repeat<Wait, 1, 3>, Send<u8>));
     transition!(Intersect => Idle: effects!(Receive<u8>));
 
     transition!(Idle => CanAwait: effects!(Send<()>));
@@ -272,6 +319,8 @@ mod chainsync {
 }
 
 mod application_code {
+    use std::time::Duration;
+
     use super::chainsync::*;
     use crate::{StageRef, typestate::internals::Transition};
 
@@ -287,19 +336,35 @@ mod application_code {
         // THe underlying low-level effects machinery; this could be hidden as well to remove
         // the possibility of performing unchecked effects by passing in the strongly typed
         // `typestate::Effects` instead.
-        eff: &crate::Effects<()>,
+        eff: crate::Effects<()>,
     ) -> Intersect {
         // Start the transition from the current state. Note that the second type parameter
         // specifies a list of two Send effects with different message types.
-        let eff = s.start(eff);
+        let e = s.start(eff);
         // Performing the first Send effect consumes the first list element.
-        let eff = eff.send(mux, "intersect".to_string()).await;
+        let e = e.send(mux, "intersect".to_string()).await;
+
+        let e = e
+            .unroll()
+            .wait(Duration::from_secs(1))
+            .await
+            .unroll()
+            .wait(Duration::from_secs(1))
+            .await
+            .unroll()
+            .wait(Duration::from_secs(1))
+            .await
+            // .unroll()
+            // .wait(Duration::from_secs(1))
+            // .await
+            .end_loop();
+
         // Performing the second Send effect consumes the second list element.
-        let eff = eff.send(other, 42).await;
+        let e = e.send(other, 42).await;
         // Only now, with the effects list empty, can we construct the newly reached state.
         // Application code cannot cheat because all other constructors for `Intersect` are
         // inaccessible.
-        eff.finish()
+        e.finish()
     }
 
     #[test]
@@ -313,7 +378,7 @@ mod application_code {
             // since the state machine is fully declared at the type level, we can e.g.
             // print a transition without having either of the states constructed as a value.
             <Idle as Transition<Intersect>>::to_string(),
-            "Idle -> Send<alloc::string::String>, Send<u8>, end -> Intersect"
+            "Idle -> Send<alloc::string::String>, Wait, Send<u8>, end -> Intersect"
         );
     }
 }

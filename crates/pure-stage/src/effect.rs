@@ -405,7 +405,6 @@ impl<M> Effects<M> {
         StageRef::new(name)
     }
 
-    #[expect(clippy::future_not_send)]
     pub async fn ensure_child<Msg, St, F, Fut>(
         &self,
         child: &mut StageRef<Msg>,
