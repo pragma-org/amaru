@@ -328,20 +328,13 @@ mod application_code {
     /// do multiple steps by starting a new transition).
     #[expect(unused)]
     pub async fn intersect(
-        // The current state of the protocol.
         s: Idle,
-        // Some names (channels) needed to perform the Send effects
         mux: &StageRef<String>,
         other: &StageRef<u8>,
-        // THe underlying low-level effects machinery; this could be hidden as well to remove
-        // the possibility of performing unchecked effects by passing in the strongly typed
-        // `typestate::Effects` instead.
         eff: crate::Effects<()>,
     ) -> Intersect {
-        // Start the transition from the current state. Note that the second type parameter
-        // specifies a list of two Send effects with different message types.
         let e = s.start(eff);
-        // Performing the first Send effect consumes the first list element.
+
         let e = e.send(mux, "intersect".to_string()).await;
 
         let e = e
@@ -359,11 +352,8 @@ mod application_code {
             // .await
             .end_loop();
 
-        // Performing the second Send effect consumes the second list element.
         let e = e.send(other, 42).await;
-        // Only now, with the effects list empty, can we construct the newly reached state.
-        // Application code cannot cheat because all other constructors for `Intersect` are
-        // inaccessible.
+
         e.finish()
     }
 

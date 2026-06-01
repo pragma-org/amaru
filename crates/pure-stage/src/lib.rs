@@ -63,17 +63,12 @@ pub use typetag;
 mod play {
     use std::marker::PhantomData;
 
-    // Empty list marker
     struct Nil;
-
-    // Cons cell for both Sequence and Parallel
     struct Cons<H, T>(PhantomData<(H, T)>);
 
-    // ─────────────────────────────────────────────────────────────
-    // 1. Sequence = a single chain of effect types
     trait Sequence {
         type Head;
-        type Tail: Sequence; // Nil or another Cons
+        type Tail: Sequence;
     }
 
     impl<H, T: Sequence> Sequence for Cons<H, T> {
@@ -82,12 +77,10 @@ mod play {
     }
 
     impl Sequence for Nil {
-        type Head = (); // dummy, never used
+        type Head = ();
         type Tail = Nil;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // 2. Parallel = a list of Sequences
     trait Parallel {
         type Head: Sequence;
         type Tail: Parallel;
@@ -99,86 +92,119 @@ mod play {
     }
 
     impl Parallel for Nil {
-        type Head = Nil; // dummy
+        type Head = Nil;
         type Tail = Nil;
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // 3. The operation we want: consume the first Sequence whose Head matches E
+    struct Assert<const B: bool>;
+    trait IsTrue {}
+    impl IsTrue for Assert<true> {}
+    trait IsFalse {}
+    impl IsFalse for Assert<false> {}
+
+    trait StartsWith<E> {
+        const MATCH: bool;
+    }
+
+    impl<S: Sequence, E> StartsWith<E> for S {
+        default const MATCH: bool = false;
+    }
+
+    impl<E, Tail: Sequence> StartsWith<E> for Cons<E, Tail> {
+        const MATCH: bool = true;
+    }
+
+    struct Found<O>(PhantomData<O>);
+    struct NotFound;
+
+    trait TryConsume<E> {
+        type Outcome;
+    }
+
+    impl<E> TryConsume<E> for Nil {
+        type Outcome = NotFound;
+    }
+
+    trait TryConsumeWith<E, const M: bool> {
+        type Outcome;
+    }
+
+    impl<E, PHead: Sequence + StartsWith<E>, PTail: Parallel> TryConsume<E> for Cons<PHead, PTail>
+    where
+        Cons<PHead, PTail>: TryConsumeWith<E, { <PHead as StartsWith<E>>::MATCH }>,
+    {
+        type Outcome = <Cons<PHead, PTail> as TryConsumeWith<E, { <PHead as StartsWith<E>>::MATCH }>>::Outcome;
+    }
+
+    impl<E, PHead: Sequence + StartsWith<E>, PTail: Parallel> TryConsumeWith<E, true> for Cons<PHead, PTail>
+    where
+        Assert<{ <PHead as StartsWith<E>>::MATCH }>: IsTrue,
+    {
+        type Outcome = Found<Cons<PHead::Tail, PTail>>;
+    }
+
+    impl<E, PHead: Sequence + StartsWith<E>, PTail: Parallel> TryConsumeWith<E, false> for Cons<PHead, PTail>
+    where
+        Assert<{ <PHead as StartsWith<E>>::MATCH }>: IsFalse,
+        PTail: Parallel + TryConsume<E>,
+        <PTail as TryConsume<E>>::Outcome: PrependOutcome<PHead>,
+    {
+        type Outcome = <<PTail as TryConsume<E>>::Outcome as PrependOutcome<PHead>>::Outcome;
+    }
+
+    trait PrependOutcome<H> {
+        type Outcome;
+    }
+
+    impl<H: Sequence, Q: Parallel> PrependOutcome<H> for Found<Q> {
+        type Outcome = Found<Cons<H, Q>>;
+    }
+
+    impl<H> PrependOutcome<H> for NotFound {
+        type Outcome = NotFound;
+    }
+
     trait Consume<E> {
-        type Output: Parallel; // new Parallel list with the matched Head removed
+        type Output: Parallel;
     }
 
-    impl<E, PHead: Sequence, PTail: Parallel> Consume<E> for Cons<PHead, PTail>
+    impl<P, E, Out> Consume<E> for P
     where
-        PTail: Parallel + Consume<E>,
+        P: Parallel + TryConsume<E, Outcome = Found<Out>>,
+        Out: Parallel,
     {
-        default type Output = Cons<PHead, PTail::Output>;
+        type Output = Out;
     }
 
-    trait Matches<E> {}
-    impl<E, Tail: Sequence> Matches<E> for Cons<E, Tail> {}
-
-    impl<E, PHead: Sequence, PTail: Parallel> Consume<E> for Cons<PHead, PTail>
-    where
-        PTail: Parallel + Consume<E>,
-        PHead: Matches<E>,
-    {
-        type Output = Cons<PHead::Tail, PTail>;
-    }
-
-    // trait Consume<E, N: Num> {
-    //     type Output: Parallel; // new Parallel list with the matched Head removed
-    // }
-    // struct S<T>(T);
-    // struct Z;
-    // trait Num {}
-    // impl Num for Z {}
-    // impl<T: Num> Num for S<T> {}
-
-    // impl<E, PHead: Sequence, PTail: Parallel, N: Num> Consume<E, S<N>> for Cons<PHead, PTail>
-    // where
-    //     PTail: Parallel + Consume<E, N>,
-    // {
-    //     default type Output = Cons<PHead, PTail::Output>;
-    // }
-
-    // impl<E, STail: Sequence, PTail: Parallel> Consume<E, Z> for Cons<Cons<E, STail>, PTail>
-    // where
-    //     PTail: Parallel,
-    //     E: Sized,
-    // {
-    //     type Output = Cons<STail, PTail>;
-    // }
-
-    // ─────────────────────────────────────────────────────────────
-    // Usage example
     struct X<P>(PhantomData<P>);
 
-    fn consume_parallel<P, E, Out>(_: X<P>) -> X<Out>
+    fn consume_parallel<P, E, Out>(_x: X<P>, _e: E) -> X<Out>
     where
         P: Consume<E, Output = Out>,
     {
-        // the real implementation would do whatever runtime work you need
         X(PhantomData)
     }
 
-    // Example types
     struct EffectA;
     struct EffectB;
     struct EffectC;
+    struct EffectZ;
 
-    // A Parallel list: [ [A, B], [C], [B, C] ]
     type MyParallel =
         Cons<Cons<EffectA, Cons<EffectB, Nil>>, Cons<Cons<EffectC, Nil>, Cons<Cons<EffectB, Cons<EffectC, Nil>>, Nil>>>;
 
-    // fn run() {
-    //     let x = X::<MyParallel>(PhantomData);
-    //     // This compiles: finds the first Sequence whose Head == EffectA and consumes it
-    //     let x = consume_parallel::<_, EffectA, _>(x);
-    //     let x = consume_parallel::<_, EffectB, _>(x);
-    // }
+    fn run() {
+        let x = X::<MyParallel>(PhantomData);
+        let x = consume_parallel::<_, EffectA, _>(x, EffectA);
+        let x = consume_parallel::<_, EffectC, _>(x, EffectC);
+        let x = consume_parallel::<_, EffectB, _>(x, EffectB);
+        let x = consume_parallel::<_, EffectB, _>(x, EffectB);
+        let x = consume_parallel::<_, EffectC, _>(x, EffectC);
 
-    // This does NOT compile (type error): no Sequence starts with EffectZ
-    // let _ = consume_parallel::<MyParallel, EffectZ, _>(/* … */);
+        let y = X::<MyParallel>(PhantomData);
+        let y = consume_parallel::<_, EffectC, _>(y, EffectC);
+
+        // This does not compile (no branch starts with EffectZ):
+        // let _ = consume_parallel::<MyParallel, EffectZ, _>(X::<MyParallel>(PhantomData));
+    }
 }
