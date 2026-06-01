@@ -159,14 +159,15 @@ where
                 });
             }
 
+            let is_new_pool = !context.exists(id);
+
             let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
             PoolsSlice::register(context, params, pointer);
 
-            // TODO: only charge a deposit on first-time registration
-            //
-            // re-registration of an existing pool keeps the original deposit.
-            // resolving this requires PoolsSlice::lookup to be wired so we can detect whether the pool already exists.
-            context.produce_lovelace(protocol_parameters.stake_pool_deposit);
+            if is_new_pool {
+                context.produce_lovelace(protocol_parameters.stake_pool_deposit);
+            }
+
             Ok(())
         }
 
