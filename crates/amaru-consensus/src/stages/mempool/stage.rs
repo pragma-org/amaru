@@ -28,44 +28,31 @@ use crate::{
 /// transactions into the shared mempool via effects, while managing asynchronous waiter
 /// notifications for sequence number readiness and mempool capacity events.
 ///
-/// It accepts `MempoolMsg` inputs (re-exported from `amaru_ouroboros`):
+/// It accepts `MempoolMsg` messages:
 /// - `Insert { tx, origin, caller }` / `InsertBatch { txs, origin, caller }`: validate each
-///   tx via the `Ledger` effect (`validate_tx`); on success call `MemoryPool::insert`,
-///   on ledger failure construct `TxInsertResult::rejected(..., Invalid(...))`. Successful
-///   `Accepted { seq_no, .. }` results trigger `notify_ready_waiters`. Always reply to the
-///   embedded `caller: StageRef` with `Ok(TxInsertResult)` or `Ok(Vec<TxInsertResult>)` (or
-///   `Err(MempoolInsertError { tx_id, error })` on hard `MempoolError` from insert). Batch
-///   aborts on first hard error after replying Err.
-/// - `WaitForAtLeast { seq_no, caller }`: immediately `send(())` if `memory_pool.last_seq_no() >= seq_no`,
-///   else queue `MempoolWaiter` in state for later notification on an accepting insert.
-/// - `NewTip(tip)`: revalidate all current mempool txs against ledger via `apply_new_tip`,
-///   remove invalid ones (side-effect), notify capacity waiters if any were removed.
-/// - `SubscribeCapacity { caller }`: register `caller: StageRef<()>` for one-shot notification
-///   on future capacity-relieving NewTip.
+///   tx via the `Ledger` effect (`validate_tx`);
+///     - On success the transaction(s) are accepted into the mempool (via `MemoryPool::insert`),
+///     - On failure a rejection result (`TxInsertResult::rejected(..., Invalid(...))`) is returned.
+///     - When a transaction is accepted into the mempool, the waiters are notified (via `notify_ready_waiters`)
+///       in order to transmit available transactions upstream.
 ///
-/// The stage maintains only coordination state (`MempoolStageState`: lists of seq-waiters and
-/// capacity subscribers; serializable). All persistent state and heavy ops live in the
-/// `MemoryPool` and `Ledger` effects (backed by resources like `InMemoryMempool` and tx validators).
-/// No child stages are spawned; work is performed directly in the handler (with awaits on effects).
-/// Results flow back to callers (e.g. tx_submission manager, adopt_chain logic) exclusively via
-/// the `StageRef` callbacks in the messages using `Effects::send`. Side effects are strictly
-/// limited to the two effects; the stage itself is stateless w.r.t. tx contents.
+///   The `caller` gets a `TxInsertResult` reply (or a `Vec<TxInsertResult>` in case of a batch insertion).
+/// - `WaitForAtLeast { seq_no, caller }`: wait until `memory_pool.last_seq_no() >= seq_no`:
+///     - If this is the case when the message is received, the caller gets a reply right away,
+///     - Otherwise, it is queued as a `MempoolWaiter` to get a notification as soon as a transaction is
+///       inserted into the mempool.
 ///
-/// This stage is initialized in the consensus graph (via wiring with default state) and
-/// receives `NewTip` updates on chain adoption (for revalidation/clearing) and insert requests
-/// for tx submission.
+/// - `NewTip(tip)`: revalidate all current mempool txs against ledger via `apply_new_tip`:
+///     - Remove invalid ones (via `Mempool::remove_tx`)
+///     - Notify capacity waiters if any were removed
 ///
-/// ## FIXME: Suspected Issues (isolated analysis)
-/// - **Inconsistent batch error handling + partial side effects**: On hard error in `InsertBatch`, `eff.send(Err(...))` + immediate `return state;`. Prior txs in the same batch already performed `memory_pool.insert` (and seq-waiter notifies if accepted). Caller sees only an error (for the failing `tx_id`), not a partial `Vec` of results. Single-`Insert` path always completes a send. Risk of callers observing inconsistent committed state vs. reply.
-/// - **Test coverage gaps for variants + error paths + deserializer**: Only `InsertBatch` + `NewTip` exercised (with `TxOrigin::Local`, mock rejections leading to in-result `rejected`, and duplicates). No coverage of single `Insert`, `WaitForAtLeast`, `SubscribeCapacity`, or paths that surface top-level `MempoolInsertError` (vs. `TxInsertResult::rejected`). Guard registers only the `Vec<Result<...>>` form; scalar `Insert` reply type is untested and could cause simulation/serde issues.
-/// - **Silent drop on remove failure during reval**: `apply_new_tip` on `memory_pool.remove_txs` error: `tracing::error!` + `return 0` (no capacity notify). Invalid txs may remain in mempool after `NewTip`. Potential for stuck invalid entries post-chain switch.
-/// - **Capacity notifications narrowly scoped + one-shot**: `notify_capacity_waiters` (which drains) *only* on `NewTip` with `removed > 0`. Successful inserts never notify. Docstring notes "Subscribers that still need to be notified after re-evaluating must re-subscribe." Subscribers can easily miss events or leak registrations.
-/// - **No child stages / potential HOL blocking**: Validation, per-tx awaits on effects, full-mempool iteration in `apply_new_tip`, and all notifies happen directly in the handler. No `eff.spawn` for heavy work. Large mempools or slow ledger effects on `NewTip`/batches can block other messages (Insert/Wait/etc.) to this stage.
-/// - **Unbounded waiter accumulation + no cleanup**: `waiters` and `capacity_waiters` `Vec`s grow with no size limits, timeouts, or GC. `MempoolWaiter` holds `StageRef`s. Serializable state means persistence, but restarts lose pending notifications. Risk of unbounded growth or "stuck" waiters.
-/// - **Reply asymmetry and fire-and-forget risks**: Insert*/Wait guarantee one reply. `NewTip`/`Subscribe` are pure side-effect or registration (no direct reply). Waiters rely on later `eff.send(())`; any downstream or effect failure leaves callers hanging with no error surfacing in this stage.
-/// - **Full O(n) revalidation on every NewTip**: `mempool_txs().await` + sequential per-tx `validate_tx` + conditional remove. No sequencing, batching, or incremental logic. Cost scales with mempool size on every tip adoption.
-/// - **Batch aborts remaining work on first hard error**: Loop processes sequentially but `return`s on first `Err` from `validate_and_insert`. No attempt of later txs; caller gets error for the failure point only.
-/// - **Design notes / minor**: Ledger validation failures never produce `MempoolError` (always mapped to `rejected` result — intentional for submission UX). The `return state;` in batch error is functionally equivalent to fallthrough but skips any hypothetical post-match logic. Per-accepted notifies inside batch loop are fine (drain logic handles it).
+///   TODO: optimize this call; it is not necessary to revalidate all the transactions. We can,
+///   in principle build a dependency graph of all the transactions in the mempool and check, level by level,
+///   which parts of the graph are still valid based on the new ledger state.
+///
+/// - `SubscribeCapacity { caller }`: register `caller` for a one-shot notification
+///   when `NewTip` frees some pool capacity.
+///
 pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<MempoolMsg>) -> MempoolStageState {
     let memory_pool = MemoryPool::new(eff.clone());
     let ledger = Ledger::new(eff.clone());
