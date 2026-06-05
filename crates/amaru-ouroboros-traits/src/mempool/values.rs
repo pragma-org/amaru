@@ -103,21 +103,3 @@ impl From<anyhow::Error> for TransactionValidationError {
         TransactionValidationError(error.to_string())
     }
 }
-
-#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[error("MempoolError: {message}")]
-pub struct MempoolError {
-    message: String,
-}
-
-impl MempoolError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
-    }
-}
-
-impl From<anyhow::Error> for MempoolError {
-    fn from(error: anyhow::Error) -> Self {
-        Self::new(error.to_string())
-    }
-}

@@ -564,7 +564,7 @@ mod tests {
         let txs = create_transactions(6);
 
         for tx in txs.iter().take(2) {
-            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local)?;
+            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
         }
 
         // Send requests to retrieve transactions and block until they are available.
@@ -577,7 +577,7 @@ mod tests {
 
         // Refill the mempool with more transactions
         for tx in &txs[2..] {
-            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local)?;
+            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
         }
         let messages = vec![
             request_tx_ids(1, 2, Blocking::Yes),
@@ -617,7 +617,7 @@ mod tests {
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
         assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) < seq_no);
-        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local)?;
+        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
         assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
         assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, Some(reply_tx_ids(&txs, &[0])));
 
@@ -637,8 +637,8 @@ mod tests {
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
         let tx_id = txs[0].tx_id();
-        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local)?;
-        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[tx_id])?;
+        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
+        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[tx_id]);
         // the last seq_no is greater than the requested seq_no
         assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
 
@@ -664,7 +664,7 @@ mod tests {
         let (actions, initiator) = run_stage_and_return_state(mempool.clone(), vec![advertise]).await?;
         assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1])]);
 
-        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[txs[0].tx_id()])?;
+        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[txs[0].tx_id()]);
 
         let (actions, _) = run_stage_and_return_state_with(initiator, mempool, vec![request_both]).await?;
         assert_actions_eq(&actions, &[reply_txs(&txs, &[1])]);
@@ -684,7 +684,7 @@ mod tests {
         let (actions, initiator) = run_stage_and_return_state(mempool.clone(), vec![advertise]).await?;
         assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1])]);
 
-        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[txs[0].tx_id(), txs[1].tx_id()])?;
+        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[txs[0].tx_id(), txs[1].tx_id()]);
 
         let (actions, _) = run_stage_and_return_state_with(initiator, mempool, vec![request_both]).await?;
         assert_actions_eq(&actions, &[reply_txs(&txs, &[])]);

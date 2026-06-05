@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use amaru_kernel::{Transaction, TransactionId};
 use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{MempoolError, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
 use pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 use serde::{Deserialize, Serialize};
 
@@ -32,7 +32,7 @@ pub struct MemoryPool {
 }
 
 pub trait AsyncMempool: Send + Sync {
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, Result<TxInsertResult, MempoolError>>;
+    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult>;
     fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<Transaction>>;
     fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'_, bool>;
     fn tx_ids_since(
@@ -42,7 +42,7 @@ pub trait AsyncMempool: Send + Sync {
     ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>>;
     fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<Transaction>>;
     fn mempool_txs(&self) -> BoxFuture<'_, Vec<Transaction>>;
-    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, Result<(), MempoolError>>;
+    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()>;
     fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo>;
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool>;
     fn state(&self) -> BoxFuture<'_, MempoolState>;
@@ -57,11 +57,7 @@ impl MemoryPool {
         self.effects.external(effect)
     }
 
-    pub fn insert(
-        &self,
-        tx: Transaction,
-        tx_origin: TxOrigin,
-    ) -> BoxFuture<'static, Result<TxInsertResult, MempoolError>> {
+    pub fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'static, TxInsertResult> {
         self.external(Insert::new(tx, tx_origin))
     }
 
@@ -89,7 +85,7 @@ impl MemoryPool {
         self.external(MempoolTxs)
     }
 
-    pub fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'static, Result<(), MempoolError>> {
+    pub fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'static, ()> {
         self.external(RemoveTxs::new(ids))
     }
 
@@ -111,7 +107,7 @@ impl MemoryPool {
 }
 
 impl AsyncMempool for MemoryPool {
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, Result<TxInsertResult, MempoolError>> {
+    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
         MemoryPool::insert(self, tx, tx_origin)
     }
 
@@ -139,7 +135,7 @@ impl AsyncMempool for MemoryPool {
         MemoryPool::mempool_txs(self)
     }
 
-    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, Result<(), MempoolError>> {
+    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
         MemoryPool::remove_txs(self, ids)
     }
 
@@ -157,7 +153,7 @@ impl AsyncMempool for MemoryPool {
 }
 
 impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, Result<TxInsertResult, MempoolError>> {
+    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
         Box::pin(async move { TxSubmissionMempool::insert(self, tx, tx_origin) })
     }
 
@@ -187,7 +183,7 @@ impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
         Box::pin(async move { TxSubmissionMempool::mempool_txs(self) })
     }
 
-    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, Result<(), MempoolError>> {
+    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
         let tx_ids = ids.to_vec();
         Box::pin(async move { TxSubmissionMempool::remove_txs(self, &tx_ids) })
     }
@@ -230,7 +226,7 @@ impl ExternalEffect for Insert {
 }
 
 impl ExternalEffectAPI for Insert {
-    type Response = Result<TxInsertResult, MempoolError>;
+    type Response = TxInsertResult;
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -363,7 +359,7 @@ impl RemoveTxs {
 }
 
 impl ExternalEffect for RemoveTxs {
-    #[expect(clippy::expect_used)]
+    #[expect(clippy::expect_used, clippy::unit_arg)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
@@ -373,7 +369,7 @@ impl ExternalEffect for RemoveTxs {
 }
 
 impl ExternalEffectAPI for RemoveTxs {
-    type Response = Result<(), MempoolError>;
+    type Response = ();
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -432,9 +428,7 @@ impl ExternalEffectAPI for State {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{Transaction, TransactionBody, TransactionId, WitnessSet};
-    use amaru_ouroboros_traits::{
-        MempoolError, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool,
-    };
+    use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
@@ -452,8 +446,8 @@ mod tests {
     }
 
     impl TxSubmissionMempool<Transaction> for ConstantMempool {
-        fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
-            Ok(TxInsertResult::accepted(tx.tx_id(), MempoolSeqNo(1)))
+        fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> TxInsertResult {
+            TxInsertResult::accepted(tx.tx_id(), MempoolSeqNo(1))
         }
 
         fn get_tx(&self, _tx_id: &TransactionId) -> Option<Transaction> {
@@ -472,9 +466,7 @@ mod tests {
             vec![self.tx.clone()]
         }
 
-        fn remove_txs(&self, _ids: &[TransactionId]) -> Result<(), MempoolError> {
-            Ok(())
-        }
+        fn remove_txs(&self, _ids: &[TransactionId]) {}
 
         fn last_seq_no(&self) -> MempoolSeqNo {
             MempoolSeqNo(1)

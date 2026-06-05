@@ -24,7 +24,7 @@ pub fn create_transactions_in_mempool(mempool: &dyn Mempool<Transaction>, number
     for i in 0..number {
         let tx = create_transaction(i);
         txs.push(tx.clone());
-        mempool.insert(tx, TxOrigin::Local).unwrap();
+        mempool.insert(tx, TxOrigin::Local);
     }
     txs
 }

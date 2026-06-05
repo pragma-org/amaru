@@ -88,8 +88,8 @@ async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: Header
         )
         .await
     {
-        Ok(Ok(TxInsertResult::Accepted { tx_id, .. })) => json_response(StatusCode::ACCEPTED, tx_id.to_string()),
-        Ok(Ok(TxInsertResult::Rejected { reason, .. })) => text_response(
+        Ok(TxInsertResult::Accepted { tx_id, .. }) => json_response(StatusCode::ACCEPTED, tx_id.to_string()),
+        Ok(TxInsertResult::Rejected { reason, .. }) => text_response(
             match reason {
                 TxRejectReason::MempoolFull => StatusCode::SERVICE_UNAVAILABLE,
                 TxRejectReason::Duplicate => StatusCode::CONFLICT,
@@ -97,10 +97,6 @@ async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: Header
             },
             reason.to_string(),
         ),
-        Ok(Err(error)) => {
-            warn!(%error, "mempool insert failed");
-            text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
-        }
         Err(CallError::TimedOut) => text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool timed out"),
         Err(CallError::SendFailed) => {
             warn!("mempool send failed");
@@ -127,13 +123,7 @@ fn text_response(status: StatusCode, body: impl Into<String>) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::SocketAddr,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-    };
+    use std::{net::SocketAddr, sync::Arc};
 
     use amaru_consensus::{
         effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation},
@@ -143,8 +133,7 @@ mod tests {
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
-        MempoolError, MempoolSeqNo, MockCanValidateBlocks, MockCanValidateTxs, TransactionValidationError,
-        TxInsertResult, TxSubmissionMempool, overriding_mempool::OverridingMempool,
+        MockCanValidateBlocks, MockCanValidateTxs, TransactionValidationError, TxSubmissionMempool,
     };
     use amaru_protocols::store_effects::ResourceParameters;
     use axum::{
@@ -273,36 +262,6 @@ mod tests {
         assert_eq!(resp.status(), 500);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
         assert_eq!(to_bytes(resp.into_body(), usize::MAX).await?, "mempool unavailable");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_mempool_stage_survives_insert_failure() -> anyhow::Result<()> {
-        let attempts = AtomicUsize::new(0);
-        let mempool: Arc<dyn TxSubmissionMempool<Transaction>> = Arc::new(
-            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
-                .with_insert(move |_, tx: Transaction, _| {
-                    if attempts.fetch_add(1, Ordering::Relaxed) == 0 {
-                        Err(MempoolError::new("temporary failure"))
-                    } else {
-                        Ok(TxInsertResult::accepted(tx.tx_id(), MempoolSeqNo(1)))
-                    }
-                })
-                .build(),
-        );
-        let first = create_transaction(0);
-        let second = create_transaction(1);
-        let sender = make_mempool_sender(mempool, Arc::new(MockCanValidateTxs));
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, "application/cbor".parse()?);
-
-        let resp =
-            super::submit_tx(State(sender.clone()), headers.clone(), Bytes::from(amaru_kernel::to_cbor(&first))).await;
-        assert_eq!(resp.status(), 500);
-        assert_eq!(to_bytes(resp.into_body(), usize::MAX).await?, "mempool unavailable");
-
-        let resp = super::submit_tx(State(sender), headers, Bytes::from(amaru_kernel::to_cbor(&second))).await;
-        assert_eq!(resp.status(), 202);
         Ok(())
     }
 

@@ -21,13 +21,12 @@ pub fn create_transactions(number: usize) -> Vec<Transaction> {
     (0..number).map(create_transaction).collect()
 }
 
-#[expect(clippy::unwrap_used)]
 pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Transaction>>, number: usize) -> Vec<Transaction> {
     let mut txs = vec![];
     for i in 0..number {
         let tx = create_transaction(i);
         txs.push(tx.clone());
-        let result = mempool.insert(tx.clone(), TxOrigin::Local).unwrap();
+        let result = mempool.insert(tx.clone(), TxOrigin::Local);
         assert!(matches!(result, TxInsertResult::Accepted { .. }), "transaction {tx:?} was rejected: {result:?}");
     }
     txs

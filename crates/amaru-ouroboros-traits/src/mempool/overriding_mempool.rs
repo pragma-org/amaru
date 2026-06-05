@@ -17,16 +17,14 @@ use std::sync::Arc;
 use amaru_kernel::TransactionId;
 use parking_lot::Mutex;
 
-use crate::{MempoolError, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use crate::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
 /// Optional method overrides for [`OverridingMempool`].
 /// Each override receives a reference to the underlying mempool and the method arguments.
 /// Overrides are stored in a mutex because they use `FnMut`.
 #[allow(clippy::type_complexity)]
 struct Overrides<Tx: Send + Sync + 'static> {
-    insert: Option<
-        Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, Tx, TxOrigin) -> Result<TxInsertResult, MempoolError> + Send>,
-    >,
+    insert: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, Tx, TxOrigin) -> TxInsertResult + Send>>,
     get_tx: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &TransactionId) -> Option<Tx> + Send>>,
     contains: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &TransactionId) -> bool + Send>>,
     tx_ids_since: Option<
@@ -37,8 +35,7 @@ struct Overrides<Tx: Send + Sync + 'static> {
     >,
     get_txs_for_ids: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) -> Vec<Tx> + Send>>,
     mempool_txs: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> Vec<Tx> + Send>>,
-    remove_txs:
-        Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) -> Result<(), MempoolError> + Send>>,
+    remove_txs: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) + Send>>,
     last_seq_no: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolSeqNo + Send>>,
     is_near_capacity: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, u64) -> bool + Send>>,
     state: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolState + Send>>,
@@ -88,7 +85,7 @@ pub struct OverridingMempoolBuilder<Tx: Send + Sync + 'static> {
 impl<Tx: Send + Sync + 'static> OverridingMempoolBuilder<Tx> {
     pub fn with_insert<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>, Tx, TxOrigin) -> Result<TxInsertResult, MempoolError> + Send + 'static,
+        F: FnMut(&dyn TxSubmissionMempool<Tx>, Tx, TxOrigin) -> TxInsertResult + Send + 'static,
     {
         self.overrides.insert = Some(Box::new(f));
         self
@@ -138,7 +135,7 @@ impl<Tx: Send + Sync + 'static> OverridingMempoolBuilder<Tx> {
 
     pub fn with_remove_txs<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) -> Result<(), MempoolError> + Send + 'static,
+        F: FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) + Send + 'static,
     {
         self.overrides.remove_txs = Some(Box::new(f));
         self
@@ -174,7 +171,7 @@ impl<Tx: Send + Sync + 'static> OverridingMempoolBuilder<Tx> {
 }
 
 impl<Tx: Send + Sync + 'static> TxSubmissionMempool<Tx> for OverridingMempool<Tx> {
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError> {
+    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult {
         let mut overrides = self.overrides.lock();
         match &mut overrides.insert {
             Some(f) => f(self.inner.as_ref(), tx, tx_origin),
@@ -222,7 +219,7 @@ impl<Tx: Send + Sync + 'static> TxSubmissionMempool<Tx> for OverridingMempool<Tx
         }
     }
 
-    fn remove_txs(&self, ids: &[TransactionId]) -> Result<(), MempoolError> {
+    fn remove_txs(&self, ids: &[TransactionId]) {
         let mut overrides = self.overrides.lock();
         match &mut overrides.remove_txs {
             Some(f) => f(self.inner.as_ref(), ids),

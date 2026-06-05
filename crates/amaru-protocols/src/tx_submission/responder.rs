@@ -492,8 +492,7 @@ impl TxSubmissionResponder {
                 tracing::error!("mempool stage did not respond to InsertBatch within timeout");
                 return terminate(MempoolBatchInsertFailedTimedout);
             }
-            Some(Err(error)) => return terminate(MempoolInsertFailed(error)),
-            Some(Ok(results)) => {
+            Some(results) => {
                 // Individual transaction rejection are just logged
                 for result in results {
                     log_insert_result(&result);
@@ -765,7 +764,7 @@ mod tests {
     use amaru_kernel::{EraName, TESTNET_ERA_HISTORY, Transaction};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::{
-        MempoolError, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+        MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
         mempool::overriding_mempool::OverridingMempool,
     };
 
@@ -924,20 +923,6 @@ mod tests {
                 request_txs(&txs, &[2]),
                 error_action(TxNotRequested),
             ],
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn tx_mempool_errors_do_not_terminate_the_protocol() -> anyhow::Result<()> {
-        let txs = create_transactions(2);
-        let mempool = failing_insert_mempool("database unavailable");
-
-        let actions = run_stage(mempool, vec![init(), reply_tx_ids(&txs, &[0, 1]), reply_txs(&txs, &[0, 1])]).await?;
-
-        assert_actions_eq(
-            &actions,
-            &[request_tx_ids(0, 10, Blocking::Yes), request_txs(&txs, &[0, 1]), request_tx_ids(2, 10, Blocking::Yes)],
         );
         Ok(())
     }
@@ -1198,12 +1183,9 @@ mod tests {
                             }
                         }
 
-                        // log errors
                         let origin = responder.origin.clone();
                         for tx in txs {
-                            if let Err(e) = mempool.insert(tx, origin.clone()).await {
-                                tracing::debug!(error = %e, "test harness: mempool insert failed");
-                            }
+                            mempool.insert(tx, origin.clone()).await;
                         }
                         let (ack, req, blocking) = responder.request_tx_ids(mempool).await;
                         Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
@@ -1253,15 +1235,6 @@ mod tests {
         responder.tx_states.insert(tx_id, TxStateEntry { status, refcount: one() });
     }
 
-    /// A mempool that fails every `insert` with the given error message
-    fn failing_insert_mempool(message: &'static str) -> Arc<dyn AsyncMempool> {
-        Arc::new(
-            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
-                .with_insert(move |_inner, _tx, _origin| Err(MempoolError::new(message)))
-                .build(),
-        )
-    }
-
     /// A mempool whose `insert` returns predetermined results keyed by `TransactionId`.
     /// Each result is consumed on first match.
     fn mock_insert_mempool(results: Vec<TxInsertResult>) -> Arc<dyn AsyncMempool> {
@@ -1271,7 +1244,7 @@ mod tests {
             OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
                 .with_insert(move |_inner, tx: Transaction, _origin| {
                     let tx_id = tx.tx_id();
-                    Ok(by_id.remove(&tx_id).expect("missing insert result for mock mempool test"))
+                    by_id.remove(&tx_id).expect("missing insert result for mock mempool test")
                 })
                 // never report contained txs to force the responder to fetch them.
                 .with_contains(|_inner, _tx_id| false)

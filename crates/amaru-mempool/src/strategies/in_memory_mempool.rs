@@ -179,14 +179,14 @@ impl MempoolConfig {
 impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx>
     for InMemoryMempool<Tx>
 {
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, amaru_ouroboros_traits::MempoolError> {
+    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult {
         let tx_id = tx.tx_id();
         let mut inner = self.inner.write();
         let res = inner.insert(&self.config, tx, tx_origin);
-        Ok(match res {
+        match res {
             Ok((tx_id, seq_no)) => TxInsertResult::accepted(tx_id, seq_no),
             Err(reason) => TxInsertResult::rejected(tx_id, reason),
-        })
+        }
     }
 
     fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx> {
@@ -205,9 +205,8 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Tx
         self.inner.read().mempool_txs()
     }
 
-    fn remove_txs(&self, ids: &[TransactionId]) -> Result<(), amaru_ouroboros_traits::MempoolError> {
-        self.inner.write().remove_txs(ids);
-        Ok(())
+    fn remove_txs(&self, ids: &[TransactionId]) {
+        self.inner.write().remove_txs(ids)
     }
 
     fn last_seq_no(&self) -> MempoolSeqNo {
@@ -276,7 +275,7 @@ mod tests {
         let mempool = InMemoryMempool::new(MempoolConfig::default());
         let tx = Tx::from_str("tx1").unwrap();
         let TxInsertResult::Accepted { tx_id, seq_no: seq_nb } =
-            mempool.insert(tx.clone(), TxOrigin::Remote(Peer::new("upstream"))).unwrap()
+            mempool.insert(tx.clone(), TxOrigin::Remote(Peer::new("upstream")))
         else {
             panic!("transaction should be accepted")
         };
@@ -294,10 +293,9 @@ mod tests {
         let max_bytes = to_cbor(&first).len() as u64;
         let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes));
 
-        assert!(matches!(mempool.insert(first, TxOrigin::Local).unwrap(), TxInsertResult::Accepted { .. }));
+        assert!(matches!(mempool.insert(first, TxOrigin::Local), TxInsertResult::Accepted { .. }));
 
-        let TxInsertResult::Rejected { reason, .. } =
-            mempool.insert(Tx::from_str("b").unwrap(), TxOrigin::Local).unwrap()
+        let TxInsertResult::Rejected { reason, .. } = mempool.insert(Tx::from_str("b").unwrap(), TxOrigin::Local)
         else {
             panic!("transaction should be rejected as full");
         };
@@ -310,9 +308,9 @@ mod tests {
         let max_bytes = to_cbor(&first).len() as u64;
         let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes));
 
-        assert!(matches!(mempool.insert(first.clone(), TxOrigin::Local).unwrap(), TxInsertResult::Accepted { .. }));
+        assert!(matches!(mempool.insert(first.clone(), TxOrigin::Local), TxInsertResult::Accepted { .. }));
 
-        let TxInsertResult::Rejected { reason, .. } = mempool.insert(first, TxOrigin::Local).unwrap() else {
+        let TxInsertResult::Rejected { reason, .. } = mempool.insert(first, TxOrigin::Local) else {
             panic!("transaction should be rejected");
         };
         assert!(matches!(reason, TxRejectReason::Duplicate), "unexpected reason: {reason:?}");
@@ -324,14 +322,14 @@ mod tests {
         let max_bytes = to_cbor(&first).len() as u64;
         let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes));
 
-        let TxInsertResult::Accepted { tx_id, .. } = mempool.insert(first, TxOrigin::Local).unwrap() else {
+        let TxInsertResult::Accepted { tx_id, .. } = mempool.insert(first, TxOrigin::Local) else {
             panic!("first insert should succeed");
         };
 
-        mempool.remove_txs(&[tx_id]).unwrap();
+        mempool.remove_txs(&[tx_id]);
 
         let second = Tx::from_str("b").unwrap();
-        assert!(matches!(mempool.insert(second, TxOrigin::Local).unwrap(), TxInsertResult::Accepted { .. }));
+        assert!(matches!(mempool.insert(second, TxOrigin::Local), TxInsertResult::Accepted { .. }));
     }
 
     // HELPERS

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::TransactionId;
 
-use crate::mempool::{MempoolError, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
+use crate::mempool::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
 
 /// An simple mempool interface to:
 ///
@@ -46,7 +46,7 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Insert a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> Result<TxInsertResult, MempoolError>;
+    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult;
 
     /// Retrieve a transaction by its id.
     fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx>;
@@ -66,7 +66,7 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     fn mempool_txs(&self) -> Vec<Tx>;
 
     /// Remove transactions from the active relay set.
-    fn remove_txs(&self, _ids: &[TransactionId]) -> Result<(), MempoolError>;
+    fn remove_txs(&self, _ids: &[TransactionId]);
 
     /// Get the last assigned sequence number in the mempool.
     fn last_seq_no(&self) -> MempoolSeqNo;
