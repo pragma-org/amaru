@@ -659,7 +659,7 @@ mod tests {
             tests::run_strategy,
         },
     };
-    use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+    use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use proptest::proptest;
 
     use super::*;
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn roll_forward_extends_best_chain() {
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = create_headers_tree_with_store(store.clone(), 5);
         let mut headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
@@ -714,7 +714,7 @@ mod tests {
 
     #[test]
     fn roll_forward_with_incorrect_parent_fails() {
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = create_headers_tree_with_store(store.clone(), 5);
         let headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn roll_forward_from_another_peer_at_tip_extends_best_chain() {
         let alice = Peer::new("alice");
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = initialize_with_store_and_peer(store.clone(), 5, &alice);
         let mut headers = tree.best_chain_fragment();
 
@@ -771,7 +771,7 @@ mod tests {
     #[test]
     fn roll_forward_from_another_peer_on_a_smaller_chain_is_noop() {
         let alice = Peer::new("alice");
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = initialize_with_store_and_peer(store.clone(), 5, &alice);
         let headers = tree.best_chain_fragment();
 
@@ -792,7 +792,7 @@ mod tests {
     #[test]
     fn roll_forward_from_another_peer_on_the_best_chain_is_noop() {
         let alice = Peer::new("alice");
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = initialize_with_store_and_peer(store.clone(), 5, &alice);
         let headers = tree.best_chain_fragment();
 
@@ -817,7 +817,7 @@ mod tests {
     #[test]
     fn roll_forward_from_another_peer_creates_a_fork_if_the_new_chain_is_the_best() {
         let alice = Peer::new("alice");
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = initialize_with_store_and_peer(store.clone(), 5, &alice);
         let headers = tree.best_chain_fragment();
 
@@ -841,7 +841,7 @@ mod tests {
     #[test]
     fn roll_forward_with_fork_to_a_disjoint_chain() {
         let alice = Peer::new("alice");
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = initialize_with_store_and_peer(store.clone(), 5, &alice);
 
         let headers = tree.best_chain_fragment();
@@ -865,7 +865,7 @@ mod tests {
     #[test]
     fn roll_forward_beyond_max_length() {
         // create a chain at max length
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = create_headers_tree_with_store(store.clone(), 10);
         let mut headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
@@ -937,7 +937,7 @@ mod tests {
     #[test]
     fn dangling_peers_are_removed_when_the_best_chain_grows_too_large() {
         // create a chain at max length for alice
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = create_headers_tree_with_store(store.clone(), 10);
         let headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
@@ -992,7 +992,7 @@ mod tests {
     #[test]
     fn rollback_then_roll_forward_on_the_best_chain() {
         let alice = Peer::new("alice");
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         let mut tree = initialize_with_store_and_peer(store.clone(), 5, &alice);
 
         let headers = tree.best_chain_fragment();
@@ -1112,7 +1112,7 @@ mod tests {
     fn two_peers_making_the_best_chain_alternatively() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
 
         // alice has the best chain with 5 headers
         let mut tree = initialize_with_store_and_peer(store.clone(), 5, &alice);
@@ -1298,7 +1298,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot create a headers tree with maximum chain length lower than 2")]
     fn cannot_initialize_tree_with_k_lower_than_2() {
-        HeadersTree::<BlockHeader>::new(Arc::new(InMemConsensusStore::new()), 1);
+        HeadersTree::<BlockHeader>::new(Arc::new(InMemoryChainStore::new()), 1);
     }
 
     const DEPTH: usize = 10;

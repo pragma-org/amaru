@@ -12,5 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_store;
-pub use chain_store::*;
+pub mod in_memory_chain_store;
+pub use in_memory_chain_store::*;
+
+mod base_read_chain_store;
+pub use base_read_chain_store::*;
+
+mod read_chain_store;
+pub use read_chain_store::*;
+
+mod write_chain_store;
+pub use write_chain_store::*;
+
+mod types;
+pub use types::*;
+
+mod diagnostic_chain_store;
+pub use diagnostic_chain_store::*;
+
+#[cfg(feature = "test-utils")]
+pub mod overriding_chain_store;
+
+#[cfg(feature = "test-utils")]
+pub mod test_utils;

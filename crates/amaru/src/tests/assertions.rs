@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Transaction, utils::string::ListToString};
-use amaru_ouroboros::{ResourceMempool, get_blocks};
+use amaru_ouroboros::{ResourceMempool, test_utils::get_blocks};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use pure_stage::Resources;
 

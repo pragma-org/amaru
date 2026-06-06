@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH};
-use amaru_ouroboros::ReadOnlyChainStore;
+use amaru_ouroboros::ReadChainStore;
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 
@@ -35,7 +35,7 @@ impl ExternalEffect for FindBestCandidate {
     }
 }
 
-pub fn find_best_candidate(store: &dyn ReadOnlyChainStore<BlockHeader>) -> Result<HeaderHash, ConsensusError> {
+pub fn find_best_candidate(store: &dyn ReadChainStore<BlockHeader>) -> Result<HeaderHash, ConsensusError> {
     let anchor_hash = store.get_anchor_hash();
     let mut best_candidate = None;
 

@@ -130,7 +130,7 @@ mod test {
     use std::sync::{Arc, LazyLock};
 
     use amaru_kernel::{BlockHeader, Epoch, GlobalParameters, IsHeader, NetworkName, from_cbor, hash, to_cbor};
-    use amaru_ouroboros_traits::{Praos, ReadOnlyChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use amaru_ouroboros_traits::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use proptest::{prelude::*, prop_compose, proptest};
 
     use super::*;
@@ -185,7 +185,7 @@ mod test {
         current: &BlockHeader,
         global_parameters: &GlobalParameters,
     ) -> Option<Nonces> {
-        let store = Arc::new(InMemConsensusStore::default());
+        let store = Arc::new(InMemoryChainStore::default());
         let consensus_parameters = Arc::new(ConsensusParameters::new(
             global_parameters.clone(),
             NetworkName::Preprod.into(),

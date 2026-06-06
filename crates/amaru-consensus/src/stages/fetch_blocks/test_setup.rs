@@ -18,7 +18,7 @@ use amaru_kernel::{
     BlockHeader, HeaderHash, Peer, Point, RawBlock, TESTNET_ERA_HISTORY, Tip,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
-use amaru_ouroboros_traits::{ChainStore, MissingBlocks, StoreError, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros_traits::{MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
     FindMissingBlocksEffect, GetAnchorHashEffect, GetChildrenEffect, HasBlockEffect, LoadHeaderEffect,
     LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, StoreBlockEffect,
@@ -76,7 +76,7 @@ pub struct TestPrep {
     pub rt: Runtime,
     pub cleanup_replies: StageRef<Blocks2>,
     pub headers: HeaderChain,
-    pub store: Arc<InMemConsensusStore<BlockHeader>>,
+    pub store: Arc<InMemoryChainStore<BlockHeader>>,
 }
 
 impl TestPrep {
@@ -162,7 +162,7 @@ pub fn test_prep() -> TestPrep {
         rt: Builder::new_current_thread().build().unwrap(),
         cleanup_replies,
         headers: HeaderChain::new(),
-        store: Arc::new(InMemConsensusStore::new()),
+        store: Arc::new(InMemoryChainStore::new()),
     }
 }
 

@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point, Slot};
-use amaru_ouroboros_traits::{StoreError, overriding_consensus_store::OverridingChainStore};
+use amaru_ouroboros_traits::{StoreError, overriding_chain_store::OverridingChainStore};
 use pure_stage::{
     assert_trace_contains,
     trace_buffer::{TerminationReason, TraceEntry},
@@ -668,7 +668,7 @@ mod best_tip_from_store_tests {
         BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, any_headers_chain, any_headers_chain_with_root, make_header,
         utils::tests::run_strategy,
     };
-    use amaru_ouroboros::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use amaru_ouroboros::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 
     use crate::effects::find_best_candidate;
 
@@ -677,7 +677,7 @@ mod best_tip_from_store_tests {
         let chain = run_strategy(any_headers_chain(4));
         let [a, b, c, d] = chain.try_into().unwrap();
 
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::default());
         for header in [&a, &b, &c, &d] {
             store.store_header(header).unwrap();
         }
@@ -697,7 +697,7 @@ mod best_tip_from_store_tests {
         let chain = run_strategy(any_headers_chain(4));
         let [a, b, c, d] = chain.try_into().unwrap();
 
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::default());
         for header in [&a, &b, &c, &d] {
             store.store_header(header).unwrap();
         }
@@ -714,7 +714,7 @@ mod best_tip_from_store_tests {
 
     #[test]
     fn falls_back_to_valid_candidate_when_best_candidate_has_invalid_ancestry() {
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::default());
 
         // a -- b -- c (invalid) -- d
         //       \
@@ -744,7 +744,7 @@ mod best_tip_from_store_tests {
         let chain = run_strategy(any_headers_chain(2));
         let [a, b] = chain.clone().try_into().unwrap();
 
-        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::default());
+        let store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::default());
         for header in [&a, &b] {
             store.store_header(header).unwrap();
             store.roll_forward_chain(&header.point()).unwrap();

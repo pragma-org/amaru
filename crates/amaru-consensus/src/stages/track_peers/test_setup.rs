@@ -17,8 +17,8 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, HeaderHash, TESTNET_ERA_HISTORY, Tip, make_header};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    CanValidateHeaders, ChainStore, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders,
-    in_memory_consensus_store::InMemConsensusStore,
+    CanValidateHeaders, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders, WriteChainStore,
+    in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
@@ -47,8 +47,8 @@ use crate::{
     },
 };
 
-pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemConsensusStore<BlockHeader>> {
-    let store = Arc::new(InMemConsensusStore::new());
+pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore<BlockHeader>> {
+    let store = Arc::new(InMemoryChainStore::new());
     for header in headers {
         store.store_header(header).unwrap();
     }
@@ -151,7 +151,7 @@ pub fn setup(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemConsensusStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore<BlockHeader>>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_with_validation(rt, state, msg, store, Arc::new(MockCanValidateHeaders))
 }
@@ -160,7 +160,7 @@ pub fn setup_with_validation(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemConsensusStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore<BlockHeader>>,
     validation: Arc<dyn CanValidateHeaders + Send + Sync>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base(rt, state, msg, store, validation, |_| {})
@@ -171,7 +171,7 @@ pub fn setup_with_ledger_tip(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemConsensusStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore<BlockHeader>>,
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base(rt, state, msg, store, Arc::new(MockCanValidateHeaders), |running| {
@@ -187,7 +187,7 @@ fn setup_base(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemConsensusStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore<BlockHeader>>,
     validation: Arc<dyn CanValidateHeaders + Send + Sync>,
     overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {

@@ -18,7 +18,9 @@ use amaru_kernel::{
     BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER, to_cbor,
 };
 use amaru_observability::trace_span;
-use amaru_ouroboros_traits::{ChainStore, DiagnosticChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use amaru_ouroboros_traits::{
+    BaseReadChainStore, DiagnosticChainStore, Nonces, ReadChainStore, StoreError, WriteChainStore,
+};
 use rocksdb::{
     DB, DBCommon, DBIteratorWithThreadMode, DBPinnableSlice, IteratorMode, OptimisticTransactionDB, Options,
     PrefixRange, ReadOptions, SnapshotWithThreadMode,
@@ -95,10 +97,32 @@ impl DbOps for DB {
 //
 // RocksDB iterator errors (transient I/O, corruption) panic the node here.
 // Propagating as StoreError requires changing the `get_children` trait signature
-// across ReadOnlyChainStore and all impls/callers. Tracked as follow-up.
+// across [`BaseReadChainStore`] and all impls/callers. Tracked as follow-up.
 impl DbOps for SnapshotWithThreadMode<'_, OptimisticTransactionDB> {
     type Iter<'a>
         = DBIteratorWithThreadMode<'a, OptimisticTransactionDB>
+    where
+        Self: 'a;
+
+    fn get_pinned(&self, key: &[u8], opts: ReadOptions) -> Result<Option<DBPinnableSlice<'_>>, StoreError> {
+        self.get_pinned_opt(key, opts).map_err(|e| StoreError::ReadError { error: e.to_string() })
+    }
+
+    fn multi_get(&self, keys: &[&[u8]], opts: ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
+        self.multi_get_opt(keys, opts)
+            .into_iter()
+            .map(|result| result.map_err(|e| StoreError::ReadError { error: e.to_string() }))
+            .collect()
+    }
+
+    fn iterator_opt<'a>(&'a self, mode: IteratorMode<'_>, opts: ReadOptions) -> Self::Iter<'a> {
+        SnapshotWithThreadMode::iterator_opt(self, mode, opts)
+    }
+}
+
+impl DbOps for SnapshotWithThreadMode<'_, DB> {
+    type Iter<'a>
+        = DBIteratorWithThreadMode<'a, DB>
     where
         Self: 'a;
 
@@ -242,9 +266,10 @@ pub(crate) fn store_chain_point(db: &OptimisticTransactionDB, point: &Point) -> 
         .map_err(|e| StoreError::WriteError { error: e.to_string() })
 }
 
-impl<H, T: DbOps> ReadOnlyChainStore<H> for RocksDBStore<T>
+impl<H, T> BaseReadChainStore<H> for RocksDBStore<T>
 where
     H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>,
+    T: DbOps + Send + Sync,
 {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
@@ -456,11 +481,26 @@ impl DiagnosticChainStore for RocksDBStore<DB> {
 }
 
 use std::fmt::Debug;
-impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
-    fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_> {
+
+impl<H> ReadChainStore<H> for RocksDBStore<OptimisticTransactionDB>
+where
+    H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>,
+{
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
         Box::new(RocksDBStore { basedir: self.basedir.clone(), db: self.db.snapshot() })
     }
+}
 
+impl<H> ReadChainStore<H> for RocksDBStore<DB>
+where
+    H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>,
+{
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+        Box::new(RocksDBStore { basedir: self.basedir.clone(), db: self.db.snapshot() })
+    }
+}
+
+impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> WriteChainStore<H> for RocksDBStore {
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let _span = trace_span!(
             amaru_observability::amaru::stores::consensus::STORE_HEADER,
@@ -614,9 +654,9 @@ pub mod test {
         utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
-        ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
-        MissingBlocksResult, NextBestChainHeader, ReadOnlyChainStore, SampleAncestorPointsResult,
-        in_memory_consensus_store::InMemConsensusStore,
+        BaseReadChainStore, ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult,
+        MissingBlocks, MissingBlocksResult, NextBestChainHeader, SampleAncestorPointsResult,
+        in_memory_chain_store::InMemoryChainStore,
     };
     use rocksdb::Direction;
 
@@ -1707,7 +1747,7 @@ pub mod test {
 
         let db = RocksDBStore::open(&config).expect("DB should successfully be opened as it's been migrated");
         assert_eq!((1, 3), result);
-        let header: Option<HeaderHash> = <RocksDBStore as ReadOnlyChainStore<BlockHeader>>::load_from_best_chain(
+        let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore<BlockHeader>>::load_from_best_chain(
             &db,
             &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
         );
@@ -1812,6 +1852,9 @@ pub mod test {
         }
     }
 
+    /// h0 -> h1 -> h2 -> h3
+    ///          -> h2a -> h3a
+    ///
     fn make_forked_headers() -> ForkedHeaders {
         let h0 = BlockHeader::from(make_header(1, 1, None));
         let h1 = BlockHeader::from(make_header(2, 2, Some(h0.hash())));
@@ -1876,7 +1919,7 @@ pub mod test {
 
     fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
         // try first with in-memory store
-        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
+        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::new());
         f(in_memory_store);
 
         // then with rocksdb store
@@ -1887,9 +1930,9 @@ pub mod test {
 
     fn with_read_db(
         setup: impl Fn(Arc<dyn ChainStore<BlockHeader>>),
-        assert: impl Fn(Arc<dyn ChainStore<BlockHeader>>, &dyn ReadOnlyChainStore<BlockHeader>),
+        assert: impl Fn(Arc<dyn ChainStore<BlockHeader>>, &dyn BaseReadChainStore<BlockHeader>),
     ) {
-        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
+        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::new());
         // Initialize the store and take a snapshot
         setup(in_memory_store.clone());
         let snapshot = in_memory_store.snapshot();

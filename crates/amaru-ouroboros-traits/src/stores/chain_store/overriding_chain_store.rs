@@ -17,7 +17,18 @@ use std::sync::Arc;
 use amaru_kernel::{HeaderHash, IsHeader, Point, RawBlock};
 use parking_lot::Mutex;
 
-use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use crate::{BaseReadChainStore, ChainStore, Nonces, ReadChainStore, StoreError, WriteChainStore};
+
+/// A chain store that wraps a `dyn ChainStore<H>` and allows overriding any method
+/// with a supplied function. When an override is installed, it receives a reference
+/// to the underlying store, all method arguments, and computes the return value.
+/// Non-overridden methods delegate to the underlying store.
+///
+/// Overrides use `FnMut` and are stored in a `parking_lot::Mutex` to allow mutation.
+pub struct OverridingChainStore<H> {
+    inner: Arc<dyn ChainStore<H>>,
+    overrides: Mutex<Overrides<H>>,
+}
 
 /// Optional method overrides for [`OverridingChainStore`].
 /// Each override receives a reference to the underlying store and the method arguments.
@@ -72,20 +83,9 @@ impl<H> Default for Overrides<H> {
     }
 }
 
-/// A chain store that wraps a `dyn ChainStore<H>` and allows overriding any method
-/// with a supplied function. When an override is installed, it receives a reference
-/// to the underlying store, all method arguments, and computes the return value.
-/// Non-overridden methods delegate to the underlying store.
-///
-/// Overrides use `FnMut` and are stored in a `parking_lot::Mutex` to allow mutation.
-pub struct OverridingChainStore<H> {
-    inner: Arc<dyn ChainStore<H>>,
-    overrides: Mutex<Overrides<H>>,
-}
-
 struct OverridingChainStoreSnapshot<'a, H> {
     parent: &'a OverridingChainStore<H>,
-    inner: Box<dyn ReadOnlyChainStore<H> + 'a>,
+    inner: Box<dyn BaseReadChainStore<H> + 'a>,
 }
 
 impl<H: IsHeader + Send + Sync + 'static> OverridingChainStore<H> {
@@ -259,7 +259,7 @@ impl<H: IsHeader + Send + Sync + 'static> OverridingChainStoreBuilder<H> {
     }
 }
 
-impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingChainStore<H> {
+impl<H: IsHeader + Send + Sync + 'static> BaseReadChainStore<H> for OverridingChainStore<H> {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.load_header {
@@ -349,7 +349,13 @@ impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingCh
     }
 }
 
-impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingChainStoreSnapshot<'_, H> {
+impl<H: IsHeader + Send + Sync + 'static> ReadChainStore<H> for OverridingChainStore<H> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+        Box::new(OverridingChainStoreSnapshot { parent: self, inner: self.inner.snapshot() })
+    }
+}
+
+impl<H: IsHeader + Send + Sync + 'static> BaseReadChainStore<H> for OverridingChainStoreSnapshot<'_, H> {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         let mut overrides = self.parent.overrides.lock();
         match &mut overrides.load_header {
@@ -439,11 +445,7 @@ impl<H: IsHeader + Send + Sync + 'static> ReadOnlyChainStore<H> for OverridingCh
     }
 }
 
-impl<H: IsHeader + Send + Sync + 'static> ChainStore<H> for OverridingChainStore<H> {
-    fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_> {
-        Box::new(OverridingChainStoreSnapshot { parent: self, inner: self.inner.snapshot() })
-    }
-
+impl<H: IsHeader + Send + Sync + 'static> WriteChainStore<H> for OverridingChainStore<H> {
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.store_header {
@@ -516,11 +518,11 @@ mod tests {
     use amaru_kernel::{BlockHeader, IsHeader, make_header};
 
     use super::*;
-    use crate::{FindAncestorOnBestChainResult, in_memory_consensus_store::InMemConsensusStore};
+    use crate::{FindAncestorOnBestChainResult, in_memory_chain_store::InMemoryChainStore};
 
     #[test]
     fn snapshot_respects_read_overrides_used_by_default_helpers() {
-        let inner: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemConsensusStore::new());
+        let inner: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::new());
         let chain = append_best_chain(inner.as_ref(), 3);
         let hidden_point = chain[1].point();
         let hidden_hash = chain[1].hash();

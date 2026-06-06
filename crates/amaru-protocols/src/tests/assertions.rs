@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{Transaction, utils::string::ListToString};
-use amaru_ouroboros_traits::{ResourceMempool, get_blocks};
+use amaru_ouroboros_traits::{ResourceMempool, test_utils::get_blocks};
 use pure_stage::tokio::TokioRunning;
 use tokio::sync::Notify;
 

@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
-use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
     LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, SetBlockValidEffect,
@@ -142,7 +142,7 @@ pub fn test_prep() -> TestPrep {
         rt: Builder::new_current_thread().build().unwrap(),
         downstream,
         headers: HeaderTree::new(),
-        store: Arc::new(InMemConsensusStore::new()),
+        store: Arc::new(InMemoryChainStore::new()),
     }
 }
 

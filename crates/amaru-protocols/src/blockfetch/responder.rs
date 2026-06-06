@@ -291,7 +291,7 @@ pub mod tests {
         cardano::network_block::{NetworkBlock, make_encoded_block},
         utils::tests::run_strategy,
     };
-    use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+    use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use pure_stage::simulation::simulation_builder::run_test;
 
     use super::*;
@@ -377,7 +377,7 @@ pub mod tests {
     #[test]
     fn test_request_range_missing_header_in_chain() {
         let headers: Vec<BlockHeader> = run_strategy(any_headers_chain(5));
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
 
         // Set anchor to the first header
         store.set_anchor_hash(&headers[0].hash()).unwrap();
@@ -484,16 +484,16 @@ pub mod tests {
 
     // HELPERS
 
-    fn make_store_with_chain(n: usize) -> (Arc<InMemConsensusStore<BlockHeader>>, Vec<BlockHeader>) {
+    fn make_store_with_chain(n: usize) -> (Arc<InMemoryChainStore<BlockHeader>>, Vec<BlockHeader>) {
         make_store_with_chain_starting_from(n, Point::Origin)
     }
 
     fn make_store_with_chain_starting_from(
         n: usize,
         point: Point,
-    ) -> (Arc<InMemConsensusStore<BlockHeader>>, Vec<BlockHeader>) {
+    ) -> (Arc<InMemoryChainStore<BlockHeader>>, Vec<BlockHeader>) {
         let headers: Vec<BlockHeader> = run_strategy(any_headers_chain_with_root(n, point));
-        let store = Arc::new(InMemConsensusStore::new());
+        let store = Arc::new(InMemoryChainStore::new());
         // Set anchor to the first header
         store.set_anchor_hash(&headers[0].hash()).unwrap();
         for h in &headers {
@@ -503,7 +503,7 @@ pub mod tests {
         (store, headers)
     }
 
-    fn store_blocks(store: Arc<InMemConsensusStore<BlockHeader>>, headers: &[BlockHeader]) {
+    fn store_blocks(store: Arc<InMemoryChainStore<BlockHeader>>, headers: &[BlockHeader]) {
         for h in headers {
             let raw_block = make_encoded_block(h, &TESTNET_ERA_HISTORY);
             store.store_block(&h.hash(), &raw_block).unwrap();
@@ -511,7 +511,7 @@ pub mod tests {
     }
 
     /// Invoke the PointsRange::request_range method via a stage
-    fn request_range(store: Arc<InMemConsensusStore<BlockHeader>>, from: Point, through: Point) -> Option<PointsRange> {
+    fn request_range(store: Arc<InMemoryChainStore<BlockHeader>>, from: Point, through: Point) -> Option<PointsRange> {
         match run_points_range_test(store, PointsRangeTestMsg::RequestRange { from, through }) {
             PointsRangeTestResult::RequestRange(result) => result,
             PointsRangeTestResult::NextBlock(_) => unreachable!(),
@@ -519,7 +519,7 @@ pub mod tests {
     }
 
     /// Invoke the PointsRange::next_block method via a stage
-    fn next_block(store: Arc<InMemConsensusStore<BlockHeader>>, range: PointsRange) -> (RawBlock, Option<PointsRange>) {
+    fn next_block(store: Arc<InMemoryChainStore<BlockHeader>>, range: PointsRange) -> (RawBlock, Option<PointsRange>) {
         match run_points_range_test(store, PointsRangeTestMsg::NextBlock { range }) {
             PointsRangeTestResult::NextBlock(result) => result,
             PointsRangeTestResult::RequestRange(_) => unreachable!(),
@@ -528,7 +528,7 @@ pub mod tests {
 
     /// Invoke the PointsRange methods via a stage
     fn run_points_range_test(
-        store: Arc<InMemConsensusStore<BlockHeader>>,
+        store: Arc<InMemoryChainStore<BlockHeader>>,
         msg: PointsRangeTestMsg,
     ) -> PointsRangeTestResult {
         run_test(

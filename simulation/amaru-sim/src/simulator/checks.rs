@@ -15,7 +15,7 @@
 use amaru::tests::nodes::Nodes;
 use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use amaru_kernel::utils::string::{ListToString, ListsToString};
-use amaru_ouroboros::get_best_chain_block_headers;
+use amaru_ouroboros::test_utils::get_best_chain_block_headers;
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use anyhow::anyhow;
 

@@ -17,7 +17,7 @@ use std::{error::Error, fmt::Display, path::PathBuf};
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
-use amaru_ouroboros::{ChildTipsMode, DiagnosticChainStore, ReadOnlyChainStore};
+use amaru_ouroboros::{ChildTipsMode, DiagnosticChainStore, ReadChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use tracing::info;
@@ -121,7 +121,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
 #[expect(clippy::print_stdout)]
 #[expect(clippy::unwrap_used)]
-pub fn print_best_chain(db: &impl ReadOnlyChainStore<BlockHeader>) {
+pub fn print_best_chain(db: &impl ReadChainStore<BlockHeader>) {
     println!();
     let best_chain = db.retrieve_best_chain();
     println!("The best chain is:\n  {}", best_chain.list_to_string("\n  "));
@@ -147,7 +147,7 @@ pub fn print_iterator<K: Display, V: Display>(title: &str, iterator: impl Iterat
 }
 
 #[expect(clippy::print_stdout)]
-pub fn print_ancestors(db: &impl ReadOnlyChainStore<BlockHeader>, hash: HeaderHash) {
+pub fn print_ancestors(db: &impl ReadChainStore<BlockHeader>, hash: HeaderHash) {
     println!();
     let ancestors = db.ancestors_with_validity(hash);
     println!("The ancestors of {} are:", hash);
@@ -171,7 +171,7 @@ fn valid_str(valid: Option<bool>) -> &'static str {
 
 #[expect(clippy::print_stdout)]
 #[expect(clippy::unwrap_used)]
-pub fn print_children(db: &impl ReadOnlyChainStore<BlockHeader>, hash: HeaderHash) {
+pub fn print_children(db: &impl ReadChainStore<BlockHeader>, hash: HeaderHash) {
     for child in db.child_tips(&hash, ChildTipsMode::All) {
         let (_header, valid) = db.load_header_with_validity(&child.hash()).unwrap();
         println!("{} {}", child.point(), valid_str(valid))

@@ -31,7 +31,7 @@ use amaru_kernel::{
     size::HEADER,
     utils::string::{ListToString, ListsToString},
 };
-use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 use hex::FromHexError;
 use proptest::prelude::Strategy;
 use rand::{Rng, SeedableRng, prelude::SmallRng};
@@ -544,7 +544,7 @@ pub fn execute_actions(
     actions: &[Action],
     print: bool,
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
-    let store = Arc::new(InMemConsensusStore::new());
+    let store = Arc::new(InMemoryChainStore::new());
     let mut tree = HeadersTree::new(store.clone(), max_length);
     execute_actions_on_tree(store, &mut tree, actions, print)
 }

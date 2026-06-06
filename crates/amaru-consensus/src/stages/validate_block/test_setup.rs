@@ -20,7 +20,7 @@ use amaru_kernel::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, ChainStore, HasStakePools, in_memory_consensus_store::InMemConsensusStore,
+    BlockValidationError, CanValidateBlocks, HasStakePools, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, LoadBlockEffect, LoadFromBestChainEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
@@ -215,7 +215,7 @@ pub struct TestPrep {
     pub state: ValidateBlock,
     pub rt: Runtime,
     pub headers: HeaderTree,
-    pub store: Arc<InMemConsensusStore<BlockHeader>>,
+    pub store: Arc<InMemoryChainStore<BlockHeader>>,
     pub block_validator: Arc<MockBlockValidator>,
 }
 
@@ -291,7 +291,7 @@ pub fn test_prep() -> TestPrep {
         state,
         rt: Builder::new_current_thread().build().unwrap(),
         headers: HeaderTree::new(),
-        store: Arc::new(InMemConsensusStore::new()),
+        store: Arc::new(InMemoryChainStore::new()),
         block_validator,
     }
 }

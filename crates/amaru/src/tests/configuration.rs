@@ -27,7 +27,7 @@ use amaru_ledger::{
     store::{Columns, Store, TransactionalContext},
 };
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, in_memory_chain_store::InMemoryChainStore};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use anyhow::anyhow;
 use parking_lot::Mutex;
@@ -89,7 +89,7 @@ pub enum NodeType {
 impl Default for NodeTestConfig {
     fn default() -> Self {
         Self {
-            chain_store: Arc::new(InMemConsensusStore::default()),
+            chain_store: Arc::new(InMemoryChainStore::default()),
             mempool: Arc::new(InMemoryMempool::default()),
             connections: Arc::new(InMemoryConnectionProvider::default()),
             chain_length: 10,

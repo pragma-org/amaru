@@ -19,27 +19,30 @@ use std::{
 
 use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, RawBlock};
 
-use crate::{ChainStore, Nonces, ReadOnlyChainStore, StoreError};
+use crate::{
+    Nonces, StoreError,
+    stores::chain_store::{BaseReadChainStore, ReadChainStore, WriteChainStore},
+};
 
 /// An in-memory implementation of a ChainStore used by the consensus stages.
 #[derive(Clone)]
-pub struct InMemConsensusStore<H> {
-    inner: Arc<Mutex<InMemConsensusStoreInner<H>>>,
+pub struct InMemoryChainStore<H> {
+    inner: Arc<Mutex<InMemoryChainStoreInner<H>>>,
 }
 
-impl<H> Default for InMemConsensusStore<H> {
+impl<H> Default for InMemoryChainStore<H> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<H> InMemConsensusStore<H> {
-    pub fn new() -> InMemConsensusStore<H> {
-        InMemConsensusStore { inner: Arc::new(Mutex::new(InMemConsensusStoreInner::new())) }
+impl<H> InMemoryChainStore<H> {
+    pub fn new() -> InMemoryChainStore<H> {
+        InMemoryChainStore { inner: Arc::new(Mutex::new(InMemoryChainStoreInner::new())) }
     }
 }
 
-struct InMemConsensusStoreInner<H> {
+struct InMemoryChainStoreInner<H> {
     nonces: BTreeMap<HeaderHash, Nonces>,
     headers: BTreeMap<HeaderHash, H>,
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
@@ -51,15 +54,15 @@ struct InMemConsensusStoreInner<H> {
     block_validity: BTreeMap<HeaderHash, bool>,
 }
 
-impl<H> Default for InMemConsensusStoreInner<H> {
+impl<H> Default for InMemoryChainStoreInner<H> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<H> InMemConsensusStoreInner<H> {
-    fn new() -> InMemConsensusStoreInner<H> {
-        InMemConsensusStoreInner {
+impl<H> InMemoryChainStoreInner<H> {
+    fn new() -> InMemoryChainStoreInner<H> {
+        InMemoryChainStoreInner {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
             parent_child_relationship: BTreeMap::new(),
@@ -72,7 +75,7 @@ impl<H> InMemConsensusStoreInner<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMemConsensusStore<H> {
+impl<H: IsHeader + Clone + Send + Sync + 'static> BaseReadChainStore<H> for InMemoryChainStore<H> {
     #[expect(clippy::unwrap_used)]
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         let inner = self.inner.lock().unwrap();
@@ -142,9 +145,9 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMe
     }
 }
 
-impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsensusStore<H> {
+impl<H: IsHeader + Clone + Send + Sync + 'static> ReadChainStore<H> for InMemoryChainStore<H> {
     #[expect(clippy::unwrap_used)]
-    fn snapshot(&self) -> Box<dyn ReadOnlyChainStore<H> + '_> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
         let inner = self.inner.lock().unwrap();
         Box::new(InMemConsensusSnapshot {
             nonces: inner.nonces.clone(),
@@ -157,7 +160,9 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> ChainStore<H> for InMemConsens
             block_validity: inner.block_validity.clone(),
         })
     }
+}
 
+impl<H: IsHeader + Send + Sync + Clone + 'static> WriteChainStore<H> for InMemoryChainStore<H> {
     #[expect(clippy::unwrap_used)]
     fn store_header(&self, header: &H) -> Result<(), StoreError> {
         let hash = header.hash();
@@ -247,7 +252,7 @@ struct InMemConsensusSnapshot<H> {
     block_validity: BTreeMap<HeaderHash, bool>,
 }
 
-impl<H: IsHeader + Clone + Send + Sync + 'static> ReadOnlyChainStore<H> for InMemConsensusSnapshot<H> {
+impl<H: IsHeader + Clone + Send + Sync + 'static> BaseReadChainStore<H> for InMemConsensusSnapshot<H> {
     fn load_header(&self, hash: &HeaderHash) -> Option<H> {
         self.headers.get(hash).cloned()
     }

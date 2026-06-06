@@ -19,7 +19,7 @@ use amaru_kernel::{
     cardano::network_block::make_network_block, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros_traits::{ChainStore, in_memory_consensus_store::InMemConsensusStore};
+use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 
 use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
 
@@ -42,7 +42,7 @@ pub(super) struct Configuration {
 impl Configuration {
     pub(super) fn initiator() -> Self {
         let initiator = Self {
-            chain_store: Arc::new(InMemConsensusStore::default()),
+            chain_store: Arc::new(InMemoryChainStore::default()),
             chain_length: 0,
             mempool: Arc::new(InMemoryMempool::default()),
             addr: SocketAddr::from(([127, 0, 0, 1], 3000)),
@@ -55,7 +55,7 @@ impl Configuration {
 
     pub(super) fn responder() -> Self {
         let responder = Self {
-            chain_store: Arc::new(InMemConsensusStore::default()),
+            chain_store: Arc::new(InMemoryChainStore::default()),
             chain_length: 0,
             mempool: Arc::new(InMemoryMempool::default()),
             addr: SocketAddr::from(([127, 0, 0, 1], 0)),

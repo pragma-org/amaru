@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER};
 use amaru_ouroboros::ChainStore;
-use amaru_ouroboros_traits::in_memory_consensus_store::InMemConsensusStore;
+use amaru_ouroboros_traits::in_memory_chain_store::InMemoryChainStore;
 use proptest::prelude::Strategy;
 use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
 
@@ -176,12 +176,12 @@ pub fn create_headers_tree_with_store(
 
 /// Generate a random `HeadersTree` initialized with a single chain of `BlockHeader`s
 pub fn create_headers_tree(size: usize) -> HeadersTree<BlockHeader> {
-    create_headers_tree_with_store(Arc::new(InMemConsensusStore::new()), size)
+    create_headers_tree_with_store(Arc::new(InMemoryChainStore::new()), size)
 }
 
 /// Generate a `HeadersTree` with one chain and a peer at the tip.
 pub fn initialize_with_peer(size: usize, peer: &Peer) -> HeadersTree<BlockHeader> {
-    initialize_with_store_and_peer(Arc::new(InMemConsensusStore::new()), size, peer)
+    initialize_with_store_and_peer(Arc::new(InMemoryChainStore::new()), size, peer)
 }
 
 /// Generate a `HeadersTree` with one chain and a peer at the tip.
