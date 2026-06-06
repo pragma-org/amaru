@@ -645,7 +645,13 @@ impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> WriteChainStore
 
 #[cfg(test)]
 pub mod test {
-    use std::{collections::BTreeMap, fs, io, path::Path, sync::Arc};
+    use std::{
+        collections::BTreeMap,
+        fmt::{Display, Formatter},
+        fs, io,
+        path::Path,
+        sync::Arc,
+    };
 
     use amaru_kernel::{
         BlockHeader, BlockHeight, NonEmptyVec, Nonce, ORIGIN_HASH, Point, Slot, any_header_hash,
@@ -654,8 +660,8 @@ pub mod test {
         utils::tests::{random_bytes, run_strategy},
     };
     use amaru_ouroboros_traits::{
-        BaseReadChainStore, ChainStore, DiagnosticChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult,
-        MissingBlocks, MissingBlocksResult, NextBestChainHeader, SampleAncestorPointsResult,
+        BaseReadChainStore, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
+        FindCommonAncestorResult, MissingBlocks, MissingBlocksResult, NextBestChainHeader, SampleAncestorPointsResult,
         in_memory_chain_store::InMemoryChainStore,
     };
     use rocksdb::Direction;
@@ -1642,6 +1648,63 @@ pub mod test {
         );
     }
 
+    #[test]
+    fn read_snapshot_supports_child_tips_all() {
+        let headers = make_forked_headers();
+        let block = RawBlock::from(&*vec![1; 64]);
+
+        with_read_db(
+            {
+                let block = block.clone();
+                let headers = headers.clone();
+                move |store| {
+                    for h in headers.all() {
+                        store.store_header(h).unwrap();
+                        store.store_block(&h.hash(), &block).unwrap();
+                    }
+                }
+            },
+            {
+                move |store, _snapshot| {
+                    assert_eq!(
+                        store.child_tips(&headers.h0.hash(), ChildTipsMode::All),
+                        vec![headers.h3.tip(), headers.h3a.tip()],
+                        "\nheaders\n{headers}"
+                    );
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn read_snapshot_supports_child_tips_skip_invalid() {
+        let headers = make_forked_headers();
+        let block = RawBlock::from(&*vec![1; 64]);
+
+        with_read_db(
+            {
+                let block = block.clone();
+                let headers = headers.clone();
+                move |store| {
+                    for h in headers.all() {
+                        store.store_header(h).unwrap();
+                        store.store_block(&h.hash(), &block).unwrap();
+                        store.set_block_valid(&h.hash(), h.hash() != headers.h2.hash()).unwrap();
+                    }
+                }
+            },
+            {
+                move |store, _snapshot| {
+                    assert_eq!(
+                        store.child_tips(&headers.h0.hash(), ChildTipsMode::SkipInvalid),
+                        vec![headers.h3a.tip()],
+                        "\nheaders\n{headers}"
+                    );
+                }
+            },
+        );
+    }
+
     // MIGRATIONS
 
     #[test]
@@ -1840,6 +1903,18 @@ pub mod test {
         h3: BlockHeader,
         h2a: BlockHeader,
         h3a: BlockHeader,
+    }
+
+    impl Display for ForkedHeaders {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "h0 {}.{:.6}", self.h0.slot(), self.h0.hash().to_string())?;
+            write!(f, " -> h1: {}.{:.6}", self.h1.slot(), self.h1.hash().to_string())?;
+            write!(f, " -> h2:  {}.{:.6}", self.h2.slot(), self.h2.hash().to_string())?;
+            writeln!(f, "  -> h3:  {}.{:.6}", self.h3.slot(), self.h3.hash().to_string())?;
+            write!(f, "                            -> h2a: {}.{:.6}", self.h2a.slot(), self.h2a.hash().to_string())?;
+            write!(f, " -> h3a: {}.{:.6}", self.h3a.slot(), self.h3a.hash().to_string())?;
+            Ok(())
+        }
     }
 
     impl ForkedHeaders {

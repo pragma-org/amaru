@@ -74,7 +74,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let rocks_db = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
     let chain_store: &dyn ChainStore<BlockHeader> = &rocks_db;
 
-    let points = chain_store.child_tips(&from_point.hash(), ChildTipsMode::All).collect::<Vec<_>>();
+    let points = chain_store.child_tips(&from_point.hash(), ChildTipsMode::All);
     tracing::info!(points = %points.len(), "points to remove");
 
     let best_chain_hash = chain_store.get_best_chain_hash();

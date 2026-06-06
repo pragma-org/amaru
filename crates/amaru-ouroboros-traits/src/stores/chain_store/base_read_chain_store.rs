@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::iter::{from_fn, successors};
+use std::iter::successors;
 
 use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Tip};
 
-use crate::{ChildTipsMode, Nonces, StoreError};
+use crate::{Nonces, StoreError};
 
 /// Low-level chain store reads. It is used by the [`ReadChainStore`] trait which most code should
 /// depend on.
@@ -134,29 +134,6 @@ where
         }
     }
 
-    fn child_tips<'a>(&'a self, hash: &HeaderHash, mode: ChildTipsMode) -> Box<dyn Iterator<Item = Tip> + 'a>
-    where
-        H: 'a,
-    {
-        // FIXME operate on a snapshot
-        let mut to_visit = if hash == &ORIGIN_HASH { self.get_children(hash) } else { vec![*hash] };
-        Box::new(from_fn(move || {
-            loop {
-                let hash = to_visit.pop()?;
-                tracing::debug!(hash = %hash, "visiting child");
-                #[expect(clippy::panic)]
-                let Some((header, validity)) = self.load_header_with_validity(&hash) else {
-                    panic!("child header not found: {}", hash);
-                };
-                if mode == ChildTipsMode::SkipInvalid && validity == Some(false) {
-                    continue;
-                }
-                let children = self.get_children(&hash);
-                to_visit.extend(children);
-                return Some(header.tip());
-            }
-        }))
-    }
 }
 
 impl<H: IsHeader> BaseReadChainStore<H> for Box<dyn BaseReadChainStore<H> + '_> {

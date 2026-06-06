@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Reverse, iter::successors};
+use std::{cmp::Reverse, collections::VecDeque, iter::successors};
 
-use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock};
+use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 
 use crate::{
-    BaseReadChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks, MissingBlocksResult,
+    BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
+    MissingBlocksResult,
     MissingBlocksResult::{BoundaryNotFound, Found, StartHeaderNotFound},
     NextBestChainHeader, Nonces, SampleAncestorPointsResult, StoreError,
 };
@@ -279,6 +280,45 @@ where
             }
         }
         Ok(BoundaryNotFound)
+    }
+
+    /// Return the tips of a tree of headers starting from a root hash.
+    /// All the branches of the tree are explored if mode == ChildTipsMode::All,
+    /// otherwise only branches having non-invalid blocks are explored if mode == ChildTipsMode::SkipInvalid
+    ///
+    /// For example:
+    ///
+    /// O--A(ok)--B(ok)--C(ok)--D
+    ///       \
+    ///        E(ok)--F(ko)--G
+    ///
+    /// child_tips(A, ChildTipsMode::All) returns D and G.
+    /// child_tips(A, ChildTipsMode::SkipInvalid) returns D only.
+    ///
+    fn child_tips(&self, hash: &HeaderHash, mode: ChildTipsMode) -> Vec<Tip> {
+        let snapshot = self.snapshot();
+        let mut result = vec![];
+        let mut to_visit: VecDeque<HeaderHash> =
+            if hash == &ORIGIN_HASH { snapshot.get_children(hash).into() } else { vec![*hash].into() };
+        loop {
+            if let Some(hash) = to_visit.pop_front() {
+                #[expect(clippy::panic)]
+                let Some((header, validity)) = snapshot.load_header_with_validity(&hash) else {
+                    panic!("child header not found: {}", hash);
+                };
+                if mode == ChildTipsMode::SkipInvalid && validity == Some(false) {
+                    continue;
+                }
+                let children = snapshot.get_children(&hash);
+                if children.is_empty() {
+                    result.push(header.tip());
+                } else {
+                    to_visit.extend(children);
+                }
+            } else {
+                return result;
+            }
+        }
     }
 }
 
