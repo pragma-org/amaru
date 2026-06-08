@@ -35,8 +35,8 @@ fn main() {
         HeadersTree,
         data_generation::{execute_actions_on_tree, generate_random_walks, generate_tree_of_headers},
     };
-    use amaru_kernel::{BlockHeader, IsHeader, Peer};
-    use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
+    use amaru_kernel::{IsHeader, Peer};
+    use amaru_ouroboros_traits::{FullChainStore, in_memory_chain_store::InMemoryChainStore};
     use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
     use pprof::{ProfilerGuardBuilder, flamegraph::Options};
 
@@ -67,11 +67,11 @@ fn main() {
     assert!(actions.len() > 5000);
 
     // Initialize an empty HeadersTree and execute the actions on it while measuring the time taken.
-    let store = if in_memory {
+    let store: Arc<dyn FullChainStore> = if in_memory {
         Arc::new(InMemoryChainStore::new())
     } else {
         let tempdir = tempfile::tempdir().unwrap();
-        let store: Arc<dyn ChainStore<BlockHeader>> =
+        let store: Arc<dyn FullChainStore> =
             Arc::new(RocksDBStore::create(RocksDbConfig::new(tempdir.path().to_path_buf())).unwrap());
         store
     };

@@ -64,7 +64,6 @@ amaru-stores.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 pprof = { version = "0.15", features = ["flamegraph"], optional = true }
-amaru-stores.workspace = true
 
 [[bench]]
 name = "headers_tree"

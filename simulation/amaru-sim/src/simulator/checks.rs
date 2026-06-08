@@ -35,7 +35,7 @@ pub fn check_chain_property(nodes: Nodes, actions: &GeneratedActions) -> TestRes
             let store = node
                 .resources()
                 .get::<Arc<dyn DiagnosticChainStore>>()
-                .expect("A ResourceHeaderStore must be available")
+                .expect("A DiagnosticChainStore must be available")
                 .clone();
             let actual = store.get_best_chain_block_headers();
             tracing::info!(node_id = %node.node_id(), blocks_nb = %actual.len(), "retrieved the best downstream block headers");

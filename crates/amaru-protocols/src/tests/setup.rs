@@ -25,9 +25,9 @@ use std::{
 use amaru_kernel::{BlockHeader, NonEmptyBytes, Peer, Transaction};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ChainStore, ConnectionId, ConnectionProvider,
-    ConnectionsResource, HasStakePools, Mempool, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs,
-    ResourceMempool, ToSocketAddrs,
+    CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource,
+    DiagnosticChainStore, HasStakePools, Mempool, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs,
+    ResourceMempool, ToSocketAddrs, in_memory_chain_store::InMemoryChainStore,
 };
 use pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -59,7 +59,7 @@ pub(super) type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 /// Add resources for each role.
 /// In particular set up an in-memory chain store with different chain lengths for the initiator and responder.
 pub(super) fn set_resources(
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    chain_store: Arc<InMemoryChainStore<BlockHeader>>,
     mempool: Arc<dyn Mempool<Transaction>>,
     network: &mut TokioBuilder,
     connections: TokioConnections,
@@ -69,13 +69,14 @@ pub(super) fn set_resources(
 
 /// Add resources for each role with a custom connection provider.
 pub(super) fn set_resources_with_connections(
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    chain_store: Arc<InMemoryChainStore<BlockHeader>>,
     mempool: Arc<dyn Mempool<Transaction>>,
     network: &mut TokioBuilder,
     connections: ConnectionsResource,
 ) -> anyhow::Result<()> {
-    network.resources().put::<ResourceHeaderStore>(chain_store);
     let block_validation = Arc::new(MockCanValidateBlocks);
+    network.resources().put::<Arc<dyn DiagnosticChainStore>>(chain_store.clone());
+    network.resources().put::<ResourceHeaderStore>(chain_store);
     network.resources().put::<ResourceBlockValidation>(block_validation.clone());
     network.resources().put::<ResourceHasStakePools>(block_validation);
     network.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));

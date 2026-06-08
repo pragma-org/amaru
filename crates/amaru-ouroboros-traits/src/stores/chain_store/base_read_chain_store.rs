@@ -16,7 +16,7 @@ use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Tip};
 
 use crate::{Nonces, StoreError};
 
-/// Low-level chain store reads. It is used by the [`ReadChainStore`] trait which most code should
+/// Low-level chain store reads. It is used by the `ReadChainStore` trait which most code should
 /// depend on.
 pub trait BaseReadChainStore<H>: Send + Sync
 where

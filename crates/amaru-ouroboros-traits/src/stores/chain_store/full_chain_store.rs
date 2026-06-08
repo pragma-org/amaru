@@ -12,26 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod in_memory_chain_store;
-pub use in_memory_chain_store::*;
+use amaru_kernel::BlockHeader;
 
-mod base_read_chain_store;
-pub use base_read_chain_store::*;
+use crate::{ChainStore, DiagnosticChainStore, in_memory_chain_store::InMemoryChainStore};
 
-mod read_chain_store;
-pub use read_chain_store::*;
+/// ChainStore with all capabilities for reading / writing and running diagnostics
+pub trait FullChainStore: ChainStore<BlockHeader> + DiagnosticChainStore {}
 
-mod write_chain_store;
-pub use write_chain_store::*;
-
-mod types;
-pub use types::*;
-
-mod diagnostic_chain_store;
-pub use diagnostic_chain_store::*;
-
-mod full_chain_store;
-pub use full_chain_store::*;
-
-#[cfg(feature = "test-utils")]
-pub mod overriding_chain_store;
+impl FullChainStore for InMemoryChainStore<BlockHeader> {}

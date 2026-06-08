@@ -19,7 +19,7 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
-use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, InMemoryChainStore, WriteChainStore};
+use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, FullChainStore};
 use itertools::Itertools;
 
 use crate::{
@@ -119,7 +119,7 @@ pub struct HeadersTree {
     /// Transient state of the headers tree with peers and max length
     tree_state: HeadersTreeState,
     /// Persistent state of the headers tree within the chain store
-    chain_store: Arc<InMemoryChainStore<BlockHeader>>,
+    chain_store: Arc<dyn FullChainStore>,
 }
 
 impl HeadersTree {
@@ -233,10 +233,7 @@ impl HeadersTree {
 
     /// Create a new HeadersTree
     #[cfg(any(test, doc, feature = "test-utils"))]
-    pub(crate) fn create(
-        chain_store: Arc<InMemoryChainStore<BlockHeader>>,
-        tree_state: HeadersTreeState,
-    ) -> HeadersTree {
+    pub(crate) fn create(chain_store: Arc<dyn FullChainStore>, tree_state: HeadersTreeState) -> HeadersTree {
         HeadersTree { tree_state, chain_store }
     }
 
@@ -621,7 +618,7 @@ impl HeadersTree {
 /// Those functions are only used by tests
 impl HeadersTree {
     /// Create a new HeadersTree with a given store and maximum chain length.
-    pub fn new(store: Arc<InMemoryChainStore<BlockHeader>>, max_length: usize) -> HeadersTree {
+    pub fn new(store: Arc<dyn FullChainStore>, max_length: usize) -> HeadersTree {
         assert!(max_length >= 2, "Cannot create a headers tree with maximum chain length lower than 2");
         let mut peers = BTreeMap::new();
         peers.insert(Me, store.retrieve_best_chain());

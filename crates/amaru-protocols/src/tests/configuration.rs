@@ -30,7 +30,7 @@ use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
 ///  - They can have different timeouts and processing waits to simulate slow peers.
 #[derive(Clone)]
 pub(super) struct Configuration {
-    pub(super) chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    pub(super) chain_store: Arc<InMemoryChainStore<BlockHeader>>,
     pub(super) mempool: Arc<InMemoryMempool<Transaction>>,
     pub(super) addr: SocketAddr,
     pub(super) reconnect_delay: Duration,

@@ -21,10 +21,7 @@ use tracing::info;
 
 use crate::rocksdb::{
     RocksDbConfig,
-    consensus::{
-        store_chain_point,
-        util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, CHAIN_DB_VERSION, HEADER_PREFIX, open_db},
-    },
+    consensus::util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, CHAIN_DB_VERSION, CHAIN_PREFIX, HEADER_PREFIX, open_db},
 };
 
 /// The version key: __VERSION__
@@ -187,4 +184,10 @@ pub fn get_version(db: &OptimisticTransactionDB) -> Result<u16, StoreError> {
 pub fn set_version(db: &OptimisticTransactionDB, version: u16) -> Result<(), StoreError> {
     let bytes = version.to_be_bytes();
     db.put(VERSION_KEY, bytes).map_err(|e| StoreError::WriteError { error: e.to_string() })
+}
+
+fn store_chain_point(db: &OptimisticTransactionDB, point: &Point) -> Result<(), StoreError> {
+    let slot = u64::from(point.slot_or_default()).to_be_bytes();
+    db.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
+        .map_err(|e| StoreError::WriteError { error: e.to_string() })
 }

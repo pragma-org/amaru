@@ -18,7 +18,7 @@ use amaru_kernel::{EraHistory, NetworkMagic, NetworkName, Peer, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ConnectionsResource, in_memory_chain_store::InMemoryChainStore};
-use amaru_ouroboros_traits::ResourceMempool;
+use amaru_ouroboros_traits::{DiagnosticChainStore, ResourceMempool};
 use pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use tokio::{runtime::Handle, time::timeout};
 use tracing::info;
@@ -49,6 +49,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
 
     network.resources().put::<ConnectionsResource>(Arc::new(conn));
     network.resources().put::<ResourceHeaderStore>(Arc::new(InMemoryChainStore::new()));
+    network.resources().put::<Arc<dyn DiagnosticChainStore>>(Arc::new(InMemoryChainStore::new()));
     network.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
     let era_history: &EraHistory = NetworkName::Preprod.into();
