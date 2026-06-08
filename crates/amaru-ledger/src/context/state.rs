@@ -17,7 +17,9 @@ use std::{
     rc::Rc,
 };
 
-use amaru_kernel::{MemoizedTransactionOutput, TransactionInput};
+use amaru_kernel::{MemoizedTransactionOutput, PoolId, PoolParams, StakeCredential, TransactionInput};
+
+use crate::context::AccountState;
 
 /// A change that can be applied to a value to produce another value of the same type.
 ///
@@ -57,71 +59,82 @@ pub trait Delta {
 }
 
 #[allow(dead_code)]
-pub struct UtxoState {
-    utxos: BTreeMap<Rc<TransactionInput>, Rc<MemoizedTransactionOutput>>,
-}
-
-#[allow(dead_code)]
-pub struct UtxoDelta {
-    added: BTreeMap<Rc<TransactionInput>, Rc<MemoizedTransactionOutput>>,
-    removed: BTreeSet<Rc<TransactionInput>>,
-}
-
-#[allow(dead_code)]
 pub struct LedgerState {
-    utxo_state: UtxoState,
+    utxos: Utxos,
+    accounts: Accounts,
+    pools: Pools,
 }
 
 #[allow(dead_code)]
 pub struct LedgerDelta {
-    utxo_delta: UtxoDelta,
+    utxo_delta: MapDelta<TransactionInput, MemoizedTransactionOutput>,
+    account_delta: MapDelta<StakeCredential, AccountState>,
+    pool_delta: MapDelta<PoolId, PoolParams>,
+}
+
+#[allow(dead_code)]
+pub type Utxos = BTreeMap<Rc<TransactionInput>, Rc<MemoizedTransactionOutput>>;
+#[allow(dead_code)]
+pub type Accounts = BTreeMap<Rc<StakeCredential>, Rc<AccountState>>;
+#[allow(dead_code)]
+pub type Pools = BTreeMap<Rc<PoolId>, Rc<PoolParams>>;
+
+pub struct MapDelta<K: Ord, V> {
+    upserted: BTreeMap<Rc<K>, Rc<V>>,
+    removed: BTreeSet<Rc<K>>,
+}
+
+impl<K: Ord, V> Apply for MapDelta<K, V> {
+    type Target = BTreeMap<Rc<K>, Rc<V>>;
+
+    fn apply(self, base: &Self::Target) -> Self::Target {
+        let MapDelta { upserted, removed } = self;
+        let mut target = base.clone();
+
+        for key in &removed {
+            target.remove(key);
+        }
+
+        target.extend(upserted);
+        target
+    }
+}
+
+impl<K: Ord, V: PartialEq> Delta for BTreeMap<Rc<K>, Rc<V>> {
+    type Delta = MapDelta<K, V>;
+
+    fn delta(&self, other: &Self) -> Self::Delta {
+        let upserted = self
+            .iter()
+            .filter(|(key, value)| other.get(*key) != Some(*value))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+
+        let removed = other.keys().filter(|key| !self.contains_key(*key)).cloned().collect();
+
+        MapDelta { upserted, removed }
+    }
 }
 
 impl Apply for LedgerDelta {
     type Target = LedgerState;
 
     fn apply(self, base: &Self::Target) -> Self::Target {
-        Self::Target { utxo_state: self.utxo_delta.apply(&base.utxo_state) }
+        Self::Target {
+            utxos: self.utxo_delta.apply(&base.utxos),
+            accounts: self.account_delta.apply(&base.accounts),
+            pools: self.pool_delta.apply(&base.pools),
+        }
     }
 }
 
 impl Delta for LedgerState {
     type Delta = LedgerDelta;
     fn delta(&self, other: &Self) -> Self::Delta {
-        Self::Delta { utxo_delta: self.utxo_state.delta(&other.utxo_state) }
-    }
-}
-
-impl Apply for UtxoDelta {
-    type Target = UtxoState;
-
-    fn apply(self, base: &Self::Target) -> Self::Target {
-        let UtxoDelta { added, removed } = self;
-        Self::Target {
-            utxos: base
-                .utxos
-                .iter()
-                .filter(|(input, _)| !removed.contains(*input))
-                .map(|(input, output)| (input.clone(), output.clone()))
-                .chain(added)
-                .collect(),
+        Self::Delta {
+            utxo_delta: self.utxos.delta(&other.utxos),
+            account_delta: self.accounts.delta(&other.accounts),
+            pool_delta: self.pools.delta(&other.pools),
         }
-    }
-}
-
-impl Delta for UtxoState {
-    type Delta = UtxoDelta;
-
-    fn delta(&self, other: &Self) -> Self::Delta {
-        let added = self
-            .utxos
-            .iter()
-            .filter(|(input, _)| !other.utxos.contains_key(*input))
-            .map(|(input, output)| (input.clone(), output.clone()))
-            .collect();
-
-        let removed = other.utxos.keys().filter(|input| !self.utxos.contains_key(*input)).cloned().collect();
-
-        UtxoDelta { added, removed }
     }
 }
