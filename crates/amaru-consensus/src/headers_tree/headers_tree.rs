@@ -18,8 +18,8 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
-use amaru_ouroboros_traits::ChainStore;
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
+use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, InMemoryChainStore, WriteChainStore};
 use itertools::Itertools;
 
 use crate::{
@@ -37,27 +37,27 @@ use crate::{
 /// comprised of known blocks. It is only needed to download the blocks
 /// we don't currently store.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Fork<H: IsHeader> {
+pub struct Fork {
     pub peer: Peer,
-    pub rollback_header: H,
-    pub fork: Vec<H>,
+    pub rollback_header: BlockHeader,
+    pub fork: Vec<BlockHeader>,
 }
 
 /// The outcome of the chain selection process in  case of
 /// roll forward.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ForwardChainSelection<H: IsHeader> {
+pub enum ForwardChainSelection {
     /// The current best chain has been extended with a (single) new header.
-    NewTip { peer: Peer, tip: H },
+    NewTip { peer: Peer, tip: BlockHeader },
 
     /// The current best chain is unchanged.
     NoChange,
 
     /// The current best chain has switched to given fork.
-    SwitchToFork(Fork<H>),
+    SwitchToFork(Fork),
 }
 
-impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
+impl Display for ForwardChainSelection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ForwardChainSelection::NewTip { peer, tip } => {
@@ -77,9 +77,9 @@ impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
 
 /// The outcome of the chain selection process in case of rollback
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RollbackChainSelection<H: IsHeader> {
+pub enum RollbackChainSelection {
     /// The current best chain has switched to given fork.
-    SwitchToFork(Fork<H>),
+    SwitchToFork(Fork),
 
     /// The peer tried to rollback beyond the limit
     RollbackBeyondLimit { peer: Peer, rollback_point: HeaderHash, max_point: HeaderHash },
@@ -88,7 +88,7 @@ pub enum RollbackChainSelection<H: IsHeader> {
     NoChange,
 }
 
-impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
+impl Display for RollbackChainSelection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RollbackChainSelection::NoChange => f.write_str("NoChange"),
@@ -115,14 +115,14 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
 ///  - peers: a map of the latest tip for each peer.
 ///
 #[derive(Clone)]
-pub struct HeadersTree<H> {
+pub struct HeadersTree {
     /// Transient state of the headers tree with peers and max length
     tree_state: HeadersTreeState,
     /// Persistent state of the headers tree within the chain store
-    chain_store: Arc<dyn ChainStore<H>>,
+    chain_store: Arc<InMemoryChainStore<BlockHeader>>,
 }
 
-impl<H> HeadersTree<H> {
+impl HeadersTree {
     /// Consume the headers tree and return its transient state
     pub fn into_tree_state(self) -> HeadersTreeState {
         self.tree_state
@@ -189,28 +189,28 @@ impl Display for Tracker {
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + 'static> Debug for HeadersTree<H> {
+impl Debug for HeadersTree {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip:?}"))
     }
 }
 
-impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display for HeadersTree<H> {
+impl Display for HeadersTree {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip}"))
     }
 }
 
 /// Debugging and formatting methods.
-impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
+impl HeadersTree {
     /// Human-readable formatting of the headers tree.
-    fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&H) -> String) -> std::fmt::Result {
+    fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&BlockHeader) -> String) -> std::fmt::Result {
         let tree_display = HeadersTreeDisplay::from(self.clone());
         tree_display.format(f, header_to_string)
     }
 
     /// Return the tree representation of the headers tree.
-    pub fn to_tree(&self) -> Option<Tree<H>> {
+    pub fn to_tree(&self) -> Option<Tree<BlockHeader>> {
         let mut as_map = BTreeMap::new();
         for header in self.load_headers(&self.anchor()) {
             let _ = as_map.insert(header.hash(), header);
@@ -219,7 +219,7 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
     }
 
     /// Load all the headers in the subtree rooted at the given hash
-    fn load_headers(&self, root: &HeaderHash) -> Vec<H> {
+    fn load_headers(&self, root: &HeaderHash) -> Vec<BlockHeader> {
         let mut headers = vec![];
         if let Some(header) = self.chain_store.load_header(root) {
             headers.push(header);
@@ -230,12 +230,13 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTree<H> {
         }
         headers
     }
-}
 
-impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
     /// Create a new HeadersTree
     #[cfg(any(test, doc, feature = "test-utils"))]
-    pub(crate) fn create(chain_store: Arc<dyn ChainStore<H>>, tree_state: HeadersTreeState) -> HeadersTree<H> {
+    pub(crate) fn create(
+        chain_store: Arc<InMemoryChainStore<BlockHeader>>,
+        tree_state: HeadersTreeState,
+    ) -> HeadersTree {
         HeadersTree { tree_state, chain_store }
     }
 
@@ -262,7 +263,11 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     /// There will be errors if:
     ///   - The header's parent is unknown
     ///
-    pub fn select_roll_forward(&mut self, peer: &Peer, tip: &H) -> Result<ForwardChainSelection<H>, ConsensusError> {
+    pub fn select_roll_forward(
+        &mut self,
+        peer: &Peer,
+        tip: &BlockHeader,
+    ) -> Result<ForwardChainSelection, ConsensusError> {
         // The header must be a child of the peer's tip
         if !self.is_tip_child(peer, tip) {
             let e = ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
@@ -302,7 +307,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
         result
     }
 
-    fn extends_best_chains(&mut self, tip: &H) -> bool {
+    fn extends_best_chains(&mut self, tip: &BlockHeader) -> bool {
         self.best_peers_chains().iter().any(|h| Some(*h) == tip.parent().as_ref())
     }
 
@@ -321,7 +326,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
         &mut self,
         peer: &Peer,
         rollback_hash: &HeaderHash,
-    ) -> Result<RollbackChainSelection<H>, ConsensusError> {
+    ) -> Result<RollbackChainSelection, ConsensusError> {
         // The peer tip must be known
         if let Some(peer_tip) = self.get_peer_tip(peer).cloned() {
             // This is a no-op but possibly we need to flag the peer as adversarial
@@ -369,7 +374,7 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     }
 }
 
-impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
+impl HeadersTree {
     /// Return the length of the best chain currently known.
     pub fn best_length(&self) -> usize {
         self.tree_state.peers.values().map(|chain| chain.len()).max().unwrap_or_default()
@@ -436,11 +441,11 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// Create a fork for a given peer:
     ///  - the old tip is the tip of the previous best chain
     ///  - the new tip is the tip of the new best chain
-    fn make_fork(&self, best_peer: &Peer, old_tip: &HeaderHash, new_tip: &HeaderHash) -> Fork<H> {
+    fn make_fork(&self, best_peer: &Peer, old_tip: &HeaderHash, new_tip: &HeaderHash) -> Fork {
         let intersection_hash = self.find_intersection_hash(old_tip, new_tip);
 
         // get all the hashes between the new tip and the forking hash
-        let mut fork_fragment: Vec<H> = vec![];
+        let mut fork_fragment: Vec<BlockHeader> = vec![];
         let mut current = self.unsafe_get_header(new_tip);
         while current.hash() != intersection_hash {
             if let Some(parent) = current.parent() {
@@ -460,7 +465,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     }
 
     /// Update the peer chain with the new tip
-    fn update_peer(&mut self, peer: &Peer, tip: &H) {
+    fn update_peer(&mut self, peer: &Peer, tip: &BlockHeader) {
         let tracker = SomePeer(peer.clone());
         if let Some(chain) = self.tree_state.peers.get_mut(&tracker) {
             chain.push(tip.hash());
@@ -472,17 +477,17 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     /// Return the header for a given hash, panicking if it does not exist.
     /// This function should only with precaution, when we are sure the header exists.
     #[expect(clippy::panic)]
-    fn unsafe_get_header(&self, hash: &HeaderHash) -> H {
+    fn unsafe_get_header(&self, hash: &HeaderHash) -> BlockHeader {
         self.get_header(hash).unwrap_or_else(|| panic!("A header must exist for hash {}", hash))
     }
 
     /// Return the header for a given hash, or None if it does not exist.
-    fn get_header(&self, hash: &HeaderHash) -> Option<H> {
+    fn get_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.chain_store.load_header(hash)
     }
 
     /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes(&self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + '_> {
+    fn ancestors_hashes<'a>(&'a self, hash: &'a HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + 'a> {
         self.chain_store.ancestors_hashes(hash)
     }
 
@@ -493,7 +498,7 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
     ///  - A Header having no parent (i.e. the origin header) or a parent set to the ORIGIN_HASH.
     ///  - The ORIGIN_HASH being used as the default root hash value in the tree.
     ///
-    fn is_tip_child(&self, peer: &Peer, header: &H) -> bool {
+    fn is_tip_child(&self, peer: &Peer, header: &BlockHeader) -> bool {
         match self.get_peer_tip(peer) {
             Some(peer_hash) => {
                 if let Some(parent_hash) = header.parent() {
@@ -614,9 +619,9 @@ impl<H: IsHeader + Clone + Debug + 'static + PartialEq + Eq> HeadersTree<H> {
 
 #[cfg(any(test, doc, feature = "test-utils"))]
 /// Those functions are only used by tests
-impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'static> HeadersTree<H> {
+impl HeadersTree {
     /// Create a new HeadersTree with a given store and maximum chain length.
-    pub fn new(store: Arc<dyn ChainStore<H>>, max_length: usize) -> HeadersTree<H> {
+    pub fn new(store: Arc<InMemoryChainStore<BlockHeader>>, max_length: usize) -> HeadersTree {
         assert!(max_length >= 2, "Cannot create a headers tree with maximum chain length lower than 2");
         let mut peers = BTreeMap::new();
         peers.insert(Me, store.retrieve_best_chain());
@@ -630,13 +635,13 @@ impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq + Send + Sync + 'sta
     }
 
     /// Return the tip of the best chain that currently known as a header
-    pub fn best_chain_tip(&self) -> H {
+    pub fn best_chain_tip(&self) -> BlockHeader {
         self.unsafe_get_header(&self.best_chain())
     }
 
     /// Return the best chain fragment currently known as a list of headers.
     /// The list starts from the root.
-    pub fn best_chain_fragment(&self) -> Vec<H> {
+    pub fn best_chain_fragment(&self) -> Vec<BlockHeader> {
         let mut fragment: Vec<_> = self.chain_store.ancestors(self.unsafe_get_header(&self.best_chain())).collect();
         fragment.reverse();
         fragment
@@ -1298,7 +1303,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot create a headers tree with maximum chain length lower than 2")]
     fn cannot_initialize_tree_with_k_lower_than_2() {
-        HeadersTree::<BlockHeader>::new(Arc::new(InMemoryChainStore::new()), 1);
+        HeadersTree::new(Arc::new(InMemoryChainStore::new()), 1);
     }
 
     const DEPTH: usize = 10;
@@ -1330,12 +1335,7 @@ mod tests {
     ///  - A number of times
     ///
     /// And return the last created header
-    pub fn rollforward_from(
-        tree: &mut HeadersTree<BlockHeader>,
-        header: &BlockHeader,
-        peer: &Peer,
-        times: u32,
-    ) -> Vec<BlockHeader> {
+    pub fn rollforward_from(tree: &mut HeadersTree, header: &BlockHeader, peer: &Peer, times: u32) -> Vec<BlockHeader> {
         let mut result = vec![];
         let mut parent = header.clone();
         for _ in 0..times {

@@ -15,11 +15,11 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{Transaction, utils::string::ListToString};
-use amaru_ouroboros_traits::{ResourceMempool, test_utils::get_blocks};
+use amaru_ouroboros_traits::{DiagnosticChainStore, ResourceMempool};
 use pure_stage::tokio::TokioRunning;
 use tokio::sync::Notify;
 
-use crate::{store_effects::ResourceHeaderStore, tests::configuration::get_tx_ids};
+use crate::tests::configuration::get_tx_ids;
 
 /// Wait until both nodes signal that they are done.
 /// We timeout after a bit to avoid hanging tests. In that case the test will fail later when checking the state.
@@ -36,10 +36,10 @@ pub(super) async fn wait_for_termination(
 
 /// Verify that both nodes have the same state: same best chain, same blocks, same transactions.
 pub(super) fn check_state(initiator: TokioRunning, responder: TokioRunning) -> anyhow::Result<()> {
-    let responder_chain_store = responder.resources().get::<ResourceHeaderStore>()?.clone();
+    let responder_chain_store = responder.resources().get::<Arc<dyn DiagnosticChainStore>>()?.clone();
     let responder_mempool = responder.resources().get::<ResourceMempool<Transaction>>()?.clone();
 
-    let initiator_chain_store = initiator.resources().get::<ResourceHeaderStore>()?.clone();
+    let initiator_chain_store = initiator.resources().get::<Arc<dyn DiagnosticChainStore>>()?.clone();
     let initiator_mempool = initiator.resources().get::<ResourceMempool<Transaction>>()?.clone();
 
     // Verify that the 2 nodes have the same best chain
@@ -55,8 +55,8 @@ pub(super) fn check_state(initiator: TokioRunning, responder: TokioRunning) -> a
     let responder_block_headers = responder_chain_store.retrieve_best_chain();
     assert_eq!(initiator_block_headers, responder_block_headers);
 
-    let initiator_blocks = get_blocks(initiator_chain_store);
-    let responder_blocks = get_blocks(responder_chain_store);
+    let initiator_blocks = initiator_chain_store.get_blocks();
+    let responder_blocks = responder_chain_store.get_blocks();
 
     assert_eq!(
         initiator_blocks,

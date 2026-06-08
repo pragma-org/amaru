@@ -397,6 +397,89 @@ fn get_next_best_chain_point<T: DbOps>(db: &T, point: &Point, mut readopts: Read
     }
 }
 
+impl DiagnosticChainStore for RocksDBStore {
+    #[allow(clippy::panic)]
+    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+        Box::new(self.db.prefix_iterator(HEADER_PREFIX).filter_map(|item| match item {
+            Ok((_k, v)) => from_cbor(v.as_ref()),
+            Err(err) => panic!("error iterating over headers: {}", err),
+        }))
+    }
+
+    #[allow(clippy::panic)]
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
+        Box::new(self.db.prefix_iterator(NONCES_PREFIX).filter_map(|item| match item {
+            Ok((k, v)) => {
+                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                from_cbor(&v).map(|nonces| (hash, nonces))
+            }
+            Err(err) => panic!("error iterating over nonces: {}", err),
+        }))
+    }
+
+    #[allow(clippy::panic)]
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&BLOCK_PREFIX[..]));
+        Box::new(self.db.iterator_opt(IteratorMode::Start, opts).map(|item| match item {
+            Ok((k, v)) => {
+                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                (hash, RawBlock::from(v))
+            }
+            Err(err) => panic!("error iterating over blocks: {}", err),
+        }))
+    }
+
+    #[allow(clippy::expect_used)]
+    fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
+        let mut groups: Vec<(HeaderHash, Vec<HeaderHash>)> = Vec::new();
+        let mut current_parent: Option<HeaderHash> = None;
+        let mut current_children: Vec<HeaderHash> = Vec::new();
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(&CHILD_PREFIX[..]));
+
+        for kv in self.db.iterator_opt(IteratorMode::Start, opts) {
+            let (k, _v) = kv.expect("error iterating over children keys");
+
+            //Key layout: [CHILD_PREFIX][parent][child]
+            let parent_start = CONSENSUS_PREFIX_LEN;
+            let parent_end = parent_start + HEADER;
+            let child_start = parent_end;
+            let child_end = child_start + HEADER;
+
+            let mut parent_arr = [0u8; HEADER];
+            parent_arr.copy_from_slice(&k[parent_start..parent_end]);
+            let parent_hash = Hash::from(parent_arr);
+
+            let mut child_arr = [0u8; HEADER];
+
+            child_arr.copy_from_slice(&k[child_start..child_end]);
+            let child_hash = Hash::from(child_arr);
+
+            match &current_parent {
+                Some(p) if p == &parent_hash => {
+                    current_children.push(child_hash);
+                }
+                Some(prev_parent) => {
+                    groups.push((*prev_parent, std::mem::take(&mut current_children)));
+                    current_parent = Some(parent_hash);
+                    current_children.push(child_hash);
+                }
+                None => {
+                    current_parent = Some(parent_hash);
+                    current_children.push(child_hash);
+                }
+            }
+        }
+
+        if let Some(p) = current_parent {
+            groups.push((p, current_children));
+        }
+
+        Box::new(groups.into_iter())
+    }
+}
+
 impl DiagnosticChainStore for RocksDBStore<DB> {
     #[allow(clippy::panic)]
     fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
@@ -669,6 +752,11 @@ pub mod test {
     use super::*;
     use crate::rocksdb::consensus::{migration::migrate_db_path, util::CHAIN_DB_VERSION};
 
+    trait TestChainStore: ChainStore<BlockHeader> + DiagnosticChainStore {}
+
+    impl TestChainStore for InMemoryChainStore<BlockHeader> {}
+    impl TestChainStore for RocksDBStore {}
+
     #[test]
     fn both_rw_and_ro_can_be_open_on_same_dir() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -886,7 +974,7 @@ pub mod test {
     }
 
     #[test]
-    fn retrieve_best_chain() {
+    fn test_retrieve_best_chain() {
         with_db(|db| {
             // create a chain and store it as the best chain
             // with its anchor and tip.
@@ -1394,15 +1482,15 @@ pub mod test {
             },
             |store, snapshot| {
                 let best_chain_hash = snapshot.get_best_chain_hash();
-                let best_chain = snapshot.retrieve_best_chain();
+                let best_chain = store.retrieve_best_chain();
                 let tip = snapshot.load_header(&best_chain_hash).expect("tip should exist in snapshot");
                 let next_slot = u64::from(tip.slot()) + 1;
                 let new_tip = BlockHeader::from(make_header(next_slot, next_slot, Some(tip.hash())));
 
                 store.store_header(&new_tip).expect("should store header successfully");
                 store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
+                assert_eq!(store.retrieve_best_chain(), best_chain);
                 assert_eq!(snapshot.get_best_chain_hash(), best_chain_hash);
-                assert_eq!(snapshot.retrieve_best_chain(), best_chain);
                 assert_eq!(snapshot.load_from_best_chain(&new_tip.point()), None);
                 assert!(snapshot.next_best_chain(&tip.point()).is_none());
             },
@@ -1476,10 +1564,10 @@ pub mod test {
             },
             {
                 let chain = chain.clone();
-                move |_store, snapshot| {
+                move |store, snapshot| {
                     let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
 
-                    assert_eq!(snapshot.retrieve_best_chain(), chain.iter().map(BlockHeader::hash).collect::<Vec<_>>());
+                    assert_eq!(store.retrieve_best_chain(), chain.iter().map(BlockHeader::hash).collect::<Vec<_>>());
                     assert_eq!(snapshot.load_from_best_chain(&chain[0].point()), Some(chain[0].hash()));
                     assert_eq!(snapshot.load_from_best_chain(&invalid_point), None);
                     assert_eq!(snapshot.next_best_chain(&Point::Origin), Some(chain[0].point()));
@@ -1973,41 +2061,41 @@ pub mod test {
         chain
     }
 
-    pub fn initialise_test_rw_store(path: &std::path::Path) -> RocksDBStore {
+    pub fn initialise_test_rw_store(path: &Path) -> RocksDBStore {
         let basedir = init_dir(path);
         let config = RocksDbConfig::new(basedir);
 
         RocksDBStore::create(config).expect("fail to initialise RocksDB")
     }
 
-    pub fn initialise_test_ro_store(path: &std::path::Path) -> Result<RocksDBStore<DB>, StoreError> {
+    pub fn initialise_test_ro_store(path: &Path) -> Result<RocksDBStore<DB>, StoreError> {
         let basedir = init_dir(path);
         RocksDBStore::open_for_readonly(&RocksDbConfig::new(basedir))
     }
 
-    fn init_dir(path: &std::path::Path) -> PathBuf {
+    fn init_dir(path: &Path) -> PathBuf {
         let basedir = path.join("rocksdb_chain_store");
         use std::fs::create_dir_all;
         create_dir_all(&basedir).expect("fail to create test dir");
         basedir
     }
 
-    fn with_db(f: impl Fn(Arc<dyn ChainStore<BlockHeader>>)) {
+    fn with_db(f: impl Fn(Arc<dyn TestChainStore>)) {
         // try first with in-memory store
-        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::new());
+        let in_memory_store: Arc<dyn TestChainStore> = Arc::new(InMemoryChainStore::new());
         f(in_memory_store);
 
         // then with rocksdb store
         let tempdir = tempfile::tempdir().unwrap();
-        let rw_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(initialise_test_rw_store(tempdir.path()));
+        let rw_store: Arc<dyn TestChainStore> = Arc::new(initialise_test_rw_store(tempdir.path()));
         f(rw_store);
     }
 
     fn with_read_db(
         setup: impl Fn(Arc<dyn ChainStore<BlockHeader>>),
-        assert: impl Fn(Arc<dyn ChainStore<BlockHeader>>, &dyn BaseReadChainStore<BlockHeader>),
+        assert: impl Fn(Arc<dyn TestChainStore>, &dyn BaseReadChainStore<BlockHeader>),
     ) {
-        let in_memory_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(InMemoryChainStore::new());
+        let in_memory_store: Arc<dyn TestChainStore> = Arc::new(InMemoryChainStore::new());
         // Initialize the store and take a snapshot
         setup(in_memory_store.clone());
         let snapshot = in_memory_store.snapshot();
@@ -2015,7 +2103,7 @@ pub mod test {
         assert(in_memory_store.clone(), snapshot.as_ref());
 
         let tempdir = tempfile::tempdir().unwrap();
-        let rw_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(initialise_test_rw_store(tempdir.path()));
+        let rw_store: Arc<dyn TestChainStore> = Arc::new(initialise_test_rw_store(tempdir.path()));
         // Initialize the store and take a snapshot
         setup(rw_store.clone());
         let snapshot = rw_store.snapshot();

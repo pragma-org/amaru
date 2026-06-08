@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use amaru::tests::nodes::Nodes;
 use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use amaru_kernel::utils::string::{ListToString, ListsToString};
-use amaru_ouroboros::test_utils::get_best_chain_block_headers;
-use amaru_protocols::store_effects::ResourceHeaderStore;
+use amaru_ouroboros::DiagnosticChainStore;
 use anyhow::anyhow;
 
 use crate::simulator::test_result::TestResult;
@@ -31,9 +32,12 @@ pub fn check_chain_property(nodes: Nodes, actions: &GeneratedActions) -> TestRes
         if node.is_downstream() {
             tracing::info!(node_id = %node.node_id(), "checking chain property for downstream node");
 
-            let store =
-                node.resources().get::<ResourceHeaderStore>().expect("A ResourceHeaderStore must be available").clone();
-            let actual = get_best_chain_block_headers(store.clone());
+            let store = node
+                .resources()
+                .get::<Arc<dyn DiagnosticChainStore>>()
+                .expect("A ResourceHeaderStore must be available")
+                .clone();
+            let actual = store.get_best_chain_block_headers();
             tracing::info!(node_id = %node.node_id(), blocks_nb = %actual.len(), "retrieved the best downstream block headers");
 
             let generated_tree = actions.generated_tree();

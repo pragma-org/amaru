@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::iter::successors;
-
 use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Tip};
 
 use crate::{Nonces, StoreError};
@@ -60,80 +58,6 @@ where
         self.load_tip(&self.get_best_chain_hash())
             .expect("best chain tip not found. There should always be a best chain tip")
     }
-
-    /// Return the hashes of the best chain fragment, starting from the anchor.
-    fn retrieve_best_chain(&self) -> Vec<HeaderHash> {
-        let anchor = self.get_anchor_hash();
-        let mut best_chain = vec![];
-        let mut current_hash = self.get_best_chain_hash();
-        while let Some(header) = self.load_header(&current_hash) {
-            best_chain.push(current_hash);
-            if header.hash() != anchor
-                && let Some(parent) = header.parent()
-            {
-                current_hash = parent;
-            } else {
-                break;
-            }
-        }
-        best_chain.reverse();
-        best_chain
-    }
-
-    /// Return the ancestors of the header, including the header itself.
-    /// Stop if the followed chain reaches past the anchor.
-    fn ancestors<'a>(&'a self, start: H) -> Box<dyn Iterator<Item = H> + 'a>
-    where
-        H: 'a,
-    {
-        let anchor = self.get_anchor_hash();
-        let anchor_point = match self.load_header(&anchor) {
-            Some(header) => header.point(),
-            None => Point::Origin,
-        };
-
-        Box::new(successors(Some(start), move |h| {
-            if h.slot() <= anchor_point.slot_or_default() {
-                None
-            } else {
-                h.parent().and_then(|p| self.load_header(&p))
-            }
-        }))
-    }
-
-    fn ancestors_with_validity<'a>(&'a self, start: HeaderHash) -> Box<dyn Iterator<Item = (H, Option<bool>)> + 'a>
-    where
-        H: 'a,
-    {
-        let anchor = self.get_anchor_hash();
-        let anchor_point = match self.load_header(&anchor) {
-            Some(header) => header.point(),
-            None => Point::Origin,
-        };
-
-        let header_opt = self.load_header_with_validity(&start);
-
-        Box::new(successors(header_opt, move |(h, _valid)| {
-            if h.slot() <= anchor_point.slot_or_default() {
-                None
-            } else {
-                h.parent().and_then(|p| self.load_header_with_validity(&p))
-            }
-        }))
-    }
-
-    /// Return the hashes of the ancestors of the header, including the header hash itself.
-    fn ancestors_hashes<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + 'a>
-    where
-        H: 'a,
-    {
-        if let Some(header) = self.load_header(hash) {
-            Box::new(self.ancestors(header).map(|h| h.hash()))
-        } else {
-            Box::new(vec![*hash].into_iter())
-        }
-    }
-
 }
 
 impl<H: IsHeader> BaseReadChainStore<H> for Box<dyn BaseReadChainStore<H> + '_> {

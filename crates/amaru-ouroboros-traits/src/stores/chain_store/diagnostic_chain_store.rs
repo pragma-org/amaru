@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, HeaderHash, RawBlock};
+use std::iter::successors;
+
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock};
 
 use crate::{Nonces, ReadChainStore};
 
-/// A chain store interface that exposes diagnostic methods to load raw data.
+/// A chain store interface that also exposes diagnostic methods to load raw data.
 /// It should not be used by the consensus stages since it might load lots of data at once.
 pub trait DiagnosticChainStore: ReadChainStore<BlockHeader> {
     /// Load all headers in the store.
@@ -29,4 +31,101 @@ pub trait DiagnosticChainStore: ReadChainStore<BlockHeader> {
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_>;
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_>;
     fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_>;
+
+    fn ancestors_with_validity<'a>(
+        &'a self,
+        start: HeaderHash,
+    ) -> Box<dyn Iterator<Item = (BlockHeader, Option<bool>)> + 'a> {
+        let anchor = self.get_anchor_hash();
+        let anchor_point = match self.load_header(&anchor) {
+            Some(header) => header.point(),
+            None => Point::Origin,
+        };
+
+        let header_opt = self.load_header_with_validity(&start);
+
+        Box::new(successors(header_opt, move |(h, _valid)| {
+            if h.slot() <= anchor_point.slot_or_default() {
+                None
+            } else {
+                h.parent().and_then(|p| self.load_header_with_validity(&p))
+            }
+        }))
+    }
+
+    /// Return the ancestors of the header, including the header itself.
+    /// Stop if the followed chain reaches past the anchor.
+    fn ancestors<'a>(&'a self, start: BlockHeader) -> Box<dyn Iterator<Item = BlockHeader> + 'a> {
+        let anchor = self.get_anchor_hash();
+        let anchor_point = match self.load_header(&anchor) {
+            Some(header) => header.point(),
+            None => Point::Origin,
+        };
+
+        Box::new(successors(Some(start), move |h| {
+            if h.slot() <= anchor_point.slot_or_default() {
+                None
+            } else {
+                h.parent().and_then(|p| self.load_header(&p))
+            }
+        }))
+    }
+
+    /// Return the hashes of the ancestors of the header, including the header hash itself.
+    fn ancestors_hashes<'a>(&'a self, hash: &HeaderHash) -> Box<dyn Iterator<Item = HeaderHash> + 'a> {
+        if let Some(header) = self.load_header(hash) {
+            Box::new(self.ancestors(header).map(|h| h.hash()))
+        } else {
+            Box::new(vec![*hash].into_iter())
+        }
+    }
+
+    /// Return the hashes of the best chain fragment, starting from the anchor.
+    fn retrieve_best_chain(&self) -> Vec<HeaderHash> {
+        let anchor = self.get_anchor_hash();
+        let mut best_chain = vec![];
+        let mut current_hash = self.get_best_chain_hash();
+        while let Some(header) = self.load_header(&current_hash) {
+            best_chain.push(current_hash);
+            if header.hash() != anchor
+                && let Some(parent) = header.parent()
+            {
+                current_hash = parent;
+            } else {
+                break;
+            }
+        }
+        best_chain.reverse();
+        best_chain
+    }
+
+    /// Retrieve all blocks from the chain store starting from the anchor to the best chain tip.
+    #[expect(clippy::expect_used)]
+    fn get_blocks(&self) -> Vec<(HeaderHash, amaru_kernel::Block)> {
+        self.retrieve_best_chain()
+            .iter()
+            .map(|h| {
+                let b = self
+                    .load_block(h)
+                    .expect("load_block should not raise an error")
+                    .expect("missing block for a header on the best chain");
+                (
+                    *h,
+                    amaru_kernel::cardano::network_block::NetworkBlock::try_from(b)
+                        .expect("failed to decode raw block")
+                        .decode_block()
+                        .expect("failed to decode block"),
+                )
+            })
+            .collect()
+    }
+
+    /// Retrieve all blocks headers from the chain store starting from anchor to the best chain tip.
+    #[expect(clippy::expect_used)]
+    fn get_best_chain_block_headers(&self) -> Vec<BlockHeader> {
+        self.retrieve_best_chain()
+            .iter()
+            .map(|h| self.load_header(h).expect("missing header for the best chain"))
+            .collect()
+    }
 }

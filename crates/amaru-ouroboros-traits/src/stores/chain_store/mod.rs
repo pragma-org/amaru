@@ -32,6 +32,3 @@ pub use diagnostic_chain_store::*;
 
 #[cfg(feature = "test-utils")]
 pub mod overriding_chain_store;
-
-#[cfg(feature = "test-utils")]
-pub mod test_utils;

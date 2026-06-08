@@ -237,8 +237,8 @@ fn deserialize_point<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resul
 /// This data type helps collecting the output of the execution of a list of actions
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SelectionResult {
-    Forward(ForwardChainSelection<BlockHeader>),
-    Back(RollbackChainSelection<BlockHeader>),
+    Forward(ForwardChainSelection),
+    Back(RollbackChainSelection),
 }
 
 impl Display for SelectionResult {
@@ -558,7 +558,7 @@ pub fn execute_actions(
 ///
 pub fn execute_actions_on_tree(
     store: Arc<dyn ChainStore<BlockHeader>>,
-    tree: &mut HeadersTree<BlockHeader>,
+    tree: &mut HeadersTree,
     actions: &[Action],
     print: bool,
 ) -> Result<Vec<SelectionResult>, ConsensusError> {
@@ -604,7 +604,7 @@ pub fn execute_actions_on_tree(
 fn print_diagnostics(
     print: bool,
     actions: &[Action],
-    diagnostics: &BTreeMap<(usize, Action), (SelectionResult, HeadersTreeDisplay<BlockHeader>)>,
+    diagnostics: &BTreeMap<(usize, Action), (SelectionResult, HeadersTreeDisplay)>,
 ) {
     if print {
         for ((action_nb, action), (result, after)) in diagnostics {

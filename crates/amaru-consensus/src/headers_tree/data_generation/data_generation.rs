@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER};
 use amaru_ouroboros::ChainStore;
-use amaru_ouroboros_traits::in_memory_chain_store::InMemoryChainStore;
+use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 use proptest::prelude::Strategy;
 use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
 
@@ -161,10 +161,7 @@ pub fn generate_single_header() -> BlockHeader {
 }
 
 /// Generate a random `HeadersTree` initialized with a single chain of `BlockHeader`s
-pub fn create_headers_tree_with_store(
-    store: Arc<dyn ChainStore<BlockHeader>>,
-    size: usize,
-) -> HeadersTree<BlockHeader> {
+pub fn create_headers_tree_with_store(store: Arc<InMemoryChainStore<BlockHeader>>, size: usize) -> HeadersTree {
     let headers = generate_headers_chain(size);
     for header in &headers {
         store.store_header(header).unwrap();
@@ -175,21 +172,21 @@ pub fn create_headers_tree_with_store(
 }
 
 /// Generate a random `HeadersTree` initialized with a single chain of `BlockHeader`s
-pub fn create_headers_tree(size: usize) -> HeadersTree<BlockHeader> {
+pub fn create_headers_tree(size: usize) -> HeadersTree {
     create_headers_tree_with_store(Arc::new(InMemoryChainStore::new()), size)
 }
 
 /// Generate a `HeadersTree` with one chain and a peer at the tip.
-pub fn initialize_with_peer(size: usize, peer: &Peer) -> HeadersTree<BlockHeader> {
+pub fn initialize_with_peer(size: usize, peer: &Peer) -> HeadersTree {
     initialize_with_store_and_peer(Arc::new(InMemoryChainStore::new()), size, peer)
 }
 
 /// Generate a `HeadersTree` with one chain and a peer at the tip.
 pub fn initialize_with_store_and_peer(
-    store: Arc<dyn ChainStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore<BlockHeader>>,
     size: usize,
     peer: &Peer,
-) -> HeadersTree<BlockHeader> {
+) -> HeadersTree {
     let mut tree = create_headers_tree_with_store(store, size);
     tree.initialize_peer(peer, &tree.best_chain_tip().hash()).unwrap();
     tree

@@ -20,9 +20,13 @@ use amaru_consensus::{
 };
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
 use amaru_ouroboros::{
-    ConnectionsResource, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs, ResourceMempool,
+    ConnectionsResource, DiagnosticChainStore, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs,
+    ResourceMempool,
 };
-use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
+use amaru_protocols::{
+    manager::ManagerMessage,
+    store_effects::{ResourceHeaderStore, Store},
+};
 use anyhow::anyhow;
 use pure_stage::{
     Effects, OrTerminateWith, StageGraph, StageRef,
@@ -184,6 +188,8 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
 /// For example this function can be used to set a different chain store for the initiator and the responder.
 fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<()> {
     let block_validation = Arc::new(MockCanValidateBlocks);
+    stage_graph.resources().put::<ResourceHeaderStore>(node_config.chain_store.clone());
+    stage_graph.resources().put::<Arc<dyn DiagnosticChainStore>>(node_config.chain_store.clone());
     stage_graph.resources().put::<ResourceBlockValidation>(block_validation.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validation);
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));

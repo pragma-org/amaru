@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Reverse, collections::VecDeque, iter::successors};
+use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
 use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 
@@ -418,6 +418,58 @@ impl<H: IsHeader> BaseReadChainStore<H> for Box<dyn ReadChainStore<H> + '_> {
 }
 
 impl<H: IsHeader> ReadChainStore<H> for Box<dyn ReadChainStore<H> + '_> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+        self.as_ref().snapshot()
+    }
+}
+
+impl<H: IsHeader, T: BaseReadChainStore<H> + ?Sized> BaseReadChainStore<H> for Arc<T> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+        self.as_ref().load_header(hash)
+    }
+
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+        self.as_ref().load_header_with_validity(hash)
+    }
+
+    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
+        self.as_ref().get_children(hash)
+    }
+
+    fn get_anchor_hash(&self) -> HeaderHash {
+        self.as_ref().get_anchor_hash()
+    }
+
+    fn get_best_chain_hash(&self) -> HeaderHash {
+        self.as_ref().get_best_chain_hash()
+    }
+
+    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+        self.as_ref().load_from_best_chain(point)
+    }
+
+    fn next_best_chain(&self, point: &Point) -> Option<Point> {
+        self.as_ref().next_best_chain(point)
+    }
+
+    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
+        self.as_ref().load_block(hash)
+    }
+
+    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
+        self.as_ref().has_block(hash)
+    }
+
+    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
+        self.as_ref().get_nonces(header)
+    }
+
+    fn has_header(&self, hash: &HeaderHash) -> bool {
+        self.as_ref().has_header(hash)
+    }
+}
+
+impl<H: IsHeader, T: ReadChainStore<H> + ?Sized> ReadChainStore<H> for Arc<T> {
     fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
         self.as_ref().snapshot()
     }

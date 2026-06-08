@@ -27,7 +27,9 @@ use amaru_ledger::{
     store::{Columns, Store, TransactionalContext},
 };
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros::{
+    BaseReadChainStore, ConnectionsResource, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use anyhow::anyhow;
 use parking_lot::Mutex;
@@ -51,7 +53,7 @@ use crate::{
 ///
 #[derive(Clone)]
 pub struct NodeTestConfig {
-    pub chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    pub chain_store: Arc<InMemoryChainStore<BlockHeader>>,
     pub mempool: Arc<InMemoryMempool<Transaction>>,
     pub connections: ConnectionsResource,
     pub chain_length: usize,
@@ -152,7 +154,7 @@ impl NodeTestConfig {
         self
     }
 
-    pub fn with_chain_store(mut self, chain_store: Arc<dyn ChainStore<BlockHeader>>) -> Self {
+    pub fn with_chain_store(mut self, chain_store: Arc<InMemoryChainStore<BlockHeader>>) -> Self {
         self.chain_store = chain_store;
         self
     }

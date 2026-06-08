@@ -17,10 +17,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, RawBlock};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, RawBlock};
 
 use crate::{
-    Nonces, StoreError,
+    DiagnosticChainStore, Nonces, StoreError,
     stores::chain_store::{BaseReadChainStore, ReadChainStore, WriteChainStore},
 };
 
@@ -308,4 +308,48 @@ fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {
             Point::Specific(slot, _) => p.slot_or_default() > *slot,
         })
         .copied()
+}
+
+impl DiagnosticChainStore for InMemoryChainStore<BlockHeader> {
+    #[expect(clippy::unwrap_used)]
+    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+        let inner = self.inner.lock().unwrap();
+        Box::new(inner.headers.values().cloned().collect::<Vec<_>>().into_iter())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
+        let inner = self.inner.lock().unwrap();
+        Box::new(inner.nonces.clone().into_iter())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+        let inner = self.inner.lock().unwrap();
+        Box::new(inner.blocks.clone().into_iter())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
+        let inner = self.inner.lock().unwrap();
+        Box::new(inner.parent_child_relationship.clone().into_iter())
+    }
+}
+
+impl<T: DiagnosticChainStore + ?Sized> DiagnosticChainStore for Arc<T> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+        self.as_ref().load_headers()
+    }
+
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
+        self.as_ref().load_nonces()
+    }
+
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+        self.as_ref().load_blocks()
+    }
+
+    fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
+        self.as_ref().load_parents_children()
+    }
 }

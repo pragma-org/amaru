@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use amaru_kernel::{Transaction, utils::string::ListToString};
-use amaru_ouroboros::{ResourceMempool, test_utils::get_blocks};
-use amaru_protocols::store_effects::ResourceHeaderStore;
+use amaru_ouroboros::{DiagnosticChainStore, ResourceMempool};
 use pure_stage::Resources;
 
 use crate::tests::configuration::get_tx_ids;
@@ -26,10 +27,10 @@ use crate::tests::configuration::get_tx_ids;
 ///  - Same transactions.
 ///
 pub fn check_state(initiator_resources: &Resources, responder_resources: &Resources) -> anyhow::Result<()> {
-    let responder_chain_store = responder_resources.get::<ResourceHeaderStore>()?.clone();
+    let responder_chain_store = responder_resources.get::<Arc<dyn DiagnosticChainStore>>()?.clone();
     let responder_mempool = responder_resources.get::<ResourceMempool<Transaction>>()?.clone();
 
-    let initiator_chain_store = initiator_resources.get::<ResourceHeaderStore>()?.clone();
+    let initiator_chain_store = initiator_resources.get::<Arc<dyn DiagnosticChainStore>>()?.clone();
     let initiator_mempool = initiator_resources.get::<ResourceMempool<Transaction>>()?.clone();
 
     // Verify that the 2 nodes have the same best chain
@@ -45,8 +46,8 @@ pub fn check_state(initiator_resources: &Resources, responder_resources: &Resour
     let responder_block_headers = responder_chain_store.retrieve_best_chain();
     assert_eq!(initiator_block_headers, responder_block_headers);
 
-    let initiator_blocks = get_blocks(initiator_chain_store);
-    let responder_blocks = get_blocks(responder_chain_store);
+    let initiator_blocks = initiator_chain_store.get_blocks();
+    let responder_blocks = responder_chain_store.get_blocks();
     assert!(!initiator_blocks.is_empty(), "the initiator should have blocks");
 
     assert_eq!(

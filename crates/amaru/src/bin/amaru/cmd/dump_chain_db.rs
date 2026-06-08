@@ -121,7 +121,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
 #[expect(clippy::print_stdout)]
 #[expect(clippy::unwrap_used)]
-pub fn print_best_chain(db: &impl ReadChainStore<BlockHeader>) {
+pub fn print_best_chain(db: &impl DiagnosticChainStore) {
     println!();
     let best_chain = db.retrieve_best_chain();
     println!("The best chain is:\n  {}", best_chain.list_to_string("\n  "));
@@ -147,7 +147,7 @@ pub fn print_iterator<K: Display, V: Display>(title: &str, iterator: impl Iterat
 }
 
 #[expect(clippy::print_stdout)]
-pub fn print_ancestors(db: &impl ReadChainStore<BlockHeader>, hash: HeaderHash) {
+pub fn print_ancestors(db: &impl DiagnosticChainStore, hash: HeaderHash) {
     println!();
     let ancestors = db.ancestors_with_validity(hash);
     println!("The ancestors of {} are:", hash);

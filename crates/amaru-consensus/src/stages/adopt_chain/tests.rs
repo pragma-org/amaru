@@ -14,6 +14,7 @@
 
 use amaru_kernel::{HeaderHash, NonEmptyVec, ORIGIN_HASH};
 use amaru_ouroboros::MempoolMsg;
+use amaru_ouroboros_traits::BaseReadChainStore;
 use pure_stage::trace_buffer::TerminationReason;
 use test_setup::{
     assert_trace, setup, te_find_ancestor_on_best_chain, te_load_header, te_terminate, te_terminated, test_prep,

@@ -14,7 +14,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::{HeaderHash, IsHeader, utils::string::ListToString};
+use amaru_kernel::{BlockHeader, HeaderHash, utils::string::ListToString};
 
 use crate::headers_tree::{HeadersTree, HeadersTreeState, tree::Tree};
 
@@ -22,8 +22,8 @@ use crate::headers_tree::{HeadersTree, HeadersTreeState, tree::Tree};
 /// It contains a snapshot of both the in memory data for the headers tree but also
 /// its state in the database: anchor and best chain.
 #[derive(Clone)]
-pub struct HeadersTreeDisplay<H> {
-    tree: Option<Tree<H>>,
+pub struct HeadersTreeDisplay {
+    tree: Option<Tree<BlockHeader>>,
     tree_state: HeadersTreeState,
     anchor: HeaderHash,
     best_chain: HeaderHash,
@@ -31,8 +31,8 @@ pub struct HeadersTreeDisplay<H> {
     best_length: usize,
 }
 
-impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> From<HeadersTree<H>> for HeadersTreeDisplay<H> {
-    fn from(value: HeadersTree<H>) -> Self {
+impl From<HeadersTree> for HeadersTreeDisplay {
+    fn from(value: HeadersTree) -> Self {
         let tree_state = value.clone().into_tree_state();
         HeadersTreeDisplay {
             tree: value.to_tree(),
@@ -45,21 +45,21 @@ impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> From<HeadersTree<H>
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + 'static> Debug for HeadersTreeDisplay<H> {
+impl Debug for HeadersTreeDisplay {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip:?}"))
     }
 }
 
-impl<H: IsHeader + Debug + Clone + Display + PartialEq + Eq + 'static> Display for HeadersTreeDisplay<H> {
+impl Display for HeadersTreeDisplay {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.format(f, |tip| format!("{tip}"))
     }
 }
 
-impl<H: IsHeader + Debug + Clone + PartialEq + Eq + 'static> HeadersTreeDisplay<H> {
+impl HeadersTreeDisplay {
     /// Common function to either format for Debug or Display
-    pub fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&H) -> String) -> std::fmt::Result {
+    pub fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&BlockHeader) -> String) -> std::fmt::Result {
         f.write_str("HeadersTree {\n")?;
         if let Some(tree) = &self.tree {
             writeln!(f, "  headers:\n    {}", &tree.pretty_print_with(header_to_string))?;
