@@ -17,7 +17,10 @@ use std::{
     rc::Rc,
 };
 
-use amaru_kernel::{MemoizedTransactionOutput, PoolId, PoolParams, StakeCredential, TransactionInput};
+use amaru_kernel::{
+    Anchor, Ballot, BallotId, ComparableProposalId, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId,
+    PoolParams, Proposal, StakeCredential, TransactionInput,
+};
 
 use crate::context::AccountState;
 
@@ -63,6 +66,10 @@ pub struct LedgerState {
     utxos: Utxos,
     accounts: Accounts,
     pools: Pools,
+    dreps: DReps,
+    proposals: Proposals,
+    votes: Votes,
+    fees: Lovelace,
 }
 
 #[allow(dead_code)]
@@ -70,14 +77,29 @@ pub struct LedgerDelta {
     utxo_delta: MapDelta<TransactionInput, MemoizedTransactionOutput>,
     account_delta: MapDelta<StakeCredential, AccountState>,
     pool_delta: MapDelta<PoolId, PoolParams>,
+    drep_delta: MapDelta<StakeCredential, DRepState>,
+    proposal_delta: MapDelta<ComparableProposalId, Proposal>,
+    vote_delta: MapDelta<BallotId, Ballot>,
+    fee_delta: Lovelace,
 }
 
+#[derive(PartialEq)]
+pub struct DRepState {
+    anchor: Anchor,
+    registration: DRepRegistration,
+}
 #[allow(dead_code)]
 pub type Utxos = BTreeMap<Rc<TransactionInput>, Rc<MemoizedTransactionOutput>>;
 #[allow(dead_code)]
 pub type Accounts = BTreeMap<Rc<StakeCredential>, Rc<AccountState>>;
 #[allow(dead_code)]
 pub type Pools = BTreeMap<Rc<PoolId>, Rc<PoolParams>>;
+#[allow(dead_code)]
+pub type DReps = BTreeMap<Rc<StakeCredential>, Rc<DRepState>>;
+#[allow(dead_code)]
+pub type Proposals = BTreeMap<Rc<ComparableProposalId>, Rc<Proposal>>;
+#[allow(dead_code)]
+pub type Votes = BTreeMap<Rc<BallotId>, Rc<Ballot>>;
 
 pub struct MapDelta<K: Ord, V> {
     upserted: BTreeMap<Rc<K>, Rc<V>>,
@@ -124,6 +146,10 @@ impl Apply for LedgerDelta {
             utxos: self.utxo_delta.apply(&base.utxos),
             accounts: self.account_delta.apply(&base.accounts),
             pools: self.pool_delta.apply(&base.pools),
+            dreps: self.drep_delta.apply(&base.dreps),
+            proposals: self.proposal_delta.apply(&base.proposals),
+            votes: self.vote_delta.apply(&base.votes),
+            fees: self.fee_delta + base.fees,
         }
     }
 }
@@ -135,6 +161,10 @@ impl Delta for LedgerState {
             utxo_delta: self.utxos.delta(&other.utxos),
             account_delta: self.accounts.delta(&other.accounts),
             pool_delta: self.pools.delta(&other.pools),
+            drep_delta: self.dreps.delta(&other.dreps),
+            proposal_delta: self.proposals.delta(&other.proposals),
+            vote_delta: self.votes.delta(&other.votes),
+            fee_delta: self.fees - other.fees,
         }
     }
 }
