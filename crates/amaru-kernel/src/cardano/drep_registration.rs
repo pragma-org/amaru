@@ -14,7 +14,7 @@
 
 use crate::{CertificatePointer, Epoch, Lovelace};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DRepRegistration {
     pub deposit: Lovelace,
     pub registered_at: CertificatePointer,

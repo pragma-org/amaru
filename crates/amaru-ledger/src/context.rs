@@ -14,6 +14,7 @@
 
 pub(crate) mod assert;
 mod default;
+mod state;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -142,7 +143,7 @@ pub trait PreparePoolsSlice<'a> {
 // Accounts
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct AccountState {
     pub deposit: Lovelace,
     pub pool: Option<(PoolId, CertificatePointer)>,
