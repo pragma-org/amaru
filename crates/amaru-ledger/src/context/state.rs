@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(dead_code)]
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
@@ -24,147 +26,206 @@ use amaru_kernel::{
 
 use crate::context::AccountState;
 
-/// A change that can be applied to a value to produce another value of the same type.
-///
-/// Companion to [`Delta`]: [`Delta::delta`] computes the change between two values, and
-/// [`apply`](Apply::apply) replays it onto a base value. The two operations are inverses.
-///
-/// ```rs
-/// target.delta(&base).apply(&base) == target
-/// ```
-///
-/// Applying consumes the change, as it describes a single transition.
-#[allow(dead_code)]
-pub trait Apply {
-    /// The value type this change applies to and produces.
-    type Target;
+/// A type that can produce a patch describing the transition from another
+/// instance of itself.
+pub trait Diffable: Sized {
+    type Patch: Patch<State = Self>;
 
-    /// Apply this change to the given base value, returning the result.
-    fn apply(self, base: &Self::Target) -> Self::Target;
+    /// Compute a patch from `base` to `self`.
+    fn diff(&self, base: &Self) -> Self::Patch;
+
+    /// Compute both forward and reverse patches.
+    fn diff_pair(&self, base: &Self) -> PatchPair<Self::Patch> {
+        PatchPair { forward: self.diff(base), undo: base.diff(self) }
+    }
 }
 
-/// Computes the change between two values of `Self`.
-///
-/// Produces a [`Delta`](Delta::Delta) that [`Apply`] can replay. The receiver is the target and
-/// the argument the base, so the result describes how to reconstruct the receiver from the
-/// argument:
-///
-/// ```rs
-/// target.delta(&base).apply(&base) == target
-/// ```
-#[allow(dead_code)]
-pub trait Delta {
-    /// The change produced by [`delta`](Delta::delta); consumed by [`Apply`].
-    type Delta;
+/// A patch that can be applied to a state and composed with later patches.
+pub trait Patch: Sized {
+    type State;
 
-    /// Compute the change from the given base value to `self`.
-    fn delta(&self, other: &Self) -> Self::Delta;
+    /// Apply this patch to a base state.
+    fn apply(&self, base: &Self::State) -> Self::State;
+
+    /// Extend this patch with a later patch.
+    ///
+    /// After:
+    ///
+    ///     S0 --> S1 --> S2
+    ///
+    /// the resulting patch represents:
+    ///
+    ///     S0 ---------> S2
+    ///
+    fn compose(&mut self, next: &Self);
 }
 
-#[allow(dead_code)]
+/// A forward and reverse patch pair.
+///
+/// Useful for volatile state and rollback handling.
+pub struct PatchPair<P> {
+    pub forward: P,
+    pub undo: P,
+}
+
 pub struct LedgerState {
-    utxos: Utxos,
-    accounts: Accounts,
-    pools: Pools,
-    dreps: DReps,
-    proposals: Proposals,
-    votes: Votes,
-    fees: Lovelace,
+    pub utxos: Utxos,
+    pub accounts: Accounts,
+    pub pools: Pools,
+    pub dreps: DReps,
+    pub proposals: Proposals,
+    pub votes: Votes,
+    pub fees: Lovelace,
 }
 
-#[allow(dead_code)]
-pub struct LedgerDelta {
-    utxo_delta: MapDelta<TransactionInput, MemoizedTransactionOutput>,
-    account_delta: MapDelta<StakeCredential, AccountState>,
-    pool_delta: MapDelta<PoolId, PoolParams>,
-    drep_delta: MapDelta<StakeCredential, DRepState>,
-    proposal_delta: MapDelta<ComparableProposalId, Proposal>,
-    vote_delta: MapDelta<BallotId, Ballot>,
-    fee_delta: Lovelace,
+pub struct LedgerPatch {
+    pub utxos: MapPatch<TransactionInput, MemoizedTransactionOutput>,
+    pub accounts: MapPatch<StakeCredential, AccountState>,
+    pub pools: MapPatch<PoolId, PoolParams>,
+    pub dreps: MapPatch<StakeCredential, DRepState>,
+    pub proposals: MapPatch<ComparableProposalId, Proposal>,
+    pub votes: MapPatch<BallotId, Ballot>,
+    pub fees: Lovelace,
 }
 
 #[derive(PartialEq)]
 pub struct DRepState {
-    anchor: Anchor,
-    registration: DRepRegistration,
+    pub anchor: Anchor,
+    pub registration: DRepRegistration,
 }
-#[allow(dead_code)]
+
 pub type Utxos = BTreeMap<Rc<TransactionInput>, Rc<MemoizedTransactionOutput>>;
-#[allow(dead_code)]
+
 pub type Accounts = BTreeMap<Rc<StakeCredential>, Rc<AccountState>>;
-#[allow(dead_code)]
+
 pub type Pools = BTreeMap<Rc<PoolId>, Rc<PoolParams>>;
-#[allow(dead_code)]
+
 pub type DReps = BTreeMap<Rc<StakeCredential>, Rc<DRepState>>;
-#[allow(dead_code)]
+
 pub type Proposals = BTreeMap<Rc<ComparableProposalId>, Rc<Proposal>>;
-#[allow(dead_code)]
+
 pub type Votes = BTreeMap<Rc<BallotId>, Rc<Ballot>>;
 
-pub struct MapDelta<K: Ord, V> {
-    upserted: BTreeMap<Rc<K>, Rc<V>>,
-    removed: BTreeSet<Rc<K>>,
+/// Represents the difference between two maps.
+pub struct MapPatch<K: Ord, V> {
+    pub upserted: BTreeMap<Rc<K>, Rc<V>>,
+    pub removed: BTreeSet<Rc<K>>,
 }
 
-impl<K: Ord, V> Apply for MapDelta<K, V> {
-    type Target = BTreeMap<Rc<K>, Rc<V>>;
+impl<K: Ord, V> Default for MapPatch<K, V> {
+    fn default() -> Self {
+        Self { upserted: BTreeMap::new(), removed: BTreeSet::new() }
+    }
+}
 
-    fn apply(self, base: &Self::Target) -> Self::Target {
-        let MapDelta { upserted, removed } = self;
+impl<K: Ord, V> MapPatch<K, V> {
+    pub fn is_removed(&self, key: &K) -> bool {
+        self.removed.contains(key)
+    }
+
+    /// Lookup using overlay semantics, where both upserted and removed keys shadow the base map.
+    pub fn lookup<'a>(&'a self, base: &'a BTreeMap<Rc<K>, Rc<V>>, key: &K) -> Option<&'a V> {
+        if self.removed.contains(key) {
+            return None;
+        }
+
+        self.upserted.get(key).or_else(|| base.get(key)).map(|value| value.as_ref())
+    }
+}
+
+impl<K, V> Patch for MapPatch<K, V>
+where
+    K: Ord,
+{
+    type State = BTreeMap<Rc<K>, Rc<V>>;
+
+    fn apply(&self, base: &Self::State) -> Self::State {
         let mut target = base.clone();
 
-        for key in &removed {
+        for key in &self.removed {
             target.remove(key);
         }
 
-        target.extend(upserted);
+        target.extend(self.upserted.clone());
+
         target
     }
-}
 
-impl<K: Ord, V: PartialEq> Delta for BTreeMap<Rc<K>, Rc<V>> {
-    type Delta = MapDelta<K, V>;
+    fn compose(&mut self, next: &Self) {
+        for key in &next.removed {
+            self.upserted.remove(key);
+            self.removed.insert(key.clone());
+        }
 
-    fn delta(&self, other: &Self) -> Self::Delta {
-        let upserted = self
-            .iter()
-            .filter(|(key, value)| other.get(*key) != Some(*value))
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-
-        let removed = other.keys().filter(|key| !self.contains_key(*key)).cloned().collect();
-
-        MapDelta { upserted, removed }
-    }
-}
-
-impl Apply for LedgerDelta {
-    type Target = LedgerState;
-
-    fn apply(self, base: &Self::Target) -> Self::Target {
-        Self::Target {
-            utxos: self.utxo_delta.apply(&base.utxos),
-            accounts: self.account_delta.apply(&base.accounts),
-            pools: self.pool_delta.apply(&base.pools),
-            dreps: self.drep_delta.apply(&base.dreps),
-            proposals: self.proposal_delta.apply(&base.proposals),
-            votes: self.vote_delta.apply(&base.votes),
-            fees: self.fee_delta + base.fees,
+        for (key, value) in &next.upserted {
+            self.removed.remove(key);
+            self.upserted.insert(key.clone(), value.clone());
         }
     }
 }
 
-impl Delta for LedgerState {
-    type Delta = LedgerDelta;
-    fn delta(&self, other: &Self) -> Self::Delta {
-        Self::Delta {
-            utxo_delta: self.utxos.delta(&other.utxos),
-            account_delta: self.accounts.delta(&other.accounts),
-            pool_delta: self.pools.delta(&other.pools),
-            drep_delta: self.dreps.delta(&other.dreps),
-            proposal_delta: self.proposals.delta(&other.proposals),
-            vote_delta: self.votes.delta(&other.votes),
-            fee_delta: self.fees - other.fees,
+/// Helper trait for diffing maps into a MapPatch.
+pub trait MapDiffExt<K: Ord, V: PartialEq> {
+    fn diff_map(&self, base: &Self) -> MapPatch<K, V>;
+}
+
+impl<K, V> MapDiffExt<K, V> for BTreeMap<Rc<K>, Rc<V>>
+where
+    K: Ord,
+    V: PartialEq,
+{
+    fn diff_map(&self, base: &Self) -> MapPatch<K, V> {
+        let upserted = self
+            .iter()
+            .filter(|(key, value)| base.get(*key) != Some(*value))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+
+        let removed = base.keys().filter(|key| !self.contains_key(*key)).cloned().collect();
+
+        MapPatch { upserted, removed }
+    }
+}
+
+impl Patch for LedgerPatch {
+    type State = LedgerState;
+
+    fn apply(&self, base: &LedgerState) -> LedgerState {
+        LedgerState {
+            utxos: self.utxos.apply(&base.utxos),
+            accounts: self.accounts.apply(&base.accounts),
+            pools: self.pools.apply(&base.pools),
+            dreps: self.dreps.apply(&base.dreps),
+            proposals: self.proposals.apply(&base.proposals),
+            votes: self.votes.apply(&base.votes),
+            fees: base.fees + self.fees,
+        }
+    }
+
+    fn compose(&mut self, next: &Self) {
+        self.utxos.compose(&next.utxos);
+        self.accounts.compose(&next.accounts);
+        self.pools.compose(&next.pools);
+        self.dreps.compose(&next.dreps);
+        self.proposals.compose(&next.proposals);
+        self.votes.compose(&next.votes);
+
+        self.fees += next.fees;
+    }
+}
+
+impl Diffable for LedgerState {
+    type Patch = LedgerPatch;
+
+    fn diff(&self, base: &Self) -> Self::Patch {
+        LedgerPatch {
+            utxos: self.utxos.diff_map(&base.utxos),
+            accounts: self.accounts.diff_map(&base.accounts),
+            pools: self.pools.diff_map(&base.pools),
+            dreps: self.dreps.diff_map(&base.dreps),
+            proposals: self.proposals.diff_map(&base.proposals),
+            votes: self.votes.diff_map(&base.votes),
+            fees: self.fees - base.fees,
         }
     }
 }
