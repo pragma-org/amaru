@@ -16,22 +16,22 @@ use std::{fs, path::PathBuf};
 
 use amaru_kernel::{HeaderHash, IsHeader as _};
 use amaru_ouroboros_traits::{BaseReadChainStore, StoreError};
-use rocksdb::{DB, OptimisticTransactionDB, Options};
+use rocksdb::{Options, WriteBatch, DB};
 
 use crate::rocksdb::{
-    RocksDbConfig,
     consensus::{
-        DbOps, check_db_version, migrate_db, set_version,
-        util::{BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, open_db, open_or_create_db},
+        check_db_version, migrate_db, set_version, util::{open_db, open_or_create_db, BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX},
+        DbOps,
     },
+    RocksDbConfig,
 };
 
-pub struct RocksDBStore<T: DbOps = OptimisticTransactionDB> {
+pub struct RocksDBStore<T: DbOps = DB> {
     pub basedir: PathBuf,
     pub db: T,
 }
 
-impl RocksDBStore<OptimisticTransactionDB> {
+impl RocksDBStore<DB> {
     /// Open an existing `RocksDBStore` with given configuration.
     ///
     /// This function will fail if:
@@ -78,26 +78,25 @@ impl RocksDBStore<OptimisticTransactionDB> {
         Ok(Self { db, basedir })
     }
 
-    pub fn create_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
-        self.db.transaction()
+    pub fn open_for_readonly(config: &RocksDbConfig) -> Result<Self, StoreError> {
+        let basedir = config.dir.clone();
+        let opts: Options = config.into();
+        let db = DB::open_for_read_only(&opts, &basedir, false)
+            .map_err(|e| StoreError::OpenError { error: e.to_string() })?;
+        Ok(Self { db, basedir })
     }
 
-    /// Runs the provided closure within a transaction.
+    /// Runs the provided closure with a fresh `WriteBatch`, then commits it atomically.
     ///
-    /// The transaction is committed if the closure returns `Ok`, otherwise it is rolled back.
-    /// Note the `commit` itself can also fail which is reported as a `StoreError::WriteError`.
-    pub fn with_transaction<R, F>(&self, f: F) -> Result<R, StoreError>
+    /// All puts/deletes accumulated in the batch are executed atomically (or not at all).
+    /// If the closure short-circuits by returning `Err` then nothing is written.
+    pub fn with_batch<F>(&self, f: F) -> Result<(), StoreError>
     where
-        F: FnOnce(&rocksdb::Transaction<'_, OptimisticTransactionDB>) -> Result<R, StoreError>,
+        F: FnOnce(&mut WriteBatch) -> Result<(), StoreError>,
     {
-        let tx = self.db.transaction();
-        match f(&tx) {
-            Ok(result) => {
-                tx.commit().map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-                Ok(result)
-            }
-            Err(err) => Err(err),
-        }
+        let mut batch = WriteBatch::default();
+        f(&mut batch)?;
+        self.db.write(batch).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     pub fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError> {
@@ -126,15 +125,5 @@ impl RocksDBStore<OptimisticTransactionDB> {
             .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
         self.remove_block(hash)?;
         Ok(())
-    }
-}
-
-impl RocksDBStore<DB> {
-    pub fn open_for_readonly(config: &RocksDbConfig) -> Result<Self, StoreError> {
-        let basedir = config.dir.clone();
-        let opts: Options = config.into();
-        let db = DB::open_for_read_only(&opts, &basedir, false)
-            .map_err(|e| StoreError::OpenError { error: e.to_string() })?;
-        Ok(Self { db, basedir })
     }
 }

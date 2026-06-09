@@ -13,15 +13,9 @@
 // limitations under the License.
 
 use amaru_ouroboros_traits::{BaseReadChainStore, ReadChainStore};
-use rocksdb::{DB, OptimisticTransactionDB};
+use rocksdb::DB;
 
 use crate::rocksdb::consensus::RocksDBStore;
-
-impl ReadChainStore for RocksDBStore<OptimisticTransactionDB> {
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
-        Box::new(RocksDBStore { basedir: self.basedir.clone(), db: self.db.snapshot() })
-    }
-}
 
 impl ReadChainStore for RocksDBStore<DB> {
     fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
