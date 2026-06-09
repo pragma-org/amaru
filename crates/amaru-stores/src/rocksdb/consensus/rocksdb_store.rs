@@ -109,24 +109,23 @@ impl RocksDBStore<DB> {
     }
 
     pub fn remove_block(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.db
-            .delete([&BLOCK_PREFIX[..], &hash[..]].concat())
-            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-        self.remove_block_valid(hash)?;
-        Ok(())
+        self.with_batch(|batch| {
+            batch.delete([&BLOCK_PREFIX[..], &hash[..]].concat());
+            batch.delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat());
+            Ok(())
+        })
     }
 
     pub fn remove_header(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         let parent = self.load_header(hash).and_then(|h| h.parent());
-        if let Some(parent) = parent {
-            self.db
-                .delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat())
-                .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-        }
-        self.db
-            .delete([&HEADER_PREFIX[..], &hash[..]].concat())
-            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
-        self.remove_block(hash)?;
-        Ok(())
+        self.with_batch(|batch| {
+            if let Some(parent) = parent {
+                batch.delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat());
+            }
+            batch.delete([&HEADER_PREFIX[..], &hash[..]].concat());
+            batch.delete([&BLOCK_PREFIX[..], &hash[..]].concat());
+            batch.delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat());
+            Ok(())
+        })
     }
 }
