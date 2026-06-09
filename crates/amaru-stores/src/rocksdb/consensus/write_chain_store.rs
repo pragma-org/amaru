@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
-
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, size::HEADER, to_cbor};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
 use amaru_observability::trace_span;
 use amaru_ouroboros_traits::{Nonces, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
@@ -24,8 +22,8 @@ use crate::rocksdb::consensus::{
     util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX},
 };
 
-impl<H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>> WriteChainStore<H> for RocksDBStore {
-    fn store_header(&self, header: &H) -> Result<(), StoreError> {
+impl WriteChainStore for RocksDBStore {
+    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
         let _span = trace_span!(
             amaru_observability::amaru::stores::consensus::STORE_HEADER,
             hash = header.hash(),

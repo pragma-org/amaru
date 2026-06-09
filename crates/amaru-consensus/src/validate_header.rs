@@ -24,7 +24,7 @@ use crate::{errors::ConsensusError, store::PraosChainStore};
 
 pub struct ValidateHeader {
     consensus_parameters: Arc<ConsensusParameters>,
-    store: Arc<dyn ChainStore<BlockHeader>>,
+    store: Arc<dyn ChainStore>,
     ledger: Arc<dyn HasStakeDistribution>,
 }
 
@@ -40,7 +40,7 @@ impl fmt::Debug for ValidateHeader {
 impl ValidateHeader {
     pub fn new(
         consensus_parameters: Arc<ConsensusParameters>,
-        store: Arc<dyn ChainStore<BlockHeader>>,
+        store: Arc<dyn ChainStore>,
         ledger: Arc<dyn HasStakeDistribution>,
     ) -> Self {
         Self { consensus_parameters, store, ledger }

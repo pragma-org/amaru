@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, Tip};
+use amaru_kernel::{BlockHeader, HeaderHash, ORIGIN_HASH, Point, RawBlock, Tip};
 
 use crate::{Nonces, StoreError};
 
 /// Low-level chain store reads. It is used by the `ReadChainStore` trait which most code should
 /// depend on.
-pub trait BaseReadChainStore<H>: Send + Sync
-where
-    H: IsHeader,
-{
+pub trait BaseReadChainStore: Send + Sync {
     /// Try to load a header by its hash.
-    fn load_header(&self, hash: &HeaderHash) -> Option<H>;
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader>;
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)>;
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)>;
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
@@ -60,12 +57,12 @@ where
     }
 }
 
-impl<H: IsHeader> BaseReadChainStore<H> for Box<dyn BaseReadChainStore<H> + '_> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.as_ref().load_header(hash)
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
 

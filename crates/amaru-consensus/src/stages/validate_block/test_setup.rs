@@ -215,7 +215,7 @@ pub struct TestPrep {
     pub state: ValidateBlock,
     pub rt: Runtime,
     pub headers: HeaderTree,
-    pub store: Arc<InMemoryChainStore<BlockHeader>>,
+    pub store: Arc<InMemoryChainStore>,
     pub block_validator: Arc<MockBlockValidator>,
 }
 

@@ -16,7 +16,7 @@ use std::{error::Error, fmt::Display, path::PathBuf};
 
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
 use amaru_consensus::effects::find_best_candidate;
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
+use amaru_kernel::{HeaderHash, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
 use amaru_ouroboros::{ChildTipsMode, DiagnosticChainStore, ReadChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
@@ -171,7 +171,7 @@ fn valid_str(valid: Option<bool>) -> &'static str {
 
 #[expect(clippy::print_stdout)]
 #[expect(clippy::unwrap_used)]
-pub fn print_children(db: &impl ReadChainStore<BlockHeader>, hash: HeaderHash) {
+pub fn print_children(db: &impl ReadChainStore, hash: HeaderHash) {
     for child in db.child_tips(&hash, ChildTipsMode::All) {
         let (_header, valid) = db.load_header_with_validity(&child.hash()).unwrap();
         println!("{} {}", child.point(), valid_str(valid))

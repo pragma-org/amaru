@@ -100,7 +100,7 @@ pub struct TestPrep {
     pub state: AdoptChain,
     pub rt: Runtime,
     pub headers: HeaderTree,
-    pub store: Arc<InMemoryChainStore<BlockHeader>>,
+    pub store: Arc<InMemoryChainStore>,
 }
 
 impl TestPrep {

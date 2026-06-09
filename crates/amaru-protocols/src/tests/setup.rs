@@ -22,7 +22,7 @@ use std::{
     time::Duration,
 };
 
-use amaru_kernel::{BlockHeader, NonEmptyBytes, Peer, Transaction};
+use amaru_kernel::{NonEmptyBytes, Peer, Transaction};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource,
@@ -59,7 +59,7 @@ pub(super) type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 /// Add resources for each role.
 /// In particular set up an in-memory chain store with different chain lengths for the initiator and responder.
 pub(super) fn set_resources(
-    chain_store: Arc<InMemoryChainStore<BlockHeader>>,
+    chain_store: Arc<InMemoryChainStore>,
     mempool: Arc<dyn Mempool<Transaction>>,
     network: &mut TokioBuilder,
     connections: TokioConnections,
@@ -69,7 +69,7 @@ pub(super) fn set_resources(
 
 /// Add resources for each role with a custom connection provider.
 pub(super) fn set_resources_with_connections(
-    chain_store: Arc<InMemoryChainStore<BlockHeader>>,
+    chain_store: Arc<InMemoryChainStore>,
     mempool: Arc<dyn Mempool<Transaction>>,
     network: &mut TokioBuilder,
     connections: ConnectionsResource,

@@ -14,7 +14,7 @@
 
 use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
 
-use amaru_kernel::{BlockHeader, NetworkMagic, NetworkName};
+use amaru_kernel::{NetworkMagic, NetworkName};
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::ChainStore;
 use amaru_protocols::tx_submission::ResponderParams;
@@ -26,7 +26,7 @@ use crate::{DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAUL
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
 pub struct Config {
     pub ledger_store: RocksDbConfig,
-    pub chain_store: StoreType<Arc<dyn ChainStore<BlockHeader>>>,
+    pub chain_store: StoreType<Arc<dyn ChainStore>>,
     pub upstream_peers: Vec<String>,
     pub target_upstream_peers: usize,
     pub target_downstream_peers: usize,

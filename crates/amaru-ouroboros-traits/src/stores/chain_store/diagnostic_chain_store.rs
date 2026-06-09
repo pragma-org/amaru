@@ -20,7 +20,7 @@ use crate::{Nonces, ReadChainStore};
 
 /// A chain store interface that also exposes diagnostic methods to load raw data.
 /// It should not be used by the consensus stages since it might load lots of data at once.
-pub trait DiagnosticChainStore: ReadChainStore<BlockHeader> {
+pub trait DiagnosticChainStore: ReadChainStore {
     /// Load all headers in the store.
     ///
     /// NOTE: This can be very expensive for large stores and is only

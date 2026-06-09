@@ -21,7 +21,7 @@ use amaru_consensus::{
     },
     validate_header::ValidateHeader,
 };
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
@@ -156,7 +156,7 @@ pub fn build_node(
 #[allow(clippy::too_many_arguments)]
 fn register_resources(
     stage_graph: &mut impl StageGraph,
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    chain_store: Arc<dyn ChainStore>,
     global_parameters: &GlobalParameters,
     ledger: Ledger,
     validate_header: ValidateHeader,
@@ -179,8 +179,8 @@ fn register_resources(
 }
 
 /// This function migrates the database if necessary
-fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<Arc<dyn ChainStore<BlockHeader>>> {
-    let chain_store: Arc<dyn ChainStore<BlockHeader>> = match config.chain_store {
+fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<Arc<dyn ChainStore>> {
+    let chain_store: Arc<dyn ChainStore> = match config.chain_store {
         StoreType::InMem(ref chain_store) => chain_store.clone(),
         StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
             Arc::new(RocksDBStore::open_and_migrate(rocks_db_config)?)
@@ -204,7 +204,7 @@ fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<
 fn make_validate_header(
     global_parameters: &GlobalParameters,
     era_history: &EraHistory,
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    chain_store: Arc<dyn ChainStore>,
     stake_distribution: Arc<dyn HasStakeDistribution>,
 ) -> ValidateHeader {
     let consensus_parameters =

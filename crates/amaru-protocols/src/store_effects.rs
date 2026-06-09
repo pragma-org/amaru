@@ -85,10 +85,7 @@ impl Store {
         self.effects.external(NextBestChainEffect::new(*point))
     }
 
-    pub fn next_best_chain_header(
-        &self,
-        point: &Point,
-    ) -> BoxFuture<'static, Result<NextBestChainHeader<BlockHeader>, StoreError>> {
+    pub fn next_best_chain_header(&self, point: &Point) -> BoxFuture<'static, Result<NextBestChainHeader, StoreError>> {
         self.effects.external(NextBestChainHeaderEffect::new(*point))
     }
 
@@ -174,7 +171,7 @@ impl Store {
 
 // EXTERNAL EFFECTS DEFINITIONS
 
-pub type ResourceHeaderStore = Arc<dyn ChainStore<BlockHeader>>;
+pub type ResourceHeaderStore = Arc<dyn ChainStore>;
 pub type ResourceParameters = GlobalParameters;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -444,7 +441,7 @@ impl ExternalEffect for NextBestChainHeaderEffect {
 }
 
 impl ExternalEffectAPI for NextBestChainHeaderEffect {
-    type Response = Result<NextBestChainHeader<BlockHeader>, StoreError>;
+    type Response = Result<NextBestChainHeader, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

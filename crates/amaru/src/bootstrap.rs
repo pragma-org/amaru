@@ -645,11 +645,7 @@ fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dy
     Ok(parsed_snapshot.era_history.slot_to_epoch_unchecked_horizon(parsed_snapshot.slot.into())?)
 }
 
-pub fn store_nonces(
-    epoch: Epoch,
-    db: &dyn ChainStore<BlockHeader>,
-    initial_nonces: InitialNonces,
-) -> Result<(), Box<dyn Error>> {
+pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNonces) -> Result<(), Box<dyn Error>> {
     let header_hash = Hash::from(&initial_nonces.at);
 
     info!(point.id = %header_hash, point.slot = %initial_nonces.at.slot_or_default(), "importing nonces");

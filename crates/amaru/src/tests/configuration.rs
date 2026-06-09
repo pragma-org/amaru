@@ -53,7 +53,7 @@ use crate::{
 ///
 #[derive(Clone)]
 pub struct NodeTestConfig {
-    pub chain_store: Arc<InMemoryChainStore<BlockHeader>>,
+    pub chain_store: Arc<InMemoryChainStore>,
     pub mempool: Arc<InMemoryMempool<Transaction>>,
     pub connections: ConnectionsResource,
     pub chain_length: usize,
@@ -154,7 +154,7 @@ impl NodeTestConfig {
         self
     }
 
-    pub fn with_chain_store(mut self, chain_store: Arc<InMemoryChainStore<BlockHeader>>) -> Self {
+    pub fn with_chain_store(mut self, chain_store: Arc<InMemoryChainStore>) -> Self {
         self.chain_store = chain_store;
         self
     }

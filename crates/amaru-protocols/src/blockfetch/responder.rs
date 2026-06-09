@@ -484,14 +484,11 @@ pub mod tests {
 
     // HELPERS
 
-    fn make_store_with_chain(n: usize) -> (Arc<InMemoryChainStore<BlockHeader>>, Vec<BlockHeader>) {
+    fn make_store_with_chain(n: usize) -> (Arc<InMemoryChainStore>, Vec<BlockHeader>) {
         make_store_with_chain_starting_from(n, Point::Origin)
     }
 
-    fn make_store_with_chain_starting_from(
-        n: usize,
-        point: Point,
-    ) -> (Arc<InMemoryChainStore<BlockHeader>>, Vec<BlockHeader>) {
+    fn make_store_with_chain_starting_from(n: usize, point: Point) -> (Arc<InMemoryChainStore>, Vec<BlockHeader>) {
         let headers: Vec<BlockHeader> = run_strategy(any_headers_chain_with_root(n, point));
         let store = Arc::new(InMemoryChainStore::new());
         // Set anchor to the first header
@@ -503,7 +500,7 @@ pub mod tests {
         (store, headers)
     }
 
-    fn store_blocks(store: Arc<InMemoryChainStore<BlockHeader>>, headers: &[BlockHeader]) {
+    fn store_blocks(store: Arc<InMemoryChainStore>, headers: &[BlockHeader]) {
         for h in headers {
             let raw_block = make_encoded_block(h, &TESTNET_ERA_HISTORY);
             store.store_block(&h.hash(), &raw_block).unwrap();
@@ -511,7 +508,7 @@ pub mod tests {
     }
 
     /// Invoke the PointsRange::request_range method via a stage
-    fn request_range(store: Arc<InMemoryChainStore<BlockHeader>>, from: Point, through: Point) -> Option<PointsRange> {
+    fn request_range(store: Arc<InMemoryChainStore>, from: Point, through: Point) -> Option<PointsRange> {
         match run_points_range_test(store, PointsRangeTestMsg::RequestRange { from, through }) {
             PointsRangeTestResult::RequestRange(result) => result,
             PointsRangeTestResult::NextBlock(_) => unreachable!(),
@@ -519,7 +516,7 @@ pub mod tests {
     }
 
     /// Invoke the PointsRange::next_block method via a stage
-    fn next_block(store: Arc<InMemoryChainStore<BlockHeader>>, range: PointsRange) -> (RawBlock, Option<PointsRange>) {
+    fn next_block(store: Arc<InMemoryChainStore>, range: PointsRange) -> (RawBlock, Option<PointsRange>) {
         match run_points_range_test(store, PointsRangeTestMsg::NextBlock { range }) {
             PointsRangeTestResult::NextBlock(result) => result,
             PointsRangeTestResult::RequestRange(_) => unreachable!(),
@@ -527,10 +524,7 @@ pub mod tests {
     }
 
     /// Invoke the PointsRange methods via a stage
-    fn run_points_range_test(
-        store: Arc<InMemoryChainStore<BlockHeader>>,
-        msg: PointsRangeTestMsg,
-    ) -> PointsRangeTestResult {
+    fn run_points_range_test(store: Arc<InMemoryChainStore>, msg: PointsRangeTestMsg) -> PointsRangeTestResult {
         run_test(
             |resources| {
                 resources.put::<ResourceHeaderStore>(store.clone());

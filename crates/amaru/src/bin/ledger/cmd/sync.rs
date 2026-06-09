@@ -110,9 +110,9 @@ fn load_archive(
 
 fn create_praos_chain_store(
     global_parameters: GlobalParameters,
-    chain_store: Arc<dyn ChainStore<BlockHeader>>,
+    chain_store: Arc<dyn ChainStore>,
     era_history: &EraHistory,
-) -> PraosChainStore<BlockHeader> {
+) -> PraosChainStore {
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters, era_history, Default::default()));
     PraosChainStore::new(consensus_parameters, chain_store)
 }
@@ -154,8 +154,8 @@ async fn load_blocks(
 /// Blocks are assumed valid; no validation error should happen
 #[allow(clippy::unwrap_used)]
 async fn process_block(
-    chain_store: &Arc<dyn ChainStore<BlockHeader>>,
-    praos_chain_store: &PraosChainStore<BlockHeader>,
+    chain_store: &Arc<dyn ChainStore>,
+    praos_chain_store: &PraosChainStore,
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
     point: Point,
@@ -199,7 +199,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
     let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
-    let chain_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
+    let chain_store: Arc<dyn ChainStore> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
     let praos_chain_store = create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
 
     // Collect .tar.gz files

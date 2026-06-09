@@ -76,7 +76,7 @@ pub struct TestPrep {
     pub rt: Runtime,
     pub cleanup_replies: StageRef<Blocks2>,
     pub headers: HeaderChain,
-    pub store: Arc<InMemoryChainStore<BlockHeader>>,
+    pub store: Arc<InMemoryChainStore>,
 }
 
 impl TestPrep {

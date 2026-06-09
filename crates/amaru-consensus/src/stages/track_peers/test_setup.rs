@@ -47,7 +47,7 @@ use crate::{
     },
 };
 
-pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore<BlockHeader>> {
+pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     let store = Arc::new(InMemoryChainStore::new());
     for header in headers {
         store.store_header(header).unwrap();
@@ -151,7 +151,7 @@ pub fn setup(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemoryChainStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_with_validation(rt, state, msg, store, Arc::new(MockCanValidateHeaders))
 }
@@ -160,7 +160,7 @@ pub fn setup_with_validation(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemoryChainStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore>,
     validation: Arc<dyn CanValidateHeaders + Send + Sync>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base(rt, state, msg, store, validation, |_| {})
@@ -171,7 +171,7 @@ pub fn setup_with_ledger_tip(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemoryChainStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore>,
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base(rt, state, msg, store, Arc::new(MockCanValidateHeaders), |running| {
@@ -187,7 +187,7 @@ fn setup_base(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
-    store: Arc<InMemoryChainStore<BlockHeader>>,
+    store: Arc<InMemoryChainStore>,
     validation: Arc<dyn CanValidateHeaders + Send + Sync>,
     overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {

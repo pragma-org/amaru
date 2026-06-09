@@ -12,16 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderHash, IsHeader, Point, RawBlock};
+use amaru_kernel::{BlockHeader, HeaderHash, Point, RawBlock};
 
 use crate::{Nonces, ReadChainStore, StoreError};
 
 /// Write interface for the ChainStore
-pub trait WriteChainStore<H>: Send + Sync
-where
-    H: IsHeader,
-{
-    fn store_header(&self, header: &H) -> Result<(), StoreError>;
+pub trait WriteChainStore: Send + Sync {
+    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError>;
 
     /// TODO: use a set_anchor_tip function instead
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
@@ -45,15 +42,6 @@ where
 
 /// Convenience marker — anything that is both a read and a write store is
 /// automatically a `ChainStore`.
-pub trait ChainStore<H>: ReadChainStore<H> + WriteChainStore<H>
-where
-    H: IsHeader,
-{
-}
+pub trait ChainStore: ReadChainStore + WriteChainStore {}
 
-impl<H, T> ChainStore<H> for T
-where
-    T: ReadChainStore<H> + WriteChainStore<H> + ?Sized,
-    H: IsHeader,
-{
-}
+impl<T> ChainStore for T where T: ReadChainStore + WriteChainStore + ?Sized {}

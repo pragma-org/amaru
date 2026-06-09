@@ -14,24 +14,24 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{ConsensusParameters, EraHistoryError, HeaderHash, IsHeader, Nonce, Point};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistoryError, HeaderHash, IsHeader, Nonce, Point};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{ChainStore, Nonces, Praos, StoreError};
 use thiserror::Error;
 
 /// A wrapper around a `ChainStore` that implements the `Praos` trait, supporting nonce evolution.
-pub struct PraosChainStore<H> {
+pub struct PraosChainStore {
     consensus_parameters: Arc<ConsensusParameters>,
-    store: Arc<dyn ChainStore<H>>,
+    store: Arc<dyn ChainStore>,
 }
 
-impl<H: IsHeader> PraosChainStore<H> {
-    pub fn new(consensus_parameters: Arc<ConsensusParameters>, store: Arc<dyn ChainStore<H>>) -> Self {
+impl PraosChainStore {
+    pub fn new(consensus_parameters: Arc<ConsensusParameters>, store: Arc<dyn ChainStore>) -> Self {
         PraosChainStore { consensus_parameters, store }
     }
 }
 
-impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
+impl Praos<BlockHeader> for PraosChainStore {
     type Error = NoncesError;
 
     fn get_nonce(&self, header: &HeaderHash) -> Option<Nonce> {
@@ -44,7 +44,7 @@ impl<H: IsHeader> Praos<H> for PraosChainStore<H> {
     ///
     /// Once the stability window has been reached, the candidate is fixed for the epoch and will
     /// be used once crossing the epoch boundary to produce the next epoch nonce.
-    fn evolve_nonce(&self, header: &H) -> Result<Nonces, Self::Error> {
+    fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonces, Self::Error> {
         let (epoch, is_within_stability_window) = nonce::randomness_stability_window(
             header,
             self.consensus_parameters.era_history(),

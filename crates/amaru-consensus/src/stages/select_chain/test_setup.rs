@@ -85,7 +85,7 @@ pub struct TestPrep {
     pub rt: Runtime,
     pub downstream: StageRef<(Tip, Point)>,
     pub headers: HeaderTree,
-    pub store: Arc<dyn ChainStore<BlockHeader>>,
+    pub store: Arc<dyn ChainStore>,
 }
 
 impl TestPrep {

@@ -161,7 +161,7 @@ pub fn generate_single_header() -> BlockHeader {
 }
 
 /// Generate a random `HeadersTree` initialized with a single chain of `BlockHeader`s
-pub fn create_headers_tree_with_store(store: Arc<InMemoryChainStore<BlockHeader>>, size: usize) -> HeadersTree {
+pub fn create_headers_tree_with_store(store: Arc<InMemoryChainStore>, size: usize) -> HeadersTree {
     let headers = generate_headers_chain(size);
     for header in &headers {
         store.store_header(header).unwrap();
@@ -182,11 +182,7 @@ pub fn initialize_with_peer(size: usize, peer: &Peer) -> HeadersTree {
 }
 
 /// Generate a `HeadersTree` with one chain and a peer at the tip.
-pub fn initialize_with_store_and_peer(
-    store: Arc<InMemoryChainStore<BlockHeader>>,
-    size: usize,
-    peer: &Peer,
-) -> HeadersTree {
+pub fn initialize_with_store_and_peer(store: Arc<InMemoryChainStore>, size: usize, peer: &Peer) -> HeadersTree {
     let mut tree = create_headers_tree_with_store(store, size);
     tree.initialize_peer(peer, &tree.best_chain_tip().hash()).unwrap();
     tree
@@ -194,7 +190,7 @@ pub fn initialize_with_store_and_peer(
 
 /// Generate a random `BlockHeader`, child of the `parent` one
 /// and store it in the provided store.
-pub fn store_header_with_parent(store: Arc<dyn ChainStore<BlockHeader>>, parent: &BlockHeader) -> BlockHeader {
+pub fn store_header_with_parent(store: Arc<dyn ChainStore>, parent: &BlockHeader) -> BlockHeader {
     let mut std_rng = StdRng::from_seed([0; 32]);
     let header = generate_header(1, parent.slot().as_u64() + 1, Some(parent.hash()), &mut std_rng);
     store.store_header(&header).unwrap();

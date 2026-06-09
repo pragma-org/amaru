@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, cbor, from_cbor, size::HEADER};
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, ORIGIN_HASH, Point, RawBlock, from_cbor, size::HEADER};
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
@@ -24,17 +24,16 @@ use crate::rocksdb::consensus::{
     },
 };
 
-impl<H, T> BaseReadChainStore<H> for RocksDBStore<T>
+impl<T> BaseReadChainStore for RocksDBStore<T>
 where
-    H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>,
     T: DbOps + Send + Sync,
 {
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).ok().flatten().and_then(|bytes| from_cbor(bytes.as_ref()))
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
         let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
         let head_len = prefix.len() - 1;
         let mut results = self.db.multi_get(&[&prefix[..head_len], &prefix], ReadOptions::default()).into_iter();

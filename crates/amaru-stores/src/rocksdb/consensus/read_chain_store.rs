@@ -12,28 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
-
-use amaru_kernel::{IsHeader, cbor};
 use amaru_ouroboros_traits::{BaseReadChainStore, ReadChainStore};
 use rocksdb::{DB, OptimisticTransactionDB};
 
 use crate::rocksdb::consensus::RocksDBStore;
 
-impl<H> ReadChainStore<H> for RocksDBStore<OptimisticTransactionDB>
-where
-    H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>,
-{
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+impl ReadChainStore for RocksDBStore<OptimisticTransactionDB> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
         Box::new(RocksDBStore { basedir: self.basedir.clone(), db: self.db.snapshot() })
     }
 }
 
-impl<H> ReadChainStore<H> for RocksDBStore<DB>
-where
-    H: IsHeader + Clone + Debug + for<'d> cbor::Decode<'d, ()>,
-{
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+impl ReadChainStore for RocksDBStore<DB> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
         Box::new(RocksDBStore { basedir: self.basedir.clone(), db: self.db.snapshot() })
     }
 }

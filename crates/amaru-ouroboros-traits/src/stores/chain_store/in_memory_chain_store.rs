@@ -26,25 +26,25 @@ use crate::{
 
 /// An in-memory implementation of a ChainStore used by the consensus stages.
 #[derive(Clone)]
-pub struct InMemoryChainStore<H> {
-    inner: Arc<Mutex<InMemoryChainStoreInner<H>>>,
+pub struct InMemoryChainStore {
+    inner: Arc<Mutex<InMemoryChainStoreInner>>,
 }
 
-impl<H> Default for InMemoryChainStore<H> {
+impl Default for InMemoryChainStore {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<H> InMemoryChainStore<H> {
-    pub fn new() -> InMemoryChainStore<H> {
+impl InMemoryChainStore {
+    pub fn new() -> InMemoryChainStore {
         InMemoryChainStore { inner: Arc::new(Mutex::new(InMemoryChainStoreInner::new())) }
     }
 }
 
-struct InMemoryChainStoreInner<H> {
+struct InMemoryChainStoreInner {
     nonces: BTreeMap<HeaderHash, Nonces>,
-    headers: BTreeMap<HeaderHash, H>,
+    headers: BTreeMap<HeaderHash, BlockHeader>,
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
     anchor: HeaderHash,
     best_chain: HeaderHash,
@@ -54,14 +54,14 @@ struct InMemoryChainStoreInner<H> {
     block_validity: BTreeMap<HeaderHash, bool>,
 }
 
-impl<H> Default for InMemoryChainStoreInner<H> {
+impl Default for InMemoryChainStoreInner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<H> InMemoryChainStoreInner<H> {
-    fn new() -> InMemoryChainStoreInner<H> {
+impl InMemoryChainStoreInner {
+    fn new() -> InMemoryChainStoreInner {
         InMemoryChainStoreInner {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
@@ -75,15 +75,15 @@ impl<H> InMemoryChainStoreInner<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Send + Sync + 'static> BaseReadChainStore<H> for InMemoryChainStore<H> {
+impl BaseReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         let inner = self.inner.lock().unwrap();
         inner.headers.get(hash).cloned()
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
         let inner = self.inner.lock().unwrap();
         let header = inner.headers.get(hash).cloned();
         let validity = inner.block_validity.get(hash).copied();
@@ -145,9 +145,9 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> BaseReadChainStore<H> for InMe
     }
 }
 
-impl<H: IsHeader + Clone + Send + Sync + 'static> ReadChainStore<H> for InMemoryChainStore<H> {
+impl ReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
         let inner = self.inner.lock().unwrap();
         Box::new(InMemConsensusSnapshot {
             nonces: inner.nonces.clone(),
@@ -162,9 +162,9 @@ impl<H: IsHeader + Clone + Send + Sync + 'static> ReadChainStore<H> for InMemory
     }
 }
 
-impl<H: IsHeader + Send + Sync + Clone + 'static> WriteChainStore<H> for InMemoryChainStore<H> {
+impl WriteChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
-    fn store_header(&self, header: &H) -> Result<(), StoreError> {
+    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
         let hash = header.hash();
         let mut inner = self.inner.lock().unwrap();
         inner.headers.insert(hash, header.clone());
@@ -241,9 +241,9 @@ impl<H: IsHeader + Send + Sync + Clone + 'static> WriteChainStore<H> for InMemor
 /// Snapshot of the current in-memory consensus store.
 /// It is used to navigate data that is guaranteed to be immutable.
 #[derive(Clone)]
-struct InMemConsensusSnapshot<H> {
+struct InMemConsensusSnapshot {
     nonces: BTreeMap<HeaderHash, Nonces>,
-    headers: BTreeMap<HeaderHash, H>,
+    headers: BTreeMap<HeaderHash, BlockHeader>,
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
     anchor: HeaderHash,
     best_chain: HeaderHash,
@@ -252,12 +252,12 @@ struct InMemConsensusSnapshot<H> {
     block_validity: BTreeMap<HeaderHash, bool>,
 }
 
-impl<H: IsHeader + Clone + Send + Sync + 'static> BaseReadChainStore<H> for InMemConsensusSnapshot<H> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+impl BaseReadChainStore for InMemConsensusSnapshot {
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.headers.get(hash).cloned()
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
         let header = self.headers.get(hash).cloned();
         let validity = self.block_validity.get(hash).copied();
         header.map(|h| (h, validity))
@@ -310,7 +310,7 @@ fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {
         .copied()
 }
 
-impl DiagnosticChainStore for InMemoryChainStore<BlockHeader> {
+impl DiagnosticChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
         let inner = self.inner.lock().unwrap();

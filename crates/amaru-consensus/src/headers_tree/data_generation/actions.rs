@@ -557,7 +557,7 @@ pub fn execute_actions(
 /// the execution with before / after state when debugging.
 ///
 pub fn execute_actions_on_tree(
-    store: Arc<dyn ChainStore<BlockHeader>>,
+    store: Arc<dyn ChainStore>,
     tree: &mut HeadersTree,
     actions: &[Action],
     print: bool,

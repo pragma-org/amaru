@@ -14,7 +14,7 @@
 
 use std::{fs, path::PathBuf};
 
-use amaru_kernel::{HeaderHash, IsHeader, cbor};
+use amaru_kernel::{HeaderHash, IsHeader as _};
 use amaru_ouroboros_traits::{BaseReadChainStore, StoreError};
 use rocksdb::{DB, OptimisticTransactionDB, Options};
 
@@ -114,11 +114,8 @@ impl RocksDBStore<OptimisticTransactionDB> {
         Ok(())
     }
 
-    pub fn remove_header<H: IsHeader + Clone + for<'d> cbor::Decode<'d, ()>>(
-        &self,
-        hash: &HeaderHash,
-    ) -> Result<(), StoreError> {
-        let parent = self.load_header(hash).and_then(|h: H| h.parent());
+    pub fn remove_header(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        let parent = self.load_header(hash).and_then(|h| h.parent());
         if let Some(parent) = parent {
             self.db
                 .delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat())

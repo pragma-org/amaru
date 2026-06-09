@@ -1176,7 +1176,7 @@ fn can_convert_v1_sample_db_to_v2() {
 
     let db = RocksDBStore::open(&config).expect("DB should successfully be opened as it's been migrated");
     assert_eq!((1, 3), result);
-    let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore<BlockHeader>>::load_from_best_chain(
+    let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore>::load_from_best_chain(
         &db,
         &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
     );
@@ -1316,14 +1316,14 @@ fn make_linear_headers(len: usize) -> Vec<BlockHeader> {
     headers
 }
 
-fn append_best_chain<'a>(store: Arc<dyn ChainStore<BlockHeader>>, headers: impl IntoIterator<Item = &'a BlockHeader>) {
+fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a BlockHeader>) {
     for header in headers {
         store.store_header(header).unwrap();
         store.roll_forward_chain(&header.point()).unwrap();
     }
 }
 
-fn populate_db(store: Arc<dyn ChainStore<BlockHeader>>) -> Vec<BlockHeader> {
+fn populate_db(store: Arc<dyn ChainStore>) -> Vec<BlockHeader> {
     let chain = run_strategy(any_headers_chain(10));
 
     // Set the anchor to the first header in the chain
@@ -1367,8 +1367,8 @@ fn with_db(f: impl Fn(Arc<dyn FullChainStore>)) {
 }
 
 fn with_read_db(
-    setup: impl Fn(Arc<dyn ChainStore<BlockHeader>>),
-    assert: impl Fn(Arc<dyn FullChainStore>, &dyn BaseReadChainStore<BlockHeader>),
+    setup: impl Fn(Arc<dyn ChainStore>),
+    assert: impl Fn(Arc<dyn FullChainStore>, &dyn BaseReadChainStore),
 ) {
     let in_memory_store: Arc<dyn FullChainStore> = Arc::new(InMemoryChainStore::new());
     // Initialize the store and take a snapshot
@@ -1386,9 +1386,9 @@ fn with_read_db(
     assert(rw_store.clone(), snapshot.as_ref());
 }
 
-fn with_db_path(f: impl Fn((Arc<dyn ChainStore<BlockHeader>>, &Path))) {
+fn with_db_path(f: impl Fn((Arc<dyn ChainStore>, &Path))) {
     let tempdir = tempfile::tempdir().unwrap();
-    let rw_store: Arc<dyn ChainStore<BlockHeader>> = Arc::new(initialise_test_rw_store(tempdir.path()));
+    let rw_store: Arc<dyn ChainStore> = Arc::new(initialise_test_rw_store(tempdir.path()));
     f((rw_store, tempdir.path()));
 }
 

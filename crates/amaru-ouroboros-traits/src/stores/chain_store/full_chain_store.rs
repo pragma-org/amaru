@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::BlockHeader;
-
 use crate::{ChainStore, DiagnosticChainStore, in_memory_chain_store::InMemoryChainStore};
 
 /// ChainStore with all capabilities for reading / writing and running diagnostics
-pub trait FullChainStore: ChainStore<BlockHeader> + DiagnosticChainStore {}
+pub trait FullChainStore: ChainStore + DiagnosticChainStore {}
 
-impl FullChainStore for InMemoryChainStore<BlockHeader> {}
+impl FullChainStore for InMemoryChainStore {}

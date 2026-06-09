@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 
 use amaru::{DEFAULT_NETWORK, default_chain_dir};
-use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point};
+use amaru_kernel::{IsHeader, NetworkName, Point};
 use amaru_ouroboros::{ChainStore, ChildTipsMode};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
@@ -72,7 +72,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let rocks_db = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
-    let chain_store: &dyn ChainStore<BlockHeader> = &rocks_db;
+    let chain_store: &dyn ChainStore = &rocks_db;
 
     let points = chain_store.child_tips(&from_point.hash(), ChildTipsMode::All);
     tracing::info!(points = %points.len(), "points to remove");
@@ -103,7 +103,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         } else if only_blocks {
             rocks_db.remove_block(&point.hash())?;
         } else {
-            rocks_db.remove_header::<BlockHeader>(&point.hash())?;
+            rocks_db.remove_header(&point.hash())?;
         }
     }
 

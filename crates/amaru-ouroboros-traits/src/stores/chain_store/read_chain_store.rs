@@ -14,7 +14,7 @@
 
 use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
+use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 
 use crate::{
     BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
@@ -24,16 +24,13 @@ use crate::{
 };
 
 /// Read interface for the ChainStore. It uses a snapshot when iterating over data for consistency.
-pub trait ReadChainStore<H>: BaseReadChainStore<H>
-where
-    H: IsHeader,
-{
+pub trait ReadChainStore: BaseReadChainStore {
     /// Return a consistent point-in-time view of the ChainStore which can be used to safely iterate
     /// over chain data.
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_>;
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_>;
 
     /// Return the next best-chain header from the given pointer using a single snapshot.
-    fn next_best_chain_header(&self, pointer: &Point) -> Result<NextBestChainHeader<H>, StoreError> {
+    fn next_best_chain_header(&self, pointer: &Point) -> Result<NextBestChainHeader, StoreError> {
         let snapshot = self.snapshot();
         if *pointer != Point::Origin && snapshot.load_from_best_chain(pointer).is_none() {
             return Ok(NextBestChainHeader::NeedRollback);
@@ -67,14 +64,11 @@ where
     /// Returns `([A, B, C], false)`.
     ///
     /// Note that the anchor hash will not be returned since it is always valid.
-    fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> (Vec<HeaderHash>, bool)
-    where
-        H: 'static,
-    {
+    fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> (Vec<HeaderHash>, bool) {
         let snapshot = self.snapshot();
         let mut hashes = Vec::new();
         let mut valid = true;
-        for (header, v) in ancestors_with_validity_on_snapshot::<H>(start, &*snapshot) {
+        for (header, v) in ancestors_with_validity_on_snapshot(start, &*snapshot) {
             match v {
                 Some(is_valid) => {
                     valid = is_valid;
@@ -104,16 +98,13 @@ where
     /// Returns `(C, [F, G])`.
     ///
     /// Returns None if the start point is already on the best chain.
-    fn find_ancestor_on_best_chain(&self, start: HeaderHash) -> Result<FindAncestorOnBestChainResult, StoreError>
-    where
-        H: 'static,
-    {
+    fn find_ancestor_on_best_chain(&self, start: HeaderHash) -> Result<FindAncestorOnBestChainResult, StoreError> {
         let snapshot = self.snapshot();
         let Some(header) = snapshot.load_header(&start) else {
             return Ok(FindAncestorOnBestChainResult::StartHeaderNotFound);
         };
         let mut forward_points = Vec::new();
-        for ancestor in ancestors_on_snapshot::<H>(header, &*snapshot) {
+        for ancestor in ancestors_on_snapshot(header, &*snapshot) {
             let point = ancestor.point();
             if snapshot.load_from_best_chain(&point).is_some() {
                 forward_points.reverse();
@@ -136,10 +127,11 @@ where
     ///        E--F--G
     ///
     /// `find_common_ancestor(D, G)` returns `Some(B)`.
-    fn find_common_ancestor(&self, hash1: HeaderHash, hash2: HeaderHash) -> Result<FindCommonAncestorResult, StoreError>
-    where
-        H: 'static,
-    {
+    fn find_common_ancestor(
+        &self,
+        hash1: HeaderHash,
+        hash2: HeaderHash,
+    ) -> Result<FindCommonAncestorResult, StoreError> {
         let snapshot = self.snapshot();
         let Some(header1) = snapshot.load_header(&hash1) else {
             return Ok(FindCommonAncestorResult::HeaderNotFound(hash1));
@@ -147,8 +139,8 @@ where
         let Some(header2) = snapshot.load_header(&hash2) else {
             return Ok(FindCommonAncestorResult::HeaderNotFound(hash2));
         };
-        let mut chain1 = ancestors_on_snapshot::<H>(header1, &*snapshot).map(|h| h.point()).peekable();
-        'outer: for point in ancestors_on_snapshot::<H>(header2, &*snapshot).map(|h| h.point()) {
+        let mut chain1 = ancestors_on_snapshot(header1, &*snapshot).map(|h| h.point()).peekable();
+        'outer: for point in ancestors_on_snapshot(header2, &*snapshot).map(|h| h.point()) {
             while let Some(a_point) = chain1.peek() {
                 if *a_point > point {
                     chain1.next();
@@ -167,10 +159,7 @@ where
     /// The origin point is always considered to be an intersection point.
     ///
     /// Return None if none of the points is on the best chain
-    fn find_intersect_point(&self, mut points: Vec<Point>) -> Option<Point>
-    where
-        H: 'static,
-    {
+    fn find_intersect_point(&self, mut points: Vec<Point>) -> Option<Point> {
         let snapshot = self.snapshot();
         points.sort_by_key(|p| Reverse(*p));
         points.into_iter().find(|&point| point == Point::Origin || snapshot.load_from_best_chain(&point).is_some())
@@ -183,10 +172,7 @@ where
     /// O--A--B--C--D--E--F--G  tip
     ///
     /// Returns `[G, F, D, O]`.
-    fn sample_ancestor_points(&self) -> Result<SampleAncestorPointsResult, StoreError>
-    where
-        H: 'static,
-    {
+    fn sample_ancestor_points(&self) -> Result<SampleAncestorPointsResult, StoreError> {
         let snapshot = self.snapshot();
         let best = snapshot.get_best_chain_hash();
         if best == ORIGIN_HASH {
@@ -199,7 +185,7 @@ where
         let mut points = vec![best_point];
         let mut spacing = 1;
         let mut last = best_point;
-        for (index, header) in ancestors_on_snapshot::<H>(best, &*snapshot).skip(1).enumerate() {
+        for (index, header) in ancestors_on_snapshot(best, &*snapshot).skip(1).enumerate() {
             last = header.tip().point();
             if index + 1 == spacing {
                 points.push(last);
@@ -218,10 +204,7 @@ where
     ///
     /// The entire walk runs against a single snapshot, so callers see a consistent view of the
     /// best chain even if other writers mutate it concurrently.
-    fn find_anchor_at_height(&self, target_height: BlockHeight) -> Option<HeaderHash>
-    where
-        H: 'static,
-    {
+    fn find_anchor_at_height(&self, target_height: BlockHeight) -> Option<HeaderHash> {
         let snapshot = self.snapshot();
         let anchor_hash = snapshot.get_anchor_hash();
         let (mut point, current_height) = if anchor_hash == ORIGIN_HASH {
@@ -260,17 +243,14 @@ where
     ///
     /// Note: the anchor point is not returned because that will confuse block validation.
     ///
-    fn find_missing_blocks(&self, start_hash: HeaderHash, limit: usize) -> Result<MissingBlocksResult, StoreError>
-    where
-        H: 'static,
-    {
+    fn find_missing_blocks(&self, start_hash: HeaderHash, limit: usize) -> Result<MissingBlocksResult, StoreError> {
         let snapshot = self.snapshot();
         let Some(start) = snapshot.load_header(&start_hash) else {
             return Ok(StartHeaderNotFound);
         };
         let anchor = snapshot.get_anchor_hash();
         let mut missing = Vec::new();
-        for header in ancestors_on_snapshot::<H>(start, &*snapshot) {
+        for header in ancestors_on_snapshot(start, &*snapshot) {
             if snapshot.has_block(&header.hash())? || header.hash() == anchor {
                 missing.reverse();
                 missing.truncate(limit);
@@ -325,13 +305,10 @@ where
 /// Walk ancestors of `start` on a snapshot view, stopping past the anchor.
 /// Mirrors `ReadChainStore::ancestors` but takes the snapshot explicitly so it
 /// can be reused inside default impls that already hold one.
-fn ancestors_on_snapshot<'a, H>(
-    start: H,
-    snapshot: &'a (dyn BaseReadChainStore<H> + 'a),
-) -> Box<dyn Iterator<Item = H> + 'a>
-where
-    H: IsHeader + 'a,
-{
+fn ancestors_on_snapshot<'a>(
+    start: BlockHeader,
+    snapshot: &'a (dyn BaseReadChainStore + 'a),
+) -> Box<dyn Iterator<Item = BlockHeader> + 'a> {
     let anchor = snapshot.get_anchor_hash();
     let anchor_point = match snapshot.load_header(&anchor) {
         Some(header) => header.point(),
@@ -347,13 +324,10 @@ where
     }))
 }
 
-fn ancestors_with_validity_on_snapshot<'a, H>(
+fn ancestors_with_validity_on_snapshot<'a>(
     start: HeaderHash,
-    snapshot: &'a (dyn BaseReadChainStore<H> + 'a),
-) -> Box<dyn Iterator<Item = (H, Option<bool>)> + 'a>
-where
-    H: IsHeader + 'a,
-{
+    snapshot: &'a (dyn BaseReadChainStore + 'a),
+) -> Box<dyn Iterator<Item = (BlockHeader, Option<bool>)> + 'a> {
     let anchor = snapshot.get_anchor_hash();
     let anchor_point = match snapshot.load_header(&anchor) {
         Some(header) => header.point(),
@@ -371,12 +345,12 @@ where
     }))
 }
 
-impl<H: IsHeader> BaseReadChainStore<H> for Box<dyn ReadChainStore<H> + '_> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+impl BaseReadChainStore for Box<dyn ReadChainStore + '_> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.as_ref().load_header(hash)
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
 
@@ -417,18 +391,18 @@ impl<H: IsHeader> BaseReadChainStore<H> for Box<dyn ReadChainStore<H> + '_> {
     }
 }
 
-impl<H: IsHeader> ReadChainStore<H> for Box<dyn ReadChainStore<H> + '_> {
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+impl ReadChainStore for Box<dyn ReadChainStore + '_> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
         self.as_ref().snapshot()
     }
 }
 
-impl<H: IsHeader, T: BaseReadChainStore<H> + ?Sized> BaseReadChainStore<H> for Arc<T> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<H> {
+impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
         self.as_ref().load_header(hash)
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(H, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
 
@@ -469,8 +443,8 @@ impl<H: IsHeader, T: BaseReadChainStore<H> + ?Sized> BaseReadChainStore<H> for A
     }
 }
 
-impl<H: IsHeader, T: ReadChainStore<H> + ?Sized> ReadChainStore<H> for Arc<T> {
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore<H> + '_> {
+impl<T: ReadChainStore + ?Sized> ReadChainStore for Arc<T> {
+    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
         self.as_ref().snapshot()
     }
 }
