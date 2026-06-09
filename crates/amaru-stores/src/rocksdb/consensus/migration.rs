@@ -14,14 +14,17 @@
 
 use std::path::Path;
 
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, cardano::hash, from_cbor};
-use amaru_ouroboros_traits::StoreError;
+use amaru_kernel::{IsHeader, ORIGIN_HASH, Point};
+use amaru_ouroboros_traits::{BaseReadChainStore, StoreError, WriteChainStore};
 use rocksdb::DB;
 use tracing::info;
 
 use crate::rocksdb::{
     RocksDbConfig,
-    consensus::util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, CHAIN_DB_VERSION, CHAIN_PREFIX, HEADER_PREFIX, open_db},
+    consensus::{
+        RocksDBStore,
+        util::{CHAIN_DB_VERSION, CHAIN_PREFIX, open_db},
+    },
 };
 
 /// The version key: __VERSION__
@@ -33,7 +36,7 @@ pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
 /// migration from version `i` to version `i + 1`.  When modifying the
 /// DB schema, create migration function and add it to this array
 /// bumping its length.
-static MIGRATIONS: [fn(&DB) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
+static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
     [migrate_to_v1, migrate_to_v2, migrate_to_v3];
 
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
@@ -42,115 +45,70 @@ static MIGRATIONS: [fn(&DB) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize
 pub fn migrate_db_path(path: &Path) -> Result<(u16, u16), StoreError> {
     let config = RocksDbConfig::new(path.to_path_buf());
 
-    let (_, db) = open_db(&config)?;
+    let (basedir, db) = open_db(&config)?;
+    let store = RocksDBStore { db, basedir };
 
-    migrate_db(&db)
+    migrate_db(&store)
 }
 
-/// Migrate the given `db` Chain Database to the current `CHAIN_DB_VERSION`.
+/// Migrate the given `store` Chain Database to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
 /// the current version if migration succeeds, otherwise returns a `StoreError`.
-pub fn migrate_db(db: &DB) -> Result<(u16, u16), StoreError> {
-    let version = get_version(db)?;
+pub fn migrate_db(store: &RocksDBStore<DB>) -> Result<(u16, u16), StoreError> {
+    let version = get_version(store)?;
 
     for n in version..CHAIN_DB_VERSION {
         info!("Migrating Chain database to version {}", n + 1);
-        MIGRATIONS[n as usize](db)?
+        MIGRATIONS[n as usize](store)?
     }
     Ok((version, CHAIN_DB_VERSION))
 }
 
 /// "Migrate" DB to version 1
 /// This simply records the `VERSION_KEY` into the db.
-pub(crate) fn migrate_to_v1(db: &DB) -> Result<(), StoreError> {
-    set_version(db, 1)?;
-    Ok(())
+pub(crate) fn migrate_to_v1(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    set_version(store, 1)
 }
 
 /// "Migrate" DB to version 2
 /// Walks the best chain backwards and re-inserts all points.
-fn migrate_to_v2(db: &DB) -> Result<(), StoreError> {
-    let mut hash = match get_best_chain_hash(db) {
-        Some(hash) => hash,
-        // the DB is empty, nothing to do
-        None => return Ok(()),
-    };
+fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    let mut hash = store.get_best_chain_hash();
+    if hash == ORIGIN_HASH {
+        return Ok(());
+    }
 
-    while let Some(header) = load_header(db, &hash) {
-        store_chain_point(db, &header.point())?;
+    while let Some(header) = store.load_header(&hash) {
+        store_chain_point(store, &header.point())?;
         match header.parent() {
             Some(parent) => hash = parent,
             None => break,
         }
     }
 
-    set_version(db, 2)?;
-    Ok(())
+    set_version(store, 2)
 }
 
-fn migrate_to_v3(db: &DB) -> Result<(), StoreError> {
+fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     // the reason is that v3 stores the block validation result, which cannot be derived from the v2 DB without
     // running the consensus algorithm and ledger validation. previously, blocks were stored before validation,
     tracing::warn!(
-        "migrating chain DB to version 3 makes possibly incorrect assumption of valid anchor, better start fresh"
+        "migrating chain DB to version 3 makes possibly incorrect assumption of valid best chain, better set it to the anchor hash"
     );
 
-    let (anchor_hash, anchor_point) = if let Some(anchor_hash) = get_anchor_hash(db)
-        && let Some(anchor_header) = load_header(db, &anchor_hash)
-    {
-        (anchor_hash, anchor_header.point())
-    } else {
-        (ORIGIN_HASH, Point::Origin)
-    };
-    let best_chain_point = if let Some(best_chain_hash) = get_best_chain_hash(db)
-        && let Some(best_chain_header) = load_header(db, &best_chain_hash)
-    {
-        best_chain_header.point()
-    } else {
-        Point::Origin
-    };
+    let original_best_chain_point = store.get_best_chain_tip().point();
+    let anchor_point = store.load_header(&store.get_anchor_hash()).map(|h| h.point()).unwrap_or(Point::Origin);
+    store.set_best_chain_hash(&anchor_point.hash())?;
+    store.set_block_valid(&anchor_point.hash(), true)?;
 
-    set_anchor_hash(db, &anchor_hash)?;
-    set_best_chain_hash(db, &anchor_hash)?;
-    set_block_valid(db, &anchor_hash, true)?;
+    tracing::info!(prev_best_chain = %original_best_chain_point, new_best_chain = %anchor_point, "found back best chain to revalidate");
 
-    tracing::info!(prev_best_chain = %best_chain_point, new_best_chain = %anchor_point, "found back best chain to revalidate");
-
-    set_version(db, 3)?;
-    Ok(())
+    set_version(store, 3)
 }
 
-fn load_header(db: &DB, hash: &Hash<32>) -> Option<BlockHeader> {
-    let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-    db.get_pinned(prefix).ok().and_then(|bytes| from_cbor(bytes?.as_ref()))
-}
-
-fn get_best_chain_hash(db: &DB) -> Option<HeaderHash> {
-    let bytes = db.get_pinned(BEST_CHAIN_PREFIX).ok().flatten()?;
-    if bytes.len() == hash::size::HEADER { Some(Hash::from(bytes.as_ref())) } else { None }
-}
-
-fn get_anchor_hash(db: &DB) -> Option<HeaderHash> {
-    let bytes = db.get_pinned(ANCHOR_PREFIX).ok().flatten()?;
-    if bytes.len() == hash::size::HEADER { Some(Hash::from(bytes.as_ref())) } else { None }
-}
-
-fn set_best_chain_hash(db: &DB, hash: &HeaderHash) -> Result<(), StoreError> {
-    db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
-}
-
-fn set_anchor_hash(db: &DB, hash: &HeaderHash) -> Result<(), StoreError> {
-    db.put(ANCHOR_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
-}
-
-fn set_block_valid(db: &DB, hash: &HeaderHash, valid: bool) -> Result<(), StoreError> {
-    db.put([&HEADER_PREFIX[..], &hash[..], &[0]].concat(), [valid as u8])
-        .map_err(|e| StoreError::WriteError { error: e.to_string() })
-}
-
-/// Check the version stored in the `db` matches `CHAIN_DB_VERSION`.
-pub fn check_db_version(db: &DB) -> Result<(), StoreError> {
-    get_version(db).and_then(|stored| {
+/// Check the version stored in the `store` matches `CHAIN_DB_VERSION`.
+pub fn check_db_version(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    get_version(store).and_then(|stored| {
         if stored != CHAIN_DB_VERSION {
             Err(StoreError::IncompatibleChainStoreVersions { stored, current: CHAIN_DB_VERSION })
         } else {
@@ -159,10 +117,10 @@ pub fn check_db_version(db: &DB) -> Result<(), StoreError> {
     })
 }
 
-/// Retrieve the version of the Chain DB stored in the given `db`.
+/// Retrieve the version of the Chain DB stored in the given `store`.
 /// If no version is stored, returns 0.
-pub fn get_version(db: &DB) -> Result<u16, StoreError> {
-    let raw_version = db.get(VERSION_KEY).map_err(|e| StoreError::OpenError { error: e.to_string() })?;
+pub fn get_version(store: &RocksDBStore<DB>) -> Result<u16, StoreError> {
+    let raw_version = store.db.get(VERSION_KEY).map_err(|e| StoreError::OpenError { error: e.to_string() })?;
 
     match raw_version {
         None => Ok(0),
@@ -173,15 +131,17 @@ pub fn get_version(db: &DB) -> Result<u16, StoreError> {
     }
 }
 
-/// Set the version of the Chain DB stored in the given `db` to the
+/// Set the version of the Chain DB stored in the given `store` to the
 /// current `CHAIN_DB_VERSION`.
-pub fn set_version(db: &DB, version: u16) -> Result<(), StoreError> {
+pub fn set_version(store: &RocksDBStore<DB>, version: u16) -> Result<(), StoreError> {
     let bytes = version.to_be_bytes();
-    db.put(VERSION_KEY, bytes).map_err(|e| StoreError::WriteError { error: e.to_string() })
+    store.db.put(VERSION_KEY, bytes).map_err(|e| StoreError::WriteError { error: e.to_string() })
 }
 
-fn store_chain_point(db: &DB, point: &Point) -> Result<(), StoreError> {
+fn store_chain_point(store: &RocksDBStore<DB>, point: &Point) -> Result<(), StoreError> {
     let slot = u64::from(point.slot_or_default()).to_be_bytes();
-    db.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
+    store
+        .db
+        .put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
         .map_err(|e| StoreError::WriteError { error: e.to_string() })
 }

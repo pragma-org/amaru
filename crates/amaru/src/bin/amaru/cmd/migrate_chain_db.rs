@@ -20,7 +20,7 @@ use amaru_observability::{MIGRATING_DATABASE, OPENING_CHAIN_DB};
 use amaru_ouroboros::StoreError;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
-    consensus::{check_db_version, migrate_db, util::open_db},
+    consensus::{RocksDBStore, check_db_version, migrate_db, util::open_db},
 };
 use clap::Parser;
 use tracing::{error, info, info_span};
@@ -58,14 +58,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     );
 
     Ok(info_span!(OPENING_CHAIN_DB, path = %config.dir.display()).in_scope(|| {
-        let (_, db) = open_db(&config)?;
-        match check_db_version(&db) {
+        let (basedir, db) = open_db(&config)?;
+        let store = RocksDBStore { db, basedir };
+        match check_db_version(&store) {
             Ok(()) => {
                 info!("already up to date, no migration needed.");
                 Ok(())
             }
             Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
-                info_span!(MIGRATING_DATABASE, from = stored, to = current).in_scope(|| migrate_db(&db))?;
+                info_span!(MIGRATING_DATABASE, from = stored, to = current).in_scope(|| migrate_db(&store))?;
                 Ok(())
             }
             Err(e) => {

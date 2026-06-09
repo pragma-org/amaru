@@ -16,14 +16,14 @@ use std::{fs, path::PathBuf};
 
 use amaru_kernel::{HeaderHash, IsHeader as _};
 use amaru_ouroboros_traits::{BaseReadChainStore, StoreError};
-use rocksdb::{Options, WriteBatch, DB};
+use rocksdb::{DB, Options, WriteBatch};
 
 use crate::rocksdb::{
-    consensus::{
-        check_db_version, migrate_db, set_version, util::{open_db, open_or_create_db, BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX},
-        DbOps,
-    },
     RocksDbConfig,
+    consensus::{
+        DbOps, check_db_version, migrate_db, set_version,
+        util::{BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, open_db, open_or_create_db},
+    },
 };
 
 pub struct RocksDBStore<T: DbOps = DB> {
@@ -39,8 +39,9 @@ impl RocksDBStore<DB> {
     /// * the DB exists but with an incompatible version
     pub fn open(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let (basedir, db) = open_db(config)?;
-        check_db_version(&db)?;
-        Ok(Self { db, basedir })
+        let store = Self { db, basedir };
+        check_db_version(&store)?;
+        Ok(store)
     }
 
     /// Create a `RocksDBStore` with given configuration.
@@ -61,9 +62,10 @@ impl RocksDBStore<DB> {
         }
 
         let (_, db) = open_or_create_db(&config)?;
-        set_version(&db, CHAIN_DB_VERSION)?;
+        let store = Self { db, basedir };
+        set_version(&store, CHAIN_DB_VERSION)?;
 
-        Ok(Self { db, basedir })
+        Ok(store)
     }
 
     /// Open or create a `RocksDBStore` with given configuration.
@@ -72,10 +74,11 @@ impl RocksDBStore<DB> {
     /// DB it opens or creates which can potentially causes data corruption.
     pub fn open_and_migrate(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let (basedir, db) = open_or_create_db(config)?;
+        let store = Self { db, basedir };
 
-        migrate_db(&db)?;
+        migrate_db(&store)?;
 
-        Ok(Self { db, basedir })
+        Ok(store)
     }
 
     pub fn open_for_readonly(config: &RocksDbConfig) -> Result<Self, StoreError> {

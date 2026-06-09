@@ -1160,7 +1160,7 @@ fn creates_a_database_with_current_version_given_directory_is_empty() {
     let basedir = init_dir(path);
 
     let store = RocksDBStore::create(RocksDbConfig::new(basedir)).expect("should create DB successfully");
-    let version = get_version(&store.db).expect("should read version successfully");
+    let version = get_version(&store).expect("should read version successfully");
 
     assert_eq!(version, CHAIN_DB_VERSION);
 }
@@ -1175,10 +1175,12 @@ fn can_convert_v0_sample_db_to_v1() {
 
     copy_recursively(source, target).unwrap();
 
-    let (_, db) = open_db(&config).expect("cannot open sample v0 DB");
-    migrate_to_v1(&db).expect("Migration should succeed");
+    let (basedir, db) = open_db(&config).expect("cannot open sample v0 DB");
+    let store = RocksDBStore { db, basedir };
+    migrate_to_v1(&store).expect("Migration should succeed");
 
-    let header: Option<BlockHeader> = db
+    let header: Option<BlockHeader> = store
+        .db
         .get_pinned([&HEADER_PREFIX[..], hex::decode(SAMPLE_HASH).unwrap().as_slice()].concat())
         .ok()
         .and_then(|bytes| from_cbor(bytes?.as_ref()));
@@ -1236,7 +1238,7 @@ fn open_or_create_succeeds_given_directory_exists() {
     copy_recursively(source, target).unwrap();
 
     let store = RocksDBStore::open_and_migrate(&config).expect("should create DB successfully");
-    let version = get_version(&store.db).expect("should read version successfully");
+    let version = get_version(&store).expect("should read version successfully");
 
     assert_eq!(version, CHAIN_DB_VERSION);
 }

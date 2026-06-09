@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{size::HEADER, to_cbor, BlockHeader, HeaderHash, IsHeader, Point, RawBlock, ORIGIN_HASH};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
 use amaru_observability::trace_span;
 use amaru_ouroboros_traits::{Nonces, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
-    util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX},
     RocksDBStore,
+    util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX},
 };
 
 impl WriteChainStore for RocksDBStore {
