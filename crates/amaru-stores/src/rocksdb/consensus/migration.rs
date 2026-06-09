@@ -89,6 +89,7 @@ fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     set_version(store, 2)
 }
 
+#[expect(clippy::expect_used)]
 fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     // the reason is that v3 stores the block validation result, which cannot be derived from the v2 DB without
     // running the consensus algorithm and ledger validation. previously, blocks were stored before validation,
@@ -97,7 +98,8 @@ fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     );
 
     let original_best_chain_point = store.get_best_chain_tip().point();
-    let anchor_point = store.load_header(&store.get_anchor_hash()).map(|h| h.point()).unwrap_or(Point::Origin);
+    let anchor_point =
+        store.load_header(&store.get_anchor_hash()).map(|h| h.point()).expect("the anchor header should always exist");
     store.set_best_chain_hash(&anchor_point.hash())?;
     store.set_block_valid(&anchor_point.hash(), true)?;
 
