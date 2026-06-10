@@ -219,6 +219,9 @@ PY
 }
 
 echo "==> Validating generated fixtures against amaru decoders"
-annotate_divergences || annotate_divergences
+if ! annotate_divergences; then
+    echo "==> Re-running test after annotation"
+    annotate_divergences
+fi
 echo "==> Final run"
 (cd "$REPO_ROOT" && cargo test -p amaru-kernel --test test_cbor_serialization -- --no-capture)
