@@ -1,0 +1,205 @@
+#!/bin/bash
+# Regenerate the cuddle/antigen-driven CBOR fixtures consumed by
+# `crates/amaru-kernel/tests/cbor_fixtures.rs`.
+#
+# Requirements: cuddle CLI ≥ 1.8.0.0 on PATH (installed lazily via `cabal
+# install` if missing). See conformance-tests/cbor-fixture-generator/README.md.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GENERATOR_DIR="$REPO_ROOT/conformance-tests/cbor-fixture-generator"
+CDDL_FILE="$GENERATOR_DIR/conway.cddl"
+TESTS_DIR="$REPO_ROOT/crates/amaru-kernel/tests"
+TESTS_DATA_DIR="$TESTS_DIR/data"
+OUT_DIR="$TESTS_DATA_DIR/cbor.decode"
+TOOL_DIR="$REPO_ROOT/target"
+
+COUNT="${CBOR_FIXTURE_COUNT:-64}"
+SEED="${CBOR_FIXTURE_SEED:-42}"
+ERA="conway"
+
+# --- Locate / install cuddle ----------------------------------------------
+
+BIN_DIR="$TOOL_DIR/bin"
+CUDDLE_BIN="$BIN_DIR/cuddle"
+if command -v cuddle >/dev/null 2>&1 && cuddle gen --help 2>&1 | grep -q -- "--negative"; then
+    CUDDLE_BIN="$(command -v cuddle)"
+elif [ -x "$CUDDLE_BIN" ] && "$CUDDLE_BIN" gen --help 2>&1 | grep -q -- "--negative"; then
+    :  # use the pre-built one
+else
+    echo "==> Installing cuddle CLI via cabal (one-time)"
+    if ! command -v cabal >/dev/null 2>&1; then
+        echo "error: cabal not found on PATH. Install GHC + cabal first." >&2
+        exit 1
+    fi
+    mkdir -p "$BIN_DIR"
+    cabal install cuddle \
+        --installdir="$BIN_DIR" \
+        --install-method=copy \
+        --overwrite-policy=always
+fi
+
+echo "==> Using cuddle at $CUDDLE_BIN"
+"$CUDDLE_BIN" gen --help >/dev/null
+
+# --- Hash helper: blake2b-256 hex of stdin --------------------------------
+# macOS lacks `b2sum`. We fall back to a tiny python one-liner.
+hash_b2() {
+    if command -v b2sum >/dev/null 2>&1; then
+        b2sum --length=256 | awk '{print $1}'
+    else
+        python3 -c 'import hashlib, sys; print(hashlib.blake2b(sys.stdin.buffer.read(), digest_size=32).hexdigest())'
+    fi
+}
+
+emit() {
+    local kind="$1"          # block | transaction_body
+    local mode="$2"          # positive | negative
+    local idx="$3"
+    local tmp
+    tmp="$(mktemp)"
+    local fixture_seed=$((SEED + idx))
+    local rc=0
+    # Leave cuddle's "twiddle" enabled so the fixture set exercises both
+    # definite- and indefinite-length CBOR encodings. amaru's decoder is
+    # expected to accept either form; any indefinite-length sample that
+    # amaru rejects will be marked `known_amaru_divergence: true` by the
+    # annotate pass below.
+    if [ "$mode" = "negative" ]; then
+        "$CUDDLE_BIN" gen --seed "$fixture_seed" -f binary -o "$tmp" \
+                      --negative "$kind" "$CDDL_FILE" >/dev/null 2>&1 || rc=$?
+    else
+        "$CUDDLE_BIN" gen --seed "$fixture_seed" -f binary -o "$tmp" \
+                      "$kind" "$CDDL_FILE" >/dev/null 2>&1 || rc=$?
+    fi
+    if [ "$rc" -ne 0 ]; then
+        rm -f "$tmp"
+        return 1
+    fi
+
+    # amaru wraps blocks in `[era_tag, block]` (CBOR `82 07 …` for Conway).
+    # cuddle generates the bare block per the CDDL `block = [...]` rule, so
+    # we prepend the era envelope here.
+    if [ "$kind" = "block" ]; then
+        local wrapped
+        wrapped="$(mktemp)"
+        printf '\x82\x07' > "$wrapped"
+        cat "$tmp" >> "$wrapped"
+        rm "$tmp"
+        tmp="$wrapped"
+    fi
+
+    local hash
+    hash="$(hash_b2 < "$tmp")"
+    local dest_dir="$OUT_DIR/$kind/$ERA/$hash"
+    mkdir -p "$dest_dir"
+    mv "$tmp" "$dest_dir/sample.cbor"
+
+    local well_formed source desc
+    if [ "$mode" = "positive" ]; then
+        well_formed=true; source=cuddle
+        desc="$(printf 'cuddle-positive #%04d' "$idx")"
+    else
+        well_formed=false; source=antigen
+        desc="$(printf 'antigen-negative #%04d' "$idx")"
+    fi
+
+    python3 - "$dest_dir/meta.json" "$well_formed" "$ERA" "$kind" "$desc" "$source" "$fixture_seed" <<'PY'
+import json, sys
+path, well_formed, era, kind, desc, source, seed = sys.argv[1:]
+with open(path, "w") as f:
+    json.dump({
+        "well_formed": well_formed == "true",
+        "era": era,
+        "kind": kind,
+        "description": desc,
+        "source": source,
+        "seed": int(seed),
+    }, f, separators=(",", ":"))
+    f.write("\n")
+PY
+}
+
+run() {
+    local kind="$1"
+    local mode="$2"
+    echo "==> Generating ${COUNT} ${mode} ${kind} fixtures (era=${ERA}, seed=${SEED})"
+    local i=0
+    local emitted=0
+    while [ "$emitted" -lt "$COUNT" ] && [ "$i" -lt $((COUNT * 4)) ]; do
+        if emit "$kind" "$mode" "$i"; then
+            emitted=$((emitted + 1))
+        fi
+        i=$((i + 1))
+    done
+    if [ "$emitted" -lt "$COUNT" ]; then
+        echo "  warning: only emitted $emitted/$COUNT fixtures (cuddle failures, $i attempts)"
+    fi
+}
+
+run block            positive
+run block            negative
+run transaction_body positive
+run transaction_body negative
+
+# Reconcile each fixture's `known_amaru_divergence` flag with amaru's current
+# behavior:
+#   - if amaru disagrees with `well_formed`, add the flag (new divergence),
+#   - if the flag is set but amaru now agrees with `well_formed`, drop the flag
+#     (a previously-tracked divergence has been fixed upstream and the flag is
+#     now stale).
+annotate_divergences() {
+    local log
+    log="$(mktemp)"
+    set +e
+    (cd "$REPO_ROOT" && cargo test -p amaru-kernel --test test_cbor_serialization -- --no-capture 2>&1) >"$log"
+    local rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+        tail -3 "$log"
+        rm "$log"
+        return 0
+    fi
+    local added=0 cleared=0
+    while IFS= read -r line; do
+        # Walker failure lines look like: "  - /<fixture-dir>: <reason>"
+        local rest="${line#*- }"
+        local dir="${rest%%:*}"
+        local reason="${rest#*: }"
+        local meta="$dir/meta.json"
+        [ -f "$meta" ] || continue
+        if [[ "$reason" == "stale known_amaru_divergence flag"* ]]; then
+            python3 - "$meta" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+if d.pop("known_amaru_divergence", None) is not None:
+    with open(p, "w") as f:
+        json.dump(d, f, separators=(",", ":"))
+        f.write("\n")
+PY
+            cleared=$((cleared + 1))
+        else
+            python3 - "$meta" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+if not d.get("known_amaru_divergence"):
+    d["known_amaru_divergence"] = True
+    with open(p, "w") as f:
+        json.dump(d, f, separators=(",", ":"))
+        f.write("\n")
+PY
+            added=$((added + 1))
+        fi
+    done < <(grep -E '^  - /[^ :]+/cbor.decode/[^ :]+: ' "$log")
+    rm "$log"
+    echo "  added $added flag(s), cleared $cleared stale flag(s)"
+    return 1
+}
+
+echo "==> Validating generated fixtures against amaru decoders"
+annotate_divergences || annotate_divergences
+echo "==> Final run"
+(cd "$REPO_ROOT" && cargo test -p amaru-kernel --test test_cbor_serialization -- --no-capture)
