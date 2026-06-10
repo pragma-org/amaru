@@ -35,3 +35,9 @@ pub use full_chain_store::*;
 
 #[cfg(feature = "test-utils")]
 pub mod overriding_chain_store;
+
+/// Convenience marker — anything that is both a read and a write store is
+/// automatically a `ChainStore`.
+pub trait ChainStore: ReadChainStore + WriteChainStore {}
+
+impl<T> ChainStore for T where T: ReadChainStore + WriteChainStore + ?Sized {}

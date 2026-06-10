@@ -20,7 +20,7 @@ use std::{
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, RawBlock};
 
 use crate::{
-    DiagnosticChainStore, Nonces, StoreError,
+    DiagnosticChainStore, FullChainStore, Nonces, StoreError,
     stores::chain_store::{BaseReadChainStore, ReadChainStore, WriteChainStore},
 };
 
@@ -336,20 +336,4 @@ impl DiagnosticChainStore for InMemoryChainStore {
     }
 }
 
-impl<T: DiagnosticChainStore + ?Sized> DiagnosticChainStore for Arc<T> {
-    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
-        self.as_ref().load_headers()
-    }
-
-    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
-        self.as_ref().load_nonces()
-    }
-
-    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
-        self.as_ref().load_blocks()
-    }
-
-    fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
-        self.as_ref().load_parents_children()
-    }
-}
+impl FullChainStore for InMemoryChainStore {}

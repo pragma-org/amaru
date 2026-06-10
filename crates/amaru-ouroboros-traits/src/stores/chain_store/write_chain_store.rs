@@ -14,7 +14,7 @@
 
 use amaru_kernel::{BlockHeader, HeaderHash, Point, RawBlock};
 
-use crate::{Nonces, ReadChainStore, StoreError};
+use crate::{Nonces, StoreError};
 
 /// Write interface for the ChainStore
 pub trait WriteChainStore: Send + Sync {
@@ -39,9 +39,3 @@ pub trait WriteChainStore: Send + Sync {
     /// Roll forward the best chain to the given point and set the best chain hash to that point.
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError>;
 }
-
-/// Convenience marker — anything that is both a read and a write store is
-/// automatically a `ChainStore`.
-pub trait ChainStore: ReadChainStore + WriteChainStore {}
-
-impl<T> ChainStore for T where T: ReadChainStore + WriteChainStore + ?Sized {}

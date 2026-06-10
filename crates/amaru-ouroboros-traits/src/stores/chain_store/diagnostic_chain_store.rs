@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::iter::successors;
+use std::{iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, Point, RawBlock};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, RawBlock};
 
 use crate::{Nonces, ReadChainStore};
 
@@ -36,11 +36,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
         &'a self,
         start: HeaderHash,
     ) -> Box<dyn Iterator<Item = (BlockHeader, Option<bool>)> + 'a> {
-        let anchor = self.get_anchor_hash();
-        let anchor_point = match self.load_header(&anchor) {
-            Some(header) => header.point(),
-            None => Point::Origin,
-        };
+        let anchor_point = self.get_anchor_tip().point();
 
         let header_opt = self.load_header_with_validity(&start);
 
@@ -56,11 +52,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
     /// Return the ancestors of the header, including the header itself.
     /// Stop if the followed chain reaches past the anchor.
     fn ancestors<'a>(&'a self, start: BlockHeader) -> Box<dyn Iterator<Item = BlockHeader> + 'a> {
-        let anchor = self.get_anchor_hash();
-        let anchor_point = match self.load_header(&anchor) {
-            Some(header) => header.point(),
-            None => Point::Origin,
-        };
+        let anchor_point = self.get_anchor_tip().point();
 
         Box::new(successors(Some(start), move |h| {
             if h.slot() <= anchor_point.slot_or_default() {
@@ -127,5 +119,23 @@ pub trait DiagnosticChainStore: ReadChainStore {
             .iter()
             .map(|h| self.load_header(h).expect("missing header for the best chain"))
             .collect()
+    }
+}
+
+impl<T: DiagnosticChainStore + ?Sized> DiagnosticChainStore for Arc<T> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+        self.as_ref().load_headers()
+    }
+
+    fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
+        self.as_ref().load_nonces()
+    }
+
+    fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
+        self.as_ref().load_blocks()
+    }
+
+    fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_> {
+        self.as_ref().load_parents_children()
     }
 }

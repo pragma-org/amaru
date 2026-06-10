@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, ORIGIN_HASH, Point, RawBlock, from_cbor, size::HEADER};
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, ORIGIN_HASH, Point, RawBlock, Tip, from_cbor, size::HEADER};
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
@@ -67,6 +67,20 @@ where
             .flatten()
             .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
             .unwrap_or(ORIGIN_HASH)
+    }
+
+    fn get_anchor_tip(&self) -> Tip {
+        let anchor_hash = self.get_anchor_hash();
+        if anchor_hash == ORIGIN_HASH {
+            return Tip::origin();
+        }
+        self.db
+            .get_pinned(&[&HEADER_PREFIX[..], &anchor_hash[..]].concat(), ReadOptions::default())
+            .ok()
+            .flatten()
+            .and_then(|bytes| from_cbor::<BlockHeader>(bytes.as_ref()))
+            .map(|h| h.tip())
+            .unwrap_or_else(Tip::origin)
     }
 
     fn get_best_chain_hash(&self) -> HeaderHash {

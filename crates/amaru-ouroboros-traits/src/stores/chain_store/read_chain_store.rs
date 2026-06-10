@@ -309,11 +309,7 @@ fn ancestors_on_snapshot<'a>(
     start: BlockHeader,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
 ) -> Box<dyn Iterator<Item = BlockHeader> + 'a> {
-    let anchor = snapshot.get_anchor_hash();
-    let anchor_point = match snapshot.load_header(&anchor) {
-        Some(header) => header.point(),
-        None => Point::Origin,
-    };
+    let anchor_point = snapshot.get_anchor_tip().point();
 
     Box::new(successors(Some(start), move |h| {
         if h.slot() <= anchor_point.slot_or_default() {
@@ -328,11 +324,7 @@ fn ancestors_with_validity_on_snapshot<'a>(
     start: HeaderHash,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
 ) -> Box<dyn Iterator<Item = (BlockHeader, Option<bool>)> + 'a> {
-    let anchor = snapshot.get_anchor_hash();
-    let anchor_point = match snapshot.load_header(&anchor) {
-        Some(header) => header.point(),
-        None => Point::Origin,
-    };
+    let anchor_point = snapshot.get_anchor_tip().point();
 
     let header_opt = snapshot.load_header_with_validity(&start);
 
@@ -343,58 +335,6 @@ fn ancestors_with_validity_on_snapshot<'a>(
             h.parent().and_then(|p| snapshot.load_header_with_validity(&p))
         }
     }))
-}
-
-impl BaseReadChainStore for Box<dyn ReadChainStore + '_> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
-        self.as_ref().load_header(hash)
-    }
-
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
-        self.as_ref().load_header_with_validity(hash)
-    }
-
-    fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash> {
-        self.as_ref().get_children(hash)
-    }
-
-    fn get_anchor_hash(&self) -> HeaderHash {
-        self.as_ref().get_anchor_hash()
-    }
-
-    fn get_best_chain_hash(&self) -> HeaderHash {
-        self.as_ref().get_best_chain_hash()
-    }
-
-    fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
-        self.as_ref().load_block(hash)
-    }
-
-    fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
-        self.as_ref().has_block(hash)
-    }
-
-    fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
-        self.as_ref().get_nonces(header)
-    }
-
-    fn has_header(&self, hash: &HeaderHash) -> bool {
-        self.as_ref().has_header(hash)
-    }
-
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        self.as_ref().load_from_best_chain(point)
-    }
-
-    fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        self.as_ref().next_best_chain(point)
-    }
-}
-
-impl ReadChainStore for Box<dyn ReadChainStore + '_> {
-    fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
-        self.as_ref().snapshot()
-    }
 }
 
 impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {

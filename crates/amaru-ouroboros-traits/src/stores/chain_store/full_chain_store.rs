@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ChainStore, DiagnosticChainStore, in_memory_chain_store::InMemoryChainStore};
+use crate::{ChainStore, DiagnosticChainStore};
 
 /// ChainStore with all capabilities for reading / writing and running diagnostics
 pub trait FullChainStore: ChainStore + DiagnosticChainStore {}
-
-impl FullChainStore for InMemoryChainStore {}

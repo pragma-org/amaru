@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, RawBlock, Slot,
+    BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, RawBlock, Slot, Tip,
     any_header_hash, any_header_with_parent, any_headers_chain, from_cbor, make_header,
     size::HEADER,
     utils::tests::{random_bytes, run_strategy},
@@ -120,6 +120,32 @@ fn store_anchor_hash() {
         let anchor = run_strategy(any_header_hash());
         db.set_anchor_hash(&anchor).unwrap();
         assert_eq!(db.get_anchor_hash(), anchor);
+    })
+}
+
+#[test]
+fn anchor_tip_when_store_is_empty() {
+    with_db(|db| {
+        assert_eq!(db.get_anchor_tip(), Tip::origin());
+    })
+}
+
+#[test]
+fn anchor_tip_returns_origin_when_anchor_header_is_not_stored() {
+    with_db(|db| {
+        let anchor = run_strategy(any_header_hash());
+        db.set_anchor_hash(&anchor).unwrap();
+        assert_eq!(db.get_anchor_tip(), Tip::origin());
+    })
+}
+
+#[test]
+fn anchor_tip_returns_tip_of_stored_anchor_header() {
+    with_db(|db| {
+        let header = BlockHeader::from(make_header(1, 0, None));
+        db.store_header(&header).unwrap();
+        db.set_anchor_hash(&header.hash()).unwrap();
+        assert_eq!(db.get_anchor_tip(), header.tip());
     })
 }
 

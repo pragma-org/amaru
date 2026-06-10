@@ -26,6 +26,9 @@ pub trait BaseReadChainStore: Send + Sync {
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
+    fn get_anchor_tip(&self) -> Tip {
+        self.load_header(&self.get_anchor_hash()).map(|h| h.tip()).unwrap_or_else(Tip::origin)
+    }
     fn get_best_chain_hash(&self) -> HeaderHash;
 
     /// Load a `HeaderHash` from the best chain.
