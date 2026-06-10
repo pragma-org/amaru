@@ -19,13 +19,13 @@ use std::{
 };
 
 use amaru_kernel::{ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, PoolId, Slot};
-use amaru_ouroboros_traits::{HasStakeDistribution, has_stake_distribution::GetPoolError};
+use amaru_ouroboros_traits::{has_stake_distribution::GetPoolError, HasStakeDistribution};
 use thiserror::Error;
 
 use crate::{
-    OperationalCert, VrfCert, ed25519, issuer_to_pool_id, kes,
-    math::{ExpOrdering, FixedDecimal, FixedPrecision},
-    vrf,
+    ed25519, issuer_to_pool_id, kes, math::{ExpOrdering, FixedDecimal, FixedPrecision}, vrf,
+    OperationalCert,
+    VrfCert,
 };
 
 /// The certified natural max value represents 2^256 in praos consensus
@@ -113,7 +113,8 @@ pub fn assert_all<'a>(
     let active_slot_coeff = consensus_parameters.active_slot_coeff();
     let slot_to_kes_period = consensus_parameters.slot_to_kes_period(absolute_slot);
     let max_kes_evolutions = consensus_parameters.max_kes_evolutions();
-    let latest_opcert_sequence_number = consensus_parameters.latest_opcert_sequence_number(&pool);
+    // A registered pool that has never produced a block has no recorded counter. So we consider that latest_opcert_sequence_number is 0.
+    let latest_opcert_sequence_number = consensus_parameters.latest_opcert_sequence_number(&pool).unwrap_or_default();
     Ok(vec![
         Box::new(move || {
             AssertKnownLeaderVrfError::new(registered_vrf_key, &vrf::PublicKey::from(declared_vrf_key))?;
@@ -397,7 +398,7 @@ impl AssertOperationalCertificateError {
     pub fn new(
         certificate: &OperationalCert,
         issuer: &ed25519::PublicKey,
-        latest_sequence_number: Option<u64>,
+        latest_sequence_number: u64,
     ) -> Result<(), Self> {
         // Verify the Operational Certificate signature
         let signature = ed25519::Signature::try_from(certificate.operational_cert_sigma.as_slice())
@@ -407,20 +408,12 @@ impl AssertOperationalCertificateError {
 
         // Check the sequence number of the operational certificate. It should either be the same
         // as the latest known sequence number for the issuer or one greater.
-        match latest_sequence_number {
-            Some(latest_sequence_number) => {
-                if declared_sequence_number < latest_sequence_number {
-                    return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
-                }
+        if declared_sequence_number < latest_sequence_number {
+            return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
+        }
 
-                if (declared_sequence_number - latest_sequence_number) > 1 {
-                    return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
-                }
-            }
-            None => {
-                // FIXME: Double-check whether we mustn't fail in this case or if it is acceptable
-                // to have no opcert available?
-            }
+        if declared_sequence_number - latest_sequence_number > 1 {
+            return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
         }
 
         // The opcert message is a concatenation of the KES vkey, the sequence number, and the kes period

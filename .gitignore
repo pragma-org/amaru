@@ -60,3 +60,7 @@ scripts/relay*/run/**
 
 /.opencode/
 data/*/epoch-snapshots/
+
+# Backup directories and files
+*bak/
+**/*.bak
