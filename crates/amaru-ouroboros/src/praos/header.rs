@@ -19,13 +19,13 @@ use std::{
 };
 
 use amaru_kernel::{ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, PoolId, Slot};
-use amaru_ouroboros_traits::{has_stake_distribution::GetPoolError, HasStakeDistribution};
+use amaru_ouroboros_traits::{HasStakeDistribution, has_stake_distribution::GetPoolError};
 use thiserror::Error;
 
 use crate::{
-    ed25519, issuer_to_pool_id, kes, math::{ExpOrdering, FixedDecimal, FixedPrecision}, vrf,
-    OperationalCert,
-    VrfCert,
+    OperationalCert, VrfCert, ed25519, issuer_to_pool_id, kes,
+    math::{ExpOrdering, FixedDecimal, FixedPrecision},
+    vrf,
 };
 
 /// The certified natural max value represents 2^256 in praos consensus
