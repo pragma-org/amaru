@@ -29,11 +29,13 @@ use crate::context::{
 #[derive(Debug, Default)]
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
+    pub accounts: BTreeSet<&'a StakeCredential>,
+    pub dreps: BTreeSet<&'a StakeCredential>,
 }
 
 impl DefaultPreparationContext<'_> {
     pub fn new() -> Self {
-        Self { utxo: BTreeSet::new() }
+        Self { utxo: BTreeSet::new(), accounts: BTreeSet::new(), dreps: BTreeSet::new() }
     }
 }
 
@@ -52,13 +54,13 @@ impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_account(&mut self, _credential: &StakeCredential) {
-        unimplemented!();
+    fn require_account(&'_ mut self, credential: &'a StakeCredential) {
+        self.accounts.insert(credential);
     }
 }
 
 impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_drep(&mut self, _drep: &StakeCredential) {
-        unimplemented!();
+    fn require_drep(&'_ mut self, drep: &'a StakeCredential) {
+        self.dreps.insert(drep);
     }
 }

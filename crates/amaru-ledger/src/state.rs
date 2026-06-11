@@ -15,7 +15,7 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     net::SocketAddr,
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, MutexGuard},
@@ -23,7 +23,7 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher,
-    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction,
+    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, StakeCredential, Tip, Transaction,
     TransactionInput, TransactionPointer, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
@@ -34,17 +34,16 @@ use thiserror::Error;
 use tracing::{Span, info, trace};
 
 use crate::{
-    context::{DefaultPreparationContext, DefaultValidationContext},
+    context::{AccountState, DefaultPreparationContext, DefaultValidationContext},
     epoch_transition,
     epoch_transition::{GovernanceActivity, RewardsState},
     governance::ratification::RatificationContext,
     rules,
     rules::block::BlockValidation,
     state::{
+        drep_state::DRepState,
         overlay::StateOverlay,
-        volatile::{
-            AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileView, VolatileViewError,
-        },
+        volatile::{AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileView},
     },
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -54,10 +53,13 @@ use crate::{
     },
 };
 
+pub mod account_state;
 pub mod diff_bind;
 pub mod diff_epoch_reg;
 pub mod diff_set;
+pub mod drep_state;
 pub mod overlay;
+pub mod pool_state;
 pub mod volatile;
 
 /// The minimum number of past (from the current epoch) snapshots required for the ledger to
@@ -372,8 +374,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // last k blocks for a single epoch. Or carry some kind of type-level guard that
             // the this is called within an acceptable context (i.e. the volatile
             // pre-conditions have been checked).
-            let mut volatile_view = VolatileView::new(next_epoch - 1, protocol_parameters, &self.volatile, &*db)
-                .map_err(StateError::FailedToCreateVolatileView)?;
+            let mut volatile_view = VolatileView::new(next_epoch - 1, protocol_parameters, &self.volatile, &*db);
 
             let (treasury, effective_rewards) = if progress.is_none() {
                 let effective_rewards = epoch_transition::end_epoch(
@@ -500,7 +501,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &'_ self,
         ongoing_state: &VolatileFragment,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(TransactionInput, Option<MemoizedTransactionOutput>)>, StoreError> {
+    ) -> Result<Vec<(TransactionInput, Option<Arc<MemoizedTransactionOutput>>)>, StoreError> {
         let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_INPUTS);
         let _guard = _span.enter();
 
@@ -524,7 +525,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     .map(|output| Ok(Some(output)))
                     .unwrap_or_else(|| {
                         let db = self.stable.lock().unwrap();
-                        db.utxo(input).inspect(|_| resolved_from_db += 1)
+                        db.utxo(input).inspect(|_| resolved_from_db += 1).map(|output| output.map(Arc::new))
                     })
             }?;
 
@@ -534,6 +535,56 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         tracing::Span::current().record("resolved_from_context", resolved_from_context);
         tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
         tracing::Span::current().record("resolved_from_db", resolved_from_db);
+
+        Ok(result)
+    }
+
+    #[expect(clippy::unwrap_used)]
+    pub fn resolve_dreps<'a>(
+        &self,
+        credentials: impl Iterator<Item = &'a StakeCredential>,
+    ) -> Result<BTreeMap<StakeCredential, Arc<DRepState>>, StoreError> {
+        let mut result = BTreeMap::new();
+
+        for credential in credentials {
+            if self.volatile.has_unregistered_drep(credential) {
+                continue;
+            }
+
+            let state = match self.volatile.resolve_drep(credential) {
+                Some(state) => Some(state.clone()),
+                None => self.stable.lock().unwrap().drep(credential)?.map(|row| Arc::new(DRepState::from(row))),
+            };
+
+            if let Some(state) = state {
+                result.insert(credential.clone(), state);
+            }
+        }
+
+        Ok(result)
+    }
+
+    #[expect(clippy::unwrap_used)]
+    pub fn resolve_accounts<'a>(
+        &self,
+        credentials: impl Iterator<Item = &'a StakeCredential>,
+    ) -> Result<BTreeMap<StakeCredential, Arc<AccountState>>, StoreError> {
+        let mut result = BTreeMap::new();
+
+        for credential in credentials {
+            if self.volatile.has_unregistered_account(credential) {
+                continue;
+            }
+
+            let state = match self.volatile.resolve_account(credential) {
+                Some(state) => Some(state.clone()),
+                None => self.stable.lock().unwrap().account(credential)?.map(|row| Arc::new(AccountState::from(row))),
+            };
+
+            if let Some(state) = state {
+                result.insert(credential.clone(), state);
+            }
+        }
 
         Ok(result)
     }
@@ -626,7 +677,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             }
         };
 
-        Ok(DefaultValidationContext::new(inputs))
+        let accounts = self.resolve_accounts(ctx.accounts.into_iter())?;
+        let dreps = self.resolve_dreps(ctx.dreps.into_iter())?;
+
+        Ok(DefaultValidationContext::new(inputs, accounts, dreps))
     }
 
     /// Create a validation context from the current ledger state for the transaction, and
@@ -1080,9 +1134,6 @@ pub enum StateError {
 
     #[error("expected effective rewards to apply but found something else")]
     NoEffectiveRewards,
-
-    #[error("inconsistent or invalid volatile states; failed to create an aggregated volatile view")]
-    FailedToCreateVolatileView(#[source] VolatileViewError),
 
     #[error("failed to compute epoch from slot {0:?}: {1}")]
     ErrorComputingEpoch(Slot, EraHistoryError),

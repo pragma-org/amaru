@@ -29,8 +29,9 @@ use amaru_kernel::{
     size::{DATUM, KEY, SCRIPT},
 };
 pub use default::*;
+pub(crate) use state::Delta;
 
-use crate::state::diff_bind;
+use crate::state::{diff_bind, drep_state::DRepState};
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
@@ -143,7 +144,7 @@ pub trait PreparePoolsSlice<'a> {
 // Accounts
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountState {
     pub deposit: Lovelace,
     pub pool: Option<(PoolId, CertificatePointer)>,
@@ -190,7 +191,7 @@ pub trait PrepareAccountsSlice<'a> {
 
 /// An interface for interacting with a subset of the DReps state.
 pub trait DRepsSlice {
-    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration>;
+    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepState>;
 
     fn register(
         &mut self,
@@ -199,9 +200,14 @@ pub trait DRepsSlice {
         anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>>;
 
-    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>>;
+    fn update(
+        &mut self,
+        drep: StakeCredential,
+        anchor: Option<Anchor>,
+        valid_until: Epoch,
+    ) -> Result<(), UpdateError<StakeCredential>>;
 
-    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
+    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace);
 }
 
 /// An interface to help constructing the concrete DRepsSlice ahead of time.

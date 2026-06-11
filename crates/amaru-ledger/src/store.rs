@@ -22,7 +22,6 @@ use std::{
 
 use amaru_kernel::ProposalId;
 use amaru_kernel::{
-    CertificatePointer,
     Constitution,
     ConstitutionalCommitteeStatus,
     Epoch,
@@ -209,6 +208,9 @@ pub trait ReadStore {
     /// Get details about a specific Account
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>>;
 
+    /// Get details about a specific DRep
+    fn drep(&self, credential: &StakeCredential) -> Result<Option<dreps::Row>>;
+
     /// Get details about a specific UTxO
     fn utxo(&self, input: &TransactionInput) -> Result<Option<MemoizedTransactionOutput>>;
 
@@ -338,7 +340,7 @@ pub trait TransactionalContext<'a>: ReadStore {
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
-            impl Iterator<Item = (dreps::Key, CertificatePointer)>,
+            impl Iterator<Item = dreps::Key>,
             impl Iterator<Item = cc_members::Key>,
             impl Iterator<Item = ()>,
             impl Iterator<Item = ()>,

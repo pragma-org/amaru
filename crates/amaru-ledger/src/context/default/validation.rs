@@ -14,7 +14,9 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
     mem,
+    sync::Arc,
 };
 
 use amaru_kernel::{
@@ -31,12 +33,14 @@ use crate::{
         ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
         blanket_known_datums, blanket_known_scripts,
     },
-    state::volatile::VolatileFragment,
+    state::{drep_state::DRepState, volatile::VolatileFragment},
 };
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
-    utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    utxo: BTreeMap<TransactionInput, Arc<MemoizedTransactionOutput>>,
+    accounts: BTreeMap<StakeCredential, Arc<AccountState>>,
+    dreps: BTreeMap<StakeCredential, Arc<DRepState>>,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -47,9 +51,15 @@ pub struct DefaultValidationContext {
 }
 
 impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
+    pub fn new(
+        utxo: BTreeMap<TransactionInput, Arc<MemoizedTransactionOutput>>,
+        accounts: BTreeMap<StakeCredential, Arc<AccountState>>,
+        dreps: BTreeMap<StakeCredential, Arc<DRepState>>,
+    ) -> Self {
         Self {
             utxo,
+            accounts,
+            dreps,
             state: VolatileFragment::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -79,7 +89,7 @@ impl PotsSlice for DefaultValidationContext {
 
 impl UtxoSlice for DefaultValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.get(input).or(self.state.utxo.produced.get(input))
+        self.utxo.get(input).or_else(|| self.state.utxo.produced.get(input)).map(|output| output.as_ref())
     }
 
     fn consume(&mut self, input: TransactionInput) {
@@ -88,7 +98,7 @@ impl UtxoSlice for DefaultValidationContext {
     }
 
     fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
-        self.state.utxo.produce(input, output)
+        self.state.utxo.produce(input, Arc::new(output))
     }
 }
 
@@ -119,8 +129,13 @@ impl PoolsSlice for DefaultValidationContext {
 }
 
 impl AccountsSlice for DefaultValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
-        unimplemented!()
+    fn lookup(&self, credential: &StakeCredential) -> Option<&AccountState> {
+        self.state
+            .accounts
+            .produced
+            .get(credential)
+            .or_else(|| self.accounts.get(credential))
+            .map(|account| account.as_ref())
     }
 
     fn register(
@@ -133,7 +148,10 @@ impl AccountsSlice for DefaultValidationContext {
             credential = format!("{credential:?}")
         );
         let _guard = _span.enter();
-        self.state.accounts.register(credential, state.deposit, state.pool, state.drep)?;
+        if self.state.accounts.produced.contains_key(&credential) {
+            return Err(RegisterError::AlreadyRegistered(PhantomData, credential));
+        }
+        self.state.accounts.produce(credential, Arc::new(state));
         Ok(())
     }
 
@@ -149,7 +167,12 @@ impl AccountsSlice for DefaultValidationContext {
             pool_id = %pool
         );
         let _guard = _span.enter();
-        self.state.accounts.bind_left(credential, Some((pool, pointer)))?;
+        if self.state.accounts.consumed.contains(&credential) {
+            return Err(DelegateError::UnknownSource(credential));
+        }
+        if let Some(current) = AccountsSlice::lookup(self, &credential).cloned() {
+            self.state.accounts.produce(credential, Arc::new(AccountState { pool: Some((pool, pointer)), ..current }));
+        }
         Ok(())
     }
 
@@ -172,7 +195,12 @@ impl AccountsSlice for DefaultValidationContext {
             _span.record("drep", format!("{d:?}"));
         }
         let _guard = _span.enter();
-        self.state.accounts.bind_right(credential, Some((drep, pointer)))?;
+        if self.state.accounts.consumed.contains(&credential) {
+            return Err(DelegateError::UnknownSource(credential));
+        }
+        if let Some(current) = AccountsSlice::lookup(self, &credential).cloned() {
+            self.state.accounts.produce(credential, Arc::new(AccountState { drep: Some((drep, pointer)), ..current }));
+        }
         Ok(())
     }
 
@@ -182,7 +210,7 @@ impl AccountsSlice for DefaultValidationContext {
             credential = format!("{credential:?}")
         );
         let _guard = _span.enter();
-        self.state.accounts.unregister(credential)
+        self.state.accounts.consume(credential)
     }
 
     fn withdraw_from(&mut self, credential: StakeCredential) {
@@ -191,8 +219,8 @@ impl AccountsSlice for DefaultValidationContext {
 }
 
 impl DRepsSlice for DefaultValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepRegistration> {
-        unimplemented!()
+    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepState> {
+        self.state.dreps.produced.get(credential).or_else(|| self.dreps.get(credential)).map(|state| state.as_ref())
     }
 
     fn register(
@@ -210,11 +238,20 @@ impl DRepsSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
-        self.state.dreps.register(drep, registration, anchor, None)?;
+        if self.state.dreps.produced.contains_key(&drep) {
+            return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
+        }
+        let DRepRegistration { deposit, registered_at, valid_until } = registration;
+        self.state.dreps.produce(drep, Arc::new(DRepState { deposit, anchor, registered_at, valid_until }));
         Ok(())
     }
 
-    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
+    fn update(
+        &mut self,
+        drep: StakeCredential,
+        anchor: Option<Anchor>,
+        valid_until: Epoch,
+    ) -> Result<(), UpdateError<StakeCredential>> {
         let _span = trace_span!(
             amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_DREP_UPDATE,
             drep = format!("{drep:?}")
@@ -223,19 +260,23 @@ impl DRepsSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
-        self.state.dreps.bind_left(drep, anchor)?;
+        if self.state.dreps.consumed.contains(&drep) {
+            return Err(UpdateError::UnknownSource(drep));
+        }
+        if let Some(current) = DRepsSlice::lookup(self, &drep).cloned() {
+            self.state.dreps.produce(drep, Arc::new(DRepState { anchor, valid_until, ..current }));
+        }
         Ok(())
     }
 
-    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer) {
+    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace) {
         let _span = trace_span!(
             amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_DREP_RETIREMENT,
             drep = format!("{drep:?}"),
             refund = refund
         );
         let _guard = _span.enter();
-        self.state.dreps_deregistrations.insert(drep.clone(), pointer);
-        self.state.dreps.unregister(drep)
+        self.state.dreps.consume(drep)
     }
 }
 
@@ -279,9 +320,10 @@ impl ProposalsSlice for DefaultValidationContext {
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
-        self.state
-            .votes
-            .produce(BallotId { proposal: ComparableProposalId::from(proposal), voter }, Ballot::new(vote, anchor))
+        self.state.votes.produce(
+            BallotId { proposal: ComparableProposalId::from(proposal), voter },
+            Arc::new(Ballot::new(vote, anchor)),
+        )
     }
 }
 

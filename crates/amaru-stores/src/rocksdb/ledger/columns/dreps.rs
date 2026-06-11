@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, StakeCredential};
+use amaru_kernel::{Epoch, StakeCredential};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -23,7 +23,7 @@ use amaru_ledger::store::{
     },
 };
 use amaru_observability::trace_span;
-use rocksdb::Transaction;
+use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::{error, warn};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -32,7 +32,10 @@ use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 
 /// Retrieve a single DRep
-pub fn get<DB>(db: &Transaction<'_, DB>, credential: &StakeCredential) -> Result<Option<Row>, StoreError> {
+pub fn get<'a>(
+    db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
+    credential: &Key,
+) -> Result<Option<Row>, StoreError> {
     let _span = trace_span!(
         amaru_observability::amaru::stores::ledger::columns::DREPS_GET,
         db_system_name = "rocksdb".to_string(),
@@ -42,15 +45,11 @@ pub fn get<DB>(db: &Transaction<'_, DB>, credential: &StakeCredential) -> Result
     let _guard = _span.enter();
 
     let key = as_key(&PREFIX, credential);
-    Ok(db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)))
+    Ok(db_get(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)))
 }
 
-/// Register a new DRep.
-pub fn add<DB>(
-    db: &Transaction<'_, DB>,
-    valid_until_on_update: Epoch,
-    rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+/// Persist a DRep's materialized row, overwriting any previous entry.
+pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     let _span = trace_span!(
         amaru_observability::amaru::stores::ledger::columns::DREPS_ADD,
         db_system_name = "rocksdb".to_string(),
@@ -59,48 +58,8 @@ pub fn add<DB>(
     );
     let _guard = _span.enter();
 
-    for (credential, (anchor, registration)) in rows {
-        let key = as_key(&PREFIX, &credential);
-
-        // Registration already exists. Which represents one of two cases:
-        //
-        // 1. The DRep is simply updating (register is None).
-        // 2. The DRep is re-registering after a previous deregistration.
-        let row = if let Some(mut row) =
-            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-        {
-            // Re-registration
-            if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
-                row.deposit = deposit;
-                row.registered_at = registered_at;
-                row.valid_until = valid_until;
-            } else {
-                row.valid_until = valid_until_on_update;
-            }
-
-            Some(row)
-        } else if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
-            // Brand new registration.
-            Some(Row { deposit, registered_at, valid_until, anchor: None })
-        } else {
-            // Technically impossible, sign of a logic error.
-            None
-        };
-
-        match row {
-            Some(mut row) => {
-                anchor.set_or_reset(&mut row.anchor);
-
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            }
-            None => {
-                error!(
-                    target: EVENT_TARGET,
-                    ?credential,
-                    "add.register_no_deposit",
-                )
-            }
-        }
+    for (credential, row) in rows {
+        db.put(as_key(&PREFIX, &credential), as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
     }
 
     Ok(())
@@ -142,10 +101,7 @@ pub fn set_valid_until<DB>(
 }
 
 /// Clear a DRep registration.
-pub fn remove<DB>(
-    db: &Transaction<'_, DB>,
-    rows: impl Iterator<Item = (Key, CertificatePointer)>,
-) -> Result<(), StoreError> {
+pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
     let _span = trace_span!(
         amaru_observability::amaru::stores::ledger::columns::DREPS_REMOVE,
         db_system_name = "rocksdb".to_string(),
@@ -154,7 +110,7 @@ pub fn remove<DB>(
     );
     let _guard = _span.enter();
 
-    for (drep, _) in rows {
+    for drep in rows {
         let key = as_key(&PREFIX, &drep);
 
         if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {

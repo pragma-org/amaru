@@ -18,18 +18,13 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer,
-    ProtocolParameters, StakeCredential, Tip,
+    CertificatePointer, ComparableProposalId, Epoch, PoolId, PoolParams, Proposal, ProposalPointer, ProtocolParameters,
+    StakeCredential,
 };
 
 use crate::{
     governance::ratification::ProposalsRootsRc,
-    state::{
-        AnchoredVolatileFragment, VolatileDB,
-        diff_bind::{DiffBind, MergeError},
-        diff_epoch_reg::DiffEpochReg,
-        volatile::fragment::add_proposals,
-    },
+    state::{VolatileDB, diff_epoch_reg::DiffEpochReg, volatile::fragment::add_proposals},
     store::{
         ReadStore, StoreError,
         columns::{pools::Row as Pool, *},
@@ -68,14 +63,24 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         protocol_parameters: &ProtocolParameters,
         volatile: &'volatile VolatileDB,
         stable: &'db DB,
-    ) -> Result<VolatileView<'volatile, 'db, DB>, VolatileViewError> {
+    ) -> VolatileView<'volatile, 'db, DB> {
         let mut pools = DiffEpochReg::default();
         let mut proposals = BTreeMap::new();
-        let mut accounts = DiffBind::default();
+
+        // Accumulate the account key set across the volatile window, mirroring `DiffSet::merge`
+        // semantics (latest write per key wins). We only need the set of credentials here; the
+        // materialized values are immaterial to `iter_accounts`.
+        let mut registered: BTreeSet<&'volatile StakeCredential> = BTreeSet::new();
+        let mut unregistered: BTreeSet<&'volatile StakeCredential> = BTreeSet::new();
 
         for anchored in volatile.iter() {
-            if let Err(merge_error) = accounts.append(anchored.fragment.accounts.into_borrowed()) {
-                return Err(VolatileViewError::accounts_merge_error(anchored, merge_error, accounts));
+            for credential in anchored.fragment.accounts.produced.keys() {
+                unregistered.remove(credential);
+                registered.insert(credential);
+            }
+            for credential in anchored.fragment.accounts.consumed.iter() {
+                registered.remove(credential);
+                unregistered.insert(credential);
             }
 
             pools.append(anchored.fragment.pools.into_borrowed());
@@ -85,19 +90,16 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
             }
         }
 
-        let accounts = AccountVolatileView {
-            registered: accounts.registered.into_keys().collect(),
-            unregistered: accounts.unregistered,
-        };
+        let accounts = AccountVolatileView { registered, unregistered };
 
-        Ok(Self {
+        Self {
             epoch,
             proposal_lifetime: protocol_parameters.gov_action_lifetime,
             db: stable,
             accounts: Some(accounts),
             pools: Some(pools),
             proposals,
-        })
+        }
     }
 
     /// Provides an iterator for pools on top of the stable store, but adding any pending updates
@@ -155,51 +157,10 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
 
 // ----------------------------------------------------------------------------- AccountVolatileView
 
-/// A simplified 'DiffBind' for accounts, specialized to just the stake credentials.
+/// The set of stake credentials touched by the volatile window: those (re-)registered and those
+/// deregistered, used to patch the stable account set at the epoch boundary.
 #[derive(Debug)]
 struct AccountVolatileView<'volatile> {
     registered: BTreeSet<&'volatile StakeCredential>,
     unregistered: BTreeSet<&'volatile StakeCredential>,
-}
-
-// ------------------------------------------------------------------------------- VolatileViewError
-
-#[derive(Debug, thiserror::Error)]
-pub enum VolatileViewError {
-    #[error(
-        "unable to construct volatile view: invariant violation ({:?}) when processing \
-        accounts at anchor {:?}:\nnext_accounts: {:#?}\ncurrent_accounts: {:#?}",
-         .merge_error,
-         .anchor,
-         .next_accounts,
-         .current_accounts,
-    )]
-    AccountsMergeError {
-        anchor: Box<(Tip, PoolId)>,
-        merge_error: MergeError<StakeCredential>,
-        next_accounts:
-            Box<DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>>,
-        current_accounts:
-            Box<DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>>,
-    },
-}
-
-impl VolatileViewError {
-    pub fn accounts_merge_error(
-        anchored: &AnchoredVolatileFragment,
-        merge_error: MergeError<&StakeCredential>,
-        current_accounts: DiffBind<
-            &StakeCredential,
-            &(PoolId, CertificatePointer),
-            &(DRep, CertificatePointer),
-            &Lovelace,
-        >,
-    ) -> Self {
-        Self::AccountsMergeError {
-            merge_error: merge_error.to_owned(),
-            anchor: Box::new(anchored.anchor),
-            next_accounts: Box::new(anchored.fragment.accounts.clone()),
-            current_accounts: Box::new(current_accounts.to_owned()),
-        }
-    }
 }

@@ -23,6 +23,7 @@ use crate::{
 
 mod pools_updates;
 pub use pools_updates::PoolsEpochTransitionUpdates;
+pub(crate) use pools_updates::fold_future_params;
 
 mod rewards_state;
 pub use rewards_state::{Computed, Effective, Rewards, RewardsState};

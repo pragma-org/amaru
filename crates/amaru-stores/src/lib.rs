@@ -18,9 +18,9 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
-        NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput, any_certificate_pointer, any_hash28, any_pool_params, any_proposal_id, any_stake_credential,
+        Anchor, ComparableProposalId, Epoch, EraHistory, Hash, MemoizedTransactionOutput, NetworkName,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Slot, StakeCredential, TransactionInput,
+        any_certificate_pointer, any_hash28, any_pool_params, any_proposal_id, any_stake_credential,
     };
     use amaru_ledger::{
         epoch_transition::GovernanceActivity,
@@ -124,17 +124,7 @@ pub mod tests {
             drep_row.anchor =
                 Some(Anchor { url: "https://example.com".to_string(), content_hash: Hash::from([0u8; 32]) });
         }
-        let anchor = drep_row.anchor.clone().expect("Expected anchor to be Some");
-        let deposit = drep_row.deposit;
-        let registered_at = drep_row.registered_at;
-
-        let drep_iter = std::iter::once((
-            drep_key.clone(),
-            (
-                Resettable::Set(anchor),
-                Some(DRepRegistration { deposit, registered_at, valid_until: drep_row.valid_until }),
-            ),
-        ));
+        let drep_iter = std::iter::once((drep_key.clone(), drep_row.clone()));
 
         // proposals (Does not generate proposal row on Windows due to stack overflow)
         #[cfg(not(target_os = "windows"))]
@@ -394,17 +384,11 @@ pub mod tests {
     pub fn test_remove_drep(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
-        let drep_registered_at = store
-            .iter_dreps()?
-            .find(|(key, _)| *key == fixture.drep_key)
-            .map(|(_, row)| row.registered_at)
-            .ok_or_else(|| StoreError::Internal("DRep not found before removal".into()))?;
-
         let remove = Columns {
             utxo: std::iter::empty(),
             pools: std::iter::empty(),
             accounts: std::iter::empty(),
-            dreps: std::iter::once((fixture.drep_key.clone(), drep_registered_at)),
+            dreps: std::iter::once(fixture.drep_key.clone()),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
             votes: std::iter::empty(),

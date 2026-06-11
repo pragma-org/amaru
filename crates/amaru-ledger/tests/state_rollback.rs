@@ -176,6 +176,13 @@ impl ReadStore for MockStore {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
+    fn drep(
+        &self,
+        credential: &amaru_kernel::StakeCredential,
+    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::dreps::Row>> {
+        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
+    }
+
     fn utxo(
         &self,
         input: &amaru_kernel::TransactionInput,

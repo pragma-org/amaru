@@ -20,10 +20,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepRegistration,
-    DRepState, Epoch, EraHistory, Hash, Lovelace, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Reward, Set,
-    Slot, StakeCredential, StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
+    Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepState, Epoch,
+    EraHistory, Hash, Lovelace, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Reward, Set, Slot, StakeCredential,
+    StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -438,10 +438,14 @@ fn import_dreps(
                     certificate_index: 0,
                 });
 
-                let registration =
-                    DRepRegistration { deposit: state.deposit, valid_until: state.expiry, registered_at };
+                let row = store::columns::dreps::Row {
+                    deposit: state.deposit,
+                    anchor: Option::from(state.anchor),
+                    registered_at,
+                    valid_until: state.expiry,
+                };
 
-                (credential, (Resettable::from(Option::from(state.anchor)), Some(registration)))
+                (credential, row)
             }),
             cc_members: iter::empty(),
             proposals: iter::empty(),

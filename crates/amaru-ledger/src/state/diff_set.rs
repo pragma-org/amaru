@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
+};
+
+use crate::context::Delta;
 
 /// A compact data-structure tracking changes in a DAG. A composition relation exists, allowing to reduce
 /// two `DiffSet` into one that is equivalent to applying both `DiffSet` in sequence.
@@ -40,6 +45,7 @@ impl<K: Ord, V> DiffSet<K, V> {
     }
 
     pub fn produce(&mut self, k: K, v: V) {
+        self.consumed.remove(&k);
         self.produced.insert(k, v);
     }
 
@@ -50,6 +56,42 @@ impl<K: Ord, V> DiffSet<K, V> {
 
     pub fn as_ref(&self) -> DiffSet<&K, &V> {
         DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
+    }
+}
+
+impl<K: Ord + Clone, V: Clone> Delta for DiffSet<K, V> {
+    type State = BTreeMap<K, V>;
+    type Error = Infallible;
+
+    fn apply(&self, base: &mut Self::State) -> Self {
+        let mut undo = DiffSet::default();
+
+        for key in &self.consumed {
+            if let Some(old) = base.remove(key) {
+                undo.produced.insert(key.clone(), old);
+            }
+        }
+
+        for (key, value) in &self.produced {
+            match base.insert(key.clone(), value.clone()) {
+                Some(old) => {
+                    undo.produced.insert(key.clone(), old);
+                }
+                None => {
+                    undo.consumed.insert(key.clone());
+                }
+            }
+        }
+
+        undo
+    }
+
+    fn compose(&mut self, next: &Self) -> Result<(), Self::Error> {
+        self.produced.retain(|k, _| !next.consumed.contains(k));
+        self.consumed.retain(|k| !next.produced.contains_key(k));
+        self.consumed.extend(next.consumed.iter().cloned());
+        self.produced.extend(next.produced.iter().map(|(k, v)| (k.clone(), v.clone())));
+        Ok(())
     }
 }
 
@@ -157,6 +199,21 @@ mod tests {
             );
 
             assert_eq!(st_seq, st_compose);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_apply_then_undo_restores_base(
+            base in any::<BTreeMap<u8, u8>>(),
+            diff in any_diff(),
+        ) {
+            use crate::context::Delta;
+
+            let mut state = base.clone();
+            let undo = diff.apply(&mut state);
+            undo.apply(&mut state);
+            prop_assert_eq!(state, base);
         }
     }
 }

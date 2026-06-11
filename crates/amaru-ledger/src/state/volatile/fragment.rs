@@ -12,19 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer, ProtocolParameters, Slot,
-    StakeCredential, Tip, TransactionInput,
+    Ballot, BallotId, CertificatePointer, ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, Point,
+    PoolId, PoolParams, Proposal, ProposalPointer, ProtocolParameters, Slot, StakeCredential, Tip, TransactionInput,
 };
 
 use crate::{
+    context::AccountState,
     state::{
         diff_bind::{Bind, DiffBind, Empty, Resettable},
         diff_epoch_reg::{DiffEpochReg, Registrations},
         diff_set::DiffSet,
+        drep_state::DRepState,
     },
     store::{self, columns::*},
 };
@@ -32,17 +36,23 @@ use crate::{
 // ----------------------------------------------------------------------------------- VolatileFragment
 
 /// Resulting state change coming from processing a block.
+///
+/// The materialized `DiffSet` columns wrap their values in [`Arc`] so that composing fragments into
+/// the volatile overlay (and recomputing it on stabilization/rollback) shares values by reference
+/// rather than deep-cloning them. The per-block fragment that stabilizes holds the only reference to
+/// its produced values (the recomputed overlay no longer points at them), so the flush
+/// (`into_store_update`) reclaims them with [`Arc::unwrap_or_clone`] without copying in the common
+/// case.
 #[derive(Debug, Default)]
 pub struct VolatileFragment {
-    pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
+    pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, (PoolParams, CertificatePointer)>,
-    pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
-    pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
+    pub accounts: DiffSet<StakeCredential, Arc<AccountState>>,
+    pub dreps: DiffSet<StakeCredential, Arc<DRepState>>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: BTreeMap<ComparableProposalId, (Proposal, ProposalPointer)>,
-    pub votes: DiffSet<BallotId, Ballot>,
+    pub votes: DiffSet<BallotId, Arc<Ballot>>,
     pub fees: Lovelace,
 }
 
@@ -51,12 +61,23 @@ impl VolatileFragment {
         AnchoredVolatileFragment { anchor: (tip, issuer), fragment: self }
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&Arc<MemoizedTransactionOutput>> {
         self.utxo.produced.get(input)
     }
 
     pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
         self.utxo.consumed.contains(input)
+    }
+
+    /// Fold a later fragment into this one, so a composed fragment can act as the volatile overlay
+    /// for read-modify-produce lookups. Only the materialized `DiffSet` columns participate; columns
+    /// still awaiting their swap (pools/committee) are left untouched until they too become
+    /// composable-across-the-volatile-window `DiffSet`s.
+    pub fn compose(&mut self, next: &VolatileFragment) {
+        self.utxo.merge(next.utxo.clone());
+        self.votes.merge(next.votes.clone());
+        self.accounts.merge(next.accounts.clone());
+        self.dreps.merge(next.dreps.clone());
     }
 }
 
@@ -102,7 +123,7 @@ impl AnchoredVolatileFragment {
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
-            impl Iterator<Item = (dreps::Key, CertificatePointer)>,
+            impl Iterator<Item = dreps::Key>,
             impl Iterator<Item = cc_members::Key>,
             impl Iterator<Item = ()>,
             impl Iterator<Item = ()>,
@@ -111,19 +132,7 @@ impl AnchoredVolatileFragment {
         let gov_action_lifetime = protocol_parameters.gov_action_lifetime;
 
         let Self {
-            fragment:
-                VolatileFragment {
-                    utxo,
-                    pools,
-                    accounts,
-                    dreps,
-                    dreps_deregistrations,
-                    committee,
-                    withdrawals,
-                    proposals,
-                    votes,
-                    fees,
-                },
+            fragment: VolatileFragment { utxo, pools, accounts, dreps, committee, withdrawals, proposals, votes, fees },
             anchor: (tip, issuer),
         } = self;
 
@@ -133,19 +142,25 @@ impl AnchoredVolatileFragment {
             fees,
             withdrawals: withdrawals.into_iter(),
             add: store::Columns {
-                utxo: utxo.produced.into_iter(),
+                utxo: utxo.produced.into_iter().map(|(input, output)| (input, Arc::unwrap_or_clone(output))),
                 pools: add_pools(pools.registered.into_iter(), epoch),
-                accounts: add_accounts(accounts.registered.into_iter()),
-                dreps: add_dreps(dreps.registered.into_iter()),
+                accounts: accounts.produced.into_iter().map(|(credential, account)| {
+                    let AccountState { deposit, pool, drep } = Arc::unwrap_or_clone(account);
+                    (credential, (Resettable::from(pool), Resettable::from(drep), Some(deposit), 0))
+                }),
+                dreps: dreps
+                    .produced
+                    .into_iter()
+                    .map(|(credential, state)| (credential, dreps::Row::from(Arc::unwrap_or_clone(state)))),
                 cc_members: add_committee(committee.registered.into_iter()),
                 proposals: add_proposals(proposals.into_iter(), epoch + gov_action_lifetime),
-                votes: votes.produced.into_iter(),
+                votes: votes.produced.into_iter().map(|(id, ballot)| (id, Arc::unwrap_or_clone(ballot))),
             },
             remove: store::Columns {
                 utxo: utxo.consumed.into_iter(),
                 pools: pools.unregistered.into_iter(),
-                accounts: accounts.unregistered.into_iter(),
-                dreps: remove_dreps(dreps.unregistered.into_iter(), dreps_deregistrations),
+                accounts: accounts.consumed.into_iter(),
+                dreps: dreps.consumed.into_iter(),
                 cc_members: committee.unregistered.into_iter(),
                 proposals: std::iter::empty(),
                 votes: {
@@ -200,40 +215,6 @@ pub(crate) fn add_pools(
             // don't _have to_.
             .map(|registration| (registration.0, registration.1, epoch + 1))
             .collect::<Vec<_>>()
-    })
-}
-
-// ---------------------------------------------------------------------------------------- Accounts
-
-pub(crate) fn add_accounts(
-    iterator: impl Iterator<
-        Item = (StakeCredential, Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>),
-    >,
-) -> impl Iterator<Item = (accounts::Key, accounts::Value)> {
-    iterator
-        .map(|(credential, Bind { left: pool, right: drep, value: deposit })| (credential, (pool, drep, deposit, 0)))
-}
-
-// ------------------------------------------------------------------------------------------- DReps
-
-pub(crate) fn add_dreps(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
-) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
-    iterator.map(move |(credential, Bind { left: anchor, right: _, value: registration }): (_, Bind<_, Empty, _>)| {
-        (credential, (anchor, registration))
-    })
-}
-
-pub(crate) fn remove_dreps(
-    iterator: impl Iterator<Item = StakeCredential>,
-    mut deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-) -> impl Iterator<Item = (dreps::Key, CertificatePointer)> {
-    iterator.map(move |credential| {
-        #[expect(clippy::expect_used)]
-        let pointer =
-            deregistrations.remove(&credential).expect("every 'unregistered' drep must have a matching deregistration");
-
-        (credential, pointer)
     })
 }
 

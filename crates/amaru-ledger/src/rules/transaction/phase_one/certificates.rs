@@ -264,7 +264,7 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            DRepsSlice::unregister(context, drep, refund, pointer);
+            DRepsSlice::unregister(context, drep, refund);
             Ok(())
         }
 
@@ -273,7 +273,10 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
+            let valid_until = era_history.slot_to_epoch_unchecked_horizon(pointer.slot())?
+                + protocol_parameters.drep_expiry
+                - governance_activity.consecutive_dormant_epochs as u64;
+            DRepsSlice::update(context, drep, Option::from(anchor), valid_until)?;
             Ok(())
         }
 

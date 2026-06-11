@@ -23,8 +23,8 @@ use std::{
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, StakeCredential, TransactionInput, cbor,
+    Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
+    ProposalId, ProtocolParameters, StakeCredential, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -434,6 +434,13 @@ macro_rules! impl_ReadStore_body {
                 accounts::get(|key| self.db.get_pinned(key), credential)
             }
 
+            fn drep(
+                &self,
+                credential: &StakeCredential,
+            ) -> Result<Option<scolumns::dreps::Row>, StoreError> {
+                dreps::get(|key| self.db.get_pinned(key), credential)
+            }
+
             fn utxo(
                 &self,
                 input: &TransactionInput,
@@ -698,7 +705,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             impl Iterator<Item = scolumns::utxo::Key>,
             impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
             impl Iterator<Item = scolumns::accounts::Key>,
-            impl Iterator<Item = (scolumns::dreps::Key, CertificatePointer)>,
+            impl Iterator<Item = scolumns::dreps::Key>,
             impl Iterator<Item = scolumns::cc_members::Key>,
             impl Iterator<Item = ()>,
             impl Iterator<Item = ()>,
@@ -733,7 +740,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
                 utxo::add(&self.db, add.utxo)?;
                 pools::add(&self.db, add.pools)?;
-                dreps::add(&self.db, drep_validity, add.dreps)?;
+                dreps::add(&self.db, add.dreps)?;
                 cc_members::upsert(&self.db, add.cc_members)?;
                 accounts::add(&self.db, add.accounts)?;
 

@@ -12,15 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
-use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
+use amaru_kernel::{MemoizedTransactionOutput, Point, StakeCredential, TransactionInput};
 
-use crate::state::AnchoredVolatileFragment;
+use crate::{
+    context::AccountState,
+    state::{AnchoredVolatileFragment, VolatileFragment, drep_state::DRepState},
+};
 
 #[derive(Default)]
 pub struct VolatileDB {
     sequence: VecDeque<AnchoredVolatileFragment>,
+    aggregate: VolatileFragment,
 }
 
 impl VolatileDB {
@@ -40,20 +44,37 @@ impl VolatileDB {
         self.sequence.front()
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        for AnchoredVolatileFragment { fragment, .. } in self.sequence.iter().rev() {
-            if fragment.utxo.consumed.contains(input) {
-                return None;
-            }
-            if let Some(output) = fragment.utxo.produced.get(input) {
-                return Some(output);
-            }
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&Arc<MemoizedTransactionOutput>> {
+        if self.aggregate.utxo.consumed.contains(input) {
+            return None;
         }
-        None
+        self.aggregate.utxo.produced.get(input)
     }
 
     pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.sequence.iter().any(|anchored| anchored.fragment.utxo.consumed.contains(input))
+        self.aggregate.utxo.consumed.contains(input)
+    }
+
+    pub fn resolve_drep(&self, credential: &StakeCredential) -> Option<&Arc<DRepState>> {
+        if self.aggregate.dreps.consumed.contains(credential) {
+            return None;
+        }
+        self.aggregate.dreps.produced.get(credential)
+    }
+
+    pub fn has_unregistered_drep(&self, credential: &StakeCredential) -> bool {
+        self.aggregate.dreps.consumed.contains(credential)
+    }
+
+    pub fn resolve_account(&self, credential: &StakeCredential) -> Option<&Arc<AccountState>> {
+        if self.aggregate.accounts.consumed.contains(credential) {
+            return None;
+        }
+        self.aggregate.accounts.produced.get(credential)
+    }
+
+    pub fn has_unregistered_account(&self, credential: &StakeCredential) -> bool {
+        self.aggregate.accounts.consumed.contains(credential)
     }
 
     pub fn contains(&self, point: &Point) -> bool {
@@ -61,11 +82,24 @@ impl VolatileDB {
     }
 
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
-        self.sequence.pop_front()
+        let stabilized = self.sequence.pop_front();
+        if stabilized.is_some() {
+            self.recompute_aggregate();
+        }
+        stabilized
     }
 
     pub fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
+        self.aggregate.compose(&fragment.fragment);
         self.sequence.push_back(fragment);
+    }
+
+    fn recompute_aggregate(&mut self) {
+        let mut aggregate = VolatileFragment::default();
+        for AnchoredVolatileFragment { fragment, .. } in self.sequence.iter() {
+            aggregate.compose(fragment);
+        }
+        self.aggregate = aggregate;
     }
 
     pub fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
@@ -120,11 +154,13 @@ impl VolatileDB {
         }
 
         self.sequence.truncate(ix);
+        self.recompute_aggregate();
         Ok(())
     }
 
     pub fn clear(&mut self) {
         self.sequence.clear();
+        self.aggregate = VolatileFragment::default();
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
@@ -146,9 +182,79 @@ impl VolatileDB {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use amaru_kernel::{Hash, Point, Slot};
+    use proptest::prelude::*;
 
     use super::*;
+    use crate::state::diff_set::DiffSet;
+
+    const VOLATILE_WINDOW: usize = 6;
+
+    prop_compose! {
+        fn unique_lifecycle_diffs()(
+            plan in prop::collection::btree_map(
+                0u8..16,
+                (0usize..VOLATILE_WINDOW, prop::option::of(0usize..VOLATILE_WINDOW)),
+                0..16,
+            )
+        ) -> Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> {
+            let mut diffs: Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> =
+                (0..VOLATILE_WINDOW).map(|_| DiffSet::default()).collect();
+
+            for (tag, (produced_at, consume_offset)) in plan {
+                diffs[produced_at].produce(test_input(tag), Arc::new(fixed_output()));
+                if let Some(offset) = consume_offset {
+                    let consumed_at = produced_at + 1 + offset;
+                    if consumed_at < VOLATILE_WINDOW {
+                        diffs[consumed_at].consume(test_input(tag));
+                    }
+                }
+            }
+
+            diffs
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn aggregated_lookups_match_naive_walk(diffs in unique_lifecycle_diffs()) {
+            let mut db = VolatileDB::default();
+            for (index, diff) in diffs.iter().enumerate() {
+                let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
+                anchored.fragment.utxo = diff.clone();
+                db.push_back(anchored);
+            }
+
+            for tag in 0u8..16 {
+                let input = test_input(tag);
+                prop_assert_eq!(db.resolve_input(&input).is_some(), naive_resolve(&diffs, &input).is_some());
+                prop_assert_eq!(db.has_consumed_input(&input), naive_has_consumed(&diffs, &input));
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn aggregated_lookups_match_naive_walk_after_stabilization(diffs in unique_lifecycle_diffs()) {
+            let mut db = VolatileDB::default();
+            for (index, diff) in diffs.iter().enumerate() {
+                let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
+                anchored.fragment.utxo = diff.clone();
+                db.push_back(anchored);
+            }
+
+            db.pop_front();
+            let remaining = &diffs[1..];
+
+            for tag in 0u8..16 {
+                let input = test_input(tag);
+                prop_assert_eq!(db.resolve_input(&input).is_some(), naive_resolve(remaining, &input).is_some());
+                prop_assert_eq!(db.has_consumed_input(&input), naive_has_consumed(remaining, &input));
+            }
+        }
+    }
 
     #[test]
     fn test_rollback_to_point_before_sequence_fails() {
@@ -262,5 +368,31 @@ mod tests {
 
     fn test_input(tag: u8) -> TransactionInput {
         TransactionInput { transaction_id: Hash::new([tag; 32]), index: 0 }
+    }
+
+    fn fixed_output() -> MemoizedTransactionOutput {
+        crate::tests::fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335")
+    }
+
+    fn naive_resolve<'a>(
+        diffs: &'a [DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
+        input: &TransactionInput,
+    ) -> Option<&'a Arc<MemoizedTransactionOutput>> {
+        for diff in diffs.iter().rev() {
+            if diff.consumed.contains(input) {
+                return None;
+            }
+            if let Some(output) = diff.produced.get(input) {
+                return Some(output);
+            }
+        }
+        None
+    }
+
+    fn naive_has_consumed(
+        diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
+        input: &TransactionInput,
+    ) -> bool {
+        diffs.iter().any(|diff| diff.consumed.contains(input))
     }
 }

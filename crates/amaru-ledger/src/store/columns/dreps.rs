@@ -13,16 +13,14 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor};
-
-use crate::state::diff_bind::Resettable;
+use amaru_kernel::{Anchor, CertificatePointer, Epoch, Lovelace, StakeCredential, cbor};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 
 /// Iterator used to browse rows from the DRep column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Resettable<Anchor>, Option<DRepRegistration>);
+pub type Value = Row;
 
 pub type Key = StakeCredential;
 

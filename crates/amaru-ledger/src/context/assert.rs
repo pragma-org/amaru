@@ -26,11 +26,14 @@ use amaru_kernel::{
 };
 use amaru_observability::trace_span;
 
-use crate::context::{
-    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
-    RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
-    blanket_known_scripts,
+use crate::{
+    context::{
+        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+        PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice,
+        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        blanket_known_datums, blanket_known_scripts,
+    },
+    state::drep_state::DRepState,
 };
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -196,7 +199,7 @@ impl AccountsSlice for AssertValidationContext {
 }
 
 impl DRepsSlice for AssertValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepRegistration> {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
         unimplemented!()
     }
 
@@ -209,11 +212,16 @@ impl DRepsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn update(&mut self, _drep: StakeCredential, _anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
+    fn update(
+        &mut self,
+        _drep: StakeCredential,
+        _anchor: Option<Anchor>,
+        _valid_until: Epoch,
+    ) -> Result<(), UpdateError<StakeCredential>> {
         unimplemented!()
     }
 
-    fn unregister(&mut self, _drep: StakeCredential, _refund: Lovelace, _pointer: CertificatePointer) {
+    fn unregister(&mut self, _drep: StakeCredential, _refund: Lovelace) {
         unimplemented!()
     }
 }

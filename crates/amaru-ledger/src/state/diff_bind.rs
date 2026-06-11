@@ -17,6 +17,8 @@ use std::{
     mem,
 };
 
+use crate::context::Delta;
+
 /// A compact data-structure tracking changes in a DAG which supports optional linking of values with
 /// another data-structure. Items can only be linked if they have been registered first. Yet, they
 /// can be unlinked without being unregistered.
@@ -45,6 +47,15 @@ impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Bind<&
     }
 }
 
+/// The materialized counterpart of [`Bind`]: a registered entry holding a value and its optional
+/// left/right links.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bound<L, R, V> {
+    pub left: Option<L>,
+    pub right: Option<R>,
+    pub value: V,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resettable<A> {
     Set(A),
@@ -63,6 +74,24 @@ impl<A> Resettable<A> {
             Resettable::Unchanged => None,
             Resettable::Set(new) => Option::replace(value, new),
             Resettable::Reset => mem::take(value),
+        }
+    }
+
+    /// Apply this change to `slot` in place, returning the change that undoes it.
+    pub fn apply_to(self, slot: &mut Option<A>) -> Resettable<A> {
+        match self {
+            Resettable::Unchanged => Resettable::Unchanged,
+            Resettable::Set(new) => Resettable::from(Option::replace(slot, new)),
+            Resettable::Reset => Resettable::from(mem::take(slot)),
+        }
+    }
+
+    /// Materialize this change as the absolute value of a fresh entry: `Set` becomes `Some`, while
+    /// `Reset` and `Unchanged` both become `None`.
+    pub fn into_option(self) -> Option<A> {
+        match self {
+            Resettable::Set(a) => Some(a),
+            Resettable::Reset | Resettable::Unchanged => None,
         }
     }
 
@@ -221,6 +250,61 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     }
 }
 
+impl<K, L, R, V> Delta for DiffBind<K, L, R, V>
+where
+    K: Ord + Clone,
+    L: Clone,
+    R: Clone,
+    V: Clone,
+{
+    type State = BTreeMap<K, Bound<L, R, V>>;
+    type Error = MergeError<K>;
+
+    fn apply(&self, base: &mut Self::State) -> Self {
+        let mut undo = DiffBind::default();
+
+        for key in &self.unregistered {
+            if let Some(prev) = base.remove(key) {
+                undo.registered.insert(
+                    key.clone(),
+                    Bind {
+                        left: Resettable::from(prev.left),
+                        right: Resettable::from(prev.right),
+                        value: Some(prev.value),
+                    },
+                );
+            }
+        }
+
+        for (key, bind) in &self.registered {
+            match base.get_mut(key) {
+                Some(entry) => {
+                    let left = bind.left.clone().apply_to(&mut entry.left);
+                    let right = bind.right.clone().apply_to(&mut entry.right);
+                    let value = bind.value.clone().map(|v| mem::replace(&mut entry.value, v));
+                    undo.registered.insert(key.clone(), Bind { left, right, value });
+                }
+                None => {
+                    #[expect(clippy::expect_used)]
+                    let value = bind.value.clone().expect("registered entry must carry a value");
+                    base.insert(
+                        key.clone(),
+                        Bound { left: bind.left.clone().into_option(), right: bind.right.clone().into_option(), value },
+                    );
+                    undo.unregistered.insert(key.clone());
+                }
+            }
+        }
+
+        undo
+    }
+
+    fn compose(&mut self, next: &Self) -> Result<(), Self::Error> {
+        self.append(next.clone())?;
+        Ok(())
+    }
+}
+
 impl<K, L, R, V> DiffBind<&K, &L, &R, &V>
 where
     K: Ord + ToOwned<Owned = K>,
@@ -239,6 +323,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::Delta;
 
     #[test]
     fn register_some_left_then_bind_left() {
@@ -383,5 +468,43 @@ mod tests {
             Some(&Bind { left: Resettable::Unchanged::<()>, right: Resettable::Set("right"), value: None::<()> }),
             diff_bind.registered.get(&1)
         );
+    }
+
+    #[test]
+    fn apply_then_undo_restores_base() {
+        let mut base = BTreeMap::from([
+            (1, Bound { left: Some("pool_a"), right: None, value: 100 }),
+            (2, Bound { left: None, right: Some("drep_x"), value: 200 }),
+        ]);
+        let original = base.clone();
+
+        let mut diff = DiffBind::default();
+        diff.register(3, 300, Some("pool_c"), None::<&str>).unwrap();
+        diff.bind_left(1, Some("pool_b")).unwrap();
+        diff.unregister(2);
+
+        let undo = diff.apply(&mut base);
+        undo.apply(&mut base);
+
+        assert_eq!(base, original);
+    }
+
+    #[test]
+    fn compose_matches_sequential_apply() {
+        let mut composed_base = BTreeMap::from([(1, Bound { left: Some("a"), right: None::<&str>, value: 10 })]);
+        let mut sequential_base = composed_base.clone();
+
+        let mut first = DiffBind::default();
+        first.bind_left(1, Some("b")).unwrap();
+        let mut second = DiffBind::default();
+        second.register(2, 20, None::<&str>, None::<&str>).unwrap();
+
+        first.apply(&mut sequential_base);
+        second.apply(&mut sequential_base);
+
+        first.compose(&second).unwrap();
+        first.apply(&mut composed_base);
+
+        assert_eq!(composed_base, sequential_base);
     }
 }

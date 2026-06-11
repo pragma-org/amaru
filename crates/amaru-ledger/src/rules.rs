@@ -14,7 +14,7 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::{Block, TransactionBody};
+use amaru_kernel::{Block, Certificate, TransactionBody};
 use amaru_observability::trace_span;
 pub use block::execute as validate_block;
 
@@ -53,6 +53,29 @@ pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transa
     let collaterals = transaction.collateral.as_deref().unwrap_or(&[]).iter();
     let reference_inputs = transaction.reference_inputs.as_deref().unwrap_or(&[]).iter();
     inputs.chain(reference_inputs).chain(collaterals).for_each(|input| context.require_input(input));
+
+    transaction.certificates.as_deref().unwrap_or(&[]).iter().for_each(|certificate| match certificate {
+        // Delegations read the current account record to produce a whole materialized value, so the
+        // base must be pre-fetched. Registrations produce a fresh record and de-registrations only
+        // consume, so neither needs a base.
+        Certificate::StakeDelegation(credential, _)
+        | Certificate::VoteDeleg(credential, _)
+        | Certificate::StakeVoteDeleg(credential, _, _)
+        | Certificate::StakeRegDeleg(credential, _, _)
+        | Certificate::StakeVoteRegDeleg(credential, _, _, _)
+        | Certificate::VoteRegDeleg(credential, _, _) => context.require_account(credential),
+        Certificate::UpdateDRepCert(drep, _) => context.require_drep(drep),
+        Certificate::StakeRegistration(_)
+        | Certificate::StakeDeregistration(_)
+        | Certificate::PoolRegistration { .. }
+        | Certificate::PoolRetirement(..)
+        | Certificate::Reg(..)
+        | Certificate::UnReg(..)
+        | Certificate::AuthCommitteeHot(..)
+        | Certificate::ResignCommitteeCold(..)
+        | Certificate::RegDRepCert(..)
+        | Certificate::UnRegDRepCert(..) => {}
+    });
 }
 
 #[cfg(test)]
