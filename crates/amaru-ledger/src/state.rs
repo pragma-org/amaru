@@ -36,14 +36,12 @@ use tracing::{Span, info, trace, warn};
 
 use crate::{
     context::{DefaultPreparationContext, DefaultValidationContext},
-    epoch_transition,
-    epoch_transition::{GovernanceActivity, RewardsState},
+    epoch_transition::{self, GovernanceActivity, RewardsState},
     governance::ratification::RatificationContext,
-    rules,
-    rules::block::BlockValidation,
+    rules::{self, block::BlockValidation},
     state::{
         overlay::StateOverlay,
-        volatile::{AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileView},
+        volatile::{AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileStore, VolatileView},
     },
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
