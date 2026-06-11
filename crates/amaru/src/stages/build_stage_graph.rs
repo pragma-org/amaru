@@ -24,7 +24,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
+use amaru_kernel::{HeaderHash, Peer, Tip};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
@@ -47,12 +47,12 @@ use crate::stages::config::Config;
 ///
 pub fn build_stage_graph(
     config: &Config,
-    era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
     ledger_tip: Tip,
     best_hash: HeaderHash,
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
+    let era_history = config.era_history();
+    let global_parameters = config.global_parameters();
     let manager = stage_graph.stage("manager", manager::stage);
     let peer_selection = stage_graph.stage("peer_selection", peer_selection::stage);
     let peer_selection_ref = peer_selection.sender();

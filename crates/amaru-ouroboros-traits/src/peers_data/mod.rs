@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod accounts;
-pub mod cc_members;
-pub mod dreps;
-pub mod opcerts;
-pub mod pools;
-pub mod pots;
-pub mod proposals;
-pub mod slots;
-pub mod utxo;
-pub mod votes;
+pub mod has_peers_data;
+pub mod has_peers_data_mock;
+
+pub use has_peers_data::*;
+pub use has_peers_data_mock::*;

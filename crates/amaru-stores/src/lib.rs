@@ -20,7 +20,7 @@ pub mod tests {
     use amaru_kernel::{
         Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput, any_certificate_pointer, any_hash28, any_pool_params, any_proposal_id, any_stake_credential,
+        TransactionInput, any_certificate_pointer, any_pool_id, any_pool_params, any_proposal_id, any_stake_credential,
     };
     use amaru_ledger::{
         epoch_transition::GovernanceActivity,
@@ -165,7 +165,7 @@ pub mod tests {
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot, Hash::from([0u8; 32]));
-        let slot_leader = any_hash28().new_tree(runner).unwrap().current();
+        let slot_leader = any_pool_id().new_tree(runner).unwrap().current();
 
         {
             let context = store.create_transaction();
@@ -371,6 +371,7 @@ pub mod tests {
             remove,
             std::iter::empty(),
         )?;
+        context.remove_operational_cert_sequence_number(&fixture.slot_leader)?;
         context.commit()?;
 
         assert!(

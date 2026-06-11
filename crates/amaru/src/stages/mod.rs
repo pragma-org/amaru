@@ -15,4 +15,4 @@
 pub mod build_node;
 pub mod build_stage_graph;
 pub mod config;
-mod ledger;
+pub mod ledger;

@@ -272,7 +272,7 @@ pub mod tests {
     use std::collections::BTreeMap;
 
     use amaru_kernel::{
-        Epoch, Lovelace, any_anchor, any_certificate_pointer, any_drep, any_hash28, any_pool_params,
+        Epoch, Lovelace, any_anchor, any_certificate_pointer, any_drep, any_pool_id, any_pool_params,
         any_stake_credential, expect_stake_credential,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
@@ -313,7 +313,7 @@ pub mod tests {
     prop_compose! {
         pub fn any_stake_distribution_no_dreps()(
             epoch in any::<u64>(),
-            pools in collection::btree_map(any_hash28(), any_pool_state(), 1..10),
+            pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
             accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
             let active_stake = pools.values().fold(0, |total, st| total + st.stake);
@@ -358,7 +358,7 @@ pub mod tests {
     prop_compose! {
         pub fn any_account_state()(
             lovelace in any::<Lovelace>(),
-            pool in option::of(any_hash28()),
+            pool in option::of(any_pool_id()),
             drep in option::of(any_drep()),
         ) -> AccountState {
             AccountState {

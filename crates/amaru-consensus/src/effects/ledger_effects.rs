@@ -17,7 +17,7 @@ use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 use amaru_kernel::{BlockHeader, EraHistory, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
+    BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasPeersData, HeaderValidationError,
     TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
@@ -129,7 +129,7 @@ impl LedgerOps for Ledger {
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
-pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
+pub type ResourceHasPeersData = Arc<dyn HasPeersData + Send + Sync>;
 pub type ResourceEraHistory = EraHistory;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -369,11 +369,11 @@ impl ExternalEffect for RegisteredRelaySocketAddrsEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap(async move {
-            let stake_pools = resources
-                .get::<ResourceHasStakePools>()
-                .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasStakePools resource")
+            let peers_data = resources
+                .get::<ResourceHasPeersData>()
+                .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasPeersData resource")
                 .clone();
-            stake_pools.registered_relay_socket_addrs().await
+            peers_data.registered_relay_socket_addrs().await.map_err(|e| BlockValidationError::new(e.into()))
         })
     }
 }

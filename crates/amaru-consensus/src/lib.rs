@@ -20,19 +20,3 @@ pub mod events;
 pub mod headers_tree;
 pub mod span;
 pub mod stages;
-pub mod store;
-pub mod validate_header;
-
-#[cfg(test)]
-pub(crate) mod test {
-    macro_rules! include_header {
-        ($name:ident, $slot:expr) => {
-            static $name: std::sync::LazyLock<BlockHeader> = std::sync::LazyLock::new(|| {
-                let data = include_bytes!(concat!("../tests/data/headers/preprod_", $slot, ".cbor"));
-                amaru_kernel::from_cbor(data.as_slice()).expect("invalid header")
-            });
-        };
-    }
-
-    pub(crate) use include_header;
-}

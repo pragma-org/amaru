@@ -159,7 +159,8 @@ where
                 });
             }
 
-            let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
+            let params =
+                PoolParams { id: id.into(), vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
             PoolsSlice::register(context, params, pointer);
             Ok(())
         }
@@ -182,7 +183,7 @@ where
                 });
             }
 
-            PoolsSlice::retire(context, id, Epoch::from(epoch));
+            PoolsSlice::retire(context, id.into(), Epoch::from(epoch));
             Ok(())
         }
 
@@ -231,7 +232,7 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            context.delegate_pool(credential, pool, pointer)?;
+            context.delegate_pool(credential, pool.into(), pointer)?;
             Ok(())
         }
 

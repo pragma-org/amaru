@@ -127,7 +127,7 @@ impl VolatileDB {
         self.sequence.clear();
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &AnchoredVolatileFragment> {
         self.sequence.iter()
     }
 }
@@ -136,9 +136,9 @@ impl VolatileDB {
 impl VolatileDB {
     pub fn fixture() -> Self {
         let mut db = VolatileDB::default();
-        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.push_back(AnchoredVolatileFragment::fixture(30, 3));
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1, 0));
+        db.push_back(AnchoredVolatileFragment::fixture(20, 2, 0));
+        db.push_back(AnchoredVolatileFragment::fixture(30, 3, 0));
         assert_eq!(db.len(), 3);
         db
     }
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn test_consumed_input_is_tracked() {
         let input = test_input(1);
-        let mut anchored = AnchoredVolatileFragment::fixture(10, 1);
+        let mut anchored = AnchoredVolatileFragment::fixture(10, 1, 0);
         anchored.fragment.utxo.consume(input.clone());
 
         let mut db = VolatileDB::default();
@@ -243,11 +243,11 @@ mod tests {
     fn test_rollback_removes_consumed_input_from_cache() {
         let input = test_input(1);
         let mut db = VolatileDB::default();
-        let first = AnchoredVolatileFragment::fixture(10, 1);
+        let first = AnchoredVolatileFragment::fixture(10, 1, 0);
         let first_point = first.point();
         db.push_back(first);
 
-        let mut second = AnchoredVolatileFragment::fixture(20, 2);
+        let mut second = AnchoredVolatileFragment::fixture(20, 2, 0);
         second.fragment.utxo.consume(input.clone());
         db.push_back(second);
 

@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer,
-    ProtocolParameters, StakeCredential, Tip,
+    ProtocolParameters, StakeCredential,
 };
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
         AnchoredVolatileFragment, VolatileDB,
         diff_bind::{DiffBind, MergeError},
         diff_epoch_reg::DiffEpochReg,
-        volatile::fragment::add_proposals,
+        volatile::fragment::{FragmentAnchor, add_proposals},
     },
     store::{
         ReadStore, StoreError,
@@ -175,7 +175,7 @@ pub enum VolatileViewError {
          .current_accounts,
     )]
     AccountsMergeError {
-        anchor: Box<(Tip, PoolId)>,
+        anchor: Box<FragmentAnchor>,
         merge_error: MergeError<StakeCredential>,
         next_accounts:
             Box<DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>>,
@@ -197,7 +197,7 @@ impl VolatileViewError {
     ) -> Self {
         Self::AccountsMergeError {
             merge_error: merge_error.to_owned(),
-            anchor: Box::new(anchored.anchor),
+            anchor: Box::new(anchored.anchor.clone()),
             next_accounts: Box::new(anchored.fragment.accounts.clone()),
             current_accounts: Box::new(current_accounts.to_owned()),
         }

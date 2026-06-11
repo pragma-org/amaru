@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistoryError, HeaderHash, IsHeader, Nonce, Point};
-use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{ChainStore, Nonces, Praos, StoreError};
 use thiserror::Error;
 
@@ -45,12 +44,10 @@ impl Praos<BlockHeader> for PraosChainStore {
     /// Once the stability window has been reached, the candidate is fixed for the epoch and will
     /// be used once crossing the epoch boundary to produce the next epoch nonce.
     fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonces, Self::Error> {
-        let (epoch, is_within_stability_window) = nonce::randomness_stability_window(
-            header,
-            self.consensus_parameters.era_history(),
-            self.consensus_parameters.randomness_stabilization_window(),
-        )
-        .map_err(NoncesError::EraHistoryError)?;
+        let (epoch, is_within_stability_window) = self
+            .consensus_parameters
+            .randomness_stability_window(header.slot())
+            .map_err(NoncesError::EraHistoryError)?;
 
         let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
 
@@ -61,7 +58,7 @@ impl Praos<BlockHeader> for PraosChainStore {
 
         // Compute the new evolving nonce by combining it with the current one and the header's VRF
         // output.
-        let evolving = nonce::evolve(header, &parent_nonces.evolving);
+        let evolving = parent_nonces.evolving.evolve(header);
 
         let nonces = Nonces {
             epoch,
@@ -77,7 +74,9 @@ impl Praos<BlockHeader> for PraosChainStore {
                     .store
                     .load_header(&parent_nonces.tail)
                     .ok_or(NoncesError::UnknownHeader { header: parent_nonces.tail })?;
-                nonce::from_candidate(&tail, &parent_nonces.candidate)
+                parent_nonces
+                    .candidate
+                    .make_epoch_nonce(&tail)
                     .ok_or(NoncesError::NoParentHeader { header: parent_nonces.tail })?
             } else {
                 parent_nonces.active
@@ -129,15 +128,22 @@ pub enum NoncesError {
 mod test {
     use std::sync::{Arc, LazyLock};
 
-    use amaru_kernel::{
-        BlockHeader, Epoch, EraHistory, GlobalParameters, IsHeader, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
-        from_cbor, hash, to_cbor,
+    use amaru_kernel::{BlockHeader, Epoch, GlobalParameters, IsHeader, NetworkName, from_cbor, hash, to_cbor};
+    use amaru_ouroboros_traits::{
+        BaseReadChainStore, Praos, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
     };
-    use amaru_ouroboros_traits::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use proptest::{prelude::*, prop_compose, proptest};
 
     use super::*;
-    use crate::test::include_header;
+
+    macro_rules! include_header {
+        ($name:ident, $slot:expr) => {
+            static $name: std::sync::LazyLock<BlockHeader> = std::sync::LazyLock::new(|| {
+                let data = include_bytes!(concat!("../../tests/data/headers/preprod_", $slot, ".cbor"));
+                amaru_kernel::from_cbor(data.as_slice()).expect("invalid header")
+            });
+        };
+    }
 
     // Epoch 164's last header
     include_header!(PREPROD_HEADER_69638382, 69638382);
@@ -146,19 +152,19 @@ mod test {
     include_header!(PREPROD_HEADER_70070331, 70070331);
     static PREPROD_NONCES_70070331: LazyLock<Nonces> = LazyLock::new(|| Nonces {
         epoch: Epoch::from(165),
-        active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
-        candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6",),
-        evolving: hash!("9b945f3c45b140f796f0d2ec81c48b50730044bf75eb7208c85f6195f68e9b8c"),
-        tail: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7",),
+        active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a").into(),
+        candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6",).into(),
+        evolving: hash!("9b945f3c45b140f796f0d2ec81c48b50730044bf75eb7208c85f6195f68e9b8c").into(),
+        tail: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
     });
 
     // Epoch 165's last header
     include_header!(PREPROD_HEADER_70070379, 70070379);
     static PREPROD_NONCES_70070379: LazyLock<Nonces> = LazyLock::new(|| Nonces {
         epoch: Epoch::from(165),
-        active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
-        candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6"),
-        evolving: hash!("24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718"),
+        active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a").into(),
+        candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6").into(),
+        evolving: hash!("24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718").into(),
         tail: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
     });
 
@@ -166,19 +172,19 @@ mod test {
     include_header!(PREPROD_HEADER_70070426, 70070426);
     static PREPROD_NONCES_70070426: LazyLock<Nonces> = LazyLock::new(|| Nonces {
         epoch: Epoch::from(166),
-        active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
-        candidate: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c",),
-        evolving: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c"),
-        tail: hash!("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",),
+        active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d").into(),
+        candidate: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c",).into(),
+        evolving: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c").into(),
+        tail: hash!("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
     });
 
     // Epoch 166's second header
     include_header!(PREPROD_HEADER_70070464, 70070464);
     static PREPROD_NONCES_70070464: LazyLock<Nonces> = LazyLock::new(|| Nonces {
         epoch: Epoch::from(166),
-        active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
-        candidate: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
-        evolving: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
+        active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d").into(),
+        candidate: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1").into(),
+        evolving: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1").into(),
         tail: hash!("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
     });
 
@@ -186,12 +192,14 @@ mod test {
         last_header_last_epoch: &BlockHeader,
         parent: (&BlockHeader, &Nonces),
         current: &BlockHeader,
-        era_history: &EraHistory,
         global_parameters: &GlobalParameters,
     ) -> Option<Nonces> {
         let store = Arc::new(InMemoryChainStore::default());
-        let consensus_parameters =
-            Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
+        let consensus_parameters = Arc::new(ConsensusParameters::new(
+            global_parameters.clone(),
+            NetworkName::Preprod.as_era_history().expect("missing default EraHistory for preprod"),
+            Default::default(),
+        ));
 
         // Have at least the last header of the last epoch available.
         store.store_header(last_header_last_epoch).expect("database failure");
@@ -212,8 +220,7 @@ mod test {
                 &PREPROD_HEADER_69638382,
                 (&PREPROD_HEADER_70070331, &PREPROD_NONCES_70070331),
                 &PREPROD_HEADER_70070379,
-                &PREPROD_ERA_HISTORY,
-                &PREPROD_GLOBAL_PARAMETERS
+                NetworkName::Preprod.as_global_parameters().expect("missing default GlobalParameters for preprod")
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070379)
@@ -227,8 +234,7 @@ mod test {
                 &PREPROD_HEADER_69638382,
                 (&PREPROD_HEADER_70070379, &PREPROD_NONCES_70070379),
                 &PREPROD_HEADER_70070426,
-                &PREPROD_ERA_HISTORY,
-                &PREPROD_GLOBAL_PARAMETERS
+                NetworkName::Preprod.as_global_parameters().expect("missing default GlobalParameters for preprod")
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070426)
@@ -242,8 +248,7 @@ mod test {
                 &PREPROD_HEADER_70070379,
                 (&PREPROD_HEADER_70070426, &PREPROD_NONCES_70070426),
                 &PREPROD_HEADER_70070464,
-                &PREPROD_ERA_HISTORY,
-                &PREPROD_GLOBAL_PARAMETERS
+                NetworkName::Preprod.as_global_parameters().expect("missing default GlobalParameters for preprod")
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070464)

@@ -16,7 +16,7 @@ use std::collections::VecDeque;
 
 use amaru_kernel::{
     BlockHeight, Epoch, EraHistory, GlobalParameters, Hash, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, ProtocolParameters, Slot, Tip,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, PoolId, ProtocolParameters, Slot, Tip,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -93,6 +93,35 @@ fn rollback_within_volatile_but_unknown_slot_is_rejected() {
 }
 
 #[test]
+fn operational_cert_sequence_number_returns_none_when_pool_is_unknown() {
+    let state = make_state();
+    let unknown = PoolId::new(Hash::new([7u8; 28]));
+    assert_eq!(state.operational_cert_sequence_number(&unknown).unwrap(), None);
+}
+
+#[test]
+fn operational_cert_sequence_number_finds_the_sequence_number_from_a_volatile_fragment() {
+    let mut state = make_state();
+    let pool_1 = PoolId::new(Hash::new([1u8; 28]));
+    let pool_2 = PoolId::new(Hash::new([2u8; 28]));
+    push_volatile(&mut state, 100, pool_1, 42);
+    push_volatile(&mut state, 200, pool_2, 99);
+
+    assert_eq!(state.operational_cert_sequence_number(&pool_1).unwrap(), Some(42));
+    assert_eq!(state.operational_cert_sequence_number(&pool_2).unwrap(), Some(99));
+}
+
+#[test]
+fn operational_cert_sequence_number_returns_the_latest_value_when_a_pool_has_multiple_fragments() {
+    let mut state = make_state();
+    let pool = PoolId::new(Hash::new([1u8; 28]));
+    push_volatile(&mut state, 100, pool, 5);
+    push_volatile(&mut state, 200, pool, 7);
+    // Reverse iteration of the volatile sequence yields the newest match first.
+    assert_eq!(state.operational_cert_sequence_number(&pool).unwrap(), Some(7));
+}
+
+#[test]
 fn rollback_after_volatile_front_is_rejected() {
     let mut state = make_state();
     forward_to(&mut state, point(100, 1), 1);
@@ -137,9 +166,17 @@ fn make_state() -> State<MockStore, RocksDBHistoricalStores> {
 /// Forward the ldeger to a given point
 #[expect(clippy::expect_used)]
 fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, point: Point, height: u64) {
-    let issuer = Hash::new([0u8; 28]);
+    let issuer = PoolId::new(Hash::new([0u8; 28]));
     let tip = Tip::new(point, BlockHeight::from(height));
-    state.push_fragment(VolatileFragment::default().anchor(tip, issuer)).expect("forward");
+    state.push_fragment(VolatileFragment::default().anchor(tip, issuer, 0)).expect("forward");
+}
+
+/// Push a volatile fragment with the given slot, pool issuer, and operational certificate sequence number.
+#[expect(clippy::expect_used)]
+fn push_volatile(state: &mut State<MockStore, RocksDBHistoricalStores>, slot: u64, issuer: PoolId, seq: u64) {
+    let point = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]));
+    let tip = Tip::new(point, BlockHeight::from(slot));
+    state.push_fragment(VolatileFragment::default().anchor(tip, issuer, seq)).expect("push_fragment");
 }
 
 fn point(slot: u64, tag: u8) -> Point {
@@ -167,6 +204,13 @@ impl ReadStore for MockStore {
         pool: &amaru_kernel::PoolId,
     ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::pools::Row>> {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
+    }
+
+    fn operational_cert_sequence_number(
+        &self,
+        _pool_id: &PoolId,
+    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::opcerts::Row>> {
+        Ok(None)
     }
 
     fn account(

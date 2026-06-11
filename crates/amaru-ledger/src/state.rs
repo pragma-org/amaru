@@ -15,20 +15,19 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeSet, VecDeque},
-    net::SocketAddr,
+    collections::VecDeque,
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher,
-    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction,
-    TransactionInput, TransactionPointer, to_cbor,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, MemoizedTransactionOutput,
+    NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionInput, TransactionPointer,
+    to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
-use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
+use amaru_ouroboros_traits::{PoolSummary, StoreError::ReadError, pools::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
@@ -213,10 +212,26 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
     }
 
-    /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
-    /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
-        StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
+    #[expect(clippy::unwrap_used)]
+    pub fn operational_cert_sequence_number(&self, pool_id: &PoolId) -> Result<Option<u64>, StoreError> {
+        for fragment in self.volatile.iter().rev() {
+            if fragment.issuer() == *pool_id {
+                return Ok(Some(fragment.operational_cert_sequence_number()));
+            }
+        }
+        Ok(self
+            .stable
+            .lock()
+            .unwrap()
+            .operational_cert_sequence_number(pool_id)?
+            .map(|row| row.latest_opcert_sequence_number))
+    }
+
+    #[expect(clippy::unwrap_used)]
+    pub fn registered_relay_socket_addrs(
+        &self,
+    ) -> Result<std::collections::BTreeSet<std::net::SocketAddr>, StoreError> {
+        crate::peers_data::collect_from_read_store(&*self.stable.lock().unwrap())
     }
 
     pub fn network(&self) -> NetworkName {
@@ -235,7 +250,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// applied to the ledger.
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
-            return Cow::Owned(st.anchor.0.point());
+            return Cow::Owned(st.point());
         }
 
         Cow::Owned(self.immutable_tip())
@@ -253,20 +268,44 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         self.volatile.view_back().map(|fragment| fragment.tip())
     }
 
-    /// Get the registered relay socket addresses from the stable store.
-    ///
-    /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
-    /// 2025), so it should be called with care. Please cache the result, it
-    /// only changes meaningfully once per epoch.
     #[expect(clippy::unwrap_used)]
-    pub fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, StateError> {
-        let db = self.stable.lock().unwrap();
-        Ok(crate::registered_relay_addrs::collect_from_read_store(&*db)?)
+    pub fn get_pool_summary(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
+        let epoch = self
+            .era_history
+            // NOTE: This function is called by the consensus when validating block headers. So in
+            // theory, the slot is either within the current epoch or the next since blocks must
+            // form a chain. Either the previous block is well within the current epoch, or it was
+            // the last block of the previous epoch.
+            //
+            // Either way, we do know at this point how to forecast this slot.
+            .slot_to_epoch_unchecked_horizon(slot)
+            .map_err(GetPoolError::SlotToEpochConversionFailure)?
+            .checked_sub(Epoch::TWO)
+            .ok_or(GetPoolError::SlotToEpochConversionFailure(EraHistoryError::InvalidEraHistory))?;
+        let view = self.stake_distributions.lock().unwrap();
+        let stake_distribution =
+            view.iter().find(|s| s.epoch == epoch).ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
+
+        match stake_distribution.pools.get(pool) {
+            Some(st) => {
+                let operational_cert_sequence_number = self
+                    .operational_cert_sequence_number(pool)
+                    .map_err(|e| GetPoolError::StoreError(ReadError { error: e.to_string() }))?
+                    .unwrap_or_default();
+                Ok(Some(PoolSummary::new(
+                    st.parameters.vrf,
+                    st.stake,
+                    stake_distribution.active_stake,
+                    operational_cert_sequence_number,
+                )))
+            }
+            None => Ok(None),
+        }
     }
 
     #[expect(clippy::unwrap_used)]
     fn apply_block(&mut self, now_stable: AnchoredVolatileFragment) -> Result<(), StateError> {
-        let tip_slot = now_stable.anchor.0.slot();
+        let tip_slot = now_stable.slot();
         let tip_epoch = unsafe_slot_to_epoch(&self.era_history, tip_slot);
 
         // TODO: Flush ledger overlay sooner.
@@ -286,8 +325,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         trace_span!(amaru_observability::amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(tip_slot)).in_scope(
             || {
                 // Persist changes for this block
-                let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
-                    now_stable.into_store_update(tip_epoch, self.protocol_parameters());
+                let StoreUpdate {
+                    point: stable_point,
+                    issuer: stable_issuer,
+                    operational_cert_sequence_number,
+                    fees,
+                    add,
+                    remove,
+                    withdrawals,
+                } = now_stable.into_store_update(tip_epoch, self.protocol_parameters());
 
                 let db = self.stable.lock().unwrap();
 
@@ -303,6 +349,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                             remove,
                             withdrawals,
                         )?;
+
+                        batch
+                            .save_operational_cert_sequence_number(&stable_issuer, operational_cert_sequence_number)?;
 
                         batch.with_pots(|mut row| {
                             row.borrow_mut().fees += fees;
@@ -718,7 +767,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // 2. Epoch transition
             BlockValidation::from(self.try_epoch_transition(*point))?;
 
-            let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+            let issuer: PoolId = block.issuer();
+            let operational_cert_sequence_number = block.operational_cert_sequence_number();
 
             let metrics = self.new_metrics(point, &block, issuer);
 
@@ -739,7 +789,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             // 5. Record new volatile state
             let tip = Tip::new(*point, block_height.into());
-            let fragment = VolatileFragment::from(context).anchor(tip, issuer);
+            let fragment = VolatileFragment::from(context).anchor(tip, issuer, operational_cert_sequence_number);
             if let Some(now_stable) = BlockValidation::from(self.push_fragment(fragment))? {
                 // 6-7. Flush overlay & Apply now-stable block
                 BlockValidation::from(self.apply_block(now_stable))?;
@@ -749,7 +799,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         })
     }
 
-    fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
+    fn new_metrics(&self, point: &Point, block: &Block, issuer: PoolId) -> LedgerMetrics {
         let slot = point.slot_or_default();
 
         let prev_hash = block.header.header_body.prev_hash;
@@ -782,7 +832,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             remaining_kes_periods,
             block_header_hash: hex::encode(point.hash()),
             parent_block_header_hash: prev_hash.map(hex::encode).unwrap_or_default(),
-            issuer_verification_key_hash: hex::encode(issuer),
+            issuer_verification_key_hash: hex::encode(issuer.as_ref()),
         }
     }
 
@@ -936,47 +986,6 @@ impl<'a> Deref for StakeDistributionView<'a> {
         // Safe, because Self can only be created after checking that the index was present. Plus,
         // we hold the guard, so that data cannot change.
         &self.guard[self.position]
-    }
-}
-
-// HasStakeDistribution
-// ----------------------------------------------------------------------------
-
-// The 'LedgerState' trait materializes the interface required of the consensus layer in order to
-// validate block headers. It allows to keep the ledger implementation rather abstract to the
-// consensus in order to decouple both components.
-pub struct StakeDistributionObserver {
-    view: Arc<Mutex<VecDeque<StakeDistribution>>>,
-    era_history: Arc<EraHistory>,
-}
-
-impl HasStakeDistribution for StakeDistributionObserver {
-    #[expect(clippy::unwrap_used)]
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        let epoch = self
-            .era_history
-            // NOTE: This function is called by the consensus when validating block headers. So in
-            // theory, the slot is either within the current epoch or the next since blocks must
-            // form a chain. Either the previous block is well within the current epoch, or it was
-            // the last block of the previous epoch.
-            //
-            // Either way, we do know at this point how to forecast this slot.
-            .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(GetPoolError::SlotToEpochConversionFailure)?
-            .checked_sub(Epoch::TWO);
-
-        let view = self.view.lock().unwrap();
-
-        let stake_distribution = view
-            .iter()
-            .find(|s| Some(s.epoch) == epoch)
-            .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
-
-        Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
-            vrf: st.parameters.vrf,
-            stake: st.stake,
-            active_stake: stake_distribution.active_stake,
-        }))
     }
 }
 

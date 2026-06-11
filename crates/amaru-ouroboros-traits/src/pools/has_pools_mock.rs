@@ -16,26 +16,24 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{Hash, Lovelace, PoolId, Slot, size::VRF_KEY};
 
-use crate::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
+use crate::{GetPoolError, HasPools, PoolSummary};
 
-/// A mock implementing the HasStakeDistribution trait, suitable to validate a single block header
+/// A mock implementing the HasPools trait, suitable to validate a single block header
 /// with default parameters.
 pub struct MockLedgerState {
     pub vrf_vkey_hash: Hash<VRF_KEY>,
     pub stake: Lovelace,
     pub active_stake: Lovelace,
-    pub op_certs: BTreeMap<PoolId, u64>,
+    pub operational_cert_sequence_number_by_pool_id: BTreeMap<PoolId, u64>,
 }
 
-impl MockLedgerState {
-    #[expect(clippy::unwrap_used)]
-    pub fn new(vrf_vkey_hash: &str, stake: Lovelace, active_stake: Lovelace) -> Self {
-        Self { vrf_vkey_hash: vrf_vkey_hash.parse().unwrap(), stake, active_stake, op_certs: Default::default() }
-    }
-}
-
-impl HasStakeDistribution for MockLedgerState {
-    fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        Ok(Some(PoolSummary { vrf: self.vrf_vkey_hash, stake: self.stake, active_stake: self.active_stake }))
+impl HasPools for MockLedgerState {
+    fn get_pool_summary(&self, _slot: Slot, pool_id: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
+        Ok(Some(PoolSummary::new(
+            self.vrf_vkey_hash,
+            self.stake,
+            self.active_stake,
+            *self.operational_cert_sequence_number_by_pool_id.get(pool_id).unwrap_or(&0),
+        )))
     }
 }

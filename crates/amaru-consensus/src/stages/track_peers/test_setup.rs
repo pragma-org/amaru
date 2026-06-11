@@ -17,7 +17,7 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, EraHistory, HeaderHash, Tip, make_header};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    CanValidateHeaders, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders, WriteChainStore,
+    CanValidateHeaders, HeaderValidationError, MockBlockValidator, MockCanValidateHeaders, WriteChainStore,
     in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
@@ -36,10 +36,7 @@ use tokio::runtime::{Builder, Handle, Runtime};
 
 use super::*;
 use crate::{
-    effects::{
-        ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect,
-        VolatileTipEffect,
-    },
+    effects::{ResourceBlockValidation, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect, VolatileTipEffect},
     stages::{
         peer_selection::PeerSelectionMsg,
         test_utils::{Logs, run_simulation},
@@ -202,9 +199,8 @@ fn setup_base(
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());
             resources.put::<ResourceHeaderValidation>(validation);
-            let block_validation = Arc::new(MockCanValidateBlocks);
+            let block_validation = Arc::new(MockBlockValidator::default());
             resources.put::<ResourceBlockValidation>(block_validation.clone());
-            resources.put::<ResourceHasStakePools>(block_validation);
         },
         overrides,
     )

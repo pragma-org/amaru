@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,16 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::File,
+    io::BufReader,
+    net::SocketAddr,
+    sync::Arc,
+};
 
 use amaru_kernel::{
-    ConsensusParameters, Epoch, Header, NetworkName, Nonce, PoolId, Slot, cbor, size::VRF_KEY,
-    utils::serde::hex_to_bytes,
+    cbor, size::VRF_KEY, utils::serde::hex_to_bytes, ConsensusParameters, Epoch, Header, NetworkName, Nonce, PoolId,
+    Slot,
 };
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{
-    HasStakeDistribution, PoolSummary,
-    has_stake_distribution::{GetPoolError, mock_ledger_state::MockLedgerState},
+    has_pools::{mock_ledger_state::MockLedgerState, GetPoolError}, BlockValidationError, HasPools,
+    PoolSummary,
 };
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_primitives::babbage;
@@ -29,7 +35,7 @@ use serde::{Deserialize, Deserializer};
 
 #[test]
 fn header_test_cases() {
-    let file = File::open("tests/data/header-test-cases.json").unwrap();
+    let file = File::open("tests/data/headers/header-test-cases.json").unwrap();
     let cases: Vec<HeaderTestCase> = serde_json::from_reader(BufReader::new(file)).expect("decode test cases");
 
     for case in &cases {
@@ -37,14 +43,13 @@ fn header_test_cases() {
         let raw_body = minted.header_body.raw_cbor();
         let header = Header::from(minted);
         let params = Arc::new(consensus_parameters_from_context(&case.context));
-        let ledger: Arc<dyn HasStakeDistribution> = match case.ledger_state {
+        let ledger: Arc<dyn HasPools> = match case.ledger_state {
             LedgerState::FromContext => Arc::new(mock_ledger_state(&case.context)),
             LedgerState::MissingPool => Arc::new(MissingPoolLedger),
             LedgerState::Failing => Arc::new(FailingLedger),
         };
-        let result: Result<Vec<_>, _> =
-            praos::header::assert_all(params, &header, raw_body, ledger, &case.context.nonce)
-                .and_then(|assertions| assertions.into_iter().map(|a| a()).collect());
+        let result: Result<Vec<_>, _> = assert_all(params, &header, raw_body, ledger, &case.context.nonce)
+            .and_then(|assertions| assertions.into_iter().map(|a| a()).collect());
 
         match (&case.expected, result) {
             (Expected::Pass, Ok(_)) => (),
@@ -80,7 +85,7 @@ fn header_test_cases() {
 /// produce the VRF output, in order to help troubleshoot the
 /// validation process in case of test failures.
 ///
-/// The fixtures in `tests/data/header-test-cases.json` have initially been generated from some
+/// The fixtures in `tests/data/headers/header-test-cases.json` have initially been generated from some
 /// the ouroboros-consensus Haskell code. They carry the generation context, the hex-encoded header
 /// and the expected outcome.
 ///
@@ -150,18 +155,17 @@ fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
         vrf_vkey_hash: context.vrf_vkey_hash,
         stake: 1,
         active_stake: 1,
-        op_certs: context.operational_certificate_counters.clone(),
+        operational_cert_sequence_number_by_pool_id: context.operational_certificate_counters.clone(),
     }
 }
 
-#[allow(clippy::expect_used)]
 fn consensus_parameters_from_context(context: &GeneratorContext) -> ConsensusParameters {
     ConsensusParameters::create(
         0,
         context.praos_slots_per_kes_period,
         context.praos_max_kes_evolution,
         context.active_slot_coeff,
-        NetworkName::Preprod.as_era_history().expect("missing default EraHistory for preprod"),
+        NetworkName::Preprod.into(),
         context.operational_certificate_counters.clone(),
     )
 }
@@ -191,17 +195,17 @@ enum LedgerState {
 
 struct MissingPoolLedger;
 
-impl HasStakeDistribution for MissingPoolLedger {
-    fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
+impl HasPools for MissingPoolLedger {
+    fn get_pool_summary(&self, _slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
         Ok(None)
     }
 }
 
 struct FailingLedger;
 
-impl HasStakeDistribution for FailingLedger {
-    fn get_pool(&self, slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        Err(GetPoolError::StakeDistributionNotAvailable(slot, Some(Epoch::from(0))))
+impl HasPools for FailingLedger {
+    fn get_pool_summary(&self, slot: Slot, _pool_id: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
+        Err(GetPoolError::StakeDistributionNotAvailable(slot, Epoch::from(0)))
     }
 }
 

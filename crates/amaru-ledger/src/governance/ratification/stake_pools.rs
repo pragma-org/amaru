@@ -88,7 +88,7 @@ fn any_update_in_security_group(update: &ProtocolParamUpdate) -> bool {
 /// Count the ratio of yes votes amongst pool operators.
 pub fn tally(
     proposal: &ProposalEnum,
-    votes: BTreeMap<&PoolId, &Vote>,
+    votes: BTreeMap<PoolId, &Vote>,
     stake_distribution: &StakeDistribution,
 ) -> SafeRatio {
     if stake_distribution.pools_voting_stake == 0 {
@@ -162,7 +162,7 @@ mod tests {
         fn prop_tally_is_never_greater_than_1((proposal, votes, stake_distribution) in any_tally()) {
             let result = tally(
                 &proposal,
-                votes.iter().map(|(k, v)| (k, *v)).collect(),
+                votes.iter().map(|(k, v)| (*k, *v)).collect(),
                 &stake_distribution
             );
             prop_assert!(result <= SafeRatio::one())

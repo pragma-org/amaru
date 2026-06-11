@@ -371,7 +371,7 @@ impl<'distr> RatificationContext<'distr> {
     fn is_accepted_by_stake_pool_operators(
         &self,
         proposal: &ProposalEnum,
-        votes: BTreeMap<&PoolId, &Vote>,
+        votes: BTreeMap<PoolId, &Vote>,
         stake_distribution: &StakeDistribution,
     ) -> bool {
         match stake_pools::voting_threshold(
@@ -420,7 +420,7 @@ impl<'distr> RatificationContext<'distr> {
 /// processing of each category down the line.
 fn partition_votes(
     votes: &[(Voter, Ballot)],
-) -> (BTreeMap<DRep, &Vote>, BTreeMap<StakeCredential, &Vote>, BTreeMap<&PoolId, &Vote>) {
+) -> (BTreeMap<DRep, &Vote>, BTreeMap<StakeCredential, &Vote>, BTreeMap<PoolId, &Vote>) {
     votes.iter().fold(
         (BTreeMap::new(), BTreeMap::new(), BTreeMap::new()),
         |(mut dreps, mut committee, mut pools), (voter, ballot)| {
@@ -438,7 +438,7 @@ fn partition_votes(
                     dreps.insert(DRep::Script(*hash), ballot.vote());
                 }
                 Voter::StakePoolKey(pool_id) => {
-                    pools.insert(pool_id, ballot.vote());
+                    pools.insert(PoolId::from(*pool_id), ballot.vote());
                 }
             };
 

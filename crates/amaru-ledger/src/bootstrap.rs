@@ -131,6 +131,10 @@ pub fn import_initial_snapshot(
     })?;
     import_block_issuers(db, point, era_history, block_issuers)?;
 
+    let operational_cert_sequence_numbers: BTreeMap<PoolId, u64> =
+        decoder.with_decoder(|d| Ok(d.decode().unwrap_or_default())).unwrap_or_default();
+    import_operational_cert_sequence_numbers(db, operational_cert_sequence_numbers)?;
+
     let (treasury, reserves): (i64, i64) = decoder.with_decoder(|d| {
         // Epoch State
         d.array()?;
@@ -383,6 +387,29 @@ fn import_block_issuers(
         }
     }
     info!(count = fake_slot, "block_issuers");
+    transaction.commit().map_err(Into::into)
+}
+
+fn import_operational_cert_sequence_numbers(
+    db: &impl Store,
+    operational_cert_sequence_numbers: BTreeMap<PoolId, u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    // Clear any prior entries first
+    transaction.with_last_operational_cert_sequence_numbers(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })?;
+    transaction.commit()?;
+
+    let transaction = db.create_transaction();
+    let count = operational_cert_sequence_numbers.len();
+    for (issuer, operational_cert_sequence_number) in operational_cert_sequence_numbers {
+        transaction.save_operational_cert_sequence_number(&issuer, operational_cert_sequence_number)?;
+    }
+    info!(count, "operational_cert_sequence_numbers");
     transaction.commit().map_err(Into::into)
 }
 
@@ -842,7 +869,7 @@ fn import_votes(
             }
 
             for (pool_id, vote) in st.pools_votes.into_iter() {
-                let voter = Voter::StakePoolKey(pool_id);
+                let voter = Voter::StakePoolKey(pool_id.into());
 
                 let ballot = Ballot::new(vote, None);
 

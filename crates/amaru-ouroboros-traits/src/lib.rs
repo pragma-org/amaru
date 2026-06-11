@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
+pub mod pools;
+pub use pools::*;
 
-pub mod has_stake_pools;
-pub use has_stake_pools::HasStakePools;
+pub mod peers_data;
+pub use peers_data::*;
 
 pub mod validators;
 pub use validators::*;

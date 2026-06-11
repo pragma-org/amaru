@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr};
+mod assertions;
+mod praos_chain_store;
+mod validator;
 
-use crate::BlockValidationError;
-
-#[async_trait::async_trait]
-pub trait HasStakePools: Send + Sync {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError>;
-}
+pub use praos_chain_store::{NoncesError, PraosChainStore};
+pub use validator::HeaderValidator;

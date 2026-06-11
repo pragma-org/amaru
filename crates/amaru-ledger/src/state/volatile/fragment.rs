@@ -47,8 +47,11 @@ pub struct VolatileFragment {
 }
 
 impl VolatileFragment {
-    pub fn anchor(self, tip: Tip, issuer: PoolId) -> AnchoredVolatileFragment {
-        AnchoredVolatileFragment { anchor: (tip, issuer), fragment: self }
+    pub fn anchor(self, tip: Tip, issuer: PoolId, operational_cert_sequence_number: u64) -> AnchoredVolatileFragment {
+        AnchoredVolatileFragment {
+            anchor: FragmentAnchor { tip, issuer, operational_cert_sequence_number },
+            fragment: self,
+        }
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
@@ -60,18 +63,25 @@ impl VolatileFragment {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FragmentAnchor {
+    pub tip: Tip,
+    pub issuer: PoolId,
+    pub operational_cert_sequence_number: u64,
+}
+
 // --------------------------------------------------------------------------- AnchoredVolatileFragment
 
 /// A [`VolatileFragment`] anchored to a specific point and block issuer.
 #[derive(Debug)]
 pub struct AnchoredVolatileFragment {
-    pub anchor: (Tip, PoolId),
+    pub anchor: FragmentAnchor,
     pub fragment: VolatileFragment,
 }
 
 impl AnchoredVolatileFragment {
     pub fn tip(&self) -> Tip {
-        self.anchor.0
+        self.anchor.tip
     }
 
     pub fn slot(&self) -> Slot {
@@ -80,6 +90,14 @@ impl AnchoredVolatileFragment {
 
     pub fn point(&self) -> Point {
         self.tip().point()
+    }
+
+    pub fn operational_cert_sequence_number(&self) -> u64 {
+        self.anchor.operational_cert_sequence_number
+    }
+
+    pub fn issuer(&self) -> PoolId {
+        self.anchor.issuer
     }
 
     #[allow(clippy::type_complexity)]
@@ -124,12 +142,13 @@ impl AnchoredVolatileFragment {
                     votes,
                     fees,
                 },
-            anchor: (tip, issuer),
+            anchor: FragmentAnchor { tip, issuer, operational_cert_sequence_number },
         } = self;
 
         StoreUpdate {
             point: tip.point(),
             issuer,
+            operational_cert_sequence_number,
             fees,
             withdrawals: withdrawals.into_iter(),
             add: store::Columns {
@@ -159,14 +178,17 @@ impl AnchoredVolatileFragment {
 
 #[cfg(test)]
 impl AnchoredVolatileFragment {
-    pub fn fixture(slot: u64, pool_id: u8) -> Self {
+    pub fn fixture(slot: u64, pool_id: u8, operational_cert_sequence_number: u64) -> Self {
         use amaru_kernel::{BlockHeight, Hash};
 
         let point = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]));
-        let pool = Hash::new([pool_id; 28]);
+        let issuer: PoolId = PoolId::new(Hash::new([pool_id; 28]));
         let tip = Tip::new(point, BlockHeight::from(slot));
 
-        Self { anchor: (tip, pool), fragment: VolatileFragment::default() }
+        Self {
+            anchor: FragmentAnchor { tip, issuer, operational_cert_sequence_number },
+            fragment: VolatileFragment::default(),
+        }
     }
 }
 
@@ -175,6 +197,7 @@ impl AnchoredVolatileFragment {
 pub struct StoreUpdate<W, A, R> {
     pub point: Point,
     pub issuer: PoolId,
+    pub operational_cert_sequence_number: u64,
     pub fees: Lovelace,
     pub withdrawals: W,
     pub add: A,

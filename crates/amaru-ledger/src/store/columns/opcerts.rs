@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_iter_borrow::IterBorrow;
-/// This modules captures blocks made by slot leaders throughout epochs.
-use amaru_kernel::{
-    cbor, {PoolId, Slot},
-};
+//! This module captures the opcert last sequence number for each pool.
 
-pub type Key = Slot;
+use amaru_iter_borrow::IterBorrow;
+use amaru_kernel::{PoolId, cbor};
+
+pub type Key = PoolId;
 
 pub type Value = Row;
 
@@ -27,12 +26,12 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    pub slot_leader: PoolId,
+    pub latest_opcert_sequence_number: u64,
 }
 
 impl Row {
-    pub fn new(slot_leader: PoolId) -> Self {
-        Self { slot_leader }
+    pub fn new(latest_opcert_sequence_number: u64) -> Self {
+        Self { latest_opcert_sequence_number }
     }
 }
 
@@ -42,38 +41,30 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.encode_with(self.slot_leader, ctx)?;
+        e.encode_with(self.latest_opcert_sequence_number, ctx)?;
         Ok(())
     }
 }
 
 impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let slot_leader = d.decode_with(ctx)?;
-        Ok(Row::new(slot_leader))
+        let latest_opcert_sequence_number = d.decode_with(ctx)?;
+        Ok(Row::new(latest_opcert_sequence_number))
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{PoolId, Slot, prop_cbor_roundtrip};
+    use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
 
     prop_compose! {
-        pub fn any_slot()(
-            n in 0u64..87782400,
-        ) -> Slot {
-            Slot::from(n)
-        }
-    }
-
-    prop_compose! {
         pub fn any_row()(
-            slot_leader in any::<[u8; 28]>().prop_map(|h| PoolId::new(h.into())),
+            latest_opcert_sequence_number in any::<u64>()
         ) -> Row {
-            Row::new(slot_leader)
+            Row::new(latest_opcert_sequence_number)
         }
     }
 

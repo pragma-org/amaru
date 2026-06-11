@@ -28,6 +28,7 @@ bytes = { workspace = true, features = ["serde"] }
 clap = { workspace = true, optional = true }
 hex.workspace = true
 itertools.workspace = true
+kes-summed-ed25519.workspace = true
 minicbor.workspace = true
 num.workspace = true
 pallas-addresses.workspace = true
@@ -42,6 +43,8 @@ serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha3.workspace = true
 thiserror.workspace = true
+vrf_dalek.workspace = true
+zeroize.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-minicbor-extra.workspace = true

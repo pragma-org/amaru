@@ -133,7 +133,7 @@ mod tests {
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
-        MockCanValidateBlocks, MockCanValidateTxs, TransactionValidationError, TxSubmissionMempool,
+        MockBlockValidator, MockCanValidateTxs, TransactionValidationError, TxSubmissionMempool,
     };
     use amaru_protocols::store_effects::ResourceParameters;
     use amaru_pure_stage::{
@@ -338,7 +338,7 @@ mod tests {
         let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default());
         stage_graph.resources().put::<ResourceParameters>(PREPROD_GLOBAL_PARAMETERS.clone());
         stage_graph.resources().put::<ResourceEraHistory>(PREPROD_ERA_HISTORY.clone());
-        stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
+        stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockBlockValidator::default()));
         stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
         stage_graph.resources().put::<ResourceTxValidation>(validator);
         let sender = stage_graph.input(mempool_stage.without_state());

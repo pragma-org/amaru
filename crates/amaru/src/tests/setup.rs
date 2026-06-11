@@ -15,18 +15,15 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
-    effects::{ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation},
+    effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceTxValidation},
     headers_tree::data_generation::Action,
 };
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
 use amaru_ouroboros::{
-    ConnectionsResource, DiagnosticChainStore, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs,
+    ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateHeaders, MockCanValidateTxs,
     ResourceMempool,
 };
-use amaru_protocols::{
-    manager::ManagerMessage,
-    store_effects::{ResourceHeaderStore, Store},
-};
+use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{
     Effects, OrTerminateWith, StageGraph, StageRef,
     simulation::{RandStdRng, SimulationBuilder},
@@ -75,9 +72,9 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 pub fn create_node(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<TestNodeStages> {
     let config = node_config.make_node_configuration()?;
     let global_parameters: &GlobalParameters = config
-        .network
+        .network()
         .as_global_parameters()
-        .unwrap_or_else(|| panic!("no default GlobalParameters for network: {}", config.network));
+        .unwrap_or_else(|| panic!("missing default GlobalParameters for network"));
     let mut global_parameters = global_parameters.clone();
 
     // The chain length used when generating data is set as the `k` parameter for the node
@@ -191,15 +188,12 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
 /// Add resources depending on the simulation configuration.
 /// For example this function can be used to set a different chain store for the initiator and the responder.
 fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<()> {
-    let block_validation = Arc::new(MockCanValidateBlocks);
-    stage_graph.resources().put::<ResourceHeaderStore>(node_config.chain_store.clone());
-    stage_graph.resources().put::<Arc<dyn DiagnosticChainStore>>(node_config.chain_store.clone());
-    stage_graph.resources().put::<ResourceBlockValidation>(block_validation.clone());
-    stage_graph.resources().put::<ResourceHasStakePools>(block_validation);
+    stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockBlockValidator::default()));
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
     stage_graph.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());
+    stage_graph.resources().put::<Arc<dyn DiagnosticChainStore>>(node_config.chain_store.clone());
     Ok(())
 }
 

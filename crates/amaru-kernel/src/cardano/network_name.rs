@@ -79,7 +79,7 @@ impl NetworkName {
         }
     }
 
-    pub fn as_era_history(&self) -> Option<&EraHistory> {
+    pub fn as_era_history(&self) -> Option<&'static EraHistory> {
         match self {
             NetworkName::Mainnet => Some(&MAINNET_ERA_HISTORY),
             NetworkName::Preprod => Some(&PREPROD_ERA_HISTORY),
