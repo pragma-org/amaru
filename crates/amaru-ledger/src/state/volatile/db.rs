@@ -12,68 +12,72 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
-
 use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
 
-use crate::state::AnchoredVolatileFragment;
+use crate::state::{
+    AnchoredVolatileFragment,
+    overlay::StateOverlay,
+    volatile::{VolatileSeries, VolatileStore},
+};
 
 #[derive(Default)]
 pub struct VolatileDB {
-    sequence: VecDeque<AnchoredVolatileFragment>,
+    current: VolatileSeries,
+    draining: Option<(VolatileSeries, StateOverlay)>,
 }
 
-impl VolatileDB {
-    pub fn is_empty(&self) -> bool {
-        self.sequence.is_empty()
+impl VolatileStore for VolatileDB {
+    fn is_empty(&self) -> bool {
+        self.current.is_empty() && self.draining.as_ref().is_none_or(|(draining, _)| draining.is_empty())
     }
 
-    pub fn len(&self) -> usize {
-        self.sequence.len()
+    fn len(&self) -> usize {
+        self.current.len() + self.draining.as_ref().map(|(draining, _)| draining.len()).unwrap_or_default()
     }
 
-    pub fn view_back(&self) -> Option<&AnchoredVolatileFragment> {
-        self.sequence.back()
+    fn view_back(&self) -> Option<&AnchoredVolatileFragment> {
+        self.current.view_back().or(self.draining.as_ref().and_then(|(draining, _)| draining.view_back()))
     }
 
-    pub fn view_front(&self) -> Option<&AnchoredVolatileFragment> {
-        self.sequence.front()
+    fn view_front(&self) -> Option<&AnchoredVolatileFragment> {
+        self.draining.as_ref().and_then(|(draining, _)| draining.view_front()).or(self.current.view_front())
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        for AnchoredVolatileFragment { fragment, .. } in self.sequence.iter().rev() {
-            if fragment.utxo.consumed.contains(input) {
-                return None;
-            }
-            if let Some(output) = fragment.utxo.produced.get(input) {
-                return Some(output);
-            }
+    fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
+        if self.has_consumed_input(input) {
+            return None;
         }
-        None
+
+        self.current
+            .resolve_input(input)
+            .or(self.draining.as_ref().and_then(|(draining, _)| draining.resolve_input(input)))
     }
 
-    pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.sequence.iter().any(|anchored| anchored.fragment.utxo.consumed.contains(input))
+    fn has_consumed_input(&self, input: &TransactionInput) -> bool {
+        self.current.has_consumed_input(input)
+            || self.draining.as_ref().is_some_and(|(draining, _)| draining.has_consumed_input(input))
     }
 
-    pub fn contains(&self, point: &Point) -> bool {
-        self.sequence.binary_search_by_key(point, |anchored| anchored.point()).is_ok()
+    fn contains(&self, point: &Point) -> bool {
+        self.current.contains(point) || self.draining.as_ref().is_some_and(|(draining, _)| draining.contains(point))
     }
 
-    pub fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
-        self.sequence.pop_front()
+    fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
+        self.draining.as_mut().and_then(|(draining, _)| draining.pop_front()).or(self.current.pop_front())
     }
 
-    pub fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
-        self.sequence.push_back(fragment);
+    fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
+        // By design, we should never be pushing to the back of the draining sequence
+        self.current.push_back(fragment);
     }
 
-    pub fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
+    #[allow(clippy::expect_used)]
+    fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
         let target_slot = point.slot_or_default();
 
-        // Check if the target point is beyond the sequence
-        // In this case we simply return Ok since it this would not change the volatile fragment.
-        if let Some(last) = self.sequence.back()
+        // Check if the target point is beyond the current sequence
+        // In this case we simply return Ok since it this would not change the volatile DB
+        if let Some(last) = self.current.view_back()
             && last.slot() < target_slot
         {
             tracing::warn!(
@@ -85,50 +89,51 @@ impl VolatileDB {
             return Ok(());
         }
 
-        // Check if the target point is before the sequence
+        // Check if the target point is before the active sequence
         // In this case we return an error since it means rolling back the stable DB
-        if let Some(first) = self.sequence.front()
+        if let Some(first) =
+            self.draining.as_ref().and_then(|(draining, _)| draining.view_front()).or(self.current.view_front())
             && target_slot < first.slot()
         {
             tracing::error!(
                 name: "rollback_to.before",
                 %target_slot,
                 first_slot = ?first.slot(),
-                "Attempting to rollback to a point before the first point of the volatile fragment"
+                "Attempting to rollback to a point before the first known of the volatile fragment"
             );
             return Err(point);
         }
 
-        // Now we know the target point is within the sequence.
+        // Now we know the target point is within our volatile DB.
         // Keep all elements with point <= target point.
-        let mut ix = 0;
-        let mut found = false;
-        for diff in self.sequence.iter() {
-            if diff.point() <= *point {
-                ix += 1;
-                if diff.point() == *point {
-                    found = true;
-                    break;
-                }
-            } else {
-                return Err(point);
-            }
+
+        if self.current.contains(point) {
+            self.current.rollback_to(point)?;
+            return Ok(());
         }
 
-        if !found {
-            return Err(point);
+        if self.draining.as_ref().is_some_and(|(draining, _)| draining.contains(point)) {
+            // If we are rolling back to a point in the draining sequence, we need to
+            // promote the remaining sequence (after truncating) to current.
+            let (mut draining, _) = self.draining.take().expect("draining is Some");
+
+            draining.rollback_to(point)?;
+
+            self.current = draining;
+
+            return Ok(());
         }
 
-        self.sequence.truncate(ix);
-        Ok(())
+        Err(point)
     }
 
-    pub fn clear(&mut self) {
-        self.sequence.clear();
+    fn clear(&mut self) {
+        self.current.clear();
+        self.draining = None;
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
-        self.sequence.iter()
+    fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
+        self.draining.as_ref().map(|(d, _)| d.iter()).into_iter().flatten().chain(self.current.iter())
     }
 }
 
