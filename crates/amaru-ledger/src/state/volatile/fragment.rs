@@ -48,7 +48,7 @@ pub struct VolatileFragment {
 
 impl VolatileFragment {
     pub fn anchor(self, tip: Tip, issuer: PoolId) -> AnchoredVolatileFragment {
-        AnchoredVolatileFragment { anchor: (tip, issuer), fragment: self }
+        AnchoredVolatileFragment { anchor: FragmentAnchor { tip, issuer }, fragment: self }
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
@@ -60,18 +60,24 @@ impl VolatileFragment {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FragmentAnchor {
+    pub tip: Tip,
+    pub issuer: PoolId,
+}
+
 // --------------------------------------------------------------------------- AnchoredVolatileFragment
 
 /// A [`VolatileFragment`] anchored to a specific point and block issuer.
 #[derive(Debug)]
 pub struct AnchoredVolatileFragment {
-    pub anchor: (Tip, PoolId),
+    pub anchor: FragmentAnchor,
     pub fragment: VolatileFragment,
 }
 
 impl AnchoredVolatileFragment {
     pub fn tip(&self) -> Tip {
-        self.anchor.0
+        self.anchor.tip
     }
 
     pub fn slot(&self) -> Slot {
@@ -80,6 +86,10 @@ impl AnchoredVolatileFragment {
 
     pub fn point(&self) -> Point {
         self.tip().point()
+    }
+
+    pub fn issuer(&self) -> PoolId {
+        self.anchor.issuer
     }
 
     #[allow(clippy::type_complexity)]
@@ -124,7 +134,7 @@ impl AnchoredVolatileFragment {
                     votes,
                     fees,
                 },
-            anchor: (tip, issuer),
+            anchor: FragmentAnchor { tip, issuer },
         } = self;
 
         StoreUpdate {
@@ -163,10 +173,10 @@ impl AnchoredVolatileFragment {
         use amaru_kernel::{BlockHeight, Hash};
 
         let point = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]));
-        let pool = Hash::new([pool_id; 28]);
+        let issuer: PoolId = PoolId::new(Hash::new([pool_id; 28]));
         let tip = Tip::new(point, BlockHeight::from(slot));
 
-        Self { anchor: (tip, pool), fragment: VolatileFragment::default() }
+        Self { anchor: FragmentAnchor { tip, issuer }, fragment: VolatileFragment::default() }
     }
 }
 

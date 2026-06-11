@@ -659,6 +659,24 @@ impl EraHistory {
         #[expect(clippy::expect_used)]
         self.eras.last().expect("EraHistory cannot be empty").params.era_name
     }
+
+    /// Determines if a slot is within the randomness stability window of its epoch.
+    ///
+    /// Returns the slot's epoch and a boolean indicating whether the slot is within
+    /// the stability window (i.e., far enough from the epoch boundary).
+    pub fn randomness_stability_window(
+        &self,
+        slot: Slot,
+        randomness_stabilization_window: u64,
+    ) -> Result<(Epoch, bool), EraHistoryError> {
+        let epoch = self.slot_to_epoch(slot, slot)?;
+        let next_epoch_first_slot = self.next_epoch_first_slot(epoch, &slot)?;
+        let slot_plus_window =
+            slot.as_u64().checked_add(randomness_stabilization_window).ok_or(EraHistoryError::SlotTooFar)?;
+        let is_within_stability_window = slot_plus_window < next_epoch_first_slot.as_u64();
+
+        Ok((epoch, is_within_stability_window))
+    }
 }
 
 /// Compute the time in milliseconds between the start of the system and the given slot.

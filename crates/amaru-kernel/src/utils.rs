@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod array;
+pub mod bytes;
 pub mod cbor;
 pub mod serde;
 pub mod string;

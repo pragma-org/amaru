@@ -64,7 +64,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{Lovelace, any_certificate_pointer, any_drep, any_hash28, prop_cbor_roundtrip};
+    use amaru_kernel::{Lovelace, PoolId, any_certificate_pointer, any_drep, any_hash28, prop_cbor_roundtrip};
     use proptest::{option, prelude::*, prop_compose};
 
     use super::Row;
@@ -79,7 +79,7 @@ pub mod tests {
             rewards in any::<Lovelace>(),
         ) -> Row {
             Row {
-                pool: pool.map(|pool| (pool, pool_delegation_at)),
+                pool: pool.map(|pool| (PoolId::new(pool), pool_delegation_at)),
                 deposit,
                 drep: drep.map(|drep| (drep, drep_delegation_at)),
                 rewards,

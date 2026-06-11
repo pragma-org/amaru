@@ -842,7 +842,7 @@ fn import_votes(
             }
 
             for (pool_id, vote) in st.pools_votes.into_iter() {
-                let voter = Voter::StakePoolKey(pool_id);
+                let voter = Voter::StakePoolKey(pool_id.into());
 
                 let ballot = Ballot::new(vote, None);
 

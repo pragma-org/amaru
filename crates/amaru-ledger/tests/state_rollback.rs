@@ -16,7 +16,7 @@ use std::collections::VecDeque;
 
 use amaru_kernel::{
     BlockHeight, Epoch, EraHistory, GlobalParameters, Hash, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, ProtocolParameters, Slot, Tip,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, PoolId, ProtocolParameters, Slot, Tip,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -137,7 +137,7 @@ fn make_state() -> State<MockStore, RocksDBHistoricalStores> {
 /// Forward the ldeger to a given point
 #[expect(clippy::expect_used)]
 fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, point: Point, height: u64) {
-    let issuer = Hash::new([0u8; 28]);
+    let issuer = PoolId::new(Hash::new([0u8; 28]));
     let tip = Tip::new(point, BlockHeight::from(height));
     state.push_fragment(VolatileFragment::default().anchor(tip, issuer)).expect("forward");
 }

@@ -71,7 +71,7 @@ pub mod tests {
 
     prop_compose! {
         pub fn any_row()(
-            slot_leader in any::<[u8; 28]>().prop_map(PoolId::new),
+            slot_leader in any::<[u8; 28]>().prop_map(|h| PoolId::new(h.into())),
         ) -> Row {
             Row::new(slot_leader)
         }

@@ -25,9 +25,6 @@ pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-primitives.workspace = true
 serde.workspace = true
-thiserror.workspace = true
-vrf_dalek.workspace = true
-zeroize.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
@@ -39,18 +36,10 @@ ignored = ["getrandom"]
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
-ctor.workspace = true
-insta = { workspace = true, features = ["yaml"] }
-pallas-traverse.workspace = true
-proptest.workspace = true
-rand.workspace = true
-rayon.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-tracing-subscriber.workspace = true
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [
-    "alloc",
-    "libm",
+  "alloc",
+  "libm",
 ] }

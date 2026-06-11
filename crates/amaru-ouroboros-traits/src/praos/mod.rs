@@ -44,7 +44,7 @@ Summarizing:
                                       └─────────────────────────┘
 */
 
-use amaru_kernel::{Epoch, HeaderHash, IsHeader, Nonce, cbor};
+use amaru_kernel::{Epoch, HeaderHash, Nonce, cbor};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Nonces {
@@ -83,18 +83,4 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Nonces {
             epoch: d.decode_with(ctx)?,
         })
     }
-}
-
-pub trait Praos<H: IsHeader>: Send + Sync {
-    type Error;
-
-    /// Obtain a previously calculated nonce from a header ancestor. This API is meant to be
-    /// concurrent-safe since we may need to keep track of multiple nonces at once from different
-    /// chains.
-    ///
-    /// So, nonces aren't bound to epochs, but to headers.
-    fn get_nonce(&self, header: &HeaderHash) -> Option<Nonce>;
-
-    /// Evolve the given nonce by combining it in an arbitrary way with other data.
-    fn evolve_nonce(&self, header: &H) -> Result<Nonces, Self::Error>;
 }

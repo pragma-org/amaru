@@ -12,35 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeSet,
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
-use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Tip, Transaction};
+use amaru_kernel::{Block, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, HasStakePools, TransactionValidationError,
-    can_validate_blocks::BlockValidationError,
+    CanValidateBlocks, CanValidateTxs, TransactionValidationError, can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
 
 use crate::{
     rules::block::BlockValidation,
-    state,
+    state::State,
     store::{HistoricalStores, Store},
 };
 
-/// This data type encapsulate the ledger state in order to implement the `CanValidateBlocks` trait.
-/// and be able to validate blocks (including rollback).
+/// This data type encapsulates the ledger state in order to implement various traits supporting the validation of blocks:
+///
+///  - `CanValidateBlocks` validates block transactions.
+///  - `CanValidateTxs` validates individual transactions.
 pub struct BlockValidator<S, HS>
 where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    pub state: Arc<Mutex<state::State<S, HS>>>,
+    pub state: Arc<Mutex<State<S, HS>>>,
     pub vm_eval_pool: ArenaPool,
 }
 
@@ -51,6 +48,18 @@ where
 {
     fn clone(&self) -> Self {
         Self { state: self.state.clone(), vm_eval_pool: self.vm_eval_pool.clone() }
+    }
+}
+
+impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
+    pub fn new(state: Arc<Mutex<State<S, HS>>>, vm_eval_pool: ArenaPool) -> anyhow::Result<Self> {
+        Ok(Self { state, vm_eval_pool })
+    }
+
+    #[expect(clippy::unwrap_used)]
+    pub fn get_tip(&self) -> Point {
+        let state = self.state.lock().unwrap();
+        state.tip().into_owned()
     }
 }
 
@@ -66,26 +75,6 @@ where
         state
             .validate_tx(tx, state.tip().slot_or_default(), &self.vm_eval_pool)
             .map_err(|error| TransactionValidationError::from(anyhow!(error)))
-    }
-}
-
-impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
-    pub fn new(
-        store: S,
-        snapshots: HS,
-        vm_eval_pool: ArenaPool,
-        network: NetworkName,
-        era_history: EraHistory,
-        global_parameters: GlobalParameters,
-    ) -> anyhow::Result<Self> {
-        let state = state::State::new(store, snapshots, network, era_history, global_parameters)?;
-        Ok(Self { state: Arc::new(Mutex::new(state)), vm_eval_pool })
-    }
-
-    #[expect(clippy::unwrap_used)]
-    pub fn get_tip(&self) -> Point {
-        let state = self.state.lock().unwrap();
-        state.tip().into_owned()
     }
 }
 
@@ -133,20 +122,5 @@ where
     fn volatile_tip(&self) -> Option<Tip> {
         let state = self.state.lock().unwrap();
         state.volatile_tip()
-    }
-}
-
-#[async_trait::async_trait]
-impl<S, HS> HasStakePools for BlockValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
-        #[expect(clippy::unwrap_used)]
-        {
-            let state = self.state.lock().unwrap();
-            state.registered_relay_socket_addrs().map_err(|e| BlockValidationError::new(anyhow!(e)))
-        }
     }
 }

@@ -18,13 +18,18 @@
 
 use std::{array::TryFromSliceError, ops::Deref};
 
-use amaru_kernel::{Hash, Hasher, Slot};
-pub use pallas_primitives::babbage::{VrfDerivation as Derivation, derive_tagged_vrf_output};
+pub use pallas_primitives::{
+    VrfCert,
+    babbage::{VrfDerivation, derive_tagged_vrf_output},
+    conway::OperationalCert,
+};
 use thiserror::Error;
 use vrf_dalek::{
     errors::VrfError,
     vrf03::{PublicKey03, SecretKey03, VrfProof03},
 };
+
+use crate::{Hash, Hasher, Slot};
 
 // ------------------------------------------------------------------- SecretKey
 

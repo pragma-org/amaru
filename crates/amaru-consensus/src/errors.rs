@@ -15,6 +15,7 @@
 use std::{fmt, fmt::Display};
 
 use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
+use amaru_ledger::header_validator;
 use amaru_ouroboros_traits::{HeaderValidationError, StoreError};
 use serde::ser::SerializeStruct;
 use thiserror::Error;
@@ -54,7 +55,7 @@ pub enum ConsensusError {
     #[error("Invalid block at {} build on invalid block {}", point, invalid)]
     BlockBuiltOnInvalidBlock { point: Point, invalid: Point },
     #[error("{0}")]
-    NoncesError(#[from] crate::store::NoncesError),
+    NoncesError(#[from] header_validator::NoncesError),
     #[error("{0}")]
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
     #[error("Invalid header height {actual}, expected {expected}")]

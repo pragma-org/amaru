@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{EraHistory, GlobalParameters, PoolId, Slot};
+use crate::{Epoch, EraHistory, EraHistoryError, GlobalParameters, PoolId, Slot};
 
 /// This data type encapsulates the parameters needed by the consensus layer to operate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,6 +89,14 @@ impl ConsensusParameters {
 
     pub fn active_slot_coeff(&self) -> FixedDecimal {
         self.active_slot_coeff.0.clone()
+    }
+
+    /// Determines if a slot is within the randomness stability window of its epoch.
+    ///
+    /// Returns the slot's epoch and a boolean indicating whether the slot is within
+    /// the stability window (i.e., far enough from the epoch boundary).
+    pub fn randomness_stability_window(&self, slot: Slot) -> Result<(Epoch, bool), EraHistoryError> {
+        self.era_history().randomness_stability_window(slot, self.randomness_stabilization_window())
     }
 }
 

@@ -782,10 +782,10 @@ mod cmp_tip_unit_tests {
     use std::cmp::Ordering;
 
     use amaru_kernel::{BlockHeader, Bytes, Hasher, HeaderHash, size::BLOCK_BODY};
-    use amaru_ouroboros::OperationalCert;
     use pallas_primitives::{
         VrfCert,
         babbage::{HeaderBody, PseudoHeader},
+        conway::OperationalCert,
     };
 
     fn make_test_header(

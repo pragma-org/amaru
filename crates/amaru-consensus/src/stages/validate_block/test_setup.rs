@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq,
+    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq,
 };
-use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, HasStakePools, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
-};
+use amaru_ouroboros_traits::{MockBlockValidator, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, LoadBlockEffect, LoadFromBestChainEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
     ResourceHeaderStore,
@@ -29,16 +26,14 @@ use amaru_pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason, simulation::SimulationRunning,
     trace_buffer::TraceEntry,
 };
-use async_trait::async_trait;
-use parking_lot::Mutex;
 use tokio::runtime::{Builder, Runtime};
 
 use super::*;
 pub use crate::stages::test_utils::assert_trace;
 use crate::{
     effects::{
-        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, RollbackBlockEffect,
-        TipEffect, ValidateBlockEffect,
+        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, RollbackBlockEffect, TipEffect,
+        ValidateBlockEffect,
     },
     stages::{
         block_source::BlockSourceMsg,
@@ -100,112 +95,6 @@ impl HeaderTree {
 impl Default for HeaderTree {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Configurable mock ledger for testing rollback/roll-forward paths.
-pub struct MockBlockValidator {
-    inner: Mutex<MockBlockValidatorInner>,
-}
-
-struct MockBlockValidatorInner {
-    /// Points the ledger is considered to contain (validated).
-    contains: BTreeSet<Point>,
-    /// Current ledger tip.
-    tip: Point,
-    /// If set, rollback_block will return this error.
-    rollback_fails: bool,
-    /// If set, roll_forward_block will return Ok(Err(...)) for these points.
-    validate_fails: BTreeSet<Point>,
-    /// If set, roll_forward_block will return Err(...) for these points.
-    ledger_fails: BTreeSet<Point>,
-}
-
-impl MockBlockValidator {
-    pub fn new(tip: Point) -> Self {
-        Self {
-            inner: Mutex::new(MockBlockValidatorInner {
-                contains: BTreeSet::default(),
-                tip,
-                rollback_fails: false,
-                validate_fails: BTreeSet::default(),
-                ledger_fails: BTreeSet::default(),
-            }),
-        }
-    }
-
-    pub fn with_contains(&self, point: Point) -> &Self {
-        self.inner.lock().contains.insert(point);
-        self
-    }
-
-    pub fn with_rollback_fails(&self, fails: bool) -> &Self {
-        self.inner.lock().rollback_fails = fails;
-        self
-    }
-
-    pub fn with_validate_fails(&self, point: Point) -> &Self {
-        self.inner.lock().validate_fails.insert(point);
-        self
-    }
-
-    pub fn with_ledger_fails(&self, point: Point) -> &Self {
-        self.inner.lock().ledger_fails.insert(point);
-        self
-    }
-
-    pub fn with_tip(&self, tip: Point) -> &Self {
-        self.inner.lock().tip = tip;
-        self
-    }
-}
-
-#[async_trait]
-impl CanValidateBlocks for MockBlockValidator {
-    async fn roll_forward_block(
-        &self,
-        point: &Point,
-        _block: amaru_kernel::Block,
-    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        let mut inner = self.inner.lock();
-        if inner.ledger_fails.contains(point) {
-            return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed")));
-        }
-        if inner.validate_fails.contains(point) {
-            return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed"))));
-        }
-        inner.contains.insert(*point);
-        Ok(Ok(Default::default()))
-    }
-
-    fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError> {
-        let mut inner = self.inner.lock();
-        if inner.rollback_fails {
-            return Err(BlockValidationError::new(anyhow::anyhow!("mock rollback failed")));
-        }
-        inner.tip = *to;
-        inner.contains.retain(|p| p.slot_or_default() <= to.slot_or_default());
-        Ok(())
-    }
-
-    fn contains_point(&self, point: &Point) -> bool {
-        self.inner.lock().contains.contains(point)
-    }
-
-    fn tip(&self) -> Point {
-        self.inner.lock().tip
-    }
-
-    fn volatile_tip(&self) -> Option<Tip> {
-        let inner = self.inner.lock();
-        inner.contains.last().map(|p| Tip::new(*p, BlockHeight::from(inner.contains.len() as u64) + 1))
-    }
-}
-
-#[async_trait]
-impl HasStakePools for MockBlockValidator {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
-        Ok(BTreeSet::new())
     }
 }
 
@@ -282,7 +171,7 @@ pub fn test_prep() -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
     let select_chain = StageRef::named_for_tests("select_chain");
     let block_source = StageRef::named_for_tests("block_source");
-    let block_validator = Arc::new(MockBlockValidator::new(Point::Origin));
+    let block_validator = Arc::new(MockBlockValidator::default());
 
     let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), Point::Origin);
 
@@ -309,7 +198,6 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
             resources.put::<ResourceBlockValidation>(prep.block_validator.clone());
-            resources.put::<ResourceHasStakePools>(prep.block_validator.clone());
         },
         |_running| {
             // No special external effect overrides needed for most validate_block tests.

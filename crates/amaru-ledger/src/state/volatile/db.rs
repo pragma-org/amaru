@@ -127,7 +127,7 @@ impl VolatileDB {
         self.sequence.clear();
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &AnchoredVolatileFragment> {
         self.sequence.iter()
     }
 }

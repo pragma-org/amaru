@@ -135,7 +135,7 @@ impl serde::Serialize for PoolParams {
         }
 
         let mut s = serializer.serialize_struct("PoolParams", 9)?;
-        s.serialize_field("id", &hex::encode(self.id))?;
+        s.serialize_field("id", &hex::encode(self.id.as_ref()))?;
         s.serialize_field("vrfVerificationKeyHash", &hex::encode(self.vrf))?;
         s.serialize_field("pledge", &as_lovelace_map(self.pledge))?;
         s.serialize_field("cost", &as_lovelace_map(self.cost))?;
@@ -159,7 +159,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        Bytes, Hash, Nullable, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip,
+        Bytes, Hash, Nullable, PoolId, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip,
         size::{CREDENTIAL, KEY},
     };
 
@@ -228,7 +228,7 @@ mod tests {
             relays in proptest::collection::vec(any_relay(), 0..10),
         ) -> PoolParams {
             PoolParams {
-                id,
+                id: PoolId::new(id),
                 vrf,
                 pledge,
                 cost,

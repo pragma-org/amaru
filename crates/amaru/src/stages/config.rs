@@ -15,7 +15,8 @@
 use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use amaru_kernel::{
-    EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
+    ConsensusParameters, EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
+    PREPROD_GLOBAL_PARAMETERS,
 };
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::ChainStore;
@@ -27,28 +28,16 @@ use crate::{DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAUL
 
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
 pub struct Config {
-    pub ledger_store: RocksDbConfig,
+    pub ledger_config: LedgerConfig,
     pub chain_store: StoreType<Arc<dyn ChainStore>>,
     pub upstream_peers: Vec<String>,
     pub target_upstream_peers: usize,
     pub target_downstream_peers: usize,
-    pub network: NetworkName,
     pub network_magic: NetworkMagic,
     pub era_history: EraHistory,
-    pub global_parameters: GlobalParameters,
     pub listen_address: String,
-    pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
     pub migrate_chain_db: bool,
     pub submit_api_address: Option<String>,
-
-    // Number of allocation arenas to keep around for performing parallel evaluation of scripts in
-    // the ledger.
-    pub ledger_vm_alloc_arena_count: usize,
-
-    // Initial size (in bytes) of each allocation arena to use for script evaluation in the ledger
-    // virtual machine. Higher sizes means less re-allocations but more resident memory footprint
-    // since the arena is leaking memory on purpose.
-    pub ledger_vm_alloc_arena_size: usize,
 
     /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
     pub defer_req_next_poll_ms: u64,
@@ -85,26 +74,34 @@ impl Config {
     pub fn submit_api_address(&self) -> anyhow::Result<Option<SocketAddr>> {
         self.submit_api_address.as_deref().map(|addr| addr.parse().context("invalid submit API address")).transpose()
     }
+
+    pub fn network(&self) -> NetworkName {
+        self.ledger_config.network
+    }
+
+    #[expect(clippy::panic)]
+    pub fn era_history(&self) -> &EraHistory {
+        self.ledger_config.network.as_era_history().unwrap_or_else(|| panic!("missing default EraHistory for network"))
+    }
+
+    pub fn global_parameters(&self) -> &GlobalParameters {
+        &self.ledger_config.global_parameters
+    }
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
-            ledger_store: RocksDbConfig::new(PathBuf::from("./ledger.db")),
+            ledger_config: LedgerConfig::default(),
             chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
             target_upstream_peers: DEFAULT_UPSTREAM_PEERS,
             target_downstream_peers: DEFAULT_DOWNSTREAM_PEERS,
-            network: NetworkName::Preprod,
             network_magic: NetworkMagic::PREPROD,
             era_history: PREPROD_ERA_HISTORY.clone(),
-            global_parameters: PREPROD_GLOBAL_PARAMETERS.clone(),
             listen_address: "0.0.0.0:3000".to_string(),
-            max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
             migrate_chain_db: false,
             submit_api_address: None,
-            ledger_vm_alloc_arena_count: 1,
-            ledger_vm_alloc_arena_size: 1_024_000,
             defer_req_next_poll_ms: 200,
             peer_removal_cooldown_secs: DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
             block_source_max_tip_distance: 2_500,
@@ -113,6 +110,43 @@ impl Default for Config {
             trace_dump_path: None,
             mempool: MempoolConfig::default(),
             tx_submission_responder_params: ResponderParams::default(),
+        }
+    }
+}
+
+pub struct LedgerConfig {
+    pub ledger_store: RocksDbConfig,
+    pub network: NetworkName,
+    pub global_parameters: GlobalParameters,
+    pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+    // Number of allocation arenas to keep around for performing parallel evaluation of scripts in
+    // the ledger.
+    pub ledger_vm_alloc_arena_count: usize,
+
+    // Initial size (in bytes) of each allocation arena to use for script evaluation in the ledger
+    // virtual machine. Higher sizes means less re-allocations but more resident memory footprint
+    // since the arena is leaking memory on purpose.
+    pub ledger_vm_alloc_arena_size: usize,
+}
+
+impl LedgerConfig {
+    #[expect(clippy::panic)]
+    pub fn consensus_parameters(&self) -> ConsensusParameters {
+        let era_history: &EraHistory =
+            self.network.as_era_history().unwrap_or_else(|| panic!("missing default EraHistory for network"));
+        ConsensusParameters::new(self.global_parameters.clone(), era_history, Default::default())
+    }
+}
+
+impl Default for LedgerConfig {
+    fn default() -> LedgerConfig {
+        LedgerConfig {
+            ledger_store: RocksDbConfig::new(PathBuf::from("./ledger.db")),
+            network: NetworkName::Preprod,
+            global_parameters: PREPROD_GLOBAL_PARAMETERS.clone(),
+            max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
+            ledger_vm_alloc_arena_count: 1,
+            ledger_vm_alloc_arena_size: 1_024_000,
         }
     }
 }
