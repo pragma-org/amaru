@@ -24,7 +24,12 @@ use amaru_kernel::{
 
 use crate::{
     governance::ratification::ProposalsRootsRc,
-    state::{VolatileDB, diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, volatile::fragment::add_proposals},
+    state::{
+        VolatileDB,
+        diff_bind::DiffBind,
+        diff_epoch_reg::DiffEpochReg,
+        volatile::{VolatileStore, fragment::add_proposals},
+    },
     store::{
         ReadStore, StoreError,
         columns::{pools::Row as Pool, *},
