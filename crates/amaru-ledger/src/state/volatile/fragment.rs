@@ -58,6 +58,36 @@ impl VolatileFragment {
     pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
         self.utxo.consumed.contains(input)
     }
+
+    /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.
+    /// This maintains the running aggregate of a [`crate::state::VolatileSeries`].
+    ///
+    /// `accounts`, `dreps` (with `dreps_deregistrations`) and `committee` are
+    /// deliberately not folded here: they are resolved against the stable store and
+    /// will be maintained as materialized state rather than a composed diff. The
+    /// exhaustive destructuring forces this decision to be revisited if a column is
+    /// added.
+    pub fn compose(&mut self, more_recent: &VolatileFragment) {
+        let VolatileFragment {
+            utxo,
+            votes,
+            pools,
+            withdrawals,
+            proposals,
+            fees,
+            accounts: _,
+            dreps: _,
+            dreps_deregistrations: _,
+            committee: _,
+        } = more_recent;
+
+        self.utxo.merge(utxo.clone());
+        self.votes.merge(votes.clone());
+        self.pools.append(pools.clone());
+        self.withdrawals.extend(withdrawals.iter().cloned());
+        self.proposals.extend(proposals.iter().map(|(id, value)| (id.clone(), value.clone())));
+        self.fees += *fees;
+    }
 }
 
 // --------------------------------------------------------------------------- AnchoredVolatileFragment
