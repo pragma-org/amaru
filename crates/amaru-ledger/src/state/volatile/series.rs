@@ -102,34 +102,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{state::diff_set::DiffSet, tests::fake_output};
-
-    const VOLATILE_WINDOW: usize = 6;
-
-    prop_compose! {
-        fn unique_lifecycle_diffs()(
-            plan in prop::collection::btree_map(
-                0u8..16,
-                (0usize..VOLATILE_WINDOW, prop::option::of(0usize..VOLATILE_WINDOW)),
-                0..16,
-            )
-        ) -> Vec<DiffSet<TransactionInput, MemoizedTransactionOutput>> {
-            let mut diffs: Vec<DiffSet<TransactionInput, MemoizedTransactionOutput>> =
-                (0..VOLATILE_WINDOW).map(|_| DiffSet::default()).collect();
-
-            for (tag, (produced_at, consume_offset)) in plan {
-                diffs[produced_at].produce(test_input(tag), fixed_output());
-                if let Some(offset) = consume_offset {
-                    let consumed_at = produced_at + 1 + offset;
-                    if consumed_at < VOLATILE_WINDOW {
-                        diffs[consumed_at].consume(test_input(tag));
-                    }
-                }
-            }
-
-            diffs
-        }
-    }
+    use crate::state::{diff_set::DiffSet, volatile::test_support::*};
 
     fn series_from(diffs: &[DiffSet<TransactionInput, MemoizedTransactionOutput>]) -> VolatileSeries {
         let mut series = VolatileSeries::default();
@@ -224,35 +197,5 @@ mod tests {
         series.pop_front();
         assert!(series.is_empty());
         assert_eq!(series.len(), 0);
-    }
-
-    fn test_input(tag: u8) -> TransactionInput {
-        TransactionInput { transaction_id: Hash::new([tag; 32]), index: 0 }
-    }
-
-    fn fixed_output() -> MemoizedTransactionOutput {
-        fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335")
-    }
-
-    fn naive_resolve<'a>(
-        diffs: &'a [DiffSet<TransactionInput, MemoizedTransactionOutput>],
-        input: &TransactionInput,
-    ) -> Option<&'a MemoizedTransactionOutput> {
-        for diff in diffs.iter().rev() {
-            if diff.consumed.contains(input) {
-                return None;
-            }
-            if let Some(output) = diff.produced.get(input) {
-                return Some(output);
-            }
-        }
-        None
-    }
-
-    fn naive_has_consumed(
-        diffs: &[DiffSet<TransactionInput, MemoizedTransactionOutput>],
-        input: &TransactionInput,
-    ) -> bool {
-        diffs.iter().any(|diff| diff.consumed.contains(input))
     }
 }

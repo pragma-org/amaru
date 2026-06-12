@@ -333,6 +333,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             self.epoch_transition(next_epoch)?;
 
+            self.volatile.seal();
+
             let new_protocol_version = self.protocol_version();
 
             if old_protocol_version != new_protocol_version {
@@ -810,6 +812,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 if epoch_to < epoch_from {
                     self.overlay.rollback();
                 }
+
+                debug_assert_eq!(
+                    self.overlay.epoch(),
+                    unsafe_slot_to_epoch(&self.era_history, self.tip().slot_or_default()),
+                    "overlay epoch desynced from the volatile tip after rollback"
+                );
 
                 Ok(())
             },

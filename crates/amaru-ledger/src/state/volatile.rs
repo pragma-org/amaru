@@ -25,6 +25,9 @@ pub use series::VolatileSeries;
 mod view;
 pub use view::VolatileView;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 pub trait VolatileStore {
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
