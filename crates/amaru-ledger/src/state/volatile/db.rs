@@ -12,35 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::mem;
+
 use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
 
 use crate::state::{
     AnchoredVolatileFragment,
-    overlay::StateOverlay,
     volatile::{VolatileSeries, VolatileStore},
 };
 
 #[derive(Default)]
 pub struct VolatileDB {
     current: VolatileSeries,
-    draining: Option<(VolatileSeries, StateOverlay)>,
+    draining: Option<VolatileSeries>,
 }
 
 impl VolatileStore for VolatileDB {
     fn is_empty(&self) -> bool {
-        self.current.is_empty() && self.draining.as_ref().is_none_or(|(draining, _)| draining.is_empty())
+        self.current.is_empty() && self.draining.as_ref().is_none_or(|draining| draining.is_empty())
     }
 
     fn len(&self) -> usize {
-        self.current.len() + self.draining.as_ref().map(|(draining, _)| draining.len()).unwrap_or_default()
+        self.current.len() + self.draining.as_ref().map(|draining| draining.len()).unwrap_or_default()
     }
 
     fn view_back(&self) -> Option<&AnchoredVolatileFragment> {
-        self.current.view_back().or(self.draining.as_ref().and_then(|(draining, _)| draining.view_back()))
+        self.current.view_back().or(self.draining.as_ref().and_then(|draining| draining.view_back()))
     }
 
     fn view_front(&self) -> Option<&AnchoredVolatileFragment> {
-        self.draining.as_ref().and_then(|(draining, _)| draining.view_front()).or(self.current.view_front())
+        self.draining.as_ref().and_then(|draining| draining.view_front()).or(self.current.view_front())
     }
 
     fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
@@ -48,22 +49,28 @@ impl VolatileStore for VolatileDB {
             return None;
         }
 
-        self.current
-            .resolve_input(input)
-            .or(self.draining.as_ref().and_then(|(draining, _)| draining.resolve_input(input)))
+        self.current.resolve_input(input).or(self.draining.as_ref().and_then(|draining| draining.resolve_input(input)))
     }
 
     fn has_consumed_input(&self, input: &TransactionInput) -> bool {
         self.current.has_consumed_input(input)
-            || self.draining.as_ref().is_some_and(|(draining, _)| draining.has_consumed_input(input))
+            || self.draining.as_ref().is_some_and(|draining| draining.has_consumed_input(input))
     }
 
     fn contains(&self, point: &Point) -> bool {
-        self.current.contains(point) || self.draining.as_ref().is_some_and(|(draining, _)| draining.contains(point))
+        self.current.contains(point) || self.draining.as_ref().is_some_and(|draining| draining.contains(point))
     }
 
     fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
-        self.draining.as_mut().and_then(|(draining, _)| draining.pop_front()).or(self.current.pop_front())
+        if let Some(draining) = self.draining.as_mut() {
+            let popped = draining.pop_front();
+            if draining.is_empty() {
+                self.draining = None;
+            }
+            return popped.or_else(|| self.current.pop_front());
+        }
+
+        self.current.pop_front()
     }
 
     fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
@@ -92,7 +99,7 @@ impl VolatileStore for VolatileDB {
         // Check if the target point is before the active sequence
         // In this case we return an error since it means rolling back the stable DB
         if let Some(first) =
-            self.draining.as_ref().and_then(|(draining, _)| draining.view_front()).or(self.current.view_front())
+            self.draining.as_ref().and_then(|draining| draining.view_front()).or(self.current.view_front())
             && target_slot < first.slot()
         {
             tracing::error!(
@@ -112,10 +119,10 @@ impl VolatileStore for VolatileDB {
             return Ok(());
         }
 
-        if self.draining.as_ref().is_some_and(|(draining, _)| draining.contains(point)) {
+        if self.draining.as_ref().is_some_and(|draining| draining.contains(point)) {
             // If we are rolling back to a point in the draining sequence, we need to
             // promote the remaining sequence (after truncating) to current.
-            let (mut draining, _) = self.draining.take().expect("draining is Some");
+            let mut draining = self.draining.take().expect("draining is Some");
 
             draining.rollback_to(point)?;
 
@@ -133,7 +140,34 @@ impl VolatileStore for VolatileDB {
     }
 
     fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
-        self.draining.as_ref().map(|(d, _)| d.iter()).into_iter().flatten().chain(self.current.iter())
+        self.draining.as_ref().map(|d| d.iter()).into_iter().flatten().chain(self.current.iter())
+    }
+}
+
+impl VolatileDB {
+    /// Seal the live series at an epoch boundary: the `current` series, which, by the protocol
+    /// pre-condition, holds only the closing epoch's blocks, becomes the `draining` series, and a
+    /// fresh empty `current` is opened for the new epoch. This keeps each series epoch-homogeneous.
+    ///
+    /// No-op when `current` is empty: there is nothing to seal, `draining` stays `None`, and
+    /// homogeneity still holds because an empty `current` only ever takes new-epoch blocks.
+    ///
+    /// The `debug_assert!` guards the design's load-bearing precondition: `epochLength` (~10k blocks)
+    /// is far larger than the volatile window `k` (2160 blocks at the time of writing), so at most one
+    /// epoch boundary isever inside the window and any prior `draining` series has fully drained long
+    /// before the next boundary arrives. A violation would mean two boundaries inside the window, impossible
+    /// under the protocol, hence a debug-only check.
+    pub fn seal(&mut self) {
+        debug_assert!(
+            self.draining.is_none(),
+            "sealing while a draining series is still present; two epoch boundaries inside the k-block window?"
+        );
+
+        if self.current.is_empty() {
+            return;
+        }
+
+        self.draining = Some(mem::take(&mut self.current));
     }
 }
 
@@ -152,8 +186,11 @@ impl VolatileDB {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{Hash, Point, Slot};
+    use proptest::prelude::*;
+    use test_case::test_case;
 
     use super::*;
+    use crate::state::volatile::test_support::*;
 
     #[test]
     fn test_rollback_to_point_before_sequence_fails() {
@@ -263,9 +300,169 @@ mod tests {
         assert!(!db.has_consumed_input(&input));
     }
 
+    #[test]
+    fn seal_opens_draining_and_resets_current() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
+
+        db.seal();
+
+        assert!(db.draining.is_some(), "draining should hold the sealed series");
+        assert_eq!(db.current.len(), 0, "current should be reset to empty");
+        assert_eq!(db.len(), 2, "total length is unchanged by sealing");
+    }
+
+    #[test]
+    fn seal_is_a_noop_on_empty_current() {
+        let mut db = VolatileDB::default();
+
+        db.seal();
+
+        assert!(db.draining.is_none(), "sealing an empty current must not open a draining series");
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "two epoch boundaries")]
+    fn seal_panics_if_draining_already_present() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.seal();
+
+        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
+        db.seal();
+    }
+
+    #[test]
+    fn pop_front_drains_draining_then_nulls_it() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
+        db.seal();
+        db.push_back(AnchoredVolatileFragment::fixture(30, 3));
+
+        assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(10)));
+        assert!(db.draining.is_some(), "draining still holds one block");
+
+        assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(20)));
+        assert!(db.draining.is_none(), "draining is nulled once it empties");
+
+        assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(30)));
+        assert!(db.is_empty());
+    }
+
+    #[test]
+    fn cross_series_views_span_both_series_oldest_to_newest() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
+        db.seal();
+        db.push_back(AnchoredVolatileFragment::fixture(30, 3));
+        db.push_back(AnchoredVolatileFragment::fixture(40, 4));
+
+        let slots = db.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        assert_eq!(
+            slots,
+            vec![Slot::from(10), Slot::from(20), Slot::from(30), Slot::from(40)],
+            "iter spans draining then current, oldest to newest"
+        );
+        assert_eq!(db.view_front().map(|fragment| fragment.slot()), Some(Slot::from(10)), "front is draining's oldest");
+        assert_eq!(db.view_back().map(|fragment| fragment.slot()), Some(Slot::from(40)), "back is current's newest");
+    }
+
+    #[test_case(Some(Where::Draining), None, true, false; "produced in draining, unconsumed")]
+    #[test_case(Some(Where::Current), None, true, false; "produced in current, unconsumed")]
+    #[test_case(Some(Where::Draining), Some(Where::Current), false, true; "produced in draining, consumed in current")]
+    #[test_case(None, Some(Where::Current), false, true; "consumed in current, produced only in the stable store")]
+    fn cross_series_resolve_precedence(
+        produce_in: Option<Where>,
+        consume_in: Option<Where>,
+        resolvable: bool,
+        consumed: bool,
+    ) {
+        let input = test_input(1);
+        let mut draining_block = AnchoredVolatileFragment::fixture(10, 1);
+        let mut current_block = AnchoredVolatileFragment::fixture(20, 2);
+
+        if let Some(layer) = produce_in {
+            let block = match layer {
+                Where::Draining => &mut draining_block,
+                Where::Current => &mut current_block,
+            };
+            block.fragment.utxo.produce(input.clone(), fixed_output());
+        }
+
+        if let Some(layer) = consume_in {
+            let block = match layer {
+                Where::Draining => &mut draining_block,
+                Where::Current => &mut current_block,
+            };
+            block.fragment.utxo.consume(input.clone());
+        }
+
+        let mut db = VolatileDB::default();
+        db.push_back(draining_block);
+        db.seal();
+        db.push_back(current_block);
+
+        assert_eq!(db.resolve_input(&input).is_some(), resolvable);
+        assert_eq!(db.has_consumed_input(&input), consumed);
+    }
+
+    #[test]
+    fn len_counts_both_series_until_draining_empties() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
+        db.seal();
+        db.push_back(AnchoredVolatileFragment::fixture(30, 3));
+
+        assert_eq!(db.len(), 3, "two draining blocks plus one current block");
+        assert!(!db.is_empty());
+
+        db.pop_front();
+        assert_eq!(db.len(), 2);
+
+        db.pop_front();
+        assert_eq!(db.len(), 1, "draining drained empty; only current is counted");
+        assert!(db.draining.is_none());
+        assert!(!db.is_empty());
+
+        db.pop_front();
+        assert!(db.is_empty());
+        assert_eq!(db.len(), 0);
+    }
+
+    proptest! {
+        #[test]
+        fn db_resolve_matches_naive_walk_over_both_series(
+            diffs in unique_lifecycle_diffs(),
+            seal_after in 1usize..VOLATILE_WINDOW,
+        ) {
+            let mut db = VolatileDB::default();
+            for (index, diff) in diffs.iter().enumerate() {
+                if index == seal_after {
+                    db.seal();
+                }
+                let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
+                anchored.fragment.utxo = diff.clone();
+                db.push_back(anchored);
+            }
+
+            for tag in 0u8..16 {
+                let input = test_input(tag);
+                prop_assert_eq!(db.resolve_input(&input).is_some(), naive_resolve(&diffs, &input).is_some());
+                prop_assert_eq!(db.has_consumed_input(&input), naive_has_consumed(&diffs, &input));
+            }
+        }
+    }
+
     // HELPERS
 
-    fn test_input(tag: u8) -> TransactionInput {
-        TransactionInput { transaction_id: Hash::new([tag; 32]), index: 0 }
+    #[derive(Clone, Copy)]
+    enum Where {
+        Draining,
+        Current,
     }
 }
