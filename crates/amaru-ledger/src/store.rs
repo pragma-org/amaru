@@ -62,6 +62,8 @@ pub enum OpenErrorKind {
         #[source]
         source: io::Error,
     },
+    #[error("RocksDB database '{file}' is locked: {message}")]
+    Locked { file: String, message: String },
     #[error("no ledger stable snapshot found; at least two are expected")]
     NoStableSnapshot,
 }
@@ -99,6 +101,10 @@ impl StoreError {
 impl OpenErrorKind {
     pub fn io_with_file<P: AsRef<Path>>(file: P, error: io::Error) -> Self {
         Self::IO { file: file.as_ref().display().to_string(), source: error }
+    }
+
+    pub fn locked<P: AsRef<Path>>(file: P, message: impl Into<String>) -> Self {
+        Self::Locked { file: file.as_ref().display().to_string(), message: message.into() }
     }
 }
 

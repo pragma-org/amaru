@@ -22,6 +22,7 @@ use amaru_consensus::{
     validate_header::ValidateHeader,
 };
 use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
+use amaru_ledger::store::{OpenErrorKind, StoreError as LedgerStoreError};
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
@@ -36,7 +37,7 @@ use amaru_pure_stage::{
     trace_buffer::TraceBuffer,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
@@ -107,8 +108,7 @@ pub fn build_node(
     let era_history = &config.era_history;
 
     // Make the ledger and get its tip
-    let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone())
-        .context("Failed to create ledger. Have you bootstrapped your node?")?;
+    let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone()).map_err(ledger_creation_error)?;
 
     let ledger_tip = ledger.get_tip();
     tracing::info!(
@@ -149,6 +149,26 @@ pub fn build_node(
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
     Ok(node_stages)
+}
+
+fn ledger_creation_error(error: anyhow::Error) -> anyhow::Error {
+    if is_ledger_store_locked(&error) {
+        error.context(
+            "Failed to create ledger because its RocksDB database is locked. Another Amaru process may still be \
+             using it, or a stale LOCK file may remain after an unclean shutdown. Stop any process using the ledger \
+             database before retrying; only remove the LOCK file after confirming no process is using it.",
+        )
+    } else {
+        error.context("Failed to create ledger. Have you bootstrapped your node?")
+    }
+}
+
+fn is_ledger_store_locked(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<LedgerStoreError>()
+            .is_some_and(|store_error| matches!(store_error, LedgerStoreError::Open(OpenErrorKind::Locked { .. })))
+    })
 }
 
 /// Register the resources required by the external effects invoked by the stages in the stage graph.
@@ -211,4 +231,34 @@ fn make_validate_header(
         Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
 
     ValidateHeader::new(consensus_parameters, chain_store, stake_distribution)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ledger_lock_error_uses_dedicated_context() {
+        let error = anyhow::Error::new(LedgerStoreError::Open(OpenErrorKind::locked("db/live", "lock held")));
+
+        assert!(is_ledger_store_locked(&error));
+
+        let error = ledger_creation_error(error);
+        let message = format!("{error:#}");
+
+        assert!(message.contains("RocksDB database is locked"));
+        assert!(!message.contains("Have you bootstrapped your node?"));
+    }
+
+    #[test]
+    fn other_ledger_errors_keep_bootstrap_context() {
+        let error = anyhow!("ledger failed");
+
+        assert!(!is_ledger_store_locked(&error));
+
+        let error = ledger_creation_error(error);
+        let message = format!("{error:#}");
+
+        assert!(message.contains("Have you bootstrapped your node?"));
+    }
 }

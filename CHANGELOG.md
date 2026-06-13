@@ -62,6 +62,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru**: fix `--help` being displayed as a debug Rust value instead of properly formatted. ([#953][])
+- **amaru**: report ledger RocksDB lock contention with dedicated startup guidance. ([#769][])
 - **amaru**: resolve era history from snapshots instead of inferring them from network (required for custom testnets). ([#886][])
 - **amaru-ouroboros**: default to `0` as leader relative stake when the leader has no stake (instad of crashing due to a division by zero) ([#886][])
 - **amaru-ouroboros**: skip leader-schedule check if active_slot_coeff is greater than or equal to 1 (degenerate case) ([#886][])
@@ -71,6 +72,7 @@ Other guiding principles:
 
 
 [#778]: https://github.com/pragma-org/amaru/issues/778
+[#769]: https://github.com/pragma-org/amaru/issues/769
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#953]: https://github.com/pragma-org/amaru/pull/953
