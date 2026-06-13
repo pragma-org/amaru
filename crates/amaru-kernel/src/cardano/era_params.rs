@@ -38,6 +38,10 @@ impl EraParams {
 
     pub fn from_bounds(start: &EraBound, end: &EraBound, era_name: EraName) -> Option<Self> {
         if end.slot <= start.slot || end.epoch <= start.epoch {
+            if end.slot == start.slot && end.epoch == start.epoch {
+                return Some(Self { epoch_size_slots: 0, slot_length: Duration::from_secs(1), era_name });
+            }
+
             return None;
         }
 
