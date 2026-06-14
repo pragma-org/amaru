@@ -316,7 +316,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
-    let required_chunk = targets.last().map(|t| chunk_for_slot(t.slot)).unwrap_or(0);
+    let required_chunk = targets.last().map(|t| chunk_for_slot(network, t.slot.into())).unwrap_or(0);
     if from_chunk > required_chunk {
         info!(from_chunk, required_chunk, target_dir = %cardano_node_db.display(), "local cardano-db already covers all target slots; skipping Mithril download");
     } else {
