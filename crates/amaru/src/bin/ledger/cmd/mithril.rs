@@ -76,7 +76,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let resume_point = resume_point_for_archives(&existing_archives);
 
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
-    let from_chunk = from_chunk_for_resume_point(latest_chunk, resume_point);
+    let from_chunk = from_chunk_for_resume_point(network, latest_chunk, resume_point);
 
     info!(
         tip=%tip, resume_point=%resume_point, from_chunk=%from_chunk,
