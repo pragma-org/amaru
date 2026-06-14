@@ -1,0 +1,225 @@
+name: Publish Bootstrap Snapshots
+
+# See docs/PUBLISHING_SNAPSHOTS.md for runner provisioning and operations.
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Network to publish snapshots for"
+        required: true
+        type: choice
+        options:
+          - preprod
+          - preview
+          - mainnet
+          - all
+        default: preprod
+      epoch:
+        description: "Start epoch of the three-epoch snapshot set (defaults to the last three completed epochs)"
+        required: false
+        type: string
+        default: ""
+      skip_verification:
+        description: "Skip the bootstrap smoke test against the published snapshots"
+        required: false
+        type: boolean
+        default: false
+      cardano_node_version:
+        description: "cardano-node release tag to download db-analyser from (must be a published release tag, e.g. 11.0.1)"
+        required: false
+        type: string
+        default: "11.0.1"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_LOG: error
+  CARDANO_NODE_VERSION: ${{ inputs.cardano_node_version }}
+
+jobs:
+  publish:
+    name: Create & publish ${{ matrix.network }} bootstrap snapshots
+    runs-on: [self-hosted, snapshots]
+    timeout-minutes: 2880
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        network: ${{ inputs.network == 'all' && fromJSON('["preview", "preprod", "mainnet"]') || fromJSON(format('["{0}"]', inputs.network)) }}
+    concurrency:
+      group: publish-snapshots-${{ matrix.network }}
+      cancel-in-progress: false
+    env:
+      AMARU_NETWORK: ${{ matrix.network }}
+      INPUT_EPOCH: ${{ inputs.epoch }}
+      MANIFEST: crates/amaru/config/bootstrap/${{ matrix.network }}/snapshots.json
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Preflight checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_EPOCH" ]; then
+            if ! [[ "$INPUT_EPOCH" =~ ^[0-9]+$ ]] || [ "$INPUT_EPOCH" -eq 0 ]; then
+              echo "::error::epoch must be a positive integer (non-zero), got '$INPUT_EPOCH'" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Resolve persistent cache directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_ROOT="${{ vars.SNAPSHOTS_CACHE_DIR || '' }}"
+          if [ -z "$CACHE_ROOT" ]; then
+            CACHE_ROOT="$HOME/amaru-snapshots"
+          fi
+          mkdir -p "$CACHE_ROOT/$AMARU_NETWORK"
+          echo "CACHE_ROOT=$CACHE_ROOT" >> "$GITHUB_ENV"
+          echo "AMARU_DIST_DIR=$CACHE_ROOT/$AMARU_NETWORK/dist" >> "$GITHUB_ENV"
+          echo "AMARU_SNAPSHOTS_DIR=$CACHE_ROOT/$AMARU_NETWORK/snapshots" >> "$GITHUB_ENV"
+
+      - name: Install db-analyser
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -s)" in
+            Linux) os=linux ;;
+            Darwin) os=macos ;;
+            *) echo "::error::unsupported operating system: $(uname -s)" >&2; exit 1 ;;
+          esac
+          case "$(uname -m)" in
+            x86_64 | amd64) arch=amd64 ;;
+            arm64 | aarch64) arch=arm64 ;;
+            *) echo "::error::unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          asset="cardano-node-$CARDANO_NODE_VERSION-$os-$arch.tar.gz"
+          base_url="https://github.com/IntersectMBO/cardano-node/releases/download/$CARDANO_NODE_VERSION"
+          tmp="$(mktemp -d)"
+          echo "DB_ANALYSER_TMP=$tmp" >> "$GITHUB_ENV"
+          echo "downloading $base_url/$asset"
+          curl -fsSL -o "$tmp/$asset" "$base_url/$asset"
+          curl -fsSL -o "$tmp/sums.txt" "$base_url/cardano-node-$CARDANO_NODE_VERSION-sha256sums.txt"
+          (cd "$tmp" && grep " $asset\$" sums.txt | (sha256sum -c - 2>/dev/null || shasum -a 256 -c -))
+          tar -xzf "$tmp/$asset" -C "$tmp" --strip-components 1
+          rm "$tmp/$asset" "$tmp/sums.txt"
+          echo "$tmp/bin" >> "$GITHUB_PATH"
+
+      - name: Build amaru
+        shell: bash
+        run: |
+          cargo build --release --bin amaru
+
+      - name: Create snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./target/release/amaru create-snapshots \
+            --network "$AMARU_NETWORK" \
+            --force \
+            ${INPUT_EPOCH:+--epoch "$INPUT_EPOCH"}
+
+      - name: Publish snapshots to R2 and update manifest
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          BUCKET_NAME: ${{ secrets.SNAPSHOTS_BUCKET_NAME }}
+          PUBLIC_URL_BASE: ${{ vars.SNAPSHOTS_PUBLIC_URL_BASE || secrets.SNAPSHOTS_PUBLIC_URL_BASE || '' }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/publish-bootstrap-snapshots ${INPUT_EPOCH:+"$INPUT_EPOCH"}
+          git --no-pager diff -- "$MANIFEST"
+
+      - name: Verify published snapshots with a full bootstrap
+        if: ${{ !inputs.skip_verification }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCRATCH="$(mktemp -d)"
+          echo "SCRATCH=$SCRATCH" >> "$GITHUB_ENV"
+          cd "$SCRATCH"
+          AMARU_BOOTSTRAP_CONFIG_DIR="$GITHUB_WORKSPACE/crates/amaru/config/bootstrap" \
+          "$GITHUB_WORKSPACE/target/release/amaru" bootstrap \
+            --network "$AMARU_NETWORK" \
+            --ledger-dir "$SCRATCH/ledger.db" \
+            --chain-dir "$SCRATCH/chain.db" \
+            ${INPUT_EPOCH:+--epoch "$INPUT_EPOCH"}
+          test -d "$SCRATCH/ledger.db"
+          test -d "$SCRATCH/chain.db"
+
+      - name: Clean up smoke test scratch directory
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -n "${SCRATCH:-}" ]; then
+            rm -rf "$SCRATCH"
+          fi
+          if [ -n "${DB_ANALYSER_TMP:-}" ]; then
+            rm -rf "$DB_ANALYSER_TMP"
+          fi
+
+      - name: Open pull request updating the manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- "$MANIFEST"; then
+            echo "$MANIFEST unchanged; snapshots were already published"
+            exit 0
+          fi
+
+          EPOCHS="$(jq -r '[.[-3:][].epoch | tostring] | join(", ")' "$MANIFEST")"
+          TITLE="chore: update $AMARU_NETWORK bootstrap snapshots (epochs $EPOCHS)"
+          BRANCH="snapshots/$AMARU_NETWORK-$(date -u +%Y%m%d%H%M%S)"
+          HEAD_SHA="$(git rev-parse HEAD)"
+
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/heads/$BRANCH" \
+            -f sha="$HEAD_SHA"
+
+          gh api graphql \
+            -f query='mutation($input: CreateCommitOnBranchInput!) {
+              createCommitOnBranch(input: $input) { commit { oid } }
+            }' \
+            -F 'input[branch][repositoryNameWithOwner]'="$GITHUB_REPOSITORY" \
+            -F 'input[branch][branchName]'="$BRANCH" \
+            -F 'input[expectedHeadOid]'="$HEAD_SHA" \
+            -F 'input[message][headline]'="$TITLE" \
+            -F 'input[message][body]'="Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" \
+            -F 'input[fileChanges][additions][][path]'="$MANIFEST" \
+            -F 'input[fileChanges][additions][][contents]'="$(base64 < "$MANIFEST" | tr -d '\n')"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "$TITLE" \
+            --body "$(cat <<EOF
+          Automated bootstrap snapshot publication for \`$AMARU_NETWORK\` (epochs $EPOCHS).
+
+          The archives referenced by this manifest were uploaded to R2, checked for public
+          reachability and verified with a full \`amaru bootstrap\` smoke test by
+          [this workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID).
+
+          CI was dispatched explicitly on this branch (pull requests opened with
+          \`GITHUB_TOKEN\` do not trigger \`pull_request\` workflows on their own).
+          EOF
+          )"
+
+          gh workflow run continuous-integration.yml --ref "$BRANCH" \
+            || echo "::warning::failed to dispatch continuous-integration.yml on $BRANCH"
+          gh workflow run coding-practices.yml --ref "$BRANCH" \
+            || echo "::warning::failed to dispatch coding-practices.yml on $BRANCH"
