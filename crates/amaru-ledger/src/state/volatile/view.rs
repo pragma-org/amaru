@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
+    sync::Arc,
 };
 
 use amaru_kernel::{
@@ -48,8 +49,8 @@ pub struct VolatileView<'volatile, 'store, DB: ReadStore> {
     epoch: Epoch,
     proposal_lifetime: u64,
     db: &'store DB,
-    pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer)>>,
-    proposals: BTreeMap<&'volatile ComparableProposalId, &'volatile (Proposal, ProposalPointer)>,
+    pools: Option<DiffEpochReg<PoolId, &'volatile Arc<(PoolParams, CertificatePointer)>>>,
+    proposals: BTreeMap<&'volatile ComparableProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
     accounts: Option<AccountVolatileView<'volatile>>,
 }
 
