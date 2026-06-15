@@ -14,7 +14,7 @@
 
 use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_ouroboros::BlockValidationError;
+use amaru_ouroboros_traits::BlockValidationError;
 use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef, TryInStage};
 

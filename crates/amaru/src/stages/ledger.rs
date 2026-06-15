@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use amaru_kernel::{EraHistory, GlobalParameters, ORIGIN_HASH, Point, Tip};
 use amaru_ledger::{block_validator::BlockValidator, header_validator::HeaderValidator, peers_data::PeersData, state};
-use amaru_ouroboros::{CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ChainStore, HasPeersData};
+use amaru_ouroboros_traits::{CanValidateBlocks, CanValidateHeaders, CanValidateTxs, ChainStore, HasPeersData};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 use anyhow::anyhow;

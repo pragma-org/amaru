@@ -1,3 +1,0 @@
-[profile.release]
-measurement_time = 10.0  # Increase the measurement time to 10 seconds
-sample_size = 100        # Increase the sample size to 100

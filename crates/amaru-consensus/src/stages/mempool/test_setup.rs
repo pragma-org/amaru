@@ -17,9 +17,8 @@ use amaru_kernel::{
     size::TRANSACTION_BODY,
 };
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
-use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
-use amaru_ouroboros_traits::MockBlockValidator;
-use amaru_protocols::store_effects::ResourceParameters;
+use amaru_ouroboros_traits::{MockBlockValidator, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_protocols::{store_effects::ResourceParameters, tx_submission::MempoolMsg};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
     serde::SendDataValue,

@@ -22,7 +22,7 @@ use std::{
 };
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use amaru_ouroboros_traits::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use amaru_pure_stage::BoxFuture;
 use parking_lot::Mutex;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};

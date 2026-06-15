@@ -17,7 +17,7 @@ use std::{error::Error, path::PathBuf};
 use amaru::default_chain_dir;
 use amaru_kernel::NetworkName;
 use amaru_observability::{MIGRATING_DATABASE, OPENING_CHAIN_DB};
-use amaru_ouroboros::StoreError;
+use amaru_ouroboros_traits::StoreError;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{RocksDBStore, check_db_version, migrate_db, util::open_db},

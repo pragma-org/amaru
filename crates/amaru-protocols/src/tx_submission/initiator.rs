@@ -56,7 +56,7 @@ use std::{
 use ProtocolError::*;
 use amaru_kernel::{EraHistory, Transaction, TransactionId, utils::string::display_collection};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
+use amaru_ouroboros_traits::MempoolSeqNo;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -68,7 +68,7 @@ use crate::{
     },
     tx_submission::{
         Blocking, DEFAULT_MAX_OUTSTANDING_TX_IDS, EraTaggedTx, EraTaggedTxId, Message, ProtocolError, State,
-        TerminationCause,
+        TerminationCause, mempool_msg::MempoolMsg,
     },
 };
 

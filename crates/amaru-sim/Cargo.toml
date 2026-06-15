@@ -33,7 +33,7 @@ tracing.workspace = true
 amaru.workspace = true
 amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-kernel = { workspace = true, features = ["test-utils"] }
-amaru-ouroboros.workspace = true
+amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
 

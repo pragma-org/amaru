@@ -15,7 +15,7 @@
 // Many tests in this file were simplified to only check logs; the variables for
 // trace assertions are intentionally left for future use or documentation.
 
-use amaru_ouroboros::{ConnectionDirection, ConnectionId};
+use amaru_ouroboros_traits::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::trace_match::{assert_trace_contains, tm_send_match};
 use tracing::Level;

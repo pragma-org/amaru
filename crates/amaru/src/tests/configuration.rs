@@ -27,7 +27,7 @@ use amaru_ledger::{
     store::{Columns, Store, TransactionalContext},
 };
 use amaru_mempool::InMemoryMempool;
-use amaru_ouroboros::{
+use amaru_ouroboros_traits::{
     BaseReadChainStore, ConnectionsResource, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_pure_stage::trace_buffer::TraceBuffer;

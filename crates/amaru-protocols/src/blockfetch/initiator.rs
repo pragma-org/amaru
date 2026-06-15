@@ -16,7 +16,7 @@ use std::collections::VecDeque;
 
 use amaru_kernel::{Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes};
 use amaru_observability::trace_span;
-use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros_traits::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 use crate::{

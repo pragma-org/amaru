@@ -15,8 +15,8 @@
 use std::time::Instant;
 
 use amaru_kernel::{Tip, Transaction};
-use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_protocols::mempool_effects::MemoryPool;
+use amaru_ouroboros_traits::{MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_protocols::{mempool_effects::MemoryPool, tx_submission::MempoolMsg};
 use amaru_pure_stage::{Effects, StageRef};
 
 use crate::{

@@ -29,7 +29,7 @@ use amaru_ledger::{
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_network::chain_sync_client::ChainSyncClient;
-use amaru_ouroboros::{ChainStore, Nonces, WriteChainStore};
+use amaru_ouroboros_traits::{ChainStore, Nonces, WriteChainStore};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;

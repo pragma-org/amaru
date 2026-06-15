@@ -15,10 +15,9 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, EraHistory, HeaderHash, Tip, make_header};
-use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    CanValidateHeaders, HeaderValidationError, MockBlockValidator, MockCanValidateHeaders, WriteChainStore,
-    in_memory_chain_store::InMemoryChainStore,
+    CanValidateHeaders, ConnectionId, HeaderValidationError, MockBlockValidator, MockCanValidateHeaders,
+    WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{self, InitiatorMessage},

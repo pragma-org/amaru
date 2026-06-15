@@ -26,7 +26,7 @@ use amaru::{
     stages::{config::LedgerConfig, ledger::Ledger},
 };
 use amaru_kernel::{BlockHeader, Hash, NetworkName, Point, RawBlock, cardano::network_block::NetworkBlock};
-use amaru_ouroboros::ChainStore;
+use amaru_ouroboros_traits::ChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use anyhow::{Context, anyhow};
 use flate2::read::GzDecoder;

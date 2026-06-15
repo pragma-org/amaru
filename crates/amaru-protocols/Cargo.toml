@@ -30,7 +30,6 @@ amaru-kernel = { "workspace" = true, features = ["test-utils"] }
 amaru-metrics.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros-traits = { "workspace" = true, features = ["test-utils"] }
-amaru-ouroboros.workspace = true
 amaru-pure-stage.workspace = true
 
 [dev-dependencies]

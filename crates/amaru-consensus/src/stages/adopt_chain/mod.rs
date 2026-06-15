@@ -15,9 +15,8 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
-use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
-use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
+use amaru_protocols::{manager::ManagerMessage, store_effects::Store, tx_submission::MempoolMsg};
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 
 use crate::stages::{block_source::BlockSourceMsg, select_chain::cmp_tip};

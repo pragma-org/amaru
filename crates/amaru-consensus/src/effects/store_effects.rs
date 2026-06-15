@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH};
-use amaru_ouroboros::ReadChainStore;
+use amaru_ouroboros_traits::ReadChainStore;
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 

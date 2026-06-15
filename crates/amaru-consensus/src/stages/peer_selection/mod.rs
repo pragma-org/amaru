@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{BlockHeight, Peer};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionDirection, ConnectionId};
+use amaru_ouroboros_traits::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{Effects, ScheduleId, StageRef};
 use rand::{SeedableRng, rngs::StdRng, seq::IteratorRandom};

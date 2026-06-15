@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg, ToSocketAddrs};
+use amaru_ouroboros_traits::{ConnectionDirection, ConnectionId, ToSocketAddrs};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 use tracing::Instrument;
 
@@ -27,7 +27,7 @@ use crate::{
     connection::{self, ConnectionMessage},
     network_effects::{ConnectError, Network, NetworkOps},
     protocol::Role,
-    tx_submission::ResponderParams,
+    tx_submission::{ResponderParams, mempool_msg::MempoolMsg},
 };
 
 /// Messages the [`Manager`] sends to the consensus `peer_selection` stage.
