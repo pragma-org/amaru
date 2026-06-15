@@ -63,7 +63,7 @@ impl VolatileFragment {
     }
 
     /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.
-    /// This maintains the running aggregate of a [`crate::state::VolatileSeries`].
+    /// This maintains the running aggregate of a [`crate::state::volatile::VolatileSeries`].
     ///
     /// `accounts`, `dreps` (with `dreps_deregistrations`) and `committee` are
     /// deliberately not folded here: they are resolved against the stable store and
