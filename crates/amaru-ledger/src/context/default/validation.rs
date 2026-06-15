@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
+    sync::Arc,
 };
 
 use amaru_kernel::{
@@ -79,7 +80,7 @@ impl PotsSlice for DefaultValidationContext {
 
 impl UtxoSlice for DefaultValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.get(input).or(self.state.utxo.produced.get(input))
+        self.utxo.get(input).or_else(|| self.state.utxo.produced.get(input).map(|output| output.as_ref()))
     }
 
     fn consume(&mut self, input: TransactionInput) {
@@ -88,7 +89,7 @@ impl UtxoSlice for DefaultValidationContext {
     }
 
     fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
-        self.state.utxo.produce(input, output)
+        self.state.utxo.produce(input, Arc::new(output))
     }
 }
 
@@ -104,7 +105,7 @@ impl PoolsSlice for DefaultValidationContext {
             pool_id = %pool_id
         );
         let _guard = _span.enter();
-        self.state.pools.register(params.id, (params, pointer))
+        self.state.pools.register(params.id, Arc::new((params, pointer)))
     }
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) {
@@ -275,7 +276,7 @@ impl CommitteeSlice for DefaultValidationContext {
 
 impl ProposalsSlice for DefaultValidationContext {
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
-        self.state.proposals.insert(id.into(), (proposal, pointer));
+        self.state.proposals.insert(id.into(), Arc::new((proposal, pointer)));
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {

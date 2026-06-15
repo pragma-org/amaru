@@ -185,6 +185,8 @@ impl VolatileDB {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use amaru_kernel::{Hash, Point, Slot};
     use proptest::prelude::*;
     use test_case::test_case;
@@ -390,7 +392,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.produce(input.clone(), fixed_output());
+            block.fragment.utxo.produce(input.clone(), Arc::new(fixed_output()));
         }
 
         if let Some(layer) = consume_in {

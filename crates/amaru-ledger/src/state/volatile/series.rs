@@ -42,7 +42,7 @@ impl VolatileStore for VolatileSeries {
     }
 
     fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.aggregate.utxo.produced.get(input)
+        self.aggregate.utxo.produced.get(input).map(|output| output.as_ref())
     }
 
     fn has_consumed_input(&self, input: &TransactionInput) -> bool {
@@ -98,13 +98,15 @@ impl VolatileSeries {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use amaru_kernel::{Hash, Slot};
     use proptest::prelude::*;
 
     use super::*;
     use crate::state::{diff_set::DiffSet, volatile::test_support::*};
 
-    fn series_from(diffs: &[DiffSet<TransactionInput, MemoizedTransactionOutput>]) -> VolatileSeries {
+    fn series_from(diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>]) -> VolatileSeries {
         let mut series = VolatileSeries::default();
         for (index, diff) in diffs.iter().enumerate() {
             let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);

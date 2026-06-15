@@ -16,6 +16,8 @@
 //! generator of UTxO-lifecycle windows and the brute-force oracle the maintained aggregate is
 //! checked against.
 
+use std::sync::Arc;
+
 use amaru_kernel::{Hash, MemoizedTransactionOutput, TransactionInput};
 use proptest::prelude::*;
 
@@ -33,12 +35,12 @@ prop_compose! {
             (0usize..VOLATILE_WINDOW, prop::option::of(0usize..VOLATILE_WINDOW)),
             0..16,
         )
-    ) -> Vec<DiffSet<TransactionInput, MemoizedTransactionOutput>> {
-        let mut diffs: Vec<DiffSet<TransactionInput, MemoizedTransactionOutput>> =
+    ) -> Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> {
+        let mut diffs: Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> =
             (0..VOLATILE_WINDOW).map(|_| DiffSet::default()).collect();
 
         for (tag, (produced_at, consume_offset)) in plan {
-            diffs[produced_at].produce(test_input(tag), fixed_output());
+            diffs[produced_at].produce(test_input(tag), Arc::new(fixed_output()));
             if let Some(offset) = consume_offset {
                 let consumed_at = produced_at + 1 + offset;
                 if consumed_at < VOLATILE_WINDOW {
@@ -59,12 +61,12 @@ pub(crate) fn fixed_output() -> MemoizedTransactionOutput {
     fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335")
 }
 
-/// Brute-force oracle: resolve `input` by walking `diffs` newest→oldest. First consumed ⇒ `None`,
-/// first produce ⇒ `Some`. The reference the maintained aggregate is checked against.
+/// Brute-force oracle: resolve `input` by walking `diffs` newest -> oldest. First consumed -> `None`,
+/// first produce -> `Some`. The reference the maintained aggregate is checked against.
 pub(crate) fn naive_resolve<'a>(
-    diffs: &'a [DiffSet<TransactionInput, MemoizedTransactionOutput>],
+    diffs: &'a [DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
     input: &TransactionInput,
-) -> Option<&'a MemoizedTransactionOutput> {
+) -> Option<&'a Arc<MemoizedTransactionOutput>> {
     for diff in diffs.iter().rev() {
         if diff.consumed.contains(input) {
             return None;
@@ -77,7 +79,7 @@ pub(crate) fn naive_resolve<'a>(
 }
 
 pub(crate) fn naive_has_consumed(
-    diffs: &[DiffSet<TransactionInput, MemoizedTransactionOutput>],
+    diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
     input: &TransactionInput,
 ) -> bool {
     diffs.iter().any(|diff| diff.consumed.contains(input))
