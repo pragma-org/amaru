@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace,
@@ -34,14 +37,14 @@ use crate::{
 /// Resulting state change coming from processing a block.
 #[derive(Debug, Default)]
 pub struct VolatileFragment {
-    pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
-    pub pools: DiffEpochReg<PoolId, (PoolParams, CertificatePointer)>,
+    pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
+    pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer)>>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
-    pub proposals: BTreeMap<ComparableProposalId, (Proposal, ProposalPointer)>,
+    pub proposals: BTreeMap<ComparableProposalId, Arc<(Proposal, ProposalPointer)>>,
     pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
 }
@@ -52,7 +55,7 @@ impl VolatileFragment {
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.produced.get(input)
+        self.utxo.produced.get(input).map(|output| output.as_ref())
     }
 
     pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
@@ -163,7 +166,7 @@ impl AnchoredVolatileFragment {
             fees,
             withdrawals: withdrawals.into_iter(),
             add: store::Columns {
-                utxo: utxo.produced.into_iter(),
+                utxo: utxo.produced.into_iter().map(|(input, output)| (input, Arc::unwrap_or_clone(output))),
                 pools: add_pools(pools.registered.into_iter(), epoch),
                 accounts: add_accounts(accounts.registered.into_iter()),
                 dreps: add_dreps(dreps.registered.into_iter()),
@@ -214,7 +217,7 @@ pub struct StoreUpdate<W, A, R> {
 // ------------------------------------------------------------------------------------------- Pools
 
 pub(crate) fn add_pools(
-    iterator: impl Iterator<Item = (PoolId, Registrations<(PoolParams, CertificatePointer)>)>,
+    iterator: impl Iterator<Item = (PoolId, Registrations<Arc<(PoolParams, CertificatePointer)>>)>,
     epoch: Epoch,
 ) -> impl Iterator<Item = pools::Value> {
     iterator.flat_map(move |(_, registrations)| {
@@ -228,7 +231,10 @@ pub(crate) fn add_pools(
             // but it is fully ignored. It's slightly ugly, but we cannot know if
             // an entry exists without querying the stable store -- and frankly, we
             // don't _have to_.
-            .map(|registration| (registration.0, registration.1, epoch + 1))
+            .map(|registration| {
+                let (params, pointer) = Arc::unwrap_or_clone(registration);
+                (params, pointer, epoch + 1)
+            })
             .collect::<Vec<_>>()
     })
 }
@@ -280,10 +286,11 @@ pub(crate) fn add_committee(
 // --------------------------------------------------------------------------------------- Proposals
 
 pub(crate) fn add_proposals(
-    iterator: impl Iterator<Item = (ComparableProposalId, (Proposal, ProposalPointer))>,
+    iterator: impl Iterator<Item = (ComparableProposalId, Arc<(Proposal, ProposalPointer)>)>,
     expiration: Epoch,
 ) -> impl Iterator<Item = (proposals::Key, proposals::Value)> {
-    iterator.map(move |(proposal_id, (proposal, proposed_in))| {
+    iterator.map(move |(proposal_id, value)| {
+        let (proposal, proposed_in) = Arc::unwrap_or_clone(value);
         (proposal_id, proposals::Value { proposed_in, valid_until: expiration, proposal })
     })
 }

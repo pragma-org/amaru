@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, mem};
+use std::{collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{CertificatePointer, Epoch, PoolId, PoolParams};
 
@@ -48,7 +48,7 @@ use crate::{
 pub(crate) struct IterPools<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> {
     epoch: Epoch,
     db_iterator: DBIter,
-    registrations: BTreeMap<PoolId, Registrations<&'volatile (PoolParams, CertificatePointer)>>,
+    registrations: BTreeMap<PoolId, Registrations<&'volatile Arc<(PoolParams, CertificatePointer)>>>,
     retirements: BTreeMap<PoolId, Epoch>,
 }
 
@@ -56,7 +56,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> IterPools<'volatile, DB
     pub fn new(
         epoch: Epoch,
         db_iterator: DBIter,
-        pools: &mut DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer)>,
+        pools: &mut DiffEpochReg<PoolId, &'volatile Arc<(PoolParams, CertificatePointer)>>,
     ) -> Self {
         Self {
             epoch,
@@ -93,8 +93,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
         if let Some((pool_id, mut pool)) = self.db_iterator.next() {
             // Pool is already registered, and has some updates.
             if let Some(update) = self.registrations.remove(&pool_id) {
-                let mut future_params =
-                    update.into_iter().map(|(pool_params, _)| (Some(pool_params.clone()), self.epoch + 1)).collect();
+                let mut future_params = update.into_iter().map(|reg| (Some(reg.0.clone()), self.epoch + 1)).collect();
                 pool.future_params.append(&mut future_params);
             }
 
