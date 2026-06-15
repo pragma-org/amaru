@@ -214,7 +214,13 @@ where
 
             let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
 
-            let result = program.eval_with_params(&arena, plutus_version, cost_model, uplc_budget);
+            let result = program.eval_with_params(
+                &arena,
+                plutus_version,
+                protocol_parameters.protocol_version,
+                cost_model,
+                uplc_budget,
+            );
 
             match plutus_version {
                 PlutusVersion::V1 | PlutusVersion::V2 => match result.term {

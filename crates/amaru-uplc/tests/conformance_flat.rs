@@ -16,7 +16,7 @@ use amaru_uplc::{
     arena::Arena,
     binder::DeBruijn,
     flat,
-    machine::{ExBudget, PlutusVersion},
+    machine::{ExBudget, PlutusVersion, default_v3_cost_model},
     program::Program,
 };
 use serde::Deserialize;
@@ -25,7 +25,7 @@ use serde::Deserialize;
 // including the CIP-153 batch (ExpModInteger, DropList, LengthOfArray,
 // ListToArray, IndexArray).
 const PLUTUS_VERSION: PlutusVersion = PlutusVersion::V3;
-const PROTOCOL_VERSION_MAJOR: u32 = 11;
+const PROTOCOL_VERSION: (u64, u64) = (11, 0);
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
@@ -74,7 +74,9 @@ fn run_conformance(fixture_json: &str) {
 
     let arena = Arena::new();
 
-    let program = match flat::decode_strict::<DeBruijn>(&arena, &input, PLUTUS_VERSION, PROTOCOL_VERSION_MAJOR) {
+    let costs = default_v3_cost_model();
+
+    let program = match flat::decode_strict::<DeBruijn>(&arena, &input, PLUTUS_VERSION, PROTOCOL_VERSION.0 as u32) {
         Ok(p) => p,
         Err(e) => {
             match &fixture.expected {
@@ -92,7 +94,7 @@ fn run_conformance(fixture_json: &str) {
         panic!("fixture pinned `decode` but decode succeeded; eval will run next");
     }
 
-    let result = program.eval(&arena);
+    let result = program.eval_with_params(&arena, PLUTUS_VERSION, PROTOCOL_VERSION, &costs, ExBudget::default());
 
     let term = match result.term {
         Ok(t) => t,

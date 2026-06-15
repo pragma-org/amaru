@@ -160,7 +160,7 @@ where
         }
         // Constr
         tag::CONSTR => {
-            if ctx.version.is_some_and(|v| v.is_less_than_1_1_0()) {
+            if !ctx.is_constr_case_available() {
                 return Err(FlatDecodeError::TermNotAvailable(tag::CONSTR, "constr"));
             }
 
@@ -174,7 +174,7 @@ where
         }
         // Case
         tag::CASE => {
-            if ctx.version.is_some_and(|v| v.is_less_than_1_1_0()) {
+            if !ctx.is_constr_case_available() {
                 return Err(FlatDecodeError::TermNotAvailable(tag::CASE, "case"));
             }
 

@@ -18,6 +18,8 @@ use amaru_uplc::{
     syn::parse_program,
 };
 
+const PROTOCOL_VERSION: (u64, u64) = (11, 0);
+
 const EXTRA_V3_COSTS: &[i64] = &[
     100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000, 100, 16000,
     100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010, 178, 0, 1,
@@ -43,13 +45,14 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
 
     let arena = Arena::new();
 
-    let Ok(program) = parse_program(&arena, file_contents).into_result() else {
+    let Ok(program) = parse_program(&arena, file_contents, PROTOCOL_VERSION.0 as u32).into_result() else {
         pretty_assertions::assert_eq!("parse error", expected_output.trim_end());
         pretty_assertions::assert_eq!("parse error", expected_budget.trim_end());
         return;
     };
 
-    let result = program.eval_with_params(&arena, PlutusVersion::V3, EXTRA_V3_COSTS, ExBudget::default());
+    let result =
+        program.eval_with_params(&arena, PlutusVersion::V3, PROTOCOL_VERSION, EXTRA_V3_COSTS, ExBudget::default());
 
     let info = result.info;
 
@@ -59,7 +62,7 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
         return;
     };
 
-    let expected = parse_program(&arena, expected_output).into_result().unwrap();
+    let expected = parse_program(&arena, expected_output, PROTOCOL_VERSION.0 as u32).into_result().unwrap();
 
     pretty_assertions::assert_eq!(expected.term, term);
 

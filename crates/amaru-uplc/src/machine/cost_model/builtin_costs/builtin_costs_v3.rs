@@ -1049,7 +1049,7 @@ impl BuiltinCostModel for BuiltinCostsV3 {
             ),
 
             blake2b_224: OneArgumentCosting::new(
-                OneArgumentCosting::constant_cost(cost_map["blake2b_224-mem-arguments-slope"]),
+                OneArgumentCosting::constant_cost(cost_map["blake2b_224-mem-arguments"]),
                 OneArgumentCosting::linear_cost(
                     cost_map["blake2b_224-cpu-arguments-intercept"],
                     cost_map["blake2b_224-cpu-arguments-slope"],
