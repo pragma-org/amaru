@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
+use amaru_ouroboros_traits::{ConnectionId, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 use tracing::Instrument;
 
@@ -35,7 +35,7 @@ use crate::{
         version_table::VersionTable,
     },
     store_effects::Store,
-    tx_submission::register_tx_submission,
+    tx_submission::{mempool_msg::MempoolMsg, register_tx_submission},
 };
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

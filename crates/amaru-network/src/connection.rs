@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, 
 
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use amaru_ouroboros_traits::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;

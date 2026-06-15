@@ -1,6 +1,7 @@
 # AGENTS.md for Amaru
 
-This file provides instructions for agentic coding tools (e.g. opencode, Cursor agents, etc.) working on the Amaru codebase.
+This file provides instructions for agentic coding tools (e.g. opencode, Cursor agents, etc.) working on the Amaru
+codebase.
 
 ## Build, Lint, and Test Commands
 
@@ -47,7 +48,8 @@ Run `make help` for all targets.
 ### General
 
 - Follow Rust conventions + project-specific rules from EDRs in engineering-decision-records/
-- Always check neighboring files, similar modules, and Cargo.toml for existing patterns, libs, imports, error types before adding new code
+- Always check neighboring files, similar modules, and Cargo.toml for existing patterns, libs, imports, error types
+  before adding new code
 - Mimic code style, naming, formatting exactly
 - Use existing libraries/utilities; NEVER assume a lib is available without checking Cargo.toml and neighbors
 - When creating new component: look at existing ones for framework, naming, typing
@@ -148,7 +150,7 @@ Run `make help` for all targets.
 
 ### Project Structure
 
-- crates/: amaru-kernel, amaru-consensus, amaru-ledger, amaru-protocols, amaru-ouroboros, etc...
+- crates/: amaru-kernel, amaru-consensus, amaru-ledger, amaru-protocols, amaru-ouroboros-traits, etc...
 - engineering-decision-records/: all major decisions (read before big changes)
 - docs/, monitoring/, conformance-tests/
 - Use pure_stage for effectful code to enable simulation

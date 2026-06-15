@@ -23,7 +23,7 @@ use ProtocolError::*;
 use TerminationCause::*;
 use amaru_kernel::{EraHistory, Transaction, TransactionId, to_cbor};
 use amaru_observability::trace_span;
-use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros_traits::{MempoolInsertResult, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -35,6 +35,7 @@ use crate::{
     },
     tx_submission::{
         Blocking, EraTaggedTxId, Message, ProtocolError, ResponderParams, State, TerminationCause, TxSizeMismatch,
+        mempool_msg::MempoolMsg,
     },
 };
 

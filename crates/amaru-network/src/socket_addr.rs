@@ -14,7 +14,7 @@
 
 use std::net::SocketAddr;
 
-use amaru_ouroboros::ToSocketAddrs;
+use amaru_ouroboros_traits::ToSocketAddrs;
 use tokio::net::lookup_host;
 
 pub async fn resolve(addr: ToSocketAddrs) -> std::io::Result<Vec<SocketAddr>> {

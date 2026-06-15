@@ -17,10 +17,11 @@ use std::sync::Arc;
 use amaru_kernel::{Transaction, to_cbor};
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrigin, TxInsertionResult};
-use amaru_ouroboros::{
-    MempoolMsg, MempoolSeqNo, MempoolState, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+use amaru_ouroboros_traits::{
+    MempoolSeqNo, MempoolState, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+    TxSubmissionMempool,
 };
-use amaru_ouroboros_traits::TxSubmissionMempool;
+use amaru_protocols::tx_submission::MempoolMsg;
 use amaru_pure_stage::StageRef;
 use tokio::runtime::Builder;
 use tracing::Level;

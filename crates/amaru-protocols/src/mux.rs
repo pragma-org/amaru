@@ -23,7 +23,7 @@ use std::{
 
 use amaru_kernel::NonEmptyBytes;
 use amaru_observability::trace_span;
-use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros_traits::ConnectionId;
 use amaru_pure_stage::{EPOCH, Effects, Instant, OrTerminateWith, StageRef, TryInStage, Void};
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
@@ -614,8 +614,7 @@ mod tests {
     use std::{fmt, sync::Arc, time::Duration};
 
     use amaru_network::connection::TokioConnections;
-    use amaru_ouroboros::ConnectionsResource;
-    use amaru_ouroboros_traits::ConnectionProvider;
+    use amaru_ouroboros_traits::{ConnectionProvider, ConnectionsResource};
     use amaru_pure_stage::{
         Effect, StageGraph,
         simulation::{Blocked, SimulationBuilder, SimulationRunning},

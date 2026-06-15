@@ -103,3 +103,9 @@ impl From<anyhow::Error> for TransactionValidationError {
         TransactionValidationError(error.to_string())
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MempoolInsertResult {
+    pub tx_id: TransactionId,
+    pub rejected: Option<TxRejectReason>,
+}

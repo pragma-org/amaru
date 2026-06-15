@@ -17,8 +17,8 @@ use amaru_metrics::mempool::{
     MempoolMetricEvent, MempoolMetrics, TxEvictedReason, TxInsertionOrigin, TxInsertionResult,
 };
 use amaru_observability::trace_record;
-use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{MempoolState, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_protocols::tx_submission::MempoolMsg;
 
 use crate::effects::{Metrics, MetricsOps};
 

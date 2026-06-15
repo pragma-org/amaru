@@ -17,8 +17,9 @@ use std::{sync::Arc, time::Duration};
 use amaru_kernel::{NetworkMagic, PREPROD_ERA_HISTORY, Peer, Transaction};
 use amaru_mempool::InMemoryMempool;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ConnectionsResource, in_memory_chain_store::InMemoryChainStore};
-use amaru_ouroboros_traits::{DiagnosticChainStore, ResourceMempool};
+use amaru_ouroboros_traits::{
+    ConnectionsResource, DiagnosticChainStore, ResourceMempool, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use tokio::{runtime::Handle, time::timeout};
 use tracing::info;

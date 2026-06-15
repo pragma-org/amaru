@@ -28,7 +28,7 @@ use amaru_kernel::{
     make_header,
     utils::tests::run_strategy,
 };
-use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros_traits::ConnectionId;
 use amaru_protocols::chainsync::{ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorResult};
 use amaru_pure_stage::{SendData, serde::to_cbor};
 use criterion::{Criterion, criterion_group, criterion_main};

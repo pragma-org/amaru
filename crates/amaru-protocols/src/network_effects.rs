@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_ouroboros::{ConnectionId, ConnectionsResource, ToSocketAddrs};
+use amaru_ouroboros_traits::{ConnectionId, ConnectionsResource, ToSocketAddrs};
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
@@ -302,7 +302,7 @@ impl Display for CloseError {
 /// Create a connection to an upstream node, either specified in the PEER environment variable,
 /// or to 127.0.0.1:3000
 #[cfg(test)]
-pub async fn create_connection(conn: &dyn amaru_ouroboros::ConnectionProvider) -> anyhow::Result<ConnectionId> {
+pub async fn create_connection(conn: &dyn amaru_ouroboros_traits::ConnectionProvider) -> anyhow::Result<ConnectionId> {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         use amaru_network::socket_addr::resolve;
 

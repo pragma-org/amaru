@@ -17,7 +17,7 @@ pub(crate) mod messages;
 mod responder;
 
 use amaru_kernel::{Peer, Point};
-use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros_traits::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
 // Re-export types
 pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};

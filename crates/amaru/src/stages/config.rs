@@ -19,7 +19,7 @@ use amaru_kernel::{
     PREPROD_GLOBAL_PARAMETERS,
 };
 use amaru_mempool::MempoolConfig;
-use amaru_ouroboros::ChainStore;
+use amaru_ouroboros_traits::ChainStore;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::Context;

@@ -49,7 +49,7 @@ pub use register::{register_chainsync_initiator, register_chainsync_responder};
 
 mod register {
     use amaru_kernel::{Peer, Tip};
-    use amaru_ouroboros::ConnectionId;
+    use amaru_ouroboros_traits::ConnectionId;
     use amaru_pure_stage::{Effects, StageRef};
 
     use super::*;

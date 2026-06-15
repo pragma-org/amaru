@@ -19,7 +19,7 @@ use amaru_consensus::{
     headers_tree::data_generation::Action,
 };
 use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
-use amaru_ouroboros::{
+use amaru_ouroboros_traits::{
     ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateHeaders, MockCanValidateTxs,
     ResourceMempool,
 };

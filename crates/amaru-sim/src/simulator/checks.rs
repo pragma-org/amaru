@@ -17,7 +17,7 @@ use std::sync::Arc;
 use amaru::tests::nodes::Nodes;
 use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use amaru_kernel::utils::string::{ListToString, ListsToString};
-use amaru_ouroboros::DiagnosticChainStore;
+use amaru_ouroboros_traits::DiagnosticChainStore;
 use anyhow::anyhow;
 
 use crate::simulator::test_result::TestResult;

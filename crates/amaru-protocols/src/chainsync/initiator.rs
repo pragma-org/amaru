@@ -14,8 +14,7 @@
 
 use amaru_kernel::{Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::ConnectionId;
-use amaru_ouroboros_traits::SampleAncestorPointsResult;
+use amaru_ouroboros_traits::{ConnectionId, SampleAncestorPointsResult};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 

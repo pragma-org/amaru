@@ -21,13 +21,13 @@ use std::{
 };
 
 use amaru_kernel::{
-    cbor, size::VRF_KEY, utils::serde::hex_to_bytes, ConsensusParameters, Epoch, Header, NetworkName, Nonce, PoolId,
-    Slot,
+    ConsensusParameters, Epoch, Header, NetworkName, Nonce, PoolId, Slot, cbor, size::VRF_KEY,
+    utils::serde::hex_to_bytes,
 };
-use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{
-    has_pools::{mock_ledger_state::MockLedgerState, GetPoolError}, BlockValidationError, HasPools,
-    PoolSummary,
+    BlockValidationError, HasPools, PoolSummary,
+    has_pools::{GetPoolError, mock_ledger_state::MockLedgerState},
+    praos,
 };
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_primitives::babbage;

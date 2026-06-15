@@ -22,10 +22,11 @@ use amaru_kernel::{GlobalParameters, Transaction};
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, ResourceMempool};
+use amaru_ouroboros_traits::{ChainStore, ConnectionsResource, ResourceMempool};
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
+    tx_submission::MempoolMsg,
 };
 use amaru_pure_stage::{
     BoxFuture, Sender, StageGraph, StageGraphRunning,

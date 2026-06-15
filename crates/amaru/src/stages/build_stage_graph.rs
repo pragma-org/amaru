@@ -25,10 +25,10 @@ use amaru_consensus::stages::{
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
 use amaru_kernel::{HeaderHash, Peer, Tip};
-use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage, PeerSelectionNotify},
+    tx_submission::MempoolMsg,
 };
 use amaru_pure_stage::{StageGraph, StageRef};
 

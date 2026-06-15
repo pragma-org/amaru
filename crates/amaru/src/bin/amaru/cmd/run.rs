@@ -29,8 +29,7 @@ use amaru::{
 };
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_mempool::MempoolConfig;
-use amaru_ouroboros::MempoolMsg;
-use amaru_protocols::tx_submission::ResponderParams;
+use amaru_protocols::tx_submission::{MempoolMsg, ResponderParams};
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::anyhow;

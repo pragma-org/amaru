@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{Transaction, utils::string::ListToString};
-use amaru_ouroboros::{DiagnosticChainStore, ResourceMempool};
+use amaru_ouroboros_traits::{DiagnosticChainStore, ResourceMempool};
 use amaru_pure_stage::Resources;
 
 use crate::tests::configuration::get_tx_ids;

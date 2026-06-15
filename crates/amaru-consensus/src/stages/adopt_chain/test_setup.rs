@@ -18,12 +18,16 @@ use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, HeaderHash, NonEmptyVec, Point, Tip,
     cardano::network_block::make_encoded_block, make_header, make_header_with_op_cert_seq,
 };
-use amaru_ouroboros::{MempoolMsg, StoreError};
-use amaru_ouroboros_traits::{DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
-use amaru_protocols::store_effects::{
-    FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
-    LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
-    SetAnchorHashEffect, SwitchToForkEffect,
+use amaru_ouroboros_traits::{
+    DiagnosticChainStore, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+};
+use amaru_protocols::{
+    store_effects::{
+        FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
+        LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
+        SetAnchorHashEffect, SwitchToForkEffect,
+    },
+    tx_submission::MempoolMsg,
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,

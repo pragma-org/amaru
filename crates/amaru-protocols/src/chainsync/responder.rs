@@ -14,8 +14,7 @@
 
 use amaru_kernel::{EraName, Peer, Point, Tip};
 use amaru_observability::trace_span;
-use amaru_ouroboros::ConnectionId;
-use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
+use amaru_ouroboros_traits::{ConnectionId, FindAncestorOnBestChainResult, NextBestChainHeader};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use anyhow::{Context, anyhow, ensure};
 use tracing::Instrument;

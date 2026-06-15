@@ -15,8 +15,8 @@
 use std::net::SocketAddr;
 
 use amaru_kernel::Transaction;
-use amaru_ouroboros::{MempoolMsg, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_protocols::tx_submission::DEFAULT_MEMPOOL_INSERT_TIMEOUT;
+use amaru_ouroboros_traits::{TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_protocols::tx_submission::{DEFAULT_MEMPOOL_INSERT_TIMEOUT, MempoolMsg};
 use amaru_pure_stage::{CallError, Sender};
 use anyhow::Context;
 use axum::{
@@ -131,11 +131,10 @@ mod tests {
     };
     use amaru_kernel::{PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, RawBlock, Transaction, to_cbor};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
-    use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
-        MockBlockValidator, MockCanValidateTxs, TransactionValidationError, TxSubmissionMempool,
+        MockBlockValidator, MockCanValidateTxs, ResourceMempool, TransactionValidationError, TxSubmissionMempool,
     };
-    use amaru_protocols::store_effects::ResourceParameters;
+    use amaru_protocols::{store_effects::ResourceParameters, tx_submission::MempoolMsg};
     use amaru_pure_stage::{
         Sender, StageGraph,
         tokio::{TokioBuilder, TokioRunning},

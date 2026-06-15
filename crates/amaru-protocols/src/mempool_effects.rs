@@ -15,8 +15,9 @@
 use std::fmt::Debug;
 
 use amaru_kernel::{Transaction, TransactionId};
-use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use amaru_ouroboros_traits::{
+    MempoolSeqNo, MempoolState, ResourceMempool, TxInsertResult, TxOrigin, TxSubmissionMempool,
+};
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 use serde::{Deserialize, Serialize};
 

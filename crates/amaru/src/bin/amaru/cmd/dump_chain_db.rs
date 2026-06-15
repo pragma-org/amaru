@@ -17,7 +17,7 @@ use std::{error::Error, fmt::Display, path::PathBuf};
 use amaru::default_chain_dir;
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{HeaderHash, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
-use amaru_ouroboros::{ChildTipsMode, DiagnosticChainStore, ReadChainStore};
+use amaru_ouroboros_traits::{ChildTipsMode, DiagnosticChainStore, ReadChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
 use tracing::info;

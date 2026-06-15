@@ -73,7 +73,6 @@ dependencies = [
  "amaru-mithril",
  "amaru-network",
  "amaru-observability",
- "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
@@ -133,7 +132,6 @@ dependencies = [
  "amaru-mempool",
  "amaru-metrics",
  "amaru-observability",
- "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-protocols",
  "amaru-pure-stage",
@@ -261,9 +259,11 @@ version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-ouroboros-traits",
+ "amaru-pure-stage",
  "anyhow",
  "assertables",
  "parking_lot",
+ "serde",
  "tokio",
 ]
 
@@ -304,7 +304,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-mempool",
  "amaru-observability",
- "amaru-ouroboros",
+ "amaru-ouroboros-traits",
  "amaru-pure-stage",
  "anyhow",
  "bytes",
@@ -341,24 +341,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trybuild",
-]
-
-[[package]]
-name = "amaru-ouroboros"
-version = "0.1.2"
-dependencies = [
- "amaru-kernel",
- "amaru-kes-summed-ed25519",
- "amaru-ouroboros-traits",
- "amaru-pure-stage",
- "getrandom 0.3.4",
- "hex",
- "num",
- "pallas-codec",
- "pallas-crypto",
- "pallas-math",
- "pallas-primitives",
- "serde",
 ]
 
 [[package]]
@@ -408,7 +390,6 @@ dependencies = [
  "amaru-metrics",
  "amaru-network",
  "amaru-observability",
- "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "amaru-pure-stage",
  "anyhow",
@@ -458,7 +439,7 @@ dependencies = [
  "amaru",
  "amaru-consensus",
  "amaru-kernel",
- "amaru-ouroboros",
+ "amaru-ouroboros-traits",
  "amaru-protocols",
  "amaru-pure-stage",
  "amaru-tracing-json",

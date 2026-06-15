@@ -668,7 +668,7 @@ mod best_tip_from_store_tests {
         BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, any_headers_chain, any_headers_chain_with_root, make_header,
         utils::tests::run_strategy,
     };
-    use amaru_ouroboros::{ChainStore, in_memory_chain_store::InMemoryChainStore};
+    use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 
     use crate::effects::find_best_candidate;
 

@@ -23,8 +23,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER};
-use amaru_ouroboros::ChainStore;
-use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros_traits::{ChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 use proptest::prelude::Strategy;
 use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
 

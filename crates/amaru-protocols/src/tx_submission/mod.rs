@@ -24,13 +24,16 @@ pub use messages::*;
 pub mod outcome;
 pub use outcome::*;
 
+pub mod mempool_msg;
+pub use mempool_msg::*;
+
 #[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
 
 use amaru_kernel::EraHistory;
-use amaru_ouroboros::{MempoolMsg, TxOrigin};
+use amaru_ouroboros_traits::TxOrigin;
 use amaru_pure_stage::{Effects, StageRef};
 pub use initiator::initiator;
 pub use responder::{ResponderLocalIn, ResponderResult, TxSubmissionMsg, responder};
