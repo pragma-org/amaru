@@ -43,9 +43,7 @@ use crate::{
     rules::block::BlockValidation,
     state::{
         overlay::StateOverlay,
-        volatile::{
-            AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileView, VolatileViewError,
-        },
+        volatile::{AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileView},
     },
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -377,8 +375,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // last k blocks for a single epoch. Or carry some kind of type-level guard that
             // the this is called within an acceptable context (i.e. the volatile
             // pre-conditions have been checked).
-            let mut volatile_view = VolatileView::new(next_epoch - 1, protocol_parameters, &self.volatile, &*db)
-                .map_err(StateError::FailedToCreateVolatileView)?;
+            let mut volatile_view = VolatileView::new(next_epoch - 1, protocol_parameters, &self.volatile, &*db);
 
             let (treasury, effective_rewards) = if progress.is_none() {
                 let effective_rewards = epoch_transition::end_epoch(
@@ -1097,9 +1094,6 @@ pub enum StateError {
 
     #[error("expected effective rewards to apply but found something else")]
     NoEffectiveRewards,
-
-    #[error("inconsistent or invalid volatile states; failed to create an aggregated volatile view")]
-    FailedToCreateVolatileView(#[source] VolatileViewError),
 
     #[error("failed to compute epoch from slot {0:?}: {1}")]
     ErrorComputingEpoch(Slot, EraHistoryError),

@@ -19,4 +19,4 @@ mod fragment;
 pub use fragment::{AnchoredVolatileFragment, StoreUpdate, VolatileFragment};
 
 mod view;
-pub use view::{VolatileView, VolatileViewError};
+pub use view::VolatileView;
