@@ -22,10 +22,10 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor,
+    PoolId, from_cbor,
 };
 use amaru_ledger::{
-    bootstrap::import_initial_snapshot,
+    bootstrap::{import_initial_snapshot, import_operational_cert_sequence_numbers},
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_network::chain_sync_client::ChainSyncClient;
@@ -51,7 +51,7 @@ use tracing::{error, info};
 
 use crate::{
     cardano_node::{
-        ParsedStateSnapshot, decode_node_accounts, decode_node_pool_state, parse_state_snapshot_with_nonces,
+        ParsedStateSnapshot, decode_node_accounts, decode_node_pool_state, parse_state_snapshot_with_chain_state,
         tvar::import_snapshot_from_tvar,
     },
     default_data_dir, default_snapshots_dir, get_bootstrap_file,
@@ -252,11 +252,11 @@ fn select_bootstrap_snapshots(
     }
 }
 
-fn initial_nonces_from_snapshot(
+fn chain_state_from_snapshot(
     snapshot_path: &Path,
     global_parameters: &GlobalParameters,
     tail: HeaderHash,
-) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
+) -> Result<(Epoch, ChainState), Box<dyn Error>> {
     let bytes = if let Some(snapshot_paths) = node_snapshot_paths(snapshot_path) {
         std::fs::read(snapshot_paths.state)?
     } else if is_cbor_snapshot_file(snapshot_path) {
@@ -265,33 +265,34 @@ fn initial_nonces_from_snapshot(
         return Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot_path.to_path_buf())));
     };
 
-    let (parsed_snapshot, initial_nonces) =
-        parse_state_snapshot_with_nonces(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
+    let (parsed_snapshot, chain_state) =
+        parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
     let epoch = snapshot_epoch(&parsed_snapshot)?;
 
-    Ok((epoch, initial_nonces))
+    Ok((epoch, chain_state))
 }
 
 fn default_bootstrap_nonces_from_snapshots(
     snapshots_dir: &Path,
     snapshots: &[Snapshot],
     global_parameters: &GlobalParameters,
-) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
+) -> Result<(Epoch, ChainState), Box<dyn Error>> {
     let [_, second_snapshot, third_snapshot] = select_bootstrap_snapshots(snapshots, None)?;
     let third_snapshot_path = resolve_snapshot_path(snapshots_dir, third_snapshot).ok_or_else(|| {
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, third_snapshot))
     })?;
-    let (epoch, initial_nonces) =
-        initial_nonces_from_snapshot(&third_snapshot_path, global_parameters, snapshot_hash(second_snapshot)?)?;
+    let (epoch, chain_state) =
+        chain_state_from_snapshot(&third_snapshot_path, global_parameters, snapshot_hash(second_snapshot)?)?;
 
-    Ok((epoch, initial_nonces))
+    Ok((epoch, chain_state))
 }
 
-pub fn default_bootstrap_nonces(
-    network: NetworkName,
-    global_parameters: &GlobalParameters,
-) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
+#[expect(clippy::panic)]
+pub fn default_bootstrap_chain_state(network: NetworkName) -> Result<(Epoch, ChainState), Box<dyn Error>> {
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
+    let global_parameters = network
+        .as_global_parameters()
+        .unwrap_or_else(|| panic!("missing default GlobalParameters for network: {network}"));
     default_bootstrap_nonces_from_snapshots(&snapshots_dir, &snapshots, global_parameters)
 }
 
@@ -586,9 +587,11 @@ pub async fn bootstrap(
     .await?;
 
     let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
-    let initial_nonces =
-        imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
-    store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
+    let ledger_db = RocksDB::new(&RocksDbConfig::new(ledger_dir.clone()))?;
+    let chain_state = imported_third_snapshot
+        .chain_state
+        .ok_or("bootstrap import must produce chain state for the latest snapshot")?;
+    store_chain_state(imported_third_snapshot.epoch, &chain_db, &ledger_db, chain_state)?;
     let headers = load_packaged_headers_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
     import_headers(&chain_db, headers).await?;
 
@@ -646,6 +649,12 @@ fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ChainState {
+    pub initial_nonces: InitialNonces,
+    pub operational_cert_sequence_numbers: BTreeMap<PoolId, u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InitialNonces {
     #[serde(serialize_with = "serialize_point", deserialize_with = "deserialize_point")]
     pub at: Point,
@@ -659,7 +668,14 @@ fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dy
     Ok(parsed_snapshot.era_history.slot_to_epoch_unchecked_horizon(parsed_snapshot.slot.into())?)
 }
 
-pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNonces) -> Result<(), Box<dyn Error>> {
+pub fn store_chain_state(
+    epoch: Epoch,
+    chain_db: &dyn ChainStore,
+    ledger_db: &impl Store,
+    chain_state: ChainState,
+) -> Result<(), Box<dyn Error>> {
+    // Import nonces
+    let initial_nonces = chain_state.initial_nonces;
     let header_hash = Hash::from(&initial_nonces.at);
 
     info!(point.id = %header_hash, point.slot = %initial_nonces.at.slot_or_default(), "importing nonces");
@@ -672,8 +688,11 @@ pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNo
         tail: initial_nonces.tail,
     };
 
-    db.put_nonces(&header_hash, &nonces)?;
+    chain_db.put_nonces(&header_hash, &nonces)?;
 
+    // Import operational cert sequence numbers
+    info!(point.id = %header_hash, point.slot = %initial_nonces.at.slot_or_default(), "importing operational sequence numbers");
+    import_operational_cert_sequence_numbers(ledger_db, chain_state.operational_cert_sequence_numbers)?;
     Ok(())
 }
 
@@ -750,7 +769,7 @@ pub enum ImportError {
 
 struct ImportedSnapshot {
     epoch: Epoch,
-    initial_nonces: Option<InitialNonces>,
+    pub chain_state: Option<ChainState>,
 }
 
 async fn import_snapshot(
@@ -796,10 +815,10 @@ async fn import_cbor_snapshot_file(
         Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap()).map_err(ImportError::MalformedDate)?;
     let dir = snapshot.parent().ok_or_else(|| ImportError::InvalidSnapshotFile(snapshot.to_path_buf()))?;
     let era_history = make_era_history(dir, &point, network)?;
-    let initial_nonces = if let Some(tail) = nonce_tail {
+    let chain_state = if let Some(tail) = nonce_tail {
         let bytes = std::fs::read(snapshot)?;
         let (_, initial_nonces) =
-            parse_state_snapshot_with_nonces(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
+            parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
         Some(initial_nonces)
     } else {
         None
@@ -839,7 +858,7 @@ async fn import_cbor_snapshot_file(
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
     info!(epoch=%epoch, snapshot=%snapshot.display(), "Imported CBOR snapshot");
-    Ok(ImportedSnapshot { epoch, initial_nonces })
+    Ok(ImportedSnapshot { epoch, chain_state })
 }
 
 #[expect(clippy::unwrap_used)]
@@ -865,7 +884,7 @@ async fn import_node_snapshot_dir(
 
     let global_parameters = global_parameters.clone();
     let builder = std::thread::Builder::new().stack_size(10_000_000);
-    let (db, epoch, initial_nonces) = builder
+    let (db, epoch, chain_state) = builder
         .spawn(move || {
             import_snapshot_from_tvar(
                 &db,
@@ -877,7 +896,7 @@ async fn import_node_snapshot_dir(
                 |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
             )
             .map_err(|e| e.to_string())
-            .map(|(epoch, _point, initial_nonces)| (db, epoch, initial_nonces))
+            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
         })
         .unwrap()
         .join()
@@ -888,7 +907,7 @@ async fn import_node_snapshot_dir(
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
     info!(epoch=%epoch, snapshot=%snapshot_dir.display(), "Imported node snapshot directory");
-    Ok(ImportedSnapshot { epoch, initial_nonces })
+    Ok(ImportedSnapshot { epoch, chain_state })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

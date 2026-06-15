@@ -131,10 +131,6 @@ pub fn import_initial_snapshot(
     })?;
     import_block_issuers(db, point, era_history, block_issuers)?;
 
-    let operational_cert_sequence_numbers: BTreeMap<PoolId, u64> =
-        decoder.with_decoder(|d| Ok(d.decode().unwrap_or_default())).unwrap_or_default();
-    import_operational_cert_sequence_numbers(db, operational_cert_sequence_numbers)?;
-
     let (treasury, reserves): (i64, i64) = decoder.with_decoder(|d| {
         // Epoch State
         d.array()?;
@@ -390,7 +386,7 @@ fn import_block_issuers(
     transaction.commit().map_err(Into::into)
 }
 
-fn import_operational_cert_sequence_numbers(
+pub fn import_operational_cert_sequence_numbers(
     db: &impl Store,
     operational_cert_sequence_numbers: BTreeMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
