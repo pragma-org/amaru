@@ -82,9 +82,10 @@ impl VolatileStore for VolatileDB {
     fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
         let target_slot = point.slot_or_default();
 
-        // Check if the target point is beyond the current sequence
-        // In this case we simply return Ok since it this would not change the volatile DB
-        if let Some(last) = self.current.view_back()
+        // Check if the target point is beyond the newest known fragment across both series
+        // In this case we simply return Ok since it this would not change the volatile DB.
+        // Use `self.view_back()` so the check still fires when `current` is empty but `draining` holds fragments.
+        if let Some(last) = self.view_back()
             && last.slot() < target_slot
         {
             tracing::warn!(
@@ -152,13 +153,15 @@ impl VolatileDB {
     /// No-op when `current` is empty: there is nothing to seal, `draining` stays `None`, and
     /// homogeneity still holds because an empty `current` only ever takes new-epoch blocks.
     ///
-    /// The `debug_assert!` guards the design's load-bearing precondition: `epochLength` (~10k blocks)
-    /// is far larger than the volatile window `k` (2160 blocks at the time of writing), so at most one
-    /// epoch boundary isever inside the window and any prior `draining` series has fully drained long
-    /// before the next boundary arrives. A violation would mean two boundaries inside the window, impossible
-    /// under the protocol, hence a debug-only check.
+    /// The `assert!` guards the design's load-bearing precondition: `epochLength` (~10k blocks) is
+    /// far larger than the volatile window `k` (2160 blocks at the time of writing), so at most one
+    /// epoch boundary is ever inside the window and any prior `draining` series has fully drained
+    /// long before the next boundary arrives. A violation would mean two boundaries inside the
+    /// window, impossible under the protocol. We `assert!` rather than `debug_assert!` because the
+    /// check is effectively free, and if some other bug ever broke the invariant, halting the node
+    /// is far safer than silently overwriting `draining` and losing volatile history.
     pub fn seal(&mut self) {
-        debug_assert!(
+        assert!(
             self.draining.is_none(),
             "sealing while a draining series is still present; two epoch boundaries inside the k-block window?"
         );
@@ -257,6 +260,20 @@ mod tests {
     }
 
     #[test]
+    fn rollback_beyond_tip_is_a_noop_when_current_is_empty() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
+        db.seal();
+        assert!(db.draining.is_some() && db.current.is_empty());
+
+        let beyond = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
+
+        assert!(db.rollback_to(&beyond).is_ok(), "rollback beyond the draining tip should be a no-op success");
+        assert_eq!(db.len(), 2, "all draining fragments should be retained");
+    }
+
+    #[test]
     fn test_rollback_to_slot_between_elements_succeeds() {
         // Create a VolatileDB with three fragments at slots 10, 20, 30
         let mut db = VolatileDB::fixture();
@@ -325,7 +342,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(debug_assertions)]
     #[should_panic(expected = "two epoch boundaries")]
     fn seal_panics_if_draining_already_present() {
         let mut db = VolatileDB::default();
