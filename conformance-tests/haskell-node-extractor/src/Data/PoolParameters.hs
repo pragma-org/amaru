@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Data.PoolParameters
@@ -6,25 +7,33 @@ module Data.PoolParameters
 
 import Relude
 
+import Cardano.Ledger.Address
+    ( AccountAddress (..)
+    , AccountId
+    )
 import Cardano.Ledger.BaseTypes
     ( BoundedRational (unboundRational)
+    , Network (Testnet)
     )
 import Cardano.Ledger.Hashes
-    ( VRFVerKeyHash (unVRFVerKeyHash)
+    ( KeyHash
+    , VRFVerKeyHash (unVRFVerKeyHash)
     )
-import Cardano.Ledger.PoolParams
+import Cardano.Ledger.Keys
+    ( KeyRole (..)
+    )
+import Cardano.Ledger.State
     ( PoolMetadata
-    , PoolParams
-        ( PoolParams
-        , ppCost
-        , ppId
-        , ppMargin
-        , ppMetadata
-        , ppOwners
-        , ppPledge
-        , ppRelays
-        , ppRewardAccount
-        , ppVrf
+    , StakePoolState
+        ( StakePoolState
+        , spsCost
+        , spsMargin
+        , spsMetadata
+        , spsOwners
+        , spsRelays
+        , spsPledge
+        , spsVrf
+        , spsAccountId
         )
     )
 import Data.Aeson
@@ -63,22 +72,22 @@ import Data.RewardAccount
 import qualified Data.Set as Set
 
 newtype JsonPoolParameters = JsonPoolParameters
-    { unJsonPoolParameters :: PoolParams
+    { unJsonPoolParameters :: (KeyHash StakePool, StakePoolState)
     }
 
 instance ToJSON JsonPoolParameters where
-    toJSON (JsonPoolParameters PoolParams{ppId, ppVrf, ppPledge, ppCost, ppMargin, ppRewardAccount, ppOwners, ppRelays, ppMetadata}) =
+    toJSON (JsonPoolParameters (poolId, StakePoolState{spsVrf, spsPledge, spsCost, spsMargin, spsAccountId, spsOwners, spsRelays, spsMetadata})) =
         object $
-            [ "id" .= JsonPoolId ppId
-            , "vrf" .= unVRFVerKeyHash ppVrf
-            , "pledge" .= JsonCoin ppPledge
-            , "cost" .= JsonCoin ppCost
-            , "margin" .= JsonRational (unboundRational ppMargin)
-            , "reward_account" .= JsonRewardAccount ppRewardAccount
-            , "owners" .= Set.toAscList ppOwners
-            , "relays" .= fmap JsonPoolRelay (toList ppRelays)
+            [ "id" .= JsonPoolId poolId
+            , "vrf" .= unVRFVerKeyHash spsVrf
+            , "pledge" .= JsonCoin spsPledge
+            , "cost" .= JsonCoin spsCost
+            , "margin" .= JsonRational (unboundRational spsMargin)
+            , "reward_account" .= JsonRewardAccount (AccountAddress Testnet spsAccountId)
+            , "owners" .= Set.toAscList spsOwners
+            , "relays" .= fmap JsonPoolRelay (toList spsRelays)
             ]
-                <> metadataPair ppMetadata
+                <> metadataPair spsMetadata
 
 metadataPair :: StrictMaybe PoolMetadata -> [Pair]
 metadataPair = \case

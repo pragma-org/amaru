@@ -8,9 +8,9 @@ import Relude
 import Cardano.Ledger.BaseTypes
     ( Network
     )
-import Cardano.Ledger.CertState
+import Cardano.Ledger.State
     ( certPStateL
-    , psStakePoolParamsL
+    , psStakePoolsL
     )
 import Cardano.Ledger.Shelley.LedgerState
     ( EpochState (EpochState, esLState)
@@ -29,7 +29,7 @@ import Ouroboros.Consensus.Cardano.Block
 
 queryPools :: Network -> NewEpochState ConwayEra -> Pools
 queryPools _network newEpochState =
-    Pools (certState ^. certPStateL ^. psStakePoolParamsL)
+    Pools (certState ^. certPStateL ^. psStakePoolsL)
   where
     EpochState{esLState = LedgerState{lsCertState = certState}} =
         nesEs newEpochState

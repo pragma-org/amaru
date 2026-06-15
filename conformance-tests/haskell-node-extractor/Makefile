@@ -14,7 +14,7 @@ SECP256K1_DIR := $(DEPS_DIR)/secp256k1
 SECP256K1_REV := ac83be33d0956faf6b7f61a60ab524ef7d6a473a
 
 BLST_DIR := $(DEPS_DIR)/blst
-BLST_VERSION := v0.3.10
+BLST_VERSION := v0.3.14
 BLST_PC := $(BLST_DIR)/libblst.pc
 
 .PHONY: all build run help blst secp256k1 pre
@@ -103,7 +103,9 @@ pre: ## &cmd check required tools, libraries, and local build configuration
 	fi; \
 
 build: ## &cmd compile the main binary
+	$(CABAL) update
 	$(CABAL) build exe:haskell-node-extractor
+	cp "$$($(CABAL) list-bin exe:haskell-node-extractor)" haskell-node-extractor
 
 secp256k1: ## &cmd install secp256k1 as required for Cardano
 	mkdir -p "$(DEPS_DIR)"
@@ -132,7 +134,7 @@ blst: ## &cmd install blst as required for Cardano
 		'Name: libblst' \
 		'Description: Multilingual BLS12-381 signature library' \
 		'URL: https://github.com/supranational/blst' \
-		'Version: 0.3.10' \
+		'Version: $(BLST_VERSION:v%=%)' \
 		'Cflags: -I$${includedir}' \
 		'Libs: -L$${libdir} -lblst' \
 		> "$(BLST_PC)"

@@ -9,16 +9,12 @@ module Query.RewardsProvenance
 
 import Relude
 
-import Cardano.Ledger.BaseTypes
-    ( BlocksMade (BlocksMade)
-    , BoundedRational (unboundRational)
-    , activeSlotVal
-    )
 import Cardano.Ledger.Coin
     ( Coin (Coin)
-    , CompactForm (unCompactCoin)
     , rationalToCoinViaFloor
-    , word64ToCoin
+    )
+import Cardano.Ledger.Compactible
+    ( fromCompact
     )
 import Cardano.Ledger.Core
     ( PParams (PParams)
@@ -32,14 +28,25 @@ import Cardano.Ledger.Hashes
     ( KeyHash
     )
 import Cardano.Ledger.Keys
-    ( KeyRole
-        ( StakePool
-        , Staking
-        )
+    ( KeyRole (..)
+    )
+import Cardano.Ledger.State
+    ( ActiveStake (..)
+    , ChainAccountState (ChainAccountState, casReserves)
+    , SnapShot (..)
+    , SnapShots (ssFee, ssStakeGo)
+    , StakeWithDelegation (..)
+    , casReservesL
+    , chainAccountStateG
+    )
+import Cardano.Ledger.BaseTypes
+    ( BlocksMade (BlocksMade)
+    , BoundedRational (unboundRational)
+    , NonZero (..)
+    , activeSlotVal
     )
 import Cardano.Ledger.Shelley.LedgerState
-    ( AccountState (AccountState, asReserves)
-    , EpochState (EpochState, esAccountState, esSnapshots)
+    ( EpochState (EpochState, esSnapshots)
     , NewEpochState (nesBprev, nesEs)
     , prevPParamsEpochStateL
     )
@@ -47,13 +54,6 @@ import Cardano.Ledger.Shelley.Rewards
     ( LeaderOnlyReward (lRewardAmount)
     , StakeShare (unStakeShare)
     , mkPoolRewardInfo
-    )
-import Cardano.Ledger.State
-    ( SnapShot (SnapShot)
-    , SnapShots (ssFee, ssStakeGo)
-    , Stake (unStake)
-    , sumAllStake
-    , sumStakePerPool
     )
 import Cardano.Ledger.Val
     ( (<->)
@@ -72,9 +72,6 @@ import Data.Ratio
     )
 import Data.RewardsProvenance
     ( RewardsProvenance (..)
-    )
-import Data.VMap
-    ( VMap
     )
 import Genesis
     ( Genesis (Genesis, activeSlotCoeff, epochSize, maxSupply)
@@ -98,7 +95,7 @@ rewardsProvenanceOutputPath epochNumber =
 queryRewardsProvenance :: Genesis -> NewEpochState ConwayEra -> RewardsProvenance
 queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochState =
     RewardsProvenance
-        { activeStake
+        { activeStake = unNonZero ssTotalActiveStake
         , efficiency
         , fees
         , incentives
@@ -108,7 +105,6 @@ queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochSt
         , treasuryTax = Coin treasuryTax
         }
   where
-    activeStake = sumAllStake stake
     efficiency
         | expectedBlocks == 0 =
             1
@@ -120,10 +116,22 @@ queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochSt
             * protocolRho previousProtocolParameters
             * fromIntegral reserves
     stakePools =
-        VMap.toMap poolParams
-            & fmap mkPoolRewardsInfo
+        VMap.toMap ssStakePoolsSnapShot
             & Map.mapWithKey
-                (toPoolRewardsInfo (delegatorsByPool stake delegations))
+                ( \poolId spss ->
+                    toPoolRewardsInfo
+                        (Map.findWithDefault Map.empty poolId poolDelegatorsMap)
+                        (mkPoolRewardInfo
+                            previousProtocolParameters
+                            availableRewards
+                            blocks
+                            (fromIntegral blocksCount)
+                            totalStake
+                            ssTotalActiveStake
+                            poolId
+                            spss
+                        )
+                )
     Coin rewardPot =
         fees <> incentives
     totalStake = circulation epochState maxSupply
@@ -132,9 +140,9 @@ queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochSt
 
     epochState = nesEs newEpochState
     blocks = nesBprev newEpochState
-    EpochState{esAccountState, esSnapshots} = epochState
-    AccountState{asReserves = Coin reserves} = esAccountState
-    SnapShot stake delegations poolParams = ssStakeGo esSnapshots
+    EpochState{esSnapshots} = epochState
+    ChainAccountState{casReserves = Coin reserves} = epochState ^. chainAccountStateG
+    SnapShot{ssActiveStake, ssTotalActiveStake, ssStakePoolsSnapShot} = ssStakeGo esSnapshots
     previousProtocolParameters = epochState ^. prevPParamsEpochStateL
     blocksCount =
         fromIntegral $
@@ -146,23 +154,11 @@ queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochSt
         floor $ unboundRational (activeSlotVal activeSlotCoeff) * fromIntegral (unEpochSize epochSize)
     availableRewards =
         Coin (rewardPot - treasuryTax)
-    stakePerPool =
-        sumStakePerPool delegations stake
-    mkPoolRewardsInfo =
-        mkPoolRewardInfo
-            previousProtocolParameters
-            availableRewards
-            blocks
-            (fromIntegral blocksCount)
-            stake
-            delegations
-            stakePerPool
-            totalStake
-            activeStake
+    poolDelegatorsMap = delegatorsByPool ssActiveStake
 
 circulation :: EpochState ConwayEra -> Coin -> Coin
-circulation EpochState{esAccountState = AccountState{asReserves}} supply =
-    supply <-> asReserves
+circulation epochState supply =
+    supply <-> (epochState ^. chainAccountStateG . casReservesL)
 
 protocolRho :: PParams ConwayEra -> Rational
 protocolRho (PParams protocolParameters) =
@@ -173,39 +169,30 @@ protocolTau (PParams protocolParameters) =
     unboundRational (PParams protocolParameters ^. ppTauL)
 
 delegatorsByPool
-    :: Stake
-    -> VMap VMap.VB VMap.VB (Credential 'Staking) (KeyHash 'StakePool)
-    -> Map.Map (KeyHash 'StakePool) (Map.Map (Credential 'Staking) Coin)
-delegatorsByPool stake delegations =
-    VMap.foldlWithKey
-        (flipFold insertDelegator)
-        mempty
-        delegations
+    :: ActiveStake
+    -> Map.Map (KeyHash StakePool) (Map.Map (Credential Staking) Coin)
+delegatorsByPool (ActiveStake vmap) =
+    VMap.foldlWithKey accum Map.empty vmap
   where
-    insertDelegator credential poolId =
+    accum acc cred StakeWithDelegation{swdStake, swdDelegation} =
         Map.insertWith
             (<>)
-            poolId
-            (Map.singleton credential (delegatorStake credential))
-    delegatorStake credential =
-        maybe
-            mempty
-            (word64ToCoin . unCompactCoin)
-            (VMap.lookup credential (unStake stake))
+            swdDelegation
+            (Map.singleton cred (fromCompact (unNonZero swdStake)))
+            acc
 
 toPoolRewardsInfo
-    :: Map.Map (KeyHash 'StakePool) (Map.Map (Credential 'Staking) Coin)
-    -> KeyHash 'StakePool
+    :: Map.Map (Credential Staking) Coin
     -> Either Ledger.StakeShare Ledger.PoolRewardInfo
     -> PoolRewardsInfo
-toPoolRewardsInfo delegators poolId = \case
+toPoolRewardsInfo delegatorsForPool = \case
     Left stakeShare ->
         PoolRewardsInfo
             { relativeStake = unStakeShare stakeShare
             , blocksMade = 0
             , totalRewards = mempty
             , leaderReward = mempty
-            , delegators = poolDelegators poolId delegators
+            , delegators = mkDelegators delegatorsForPool
             }
     Right poolRewardsInfo ->
         PoolRewardsInfo
@@ -213,18 +200,11 @@ toPoolRewardsInfo delegators poolId = \case
             , blocksMade = Ledger.poolBlocks poolRewardsInfo
             , totalRewards = Ledger.poolPot poolRewardsInfo
             , leaderReward = lRewardAmount (Ledger.poolLeaderReward poolRewardsInfo)
-            , delegators = poolDelegators poolId delegators
+            , delegators = mkDelegators delegatorsForPool
             }
 
-poolDelegators
-    :: KeyHash 'StakePool
-    -> Map.Map (KeyHash 'StakePool) (Map.Map (Credential 'Staking) Coin)
-    -> [PoolDelegator]
-poolDelegators poolId delegators =
+mkDelegators :: Map.Map (Credential Staking) Coin -> [PoolDelegator]
+mkDelegators m =
     [ PoolDelegator{credential, stake}
-    | (credential, stake) <- Map.toAscList (Map.findWithDefault mempty poolId delegators)
+    | (credential, stake) <- Map.toAscList m
     ]
-
-flipFold :: (k -> v -> a -> a) -> (a -> k -> v -> a)
-flipFold f a k v =
-    f k v a

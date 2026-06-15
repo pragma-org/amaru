@@ -11,12 +11,21 @@ import Relude
 import Cardano.Ledger.BaseTypes
     ( urlToText
     )
-import Cardano.Ledger.PoolParams
+import Cardano.Ledger.State
     ( PoolMetadata
         ( PoolMetadata
         , pmHash
         , pmUrl
         )
+    )
+import Data.Array.Byte
+    ( ByteArray
+    )
+import Data.ByteString.Short
+    ( fromShort
+    )
+import Data.MemPack.Buffer
+    ( byteArrayToShortByteString
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -35,5 +44,5 @@ instance ToJSON JsonPoolMetadata where
     toJSON (JsonPoolMetadata PoolMetadata{pmUrl, pmHash}) =
         object
             [ "url" .= urlToText pmUrl
-            , "hash" .= JsonHexString pmHash
+            , "hash" .= JsonHexString (fromShort (byteArrayToShortByteString pmHash))
             ]

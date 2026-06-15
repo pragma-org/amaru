@@ -5,8 +5,8 @@ module Data.RewardAccount
 import Relude
 
 import Cardano.Ledger.Address
-    ( RewardAccount
-    , serialiseRewardAccount
+    ( AccountAddress
+    , serialiseAccountAddress
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -16,9 +16,9 @@ import Data.HexString
     )
 
 newtype JsonRewardAccount = JsonRewardAccount
-    { unJsonRewardAccount :: RewardAccount
+    { unJsonRewardAccount :: AccountAddress
     }
 
 instance ToJSON JsonRewardAccount where
     toJSON =
-        toJSON . JsonHexString . serialiseRewardAccount . unJsonRewardAccount
+        toJSON . JsonHexString . serialiseAccountAddress . unJsonRewardAccount

@@ -11,7 +11,7 @@ import Cardano.Ledger.Hashes
     ( KeyHash
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (StakePool)
+    ( KeyRole (..)
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -19,14 +19,14 @@ import Data.Aeson
     )
 
 newtype JsonPoolId = JsonPoolId
-    { unJsonPoolId :: KeyHash 'StakePool
+    { unJsonPoolId :: KeyHash StakePool
     }
 
 instance ToJSON JsonPoolId where
     toJSON =
         String . poolIdText . unJsonPoolId
 
-poolIdText :: KeyHash 'StakePool -> Text
+poolIdText :: KeyHash StakePool -> Text
 poolIdText poolId =
     case toJSON poolId of
         String textValue ->

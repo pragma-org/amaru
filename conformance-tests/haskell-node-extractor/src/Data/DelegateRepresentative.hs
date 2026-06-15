@@ -15,10 +15,9 @@ import Cardano.Ledger.Coin
     )
 import Cardano.Ledger.Credential
     ( Credential
-    , StakeCredential
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (DRepRole)
+    ( KeyRole (..)
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -48,15 +47,15 @@ data DelegateRepresentative
 
 data RegisteredDRep = RegisteredDRep
     { stake :: !Coin
-    , delegators :: !(Set.Set StakeCredential)
-    , credential :: !(Credential 'DRepRole)
+    , delegators :: !(Set.Set (Credential Staking))
+    , credential :: !(Credential DRepRole)
     , mandate :: !Mandate
     , deposit :: !Coin
     }
 
 data PredefinedDRep = PredefinedDRep
     { stake :: !Coin
-    , delegators :: !(Set.Set StakeCredential)
+    , delegators :: !(Set.Set (Credential Staking))
     }
 
 instance ToJSON DelegateRepresentative where
@@ -80,7 +79,7 @@ instance ToJSON DelegateRepresentative where
                 , commonPairs stake delegators
                 ]
 
-commonPairs :: Coin -> Set.Set StakeCredential -> [Pair]
+commonPairs :: Coin -> Set.Set (Credential Staking) -> [Pair]
 commonPairs stake delegators =
     [ "stake" .= JsonCoin stake
     , "delegators" .= fmap JsonCredential (Set.toAscList delegators)

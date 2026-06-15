@@ -15,7 +15,7 @@ import Cardano.Ledger.Credential
     ( Credential
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (Staking)
+    ( KeyRole (..)
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -30,7 +30,7 @@ import Data.Credential
     )
 
 data PoolDelegator = PoolDelegator
-    { credential :: !(Credential 'Staking)
+    { credential :: !(Credential Staking)
     , stake :: !Coin
     }
 

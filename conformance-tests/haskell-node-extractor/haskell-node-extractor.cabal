@@ -62,10 +62,12 @@ library
       async
     , aeson
     , aeson-pretty
+    , array
     , base >=4.7 && <5
     , base16
     , base58-bytestring
     , bytestring
+    , mempack
     , cardano-ledger-allegra
     , cardano-ledger-alonzo
     , cardano-ledger-api
@@ -89,8 +91,8 @@ library
     , microlens
     , optparse-applicative
     , ouroboros-consensus
-    , ouroboros-consensus-cardano
-    , ouroboros-consensus-protocol
+    , ouroboros-consensus:cardano
+    , ouroboros-consensus:protocol
     , relude
     , serialise
     , text

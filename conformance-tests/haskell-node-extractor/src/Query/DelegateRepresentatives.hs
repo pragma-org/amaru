@@ -17,9 +17,14 @@ import Cardano.Ledger.Api.State.Query
 import Cardano.Ledger.Coin
     ( Coin
     )
+import Cardano.Ledger.Compactible
+    ( fromCompact
+    )
 import Cardano.Ledger.Credential
     ( Credential
-    , StakeCredential
+    )
+import Cardano.Ledger.Keys
+    ( KeyRole (..)
     )
 import Cardano.Ledger.DRep
     ( DRep
@@ -31,9 +36,6 @@ import Cardano.Ledger.DRep
         , drepExpiry
         )
     , credToDRep
-    )
-import Cardano.Ledger.Keys
-    ( KeyRole (DRepRole)
     )
 import Cardano.Ledger.Shelley.LedgerState
     ( NewEpochState
@@ -79,7 +81,7 @@ queryDelegateRepresentatives newEpochState =
         queryDRepDelegations newEpochState Set.empty
 
 mergeStateAndStake
-    :: Map.Map DRep (Credential 'DRepRole, DRepState)
+    :: Map.Map DRep (Credential DRepRole, DRepState)
     -> Map.Map DRep Coin
     -> Map.Map DRep DelegateRepresentative
 mergeStateAndStake dRepStates dRepStakes =
@@ -92,32 +94,29 @@ mergeStateAndStake dRepStates dRepStakes =
 
 mergeDelegations
     :: Map.Map DRep DelegateRepresentative
-    -> Map.Map DRep (Set.Set StakeCredential)
+    -> Map.Map DRep (Set.Set (Credential Staking))
     -> Map.Map DRep DelegateRepresentative
 mergeDelegations dReps dRepDelegations =
     Merge.merge
         (Merge.mapMissing $ \_ -> identity)
-        (Merge.mapMissing $ \drep _ -> error ("DRep has delegation but not stake or state: " <> show drep))
+        (Merge.mapMaybeMissing $ \drep delegators ->
+            -- DReps with delegators but no stake/state entry are either
+            -- predefined DReps with zero stake or retired registered DReps.
+            -- Retired registered DReps are dropped from the output.
+            case drep of
+                DRepAlwaysAbstain ->
+                    Just $ setDelegators delegators (AbstainDelegateRepresentative PredefinedDRep{stake = mempty, delegators = Set.empty})
+                DRepAlwaysNoConfidence ->
+                    Just $ setDelegators delegators (NoConfidenceDelegateRepresentative PredefinedDRep{stake = mempty, delegators = Set.empty})
+                _ ->
+                    Nothing
+        )
         (Merge.zipWithMatched $ \_ delegateRepresentative delegators -> setDelegators delegators delegateRepresentative)
         dReps
         dRepDelegations
 
-predefinedDRep
-    :: DRep
-    -> Coin
-    -> DelegateRepresentative
-predefinedDRep dRep stake = case dRep of
-    DRepAlwaysAbstain ->
-        AbstainDelegateRepresentative predefined
-    DRepAlwaysNoConfidence ->
-        NoConfidenceDelegateRepresentative predefined
-    _ ->
-        error ("Registered DRep unexpectedly missing from queryDRepState results: " <> show dRep)
-  where
-    predefined = PredefinedDRep{stake, delegators = Set.empty}
-
 registeredDRep
-    :: Credential 'DRepRole
+    :: Credential DRepRole
     -> DRepState
     -> Coin
     -> DelegateRepresentative
@@ -126,13 +125,22 @@ registeredDRep credential dRepState stake =
         RegisteredDRep
             { credential
             , mandate = Mandate (drepExpiry dRepState)
-            , deposit = drepDeposit dRepState
+            , deposit = fromCompact (drepDeposit dRepState)
             , stake
             , delegators = Set.empty
             }
 
+predefinedDRep :: DRep -> Coin -> DelegateRepresentative
+predefinedDRep drep stake = case drep of
+    DRepAlwaysAbstain ->
+        AbstainDelegateRepresentative PredefinedDRep{stake, delegators = Set.empty}
+    DRepAlwaysNoConfidence ->
+        NoConfidenceDelegateRepresentative PredefinedDRep{stake, delegators = Set.empty}
+    _ ->
+        AbstainDelegateRepresentative PredefinedDRep{stake, delegators = Set.empty}
+
 setDelegators
-    :: Set.Set StakeCredential
+    :: Set.Set (Credential Staking)
     -> DelegateRepresentative
     -> DelegateRepresentative
 setDelegators delegators = \case

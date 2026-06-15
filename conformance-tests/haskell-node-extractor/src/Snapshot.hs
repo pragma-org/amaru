@@ -48,6 +48,7 @@ import Ouroboros.Consensus.Cardano.Block
         , LedgerStateBabbage
         , LedgerStateByron
         , LedgerStateConway
+        , LedgerStateDijkstra
         , LedgerStateMary
         , LedgerStateShelley
         )
@@ -57,6 +58,7 @@ import Ouroboros.Consensus.Cardano.Block
     , pattern ChainDepStateBabbage
     , pattern ChainDepStateByron
     , pattern ChainDepStateConway
+    , pattern ChainDepStateDijkstra
     , pattern ChainDepStateMary
     , pattern ChainDepStateShelley
     )
@@ -178,6 +180,8 @@ extractConwayNewEpochState snapshotFilePath = \case
         Left (UnsupportedSnapshotEra snapshotFilePath "Babbage")
     LedgerStateConway ledgerSt ->
         Right (shelleyLedgerState ledgerSt)
+    LedgerStateDijkstra _ ->
+        Left (UnsupportedSnapshotEra snapshotFilePath "Dijkstra")
 
 extractConwayPraosState
     :: FilePath
@@ -198,6 +202,8 @@ extractConwayPraosState snapshotFilePath = \case
         Left (UnsupportedSnapshotEra snapshotFilePath "Babbage")
     ChainDepStateConway praosState ->
         Right praosState
+    ChainDepStateDijkstra _ ->
+        Left (UnsupportedSnapshotEra snapshotFilePath "Dijkstra")
 
 extractTipSlot :: WithOrigin (AnnTip blk) -> Maybe Word64
 extractTipSlot = \case
@@ -210,6 +216,7 @@ cardanoCodecConfig :: CardanoCodecConfig StandardCrypto
 cardanoCodecConfig =
     CardanoCodecConfig
         (ByronCodecConfig $ EpochSlots 21600)
+        ShelleyCodecConfig
         ShelleyCodecConfig
         ShelleyCodecConfig
         ShelleyCodecConfig
