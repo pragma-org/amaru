@@ -104,7 +104,6 @@ dependencies = [
  "pallas-network",
  "parking_lot",
  "quote",
- "rayon",
  "reqwest",
  "rlimit",
  "rocksdb",
@@ -137,7 +136,6 @@ dependencies = [
  "amaru-pure-stage",
  "amaru-stores",
  "anyhow",
- "async-trait",
  "criterion",
  "hex",
  "itertools 0.14.0",
@@ -148,7 +146,6 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "rand 0.9.2",
- "rayon",
  "serde",
  "serde_json",
  "tempfile",
@@ -259,11 +256,9 @@ version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-ouroboros-traits",
- "amaru-pure-stage",
  "anyhow",
  "assertables",
  "parking_lot",
- "serde",
  "tokio",
 ]
 
