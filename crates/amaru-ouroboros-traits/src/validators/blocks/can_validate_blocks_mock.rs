@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
-use amaru_kernel::{BlockHeight, Point, Tip};
+use amaru_kernel::{BlockHeight, IsHeader, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use crate::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
+use crate::{CanValidateBlocks, can_validate_blocks::BlockValidationError, stores::chain_store::ReadChainStore};
 
 /// Configurable mock ledger for testing rollback/roll-forward paths.
 pub struct MockBlockValidator {
@@ -37,6 +37,10 @@ struct MockBlockValidatorInner {
     validate_fails: BTreeSet<Point>,
     /// If set, roll_forward_block will return Err(...) for these points.
     ledger_fails: BTreeSet<Point>,
+    /// If set, `switch_to_fork` walks this chain store to reconstruct the forward
+    /// chain from the rollback point up to `new_tip`. Without it, only `new_tip`
+    /// itself is treated as the forward block to apply.
+    chain_store: Option<Arc<dyn ReadChainStore>>,
 }
 
 impl Default for MockBlockValidator {
@@ -54,6 +58,7 @@ impl MockBlockValidator {
                 rollback_fails: false,
                 validate_fails: BTreeSet::default(),
                 ledger_fails: BTreeSet::default(),
+                chain_store: None,
             }),
         }
     }
@@ -82,11 +87,16 @@ impl MockBlockValidator {
         self.inner.lock().tip = tip;
         self
     }
+
+    pub fn with_chain_store(&self, store: Arc<dyn ReadChainStore>) -> &Self {
+        self.inner.lock().chain_store = Some(store);
+        self
+    }
 }
 
 #[async_trait]
 impl CanValidateBlocks for MockBlockValidator {
-    async fn roll_forward_block(
+    fn roll_forward_block(
         &self,
         point: &Point,
         _block: amaru_kernel::Block,
@@ -103,14 +113,55 @@ impl CanValidateBlocks for MockBlockValidator {
         Ok(Ok(Default::default()))
     }
 
-    fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError> {
-        let mut inner = self.inner.lock();
-        if inner.rollback_fails {
-            return Err(BlockValidationError::new(anyhow::anyhow!("mock rollback failed")));
+    fn switch_to_fork(
+        &self,
+        _old_tip: &Point,
+        new_tip: &Point,
+    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+        // First handle the rollback step.
+        let (contains_snapshot, chain_store) = {
+            let inner = self.inner.lock();
+            if inner.rollback_fails {
+                return Err(BlockValidationError::new(anyhow::anyhow!("mock rollback failed")));
+            }
+            (inner.contains.clone(), inner.chain_store.clone())
+        };
+
+        // Walk back from new_tip through the chain store, collecting forward points
+        // (in reverse order). We stop when we reach a point that is already in `contains`
+        // (the implicit rollback point) or run out of chain (genesis / unknown header).
+        let mut cursor = *new_tip;
+        let mut forward_chain = Vec::new();
+        loop {
+            if contains_snapshot.contains(&cursor) {
+                break;
+            }
+            forward_chain.push(cursor);
+            let Some(store) = &chain_store else { break };
+            let Some(header) = store.load_header(&cursor.hash()) else { break };
+            let Some(parent_hash) = header.parent() else { break };
+            let Some(parent_header) = store.load_header(&parent_hash) else { break };
+            cursor = parent_header.point();
         }
-        inner.tip = *to;
-        inner.contains.retain(|p| *p == *to || p.slot_or_default() < to.slot_or_default());
-        Ok(())
+        forward_chain.reverse();
+
+        // Check the entire forward chain for failures BEFORE mutating state, so that
+        // a failure halfway through leaves `contains` and `tip` exactly as they were.
+        let mut inner = self.inner.lock();
+        for point in &forward_chain {
+            if inner.ledger_fails.contains(point) {
+                return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed at {point}")));
+            }
+            if inner.validate_fails.contains(point) {
+                return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed at {point}"))));
+            }
+        }
+        // All blocks validate — commit the new state atomically.
+        for point in &forward_chain {
+            inner.contains.insert(*point);
+        }
+        inner.tip = *new_tip;
+        Ok(Ok(Default::default()))
     }
 
     fn contains_point(&self, point: &Point) -> bool {

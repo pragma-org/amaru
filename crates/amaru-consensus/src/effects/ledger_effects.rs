@@ -42,12 +42,13 @@ pub trait LedgerOps: Send + Sync {
         ctx: opentelemetry::Context,
     ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
-    fn rollback(
+    fn switch_to_fork(
         &self,
         peer: &Peer,
-        point: &Point,
+        old_tip: &Point,
+        new_tip: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>>;
+    ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
     fn contains_volatile_point(&self, point: &Point) -> BoxFuture<'static, bool>;
 
@@ -97,13 +98,14 @@ impl LedgerOps for Ledger {
         self.effects.external(ValidateBlockEffect::new(peer, point, ctx))
     }
 
-    fn rollback(
+    fn switch_to_fork(
         &self,
         peer: &Peer,
-        point: &Point,
+        old_tip: &Point,
+        new_tip: &Point,
         ctx: opentelemetry::Context,
-    ) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>> {
-        self.effects.external(RollbackBlockEffect::new(peer, point, ctx))
+    ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
+        self.effects.external(SwitchToForkEffect::new(peer, old_tip, new_tip, ctx))
     }
 
     fn contains_volatile_point(&self, point: &Point) -> BoxFuture<'static, bool> {
@@ -200,7 +202,7 @@ impl ExternalEffect for ValidateBlockEffect {
                     .get::<ResourceBlockValidation>()
                     .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
                     .clone();
-                validator.roll_forward_block(&point, block).await
+                validator.roll_forward_block(&point, block)
             }
             .with_context(ctx.0),
         )
@@ -243,35 +245,36 @@ impl ExternalEffectAPI for ValidateHeaderEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RollbackBlockEffect {
+pub struct SwitchToForkEffect {
     peer: Peer,
-    point: Point,
+    old_tip: Point,
+    new_tip: Point,
     #[serde(skip)]
     ctx: IgnoreEq<opentelemetry::Context>,
 }
 
-impl RollbackBlockEffect {
-    pub fn new(peer: &Peer, point: &Point, ctx: opentelemetry::Context) -> Self {
-        Self { peer: peer.clone(), point: *point, ctx: ctx.into() }
+impl SwitchToForkEffect {
+    pub fn new(peer: &Peer, old_tip: &Point, new_tip: &Point, ctx: opentelemetry::Context) -> Self {
+        Self { peer: peer.clone(), old_tip: *old_tip, new_tip: *new_tip, ctx: ctx.into() }
     }
 }
 
-impl ExternalEffect for RollbackBlockEffect {
+impl ExternalEffect for SwitchToForkEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let _guard = self.ctx.0.attach();
             let validator = resources
                 .get::<ResourceBlockValidation>()
-                .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
+                .expect("SwitchToForkEffect requires a ResourceBlockValidation resource")
                 .clone();
-            validator.rollback_block(&self.point)
+            validator.switch_to_fork(&self.old_tip, &self.new_tip)
         })
     }
 }
 
-impl ExternalEffectAPI for RollbackBlockEffect {
-    type Response = anyhow::Result<(), BlockValidationError>;
+impl ExternalEffectAPI for SwitchToForkEffect {
+    type Response = anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

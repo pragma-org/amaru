@@ -155,7 +155,6 @@ async fn process_block(
     ledger
         .get_block_validation()
         .roll_forward_block(&point, block)
-        .await
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?;
 

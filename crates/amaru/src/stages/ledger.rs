@@ -41,6 +41,7 @@ impl Ledger {
             chain_store: chain_store.clone(),
             block_validator: BlockValidator::new(
                 state.clone(),
+                chain_store.clone(),
                 ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size),
             )?,
             header_validator: HeaderValidator::new(

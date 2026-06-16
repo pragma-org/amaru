@@ -44,6 +44,18 @@ pub enum SampleAncestorPointsResult {
     Found(Vec<Point>),
 }
 
+#[derive(PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ChainBetweenResult {
+    /// The header for `end` could not be loaded from the chain store.
+    EndHeaderNotFound,
+    /// Walked all the way to (or past) the anchor without finding `start`,
+    /// meaning `start` is not on the ancestry path of `end`.
+    StartNotReachable,
+    /// The forward chain of points strictly between `start` (exclusive) and
+    /// `end` (inclusive). Empty when `start == end`.
+    Found(Vec<Point>),
+}
+
 #[derive(Error, PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StoreError {
     WriteError { error: String },

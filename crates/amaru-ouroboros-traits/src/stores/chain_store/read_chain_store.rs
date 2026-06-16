@@ -17,8 +17,8 @@ use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
 
 use crate::{
-    BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
-    MissingBlocksResult,
+    BaseReadChainStore, ChainBetweenResult, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult,
+    MissingBlocks, MissingBlocksResult,
     MissingBlocksResult::{BoundaryNotFound, Found, StartHeaderNotFound},
     NextBestChainHeader, Nonces, SampleAncestorPointsResult, StoreError,
 };
@@ -153,6 +153,37 @@ pub trait ReadChainStore: BaseReadChainStore {
             break;
         }
         Ok(FindCommonAncestorResult::NotFound)
+    }
+
+    /// Return the forward chain of points strictly between `start` (exclusive) and
+    /// `end` (inclusive), as walked through parent links from `end` backward.
+    ///
+    /// Example:
+    /// O--A--B--C--D
+    ///
+    /// `chain_between(A, D)` returns `Found([B, C, D])`.
+    ///
+    /// Returns `Found(empty)` when `start == end` or `end == Point::Origin`.
+    /// Returns `EndHeaderNotFound` if `end`'s header isn't in the store.
+    /// Returns `StartNotReachable` if the walk reaches the anchor without finding `start`.
+    fn chain_between(&self, start: &Point, end: &Point) -> Result<ChainBetweenResult, StoreError> {
+        if start == end || *end == Point::Origin {
+            return Ok(ChainBetweenResult::Found(Vec::new()));
+        }
+        let snapshot = self.snapshot();
+        let Some(end_header) = snapshot.load_header(&end.hash()) else {
+            return Ok(ChainBetweenResult::EndHeaderNotFound);
+        };
+        let mut chain = Vec::new();
+        for header in ancestors_on_snapshot(end_header, &*snapshot) {
+            let point = header.point();
+            if &point == start {
+                chain.reverse();
+                return Ok(ChainBetweenResult::Found(chain));
+            }
+            chain.push(point);
+        }
+        Ok(ChainBetweenResult::StartNotReachable)
     }
 
     /// Find the first point, in the list of points, that intersects with the best chain.

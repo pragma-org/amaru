@@ -32,7 +32,7 @@ use super::*;
 pub use crate::stages::test_utils::assert_trace;
 use crate::{
     effects::{
-        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, RollbackBlockEffect, TipEffect,
+        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, SwitchToForkEffect, TipEffect,
         ValidateBlockEffect,
     },
     stages::{
@@ -161,7 +161,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ContainsPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<RollbackBlockEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed(),
     ]
@@ -171,7 +171,9 @@ pub fn test_prep() -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
     let select_chain = StageRef::named_for_tests("select_chain");
     let block_source = StageRef::named_for_tests("block_source");
+    let store = Arc::new(InMemoryChainStore::new());
     let block_validator = Arc::new(MockBlockValidator::default());
+    block_validator.with_chain_store(store.clone());
 
     let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), Point::Origin);
 
@@ -179,7 +181,7 @@ pub fn test_prep() -> TestPrep {
         state,
         rt: Builder::new_current_thread().build().unwrap(),
         headers: HeaderTree::new(),
-        store: Arc::new(InMemoryChainStore::new()),
+        store,
         block_validator,
     }
 }
@@ -211,14 +213,10 @@ pub fn te_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceEntr
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point, ctx))))
 }
 
-pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ContainsPointEffect::new(point))))
-}
-
-pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceEntry {
+pub fn te_switch_to_fork_ledger(at_stage: &str, old_tip: &Point, new_tip: &Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(RollbackBlockEffect::new(&Peer::new("unknown"), point, opentelemetry::Context::current())),
+        Box::new(SwitchToForkEffect::new(&Peer::new("unknown"), old_tip, new_tip, opentelemetry::Context::current())),
     ))
 }
 

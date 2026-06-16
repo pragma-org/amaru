@@ -21,13 +21,17 @@ use thiserror::Error;
 
 #[async_trait::async_trait]
 pub trait CanValidateBlocks: Send + Sync {
-    async fn roll_forward_block(
+    fn roll_forward_block(
         &self,
         point: &Point,
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
-    fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;
+    fn switch_to_fork(
+        &self,
+        old_tip: &Point,
+        new_tip: &Point,
+    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn contains_point(&self, point: &Point) -> bool;
 

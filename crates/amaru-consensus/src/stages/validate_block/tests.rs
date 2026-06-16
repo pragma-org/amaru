@@ -22,10 +22,10 @@ use crate::stages::{
     select_chain::SelectChainMsg,
     test_utils::{te_input, te_state},
     validate_block::test_setup::{
-        assert_trace, setup, te_ledger_contains, te_rollback_ledger, te_send, te_terminate, te_terminated,
-        te_validate_block, test_prep, tm_record_metrics,
+        assert_trace, setup, te_send, te_switch_to_fork_ledger, te_terminate, te_terminated, te_validate_block,
+        test_prep, tm_record_metrics,
     },
-}; // if needed for Literal
+};
 
 #[test]
 fn test_genesis_block_skips_validation() {
@@ -111,7 +111,6 @@ fn test_parent_in_ledger_skips_roll_forward() {
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
-        .assert_and_remove(Level::INFO, &["rolling forward ledger to reach parent"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -138,16 +137,15 @@ fn test_mock_rollback_fails_terminates() {
         &[
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg),
-            te_ledger_contains("vb-1", &parent),
-            te_rollback_ledger("vb-1", &parent),
+            te_switch_to_fork_ledger("vb-1", &prep.headers.h2a.point(), &tip.point()),
             te_terminate("vb-1"),
             te_terminated("vb-1", TerminationReason::Voluntary),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
-        .assert_and_remove(Level::ERROR, &["ledger volatile DB contains point by rollback failed"])
-        .assert_and_remove(Level::INFO, &["terminated stage"])
+        .assert_and_remove(Level::ERROR, &["failed to switch to fork"])
+        .assert_and_remove(Level::INFO, &["terminated"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -182,7 +180,6 @@ fn test_grand_parent_in_ledger() {
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
-        .assert_and_remove(Level::INFO, &["rolling forward ledger to reach parent"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -220,13 +217,15 @@ fn test_rollback_fails_when_ancestor_invalid() {
 
 #[test]
 fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
-    // this tests the case where a rollback would travel into the immutable db
+    // The validate_block stage now delegates the rollback decision to the ledger
+    // (via `switch_to_fork`); detection of an out-of-volatile-DB rollback point happens
+    // inside the ledger, not here. With the mock validator (no rollback_fails set), the
+    // switch succeeds, so we just verify the stage drives `switch_to_fork` and forwards
+    // the success messages.
     let mut prep = test_prep();
     prep.set_current(prep.headers.h2.point());
     prep.store_headers(&prep.headers.all());
     prep.store_blocks(&prep.headers.all());
-    // normally, the anchor would be set to the tip of the chain, but that doesn’t happen
-    // at the same place and time, so we pessimistically place the anchor further in the past
     prep.set_anchor(prep.headers.h0.hash());
     prep.roll_forward_chain(prep.headers.h0.point());
     prep.roll_forward_chain(prep.headers.h1.point());
@@ -241,13 +240,14 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
         &running,
         &[
             te_input("vb-1", &msg).into(),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)).into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }).into(),
+            te_switch_to_fork_ledger("vb-1", &prep.headers.h2.point(), &tip.point()).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["rolling back ledger to common ancestor point"])
-        .assert_and_remove(Level::WARN, &["failed to rollback ledger to parent point"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -278,8 +278,8 @@ fn test_ledger_fails_terminates_after_sending_false() {
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::ERROR, &["failed to validate block"])
-        .assert_and_remove(Level::INFO, &["terminated stage"])
+        .assert_and_remove(Level::ERROR, &["failed to roll forward"])
+        .assert_and_remove(Level::INFO, &["terminated"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -311,6 +311,6 @@ fn test_validation_fails_terminates_after_sending_false() {
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::WARN, &["invalid block"])
+        .assert_and_remove(Level::WARN, &["failed to validate a block"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }

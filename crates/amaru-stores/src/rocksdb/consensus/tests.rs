@@ -27,9 +27,9 @@ use amaru_kernel::{
     utils::tests::{random_bytes, run_strategy},
 };
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
-    FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
-    SampleAncestorPointsResult, StoreError, in_memory_chain_store::InMemoryChainStore,
+    BaseReadChainStore, ChainBetweenResult, ChainStore, ChildTipsMode, DiagnosticChainStore,
+    FindAncestorOnBestChainResult, FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult,
+    NextBestChainHeader, Nonces, SampleAncestorPointsResult, StoreError, in_memory_chain_store::InMemoryChainStore,
 };
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
 
@@ -682,6 +682,108 @@ fn find_common_ancestor_returns_shared_point_between_forks() {
 
         let result = store.find_common_ancestor(headers.h3.hash(), headers.h3a.hash()).unwrap();
         assert_eq!(result, FindCommonAncestorResult::Found(headers.h1.point()));
+    });
+}
+
+#[test]
+fn chain_between_walks_main_chain_forward_path() {
+    with_db(|store| {
+        // h0 -> h1 -> h2 -> h3 (main)
+        // chain_between(h0, h3) = [h1, h2, h3]
+        let headers = make_forked_headers();
+        for header in headers.all() {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+        let result = store.chain_between(&headers.h0.point(), &headers.h3.point()).unwrap();
+        assert_eq!(result, ChainBetweenResult::Found(vec![headers.h1.point(), headers.h2.point(), headers.h3.point()]));
+    });
+}
+
+#[test]
+fn chain_between_walks_a_fork_branch() {
+    with_db(|store| {
+        // h0 -> h1 -> h2 -> h3 (main)
+        //        \
+        //         -> h2a -> h3a (fork)
+        // chain_between(h1, h3a) = [h2a, h3a] — the fork branch only
+        let headers = make_forked_headers();
+        for header in headers.all() {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+        let result = store.chain_between(&headers.h1.point(), &headers.h3a.point()).unwrap();
+        assert_eq!(result, ChainBetweenResult::Found(vec![headers.h2a.point(), headers.h3a.point()]));
+    });
+}
+
+#[test]
+fn chain_between_returns_a_single_block_when_start_is_the_immediate_parent() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        for header in headers.all() {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+        let result = store.chain_between(&headers.h2.point(), &headers.h3.point()).unwrap();
+        assert_eq!(result, ChainBetweenResult::Found(vec![headers.h3.point()]));
+    });
+}
+
+#[test]
+fn chain_between_returns_empty_when_start_equals_end() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        for header in headers.all() {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+        let result = store.chain_between(&headers.h2.point(), &headers.h2.point()).unwrap();
+        assert_eq!(result, ChainBetweenResult::Found(Vec::new()));
+    });
+}
+
+#[test]
+fn chain_between_returns_empty_when_end_is_origin() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        store.store_header(&headers.h0).unwrap();
+        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+        let result = store.chain_between(&headers.h0.point(), &Point::Origin).unwrap();
+        assert_eq!(result, ChainBetweenResult::Found(Vec::new()));
+    });
+}
+
+#[test]
+fn chain_between_returns_end_header_not_found_when_end_is_missing() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        // Anchor h0 but never store h3 — its header isn't available in the chain store.
+        store.store_header(&headers.h0).unwrap();
+        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+        let result = store.chain_between(&headers.h0.point(), &headers.h3.point()).unwrap();
+        assert_eq!(result, ChainBetweenResult::EndHeaderNotFound);
+    });
+}
+
+#[test]
+fn chain_between_returns_start_not_reachable_when_start_is_on_a_different_fork() {
+    with_db(|store| {
+        // h3 and h2a are on different forks; h3 is not on h2a's ancestry path.
+        let headers = make_forked_headers();
+        for header in headers.all() {
+            store.store_header(header).unwrap();
+        }
+        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+
+        let result = store.chain_between(&headers.h3.point(), &headers.h2a.point()).unwrap();
+        assert_eq!(result, ChainBetweenResult::StartNotReachable);
     });
 }
 
