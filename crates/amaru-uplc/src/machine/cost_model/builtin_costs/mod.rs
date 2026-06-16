@@ -384,9 +384,7 @@ mod tests {
         let cost_pv11 = bc11.get_cost(DefaultFunction::ExpModInteger, &[2, 2, 2]).unwrap();
 
         assert_eq!(cost_pv10, cost_pv11);
-        let default_cost = BuiltinCostsV1::default()
-            .get_cost(DefaultFunction::ExpModInteger, &[2, 2, 2])
-            .unwrap();
+        let default_cost = BuiltinCostsV1::default().get_cost(DefaultFunction::ExpModInteger, &[2, 2, 2]).unwrap();
         assert_eq!(cost_pv10, default_cost);
     }
 
@@ -405,9 +403,7 @@ mod tests {
         let cost_pv11 = bc11.get_cost(DefaultFunction::ExpModInteger, &[2, 2, 2]).unwrap();
 
         assert_eq!(cost_pv10, cost_pv11);
-        let default_cost = BuiltinCostsV3::default()
-            .get_cost(DefaultFunction::ExpModInteger, &[2, 2, 2])
-            .unwrap();
+        let default_cost = BuiltinCostsV3::default().get_cost(DefaultFunction::ExpModInteger, &[2, 2, 2]).unwrap();
         assert_eq!(cost_pv10, default_cost);
     }
 }
