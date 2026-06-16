@@ -711,8 +711,15 @@ impl BuiltinCostModel for BuiltinCostsV2 {
             ),
 
             exp_mod_integer: ThreeArgumentsCosting::new(
-                ThreeArgumentsCosting::linear_in_z(0, 1),
-                ThreeArgumentsCosting::exp_mod_cost(607153, 231697, 53144),
+                ThreeArgumentsCosting::linear_in_z(
+                    cost_map["exp_mod_integer-mem-arguments-intercept"],
+                    cost_map["exp_mod_integer-mem-arguments-slope"],
+                ),
+                ThreeArgumentsCosting::exp_mod_cost(
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient00"],
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient11"],
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient12"],
+                ),
             ),
 
             drop_list: TwoArgumentsCosting::new(

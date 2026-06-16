@@ -39,6 +39,14 @@ mod tests {
         program::Version,
     };
 
+    fn default_pv11_cost_values() -> Vec<i64> {
+        vec![
+            607153, 231697, 53144, 0, 1, 116711, 1957, 4, 231883, 10, 1000, 24838, 7, 1, 232010, 32, 321837444,
+            25087669, 18, 617887431, 67302824, 36, 356924, 18413, 45, 21, 219951, 9444, 1, 1000, 172116, 183150, 6, 24,
+            21, 213283, 618401, 1998, 28258, 1, 1000, 38159, 2, 22, 1000, 95933, 1, 1, 11, 1000, 277577, 12, 21,
+        ]
+    }
+
     #[test]
     fn add_integer() {
         let arena = Arena::new();
@@ -235,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_with_params_pv11_builtin_same_budget_across_protocol_versions() {
+    fn eval_with_params_pv11_builtin_exceeds_budget_pre_pv11() {
         let arena = Arena::new();
         let costs = default_v3_cost_model();
 
@@ -248,20 +256,34 @@ mod tests {
 
         let r9 = program.eval_with_params(&arena, PlutusVersion::V3, (9, 0), &costs, ExBudget::default());
         let r10 = program.eval_with_params(&arena, PlutusVersion::V3, (10, 0), &costs, ExBudget::default());
+
+        assert!(r9.term.is_err(), "pre-PV11 exp_mod_integer should fail: sentinel costs exceed budget");
+        assert!(r10.term.is_err(), "pre-PV11 exp_mod_integer should fail: sentinel costs exceed budget");
+    }
+
+    #[test]
+    fn eval_with_params_pv11_builtin_succeeds_at_pv11() {
+        let arena = Arena::new();
+        let mut costs = default_v3_cost_model();
+        costs.extend(default_pv11_cost_values());
+
+        let term = Term::<DeBruijn>::exp_mod_integer(&arena)
+            .apply(&arena, Term::integer_from(&arena, 2))
+            .apply(&arena, Term::integer_from(&arena, 3))
+            .apply(&arena, Term::integer_from(&arena, 5));
+        let version = Version::plutus_v3(&arena);
+        let program = Program::<DeBruijn>::new(&arena, version, term);
+
         let r11 = program.eval_with_params(&arena, PlutusVersion::V3, (11, 0), &costs, ExBudget::default());
 
-        assert_eq!(r9.term.unwrap(), Term::integer_from(&arena, 3));
-        assert_eq!(r10.term.unwrap(), Term::integer_from(&arena, 3));
         assert_eq!(r11.term.unwrap(), Term::integer_from(&arena, 3));
-
-        assert_eq!(r9.info.consumed_budget, r10.info.consumed_budget);
-        assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
     }
 
     #[test]
     fn eval_with_params_plomin_and_pv11_builtins_in_same_program() {
         let arena = Arena::new();
-        let costs = default_v3_cost_model();
+        let mut costs = default_v3_cost_model();
+        costs.extend(default_pv11_cost_values());
 
         let ripemd = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b""));
         let exp_mod = Term::<DeBruijn>::exp_mod_integer(&arena)

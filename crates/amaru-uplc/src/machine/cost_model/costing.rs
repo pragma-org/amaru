@@ -81,6 +81,7 @@ pub enum TwoArguments {
     QuadraticInY(QuadraticFunction),
     ConstAboveDiagonalIntoQuadraticXAndY(i64, TwoArgumentsQuadraticFunction),
     ConstAboveDiagonalIntoMultipliedSizes(i64, MultipliedSizes),
+    ConstAboveDiagonalIntoLinearInXAndY(i64, TwoVariableLinearSize),
     WithInteraction(WithInteraction),
 }
 
@@ -148,6 +149,15 @@ impl TwoArgumentsCosting {
         TwoArguments::ConstAboveDiagonalIntoMultipliedSizes(constant, MultipliedSizes { intercept, slope })
     }
 
+    pub fn const_above_diagonal_into_linear_in_x_and_y(
+        constant: i64,
+        intercept: i64,
+        slope1: i64,
+        slope2: i64,
+    ) -> TwoArguments {
+        TwoArguments::ConstAboveDiagonalIntoLinearInXAndY(constant, TwoVariableLinearSize { intercept, slope1, slope2 })
+    }
+
     pub fn with_interaction(c00: i64, c10: i64, c01: i64, c11: i64) -> TwoArguments {
         TwoArguments::WithInteraction(WithInteraction { c00, c10, c01, c11 })
     }
@@ -195,6 +205,13 @@ impl Cost<2> for TwoArguments {
                     *constant
                 } else {
                     s.slope * (x * y) + s.intercept
+                }
+            }
+            TwoArguments::ConstAboveDiagonalIntoLinearInXAndY(constant, l) => {
+                if x < y {
+                    *constant
+                } else {
+                    l.intercept + l.slope1 * x + l.slope2 * y
                 }
             }
             TwoArguments::WithInteraction(w) => w.c00 + w.c10 * x + w.c01 * y + w.c11 * x * y,
