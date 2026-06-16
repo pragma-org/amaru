@@ -146,8 +146,10 @@ impl PartialEq for AssertHeaderError {
             (Self::LeaderStake(l0), Self::LeaderStake(r0)) => l0 == r0,
             (Self::KesSignature(l0), Self::KesSignature(r0)) => l0 == r0,
             (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
+            (Self::PoolError(l0), Self::PoolError(r0)) => l0 == r0,
             (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             (Self::UnknownPool { pool: l_pool }, Self::UnknownPool { pool: r_pool }) => l_pool == r_pool,
+
             _ => false,
         }
     }

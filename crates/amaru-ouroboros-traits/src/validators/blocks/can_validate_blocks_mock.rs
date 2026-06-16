@@ -109,7 +109,7 @@ impl CanValidateBlocks for MockBlockValidator {
             return Err(BlockValidationError::new(anyhow::anyhow!("mock rollback failed")));
         }
         inner.tip = *to;
-        inner.contains.retain(|p| p.slot_or_default() <= to.slot_or_default());
+        inner.contains.retain(|p| *p == *to || p.slot_or_default() < to.slot_or_default());
         Ok(())
     }
 

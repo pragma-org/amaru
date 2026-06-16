@@ -44,7 +44,7 @@ pub enum SampleAncestorPointsResult {
     Found(Vec<Point>),
 }
 
-#[derive(Error, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Error, PartialEq, Eq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StoreError {
     WriteError { error: String },
     ReadError { error: String },

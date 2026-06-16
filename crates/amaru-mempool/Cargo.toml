@@ -17,8 +17,6 @@ categories.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 parking_lot.workspace = true
-amaru-pure-stage.workspace = true
-serde.workspace = true
 tokio = { "workspace" = true, features = ["time", "macros", "rt"] }
 
 [dev-dependencies]

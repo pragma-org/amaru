@@ -51,7 +51,7 @@ pub fn build_and_run_node(config: Config, meter_provider: Option<SdkMeterProvide
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default().with_trace_buffer(trace_buffer);
 
-    let node_stages = build_node(&config, config.global_parameters(), meter_provider, &mut stage_builder)?;
+    let node_stages = build_node(&config, meter_provider, &mut stage_builder)?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(Handle::current().clone());
     Ok(NodeRunning { tokio_running, mempool_sender })
@@ -98,7 +98,6 @@ impl NodeRunning {
 ///
 pub fn build_node(
     config: &Config,
-    global_parameters: &GlobalParameters,
     meter_provider: Option<SdkMeterProvider>,
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
@@ -112,6 +111,7 @@ pub fn build_node(
     let best_hash = find_best_candidate(chain_store.as_ref())?;
 
     // Register resources
+    let global_parameters = config.global_parameters();
     register_resources(stage_builder, global_parameters, chain_store, ledger, meter_provider, config.mempool.clone());
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function

@@ -34,7 +34,6 @@ pub struct Config {
     pub target_upstream_peers: usize,
     pub target_downstream_peers: usize,
     pub network_magic: NetworkMagic,
-    pub era_history: EraHistory,
     pub listen_address: String,
     pub migrate_chain_db: bool,
     pub submit_api_address: Option<String>,
@@ -79,9 +78,8 @@ impl Config {
         self.ledger_config.network
     }
 
-    #[expect(clippy::panic)]
     pub fn era_history(&self) -> &EraHistory {
-        self.ledger_config.network.as_era_history().unwrap_or_else(|| panic!("missing default EraHistory for network"))
+        self.ledger_config.era_history()
     }
 
     pub fn global_parameters(&self) -> &GlobalParameters {
@@ -98,7 +96,6 @@ impl Default for Config {
             target_upstream_peers: DEFAULT_UPSTREAM_PEERS,
             target_downstream_peers: DEFAULT_DOWNSTREAM_PEERS,
             network_magic: NetworkMagic::PREPROD,
-            era_history: PREPROD_ERA_HISTORY.clone(),
             listen_address: "0.0.0.0:3000".to_string(),
             migrate_chain_db: false,
             submit_api_address: None,
@@ -118,6 +115,7 @@ pub struct LedgerConfig {
     pub ledger_store: RocksDbConfig,
     pub network: NetworkName,
     pub global_parameters: GlobalParameters,
+    pub era_history: EraHistory,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
     // Number of allocation arenas to keep around for performing parallel evaluation of scripts in
     // the ledger.
@@ -130,11 +128,12 @@ pub struct LedgerConfig {
 }
 
 impl LedgerConfig {
-    #[expect(clippy::panic)]
     pub fn consensus_parameters(&self) -> ConsensusParameters {
-        let era_history: &EraHistory =
-            self.network.as_era_history().unwrap_or_else(|| panic!("missing default EraHistory for network"));
-        ConsensusParameters::new(self.global_parameters.clone(), era_history, Default::default())
+        ConsensusParameters::new(self.global_parameters.clone(), self.era_history(), Default::default())
+    }
+
+    pub fn era_history(&self) -> &EraHistory {
+        &self.era_history
     }
 }
 
@@ -143,6 +142,7 @@ impl Default for LedgerConfig {
         LedgerConfig {
             ledger_store: RocksDbConfig::new(PathBuf::from("./ledger.db")),
             network: NetworkName::Preprod,
+            era_history: PREPROD_ERA_HISTORY.clone(),
             global_parameters: PREPROD_GLOBAL_PARAMETERS.clone(),
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
             ledger_vm_alloc_arena_count: 1,

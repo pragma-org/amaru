@@ -18,7 +18,7 @@ use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceHeaderValidation, ResourceTxValidation},
     headers_tree::data_generation::Action,
 };
-use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
+use amaru_kernel::{BlockHeight, IsHeader, NonEmptyVec, Tip, Transaction};
 use amaru_ouroboros_traits::{
     ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateHeaders, MockCanValidateTxs,
     ResourceMempool,
@@ -70,18 +70,13 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 /// and populate its resources.
 #[allow(clippy::panic)]
 pub fn create_node(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<TestNodeStages> {
-    let config = node_config.make_node_configuration()?;
-    let global_parameters: &GlobalParameters = config
-        .network()
-        .as_global_parameters()
-        .unwrap_or_else(|| panic!("missing default GlobalParameters for network"));
-    let mut global_parameters = global_parameters.clone();
-
     // The chain length used when generating data is set as the `k` parameter for the node
     // in order to simulate what happens when new tips are added and trigger a move of the best
     // chain anchor.
-    global_parameters.consensus_security_param = node_config.chain_length as u64;
-    let node_stages = build_node(&config, &global_parameters, None, stage_graph)
+    let mut config = node_config.make_node_configuration()?;
+    config.ledger_config.global_parameters.consensus_security_param = node_config.chain_length as u64;
+
+    let node_stages = build_node(&config, None, stage_graph)
         .map_err(|e| anyhow!("Cannot build node.\nThe node config is\n{:?}\n\nThe error is {e:?}", node_config))?;
 
     // The actions stage allows us to send NewTip messages to the manager so that chainsync

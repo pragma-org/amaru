@@ -52,14 +52,11 @@ impl Ledger {
         })
     }
 
-    #[expect(clippy::panic)]
     fn make_state(config: &LedgerConfig) -> anyhow::Result<state::State<RocksDB, RocksDBHistoricalStores>> {
         let era_history: &EraHistory =
-            config.network.as_era_history().unwrap_or_else(|| panic!("missing default EraHistory for network"));
-        let global_parameters: &GlobalParameters = config
-            .network
-            .as_global_parameters()
-            .unwrap_or_else(|| panic!("missing default GlobalParameters for network"));
+            config.network.as_era_history().ok_or(anyhow!("missing default EraHistory for network"))?;
+        let global_parameters: &GlobalParameters =
+            config.network.as_global_parameters().ok_or(anyhow!("missing default GlobalParameters for network"))?;
 
         let store = RocksDB::new(&config.ledger_store)?;
         let snapshots =
@@ -91,10 +88,11 @@ impl Ledger {
         state.tip().into_owned()
     }
 
-    #[expect(clippy::unwrap_used)]
     pub fn initialize_chain_store(&self) -> anyhow::Result<Tip> {
-        let state = self.state.lock().unwrap();
-        let ledger_tip = state.tip();
+        let ledger_tip = {
+            let state = self.state.lock().map_err(|e| anyhow!("Failed to lock ledger state: {e:?}"))?;
+            state.tip().into_owned()
+        };
         tracing::info!(
             tip.hash = %ledger_tip.hash(),
             tip.slot = u64::from(ledger_tip.slot_or_default()),

@@ -400,6 +400,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
             ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
             network: args.network,
             global_parameters,
+            era_history,
             max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
             ..LedgerConfig::default()
         },
@@ -408,7 +409,6 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         target_upstream_peers: args.upstream_peers,
         target_downstream_peers: args.downstream_peers,
         network_magic: args.network.to_network_magic(),
-        era_history,
         listen_address: args.listen_address,
         migrate_chain_db: args.migrate_chain_db,
         submit_api_address: args.submit_api_address,

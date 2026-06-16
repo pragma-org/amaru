@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::Display;
+
 use pallas_crypto::hash::Hasher;
 
 use crate::{Hash, IsHeader, cbor, size::NONCE};
@@ -19,6 +21,12 @@ use crate::{Hash, IsHeader, cbor, size::NONCE};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[repr(transparent)]
 pub struct Nonce(Hash<NONCE>);
+
+impl Display for Nonce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl Nonce {
     pub fn new(hash: Hash<NONCE>) -> Self {

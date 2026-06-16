@@ -260,9 +260,9 @@ impl NodeTestConfig {
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(|p| p.name.clone()).collect(),
             network_magic: self.network_name.to_network_magic(),
-            era_history: self.era_history().clone(),
             ..Default::default()
         };
+        config.ledger_config.era_history = self.era_history().clone();
         config.ledger_config.network = self.network_name;
         config.listen_address = self.listen_address.clone();
 
