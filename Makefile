@@ -1,5 +1,6 @@
 export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
+AMARU_SNAPSHOT_DIR ?=
 AWS_DEFAULT_REGION ?= auto
 BOOTSTRAP_TARGET_EPOCH ?=
 BOOTSTRAP_SNAPSHOT_EPOCH ?=
@@ -57,7 +58,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix
+.PHONY: help bootstrap create-snapshots build-haskell-extractor publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -79,7 +80,25 @@ bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
 
 create-snapshots: ## &start Create a three-epoch bootstrap snapshots (set BOOTSTRAP_TARGET_EPOCH to override auto epoch)
+	@set -euo pipefail; \
+	if ! command -v haskell-node-extractor >/dev/null 2>&1; then \
+		LOCAL="conformance-tests/haskell-node-extractor/haskell-node-extractor"; \
+		if [ ! -x "$$LOCAL" ]; then \
+			echo ""; \
+			echo "Error: haskell-node-extractor not found." >&2; \
+			echo "Build it first with:" >&2; \
+			echo "  make build-haskell-extractor" >&2; \
+			echo "Then either add it to your PATH or re-run from this directory (it will be found automatically)." >&2; \
+			echo ""; \
+			exit 1; \
+		fi; \
+		export PATH="$$PWD/conformance-tests/haskell-node-extractor:$$PATH"; \
+	fi; \
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) create-snapshots $(if $(BOOTSTRAP_TARGET_EPOCH),--epoch $(BOOTSTRAP_TARGET_EPOCH),) $(ARGS)
+
+build-haskell-extractor: ## &start Build haskell-node-extractor natively via cabal and install to $PREFIX (default: current directory)
+	$(MAKE) -C conformance-tests/haskell-node-extractor build
+	cp "$$(cd conformance-tests/haskell-node-extractor && cabal list-bin exe:haskell-node-extractor)" "$${PREFIX:-.}/haskell-node-extractor"
 
 publish-bootstrap-snapshots: ## &start Upload and publish the three existing bootstrap snapshots starting at $BOOTSTRAP_SNAPSHOT_EPOCH
 	@set -euo pipefail; \
@@ -89,6 +108,7 @@ publish-bootstrap-snapshots: ## &start Upload and publish the three existing boo
 	fi; \
 	AMARU_NETWORK="$(AMARU_NETWORK)" \
 	AMARU_DIST_DIR="$(AMARU_DIST_DIR)" \
+	AMARU_SNAPSHOT_DIR="$(AMARU_SNAPSHOT_DIR)" \
 	AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
 	AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
 	AWS_DEFAULT_REGION="$(AWS_DEFAULT_REGION)" \
@@ -205,11 +225,11 @@ ledger-conformance-known-failures: ## &test Update the set of 'known conformance
 	cargo test -p amaru-ledger --test evaluate_ledger_states -- --test-threads=1; \
 	mv "$$AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH" "./crates/amaru-ledger/tests/data/rules-conformance.failures.toml"
 
-generate-test-snapshots: ## &test Generate test snapshots for test-e2e
+generate-test-snapshots: ## &test Ensure conformance snap files exist for e2e tests; downloads from R2 if needed
 	@npm --prefix conformance-tests run generate-all -- "$(AMARU_NETWORK)"
 	@./scripts/generate-snapshot-test-cases
 
-test-e2e: ## &test Run snapshot tests, assuming snapshots are available
+test-e2e: generate-test-snapshots ## &test Run snapshot tests, regenerating conformance snap files as needed
 	cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 
 check-llvm-cov: ## &test Check if cargo-llvm-cov is installed, install if not

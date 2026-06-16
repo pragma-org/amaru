@@ -8,10 +8,36 @@ if [[ -z ${1:-} ]]; then
 fi
 
 scripts=$(dirname -- "${BASH_SOURCE[0]}")
+snapshots_dir="$scripts/../../snapshots/$NETWORK"
 
-lo=$(ls $scripts/../../data/$NETWORK/pools | sort | head -n 1 | sed "s/.json//")
-hi=$(ls $scripts/../../data/$NETWORK/pools | sort | tail -n 1 | sed "s/.json//")
-hi=$(($hi - 3)) # Tests require two extra epochs in the future
+# Extract any conformance archives that haven't been extracted yet
+for archive in "$snapshots_dir"/conformance-${NETWORK}-*.tar.gz; do
+  [ -f "$archive" ] || continue
+  epoch_dir="${archive%.tar.gz}"
+  if [ ! -d "$epoch_dir" ]; then
+    echo "Extracting $(basename "$archive") ..."
+    mkdir -p "$epoch_dir"
+    tar -xzf "$archive" -C "$epoch_dir/"
+  fi
+done
+
+available=$(ls "$snapshots_dir" | grep "^conformance-${NETWORK}-[0-9]*$" | sed "s/conformance-${NETWORK}-//" | sort -n)
+lo=$(echo "$available" | head -n 1)
+# Highest epoch for which epoch, epoch+1, and epoch+3 all exist
+hi=""
+for epoch in $available; do
+  e1=$(( epoch + 1 ))
+  e3=$(( epoch + 3 ))
+  if echo "$available" | grep -qx "$e1" && echo "$available" | grep -qx "$e3"; then
+    hi=$epoch
+  fi
+done
+
+if [ -z "$lo" ] || [ -z "$hi" ]; then
+  echo "Error: not enough conformance data in '$snapshots_dir' to generate any epoch." >&2
+  echo "Need conformance directories for epoch, epoch+1, and epoch+3." >&2
+  exit 1
+fi
 
 if (( hi < lo )); then
   echo "Error: hi ($hi) is less than lo ($lo)"
@@ -22,6 +48,8 @@ for EPOCH in $(seq $lo $hi); do
   node $scripts/generate.mjs $NETWORK $EPOCH &
 done;
 
-echo "✅ Generated snapshots for epochs from $lo to $hi for network $NETWORK"
-
 wait
+
+count=$(( hi - lo + 1 ))
+snaps_dir="$scripts/../../crates/amaru/tests/snapshots/$NETWORK"
+echo "✅ Generated snapshots for $count epoch(s) [$lo..$hi] for network $NETWORK -> $snaps_dir"

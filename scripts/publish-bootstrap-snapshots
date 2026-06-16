@@ -7,6 +7,7 @@ network="${AMARU_NETWORK:-preprod}"
 dist_dir="${AMARU_DIST_DIR:-data/${network}/epoch-snapshots}"
 metadata_dir="${dist_dir}/epochs"
 manifest_path="crates/amaru/config/bootstrap/${network}/snapshots.json"
+snapshot_dir="${AMARU_SNAPSHOT_DIR:-snapshots/${network}}"
 
 require_command() {
   local command_name="$1"
@@ -80,6 +81,7 @@ public_url_base=""
 
 epochs=("$epoch" "$((epoch + 1))" "$((epoch + 2))")
 metadata_files=()
+conformance_metadata_files=()
 
 for target_epoch in "${epochs[@]}"; do
   metadata_path="${metadata_dir}/${target_epoch}.json"
@@ -89,9 +91,12 @@ for target_epoch in "${epochs[@]}"; do
     exit 1
   fi
 
-  archive_path="$(jq -r '.archive_path // empty' "$metadata_path")"
-  if [ -z "$archive_path" ] || [ ! -f "$archive_path" ]; then
-    echo "Error: epoch metadata '$metadata_path' does not reference an existing archive." >&2
+  slot="$(jq -r '.slot' "$metadata_path")"
+  hash="$(jq -r '.hash' "$metadata_path")"
+  archive_path="${snapshot_dir}/${slot}.${hash}.tar.gz"
+
+  if [ ! -f "$archive_path" ]; then
+    echo "Error: expected snapshot archive '$archive_path' was not found." >&2
     exit 1
   fi
 
@@ -117,6 +122,25 @@ for target_epoch in "${epochs[@]}"; do
   fi
 
   metadata_files+=("$metadata_path")
+
+  conformance_path="${snapshot_dir}/conformance-${network}-${target_epoch}.tar.gz"
+  if [ -n "$conformance_path" ] && [ -f "$conformance_path" ]; then
+    conformance_key="$(basename "$conformance_path")"
+    conformance_public_url="${public_url_base%/}/${conformance_key}"
+    if is_public_object_reachable "$conformance_public_url"; then
+      echo "Conformance archive already exists at '$conformance_public_url', skipping upload"
+    else
+      echo "Uploading '$conformance_path' to 's3://${BUCKET_NAME}/${conformance_key}'"
+      aws s3 cp "$conformance_path" "s3://${BUCKET_NAME}/${conformance_key}" --endpoint-url "$ENDPOINT"
+    fi
+    if ! is_public_object_reachable "$conformance_public_url"; then
+      echo "Error: uploaded conformance archive is not publicly reachable at '$conformance_public_url'." >&2
+      exit 1
+    fi
+    conformance_metadata_files+=("$metadata_path")
+  else
+    echo "No conformance archive for epoch ${target_epoch}, skipping conformance upload"
+  fi
 done
 
 existing_entries="$(if [ -f "$manifest_path" ]; then cat "$manifest_path"; else echo '[]'; fi)"

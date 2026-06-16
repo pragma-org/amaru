@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru::{default_data_dir, default_snapshots_dir};
-use amaru_kernel::{Epoch, HeaderHash, NetworkName, Point, Slot, utils};
+use amaru_kernel::{Epoch, Hash, NetworkName, Point, Slot, utils};
 use amaru_mithril::{
     chunk_for_slot, download_from_mithril, extract_block_header_cbor, first_missing_immutable_chunk,
     parse_header_slot_and_hash,
@@ -34,6 +34,7 @@ use tracing::info;
 
 mod archive;
 mod config;
+mod conformance;
 mod db_analyser;
 mod koios;
 
@@ -42,6 +43,10 @@ use archive::{
     snapshot_path_for_target, write_epoch_metadata, write_snapshot_archive,
 };
 use config::resolve_config_dir;
+use conformance::{
+    conformance_archive_path, ensure_haskell_extractor_binary, existing_conformance_archive_paths,
+    package_conformance_archive, run_haskell_extractor,
+};
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
 
@@ -170,12 +175,12 @@ impl FromStr for SnapshotPoint {
 struct EpochTarget {
     epoch: Epoch,
     slot: Slot,
-    hash: HeaderHash,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "header_parent")]
+    hash: Hash<32>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "header_parent")]
     parent_point: Option<Point>,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     archive_path: Option<String>,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     snapshot_path: Option<String>,
 }
 
@@ -233,11 +238,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let cardano_node_db = cardano_node_db.unwrap_or_else(|| work_dir.join("cardano-db"));
     let ledger_snapshot_dir = cardano_node_db.join("ledger");
     let snapshots_str = utils::string::display_collection(&snapshot_points);
+    let conformance_output_dir = work_dir.join("conformance-output");
 
     fs::create_dir_all(&metadata_dir)?;
     fs::create_dir_all(&snapshot_output_dir)?;
     fs::create_dir_all(cardano_node_db.join("immutable"))?;
     fs::create_dir_all(&ledger_snapshot_dir)?;
+    fs::create_dir_all(&conformance_output_dir)?;
 
     let config_dir = resolve_config_dir(&client, cardano_node_config_dir, network, &work_dir).await?;
 
@@ -296,15 +303,17 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     if force {
-        remove_target_outputs(&snapshot_output_dir, &targets)?;
+        remove_target_outputs(&snapshot_output_dir, network, &targets)?;
     }
 
     let existing_snapshots = existing_snapshot_paths(&snapshot_output_dir, &targets);
     let existing_archives = existing_archive_paths(&snapshot_output_dir, &targets);
-    if !existing_snapshots.is_empty() || !existing_archives.is_empty() {
+    let existing_conformance = existing_conformance_archive_paths(&snapshot_output_dir, network, &targets);
+    if !existing_snapshots.is_empty() || !existing_archives.is_empty() || !existing_conformance.is_empty() {
         let existing_outputs = existing_snapshots
             .into_iter()
             .chain(existing_archives)
+            .chain(existing_conformance)
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>()
             .join(", ");
@@ -325,15 +334,19 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let db_analyser_binary = ensure_db_analyser_binary()?;
+    let haskell_extractor_binary = ensure_haskell_extractor_binary()?;
+
     let immutable_dir = cardano_node_db.join("immutable");
     let context = SnapshotBuildContext {
         snapshot_output_dir: &snapshot_output_dir,
         immutable_dir: &immutable_dir,
         ledger_snapshot_dir: &ledger_snapshot_dir,
-        metadata_dir: &metadata_dir,
         config_dir: &config_dir,
         cardano_node_db: &cardano_node_db,
         db_analyser_binary: &db_analyser_binary,
+        network,
+        haskell_extractor_binary: &haskell_extractor_binary,
+        conformance_output_dir: &conformance_output_dir,
     };
 
     targets.into_iter().try_fold(None, |previous_snapshot_slot, target| {
@@ -347,10 +360,12 @@ struct SnapshotBuildContext<'a> {
     snapshot_output_dir: &'a Path,
     immutable_dir: &'a Path,
     ledger_snapshot_dir: &'a Path,
-    metadata_dir: &'a Path,
     config_dir: &'a Path,
     cardano_node_db: &'a Path,
     db_analyser_binary: &'a str,
+    network: NetworkName,
+    haskell_extractor_binary: &'a str,
+    conformance_output_dir: &'a Path,
 }
 
 fn process_target(
@@ -372,7 +387,24 @@ fn process_target(
 
     target.archive_path = Some(prepared_archive_path.to_string_lossy().into_owned());
     target.snapshot_path = Some(prepared_snapshot_path.to_string_lossy().into_owned());
-    write_epoch_metadata(context.metadata_dir, &target)?;
+
+    {
+        let prepared_conformance_path =
+            conformance_archive_path(context.snapshot_output_dir, context.network, u64::from(target.epoch));
+        info!(epoch = %target.epoch, slot = %target.slot, conformance = %prepared_conformance_path.display(), "generating conformance data");
+        run_haskell_extractor(
+            context.haskell_extractor_binary,
+            &snapshot_dir,
+            context.conformance_output_dir,
+            context.network,
+        )?;
+        package_conformance_archive(
+            context.conformance_output_dir,
+            &prepared_conformance_path,
+            u64::from(target.epoch),
+        )?;
+        info!(epoch = %target.epoch, slot = %target.slot, conformance = %prepared_conformance_path.display(), "conformance archive ready");
+    }
 
     info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), archive = %prepared_archive_path.display(), "finished epoch snapshot");
 
@@ -449,11 +481,16 @@ fn infer_start_epoch(current_epoch: Epoch) -> Result<Epoch, Box<dyn std::error::
 
 fn remove_target_outputs(
     snapshot_output_dir: &Path,
+    network: NetworkName,
     targets: &[EpochTarget],
 ) -> Result<(), Box<dyn std::error::Error>> {
     for target in targets {
         remove_path_if_exists(&snapshot_path_for_target(snapshot_output_dir, target), "prepared snapshot directory")?;
         remove_path_if_exists(&archive_path_for_target(snapshot_output_dir, target), "prepared snapshot archive")?;
+        remove_path_if_exists(
+            &conformance_archive_path(snapshot_output_dir, network, u64::from(target.epoch)),
+            "conformance data archive",
+        )?;
     }
 
     Ok(())

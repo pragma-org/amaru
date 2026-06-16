@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# Ensure all required conformance snap files exist for e2e tests.
+#
+# For each epoch available in the local ledger DB, this script:
+#   1. Checks whether the snap files already exist.
+#   2. If not, looks for a local conformance-<network>-<epoch>.tar.gz.
+#   3. If not found locally, attempts to download from R2 using predictable URL.
+#   4. Extracts the archive and regenerates the snap files via generate.mjs.
+#   5. Falls back to git-tracked data/ if archive is unavailable.
+#
+# Usage: ./scripts/generate-test-snapshots [NETWORK]
+#   NETWORK defaults to $AMARU_NETWORK or 'preprod'
+#
+# R2 conformance archives are expected at: {R2_BASE_URL}/conformance-{network}-{epoch}.tar.gz
+# R2_BASE_URL is derived from bootstrap manifest or set via environment variable.
+
+set -euo pipefail
+
+network="${1:-${AMARU_NETWORK:-preprod}}"
+ledger_db="ledger.${network}.db"
+snapshot_dir="${AMARU_SNAPSHOT_DIR:-snapshots/${network}}"
+snaps_dir="crates/amaru/tests/snapshots/${network}"
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Error: required command '$1' is not available." >&2
+    exit 1
+  fi
+}
+
+require_command jq
+require_command node
+
+# ---------------------------------------------------------------------------
+# Step 1: discover available epochs from ledger DB
+# ---------------------------------------------------------------------------
+if [ ! -d "$ledger_db" ]; then
+  echo "Error: ledger database '$ledger_db' not found." >&2
+  echo "Run 'make bootstrap' first." >&2
+  exit 1
+fi
+
+# Each epoch is stored as a numbered subdirectory inside ledger.NETWORK.db/
+mapfile -t available_epochs < <(
+  find "$ledger_db" -mindepth 1 -maxdepth 1 -type d \
+    | xargs -I{} basename {} \
+    | grep -E '^[0-9]+$' \
+    | sort -n
+)
+
+if [ ${#available_epochs[@]} -eq 0 ]; then
+  echo "Error: no epoch snapshots found in '$ledger_db'." >&2
+  exit 1
+fi
+
+min_epoch="${available_epochs[0]}"
+max_epoch="${available_epochs[-1]}"
+
+# Tests call compare_snapshot(epoch) which opens epoch and epoch+2, so the
+# highest usable test epoch is max_epoch - 2.
+max_test_epoch=$(( max_epoch - 2 ))
+
+if (( max_test_epoch < min_epoch )); then
+  echo "Not enough epochs in '$ledger_db' to run any tests (need at least 3)." >&2
+  exit 1
+fi
+
+echo "Ledger DB epochs: ${min_epoch} .. ${max_epoch}  (test range: ${min_epoch} .. ${max_test_epoch})"
+
+# ---------------------------------------------------------------------------
+# Step 2: build set of epochs that need conformance data
+# ---------------------------------------------------------------------------
+missing_epochs=()
+for epoch in $(seq "$min_epoch" "$max_test_epoch"); do
+  snap="${snaps_dir}/summary__rewards_summary_${epoch}.snap"
+  if [ ! -f "$snap" ]; then
+    missing_epochs+=("$epoch")
+  fi
+done
+
+if [ ${#missing_epochs[@]} -eq 0 ]; then
+  echo "All snap files already exist. Nothing to do."
+  ./scripts/generate-snapshot-test-cases
+  exit 0
+fi
+
+echo "Missing snap files for epochs: ${missing_epochs[*]}"
+
+# ---------------------------------------------------------------------------
+# Step 3: for each missing epoch, fetch archive if needed and extract
+# ---------------------------------------------------------------------------
+# R2 conformance archives use a predictable URL pattern: {R2_BASE}/conformance-{network}-{epoch}.tar.gz
+# Derive R2_BASE from bootstrap manifest URL, or use environment variable
+# ---------------------------------------------------------------------------
+
+get_r2_base() {
+  # Try to extract from bootstrap manifest
+  if [ -f "$manifest_path" ]; then
+    jq -r 'map(.url // empty) | map(select(length > 0)) | first // empty' "$manifest_path" 2>/dev/null | sed 's|/[^/]*$||' && return 0
+  fi
+  # Fall back to environment variable
+  [ -n "${R2_BASE_URL:-}" ] && echo "$R2_BASE_URL" && return 0
+  # No base available
+  return 1
+}
+
+r2_base="$(get_r2_base || true)"
+
+# Track which epochs we've already extracted (one archive per epoch)
+declare -A extracted
+
+for epoch in "${missing_epochs[@]}"; do
+  if [ "${extracted[$epoch]+set}" = "set" ]; then
+    continue
+  fi
+
+  archive="${snapshot_dir}/conformance-${network}-${epoch}.tar.gz"
+  extract_dir="${snapshot_dir}/conformance-${network}-${epoch}"
+
+  if [ ! -f "$archive" ]; then
+    if [ -n "$r2_base" ]; then
+      url="${r2_base}/conformance-${network}-${epoch}.tar.gz"
+      echo "Downloading conformance data for epoch ${epoch} from ${url}"
+      mkdir -p "$snapshot_dir"
+      curl -fsSL "$url" -o "${archive}.partial" 2>/dev/null && mv "${archive}.partial" "$archive" || {
+        rm -f "${archive}.partial"
+        echo "Warning: failed to download from R2; using local data only" >&2
+      }
+    fi
+  fi
+
+  if [ ! -d "$extract_dir" ] && [ -f "$archive" ]; then
+    echo "Extracting ${archive} -> ${extract_dir}/"
+    mkdir -p "$extract_dir"
+    tar -xzf "$archive" -C "$extract_dir/"
+  fi
+  extracted["$epoch"]=1
+done
+
+# ---------------------------------------------------------------------------
+# Step 5: regenerate snap files
+# ---------------------------------------------------------------------------
+echo "Regenerating snap files for network ${network} ..."
+node conformance-tests/scripts/generate-all "$network"
+
+# ---------------------------------------------------------------------------
+# Step 6: regenerate the .incl test case file
+# ---------------------------------------------------------------------------
+./scripts/generate-snapshot-test-cases
+
+echo "✅ Test snapshots ready for ${network} (epochs ${min_epoch} .. ${max_test_epoch})"
