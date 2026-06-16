@@ -371,6 +371,7 @@ pub mod tests {
             remove,
             std::iter::empty(),
         )?;
+        context.remove_operational_cert_sequence_number(&fixture.slot_leader)?;
         context.commit()?;
 
         assert!(

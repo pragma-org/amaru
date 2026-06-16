@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use amaru_kernel::{Hash, Lovelace, PoolId, Slot, size::VRF_KEY};
 
 use crate::{GetPoolError, HasPools, PoolSummary};
@@ -22,10 +24,16 @@ pub struct MockLedgerState {
     pub vrf_vkey_hash: Hash<VRF_KEY>,
     pub stake: Lovelace,
     pub active_stake: Lovelace,
+    pub operational_cert_sequence_number_by_pool_id: BTreeMap<PoolId, u64>,
 }
 
 impl HasPools for MockLedgerState {
-    fn get_pool_summary(&self, _slot: Slot, _pool_id: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        Ok(Some(PoolSummary::new(self.vrf_vkey_hash, self.stake, self.active_stake)))
+    fn get_pool_summary(&self, _slot: Slot, pool_id: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
+        Ok(Some(PoolSummary::new(
+            self.vrf_vkey_hash,
+            self.stake,
+            self.active_stake,
+            *self.operational_cert_sequence_number_by_pool_id.get(pool_id).unwrap_or(&0),
+        )))
     }
 }

@@ -32,11 +32,18 @@ pub struct PoolSummary {
     stake: Lovelace,
     /// Total stake, in Lovelace, delegated to registered pools.
     active_stake: Lovelace,
+    /// Last sequence number used for the pool operational cert
+    operational_cert_sequence_number: u64,
 }
 
 impl PoolSummary {
-    pub fn new(vrf_key: Hash<VRF_KEY>, stake: Lovelace, active_stake: Lovelace) -> Self {
-        Self { vrf_key, stake, active_stake }
+    pub fn new(
+        vrf_key: Hash<VRF_KEY>,
+        stake: Lovelace,
+        active_stake: Lovelace,
+        operational_cert_sequence_number: u64,
+    ) -> Self {
+        Self { vrf_key, stake, active_stake, operational_cert_sequence_number }
     }
 
     pub fn vrf_key(&self) -> Hash<VRF_KEY> {
@@ -46,6 +53,10 @@ impl PoolSummary {
     pub fn relative_stake(&self) -> FixedDecimal {
         assert!(self.active_stake != 0, "the active_stake cannot be 0");
         FixedDecimal::from(self.stake) / FixedDecimal::from(self.active_stake)
+    }
+
+    pub fn operational_cert_sequence_number(&self) -> u64 {
+        self.operational_cert_sequence_number
     }
 }
 

@@ -63,7 +63,6 @@ pub fn assert_all<'a>(
     let active_slot_coeff = consensus_parameters.active_slot_coeff();
     let slot_to_kes_period = consensus_parameters.slot_to_kes_period(absolute_slot);
     let max_kes_evolutions = consensus_parameters.max_kes_evolutions();
-    let latest_opcert_sequence_number = consensus_parameters.latest_opcert_sequence_number(&pool_id);
     Ok(vec![
         Box::new(move || {
             AssertKnownLeaderVrfError::new(pool.vrf_key(), &vrf::PublicKey::from(declared_vrf_key))?;
@@ -91,7 +90,7 @@ pub fn assert_all<'a>(
             AssertOperationalCertificateError::new(
                 &header.header_body.operational_cert,
                 &issuer,
-                latest_opcert_sequence_number,
+                pool.operational_cert_sequence_number(),
             )?;
             Ok(())
         }),
@@ -395,7 +394,7 @@ impl AssertOperationalCertificateError {
     pub fn new(
         certificate: &OperationalCert,
         issuer: &ed25519::PublicKey,
-        latest_sequence_number: Option<u64>,
+        latest_sequence_number: u64,
     ) -> Result<(), Self> {
         // Verify the Operational Certificate signature
         let signature = ed25519::Signature::try_from(certificate.operational_cert_sigma.as_slice())
@@ -405,20 +404,12 @@ impl AssertOperationalCertificateError {
 
         // Check the sequence number of the operational certificate. It should either be the same
         // as the latest known sequence number for the issuer or one greater.
-        match latest_sequence_number {
-            Some(latest_sequence_number) => {
-                if declared_sequence_number < latest_sequence_number {
-                    return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
-                }
+        if declared_sequence_number < latest_sequence_number {
+            return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
+        }
 
-                if (declared_sequence_number - latest_sequence_number) > 1 {
-                    return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
-                }
-            }
-            None => {
-                // FIXME: Double-check whether we mustn't fail in this case or if it is acceptable
-                // to have no opcert available?
-            }
+        if declared_sequence_number - latest_sequence_number > 1 {
+            return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
         }
 
         // The opcert message is a concatenation of the KES vkey, the sequence number, and the kes period

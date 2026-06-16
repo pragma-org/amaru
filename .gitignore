@@ -63,3 +63,7 @@ data/*/epoch-snapshots/
 
 # Packaging and distribution target dir
 dist/
+
+# Backup directories and files
+*bak/
+**/*.bak

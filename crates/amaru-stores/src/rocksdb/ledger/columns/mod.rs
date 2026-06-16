@@ -15,6 +15,7 @@
 pub mod accounts;
 pub mod cc_members;
 pub mod dreps;
+pub mod opcerts;
 pub mod pools;
 pub mod pots;
 pub mod proposals;

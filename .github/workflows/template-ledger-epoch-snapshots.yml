@@ -52,7 +52,7 @@ env:
   INPUT_TIMEOUT: ${{ inputs.timeout }}
   AMARU_TRACE: ${{ inputs.run_until_trace_level || 'info,amaru::consensus=debug,amaru::ledger=debug,amaru_pure_stage=warn,amaru_protocols=warn,amaru_consensus=info' }}
   RUSTUP_LOG: error
-  LEDGER_CACHE_VERSION: "v13"
+  LEDGER_CACHE_VERSION: "v14"
 
 permissions:
   contents: read

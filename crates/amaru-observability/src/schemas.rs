@@ -535,6 +535,27 @@ define_schemas! {
                     required db_collection_name: String
                 }
 
+                /// Point-read an opcert last sequence number entry
+                public LAST_OPCERT_SEQUENCE_NUMBER_GET {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Write an opcert last sequence number entry
+                public LAST_OPCERT_SEQUENCE_NUMBER_PUT {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Remove an opcert last sequence number entry
+                public LAST_OPCERT_SEQUENCE_NUMBER_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
                 /// Read treasury/reserve/fees pots
                 public POTS_GET {
                     required db_system_name: String
