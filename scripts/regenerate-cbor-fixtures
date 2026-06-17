@@ -138,6 +138,25 @@ run() {
     fi
 }
 
+# Wipe previously-generated cuddle/antigen fixtures so the script produces a
+# deterministic snapshot rather than accumulating history across runs. On-chain
+# fixtures (no `source` field in meta.json, or `"source": "on-chain"`) are left
+# alone — only directories whose meta.json explicitly identifies a cuddle- or
+# antigen-generated origin are removed.
+wipe_generated() {
+    local wiped=0
+    while IFS= read -r meta; do
+        local dir
+        dir="$(dirname "$meta")"
+        rm -rf "$dir"
+        wiped=$((wiped + 1))
+    done < <(/usr/bin/find "$OUT_DIR" -name meta.json -print0 \
+                | xargs -0 grep -l -E '"source":"(cuddle|antigen)"' 2>/dev/null)
+    echo "==> Wiped $wiped previously-generated fixture(s)"
+}
+
+wipe_generated
+
 run block            positive
 run block            negative
 run transaction_body positive
