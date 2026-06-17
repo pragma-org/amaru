@@ -110,19 +110,6 @@ pub enum RegisterError<K> {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum MergeError<K> {
-    #[error("key is already registered")]
-    AlreadyRegistered(K),
-}
-
-impl<K: ToOwned<Owned = K>> MergeError<&K> {
-    pub fn to_owned(self) -> MergeError<K> {
-        let Self::AlreadyRegistered(k) = self;
-        MergeError::AlreadyRegistered(k.to_owned())
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
 pub enum BindError<K> {
     #[error("key is already unregistered")]
     AlreadyUnregistered(K),
@@ -137,16 +124,19 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     }
 
     /// Merge two states together, assuming that the other is a more recent update.
-    pub fn append(&mut self, most_recent: Self) -> Result<&mut Self, MergeError<K>> {
+    ///
+    /// Importantly, this composes two already-validated `DiffBind`s, it does not re-validate them.
+    /// This composes two already-validated diffs; it does not re-validate them.
+    ///
+    /// In particular, a `value: Some(...)` in `most_recent` denotes a re-registration of the key;
+    /// it fully supersedes any prior registration or bindings accumulated for that key.
+    /// This could happen when a single block deregisters and re-registers a credential.
+    pub fn append(&mut self, most_recent: Self) -> &mut Self {
         for key in most_recent.unregistered {
             self.unregister(key);
         }
 
         for (key, bind) in most_recent.registered {
-            if self.registered.contains_key(&key) && bind.value.is_some() {
-                return Err(MergeError::AlreadyRegistered(key));
-            }
-
             self.unregistered.remove(&key);
 
             match self.registered.entry(key) {
@@ -155,18 +145,22 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
                 }
 
                 Entry::Occupied(mut e) => {
-                    if !matches!(&bind.left, &Resettable::Unchanged) {
-                        e.get_mut().left = bind.left;
-                    }
+                    if bind.value.is_some() {
+                        *e.get_mut() = bind;
+                    } else {
+                        if !matches!(&bind.left, &Resettable::Unchanged) {
+                            e.get_mut().left = bind.left;
+                        }
 
-                    if !matches!(&bind.right, &Resettable::Unchanged) {
-                        e.get_mut().right = bind.right;
+                        if !matches!(&bind.right, &Resettable::Unchanged) {
+                            e.get_mut().right = bind.right;
+                        }
                     }
                 }
             };
         }
 
-        Ok(self)
+        self
     }
 
     pub fn register(&mut self, key: K, value: V, left: Option<L>, right: Option<R>) -> Result<(), RegisterError<K>> {
@@ -382,6 +376,45 @@ mod tests {
         assert_eq!(
             Some(&Bind { left: Resettable::Unchanged::<()>, right: Resettable::Set("right"), value: None::<()> }),
             diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn append_reregistration_supersedes_prior_binding() {
+        // Accumulated window state: key 1 was only re-bound (e.g. a pure vote delegation), not
+        // registered within the window: { left: Unchanged, right: Set, value: None }.
+        let mut current = DiffBind::default();
+        current.bind_right(1, Some("abstain")).unwrap();
+
+        // A later fragment deregisters then re-registers key 1 within a single block, which
+        // collapses to a plain registration: { left: Reset, right: Reset, value: Some }.
+        let mut next = DiffBind::default();
+        next.register(1, "deposit", None::<&str>, None).unwrap();
+
+        current.append(next);
+
+        assert!(current.unregistered.is_empty());
+        assert_eq!(
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Reset, value: Some("deposit") }),
+            current.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn append_binding_update_preserves_existing_registration() {
+        let mut current = DiffBind::default();
+        current.register(1, "deposit", None::<&str>, None::<&str>).unwrap();
+
+        // A later fragment only re-binds the right: the existing deposit and
+        // the untouched left must be preserved.
+        let mut next = DiffBind::default();
+        next.bind_right(1, Some("abstain")).unwrap();
+
+        current.append(next);
+
+        assert_eq!(
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Set("abstain"), value: Some("deposit") }),
+            current.registered.get(&1)
         );
     }
 }
