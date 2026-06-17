@@ -126,7 +126,6 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     /// Merge two states together, assuming that the other is a more recent update.
     ///
     /// Importantly, this composes two already-validated `DiffBind`s, it does not re-validate them.
-    /// This composes two already-validated diffs; it does not re-validate them.
     ///
     /// In particular, a `value: Some(...)` in `most_recent` denotes a re-registration of the key;
     /// it fully supersedes any prior registration or bindings accumulated for that key.
