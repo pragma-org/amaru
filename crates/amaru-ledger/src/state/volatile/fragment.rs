@@ -34,6 +34,19 @@ use crate::{
 
 // ----------------------------------------------------------------------------------- VolatileFragment
 
+/// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
+pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
+
+/// A volatile layer's verdict on an entity.
+/// - `T` is the resolved record.
+/// - `Gone` is a tombstone, so don't fall back to the stable store.
+#[derive(Debug, Clone)]
+pub enum Existence<T> {
+    Exists(T),
+    Gone,
+    Unknown,
+}
+
 /// Resulting state change coming from processing a block.
 #[derive(Debug, Default)]
 pub struct VolatileFragment {
@@ -62,10 +75,27 @@ impl VolatileFragment {
         self.utxo.consumed.contains(input)
     }
 
-    /// Whether this fragment registered (or re-registered) the given pool. Unregistrations
+    /// Whether this fragment registered the given pool. Unregistrations
     /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
     pub fn pool_exists(&self, pool_id: &PoolId) -> bool {
         self.pools.registered.contains_key(pool_id)
+    }
+
+    /// This fragment's verdict on a stake account. Deregistration is immediate, so an `unregistered`
+    /// entry is a live tombstone.
+    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
+        if let Some(bind) = self.accounts.registered.get(credential) {
+            Existence::Exists(bind.clone())
+        } else if self.accounts.unregistered.contains(credential) {
+            Existence::Gone
+        } else {
+            Existence::Unknown
+        }
+    }
+
+    /// Whether this fragment withdrew the account's rewards.
+    pub fn withdrew(&self, credential: &StakeCredential) -> bool {
+        self.withdrawals.contains(credential)
     }
 
     /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.

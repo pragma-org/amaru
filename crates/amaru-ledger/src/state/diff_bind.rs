@@ -73,6 +73,15 @@ impl<A> Resettable<A> {
             Self::Unchanged => Resettable::Unchanged,
         }
     }
+
+    /// Apply this change over a base: `Set`/`Reset` override, `Unchanged` keeps the base.
+    pub fn apply_over(self, base: Option<A>) -> Option<A> {
+        match self {
+            Resettable::Set(value) => Some(value),
+            Resettable::Reset => None,
+            Resettable::Unchanged => base,
+        }
+    }
 }
 
 impl<A: ToOwned<Owned = A>> Resettable<&A> {

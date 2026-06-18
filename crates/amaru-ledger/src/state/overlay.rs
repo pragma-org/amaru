@@ -14,7 +14,7 @@
 
 use std::mem;
 
-use amaru_kernel::{Epoch, PoolId, ProtocolParameters};
+use amaru_kernel::{Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential};
 use amaru_observability::info_span;
 use tracing::{Span, debug};
 
@@ -216,6 +216,17 @@ impl StateOverlay {
     /// pool as still-existing.
     pub fn is_pool_retired(&self, pool_id: &PoolId) -> bool {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(pool_id))
+    }
+
+    /// The account's pending reward credit at the not-yet-flushed epoch boundary: its effective
+    /// reward plus any pool-deposit refund. `0` outside the straddle window.
+    pub fn pending_reward_credit(&self, credential: &StakeCredential) -> Lovelace {
+        let reward = match &self.rewards {
+            RewardsState::Effective(effective) => effective.accounts().get(credential).copied().unwrap_or(0),
+            RewardsState::NotReady | RewardsState::Computed(..) => 0,
+        };
+        let refund = self.pools_updates.as_ref().map(|updates| updates.refund(credential)).unwrap_or(0);
+        reward + refund
     }
 
     /// A read-only handle on the rewards state.

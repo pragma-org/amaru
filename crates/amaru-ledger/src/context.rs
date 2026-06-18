@@ -24,7 +24,7 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
     MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
 };
 pub use default::*;
@@ -145,16 +145,21 @@ pub trait PreparePoolsSlice<'a> {
 // Accounts
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AccountState {
     pub deposit: Lovelace,
     pub pool: Option<(PoolId, CertificatePointer)>,
     pub drep: Option<(DRep, CertificatePointer)>,
+    /// Withdrawable reward balance as of the start of the block; a withdrawal must claim exactly
+    /// this. `0` for a freshly registered account.
+    pub rewards: Lovelace,
 }
 
 /// An interface for interacting with a subset of the Accounts state.
 pub trait AccountsSlice {
-    fn lookup(&self, credential: &StakeCredential) -> Option<&AccountState>;
+    /// The account state at this point in the block; the resolved block-start state with the
+    /// in-block changes folded in.
+    fn lookup(&self, credential: &StakeCredential) -> Option<AccountState>;
 
     fn register(
         &mut self,
@@ -184,7 +189,11 @@ pub trait AccountsSlice {
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.
 pub trait PrepareAccountsSlice<'a> {
-    fn require_account(&'_ mut self, credential: &'a StakeCredential);
+    fn require_account(&mut self, credential: &'a StakeCredential);
+
+    /// Require the account behind a withdrawal. The reward account is parsed to a credential at
+    /// resolution, so the borrowed bytes are collected rather than a credential.
+    fn require_withdrawal(&mut self, reward_account: &'a RewardAccount);
 }
 
 // DRep
