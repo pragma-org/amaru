@@ -12,15 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
 use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
 
 use crate::state::AnchoredVolatileFragment;
 
-#[derive(Default)]
+/// Volatile DB.
+///
+/// Anchored fragments are wrapped in `Arc` so that cloning the `VolatileDB`
+/// is O(`k`) atomic refcount increments rather than a deep copy of every
+/// fragment's diffs.
+/// Fragments are immutable once anchored, so sharing them by `Arc` is sound: container-level operations
+/// (`push_back`, `pop_front`, `rollback_to`) operate on the outer `VecDeque`, never on
+/// the contents of an anchored fragment.
+#[derive(Default, Clone)]
 pub struct VolatileDB {
-    sequence: VecDeque<AnchoredVolatileFragment>,
+    sequence: VecDeque<Arc<AnchoredVolatileFragment>>,
 }
 
 impl VolatileDB {
@@ -33,19 +41,19 @@ impl VolatileDB {
     }
 
     pub fn view_back(&self) -> Option<&AnchoredVolatileFragment> {
-        self.sequence.back()
+        self.sequence.back().map(Arc::as_ref)
     }
 
     pub fn view_front(&self) -> Option<&AnchoredVolatileFragment> {
-        self.sequence.front()
+        self.sequence.front().map(Arc::as_ref)
     }
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        for AnchoredVolatileFragment { fragment, .. } in self.sequence.iter().rev() {
-            if fragment.utxo.consumed.contains(input) {
+        for anchored in self.sequence.iter().rev() {
+            if anchored.fragment.utxo.consumed.contains(input) {
                 return None;
             }
-            if let Some(output) = fragment.utxo.produced.get(input) {
+            if let Some(output) = anchored.fragment.utxo.produced.get(input) {
                 return Some(output);
             }
         }
@@ -60,12 +68,20 @@ impl VolatileDB {
         self.sequence.binary_search_by_key(point, |anchored| anchored.point()).is_ok()
     }
 
+    /// Pop the oldest fragment off the front of the volatile DB.
+    ///
+    /// Panics if the popped `Arc<AnchoredVolatileFragment>` has more than one strong holder.
+    /// The should only ever be one stage making modifications to the ledger so this
+    /// invariant should always hold.
+    #[expect(clippy::expect_used)]
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
-        self.sequence.pop_front()
+        self.sequence
+            .pop_front()
+            .map(|arc| Arc::try_unwrap(arc).expect("VolatileDB fragment had multiple Arc holders at pop_front"))
     }
 
     pub fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
-        self.sequence.push_back(fragment);
+        self.sequence.push_back(Arc::new(fragment));
     }
 
     pub fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
@@ -128,7 +144,7 @@ impl VolatileDB {
     }
 
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &AnchoredVolatileFragment> {
-        self.sequence.iter()
+        self.sequence.iter().map(Arc::as_ref)
     }
 }
 
