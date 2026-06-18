@@ -145,8 +145,9 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, &'a Term<'a, DeBruijn>, Extra<'a
                         Ok(t) => {
                             let ret = Term::constr(state.arena, t, fields);
 
-                            if state.is_less_than_1_1_0() {
-                                emitter.emit(Rich::custom(e.span(), "constr is not supported before 1.1.0"));
+                            if !state.is_constr_case_available() {
+                                emitter
+                                    .emit(Rich::custom(e.span(), "constr is not available for this protocol version"));
                             }
 
                             ret
@@ -170,8 +171,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, &'a Term<'a, DeBruijn>, Extra<'a
 
                     let ret = Term::case(state.arena, tag, branches);
 
-                    if state.is_less_than_1_1_0() {
-                        emitter.emit(Rich::custom(e.span(), "case is not supported before 1.1.0"));
+                    if !state.is_constr_case_available() {
+                        emitter.emit(Rich::custom(e.span(), "case is not available for this protocol version"));
                     }
 
                     ret

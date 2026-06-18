@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod cek;
+pub use cost_model::default_v3_cost_model;
 mod context;
 pub(crate) mod cost_model;
 mod discharge;

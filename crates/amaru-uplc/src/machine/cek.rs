@@ -256,7 +256,7 @@ impl<'a, B: BuiltinCostModel> Machine<'a, B> {
                         Err(MachineError::MissingCaseBranch(branches, value))
                     }
                 }
-                Value::Con(constant) if self.version.is_at_least_1_1_0() => {
+                Value::Con(constant) if self.version.is_constr_case_available() => {
                     let (tag, max_branches, fields) = self.constant_as_tag_fields(constant)?;
 
                     if branches.len() > max_branches {

@@ -547,9 +547,7 @@ impl Default for BuiltinCostsV3 {
             ),
             value_contains: TwoArgumentsCosting::new(
                 TwoArgumentsCosting::constant_cost(1),
-                TwoArgumentsCosting::const_above_diagonal_into_quadratic_x_and_y(
-                    213283, 0, 618401, 28258, 0, 1998, 0, 0,
-                ),
+                TwoArgumentsCosting::const_above_diagonal_into_linear_in_x_and_y(213283, 618401, 1998, 28258),
             ),
             value_data: OneArgumentCosting::new(
                 OneArgumentCosting::linear_cost(2, 22),
@@ -1049,7 +1047,7 @@ impl BuiltinCostModel for BuiltinCostsV3 {
             ),
 
             blake2b_224: OneArgumentCosting::new(
-                OneArgumentCosting::constant_cost(cost_map["blake2b_224-mem-arguments-slope"]),
+                OneArgumentCosting::constant_cost(cost_map["blake2b_224-mem-arguments"]),
                 OneArgumentCosting::linear_cost(
                     cost_map["blake2b_224-cpu-arguments-intercept"],
                     cost_map["blake2b_224-cpu-arguments-slope"],
@@ -1201,63 +1199,124 @@ impl BuiltinCostModel for BuiltinCostsV3 {
             ),
 
             exp_mod_integer: ThreeArgumentsCosting::new(
-                ThreeArgumentsCosting::linear_in_z(0, 1),
-                ThreeArgumentsCosting::exp_mod_cost(607153, 231697, 53144),
+                ThreeArgumentsCosting::linear_in_z(
+                    cost_map["exp_mod_integer-mem-arguments-intercept"],
+                    cost_map["exp_mod_integer-mem-arguments-slope"],
+                ),
+                ThreeArgumentsCosting::exp_mod_cost(
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient00"],
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient11"],
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient12"],
+                ),
             ),
 
             drop_list: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::constant_cost(4),
-                TwoArgumentsCosting::linear_in_x(116711, 1957),
+                TwoArgumentsCosting::constant_cost(cost_map["drop_list-mem-arguments"]),
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["drop_list-cpu-arguments-intercept"],
+                    cost_map["drop_list-cpu-arguments-slope"],
+                ),
             ),
             length_of_array: OneArgumentCosting::new(
-                OneArgumentCosting::constant_cost(10),
-                OneArgumentCosting::constant_cost(231883),
+                OneArgumentCosting::constant_cost(cost_map["length_of_array-mem-arguments"]),
+                OneArgumentCosting::constant_cost(cost_map["length_of_array-cpu-arguments"]),
             ),
             list_to_array: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::linear_in_x(7, 1),
-                TwoArgumentsCosting::linear_in_x(1000, 24838),
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["list_to_array-mem-arguments-intercept"],
+                    cost_map["list_to_array-mem-arguments-slope"],
+                ),
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["list_to_array-cpu-arguments-intercept"],
+                    cost_map["list_to_array-cpu-arguments-slope"],
+                ),
             ),
             index_array: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::constant_cost(32),
-                TwoArgumentsCosting::constant_cost(232010),
+                TwoArgumentsCosting::constant_cost(cost_map["index_array-mem-arguments"]),
+                TwoArgumentsCosting::constant_cost(cost_map["index_array-cpu-arguments"]),
             ),
             bls12_381_g1_multi_scalar_mul: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::constant_cost(18),
-                TwoArgumentsCosting::linear_in_x(321837444, 25087669),
+                TwoArgumentsCosting::constant_cost(cost_map["bls12_381_G1_multiScalarMul-mem-arguments"]),
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["bls12_381_G1_multiScalarMul-cpu-arguments-intercept"],
+                    cost_map["bls12_381_G1_multiScalarMul-cpu-arguments-slope"],
+                ),
             ),
             bls12_381_g2_multi_scalar_mul: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::constant_cost(36),
-                TwoArgumentsCosting::linear_in_x(617887431, 67302824),
+                TwoArgumentsCosting::constant_cost(cost_map["bls12_381_G2_multiScalarMul-mem-arguments"]),
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["bls12_381_G2_multiScalarMul-cpu-arguments-intercept"],
+                    cost_map["bls12_381_G2_multiScalarMul-cpu-arguments-slope"],
+                ),
             ),
             insert_coin: OneArgumentCosting::new(
-                OneArgumentCosting::linear_cost(45, 21),
-                OneArgumentCosting::linear_cost(356924, 18413),
+                OneArgumentCosting::linear_cost(
+                    cost_map["insert_coin-mem-arguments-intercept"],
+                    cost_map["insert_coin-mem-arguments-slope"],
+                ),
+                OneArgumentCosting::linear_cost(
+                    cost_map["insert_coin-cpu-arguments-intercept"],
+                    cost_map["insert_coin-cpu-arguments-slope"],
+                ),
             ),
             lookup_coin: ThreeArgumentsCosting::new(
-                ThreeArgumentsCosting::constant_cost(1),
-                ThreeArgumentsCosting::linear_in_z(219951, 9444),
+                ThreeArgumentsCosting::constant_cost(cost_map["lookup_coin-mem-arguments"]),
+                ThreeArgumentsCosting::linear_in_z(
+                    cost_map["lookup_coin-cpu-arguments-intercept"],
+                    cost_map["lookup_coin-cpu-arguments-slope"],
+                ),
             ),
             union_value: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::added_sizes(24, 21),
-                TwoArgumentsCosting::with_interaction(1000, 172116, 183150, 6),
+                TwoArgumentsCosting::added_sizes(
+                    cost_map["union_value-mem-arguments-intercept"],
+                    cost_map["union_value-mem-arguments-slope"],
+                ),
+                TwoArgumentsCosting::with_interaction(
+                    cost_map["union_value-cpu-arguments-c00"],
+                    cost_map["union_value-cpu-arguments-c10"],
+                    cost_map["union_value-cpu-arguments-c01"],
+                    cost_map["union_value-cpu-arguments-c11"],
+                ),
             ),
             value_contains: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::constant_cost(1),
-                TwoArgumentsCosting::const_above_diagonal_into_quadratic_x_and_y(
-                    213283, 0, 618401, 28258, 0, 1998, 0, 0,
+                TwoArgumentsCosting::constant_cost(cost_map["value_contains-mem-arguments"]),
+                TwoArgumentsCosting::const_above_diagonal_into_linear_in_x_and_y(
+                    cost_map["value_contains-cpu-arguments-constant"],
+                    cost_map["value_contains-cpu-arguments-model-arguments-intercept"],
+                    cost_map["value_contains-cpu-arguments-model-arguments-slope1"],
+                    cost_map["value_contains-cpu-arguments-model-arguments-slope2"],
                 ),
             ),
             value_data: OneArgumentCosting::new(
-                OneArgumentCosting::linear_cost(2, 22),
-                OneArgumentCosting::linear_cost(1000, 38159),
+                OneArgumentCosting::linear_cost(
+                    cost_map["value_data-mem-arguments-intercept"],
+                    cost_map["value_data-mem-arguments-slope"],
+                ),
+                OneArgumentCosting::linear_cost(
+                    cost_map["value_data-cpu-arguments-intercept"],
+                    cost_map["value_data-cpu-arguments-slope"],
+                ),
             ),
             un_value_data: OneArgumentCosting::new(
-                OneArgumentCosting::linear_cost(1, 11),
-                OneArgumentCosting::quadratic_cost(1000, 95933, 1),
+                OneArgumentCosting::linear_cost(
+                    cost_map["un_value_data-mem-arguments-intercept"],
+                    cost_map["un_value_data-mem-arguments-slope"],
+                ),
+                OneArgumentCosting::quadratic_cost(
+                    cost_map["un_value_data-cpu-arguments-c0"],
+                    cost_map["un_value_data-cpu-arguments-c1"],
+                    cost_map["un_value_data-cpu-arguments-c2"],
+                ),
             ),
             scale_value: TwoArgumentsCosting::new(
-                TwoArgumentsCosting::linear_in_y(12, 21),
-                TwoArgumentsCosting::linear_in_y(1000, 277577),
+                TwoArgumentsCosting::linear_in_y(
+                    cost_map["scale_value-mem-arguments-intercept"],
+                    cost_map["scale_value-mem-arguments-slope"],
+                ),
+                TwoArgumentsCosting::linear_in_y(
+                    cost_map["scale_value-cpu-arguments-intercept"],
+                    cost_map["scale_value-cpu-arguments-slope"],
+                ),
             ),
         }
     }

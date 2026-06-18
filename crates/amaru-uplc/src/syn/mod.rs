@@ -25,26 +25,30 @@ mod version;
 
 use crate::{arena::Arena, binder::DeBruijn, constant::Constant, data::PlutusData, program::Program, term::Term};
 
-pub fn parse_program<'a>(arena: &'a Arena, input: &'a str) -> ParseResult<&'a Program<'a, DeBruijn>, Rich<'a, char>> {
-    let mut initial_state = SimpleState(types::State::new(arena));
+pub fn parse_program<'a>(
+    arena: &'a Arena,
+    input: &'a str,
+    protocol_version: u32,
+) -> ParseResult<&'a Program<'a, DeBruijn>, Rich<'a, char>> {
+    let mut initial_state = SimpleState(types::State::new(arena, Some(protocol_version)));
 
     program::parser().parse_with_state(input, &mut initial_state)
 }
 
 pub fn parse_term<'a>(arena: &'a Arena, input: &'a str) -> ParseResult<&'a Term<'a, DeBruijn>, Rich<'a, char>> {
-    let mut initial_state = SimpleState(types::State::new(arena));
+    let mut initial_state = SimpleState(types::State::new(arena, None));
 
     term::parser().parse_with_state(input, &mut initial_state)
 }
 
 pub fn parse_constant<'a>(arena: &'a Arena, input: &'a str) -> ParseResult<&'a Constant<'a>, Rich<'a, char>> {
-    let mut initial_state = SimpleState(types::State::new(arena));
+    let mut initial_state = SimpleState(types::State::new(arena, None));
 
     constant::parser().parse_with_state(input, &mut initial_state)
 }
 
 pub fn parse_data<'a>(arena: &'a Arena, input: &'a str) -> ParseResult<&'a PlutusData<'a>, Rich<'a, char>> {
-    let mut initial_state = SimpleState(types::State::new(arena));
+    let mut initial_state = SimpleState(types::State::new(arena, None));
 
     data::parser().parse_with_state(input, &mut initial_state)
 }

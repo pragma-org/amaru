@@ -90,6 +90,14 @@ pub struct BuiltinCostsV2 {
     mk_nil_data: OneArgumentCosting,
     mk_nil_pair_data: OneArgumentCosting,
     serialise_data: OneArgumentCosting,
+    // bitwise
+    ripemd_160: OneArgumentCosting,
+
+    exp_mod_integer: ThreeArgumentsCosting,
+    drop_list: TwoArgumentsCosting,
+    length_of_array: OneArgumentCosting,
+    list_to_array: TwoArgumentsCosting,
+    index_array: TwoArgumentsCosting,
 }
 
 impl Default for BuiltinCostsV2 {
@@ -310,6 +318,30 @@ impl Default for BuiltinCostsV2 {
             serialise_data: OneArgumentCosting::new(
                 OneArgumentCosting::linear_cost(0, 2),
                 OneArgumentCosting::linear_cost(955506, 213312),
+            ),
+            ripemd_160: OneArgumentCosting::new(
+                OneArgumentCosting::constant_cost(3),
+                OneArgumentCosting::linear_cost(1964219, 24520),
+            ),
+            exp_mod_integer: ThreeArgumentsCosting::new(
+                ThreeArgumentsCosting::linear_in_z(0, 1),
+                ThreeArgumentsCosting::exp_mod_cost(607153, 231697, 53144),
+            ),
+            drop_list: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::constant_cost(4),
+                TwoArgumentsCosting::linear_in_x(116711, 1957),
+            ),
+            length_of_array: OneArgumentCosting::new(
+                OneArgumentCosting::constant_cost(10),
+                OneArgumentCosting::constant_cost(198994),
+            ),
+            list_to_array: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::linear_in_x(7, 1),
+                TwoArgumentsCosting::linear_in_x(307802, 8496),
+            ),
+            index_array: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::constant_cost(32),
+                TwoArgumentsCosting::constant_cost(194922),
             ),
         }
     }
@@ -670,6 +702,51 @@ impl BuiltinCostModel for BuiltinCostsV2 {
                     cost_map["verify_schnorr_secp256k1_signature-cpu-arguments-slope"],
                 ),
             ),
+            ripemd_160: OneArgumentCosting::new(
+                OneArgumentCosting::constant_cost(cost_map["ripemd_160-memory-arguments"]),
+                OneArgumentCosting::linear_cost(
+                    cost_map["ripemd_160-cpu-arguments-intercept"],
+                    cost_map["ripemd_160-cpu-arguments-slope"],
+                ),
+            ),
+
+            exp_mod_integer: ThreeArgumentsCosting::new(
+                ThreeArgumentsCosting::linear_in_z(
+                    cost_map["exp_mod_integer-mem-arguments-intercept"],
+                    cost_map["exp_mod_integer-mem-arguments-slope"],
+                ),
+                ThreeArgumentsCosting::exp_mod_cost(
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient00"],
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient11"],
+                    cost_map["exp_mod_integer-cpu-arguments-coefficient12"],
+                ),
+            ),
+
+            drop_list: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::constant_cost(cost_map["drop_list-mem-arguments"]),
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["drop_list-cpu-arguments-intercept"],
+                    cost_map["drop_list-cpu-arguments-slope"],
+                ),
+            ),
+            length_of_array: OneArgumentCosting::new(
+                OneArgumentCosting::constant_cost(cost_map["length_of_array-mem-arguments"]),
+                OneArgumentCosting::constant_cost(cost_map["length_of_array-cpu-arguments"]),
+            ),
+            list_to_array: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["list_to_array-mem-arguments-intercept"],
+                    cost_map["list_to_array-mem-arguments-slope"],
+                ),
+                TwoArgumentsCosting::linear_in_x(
+                    cost_map["list_to_array-cpu-arguments-intercept"],
+                    cost_map["list_to_array-cpu-arguments-slope"],
+                ),
+            ),
+            index_array: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::constant_cost(cost_map["index_array-mem-arguments"]),
+                TwoArgumentsCosting::constant_cost(cost_map["index_array-cpu-arguments"]),
+            ),
         }
     }
 
@@ -869,6 +946,28 @@ impl BuiltinCostModel for BuiltinCostsV2 {
             DefaultFunction::SerialiseData => {
                 Some(ExBudget::new(self.serialise_data.mem.cost([args[0]]), self.serialise_data.cpu.cost([args[0]])))
             }
+            DefaultFunction::Ripemd_160 => {
+                Some(ExBudget::new(self.ripemd_160.mem.cost([args[0]]), self.ripemd_160.cpu.cost([args[0]])))
+            }
+            DefaultFunction::ExpModInteger => Some(ExBudget::new(
+                self.exp_mod_integer.mem.cost([args[0], args[1], args[2]]),
+                self.exp_mod_integer.cpu.cost([args[0], args[1], args[2]]),
+            )),
+            DefaultFunction::DropList => Some(ExBudget::new(
+                self.drop_list.mem.cost([args[0], args[1]]),
+                self.drop_list.cpu.cost([args[0], args[1]]),
+            )),
+            DefaultFunction::LengthOfArray => {
+                Some(ExBudget::new(self.length_of_array.mem.cost([args[0]]), self.length_of_array.cpu.cost([args[0]])))
+            }
+            DefaultFunction::ListToArray => Some(ExBudget::new(
+                self.list_to_array.mem.cost([args[0], args[1]]),
+                self.list_to_array.cpu.cost([args[0], args[1]]),
+            )),
+            DefaultFunction::IndexArray => Some(ExBudget::new(
+                self.index_array.mem.cost([args[0], args[1]]),
+                self.index_array.cpu.cost([args[0], args[1]]),
+            )),
             _ => None,
         }
     }
