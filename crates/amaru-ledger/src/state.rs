@@ -21,17 +21,16 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, MemoizedTransactionOutput,
+    to_cbor, Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, MemoizedTransactionOutput,
     NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionInput, TransactionPointer,
-    to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
-use amaru_ouroboros_traits::{PoolSummary, StoreError::ReadError, pools::GetPoolError};
+use amaru_ouroboros_traits::{pools::GetPoolError, PoolSummary, StoreError::ReadError};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
-use tracing::{Span, info, trace, warn};
+use tracing::{info, trace, warn, Span};
 
 use crate::{
     context::{DefaultPreparationContext, DefaultValidationContext},
@@ -117,7 +116,10 @@ where
     /// wouldn't be so much duplicated between snapshots. Instead, we could use an array of values
     /// for each key. On a distribution of 1M+ stake credentials, that's ~26MB of memory per
     /// duplicate.
-    stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
+    ///
+    /// The stake distribution snapshots are wrapped in `Arc` so than cloning the deque
+    /// is `O(snapshots)` atomic refcount increments rather than copying the account maps.
+    stake_distributions: Arc<Mutex<VecDeque<Arc<StakeDistribution>>>>,
 
     /// The era history for the network this store is related to.
     era_history: Arc<EraHistory>,
@@ -179,7 +181,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         global_parameters: GlobalParameters,
         protocol_parameters: ProtocolParameters,
         governance_activity: GovernanceActivity,
-        stake_distributions: VecDeque<StakeDistribution>,
+        stake_distributions: VecDeque<Arc<StakeDistribution>>,
     ) -> Self {
         Self {
             stable: Arc::new(Mutex::new(stable)),
@@ -485,13 +487,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(())
     }
 
-    #[expect(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used, clippy::expect_used)]
     fn compute_rewards(&mut self, epoch: Epoch) -> Result<RewardsSummary, StateError> {
         info_span!(amaru_observability::amaru::ledger::state::COMPUTE_REWARDS, current_epoch = u64::from(epoch))
             .in_scope(|| {
                 let mut stake_distributions = self.stake_distributions.lock().unwrap();
                 let stake_distribution =
                     stake_distributions.pop_back().ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
+                // The stake_distribution Arc is the sole holder at this point since we only have a single Ledger writer
+                let stake_distribution = Arc::try_unwrap(stake_distribution)
+                    .expect("popped stake distribution Arc had multiple holders in compute_rewards");
 
                 assert_eq!(stake_distribution.epoch, epoch - 3, "unexpected stake distribution for epoch");
 
@@ -508,7 +513,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 .map_err(StateError::Storage)?;
 
                 if stake_distributions.front().map(|distr| distr.epoch < snapshot.epoch()).unwrap_or(true) {
-                    stake_distributions.push_front(compute_stake_distribution(&snapshot, &self.era_history)?);
+                    stake_distributions.push_front(Arc::new(compute_stake_distribution(&snapshot, &self.era_history)?));
                 }
 
                 Ok(rewards_summary)
@@ -919,7 +924,7 @@ pub enum ValidationContextError {
 pub fn initial_stake_distributions(
     snapshots: &impl HistoricalStores,
     era_history: &EraHistory,
-) -> Result<VecDeque<StakeDistribution>, StoreError> {
+) -> Result<VecDeque<Arc<StakeDistribution>>, StoreError> {
     let mut stake_distributions = VecDeque::new();
 
     let latest_epoch = snapshots.most_recent_snapshot();
@@ -929,9 +934,9 @@ pub fn initial_stake_distributions(
     for (ix, epoch) in [epoch_for_rewards, epoch_for_leader_schedule, Some(latest_epoch)].into_iter().enumerate() {
         if let Some(epoch) = epoch {
             let snapshot = snapshots.for_epoch(epoch)?;
-            stake_distributions.push_front(
+            stake_distributions.push_front(Arc::new(
                 compute_stake_distribution(&snapshot, era_history).map_err(|err| StoreError::Internal(err.into()))?,
-            );
+            ));
         } else {
             warn!(
                 "ignoring initial stake distribution for epoch 'e - {}', where e = {}; not available",
@@ -963,12 +968,12 @@ pub fn compute_stake_distribution(
 /// A object to carry a locked view on a stake distribution of a specific epoch. The lock is
 /// dropped as soon as the viewer goes out of scope.
 pub struct StakeDistributionView<'a> {
-    guard: MutexGuard<'a, VecDeque<StakeDistribution>>,
+    guard: MutexGuard<'a, VecDeque<Arc<StakeDistribution>>>,
     position: usize,
 }
 
 impl<'a> StakeDistributionView<'a> {
-    pub fn new(guard: MutexGuard<'a, VecDeque<StakeDistribution>>, epoch: Epoch) -> Result<Self, StateError> {
+    pub fn new(guard: MutexGuard<'a, VecDeque<Arc<StakeDistribution>>>, epoch: Epoch) -> Result<Self, StateError> {
         let position = guard
             .iter()
             .position(|distr| distr.epoch == epoch)
@@ -983,7 +988,7 @@ impl<'a> Deref for StakeDistributionView<'a> {
     fn deref(&self) -> &Self::Target {
         // Safe, because Self can only be created after checking that the index was present. Plus,
         // we hold the guard, so that data cannot change.
-        &self.guard[self.position]
+        self.guard[self.position].as_ref()
     }
 }
 
