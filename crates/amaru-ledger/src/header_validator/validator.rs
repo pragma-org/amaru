@@ -65,7 +65,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> HeaderValidator<S, HS> {
     }
 
     pub fn validate(&self, header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        let epoch_nonce = evolve_nonce(&self.consensus_parameters, self.store.clone(), header)
+        let epoch_nonce = evolve_nonce(&self.consensus_parameters, self.store.as_ref(), header)
             .map_err(|e| HeaderValidationError::new(anyhow!(e)))?
             .active;
         self.check_header(header, to_cbor(&header.header_body()).as_slice(), &epoch_nonce)?;
@@ -100,7 +100,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> HeaderValidator<S, HS> {
 /// be used once crossing the epoch boundary to produce the next epoch nonce.
 fn evolve_nonce(
     consensus_parameters: &ConsensusParameters,
-    store: Arc<dyn ChainStore>,
+    store: &dyn ChainStore,
     header: &BlockHeader,
 ) -> Result<Nonces, NoncesError> {
     let _span = trace_span!(amaru_observability::amaru::consensus::validate_header::EVOLVE_NONCE, hash = header.hash());
@@ -291,7 +291,7 @@ mod test {
         store.put_nonces(&parent.0.hash(), parent.1).expect("database failure");
 
         // Evolve the current nonce so that 'get_nonces' can then return a result.
-        evolve_nonce(&consensus_parameters, store.clone(), current).expect("evolve nonce failed");
+        evolve_nonce(&consensus_parameters, store.as_ref(), current).expect("evolve nonce failed");
         store.get_nonces(&current.hash())
     }
 
