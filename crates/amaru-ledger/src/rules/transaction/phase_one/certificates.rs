@@ -190,7 +190,12 @@ where
             AccountsSlice::register(
                 context,
                 credential,
-                AccountState { deposit: protocol_parameters.stake_credential_deposit, pool: None, drep: None },
+                AccountState {
+                    deposit: protocol_parameters.stake_credential_deposit,
+                    pool: None,
+                    drep: None,
+                    rewards: 0,
+                },
             )?;
             Ok(())
         }
@@ -213,7 +218,7 @@ where
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: deposit, expected });
             }
 
-            AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None })?;
+            AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None, rewards: 0 })?;
             Ok(())
         }
 

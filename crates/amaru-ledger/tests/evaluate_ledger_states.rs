@@ -157,7 +157,7 @@ pub mod tests {
         d.skip()?; // stashed
 
         Ok((
-            DefaultValidationContext::new(utxos_map, Default::default()),
+            DefaultValidationContext::new(utxos_map, Default::default(), Default::default()),
             current_pparams_hash,
             GovernanceActivity { consecutive_dormant_epochs: u64::from(number_of_dormant_epochs) as u32 },
         ))

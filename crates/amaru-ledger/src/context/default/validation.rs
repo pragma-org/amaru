@@ -39,6 +39,7 @@ use crate::{
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     pools: BTreeSet<PoolId>,
+    accounts: BTreeMap<StakeCredential, AccountState>,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -49,10 +50,15 @@ pub struct DefaultValidationContext {
 }
 
 impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>, pools: BTreeSet<PoolId>) -> Self {
+    pub fn new(
+        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+        pools: BTreeSet<PoolId>,
+        accounts: BTreeMap<StakeCredential, AccountState>,
+    ) -> Self {
         Self {
             utxo,
             pools,
+            accounts,
             state: VolatileFragment::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -122,8 +128,41 @@ impl PoolsSlice for DefaultValidationContext {
 }
 
 impl AccountsSlice for DefaultValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
-        unimplemented!()
+    /// The block start state (`self.accounts`) with this block's changes (`self.state`) folded in
+    fn lookup(&self, credential: &StakeCredential) -> Option<AccountState> {
+        let base = self.accounts.get(credential);
+
+        let mut account = match self.state.accounts.registered.get(credential) {
+            Some(bind) => match bind.value {
+                // fresh in-block registration; supersedes the block start state
+                Some(deposit) => AccountState {
+                    deposit,
+                    pool: bind.left.clone().apply_over(None),
+                    drep: bind.right.clone().apply_over(None),
+                    rewards: 0,
+                },
+                // re-binding layered over the block start state
+                None => {
+                    let base = base?;
+                    AccountState {
+                        deposit: base.deposit,
+                        pool: bind.left.clone().apply_over(base.pool),
+                        drep: bind.right.clone().apply_over(base.drep.clone()),
+                        rewards: base.rewards,
+                    }
+                }
+            },
+            // deregistered in block; gone
+            None if self.state.accounts.unregistered.contains(credential) => return None,
+            // untouched in block; the block start state
+            None => base?.clone(),
+        };
+
+        if self.state.withdrawals.contains(credential) {
+            account.rewards = 0;
+        }
+
+        Some(account)
     }
 
     fn register(
@@ -337,5 +376,70 @@ impl WitnessSlice for DefaultValidationContext {
     fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{Slot, TransactionPointer};
+
+    use super::*;
+
+    fn cred(tag: u8) -> StakeCredential {
+        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    }
+
+    fn pointer() -> CertificatePointer {
+        CertificatePointer {
+            transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+            certificate_index: 0,
+        }
+    }
+
+    fn account(rewards: Lovelace) -> AccountState {
+        AccountState { deposit: 2_000_000, pool: None, drep: None, rewards }
+    }
+
+    fn ctx_with(accounts: BTreeMap<StakeCredential, AccountState>) -> DefaultValidationContext {
+        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), accounts)
+    }
+
+    #[test]
+    fn lookup_returns_the_block_start_state_when_untouched() {
+        let ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.rewards), Some(7));
+    }
+
+    #[test]
+    fn lookup_reflects_an_in_block_registration() {
+        let mut ctx = ctx_with(BTreeMap::new());
+        AccountsSlice::register(&mut ctx, cred(1), account(0)).unwrap();
+        assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.deposit), Some(2_000_000));
+    }
+
+    #[test]
+    fn lookup_is_none_after_an_in_block_deregistration() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        AccountsSlice::unregister(&mut ctx, cred(1));
+        assert!(AccountsSlice::lookup(&ctx, &cred(1)).is_none());
+    }
+
+    #[test]
+    fn lookup_zeroes_rewards_after_an_in_block_withdrawal() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        ctx.withdraw_from(cred(1));
+        assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.rewards), Some(0));
+    }
+
+    #[test]
+    fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        let pool = Hash::new([9; 28]);
+        ctx.delegate_pool(cred(1), pool, pointer()).unwrap();
+
+        let found = AccountsSlice::lookup(&ctx, &cred(1)).unwrap();
+        assert_eq!(found.pool.map(|(p, _)| p), Some(pool));
+        assert_eq!(found.rewards, 7);
+        assert_eq!(found.deposit, 2_000_000);
     }
 }

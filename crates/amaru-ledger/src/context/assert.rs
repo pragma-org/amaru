@@ -20,7 +20,7 @@ use std::{
 use amaru_kernel::{
     Anchor, AsHash, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
     MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, StakeCredential, StakeCredentialKind, TransactionInput, Vote, Voter, VoterKind,
+    RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Vote, Voter, VoterKind,
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
@@ -77,6 +77,10 @@ impl PreparePoolsSlice<'_> for AssertPreparationContext {
 
 impl PrepareAccountsSlice<'_> for AssertPreparationContext {
     fn require_account(&mut self, _credential: &StakeCredential) {
+        unimplemented!();
+    }
+
+    fn require_withdrawal(&mut self, _reward_account: &RewardAccount) {
         unimplemented!();
     }
 }
@@ -149,7 +153,7 @@ impl PoolsSlice for AssertValidationContext {
 }
 
 impl AccountsSlice for AssertValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<AccountState> {
         unimplemented!()
     }
 

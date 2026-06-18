@@ -15,7 +15,7 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
@@ -23,8 +23,8 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher,
-    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction,
-    TransactionInput, TransactionPointer, to_cbor,
+    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, StakeCredential, Tip, Transaction,
+    TransactionInput, TransactionPointer, parse_reward_account, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
@@ -35,12 +35,12 @@ use thiserror::Error;
 use tracing::{Span, info, trace, warn};
 
 use crate::{
-    context::{DefaultPreparationContext, DefaultValidationContext},
+    context::{AccountState, DefaultPreparationContext, DefaultValidationContext},
     epoch_transition::{self, GovernanceActivity, RewardsState},
     governance::ratification::RatificationContext,
     rules::{self, block::BlockValidation},
     state::volatile::{
-        AnchoredVolatileFragment, PoolExistence, StoreUpdate, VolatileDB, VolatileFragment, VolatileStore, VolatileView,
+        AnchoredVolatileFragment, Existence, StoreUpdate, VolatileDB, VolatileFragment, VolatileStore, VolatileView,
     },
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -640,14 +640,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             }
 
             match self.volatile.has_pool(pool_id) {
-                PoolExistence::Exists => {
+                Existence::Exists(()) => {
                     resolved_from_volatile += 1;
                     result.insert(*pool_id);
                 }
-                // Reaped at the boundary: gone for the new epoch. Do *not* fall back to the stable
-                // store, which still holds the stale entry until the overlay flushes.
-                PoolExistence::Retired => {}
-                PoolExistence::Unknown => {
+                // reaped at the boundary; skip the stale stable entry
+                Existence::Gone => {}
+                Existence::Unknown => {
                     if db.pool(pool_id)?.is_some() {
                         resolved_from_db += 1;
                         result.insert(*pool_id);
@@ -657,6 +656,73 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
 
         tracing::Span::current().record("resolved_from_context", resolved_from_context);
+        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
+        tracing::Span::current().record("resolved_from_db", resolved_from_db);
+
+        Ok(result)
+    }
+
+    /// The materialized [`AccountState`] for each existing credential, layering volatile over stable.
+    /// Structural fields resolve `volatile -> stable` (a `Gone` tombstone skips the stale stable
+    /// entry); the reward balance folds in the overlay credit and volatile withdrawals via
+    /// [`VolatileDB::resolve_reward_balance`].
+    #[expect(clippy::unwrap_used)]
+    pub fn resolve_accounts<'a>(
+        &self,
+        credentials: impl Iterator<Item = &'a StakeCredential>,
+    ) -> Result<BTreeMap<StakeCredential, AccountState>, StoreError> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_ACCOUNTS);
+        let _guard = _span.enter();
+
+        let mut result = BTreeMap::new();
+        let mut resolved_from_volatile = 0;
+        let mut resolved_from_db = 0;
+
+        let db = self.stable.lock().unwrap();
+
+        // TODO: perform lookup in batch, and possibly within the same transaction as other
+        // required data pre-fetch.
+        for credential in credentials {
+            let state = match self.volatile.resolve_account(credential) {
+                // deregistered in volatile; skip the stale stable entry
+                Existence::Gone => None,
+                Existence::Exists(bind) => {
+                    let resolved = if let Some(deposit) = bind.value {
+                        // fresh registration; supersedes any stable row
+                        Some(AccountState {
+                            deposit,
+                            pool: bind.left.apply_over(None),
+                            drep: bind.right.apply_over(None),
+                            rewards: self.volatile.resolve_reward_balance(credential, 0),
+                        })
+                    } else {
+                        // bind-only update layered over the stable row
+                        db.account(credential)?.map(|row| AccountState {
+                            deposit: row.deposit,
+                            pool: bind.left.apply_over(row.pool),
+                            drep: bind.right.apply_over(row.drep),
+                            rewards: self.volatile.resolve_reward_balance(credential, row.rewards),
+                        })
+                    };
+                    resolved.inspect(|_| resolved_from_volatile += 1)
+                }
+                // untouched in volatile; resolve from stable
+                Existence::Unknown => db.account(credential)?.map(|row| {
+                    resolved_from_db += 1;
+                    AccountState {
+                        deposit: row.deposit,
+                        pool: row.pool,
+                        drep: row.drep,
+                        rewards: self.volatile.resolve_reward_balance(credential, row.rewards),
+                    }
+                }),
+            };
+
+            if let Some(state) = state {
+                result.insert(credential.clone(), state);
+            }
+        }
+
         tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
         tracing::Span::current().record("resolved_from_db", resolved_from_db);
 
@@ -708,7 +774,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         ctx: DefaultPreparationContext<'_>,
         unresolved_input_policy: UnresolvedInputPolicy,
     ) -> Result<DefaultValidationContext, ValidationContextError> {
-        let DefaultPreparationContext { utxo, pools } = ctx;
+        let DefaultPreparationContext { utxo, pools, accounts, withdrawals } = ctx;
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
         // of the current .resolve_inputs; once the latter is no longer needed for the state
@@ -756,7 +822,18 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let pools =
             self.resolve_pools(&Default::default(), pools.into_iter()).map_err(ValidationContextError::ResolvePools)?;
 
-        Ok(DefaultValidationContext::new(inputs, pools))
+        // Withdrawal reward accounts are parsed to credentials here; the parse drops malformed ones,
+        // which the withdrawal rule rejects anyway.
+        let withdrawal_credentials = withdrawals
+            .into_iter()
+            .filter_map(|reward_account| parse_reward_account(reward_account).map(|(credential, _)| credential))
+            .collect::<BTreeSet<_>>();
+
+        let accounts = self
+            .resolve_accounts(accounts.into_iter().chain(withdrawal_credentials.iter()))
+            .map_err(ValidationContextError::ResolveAccounts)?;
+
+        Ok(DefaultValidationContext::new(inputs, pools, accounts))
     }
 
     /// Create a validation context from the current ledger state for the transaction, and
@@ -986,6 +1063,9 @@ pub enum ValidationContextError {
 
     #[error("failed to resolve pools: {0}")]
     ResolvePools(StoreError),
+
+    #[error("failed to resolve accounts: {0}")]
+    ResolveAccounts(StoreError),
 
     #[error("missing transaction inputs: {inputs:?}")]
     MissingInputs { inputs: Vec<TransactionInput> },
