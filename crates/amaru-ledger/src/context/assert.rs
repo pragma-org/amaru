@@ -137,7 +137,7 @@ impl UtxoSlice for AssertValidationContext {
 }
 
 impl PoolsSlice for AssertValidationContext {
-    fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
+    fn exists(&self, _pool: &PoolId) -> bool {
         unimplemented!()
     }
     fn register(&mut self, _params: PoolParams, _pointer: CertificatePointer) {

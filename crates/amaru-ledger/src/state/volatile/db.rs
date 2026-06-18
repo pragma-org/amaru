@@ -14,17 +14,36 @@
 
 use std::mem;
 
-use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
+use amaru_kernel::{Epoch, MemoizedTransactionOutput, Point, PoolId, TransactionInput};
 
 use crate::state::{
     AnchoredVolatileFragment,
+    overlay::StateOverlay,
     volatile::{VolatileSeries, VolatileStore},
 };
+
+/// The volatile layers' verdict on whether a pool exists, used to decide whether a stable-store
+/// read is still warranted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoolExistence {
+    /// Registered (or re-registered) in the volatile state
+    Exists,
+    /// Reaped by the pending epoch-boundary transition. The stable store still holds a stale entry until the overlay flushes,
+    /// so the caller must *not* fall back to it.
+    Retired,
+    /// The volatile layers don't know; the caller should consult the stable store.
+    Unknown,
+}
 
 #[derive(Default)]
 pub struct VolatileDB {
     current: VolatileSeries,
     draining: VolatileSeries,
+    /// The volatile bits of the in-flight epoch transition (computed rewards,
+    /// pending pools and governance updates). Co-located with the two series so that reads and
+    /// rollback stay cohesive: the overlay is the boundary layer that sits *between* `draining`
+    /// (the closing epoch) and `current` (the opening epoch).
+    overlay: StateOverlay,
 }
 
 impl VolatileStore for VolatileDB {
@@ -133,6 +152,40 @@ impl VolatileStore for VolatileDB {
 }
 
 impl VolatileDB {
+    /// Construct an empty volatile DB whose overlay is anchored to the given epoch.
+    pub fn new(epoch: Epoch) -> Self {
+        Self { current: VolatileSeries::default(), draining: VolatileSeries::default(), overlay: StateOverlay::new(epoch) }
+    }
+
+    /// A read-only handle on the epoch-transition overlay.
+    pub fn overlay(&self) -> &StateOverlay {
+        &self.overlay
+    }
+
+    /// A mutable handle on the epoch-transition overlay.
+    pub fn overlay_mut(&mut self) -> &mut StateOverlay {
+        &mut self.overlay
+    }
+
+    /// Determine whether a pool exists according to the volatile state, applying the precedence
+    /// `current -> overlay (reaping) -> draining`.
+    ///
+    /// The overlay sits *between* the two series: a re-registration in `current` (the new
+    /// epoch) cancels a boundary reaping, so it wins; otherwise a reaping makes the pool
+    /// [`PoolExistence::Retired`]. When no layer knows about the pool, the
+    /// result is [`PoolExistence::Unknown`] and the caller should consult the stable store.
+    pub fn has_pool(&self, pool_id: &PoolId) -> PoolExistence {
+        if self.current.pool_exists(pool_id) {
+            PoolExistence::Exists
+        } else if self.overlay.is_pool_retired(pool_id) {
+            PoolExistence::Retired
+        } else if self.draining.pool_exists(pool_id) {
+            PoolExistence::Exists
+        } else {
+            PoolExistence::Unknown
+        }
+    }
+
     /// Mark the transition between two epochs by sealing the `current` series and turning it into
     /// the `draining` series. This keeps each series epoch-homogeneous since, by the protocol
     /// pre-condition, the `current` series holds only the closing epoch's blocks.

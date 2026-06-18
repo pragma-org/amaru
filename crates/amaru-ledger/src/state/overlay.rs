@@ -14,7 +14,7 @@
 
 use std::mem;
 
-use amaru_kernel::{Epoch, ProtocolParameters, ProtocolVersion};
+use amaru_kernel::{Epoch, PoolId, ProtocolParameters};
 use amaru_observability::info_span;
 use tracing::{Span, debug};
 
@@ -29,10 +29,14 @@ use crate::{
     },
 };
 
-/// Represents the information we sometimes have to overlay on top of the immutable store. That is,
-/// they are computed bits of the ledger state that aren't stable yet but that still need to be
-/// accounted for for block validation. They are computed at each epoch boundaries, and flushed
-/// once we've reached enter the stability window of each epoch.
+/// Represents the volatile, rollback-able bits of the epoch transition that aren't stable yet but
+/// that still need to be accounted for for block validation. They are computed at each epoch
+/// boundary, and flushed once we've reached the stability window of each epoch.
+///
+/// This lives inside the [`crate::state::volatile::VolatileDB`]: it is part of the volatile state
+/// (it can be rolled back), and co-locating it with the two volatile series keeps reads and
+/// rollback cohesive.
+#[derive(Default)]
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
@@ -56,29 +60,14 @@ pub struct StateOverlay {
     /// The result of an epoch boundary ratification, stashed temporarily until it is stable enough
     /// to persist in the stable storage.
     governance_updates: Option<GovernanceUpdates>,
-
-    /// Updatable protocol parameters, cached from the stable store.
-    protocol_parameters: ProtocolParameters,
-
-    /// Track the number of dormant epochs (i.e. epochs that start without any available proposals).
-    governance_activity: GovernanceActivity,
 }
 
 impl StateOverlay {
-    /// Construct a new default/empty overlay from current parameters.
-    pub fn new(epoch: Epoch, protocol_parameters: ProtocolParameters, governance_activity: GovernanceActivity) -> Self {
-        Self {
-            epoch,
-            rewards: RewardsState::NotReady,
-            pools_updates: None,
-            governance_updates: None,
-            protocol_parameters,
-            governance_activity,
-        }
+    /// Construct a new default/empty overlay for the given epoch.
+    pub fn new(epoch: Epoch) -> Self {
+        Self { epoch, rewards: RewardsState::NotReady, pools_updates: None, governance_updates: None }
     }
-}
 
-impl StateOverlay {
     /// Rollback an existing overlay, throwing away the epoch transition calculations.
     pub fn rollback(&mut self) {
         let to = self.epoch - 1;
@@ -110,8 +99,12 @@ impl StateOverlay {
     }
 
     /// Flush an overlay to disk.
-    pub fn apply(&mut self, db: &impl Store) -> Result<(), StateError> {
-        info_span!(
+    ///
+    /// Returns the freshly-enacted `(protocol_parameters, governance_activity)` when a governance
+    /// transition was applied, so the caller can refresh its cached copy. Returns `None` when there
+    /// was no governance update to apply, in which case the cached values are left untouched.
+    pub fn apply(&mut self, db: &impl Store) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
+        let updated = info_span!(
             amaru_observability::amaru::ledger::epoch_transition::APPLYING_OVERLAY,
             epoch = u64::from(self.epoch)
         )
@@ -156,7 +149,7 @@ impl StateOverlay {
 
                 Span::current().record("should_begin_epoch", should_begin_epoch);
 
-                if should_begin_epoch {
+                let updated = if should_begin_epoch {
                     reset_blocks_count(batch)?;
 
                     reset_fees(batch)?;
@@ -169,19 +162,18 @@ impl StateOverlay {
                     }
 
                     if let Some(governance_updates) = mem::take(&mut self.governance_updates) {
-                        let (protocol_parameters, governance_activity) =
-                            apply_governance_updates(batch, governance_updates)?;
-                        self.protocol_parameters = protocol_parameters;
-                        self.governance_activity = governance_activity;
+                        Some(apply_governance_updates(batch, governance_updates)?)
                     } else {
                         debug!(name: "overlay.no_governance_updates", "overlay.no_governance_updates");
+                        None
                     }
                 } else {
                     mem::take(&mut self.pools_updates);
                     mem::take(&mut self.governance_updates);
-                }
+                    None
+                };
 
-                Ok(())
+                Ok(updated)
             })
         })?;
 
@@ -189,7 +181,7 @@ impl StateOverlay {
         assert!(self.governance_updates.is_none(), "governance updates leftovers after flushing overlay?");
         assert!(self.pools_updates.is_none(), "pools updates leftovers after flushing overlay?");
 
-        Ok(())
+        Ok(updated)
     }
 }
 
@@ -206,60 +198,24 @@ impl StateOverlay {
         self.epoch
     }
 
-    /// Get current protocol version, applying the overlay if necessary.
-    pub fn protocol_version(&self) -> ProtocolVersion {
-        let (major, minor) = self.protocol_parameters().protocol_version;
-        (major, minor)
+    /// The pending protocol parameters carried by an in-flight governance transition, if any.
+    pub fn pending_protocol_parameters(&self) -> Option<&ProtocolParameters> {
+        self.governance_updates.as_ref().map(|update| &update.protocol_parameters)
     }
 
-    /// Obtain the protocol parameters for a specific epoch; which can either be the *current*
-    /// epoch as per the latest tip; or the previous one. This is useful when applying the last
-    /// `k` blocks of an epoch.
-    ///
-    /// At this point, the tip has already transitioned, but we still need some of the protocol
-    /// parameters *at the time of that block* during persistence; mostly because of branching
-    /// logic that depends on protocol version.
-    pub fn protocol_parameters_for(&self, epoch: Epoch) -> &ProtocolParameters {
-        if epoch == self.epoch {
-            self.protocol_parameters()
-        } else {
-            self.assert_previous_epoch(epoch);
-            &self.protocol_parameters
-        }
+    /// Whether the in-flight governance transition (if any) corresponds to a dormant epoch; used to
+    /// bump the cached governance activity held by `State`.
+    pub fn is_dormant_epoch(&self) -> bool {
+        self.governance_updates.as_ref().is_some_and(|updates| updates.is_dormant_epoch)
     }
 
-    /// Obtain the latest protocol parameters, from the overlay if any.
-    pub fn protocol_parameters(&self) -> &ProtocolParameters {
-        self.governance_updates.as_ref().map(|update| &update.protocol_parameters).unwrap_or(&self.protocol_parameters)
-    }
-
-    /// Similar to [`Self::protocol_parameters_for`], we need to hold onto the governance activity at the
-    /// time of a block, and not the value at the tip (since we apply block with ~2160 blocks of
-    /// delays.
-    pub fn governance_activity_for(&self, epoch: Epoch) -> GovernanceActivity {
-        if epoch == self.epoch {
-            self.governance_activity()
-        } else {
-            self.assert_previous_epoch(epoch);
-            self.governance_activity
-        }
-    }
-
-    /// Obtain the latest governance activity, from the overlay if any.
-    pub fn governance_activity(&self) -> GovernanceActivity {
-        let mut governance_activity = self.governance_activity;
-
-        if self.governance_updates.as_ref().is_some_and(|updates| updates.is_dormant_epoch) {
-            governance_activity.consecutive_dormant_epochs += 1;
-        }
-
-        governance_activity
-    }
-
-    /// Obtain a mutable reference to the governance activity, for updating after a block
-    /// application.
-    pub fn governance_activity_mut(&mut self) -> &mut GovernanceActivity {
-        &mut self.governance_activity
+    /// Whether the given pool is reaped by the pending epoch-boundary transition. A reaped pool no
+    /// longer exists for the *new* epoch, even though the stable store still holds its (now stale)
+    /// entry until this overlay is flushed `k` blocks later. Pool-existence reads must therefore
+    /// short-circuit on this *before* falling back to the stable store, or they'd resolve a reaped
+    /// pool as still-existing.
+    pub fn is_pool_retired(&self, pool_id: &PoolId) -> bool {
+        self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(pool_id))
     }
 
     /// A read-only handle on the rewards state.
@@ -275,15 +231,5 @@ impl StateOverlay {
     /// Consume a computed summary from a previous computation and mark the rewards as 'NotReady'.
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
         self.rewards.take_computed_rewards()
-    }
-
-    fn assert_previous_epoch(&self, epoch: Epoch) {
-        assert!(
-            epoch + 1 == self.epoch,
-            "invariant violation: asking protocol parameters for an epoch ({}) that's neither current ({}) nor the precedent ({})",
-            epoch,
-            self.epoch,
-            self.epoch.saturating_sub(1),
-        );
     }
 }

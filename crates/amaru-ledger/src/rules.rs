@@ -14,7 +14,7 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::{Block, TransactionBody};
+use amaru_kernel::{Block, Certificate, TransactionBody};
 use amaru_observability::trace_span;
 pub use block::execute as validate_block;
 
@@ -49,10 +49,51 @@ pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a B
 
 /// Prepare the context for a single transaction.
 pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
+    prepare_inputs(context, transaction);
+
+    let certificates = transaction.certificates.as_deref().unwrap_or(&[]).iter();
+    certificates.for_each(|certificate| prepare_certificate(context, certificate));
+}
+
+/// Collect and require the inputs from a single transaction.
+fn prepare_inputs<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
     let inputs = transaction.inputs.iter();
     let collaterals = transaction.collateral.as_deref().unwrap_or(&[]).iter();
     let reference_inputs = transaction.reference_inputs.as_deref().unwrap_or(&[]).iter();
     inputs.chain(reference_inputs).chain(collaterals).for_each(|input| context.require_input(input));
+}
+
+/// Collect and require values from a single certificate.
+fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificate: &'a Certificate) {
+    match certificate {
+        Certificate::StakeDelegation(_, pool_key_hash) => context.require_pool(pool_key_hash),
+        Certificate::PoolRegistration {
+            operator: pool_key_hash,
+            vrf_keyhash: _,
+            pledge: _,
+            cost: _,
+            margin: _,
+            reward_account: _,
+            pool_owners: _,
+            relays: _,
+            pool_metadata: _,
+        } => context.require_pool(pool_key_hash),
+        Certificate::PoolRetirement(pool_key_hash, _) => context.require_pool(pool_key_hash),
+        Certificate::StakeVoteDeleg(_, pool_key_hash, _) => context.require_pool(pool_key_hash),
+        Certificate::StakeRegDeleg(_, pool_key_hash, _) => context.require_pool(pool_key_hash),
+        Certificate::StakeVoteRegDeleg(_, pool_key_hash, _, _) => context.require_pool(pool_key_hash),
+        Certificate::VoteRegDeleg(_, _, _) => {}
+        Certificate::AuthCommitteeHot(_, _) => {}
+        Certificate::ResignCommitteeCold(_, _) => {}
+        Certificate::RegDRepCert(_, _, _) => {}
+        Certificate::UnRegDRepCert(_, _) => {}
+        Certificate::UpdateDRepCert(_, _) => {}
+        Certificate::StakeRegistration(_) => {}
+        Certificate::Reg(_, _) => {}
+        Certificate::UnReg(_, _) => {}
+        Certificate::VoteDeleg(_, _) => {}
+        Certificate::StakeDeregistration(_) => {}
+    };
 }
 
 #[cfg(test)]
