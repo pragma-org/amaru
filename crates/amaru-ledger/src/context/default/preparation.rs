@@ -29,11 +29,12 @@ use crate::context::{
 #[derive(Debug, Default)]
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
+    pub pools: BTreeSet<&'a PoolId>,
 }
 
 impl DefaultPreparationContext<'_> {
     pub fn new() -> Self {
-        Self { utxo: BTreeSet::new() }
+        Self { utxo: BTreeSet::new(), pools: BTreeSet::new() }
     }
 }
 
@@ -46,8 +47,8 @@ impl<'a> PrepareUtxoSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_pool(&mut self, _pool: &PoolId) {
-        unimplemented!();
+    fn require_pool(&mut self, pool: &'a PoolId) {
+        self.pools.insert(pool);
     }
 }
 

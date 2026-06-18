@@ -14,17 +14,36 @@
 
 use std::mem;
 
-use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
+use amaru_kernel::{Epoch, MemoizedTransactionOutput, Point, PoolId, TransactionInput};
 
 use crate::state::{
     AnchoredVolatileFragment,
+    overlay::StateOverlay,
     volatile::{VolatileSeries, VolatileStore},
 };
+
+/// The volatile layers' verdict on whether a pool exists, used to decide whether a stable-store
+/// read is still warranted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoolExistence {
+    /// Registered (or re-registered) in the volatile state
+    Exists,
+    /// Reaped by the pending epoch-boundary transition. The stable store still holds a stale entry until the overlay flushes,
+    /// so the caller must *not* fall back to it.
+    Retired,
+    /// The volatile layers don't know; the caller should consult the stable store.
+    Unknown,
+}
 
 #[derive(Default)]
 pub struct VolatileDB {
     current: VolatileSeries,
     draining: Option<VolatileSeries>,
+    /// The volatile bits of the in-flight epoch transition (computed rewards,
+    /// pending pools and governance updates). Co-located with the two series so that reads and
+    /// rollback stay cohesive: the overlay is the boundary layer that sits *between* `draining`
+    /// (the closing epoch) and `current` (the opening epoch).
+    overlay: StateOverlay,
 }
 
 impl VolatileStore for VolatileDB {
@@ -146,6 +165,40 @@ impl VolatileStore for VolatileDB {
 }
 
 impl VolatileDB {
+    /// Construct an empty volatile DB whose overlay is anchored to the given epoch.
+    pub fn new(epoch: Epoch) -> Self {
+        Self { current: VolatileSeries::default(), draining: None, overlay: StateOverlay::new(epoch) }
+    }
+
+    /// A read-only handle on the epoch-transition overlay.
+    pub fn overlay(&self) -> &StateOverlay {
+        &self.overlay
+    }
+
+    /// A mutable handle on the epoch-transition overlay.
+    pub fn overlay_mut(&mut self) -> &mut StateOverlay {
+        &mut self.overlay
+    }
+
+    /// Determine whether a pool exists according to the volatile state, applying the precedence
+    /// `current -> overlay (reaping) -> draining`.
+    ///
+    /// The overlay sits *between* the two series: a re-registration in `current` (the new
+    /// epoch) cancels a boundary reaping, so it wins; otherwise a reaping makes the pool
+    /// [`PoolExistence::Retired`]. When no layer knows about the pool, the
+    /// result is [`PoolExistence::Unknown`] and the caller should consult the stable store.
+    pub fn has_pool(&self, pool_id: &PoolId) -> PoolExistence {
+        if self.current.pool_exists(pool_id) {
+            PoolExistence::Exists
+        } else if self.overlay.is_pool_retired(pool_id) {
+            PoolExistence::Retired
+        } else if self.draining.as_ref().is_some_and(|draining| draining.pool_exists(pool_id)) {
+            PoolExistence::Exists
+        } else {
+            PoolExistence::Unknown
+        }
+    }
+
     /// Seal the live series at an epoch boundary: the `current` series, which, by the protocol
     /// pre-condition, holds only the closing epoch's blocks, becomes the `draining` series, and a
     /// fresh empty `current` is opened for the new epoch. This keeps each series epoch-homogeneous.
@@ -153,13 +206,9 @@ impl VolatileDB {
     /// No-op when `current` is empty: there is nothing to seal, `draining` stays `None`, and
     /// homogeneity still holds because an empty `current` only ever takes new-epoch blocks.
     ///
-    /// The `assert!` guards the design's load-bearing precondition: `epochLength` (~10k blocks) is
-    /// far larger than the volatile window `k` (2160 blocks at the time of writing), so at most one
-    /// epoch boundary is ever inside the window and any prior `draining` series has fully drained
-    /// long before the next boundary arrives. A violation would mean two boundaries inside the
-    /// window, impossible under the protocol. We `assert!` rather than `debug_assert!` because the
-    /// check is effectively free, and if some other bug ever broke the invariant, halting the node
-    /// is far safer than silently overwriting `draining` and losing volatile history.
+    /// The `assert!` confirms that at most one  epoch boundary is ever inside the window
+    /// and any prior `draining` series has fully drained long before the next boundary arrives.
+    /// A violation would mean two boundaries inside the window, impossible under the protocol.
     pub fn seal(&mut self) {
         assert!(
             self.draining.is_none(),

@@ -14,7 +14,7 @@
 
 use std::collections::VecDeque;
 
-use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
+use amaru_kernel::{MemoizedTransactionOutput, Point, PoolId, TransactionInput};
 
 use crate::state::{AnchoredVolatileFragment, VolatileFragment, volatile::VolatileStore};
 
@@ -86,6 +86,12 @@ impl VolatileStore for VolatileSeries {
 }
 
 impl VolatileSeries {
+    /// Whether the given pool is registered (or re-registered) anywhere in this series' aggregate.
+    /// Deferred retirements do not affect this; reaping is handled one level up, in the volatile DB.
+    pub fn pool_exists(&self, pool_id: &PoolId) -> bool {
+        self.aggregate.pool_exists(pool_id)
+    }
+
     fn recompute_aggregate(&mut self) {
         let mut aggregate = VolatileFragment::default();
         for anchored in &self.sequence {

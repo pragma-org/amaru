@@ -105,6 +105,13 @@ define_schemas! {
                 optional resolved_from_db: u64
             }
 
+            /// Resolve pool data from various sources
+            public RESOLVE_POOLS {
+                optional resolved_from_context: u64
+                optional resolved_from_volatile: u64
+                optional resolved_from_db: u64
+            }
+
             /// Create validation context for a block
             public CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: amaru_kernel::HeaderHash

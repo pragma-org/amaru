@@ -126,7 +126,10 @@ pub trait PrepareUtxoSlice<'a> {
 
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
-    fn lookup(&self, pool: &PoolId) -> Option<&PoolParams>;
+    /// Whether the given pool exists in the resolved ledger state (including pools registered
+    /// earlier within the same block). We only ever need existence, not the pool parameters: VRF-key
+    /// uniqueness (pv11+) is enforced globally, so no rule needs the per-pool [`PoolParams`].
+    fn exists(&self, pool: &PoolId) -> bool;
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer);
 
