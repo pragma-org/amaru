@@ -38,6 +38,7 @@ use crate::{
 #[derive(Debug)]
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    pools: BTreeSet<PoolId>,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -48,9 +49,10 @@ pub struct DefaultValidationContext {
 }
 
 impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
+    pub fn new(utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>, pools: BTreeSet<PoolId>) -> Self {
         Self {
             utxo,
+            pools,
             state: VolatileFragment::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -94,8 +96,8 @@ impl UtxoSlice for DefaultValidationContext {
 }
 
 impl PoolsSlice for DefaultValidationContext {
-    fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
-        unimplemented!()
+    fn exists(&self, pool: &PoolId) -> bool {
+        self.pools.contains(pool) || self.state.pools.registered.contains_key(pool)
     }
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer) {

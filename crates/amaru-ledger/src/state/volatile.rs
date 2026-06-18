@@ -14,7 +14,7 @@
 
 mod db;
 use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
-pub use db::VolatileDB;
+pub use db::{PoolExistence, VolatileDB};
 
 mod fragment;
 pub use fragment::{AnchoredVolatileFragment, StoreUpdate, VolatileFragment};

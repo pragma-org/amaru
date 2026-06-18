@@ -62,6 +62,12 @@ impl VolatileFragment {
         self.utxo.consumed.contains(input)
     }
 
+    /// Whether this fragment registered (or re-registered) the given pool. Unregistrations
+    /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
+    pub fn pool_exists(&self, pool_id: &PoolId) -> bool {
+        self.pools.registered.contains_key(pool_id)
+    }
+
     /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.
     /// This maintains the running aggregate of a [`crate::state::volatile::VolatileSeries`].
     ///
