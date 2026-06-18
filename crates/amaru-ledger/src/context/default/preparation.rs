@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{PoolId, RewardAccount, StakeCredential, TransactionInput};
 
 use crate::context::{
     PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice,
@@ -30,11 +30,13 @@ use crate::context::{
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
+    pub accounts: BTreeSet<&'a StakeCredential>,
+    pub withdrawals: BTreeSet<&'a RewardAccount>,
 }
 
 impl DefaultPreparationContext<'_> {
     pub fn new() -> Self {
-        Self { utxo: BTreeSet::new(), pools: BTreeSet::new() }
+        Self { utxo: BTreeSet::new(), pools: BTreeSet::new(), accounts: BTreeSet::new(), withdrawals: BTreeSet::new() }
     }
 }
 
@@ -53,8 +55,12 @@ impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_account(&mut self, _credential: &StakeCredential) {
-        unimplemented!();
+    fn require_account(&mut self, credential: &'a StakeCredential) {
+        self.accounts.insert(credential);
+    }
+
+    fn require_withdrawal(&mut self, reward_account: &'a RewardAccount) {
+        self.withdrawals.insert(reward_account);
     }
 }
 

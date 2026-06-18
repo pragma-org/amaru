@@ -14,9 +14,12 @@
 
 use std::collections::VecDeque;
 
-use amaru_kernel::{MemoizedTransactionOutput, Point, PoolId, TransactionInput};
+use amaru_kernel::{MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
 
-use crate::state::{AnchoredVolatileFragment, VolatileFragment, volatile::VolatileStore};
+use crate::state::{
+    AnchoredVolatileFragment, VolatileFragment,
+    volatile::{AccountBind, Existence, VolatileStore},
+};
 
 #[derive(Default)]
 pub struct VolatileSeries {
@@ -96,6 +99,16 @@ impl VolatileSeries {
     /// Deferred retirements do not affect this; reaping is handled one level up, in the volatile DB.
     pub fn pool_exists(&self, pool_id: &PoolId) -> bool {
         self.aggregate.pool_exists(pool_id)
+    }
+
+    /// This series' verdict on a stake account, read off its aggregate.
+    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
+        self.aggregate.resolve_account(credential)
+    }
+
+    /// Whether this series withdrew the account's rewards anywhere in its aggregate.
+    pub fn withdrew(&self, credential: &StakeCredential) -> bool {
+        self.aggregate.withdrew(credential)
     }
 
     fn recompute_aggregate(&mut self) {
