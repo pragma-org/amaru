@@ -35,7 +35,7 @@ fn normalize_type_string(ty: &str) -> String {
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Compact JSON output (no pretty-printing)
-    #[clap(long, short = 'c')]
+    #[clap(long)]
     compact: bool,
 }
 

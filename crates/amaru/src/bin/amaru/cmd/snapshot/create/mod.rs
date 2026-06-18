@@ -90,7 +90,6 @@ pub struct Args {
 
     /// Forcefully erase requested generated snapshot outputs and regenerate them.
     #[arg(
-        short,
         long,
         action = ArgAction::SetTrue,
         default_value_t = false,
@@ -281,7 +280,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!(
-        _command = "create-snapshots",
+        _command = "snapshot create",
         snapshot_output_dir = %snapshot_output_dir.display(),
         config_dir = %config_dir.display(),
         cardano_node_db = %cardano_node_db.display(),

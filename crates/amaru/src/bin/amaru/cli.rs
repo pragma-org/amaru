@@ -20,82 +20,91 @@ use crate::cmd;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    /// Bootstrap the node with needed data.
-    ///
-    /// This command simplifies the process of bootstrapping an Amaru node for any given well-known network:
-    ///
-    ///   - mainnet
-    ///   - preprod
-    ///   - preview
-    ///
-    /// It imports snapshots, bootstrap headers and bootstrap nonces in one step.
-    #[clap(verbatim_doc_comment)]
-    Bootstrap(cmd::bootstrap::Args),
+    /// Manage and operate the Amaru node.
+    #[command(subcommand)]
+    Node(cmd::node::NodeCommand),
 
-    /// Dump the content of the chain database for troubleshooting purposes.
-    ///
-    /// This command dumps the _whole_ content of the chain database in a human-readable format:
-    ///  - Headers (hash + hex-encoded body)
-    ///  - Parent-child relationships between headers
-    ///  - Nonces
-    ///  - Blocks
-    ///  - Best chain anchor, tip and length
-    ///
-    DumpChainDB(cmd::dump_chain_db::Args),
+    /// Manage bootstrap snapshots.
+    #[command(subcommand)]
+    Snapshot(cmd::snapshot::SnapshotCommand),
 
-    /// Remove the validation status of the given blocks from the chain database.
-    RemoveValidationStatus(cmd::remove_validation_status::Args),
+    /// Developer and debugging tools.
+    #[command(subcommand, hide = true)]
+    Dev(cmd::dev::DevCommand),
 
-    /// Remove the given chain fragment from the chain database.
-    RemoveChain(cmd::remove_chain::Args),
-
-    /// Dump all registered trace schemas as JSON Schema.
-    ///
-    /// This command outputs all registered trace schemas in JSON Schema format.
-    /// Useful for documentation, tooling, and validation.
-    #[command(name = "dump-traces-schema")]
-    DumpTracesSchema(cmd::dump_schemas::Args),
-
-    /// Fetch specified headers
-    FetchChainHeaders(cmd::fetch_chain_headers::Args),
-
-    /// Create the three consecutive epoch snapshots needed for bootstrap.
-    CreateSnapshots(cmd::create_snapshots::Args),
+    /// Build and submit on-chain transactions.
+    #[command(subcommand)]
+    Transaction(cmd::transaction::TransactionCommand),
 
     #[command(name = "shell-completions", hide = true)]
     ShellCompletions(cmd::shell_completions::Args),
 
-    /// Migrate the chain database to the current version.
-    ///
-    /// This command is only relevant when one upgrades Amaru to a newer version that
-    /// requires changes in the database format.
-    MigrateChainDB(cmd::migrate_chain_db::Args),
+    // Hidden backward-compatibility aliases for old top-level commands.
+    #[command(hide = true, name = "run")]
+    LegacyRun(cmd::node::run::Args),
 
-    /// Reset the ledger database to the beginning of a specific epoch
-    ResetToEpoch(cmd::reset_to_epoch::Args),
+    #[command(hide = true, name = "daemon")]
+    LegacyDaemon(cmd::node::run::Args),
 
-    /// Run the node in all its glory.
-    #[command(alias = "daemon")]
-    Run(cmd::run::Args),
+    #[command(hide = true, name = "bootstrap")]
+    LegacyBootstrap(cmd::node::bootstrap::Args),
+
+    #[command(hide = true, name = "reset-to-epoch")]
+    LegacyResetToEpoch(cmd::node::reset::Args),
+
+    #[command(hide = true, name = "create-snapshots")]
+    LegacyCreateSnapshots(cmd::snapshot::create::Args),
+
+    #[command(hide = true, name = "dump-chain-db")]
+    LegacyDumpChainDB(cmd::dev::chain::dump::Args),
+
+    #[command(hide = true, name = "remove-validation-status")]
+    LegacyRemoveValidationStatus(cmd::dev::chain::clear_invalid::Args),
+
+    #[command(hide = true, name = "fetch-chain-headers")]
+    LegacyFetchChainHeaders(cmd::dev::chain::fetch::Args),
+
+    #[command(hide = true, name = "migrate-chain-db")]
+    LegacyMigrateChainDB(cmd::dev::chain::migrate::Args),
+
+    #[command(hide = true, name = "remove-chain")]
+    LegacyRemoveChain(cmd::dev::chain::remove::Args),
+
+    #[command(hide = true, name = "dump-traces-schema")]
+    LegacyDumpTracesSchema(cmd::dev::traces::dump::Args),
 }
 
 impl Command {
+    #[allow(clippy::wildcard_enum_match_arm)]
     pub(crate) fn show_alternative_help(&self) -> Result<bool, Box<dyn std::error::Error>> {
-        if let Command::Run(args) = self
-            && args.help_global_parameters
-        {
-            GlobalParameters::show_help()?;
-            return Ok(true);
+        match self {
+            Command::Node(cmd::node::NodeCommand::Run(args)) if args.help_global_parameters => {
+                GlobalParameters::show_help()?;
+                Ok(true)
+            }
+            Command::Node(cmd::node::NodeCommand::Bootstrap(args)) if args.help_global_parameters => {
+                GlobalParameters::show_help()?;
+                Ok(true)
+            }
+            Command::LegacyRun(args) | Command::LegacyDaemon(args) if args.help_global_parameters => {
+                GlobalParameters::show_help()?;
+                Ok(true)
+            }
+            Command::LegacyBootstrap(args) if args.help_global_parameters => {
+                GlobalParameters::show_help()?;
+                Ok(true)
+            }
+            _ => Ok(false),
         }
+    }
 
-        if let Command::Bootstrap(args) = self
-            && args.help_global_parameters
-        {
-            GlobalParameters::show_help()?;
-            return Ok(true);
-        }
-
-        Ok(false)
+    pub(crate) fn skip_logging(&self) -> bool {
+        matches!(
+            self,
+            Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Dump(_)))
+                | Command::LegacyDumpTracesSchema(_)
+                | Command::ShellCompletions(_)
+        )
     }
 }
 
@@ -103,7 +112,8 @@ impl ObservabilityHints for Command {
     fn listen_address(&self) -> Option<&str> {
         #[allow(clippy::wildcard_enum_match_arm)]
         match self {
-            Command::Run(args) => Some(args.listen_address()),
+            Command::Node(cmd::node::NodeCommand::Run(args)) => Some(args.listen_address()),
+            Command::LegacyRun(args) | Command::LegacyDaemon(args) => Some(args.listen_address()),
             _ => None,
         }
     }
@@ -117,18 +127,9 @@ pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Command,
 
-    #[clap(long, action, env("AMARU_WITH_OPEN_TELEMETRY"))]
-    pub(crate) with_open_telemetry: bool,
-
-    #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
-    pub(crate) with_json_traces: bool,
-
-    #[clap(long, action, env("AMARU_COLOR"))]
-    pub(crate) color: Option<Color>,
-
-    /// Do not initialize tracing library
-    #[arg(short, long)]
-    pub(crate) quiet: bool,
+    /// Control color output.
+    #[clap(long, env = "AMARU_COLOR", default_value = "auto")]
+    pub(crate) color: Color,
 }
 
 pub(crate) fn command(version: &'static str) -> clap::Command {
@@ -141,7 +142,13 @@ pub(crate) fn parse(version: &'static str) -> Result<Cli, clap::Error> {
         //
         // Those options aren't declared hidden because it makes constructing the dedicated help a
         // lot harder. So we instead declare them visible and only hide them here.
+        .mut_subcommand("node", |cmd| {
+            cmd.mut_subcommand("run", GlobalParameters::hide_options)
+                .mut_subcommand("bootstrap", GlobalParameters::hide_options)
+        })
+        // Also hide on legacy top-level aliases
         .mut_subcommand("run", GlobalParameters::hide_options)
+        .mut_subcommand("daemon", GlobalParameters::hide_options)
         .mut_subcommand("bootstrap", GlobalParameters::hide_options)
         .version(version)
         .get_matches();

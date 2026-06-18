@@ -42,28 +42,28 @@ pub struct Args {
     )]
     network: NetworkName,
 
-    #[arg(short = 'H', long)]
+    #[arg(long)]
     headers: bool,
 
-    #[arg(short, long)]
+    #[arg(long)]
     parents_children: bool,
 
-    #[arg(short, long)]
+    #[arg(long)]
     nonces: bool,
 
-    #[arg(short = 'B', long)]
+    #[arg(long)]
     blocks: bool,
 
-    #[arg(short, long)]
+    #[arg(long)]
     best_chain: bool,
 
-    #[arg(short, long, value_name = amaru::value_names::POINT_OR_HASH)]
+    #[arg(long, value_name = amaru::value_names::POINT_OR_HASH)]
     ancestors: Option<PointOrHash>,
 
-    #[arg(short, long)]
+    #[arg(long)]
     find_best_candidate: bool,
 
-    #[arg(short, long, value_name = amaru::value_names::POINT_OR_HASH)]
+    #[arg(long, value_name = amaru::value_names::POINT_OR_HASH)]
     children: Option<PointOrHash>,
 }
 
@@ -71,7 +71,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
-        _command = "dump-chain-db",
+        _command = "dev chain dump",
         chain_dir = %chain_dir.to_string_lossy(),
         network = %args.network,
         "running",

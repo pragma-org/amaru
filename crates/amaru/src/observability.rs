@@ -544,20 +544,19 @@ impl FromStr for Color {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "never" => Ok(Color::Never),
-            "always" => Ok(Color::Always),
+            "off" | "never" => Ok(Color::Never),
+            "on" | "always" => Ok(Color::Always),
             "auto" => Ok(Color::Auto),
-            _ => Err("valid color settings are 'never', 'always' or 'auto'"),
+            _ => Err("valid color settings are 'on', 'always', 'off', 'never' or 'auto'"),
         }
     }
 }
 impl Color {
-    pub fn is_enabled(this: Option<Self>) -> bool {
+    pub fn is_enabled(this: Self) -> bool {
         match this {
-            Some(Color::Never) => false,
-            Some(Color::Always) => true,
-            Some(Color::Auto) => std::io::stderr().is_terminal(),
-            None => {
+            Color::Never => false,
+            Color::Always => true,
+            Color::Auto => {
                 if std::env::var("NO_COLOR").iter().any(|s| !s.is_empty()) {
                     false
                 } else {

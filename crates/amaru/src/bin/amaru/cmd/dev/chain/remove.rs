@@ -64,7 +64,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     tracing::info!(
-        _command = "remove-chain",
+        _command = "dev chain remove",
         chain_dir = %chain_dir.to_string_lossy(),
          %network, %from_point, %only_blocks, %only_validation_results,
         "running",

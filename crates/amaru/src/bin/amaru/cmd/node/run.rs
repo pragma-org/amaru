@@ -66,7 +66,7 @@ pub struct Args {
 
     /// Flag to automatically migrate the chain database if needed.
     ///
-    /// By default, the migration is not performed automatically, checkout `migrate-chain-db` command.
+    /// By default, the migration is not performed automatically, checkout `amaru dev chain migrate` command.
     #[arg(
         long,
         env = amaru::env_vars::MIGRATE_CHAIN_DB,
@@ -366,7 +366,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let tx_submission_params = ResponderParams::default();
 
     info!(
-        _command = "run",
+        _command = "node run",
         chain_dir = %chain_dir.to_string_lossy(),
         ledger_dir = %ledger_dir.to_string_lossy(),
         listen_address = args.listen_address,

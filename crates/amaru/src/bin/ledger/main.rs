@@ -52,8 +52,8 @@ struct Cli {
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
 
-    #[clap(long, action, env("AMARU_COLOR"))]
-    color: Option<Color>,
+    #[clap(long, env = "AMARU_COLOR", default_value = "auto")]
+    color: Color,
 }
 
 #[tokio::main]

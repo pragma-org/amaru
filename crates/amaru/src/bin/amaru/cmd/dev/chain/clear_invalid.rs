@@ -49,7 +49,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     tracing::info!(
-        _command = "remove-validation-status",
+        _command = "dev chain clear-invalid",
         chain_dir = %chain_dir.to_string_lossy(),
         network = %args.network,
         "running",

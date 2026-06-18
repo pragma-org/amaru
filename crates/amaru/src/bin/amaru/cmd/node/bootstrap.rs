@@ -33,7 +33,6 @@ pub struct Args {
 
     /// Forcefully erase and overwrite the ledger database if it already exists.
     #[arg(
-        short,
         long,
         action = ArgAction::SetTrue,
         default_value_t = false,
@@ -88,7 +87,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
-        _command = "bootstrap",
+        _command = "node bootstrap",
         chain_dir = %chain_dir.to_string_lossy(),
         force = %args.force,
         ledger_dir = %ledger_dir.to_string_lossy(),
