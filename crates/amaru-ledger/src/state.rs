@@ -21,16 +21,17 @@ use std::{
 };
 
 use amaru_kernel::{
-    to_cbor, Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, MemoizedTransactionOutput,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, MemoizedTransactionOutput,
     NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionInput, TransactionPointer,
+    to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
-use amaru_ouroboros_traits::{pools::GetPoolError, PoolSummary, StoreError::ReadError};
+use amaru_ouroboros_traits::{PoolSummary, StoreError::ReadError, pools::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
-use tracing::{info, trace, warn, Span};
+use tracing::{Span, info, trace, warn};
 
 use crate::{
     context::{DefaultPreparationContext, DefaultValidationContext},

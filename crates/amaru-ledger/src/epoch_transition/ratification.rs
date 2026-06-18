@@ -52,7 +52,7 @@ use crate::{
 /// A summary of the governance updates resulting from processing proposals at an epoch boundary.
 /// The outcomes are initially stored in this object in-memory before being later flushed to the
 /// stable store.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GovernanceUpdates {
     /// Resulting proposal roots for each of the proposal categories.
     pub roots: ProposalsRoots,

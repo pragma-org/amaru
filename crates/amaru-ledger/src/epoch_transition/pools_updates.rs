@@ -30,7 +30,7 @@ use crate::store::columns::pools::Row as Pool;
 /// Captures stake pool updates computed at the epoch transition, but not yet applied to the
 /// immutable storage. Those updates are meant to be updated only after `k` blocks have passed in
 /// the following epoch (i.e. once they are stable).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PoolsEpochTransitionUpdates {
     /// Pools that have retired at the epoch transition.
     retired: BTreeSet<PoolId>,

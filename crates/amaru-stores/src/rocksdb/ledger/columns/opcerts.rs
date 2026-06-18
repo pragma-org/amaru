@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use amaru_ledger::store::{
+    StoreError,
     columns::{
         opcerts::{Key, Value},
         unsafe_decode,
     },
-    StoreError,
 };
 use amaru_observability::trace_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 
-use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
 /// Name prefixed used for storing last opcerts sequence numbers entries. UTF-8 encoding for "opce"
 pub const PREFIX: [u8; PREFIX_LEN] = *b"opce";

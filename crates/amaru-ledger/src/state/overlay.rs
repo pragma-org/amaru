@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem;
+use std::{mem, sync::Arc};
 
 use amaru_kernel::{Epoch, ProtocolParameters, ProtocolVersion};
 use amaru_observability::info_span;
@@ -33,6 +33,7 @@ use crate::{
 /// they are computed bits of the ledger state that aren't stable yet but that still need to be
 /// accounted for for block validation. They are computed at each epoch boundaries, and flushed
 /// once we've reached enter the stability window of each epoch.
+#[derive(Clone)]
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
@@ -44,14 +45,21 @@ pub struct StateOverlay {
     /// hold onto the epoch boundary. In the epoch boundary, the stake distribution becomes
     /// available for the leader schedule verification, whereas the stake distribution previously
     /// used for leader schedule is moved as rewards stake.
-    rewards: RewardsState,
+    ///
+    /// Wrapped in `Arc` so cloning the overlay is cheap. The `Rewards<Computed>` /
+    /// `Rewards<Effective>` variants hold a `BTreeMap` of per-account rewards which can reach
+    /// ~1M entries on mainnet; only mutations pay the deep-clone cost, via `Arc::make_mut`.
+    rewards: Arc<RewardsState>,
 
     /// Computed pools updates that are pending application to the stable store. The value is only
     /// `Some` during the first `k` blocks of an epoch since this corresponds to the unstable part
     /// of an epoch.
     ///
     /// When present, they must be taken into account when creating the ledger validation context.
-    pools_updates: Option<PoolsEpochTransitionUpdates>,
+    ///
+    /// Wrapped in `Arc` so cloning the overlay is cheap. Contains a `BTreeMap<PoolId, Pool>` of
+    /// pool params (several MB at peak); only mutations pay the deep-clone cost.
+    pools_updates: Option<Arc<PoolsEpochTransitionUpdates>>,
 
     /// The result of an epoch boundary ratification, stashed temporarily until it is stable enough
     /// to persist in the stable storage.
@@ -69,7 +77,7 @@ impl StateOverlay {
     pub fn new(epoch: Epoch, protocol_parameters: ProtocolParameters, governance_activity: GovernanceActivity) -> Self {
         Self {
             epoch,
-            rewards: RewardsState::NotReady,
+            rewards: Arc::new(RewardsState::NotReady),
             pools_updates: None,
             governance_updates: None,
             protocol_parameters,
@@ -85,7 +93,11 @@ impl StateOverlay {
         debug!(name: "overlay.rollback", from = %self.epoch, %to, "overlay.rollback");
 
         self.epoch = to;
-        self.rewards = match mem::take(&mut self.rewards) {
+        // Mutate the inner `RewardsState` in place rather than swapping the outer `Arc`. The Arc
+        // field is never observably `NotReady` during this call: `make_mut` clones into a fresh
+        // Arc if the current one is shared, and the `mem::take`/assign happens behind `&mut RewardsState` that nothing else can observe.
+        let rewards = Arc::make_mut(&mut self.rewards);
+        *rewards = match mem::take(rewards) {
             st @ RewardsState::NotReady | st @ RewardsState::Computed(..) => st,
             RewardsState::Effective(effective) => RewardsState::Computed(effective.into()),
         };
@@ -104,8 +116,8 @@ impl StateOverlay {
         debug!(name: "overlay.transition", from = %self.epoch, %to, "overlay.transition");
 
         self.epoch = to;
-        self.rewards = effective_rewards.map(RewardsState::Effective).unwrap_or(RewardsState::NotReady);
-        self.pools_updates = Some(pools_updates);
+        self.rewards = Arc::new(effective_rewards.map(RewardsState::Effective).unwrap_or(RewardsState::NotReady));
+        self.pools_updates = Some(Arc::new(pools_updates));
         self.governance_updates = Some(governance_updates);
     }
 
@@ -124,14 +136,17 @@ impl StateOverlay {
 
                 Span::current().record("should_end_epoch", should_end_epoch);
 
+                // Mutate the inner `RewardsState` in place rather than swapping the outer `Arc`,
+                // so the field is never observably `NotReady` mid-call. See `rollback` for the
+                // same pattern.
+                let rewards = Arc::make_mut(&mut self.rewards);
                 if should_end_epoch {
-                    if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
-                        pay_rewards(batch, effective_rewards)?;
-                    } else {
+                    let RewardsState::Effective(effective_rewards) = mem::take(rewards) else {
                         return Err(StateError::NoEffectiveRewards);
-                    }
+                    };
+                    pay_rewards(batch, effective_rewards)?;
                 } else {
-                    mem::take(&mut self.rewards);
+                    *rewards = RewardsState::NotReady;
                 }
 
                 Ok(())
@@ -161,7 +176,8 @@ impl StateOverlay {
 
                     reset_fees(batch)?;
 
-                    if let Some(mut pools_updates) = mem::take(&mut self.pools_updates) {
+                    if let Some(pools_updates) = mem::take(&mut self.pools_updates) {
+                        let mut pools_updates = Arc::unwrap_or_clone(pools_updates);
                         update_or_retire_pools(batch, pools_updates.take_updated(), pools_updates.take_retired())?;
                         pay_or_refund_accounts(batch, pools_updates.refunds())?;
                     } else {
@@ -185,7 +201,7 @@ impl StateOverlay {
             })
         })?;
 
-        assert!(matches!(self.rewards, RewardsState::NotReady), "rewards leftovers after flushing overlay?");
+        assert!(matches!(*self.rewards, RewardsState::NotReady), "rewards leftovers after flushing overlay?");
         assert!(self.governance_updates.is_none(), "governance updates leftovers after flushing overlay?");
         assert!(self.pools_updates.is_none(), "pools updates leftovers after flushing overlay?");
 
@@ -196,7 +212,7 @@ impl StateOverlay {
 impl StateOverlay {
     /// Check whether the overlay has unapplied state
     pub fn is_empty(&self) -> bool {
-        matches!(&self.rewards, RewardsState::NotReady | RewardsState::Computed(..))
+        matches!(*self.rewards, RewardsState::NotReady | RewardsState::Computed(..))
             && self.pools_updates.is_none()
             && self.governance_updates.is_none()
     }
@@ -268,13 +284,26 @@ impl StateOverlay {
     }
 
     /// A mut handle on the rewards state. Use with care to replace rewards.
+    ///
+    /// `Arc::make_mut` clones the inner `RewardsState` on first mutation if the `Arc` is shared
+    /// with a reader.
     pub fn rewards_mut(&mut self) -> &mut RewardsState {
-        &mut self.rewards
+        debug_assert_eq!(
+            Arc::strong_count(&self.rewards),
+            1,
+            "rewards_mut called while Arc<RewardsState> has multiple holders"
+        );
+        Arc::make_mut(&mut self.rewards)
     }
 
     /// Consume a computed summary from a previous computation and mark the rewards as 'NotReady'.
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
-        self.rewards.take_computed_rewards()
+        debug_assert_eq!(
+            Arc::strong_count(&self.rewards),
+            1,
+            "take_computed_rewards called while Arc<RewardsState> has multiple holders"
+        );
+        Arc::make_mut(&mut self.rewards).take_computed_rewards()
     }
 
     fn assert_previous_epoch(&self, epoch: Epoch) {

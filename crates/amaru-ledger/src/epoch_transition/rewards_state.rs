@@ -52,7 +52,7 @@ use amaru_kernel::{Lovelace, StakeCredential};
 ///
 /// Thus, we don't apply rewards immediately on epoch boundary, but we keep them around for k more
 /// blocks and perform an extra lookup when assessing the balance of an account.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub enum RewardsState {
     /// No rewards computed yet, and no pending rewards to apply.
     #[default]
@@ -72,13 +72,13 @@ pub trait KnownRewardState {
     type UnclaimedRewards;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Computed;
 impl KnownRewardState for Computed {
     type UnclaimedRewards = ();
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Effective;
 impl KnownRewardState for Effective {
     type UnclaimedRewards = BTreeMap<StakeCredential, Lovelace>;
@@ -101,7 +101,7 @@ impl RewardsState {
 /// computed and effective rewards that occur at the epoch boundary. It ensures that we don't
 /// misuse computed rewards too early, and it reduces the amount of boilerplate in having to create
 /// multiple types.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Rewards<STEP: KnownRewardState> {
     /// A type-level marker for 'STEP'
     step: PhantomData<STEP>,
