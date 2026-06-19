@@ -23,7 +23,7 @@ use amaru_ledger::store::{
     },
 };
 use amaru_observability::trace_span;
-use rocksdb::Transaction;
+use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::{error, warn};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -32,7 +32,10 @@ use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 
 /// Retrieve a single DRep
-pub fn get<DB>(db: &Transaction<'_, DB>, credential: &StakeCredential) -> Result<Option<Row>, StoreError> {
+pub fn get<'a>(
+    db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
+    credential: &Key,
+) -> Result<Option<Row>, StoreError> {
     let _span = trace_span!(
         amaru_observability::amaru::stores::ledger::columns::DREPS_GET,
         db_system_name = "rocksdb".to_string(),
@@ -42,7 +45,8 @@ pub fn get<DB>(db: &Transaction<'_, DB>, credential: &StakeCredential) -> Result
     let _guard = _span.enter();
 
     let key = as_key(&PREFIX, credential);
-    Ok(db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)))
+    let bytes = db_get(&key);
+    bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
 }
 
 /// Register a new DRep.

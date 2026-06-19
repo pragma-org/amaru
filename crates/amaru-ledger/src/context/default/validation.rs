@@ -40,6 +40,7 @@ pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     pools: BTreeSet<PoolId>,
     accounts: BTreeMap<StakeCredential, AccountState>,
+    dreps: BTreeMap<StakeCredential, DRepRegistration>,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -54,11 +55,13 @@ impl DefaultValidationContext {
         utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         pools: BTreeSet<PoolId>,
         accounts: BTreeMap<StakeCredential, AccountState>,
+        dreps: BTreeMap<StakeCredential, DRepRegistration>,
     ) -> Self {
         Self {
             utxo,
             pools,
             accounts,
+            dreps,
             state: VolatileFragment::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -233,8 +236,16 @@ impl AccountsSlice for DefaultValidationContext {
 }
 
 impl DRepsSlice for DefaultValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepRegistration> {
-        unimplemented!()
+    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration> {
+        match self.state.dreps.registered.get(credential) {
+            // a fresh in-block registration carries its own record; an anchor-only update has no
+            // `value`, so fall through to the block-start registration.
+            Some(bind) => bind.value.as_deref().or_else(|| self.dreps.get(credential)),
+            // deregistered in-block; gone
+            None if self.state.dreps.unregistered.contains(credential) => None,
+            // untouched in-block; the block-start state
+            None => self.dreps.get(credential),
+        }
     }
 
     fn register(
@@ -401,7 +412,7 @@ mod tests {
     }
 
     fn ctx_with(accounts: BTreeMap<StakeCredential, AccountState>) -> DefaultValidationContext {
-        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), accounts)
+        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), accounts, BTreeMap::new())
     }
 
     #[test]

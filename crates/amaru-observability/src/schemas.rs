@@ -114,6 +114,14 @@ define_schemas! {
 
             /// Resolve account data from various sources
             public RESOLVE_ACCOUNTS {
+                optional resolved_from_context: u64
+                optional resolved_from_volatile: u64
+                optional resolved_from_db: u64
+            }
+
+            /// Resolve dRep data from various sources
+            public RESOLVE_DREPS {
+                optional resolved_from_context: u64
                 optional resolved_from_volatile: u64
                 optional resolved_from_db: u64
             }

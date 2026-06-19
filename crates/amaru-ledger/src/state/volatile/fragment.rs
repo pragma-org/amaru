@@ -37,6 +37,9 @@ use crate::{
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
 pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
 
+/// A DRep's accumulated binding: metadata anchor, and the DRep registration data.
+pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
+
 /// A volatile layer's verdict on an entity.
 /// - `T` is the resolved record.
 /// - `Gone` is a tombstone, so don't fall back to the stable store.
@@ -45,6 +48,21 @@ pub enum Existence<T> {
     Exists(T),
     Gone,
     Unknown,
+}
+
+impl<L, R, V> Existence<Bind<L, R, V>> {
+    /// Layer this verdict over an `older` one, evaluated lazily
+    pub fn layer_over(self, older: impl FnOnce() -> Self) -> Self {
+        match self {
+            Existence::Gone => Existence::Gone,
+            Existence::Exists(newer) if newer.value.is_some() => Existence::Exists(newer),
+            Existence::Exists(newer) => match older() {
+                Existence::Exists(older) => Existence::Exists(newer.layer_over(older)),
+                Existence::Gone | Existence::Unknown => Existence::Exists(newer),
+            },
+            Existence::Unknown => older(),
+        }
+    }
 }
 
 /// Resulting state change coming from processing a block.
@@ -87,6 +105,18 @@ impl VolatileFragment {
         if let Some(bind) = self.accounts.registered.get(credential) {
             Existence::Exists(bind.clone())
         } else if self.accounts.unregistered.contains(credential) {
+            Existence::Gone
+        } else {
+            Existence::Unknown
+        }
+    }
+
+    /// This fragment's verdict on a DRep. Deregistration is immediate, so an `unregistered`
+    /// entry is a live tombstone.
+    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
+        if let Some(bind) = self.dreps.registered.get(credential) {
+            Existence::Exists(bind.clone())
+        } else if self.dreps.unregistered.contains(credential) {
             Existence::Gone
         } else {
             Existence::Unknown
