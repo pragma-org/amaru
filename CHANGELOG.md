@@ -35,7 +35,9 @@ Other guiding principles:
   ```
 -->
 
-## v10.10.20260618 _[unreleased; planned for 2026-06-18]_
+## v10.10.20260625 _[unreleased; planned for 2026-06-25]_
+
+## [v10.10.20260618](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260618)
 
 ### Added
 
@@ -45,7 +47,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-kernel**: `ConsensusParameters` and `GlobalParameters` now live in their own modules instead of being paired with `ProtocolParameters`. Still exported at the top-level. ([#886][])
-- **amaru-kernel**: remove `From` instances between `NetworkName` and `GlobalParameters`, `ProtocolParameters` and `EraHistory` in favor of faillible `as_
+- **amaru-kernel**: remove `From` instances between `NetworkName` and `GlobalParameters`, `ProtocolParameters` and `EraHistory` in favor of faillible `as_*`.
 - **pure-stage**: rename to `amaru-pure-stage` ([#954][])
 
 ### Removed
