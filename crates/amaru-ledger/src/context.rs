@@ -40,7 +40,11 @@ pub trait ValidationContext:
 
 /// The PreparationContext is a collection of interfaces needed to prepare a block
 pub trait PreparationContext<'a>:
-    PrepareUtxoSlice<'a> + PreparePoolsSlice<'a> + PrepareAccountsSlice<'a> + PrepareDRepsSlice<'a>
+    PrepareUtxoSlice<'a>
+    + PreparePoolsSlice<'a>
+    + PrepareAccountsSlice<'a>
+    + PrepareDRepsSlice<'a>
+    + PrepareCommitteeSlice<'a>
 {
 }
 
@@ -229,11 +233,20 @@ pub trait PrepareDRepsSlice<'a> {
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub struct CCMember {}
+#[derive(Debug, Clone, PartialEq)]
+pub struct CCMember {
+    /// The authorized hot credential, if the member has declared one.
+    pub hot_credential: Option<StakeCredential>,
+    /// The term expiry; `None` once the member is inactive (no-confidence).
+    pub valid_until: Option<Epoch>,
+}
 
 /// An interface for interacting with a subset of the Constitutional Committee members state.
 pub trait CommitteeSlice {
+    /// The committee member at this point in the block: the block-start record with the in-block
+    /// hot-key change folded in, or `None` once it has resigned.
+    fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember>;
+
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -245,6 +258,11 @@ pub trait CommitteeSlice {
         cc_member: StakeCredential,
         anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
+}
+
+/// An interface to help constructing the concrete CommitteeSlice ahead of time.
+pub trait PrepareCommitteeSlice<'a> {
+    fn require_committee_member(&'_ mut self, cc_member: &'a StakeCredential);
 }
 
 // Governance Proposals

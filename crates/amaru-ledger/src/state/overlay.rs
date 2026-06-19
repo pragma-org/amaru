@@ -22,7 +22,12 @@ use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    state::StateError,
+    governance::ratification::CommitteeUpdate,
+    state::{
+        StateError,
+        diff_bind::{Bind, Empty, Resettable},
+        volatile::{CommitteeBind, Existence},
+    },
     store::{
         EpochTransitionProgress, Store, TransactionalContext, apply_governance_updates, pay_or_refund_accounts,
         pay_rewards, reset_blocks_count, reset_fees, update_or_retire_pools,
@@ -216,6 +221,39 @@ impl StateOverlay {
     /// pool as still-existing.
     pub fn is_pool_retired(&self, pool_id: &PoolId) -> bool {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(pool_id))
+    }
+
+    /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
+    /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
+    /// so it defers to the layers below. `Unknown` outside the straddle window.
+    pub fn committee_verdict(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
+        match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
+            Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
+                if removed.contains(credential) {
+                    Existence::Gone
+                } else if added.contains_key(credential) {
+                    // freshly elected; no hot key yet and no stable row to fall back to
+                    Existence::Exists(Bind {
+                        left: Resettable::Unchanged,
+                        right: Resettable::Unchanged,
+                        value: Some(Empty),
+                    })
+                } else {
+                    Existence::Unknown
+                }
+            }
+            Some(CommitteeUpdate::NoConfidence) | None => Existence::Unknown,
+        }
+    }
+
+    /// A CC member's term at the pending boundary, if the transition sets one: `Some(term)` for a
+    /// newly added member, `Some(None)` under no-confidence (members go inactive), `None` when the
+    /// boundary leaves this member's term untouched.
+    pub fn pending_committee_term(&self, credential: &StakeCredential) -> Option<Option<Epoch>> {
+        match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref())? {
+            CommitteeUpdate::ChangeMembers { added, .. } => added.get(credential).map(|epoch| Some(*epoch)),
+            CommitteeUpdate::NoConfidence => Some(None),
+        }
     }
 
     /// The account's pending reward credit at the not-yet-flushed epoch boundary: its effective

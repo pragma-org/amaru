@@ -126,6 +126,13 @@ define_schemas! {
                 optional resolved_from_db: u64
             }
 
+            /// Resolve constitutional committee member data from various sources
+            public RESOLVE_CC_MEMBERS {
+                optional resolved_from_context: u64
+                optional resolved_from_volatile: u64
+                optional resolved_from_db: u64
+            }
+
             /// Create validation context for a block
             public CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: amaru_kernel::HeaderHash
@@ -509,6 +516,13 @@ define_schemas! {
 
                 /// Refresh DRep expiry after a vote
                 public DREPS_SET_VALID_UNTIL {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Point-read a constitutional committee member
+                public CC_MEMBERS_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String

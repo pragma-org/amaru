@@ -18,7 +18,10 @@ use amaru_kernel::{MemoizedTransactionOutput, Point, PoolId, StakeCredential, Tr
 
 use crate::state::{
     AnchoredVolatileFragment, VolatileFragment,
-    volatile::{AccountBind, Existence, VolatileStore, fragment::DRepBind},
+    volatile::{
+        AccountBind, Existence, VolatileStore,
+        fragment::{CommitteeBind, DRepBind},
+    },
 };
 
 #[derive(Default)]
@@ -109,6 +112,11 @@ impl VolatileSeries {
     /// This series' verdict on a DRep account, read off its aggregate.
     pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
         self.aggregate.resolve_drep(credential)
+    }
+
+    /// This series' verdict on a CC member, read off its aggregate.
+    pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
+        self.aggregate.resolve_committee(credential)
     }
 
     /// Whether this series withdrew the account's rewards anywhere in its aggregate.
