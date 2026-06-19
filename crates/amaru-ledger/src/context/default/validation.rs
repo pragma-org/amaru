@@ -29,9 +29,10 @@ use amaru_observability::trace_span;
 use crate::{
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
-        blanket_known_datums, blanket_known_scripts,
+        ProposalState, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
+        WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
+    governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
 };
 
@@ -42,6 +43,8 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
+    proposals: BTreeMap<ComparableProposalId, ProposalState>,
+    proposals_roots: ProposalsRoots,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -58,6 +61,8 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
+        proposals: BTreeMap<ComparableProposalId, ProposalState>,
+        proposals_roots: ProposalsRoots,
     ) -> Self {
         Self {
             utxo,
@@ -65,6 +70,8 @@ impl DefaultValidationContext {
             accounts,
             dreps,
             committee,
+            proposals,
+            proposals_roots,
             state: VolatileFragment::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -350,6 +357,16 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
+    fn lookup(&self, id: &ComparableProposalId) -> Option<ProposalState> {
+        // TODO: also fold proposals acknowledged earlier in this block, once the voting rule needs
+        // it. Their expiry is the current epoch's horizon, which that rule already has.
+        self.proposals.get(id).cloned()
+    }
+
+    fn roots(&self) -> &ProposalsRoots {
+        &self.proposals_roots
+    }
+
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
         self.state.proposals.insert(id.into(), Arc::new((proposal, pointer)));
     }
@@ -435,7 +452,15 @@ mod tests {
     }
 
     fn ctx_with(accounts: BTreeMap<StakeCredential, AccountState>) -> DefaultValidationContext {
-        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), accounts, BTreeMap::new(), BTreeMap::new())
+        DefaultValidationContext::new(
+            BTreeMap::new(),
+            BTreeSet::new(),
+            accounts,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            ProposalsRoots::default(),
+        )
     }
 
     #[test]
@@ -482,7 +507,15 @@ mod tests {
     }
 
     fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
-        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), committee)
+        DefaultValidationContext::new(
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            committee,
+            BTreeMap::new(),
+            ProposalsRoots::default(),
+        )
     }
 
     #[test]

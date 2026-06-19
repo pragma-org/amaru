@@ -14,7 +14,7 @@
 
 use std::mem;
 
-use amaru_kernel::{Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential};
+use amaru_kernel::{ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential};
 use amaru_observability::info_span;
 use tracing::{Span, debug};
 
@@ -22,7 +22,7 @@ use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    governance::ratification::CommitteeUpdate,
+    governance::ratification::{CommitteeUpdate, ProposalsRoots},
     state::{
         StateError,
         diff_bind::{Bind, Empty, Resettable},
@@ -254,6 +254,17 @@ impl StateOverlay {
             CommitteeUpdate::ChangeMembers { added, .. } => added.get(credential).map(|epoch| Some(*epoch)),
             CommitteeUpdate::NoConfidence => Some(None),
         }
+    }
+
+    /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or
+    /// dropped). Like pool reaping, this short-circuits before the stale stable entry.
+    pub fn is_proposal_pruned(&self, id: &ComparableProposalId) -> bool {
+        self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains(id))
+    }
+
+    /// The pending governance roots from the boundary transition, if any.
+    pub fn pending_proposals_roots(&self) -> Option<&ProposalsRoots> {
+        self.governance_updates.as_ref().map(|updates| &updates.roots)
     }
 
     /// The account's pending reward credit at the not-yet-flushed epoch boundary: its effective

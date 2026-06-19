@@ -164,6 +164,8 @@ pub mod tests {
                 Default::default(),
                 Default::default(),
                 Default::default(),
+                Default::default(),
+                Default::default(),
             ),
             current_pparams_hash,
             GovernanceActivity { consecutive_dormant_epochs: u64::from(number_of_dormant_epochs) as u32 },

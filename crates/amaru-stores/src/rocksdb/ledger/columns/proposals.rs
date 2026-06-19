@@ -17,15 +17,36 @@ use std::ops::Deref;
 use amaru_kernel::ProposalId;
 pub use amaru_ledger::store::{
     StoreError,
-    columns::proposals::{Key, Row, Value},
+    columns::{
+        proposals::{Key, Row, Value},
+        unsafe_decode,
+    },
 };
 use amaru_observability::{debug_span, trace_span};
-use rocksdb::Transaction;
+use rocksdb::{DBPinnableSlice, Transaction};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "prop"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
+
+/// Retrieve a single governance proposal.
+pub fn get<'a>(
+    db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
+    id: &Key,
+) -> Result<Option<Row>, StoreError> {
+    let _span = trace_span!(
+        amaru_observability::amaru::stores::ledger::columns::PROPOSALS_GET,
+        db_system_name = "rocksdb".to_string(),
+        db_operation_name = "get".to_string(),
+        db_collection_name = "proposals".to_string()
+    );
+    let _guard = _span.enter();
+
+    let key = as_key(&PREFIX, id);
+    let bytes = db_get(&key);
+    bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
+}
 
 /// Register a new Proposal.
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<usize, StoreError> {

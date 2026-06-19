@@ -22,9 +22,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash,
-    Hasher, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, StakeCredential, Tip,
-    Transaction, TransactionInput, TransactionPointer, parse_reward_account, to_cbor,
+    Block, ComparableProposalId, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, GlobalParameters,
+    HasTransactionId, Hash, Hasher, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot,
+    StakeCredential, Tip, Transaction, TransactionInput, TransactionPointer, parse_reward_account, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
@@ -35,9 +35,9 @@ use thiserror::Error;
 use tracing::{Span, info, trace, warn};
 
 use crate::{
-    context::{AccountState, CCMember, DefaultPreparationContext, DefaultValidationContext},
+    context::{AccountState, CCMember, DefaultPreparationContext, DefaultValidationContext, ProposalState},
     epoch_transition::{self, GovernanceActivity, RewardsState},
-    governance::ratification::RatificationContext,
+    governance::ratification::{ProposalsRoots, RatificationContext},
     rules::{self, block::BlockValidation},
     state::volatile::{
         AnchoredVolatileFragment, Existence, StoreUpdate, VolatileDB, VolatileFragment, VolatileStore, VolatileView,
@@ -880,6 +880,79 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         Ok(result)
     }
 
+    /// The materialized [`ProposalState`] for each existing id, layering the ongoing block over the
+    /// volatile DB over the stable store; a `Gone` tombstone (boundary pruning) skips the stale
+    /// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
+    /// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
+    #[expect(clippy::unwrap_used)]
+    pub fn resolve_proposals<'a>(
+        &self,
+        ongoing_state: &VolatileFragment,
+        ids: impl Iterator<Item = &'a ComparableProposalId>,
+    ) -> Result<BTreeMap<ComparableProposalId, ProposalState>, StoreError> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_PROPOSALS);
+        let _guard = _span.enter();
+
+        let mut result = BTreeMap::new();
+        let mut resolved_from_context = 0;
+        let mut resolved_from_volatile = 0;
+        let mut resolved_from_db = 0;
+
+        let lifetime = self.protocol_parameters().gov_action_lifetime;
+        let db = self.stable.lock().unwrap();
+
+        // TODO: perform lookup in batch, and possibly within the same transaction as other
+        // required data pre-fetch.
+        for id in ids {
+            // Attribute to the newest layer with a verdict: the ongoing block, else the volatile DB.
+            let ongoing = ongoing_state.resolve_proposal(id);
+            let from_context = matches!(ongoing, Existence::Exists(_));
+
+            let verdict = match ongoing {
+                Existence::Exists(record) => Existence::Exists(record),
+                Existence::Gone => Existence::Gone,
+                Existence::Unknown => self.volatile.resolve_proposal(id),
+            };
+
+            let state = match verdict {
+                // pruned at the boundary; skip the stale stable entry
+                Existence::Gone => None,
+                Existence::Exists(record) => {
+                    let (proposal, proposed_in) = (record.0.clone(), record.1);
+                    let proposed_in_epoch = unsafe_slot_to_epoch(&self.era_history, proposed_in.transaction.slot);
+                    if from_context {
+                        resolved_from_context += 1;
+                    } else {
+                        resolved_from_volatile += 1;
+                    }
+                    Some(ProposalState { proposed_in, valid_until: proposed_in_epoch + lifetime, proposal })
+                }
+                // untouched by any volatile layer; resolve from stable
+                Existence::Unknown => db.proposal(id)?.map(|row| {
+                    resolved_from_db += 1;
+                    ProposalState { proposed_in: row.proposed_in, valid_until: row.valid_until, proposal: row.proposal }
+                }),
+            };
+
+            if let Some(state) = state {
+                result.insert(id.clone(), state);
+            }
+        }
+
+        tracing::Span::current().record("resolved_from_context", resolved_from_context);
+        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
+        tracing::Span::current().record("resolved_from_db", resolved_from_db);
+
+        Ok(result)
+    }
+
+    /// The governance roots, overlaying the pending boundary roots over the stable store.
+    #[expect(clippy::unwrap_used)]
+    fn resolve_proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
+        let base = self.stable.lock().unwrap().proposals_roots()?;
+        Ok(self.volatile.resolve_proposals_roots(&base).clone())
+    }
+
     /// View a stake distribution for a given epoch. Note that this *locks* the stake distribution
     /// mutext, meaning that it might block other thread awaiting to acquire this data.
     ///
@@ -925,7 +998,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         ctx: DefaultPreparationContext<'_>,
         unresolved_input_policy: UnresolvedInputPolicy,
     ) -> Result<DefaultValidationContext, ValidationContextError> {
-        let DefaultPreparationContext { utxo, pools, accounts, withdrawals, dreps, drep_delegations, committee } = ctx;
+        let DefaultPreparationContext {
+            utxo,
+            pools,
+            accounts,
+            withdrawals,
+            dreps,
+            drep_delegations,
+            committee,
+            proposals,
+        } = ctx;
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
         // of the current .resolve_inputs; once the latter is no longer needed for the state
@@ -1003,7 +1085,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .resolve_committee(&Default::default(), committee.into_iter())
             .map_err(ValidationContextError::ResolveCommittee)?;
 
-        Ok(DefaultValidationContext::new(inputs, pools, accounts, dreps, committee))
+        let proposals = self
+            .resolve_proposals(&Default::default(), proposals.iter())
+            .map_err(ValidationContextError::ResolveProposals)?;
+
+        let proposals_roots = self.resolve_proposals_roots().map_err(ValidationContextError::ResolveProposals)?;
+
+        Ok(DefaultValidationContext::new(inputs, pools, accounts, dreps, committee, proposals, proposals_roots))
     }
 
     /// Create a validation context from the current ledger state for the transaction, and
@@ -1242,6 +1330,9 @@ pub enum ValidationContextError {
 
     #[error("failed to resolve committee members: {0}")]
     ResolveCommittee(StoreError),
+
+    #[error("failed to resolve proposals: {0}")]
+    ResolveProposals(StoreError),
 
     #[error("missing transaction inputs: {inputs:?}")]
     MissingInputs { inputs: Vec<TransactionInput> },

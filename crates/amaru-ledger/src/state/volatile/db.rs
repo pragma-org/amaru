@@ -12,14 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem;
+use std::{mem, sync::Arc};
 
-use amaru_kernel::{Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{
+    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, Proposal, ProposalPointer,
+    StakeCredential, TransactionInput,
+};
 
-use crate::state::{
-    AnchoredVolatileFragment,
-    overlay::StateOverlay,
-    volatile::{AccountBind, CommitteeBind, DRepBind, Existence, VolatileSeries, VolatileStore},
+use crate::{
+    governance::ratification::ProposalsRoots,
+    state::{
+        AnchoredVolatileFragment,
+        overlay::StateOverlay,
+        volatile::{AccountBind, CommitteeBind, DRepBind, Existence, VolatileSeries, VolatileStore},
+    },
 };
 
 /// Pools need existence only. `Gone` means reaped at the boundary.
@@ -228,6 +234,24 @@ impl VolatileDB {
     /// during the straddle, otherwise the base flows through.
     pub fn resolve_committee_term(&self, credential: &StakeCredential, base: Option<Epoch>) -> Option<Epoch> {
         self.overlay.pending_committee_term(credential).unwrap_or(base)
+    }
+
+    /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
+    /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
+    /// the stable store.
+    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<Arc<(Proposal, ProposalPointer)>> {
+        if let Existence::Exists(proposal) = self.current.resolve_proposal(id) {
+            Existence::Exists(proposal)
+        } else if self.overlay.is_proposal_pruned(id) {
+            Existence::Gone
+        } else {
+            self.draining.as_ref().map_or(Existence::Unknown, |draining| draining.resolve_proposal(id))
+        }
+    }
+
+    /// The governance roots, overlaying the pending boundary roots over the stable `base`.
+    pub fn resolve_proposals_roots<'a>(&'a self, base: &'a ProposalsRoots) -> &'a ProposalsRoots {
+        self.overlay.pending_proposals_roots().unwrap_or(base)
     }
 
     /// Seal the live series at an epoch boundary: the `current` series, which, by the protocol
@@ -751,12 +775,7 @@ mod tests {
 
     fn committee_update(committee: Option<CommitteeUpdate>) -> GovernanceUpdates {
         GovernanceUpdates {
-            roots: ProposalsRoots {
-                protocol_parameters: None,
-                hard_fork: None,
-                constitutional_committee: None,
-                constitution: None,
-            },
+            roots: ProposalsRoots::default(),
             protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             pruned_proposals: BTreeSet::new(),
             payouts: BTreeMap::new(),

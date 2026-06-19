@@ -23,6 +23,7 @@ use std::{
 use amaru_kernel::ProposalId;
 use amaru_kernel::{
     CertificatePointer,
+    ComparableProposalId,
     Constitution,
     ConstitutionalCommitteeStatus,
     Epoch,
@@ -213,6 +214,9 @@ pub trait ReadStore {
 
     /// Get details about a specific constitutional committee member
     fn cc_member(&self, credential: &StakeCredential) -> Result<Option<cc_members::Row>>;
+
+    /// Get details about a specific governance proposal
+    fn proposal(&self, id: &ComparableProposalId) -> Result<Option<proposals::Row>>;
 
     /// Get details about a specific UTxO
     fn utxo(&self, input: &TransactionInput) -> Result<Option<MemoizedTransactionOutput>>;
