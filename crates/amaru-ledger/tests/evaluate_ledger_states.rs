@@ -156,8 +156,15 @@ pub mod tests {
         d.skip()?; // pool distribution
         d.skip()?; // stashed
 
+        // TODO: Build context based on snapshot
         Ok((
-            DefaultValidationContext::new(utxos_map, Default::default(), Default::default(), Default::default()),
+            DefaultValidationContext::new(
+                utxos_map,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            ),
             current_pparams_hash,
             GovernanceActivity { consecutive_dormant_epochs: u64::from(number_of_dormant_epochs) as u32 },
         ))

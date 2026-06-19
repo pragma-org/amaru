@@ -28,9 +28,9 @@ use amaru_observability::trace_span;
 
 use crate::context::{
     AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
-    RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
-    blanket_known_scripts,
+    PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
+    PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
+    WitnessSlice, blanket_known_datums, blanket_known_scripts,
 };
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -91,6 +91,12 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
     }
 
     fn require_drep_delegation(&mut self, _drep: &DRep) {
+        unimplemented!();
+    }
+}
+
+impl PrepareCommitteeSlice<'_> for AssertPreparationContext {
+    fn require_committee_member(&mut self, _cc_member: &StakeCredential) {
         unimplemented!();
     }
 }
@@ -227,6 +233,10 @@ impl DRepsSlice for AssertValidationContext {
 }
 
 impl CommitteeSlice for AssertValidationContext {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<CCMember> {
+        unimplemented!()
+    }
+
     fn delegate_cold_key(
         &mut self,
         _cc_member: StakeCredential,

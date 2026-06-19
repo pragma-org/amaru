@@ -35,7 +35,7 @@ use thiserror::Error;
 use tracing::{Span, info, trace, warn};
 
 use crate::{
-    context::{AccountState, DefaultPreparationContext, DefaultValidationContext},
+    context::{AccountState, CCMember, DefaultPreparationContext, DefaultValidationContext},
     epoch_transition::{self, GovernanceActivity, RewardsState},
     governance::ratification::RatificationContext,
     rules::{self, block::BlockValidation},
@@ -685,21 +685,17 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // TODO: perform lookup in batch, and possibly within the same transaction as other
         // required data pre-fetch.
         for credential in credentials {
-            // The ongoing block is the newest layer, above the volatile DB and the stable store.
             let withdrawn_in_context = ongoing_state.withdrew(credential);
             let reward_balance =
                 |base| if withdrawn_in_context { 0 } else { self.volatile.resolve_reward_balance(credential, base) };
 
-            // Attribute to the newest layer with a verdict: the ongoing block, else the volatile DB.
             let ongoing = ongoing_state.resolve_account(credential);
             let from_context = !matches!(ongoing, Existence::Unknown);
 
             let state = match ongoing.layer_over(|| self.volatile.resolve_account(credential)) {
-                // deregistered in a volatile layer; skip the stale stable entry
                 Existence::Gone => None,
                 Existence::Exists(bind) => {
                     let resolved = if let Some(deposit) = bind.value {
-                        // fresh registration; supersedes any stable row
                         Some(AccountState {
                             deposit,
                             pool: bind.left.apply_over(None),
@@ -707,7 +703,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                             rewards: reward_balance(0),
                         })
                     } else {
-                        // bind-only update layered over the stable row
                         db.account(credential)?.map(|row| AccountState {
                             deposit: row.deposit,
                             pool: bind.left.apply_over(row.pool),
@@ -723,7 +718,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                         }
                     })
                 }
-                // untouched by any volatile layer; resolve from stable
                 Existence::Unknown => db.account(credential)?.map(|row| {
                     resolved_from_db += 1;
                     AccountState {
@@ -770,19 +764,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // TODO: perform lookup in batch, and possibly within the same transaction as other
         // required data pre-fetch.
         for credential in credentials {
-            // Attribute to the newest layer with a verdict: the ongoing block, else the volatile DB.
             let ongoing = ongoing_state.resolve_drep(credential);
             let from_context = !matches!(ongoing, Existence::Unknown);
 
             let registration = match ongoing.layer_over(|| self.volatile.resolve_drep(credential)) {
-                // deregistered in a volatile layer; skip the stale stable entry
                 Existence::Gone => None,
                 Existence::Exists(bind) => {
                     let resolved = if let Some(record) = bind.value {
                         // fresh registration; carries its own record
                         Some(record)
                     } else {
-                        // anchor-only update; the registration lives in the stable store
                         db.drep(credential)?.map(|row| DRepRegistration {
                             deposit: row.deposit,
                             registered_at: row.registered_at,
@@ -797,7 +788,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                         }
                     })
                 }
-                // untouched by any volatile layer; resolve from stable
                 Existence::Unknown => db.drep(credential)?.map(|row| {
                     resolved_from_db += 1;
                     DRepRegistration {
@@ -810,6 +800,77 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             if let Some(registration) = registration {
                 result.insert(credential.clone(), registration);
+            }
+        }
+
+        tracing::Span::current().record("resolved_from_context", resolved_from_context);
+        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
+        tracing::Span::current().record("resolved_from_db", resolved_from_db);
+
+        Ok(result)
+    }
+
+    /// The materialized [`CCMember`] for each existing credential, layering the ongoing block over
+    /// the volatile DB over the stable store; a `Gone` tombstone skips the stale stable entry. The
+    /// hot key resolves through the layers, but the term is set only at the boundary or in the
+    /// stable store, so it folds in the overlay's pending value via
+    /// [`VolatileDB::resolve_committee_term`].
+    ///
+    // TODO: a cold credential present in a pending UpdateCommittee proposal also counts as a known
+    // member (Haskell's `cgceCommitteeProposals`), which lets a not-yet-elected member pre-declare
+    // its hot key. That source needs the proposals read-path, so it is deferred until proposals are
+    // exposed.
+    #[expect(clippy::unwrap_used)]
+    pub fn resolve_committee<'a>(
+        &self,
+        ongoing_state: &VolatileFragment,
+        credentials: impl Iterator<Item = &'a StakeCredential>,
+    ) -> Result<BTreeMap<StakeCredential, CCMember>, StoreError> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_CC_MEMBERS);
+        let _guard = _span.enter();
+
+        let mut result = BTreeMap::new();
+        let mut resolved_from_context = 0;
+        let mut resolved_from_volatile = 0;
+        let mut resolved_from_db = 0;
+
+        let db = self.stable.lock().unwrap();
+
+        // TODO: perform lookup in batch, and possibly within the same transaction as other
+        // required data pre-fetch.
+        for credential in credentials {
+            let valid_until = |base: Option<Epoch>| self.volatile.resolve_committee_term(credential, base);
+
+            let ongoing = ongoing_state.resolve_committee(credential);
+            let from_context = !matches!(ongoing, Existence::Unknown);
+
+            let member = match ongoing.layer_over(|| self.volatile.resolve_committee(credential)) {
+                Existence::Gone => None,
+                Existence::Exists(bind) => {
+                    let resolved = if bind.value.is_some() {
+                        Some(CCMember { hot_credential: bind.left.apply_over(None), valid_until: valid_until(None) })
+                    } else {
+                        db.cc_member(credential)?.map(|row| CCMember {
+                            hot_credential: bind.left.apply_over(row.hot_credential),
+                            valid_until: valid_until(row.valid_until),
+                        })
+                    };
+                    resolved.inspect(|_| {
+                        if from_context {
+                            resolved_from_context += 1;
+                        } else {
+                            resolved_from_volatile += 1;
+                        }
+                    })
+                }
+                Existence::Unknown => db.cc_member(credential)?.map(|row| {
+                    resolved_from_db += 1;
+                    CCMember { hot_credential: row.hot_credential, valid_until: valid_until(row.valid_until) }
+                }),
+            };
+
+            if let Some(member) = member {
+                result.insert(credential.clone(), member);
             }
         }
 
@@ -865,7 +926,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         ctx: DefaultPreparationContext<'_>,
         unresolved_input_policy: UnresolvedInputPolicy,
     ) -> Result<DefaultValidationContext, ValidationContextError> {
-        let DefaultPreparationContext { utxo, pools, accounts, withdrawals, dreps, drep_delegations } = ctx;
+        let DefaultPreparationContext { utxo, pools, accounts, withdrawals, dreps, drep_delegations, committee } = ctx;
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
         // of the current .resolve_inputs; once the latter is no longer needed for the state
@@ -939,7 +1000,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .resolve_dreps(&Default::default(), dreps.into_iter().chain(delegated_dreps.iter()))
             .map_err(ValidationContextError::ResolveDReps)?;
 
-        Ok(DefaultValidationContext::new(inputs, pools, accounts, dreps))
+        let committee = self
+            .resolve_committee(&Default::default(), committee.into_iter())
+            .map_err(ValidationContextError::ResolveCommittee)?;
+
+        Ok(DefaultValidationContext::new(inputs, pools, accounts, dreps, committee))
     }
 
     /// Create a validation context from the current ledger state for the transaction, and
@@ -1175,6 +1240,9 @@ pub enum ValidationContextError {
 
     #[error("failed to resolve dreps: {0}")]
     ResolveDReps(StoreError),
+
+    #[error("failed to resolve committee members: {0}")]
+    ResolveCommittee(StoreError),
 
     #[error("missing transaction inputs: {inputs:?}")]
     MissingInputs { inputs: Vec<TransactionInput> },

@@ -343,6 +343,7 @@ mod tests {
             Default::default(),
             Default::default(),
             Default::default(),
+            Default::default(),
         );
 
         // Mirror block::execute: body.required_signers is pushed into the witness slice before
