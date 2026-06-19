@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{PoolId, RewardAccount, StakeCredential, TransactionInput};
+use amaru_kernel::{DRep, PoolId, RewardAccount, StakeCredential, TransactionInput};
 
 use crate::context::{
     PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice,
@@ -32,11 +32,20 @@ pub struct DefaultPreparationContext<'a> {
     pub pools: BTreeSet<&'a PoolId>,
     pub accounts: BTreeSet<&'a StakeCredential>,
     pub withdrawals: BTreeSet<&'a RewardAccount>,
+    pub dreps: BTreeSet<&'a StakeCredential>,
+    pub drep_delegations: BTreeSet<&'a DRep>,
 }
 
 impl DefaultPreparationContext<'_> {
     pub fn new() -> Self {
-        Self { utxo: BTreeSet::new(), pools: BTreeSet::new(), accounts: BTreeSet::new(), withdrawals: BTreeSet::new() }
+        Self {
+            utxo: BTreeSet::new(),
+            pools: BTreeSet::new(),
+            accounts: BTreeSet::new(),
+            withdrawals: BTreeSet::new(),
+            dreps: BTreeSet::new(),
+            drep_delegations: BTreeSet::new(),
+        }
     }
 }
 
@@ -65,7 +74,11 @@ impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_drep(&mut self, _drep: &StakeCredential) {
-        unimplemented!();
+    fn require_drep(&mut self, drep: &'a StakeCredential) {
+        self.dreps.insert(drep);
+    }
+
+    fn require_drep_delegation(&mut self, drep: &'a DRep) {
+        self.drep_delegations.insert(drep);
     }
 }

@@ -17,7 +17,7 @@ use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
 pub use db::{PoolExistence, VolatileDB};
 
 mod fragment;
-pub use fragment::{AccountBind, AnchoredVolatileFragment, Existence, StoreUpdate, VolatileFragment};
+pub use fragment::{AccountBind, AnchoredVolatileFragment, DRepBind, Existence, StoreUpdate, VolatileFragment};
 
 mod series;
 pub use series::VolatileSeries;

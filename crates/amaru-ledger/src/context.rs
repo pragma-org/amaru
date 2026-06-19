@@ -201,6 +201,8 @@ pub trait PrepareAccountsSlice<'a> {
 
 /// An interface for interacting with a subset of the DReps state.
 pub trait DRepsSlice {
+    /// The DRep registration at this point in the block: the block-start record, or a fresh in-block
+    /// registration that supersedes it. Unlike accounts this never merges, so it returns a reference.
     fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration>;
 
     fn register(
@@ -218,6 +220,10 @@ pub trait DRepsSlice {
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
 pub trait PrepareDRepsSlice<'a> {
     fn require_drep(&'_ mut self, credential: &'a StakeCredential);
+
+    /// Require the DRep targeted by a vote delegation. The credential is constructed from the `DRep`
+    /// at resolution (and `Abstain`/`NoConfidence` drop out), so the borrowed `DRep` is collected.
+    fn require_drep_delegation(&'_ mut self, drep: &'a DRep);
 }
 
 // Constitutional Committee

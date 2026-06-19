@@ -18,9 +18,8 @@ use amaru_kernel::{Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, St
 
 use crate::state::{
     AnchoredVolatileFragment,
-    diff_bind::{Bind, Resettable},
     overlay::StateOverlay,
-    volatile::{AccountBind, Existence, VolatileSeries, VolatileStore},
+    volatile::{AccountBind, DRepBind, Existence, VolatileSeries, VolatileStore},
 };
 
 /// Pools need existence only. `Gone` means reaped at the boundary.
@@ -177,22 +176,7 @@ impl VolatileDB {
     /// from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
     /// bind-only update layers over it.
     pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        match self.current.resolve_account(credential) {
-            Existence::Gone => Existence::Gone,
-            Existence::Exists(current_bind) => {
-                if current_bind.value.is_some() {
-                    Existence::Exists(current_bind)
-                } else {
-                    match self.draining.resolve_account(credential) {
-                        Existence::Exists(draining_bind) => {
-                            Existence::Exists(compose_account_binds(draining_bind, current_bind))
-                        }
-                        _ => Existence::Exists(current_bind),
-                    }
-                }
-            }
-            Existence::Unknown => self.draining.resolve_account(credential),
-        }
+        self.current.resolve_account(credential).layer_over(|| self.draining.resolve_account(credential))
     }
 
     /// An account's withdrawable balance from its `base` (stable rewards, or `0` if freshly
@@ -207,6 +191,13 @@ impl VolatileDB {
         } else {
             base + credit
         }
+    }
+
+    /// Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
+    /// from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
+    /// bind-only update layers over it.
+    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
+        self.current.resolve_drep(credential).layer_over(|| self.draining.resolve_drep(credential))
     }
 
     /// Mark the transition between two epochs by sealing the `current` series and turning it into
@@ -230,17 +221,6 @@ impl VolatileDB {
         );
 
         self.draining = mem::take(&mut self.current);
-    }
-}
-
-/// Layer a bind-only `newer` update over the closing epoch's `older` binding, à la
-/// [`crate::state::diff_bind::DiffBind::append`] for one key: `Set`/`Reset` override, `Unchanged`
-/// keeps `older`.
-fn compose_account_binds(older: AccountBind, newer: AccountBind) -> AccountBind {
-    Bind {
-        left: if matches!(newer.left, Resettable::Unchanged) { older.left } else { newer.left },
-        right: if matches!(newer.right, Resettable::Unchanged) { older.right } else { newer.right },
-        value: newer.value.or(older.value),
     }
 }
 

@@ -37,6 +37,28 @@ impl<L, R, V> Bind<L, R, V> {
     pub fn into_borrowed(&self) -> Bind<&L, &R, &V> {
         Bind { left: self.left.into_borrowed(), right: self.right.into_borrowed(), value: self.value.as_ref() }
     }
+
+    /// Absorb a more recent update in place.
+    /// A `Set`/`Reset` overrides, `Unchanged` keeps what's here,
+    /// and a `value: Some(...)` supersedes wholesale.
+    pub fn absorb(&mut self, newer: Self) {
+        if newer.value.is_some() {
+            *self = newer;
+        } else {
+            if !matches!(newer.left, Resettable::Unchanged) {
+                self.left = newer.left;
+            }
+            if !matches!(newer.right, Resettable::Unchanged) {
+                self.right = newer.right;
+            }
+        }
+    }
+
+    /// Layer this update over an older bind, returning the result.
+    pub fn layer_over(self, mut older: Self) -> Self {
+        older.absorb(self);
+        older
+    }
 }
 
 impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Bind<&L, &R, &V> {
@@ -103,7 +125,7 @@ impl<A> From<Option<A>> for Resettable<A> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Empty;
 
 impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
@@ -153,17 +175,7 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
                 }
 
                 Entry::Occupied(mut e) => {
-                    if bind.value.is_some() {
-                        *e.get_mut() = bind;
-                    } else {
-                        if !matches!(&bind.left, &Resettable::Unchanged) {
-                            e.get_mut().left = bind.left;
-                        }
-
-                        if !matches!(&bind.right, &Resettable::Unchanged) {
-                            e.get_mut().right = bind.right;
-                        }
-                    }
+                    e.get_mut().absorb(bind);
                 }
             };
         }

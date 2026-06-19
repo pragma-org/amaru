@@ -89,6 +89,10 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
     fn require_drep(&mut self, _drep: &StakeCredential) {
         unimplemented!();
     }
+
+    fn require_drep_delegation(&mut self, _drep: &DRep) {
+        unimplemented!();
+    }
 }
 
 // -------------------------------------------------------------------------------------- Validation
