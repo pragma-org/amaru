@@ -28,6 +28,7 @@ hex.workspace = true
 num.workspace = true
 pallas-math.workspace = true
 pallas-crypto.workspace = true
+parking_lot.workspace = true
 proptest = { workspace = true, optional = true }
 rayon.workspace = true
 serde.workspace = true

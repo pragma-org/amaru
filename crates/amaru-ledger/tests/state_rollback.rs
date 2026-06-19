@@ -135,6 +135,138 @@ fn rollback_after_volatile_front_is_rejected() {
     assert_eq!(*state.tip(), point(100, 1), "tip is unchanged after a rejected rollback");
 }
 
+// Step 7: candidate-clone + atomic publish for the writer path. A reader that takes
+// a snapshot via `state.load()` must continue to observe the pre-mutation view even
+// after the writer has published a new view.
+#[test]
+fn load_returns_a_consistent_snapshot_across_writes() {
+    let mut state = make_state();
+    let first = point(100, 1);
+    let second = point(200, 2);
+
+    forward_to(&mut state, first, 1);
+
+    let snap_before = state.load();
+    assert_eq!(snap_before.tip().into_owned(), first);
+
+    forward_to(&mut state, second, 2);
+
+    // The snapshot taken before the second push still observes the first tip.
+    assert_eq!(snap_before.tip().into_owned(), first, "old snapshot must not see post-write state");
+
+    // A fresh load picks up the new tip.
+    assert_eq!(state.load().tip().into_owned(), second);
+}
+
+// Step 7: a writer failure must drop the candidate, leaving the live view untouched.
+// `rollback_to(unknown_point)` mutates the candidate's overlay/volatile bookkeeping
+// while validating, then returns Err. The candidate is discarded; readers continue
+// observing the pre-rollback tip.
+#[test]
+fn failed_write_drops_the_candidate() {
+    let mut state = make_state();
+    forward_to(&mut state, point(100, 1), 1);
+    forward_to(&mut state, point(200, 2), 2);
+
+    let snap_before = state.load();
+    assert_eq!(snap_before.tip().into_owned(), point(200, 2));
+
+    let unknown = point(50, 9);
+    assert!(state.rollback_to(&unknown).is_err());
+
+    assert_eq!(state.load().tip().into_owned(), point(200, 2), "tip is unchanged after a rejected rollback");
+    assert_eq!(snap_before.tip().into_owned(), point(200, 2));
+}
+
+// Step 7: stress test — concurrent readers must continue progressing while a writer
+// hammers the state with rollback + push cycles. With the pre-step-7 implementation
+// the writer held the inner RwLock for the entire mutation, blocking every `load()`;
+// with candidate-clone + atomic publish, readers see snapshots and never wait on the
+// writer.
+//
+// We don't assert specific latency bounds here (too noisy in CI). Nor do we assert that
+// readers observe a specific tip distribution — under workspace test contention threads
+// are descheduled often enough that the writer's tip transitions may be invisible to a
+// given reader. The test's real signal is:
+// - no panics or deadlocks across writer + readers;
+// - any tip observed is a valid one (the writer never publishes a torn state).
+#[test]
+fn concurrent_readers_progress_during_writes() {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
+        time::Duration,
+    };
+
+    let state = make_state();
+    let early = point(100, 1);
+    let later = point(200, 2);
+
+    let stop = Arc::new(AtomicBool::new(false));
+
+    // Writer: alternate between (early), (early, later), (early). Always pushes the
+    // same anchored fragments, so the only thing that changes is the tip.
+    let writer_state = state.clone();
+    let writer_stop = stop.clone();
+    let writer = thread::spawn(move || {
+        let issuer = PoolId::new(Hash::new([0u8; 28]));
+        let mut transitions = 0u64;
+        for i in 0..1000 {
+            if writer_stop.load(Ordering::Relaxed) {
+                break;
+            }
+            // Reset to Origin and rebuild the volatile.
+            writer_state.rollback_to(&Point::Origin).expect("rollback to origin");
+            writer_state
+                .push_fragment(VolatileFragment::default().anchor(Tip::new(early, BlockHeight::from(1)), issuer, 0))
+                .expect("push early");
+            if i % 2 == 0 {
+                writer_state
+                    .push_fragment(VolatileFragment::default().anchor(Tip::new(later, BlockHeight::from(2)), issuer, 0))
+                    .expect("push later");
+            }
+            transitions += 1;
+        }
+        transitions
+    });
+
+    // Readers: tight loop of `state.load().tip()`. Track observed tip transitions.
+    let mut readers = Vec::new();
+    for _ in 0..4 {
+        let reader_state = state.clone();
+        let reader_stop = stop.clone();
+        readers.push(thread::spawn(move || {
+            let mut observed_tips = std::collections::BTreeSet::new();
+            let deadline = std::time::Instant::now() + Duration::from_millis(500);
+            while std::time::Instant::now() < deadline && !reader_stop.load(Ordering::Relaxed) {
+                let tip = reader_state.load().tip().into_owned();
+                observed_tips.insert(tip);
+            }
+            observed_tips
+        }));
+    }
+
+    // Wait briefly for readers to do their work, then stop everyone.
+    thread::sleep(Duration::from_millis(500));
+    stop.store(true, Ordering::Relaxed);
+
+    let writer_transitions = writer.join().expect("writer thread did not panic");
+    assert!(writer_transitions > 0, "writer made at least one transition");
+
+    for (i, reader) in readers.into_iter().enumerate() {
+        let observed = reader.join().expect("reader thread did not panic");
+        for tip in &observed {
+            assert!(
+                matches!(tip, Point::Origin) || *tip == early || *tip == later,
+                "reader {i} observed unexpected tip {tip:?}"
+            );
+        }
+    }
+}
+
 // HELPERS
 
 /// Create an initial ledger state

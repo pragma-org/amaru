@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{fmt, sync::Arc};
 
 use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistoryError, HeaderHash, IsHeader, Nonce, Point, to_cbor};
 use amaru_observability::trace_span;
@@ -36,7 +33,7 @@ where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    state: Arc<Mutex<State<S, HS>>>,
+    state: State<S, HS>,
     consensus_parameters: Arc<ConsensusParameters>,
     store: Arc<dyn ChainStore>,
 }
@@ -57,7 +54,7 @@ where
 
 impl<S: Store + Send, HS: HistoricalStores + Send> HeaderValidator<S, HS> {
     pub fn new(
-        state: Arc<Mutex<State<S, HS>>>,
+        state: State<S, HS>,
         consensus_parameters: Arc<ConsensusParameters>,
         store: Arc<dyn ChainStore>,
     ) -> anyhow::Result<Self> {
@@ -169,19 +166,18 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HeaderValidator")
             .field("store", &"Arc<dyn ChainStore<H>>")
-            .field("state", &"Arc<Mutex<State<S, HS>>>")
+            .field("state", &"State<S, HS>")
             .finish()
     }
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> HasPools for HeaderValidator<S, HS> {
-    #[expect(clippy::unwrap_used)]
     fn get_pool_summary(
         &self,
         slot: amaru_kernel::Slot,
         pool_id: &amaru_kernel::PoolId,
     ) -> Result<Option<PoolSummary>, amaru_ouroboros_traits::pools::GetPoolError> {
-        self.state.lock().unwrap().get_pool_summary(slot, pool_id)
+        self.state.load().get_pool_summary(slot, pool_id)
     }
 }
 

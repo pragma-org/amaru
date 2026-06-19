@@ -15,7 +15,6 @@
 use std::{
     collections::BTreeSet,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    sync::{Arc, Mutex},
 };
 
 use amaru_kernel::{Bytes, Nullable, Relay};
@@ -24,7 +23,6 @@ use async_trait::async_trait;
 use tracing::field;
 
 use crate::{
-    state,
     state::State,
     store::{HistoricalStores, ReadStore, Store, StoreError as LedgerStoreError},
 };
@@ -35,7 +33,7 @@ where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    pub state: Arc<Mutex<state::State<S, HS>>>,
+    pub state: State<S, HS>,
 }
 
 impl<S, HS> Clone for PeersData<S, HS>
@@ -49,7 +47,7 @@ where
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> PeersData<S, HS> {
-    pub fn new(state: Arc<Mutex<State<S, HS>>>) -> anyhow::Result<Self> {
+    pub fn new(state: State<S, HS>) -> anyhow::Result<Self> {
         Ok(Self { state })
     }
 }
@@ -68,10 +66,9 @@ where
     /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
     /// 2025), so it should be called with care. Please cache the result, it
     /// only changes meaningfully once per epoch.
-    #[expect(clippy::unwrap_used)]
     async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, ConsensusStoreError> {
-        let inner = self.state.lock().unwrap();
-        inner
+        self.state
+            .load()
             .registered_relay_socket_addrs()
             .map_err(|error| ConsensusStoreError::ReadError { error: error.to_string() })
     }

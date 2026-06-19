@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, GlobalParameters, ORIGIN_HASH, Point, Tip};
 use amaru_ledger::{block_validator::BlockValidator, header_validator::HeaderValidator, peers_data::PeersData, state};
@@ -25,7 +25,7 @@ use crate::stages::config::LedgerConfig;
 
 /// Representation of the ledger as used by the consensus stages.
 pub struct Ledger {
-    state: Arc<Mutex<state::State<RocksDB, RocksDBHistoricalStores>>>,
+    state: state::State<RocksDB, RocksDBHistoricalStores>,
     chain_store: Arc<dyn ChainStore>,
     block_validator: BlockValidator<RocksDB, RocksDBHistoricalStores>,
     header_validator: HeaderValidator<RocksDB, RocksDBHistoricalStores>,
@@ -34,7 +34,7 @@ pub struct Ledger {
 
 impl Ledger {
     pub fn new(config: &LedgerConfig, chain_store: Arc<dyn ChainStore>) -> anyhow::Result<Ledger> {
-        let state = Arc::new(Mutex::new(Self::make_state(config)?));
+        let state = Self::make_state(config)?;
 
         Ok(Ledger {
             state: state.clone(),
@@ -49,7 +49,7 @@ impl Ledger {
                 Arc::new(config.consensus_parameters()),
                 chain_store.clone(),
             )?,
-            peers_data: PeersData::new(state.clone())?,
+            peers_data: PeersData::new(state)?,
         })
     }
 
@@ -83,17 +83,12 @@ impl Ledger {
         Arc::new(self.peers_data.clone())
     }
 
-    #[expect(clippy::unwrap_used)]
     pub fn get_tip(&self) -> Point {
-        let state = self.state.lock().unwrap();
-        state.tip().into_owned()
+        self.state.load().tip().into_owned()
     }
 
     pub fn initialize_chain_store(&self) -> anyhow::Result<Tip> {
-        let ledger_tip = {
-            let state = self.state.lock().map_err(|e| anyhow!("Failed to lock ledger state: {e:?}"))?;
-            state.tip().into_owned()
-        };
+        let ledger_tip = self.state.load().tip().into_owned();
         tracing::info!(
             tip.hash = %ledger_tip.hash(),
             tip.slot = u64::from(ledger_tip.slot_or_default()),

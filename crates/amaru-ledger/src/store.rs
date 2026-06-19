@@ -259,7 +259,7 @@ pub trait ReadStore {
 // HistoricalStores
 // ----------------------------------------------------------------------------
 
-pub trait HistoricalStores {
+pub trait HistoricalStores: Send + Sync {
     /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
     fn snapshots(&self) -> Result<Vec<Epoch>>;
 

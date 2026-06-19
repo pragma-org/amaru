@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use amaru_kernel::{Block, IsHeader, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ChainBetweenResult, ReadChainStore,
-    TransactionValidationError, can_validate_blocks::BlockValidationError,
+    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ReadChainStore, TransactionValidationError,
+    can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
@@ -26,6 +26,7 @@ use anyhow::anyhow;
 use crate::{
     rules::block::BlockValidation,
     state::State,
+    state_snapshot::StateSnapshot,
     store::{HistoricalStores, Store},
 };
 
@@ -38,7 +39,7 @@ where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    pub state: Arc<Mutex<State<S, HS>>>,
+    pub state: State<S, HS>,
     pub chain_store: Arc<dyn ReadChainStore>,
     pub vm_eval_pool: ArenaPool,
 }
@@ -59,17 +60,15 @@ where
 
 impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     pub fn new(
-        state: Arc<Mutex<State<S, HS>>>,
+        state: State<S, HS>,
         chain_store: Arc<dyn ReadChainStore>,
         vm_eval_pool: ArenaPool,
     ) -> anyhow::Result<Self> {
         Ok(Self { state, chain_store, vm_eval_pool })
     }
 
-    #[expect(clippy::unwrap_used)]
     pub fn get_tip(&self) -> Point {
-        let state = self.state.lock().unwrap();
-        state.tip().into_owned()
+        self.state.load().tip().into_owned()
     }
 }
 
@@ -79,11 +78,8 @@ where
     HS: HistoricalStores + Send,
 {
     fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
-        let state = self.state.lock().map_err(|error| {
-            TransactionValidationError::from(anyhow!("failed to acquire ledger state lock: {error}"))
-        })?;
-        state
-            .validate_tx(tx, state.tip().slot_or_default(), &self.vm_eval_pool)
+        let view = self.state.load();
+        view.validate_tx(tx, view.tip().slot_or_default(), &self.vm_eval_pool)
             .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }
@@ -94,69 +90,40 @@ where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    #[expect(clippy::unwrap_used)]
     fn roll_forward_block(
         &self,
         point: &Point,
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        let mut state = self.state.lock().unwrap();
-        self.forward_block(&mut state, point, block)
+        self.forward_block(point, block)
     }
 
-    #[expect(clippy::unwrap_used)]
     fn switch_to_fork(
         &self,
-        old_tip: &Point,
+        _old_tip: &Point,
         new_tip: &Point,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        let mut state = self.state.lock().unwrap();
+        let (rollback_point, forward_points) = self.find_rollback_point(new_tip)?;
 
-        let (rollback_point, forward_points) = self.find_rollback_point(&mut state, new_tip)?;
-        let result = self.switch_to(&mut state, &rollback_point, forward_points)?;
-
-        // If we cannot apply a block on the fork, we need to revert the ledger state to what it was.
-        if result.is_err() {
-            let recovery_points = match self
-                .chain_store
-                .chain_between(&rollback_point, old_tip)
-                .map_err(|err| BlockValidationError::new(anyhow!(err)))?
-            {
-                ChainBetweenResult::Found(points) => points,
-                ChainBetweenResult::EndHeaderNotFound => {
-                    return Err(BlockValidationError::new(anyhow!(
-                        "cannot build recovery chain: header for old tip {old_tip} not found in chain store"
-                    )));
-                }
-                ChainBetweenResult::StartNotReachable => {
-                    return Err(BlockValidationError::new(anyhow!(
-                        "cannot build recovery chain: rollback point {rollback_point} is not an ancestor of old tip {old_tip}"
-                    )));
-                }
-            };
-
-            // There should not be any validation error during that switch
-            self.switch_to(&mut state, &rollback_point, recovery_points)??;
-        }
-        Ok(result)
+        // Use one atomic transaction over a candidate `StateSnapshot`.
+        // The candidate is published only if the rollback and all the roll forwards succeed.
+        self.state.atomically(|view| {
+            let result = self.switch_fork(view, rollback_point, forward_points);
+            let publish = matches!(result, Ok(Ok(_)));
+            (result, publish)
+        })
     }
 
-    #[expect(clippy::unwrap_used)]
     fn contains_point(&self, point: &Point) -> bool {
-        let state = self.state.lock().unwrap();
-        state.contains_volatile_point(point)
+        self.state.load().contains_volatile_point(point)
     }
 
-    #[expect(clippy::unwrap_used)]
     fn tip(&self) -> Point {
-        let state = self.state.lock().unwrap();
-        state.tip().into_owned()
+        self.state.load().tip().into_owned()
     }
 
-    #[expect(clippy::unwrap_used)]
     fn volatile_tip(&self) -> Option<Tip> {
-        let state = self.state.lock().unwrap();
-        state.volatile_tip()
+        self.state.load().volatile_tip()
     }
 }
 
@@ -168,11 +135,10 @@ where
     /// Roll forward a block on the ledger
     fn forward_block(
         &self,
-        state: &mut MutexGuard<'_, State<S, HS>>,
         point: &Point,
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        match state.roll_forward(point, block, &self.vm_eval_pool) {
+        match self.state.roll_forward(point, block, &self.vm_eval_pool) {
             BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => {
                 Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))))
@@ -181,46 +147,50 @@ where
         }
     }
 
-    /// Rollback to the rollback point, then forward with the forward_points
-    fn switch_to(
+    /// Roll the candidate `state_snapshot` back to `rollback_point` and replay each block in `forward_points`
+    /// on top of it.
+    fn switch_fork(
         &self,
-        state: &mut MutexGuard<'_, State<S, HS>>,
-        rollback_point: &Point,
+        state_snapshot: &mut StateSnapshot<S, HS>,
+        rollback_point: Point,
         forward_points: Vec<Point>,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        state.rollback_to(rollback_point).map_err(|err| BlockValidationError::new(anyhow!(err)))?;
-        let mut result = Ok(Default::default());
-        let mut done = 0;
+        state_snapshot.rollback_to(&rollback_point).map_err(|err| BlockValidationError::new(anyhow!(err)))?;
+        let mut last = Ok(LedgerMetrics::default());
         let to_do = forward_points.len();
-        for point in forward_points {
+        for (i, point) in forward_points.into_iter().enumerate() {
             let block = self
                 .chain_store
                 .load_block(&point.hash())
                 .map_err(|err| BlockValidationError::new(anyhow!(err)))?
-                .ok_or(BlockValidationError::new(anyhow!("Block not found in chain store: {point}")))?
+                .ok_or_else(|| BlockValidationError::new(anyhow!("Block not found in chain store: {point}")))?
                 .decode()
                 .map_err(|e| BlockValidationError::new(e.into()))?;
-            result = self.forward_block(state, &point, block)?;
-            if result.is_err() {
-                return Ok(result);
-            }
-            done += 1;
-            if done % 100 == 0 {
-                tracing::info!(%done, %to_do, "rolling forward ledger to reach fork tip");
+            match state_snapshot.roll_forward(&point, block, &self.vm_eval_pool) {
+                BlockValidation::Valid(metrics) => {
+                    last = Ok(metrics);
+                    let done = i + 1;
+                    if done % 100 == 0 {
+                        tracing::info!(%done, %to_do, "rolling forward ledger to reach fork tip");
+                    }
+                }
+                BlockValidation::Invalid(_, _, details) => {
+                    return Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))));
+                }
+                BlockValidation::Err(err) => {
+                    return Err(BlockValidationError::new(anyhow!(err)));
+                }
             }
         }
-        Ok(result)
+        Ok(last)
     }
 
     /// Return a point on the ledger volatile state that is an ancestor of the tip, and all the points
     /// in between.
-    fn find_rollback_point(
-        &self,
-        state: &mut MutexGuard<'_, State<S, HS>>,
-        tip: &Point,
-    ) -> Result<(Point, Vec<Point>), BlockValidationError> {
+    fn find_rollback_point(&self, tip: &Point) -> Result<(Point, Vec<Point>), BlockValidationError> {
+        let state_snapshot = self.state.load();
         // search will abort at this point
-        let ledger_tip = state.immutable_tip();
+        let ledger_tip = state_snapshot.immutable_tip();
         let mut current_hash = tip.hash();
         let mut forward_points = Vec::new();
         loop {
@@ -244,7 +214,7 @@ where
                 )));
             }
 
-            if current_point == ledger_tip || state.contains_volatile_point(&current_point) {
+            if current_point == ledger_tip || state_snapshot.contains_volatile_point(&current_point) {
                 forward_points.reverse();
                 return Ok((current_point, forward_points));
             }

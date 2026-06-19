@@ -25,6 +25,7 @@ pub mod header_validator;
 pub mod peers_data;
 pub mod rules;
 pub mod state;
+pub mod state_snapshot;
 pub mod store;
 pub mod summary;
 
