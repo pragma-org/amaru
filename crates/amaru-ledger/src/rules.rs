@@ -54,6 +54,8 @@ pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transa
 
     let certificates = transaction.certificates.as_deref().unwrap_or(&[]).iter();
     certificates.for_each(|certificate| prepare_certificate(context, certificate));
+
+    prepare_votes(context, transaction);
 }
 
 /// Collect and require the inputs from a single transaction.
@@ -71,6 +73,18 @@ fn prepare_withdrawals<'a>(context: &mut impl PreparationContext<'a>, transactio
     };
     for (reward_account, _) in withdrawals.iter() {
         context.require_withdrawal(reward_account);
+    }
+}
+
+/// Collect and require the proposals a transaction votes on.
+fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
+    let Some(votes) = transaction.votes.as_ref() else {
+        return;
+    };
+    for (_, ballots) in votes.iter() {
+        for (proposal_id, _) in ballots.iter() {
+            context.require_proposal(proposal_id);
+        }
     }
 }
 

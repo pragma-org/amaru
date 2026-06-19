@@ -139,6 +139,15 @@ impl VolatileFragment {
         }
     }
 
+    /// This fragment's view of a governance proposal. Proposals are add-only in a block, so this is
+    /// `Exists` or `Unknown`; pruning only happens at the boundary.
+    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<Arc<(Proposal, ProposalPointer)>> {
+        match self.proposals.get(id) {
+            Some(proposal) => Existence::Exists(proposal.clone()),
+            None => Existence::Unknown,
+        }
+    }
+
     /// Whether this fragment withdrew the account's rewards.
     pub fn withdrew(&self, credential: &StakeCredential) -> bool {
         self.withdrawals.contains(credential)
