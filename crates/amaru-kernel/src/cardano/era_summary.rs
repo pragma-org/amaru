@@ -27,7 +27,7 @@ pub struct EraSummary {
 
 impl EraSummary {
     /// Check whether an era is empty; which may occurs for custom testnets where the first
-    /// eras are typically skipped. By conventio, those eras have an epoch size of 0 and the start
+    /// eras are typically skipped. By convention, those eras have an epoch size of 0 and the start
     /// and end slots are the same.
     fn is_empty(&self) -> bool {
         self.end.as_ref().is_some_and(|end| &self.start == end)
