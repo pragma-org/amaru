@@ -20,12 +20,18 @@ pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;
 
 pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ComparableProposalId>>;
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericProposalsRoots<T> {
     pub protocol_parameters: Option<T>,
     pub hard_fork: Option<T>,
     pub constitutional_committee: Option<T>,
     pub constitution: Option<T>,
+}
+
+impl<T> Default for GenericProposalsRoots<T> {
+    fn default() -> Self {
+        Self { protocol_parameters: None, hard_fork: None, constitutional_committee: None, constitution: None }
+    }
 }
 
 impl<T: Clone> GenericProposalsRoots<Rc<T>> {

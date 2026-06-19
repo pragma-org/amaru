@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
-use amaru_kernel::{MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{
+    ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, Proposal, ProposalPointer, StakeCredential,
+    TransactionInput,
+};
 
 use crate::state::{
     AnchoredVolatileFragment, VolatileFragment,
@@ -117,6 +120,11 @@ impl VolatileSeries {
     /// This series' verdict on a CC member, read off its aggregate.
     pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
         self.aggregate.resolve_committee(credential)
+    }
+
+    /// This series' view of a governance proposal, read off its aggregate.
+    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<Arc<(Proposal, ProposalPointer)>> {
+        self.aggregate.resolve_proposal(id)
     }
 
     /// Whether this series withdrew the account's rewards anywhere in its aggregate.

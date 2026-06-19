@@ -23,7 +23,7 @@ use std::{
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
+    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
     MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, StakeCredential, TransactionInput, cbor,
 };
 use amaru_ledger::{
@@ -464,6 +464,13 @@ macro_rules! impl_ReadStore_body {
                 credential: &StakeCredential,
             ) -> Result<Option<scolumns::cc_members::Row>, StoreError> {
                 cc_members::get(|key| self.db.get_pinned(key), credential)
+            }
+
+            fn proposal(
+                &self,
+                id: &ComparableProposalId,
+            ) -> Result<Option<scolumns::proposals::Row>, StoreError> {
+                proposals::get(|key| self.db.get_pinned(key), id)
             }
 
             fn utxo(

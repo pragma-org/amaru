@@ -14,11 +14,11 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{DRep, PoolId, RewardAccount, StakeCredential, TransactionInput};
+use amaru_kernel::{ComparableProposalId, DRep, PoolId, ProposalId, RewardAccount, StakeCredential, TransactionInput};
 
 use crate::context::{
     PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
-    PrepareUtxoSlice,
+    PrepareProposalsSlice, PrepareUtxoSlice,
 };
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
@@ -36,6 +36,7 @@ pub struct DefaultPreparationContext<'a> {
     pub dreps: BTreeSet<&'a StakeCredential>,
     pub drep_delegations: BTreeSet<&'a DRep>,
     pub committee: BTreeSet<&'a StakeCredential>,
+    pub proposals: BTreeSet<ComparableProposalId>,
 }
 
 impl DefaultPreparationContext<'_> {
@@ -48,6 +49,7 @@ impl DefaultPreparationContext<'_> {
             dreps: BTreeSet::new(),
             drep_delegations: BTreeSet::new(),
             committee: BTreeSet::new(),
+            proposals: BTreeSet::new(),
         }
     }
 }
@@ -89,5 +91,11 @@ impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
 impl<'a> PrepareCommitteeSlice<'a> for DefaultPreparationContext<'a> {
     fn require_committee_member(&mut self, cc_member: &'a StakeCredential) {
         self.committee.insert(cc_member);
+    }
+}
+
+impl<'a> PrepareProposalsSlice<'a> for DefaultPreparationContext<'a> {
+    fn require_proposal(&mut self, id: &'a ProposalId) {
+        self.proposals.insert(ComparableProposalId::from(id.clone()));
     }
 }

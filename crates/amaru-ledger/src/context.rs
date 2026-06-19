@@ -22,14 +22,14 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
+    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
 };
 pub use default::*;
 
-use crate::state::diff_bind;
+use crate::{governance::ratification::ProposalsRoots, state::diff_bind};
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
@@ -45,6 +45,7 @@ pub trait PreparationContext<'a>:
     + PrepareAccountsSlice<'a>
     + PrepareDRepsSlice<'a>
     + PrepareCommitteeSlice<'a>
+    + PrepareProposalsSlice<'a>
 {
 }
 
@@ -268,10 +269,29 @@ pub trait PrepareCommitteeSlice<'a> {
 // Governance Proposals
 // -------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Clone)]
+pub struct ProposalState {
+    pub proposed_in: ProposalPointer,
+    /// Last epoch the proposal can be voted on.
+    pub valid_until: Epoch,
+    pub proposal: Proposal,
+}
+
 pub trait ProposalsSlice {
+    /// The proposal at this point in the block, including ones acknowledged earlier in the block.
+    fn lookup(&self, id: &ComparableProposalId) -> Option<ProposalState>;
+
+    /// The current governance roots, i.e. the latest enacted action per category.
+    fn roots(&self) -> &ProposalsRoots;
+
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
+}
+
+/// An interface to help constructing the concrete ProposalsSlice ahead of time.
+pub trait PrepareProposalsSlice<'a> {
+    fn require_proposal(&'_ mut self, id: &'a ProposalId);
 }
 
 // Witnesses

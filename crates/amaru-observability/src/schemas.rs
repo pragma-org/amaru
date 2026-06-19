@@ -133,6 +133,13 @@ define_schemas! {
                 optional resolved_from_db: u64
             }
 
+            /// Resolve governance proposal data from various sources
+            public RESOLVE_PROPOSALS {
+                optional resolved_from_context: u64
+                optional resolved_from_volatile: u64
+                optional resolved_from_db: u64
+            }
+
             /// Create validation context for a block
             public CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: amaru_kernel::HeaderHash
@@ -530,6 +537,13 @@ define_schemas! {
 
                 /// Upsert a constitutional committee member
                 public CC_MEMBERS_UPSERT {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Point-read a governance proposal
+                public PROPOSALS_GET {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String

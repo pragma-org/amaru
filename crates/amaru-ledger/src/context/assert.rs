@@ -18,19 +18,23 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, AsHash, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Vote, Voter, VoterKind,
+    Anchor, AsHash, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Vote,
+    Voter, VoterKind,
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
 use amaru_observability::trace_span;
 
-use crate::context::{
-    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-    PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
-    PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
-    WitnessSlice, blanket_known_datums, blanket_known_scripts,
+use crate::{
+    context::{
+        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+        PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
+        PrepareProposalsSlice, PrepareUtxoSlice, ProposalState, ProposalsSlice, RegisterError, UnregisterError,
+        UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+    },
+    governance::ratification::ProposalsRoots,
 };
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -97,6 +101,12 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 
 impl PrepareCommitteeSlice<'_> for AssertPreparationContext {
     fn require_committee_member(&mut self, _cc_member: &StakeCredential) {
+        unimplemented!();
+    }
+}
+
+impl PrepareProposalsSlice<'_> for AssertPreparationContext {
+    fn require_proposal(&mut self, _id: &ProposalId) {
         unimplemented!();
     }
 }
@@ -255,6 +265,14 @@ impl CommitteeSlice for AssertValidationContext {
 }
 
 impl ProposalsSlice for AssertValidationContext {
+    fn lookup(&self, _id: &ComparableProposalId) -> Option<ProposalState> {
+        unimplemented!()
+    }
+
+    fn roots(&self) -> &ProposalsRoots {
+        unimplemented!()
+    }
+
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 
     fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
