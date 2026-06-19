@@ -41,6 +41,7 @@ pub struct DefaultValidationContext {
     pools: BTreeSet<PoolId>,
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
+    committee: BTreeMap<StakeCredential, CCMember>,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -56,12 +57,14 @@ impl DefaultValidationContext {
         pools: BTreeSet<PoolId>,
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
+        committee: BTreeMap<StakeCredential, CCMember>,
     ) -> Self {
         Self {
             utxo,
             pools,
             accounts,
             dreps,
+            committee,
             state: VolatileFragment::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -293,6 +296,26 @@ impl DRepsSlice for DefaultValidationContext {
 }
 
 impl CommitteeSlice for DefaultValidationContext {
+    /// The block start state (`self.committee`) with this block's hot-key change folded in. No
+    /// in-block cert establishes membership, so a binding only ever layers over an existing member.
+    fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember> {
+        let base = self.committee.get(cc_member);
+
+        match self.state.committee.registered.get(cc_member) {
+            Some(bind) => {
+                let base = base?;
+                Some(CCMember {
+                    hot_credential: bind.left.clone().apply_over(base.hot_credential.clone()),
+                    valid_until: base.valid_until,
+                })
+            }
+            // resigned in-block; gone
+            None if self.state.committee.unregistered.contains(cc_member) => None,
+            // untouched in-block; the block-start state
+            None => base.cloned(),
+        }
+    }
+
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -412,7 +435,7 @@ mod tests {
     }
 
     fn ctx_with(accounts: BTreeMap<StakeCredential, AccountState>) -> DefaultValidationContext {
-        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), accounts, BTreeMap::new())
+        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), accounts, BTreeMap::new(), BTreeMap::new())
     }
 
     #[test]
@@ -452,5 +475,33 @@ mod tests {
         assert_eq!(found.pool.map(|(p, _)| p), Some(pool));
         assert_eq!(found.rewards, 7);
         assert_eq!(found.deposit, 2_000_000);
+    }
+
+    fn cc_member(hot: Option<u8>) -> CCMember {
+        CCMember { hot_credential: hot.map(cred), valid_until: Some(Epoch::from(10)) }
+    }
+
+    fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
+        DefaultValidationContext::new(BTreeMap::new(), BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), committee)
+    }
+
+    #[test]
+    fn committee_lookup_returns_the_block_start_state_when_untouched() {
+        let ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
+        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)), Some(cc_member(None)));
+    }
+
+    #[test]
+    fn committee_lookup_folds_in_an_in_block_hot_key_auth() {
+        let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
+        ctx.delegate_cold_key(cred(1), cred(2)).unwrap();
+        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)).and_then(|m| m.hot_credential), Some(cred(2)));
+    }
+
+    #[test]
+    fn committee_lookup_is_none_after_an_in_block_resignation() {
+        let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
+        ctx.resign(cred(1), None).unwrap();
+        assert!(CommitteeSlice::lookup(&ctx, &cred(1)).is_none());
     }
 }

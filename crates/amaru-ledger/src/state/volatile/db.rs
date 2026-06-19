@@ -19,7 +19,7 @@ use amaru_kernel::{Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, St
 use crate::state::{
     AnchoredVolatileFragment,
     overlay::StateOverlay,
-    volatile::{AccountBind, DRepBind, Existence, VolatileSeries, VolatileStore},
+    volatile::{AccountBind, CommitteeBind, DRepBind, Existence, VolatileSeries, VolatileStore},
 };
 
 /// Pools need existence only. `Gone` means reaped at the boundary.
@@ -213,6 +213,23 @@ impl VolatileDB {
         })
     }
 
+    /// Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
+    /// draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
+    /// blocks, mirroring pool reaping. `Unknown` means consult the stable store.
+    pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
+        self.current.resolve_committee(credential).layer_over(|| {
+            self.overlay.committee_verdict(credential).layer_over(|| {
+                self.draining.as_ref().map_or(Existence::Unknown, |draining| draining.resolve_committee(credential))
+            })
+        })
+    }
+
+    /// A CC member's term from its `base` (stable or freshly added): the overlay's pending term wins
+    /// during the straddle, otherwise the base flows through.
+    pub fn resolve_committee_term(&self, credential: &StakeCredential, base: Option<Epoch>) -> Option<Epoch> {
+        self.overlay.pending_committee_term(credential).unwrap_or(base)
+    }
+
     /// Seal the live series at an epoch boundary: the `current` series, which, by the protocol
     /// pre-condition, holds only the closing epoch's blocks, becomes the `draining` series, and a
     /// fresh empty `current` is opened for the new epoch. This keeps each series epoch-homogeneous.
@@ -251,16 +268,24 @@ impl VolatileDB {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        sync::Arc,
+    };
 
-    use amaru_kernel::{Hash, Point, Slot, StakeCredential};
+    use amaru_kernel::{Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Slot, StakeCredential};
+    use num::Zero;
     use proptest::prelude::*;
     use test_case::test_case;
 
     use super::*;
     use crate::{
-        epoch_transition::{Computed, Effective, Rewards, RewardsState},
+        epoch_transition::{
+            Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        },
+        governance::ratification::{CommitteeUpdate, ProposalsRoots},
         state::volatile::test_support::*,
+        summary::SafeRatio,
     };
 
     #[test]
@@ -606,12 +631,81 @@ mod tests {
         assert_eq!(db.resolve_reward_balance(&cred(1), 100), 0);
     }
 
+    #[test_case(None, Some(CommitteeAct::Auth) => Expect::Registered ; "hot-auth in current")]
+    #[test_case(None, Some(CommitteeAct::Resign) => Expect::Gone ; "resigned in current")]
+    #[test_case(Some(CommitteeAct::Auth), None => Expect::Registered ; "hot-auth in draining, untouched in current")]
+    #[test_case(Some(CommitteeAct::Resign), None => Expect::Gone ; "resigned in draining shadows the stable store")]
+    #[test_case(Some(CommitteeAct::Auth), Some(CommitteeAct::Resign) => Expect::Gone ; "current resignation overrides draining")]
+    #[test_case(None, None => Expect::Unknown ; "untouched everywhere defers to the stable store")]
+    fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Expect {
+        let mut db = VolatileDB::default();
+        if let Some(act) = draining {
+            db.push_back(committee_block(10, act));
+        }
+        db.seal();
+        if let Some(act) = current {
+            db.push_back(committee_block(20, act));
+        }
+
+        match db.resolve_committee(&cred(1)) {
+            Existence::Exists(_) => Expect::Registered,
+            Existence::Gone => Expect::Gone,
+            Existence::Unknown => Expect::Unknown,
+        }
+    }
+
+    #[test]
+    fn resolve_committee_reflects_the_pending_boundary() {
+        // Added at the boundary: a fresh member with the pending term, no stable row needed.
+        let mut db = VolatileDB::default();
+        db.overlay_mut().transition(
+            None,
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(Some(CommitteeUpdate::ChangeMembers {
+                added: BTreeMap::from([(cred(1), Epoch::from(99))]),
+                removed: BTreeSet::new(),
+                threshold: SafeRatio::zero(),
+            })),
+        );
+        assert!(matches!(db.resolve_committee(&cred(1)), Existence::Exists(_)));
+        assert_eq!(db.resolve_committee_term(&cred(1), None), Some(Epoch::from(99)));
+
+        // Removed at the boundary: a tombstone that shadows the stale stable entry.
+        let mut db = VolatileDB::default();
+        db.overlay_mut().transition(
+            None,
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(Some(CommitteeUpdate::ChangeMembers {
+                added: BTreeMap::new(),
+                removed: BTreeSet::from([cred(1)]),
+                threshold: SafeRatio::zero(),
+            })),
+        );
+        assert!(matches!(db.resolve_committee(&cred(1)), Existence::Gone));
+
+        // No-confidence keeps members, so membership defers down, but the term goes inactive.
+        let mut db = VolatileDB::default();
+        db.overlay_mut().transition(
+            None,
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(Some(CommitteeUpdate::NoConfidence)),
+        );
+        assert!(matches!(db.resolve_committee(&cred(1)), Existence::Unknown));
+        assert_eq!(db.resolve_committee_term(&cred(1), Some(Epoch::from(50))), None);
+    }
+
     // HELPERS
 
     #[derive(Clone, Copy)]
     enum Where {
         Draining,
         Current,
+    }
+
+    #[derive(Clone, Copy)]
+    enum CommitteeAct {
+        Auth,
+        Resign,
     }
 
     #[derive(Clone, Copy)]
@@ -644,5 +738,31 @@ mod tests {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         block.fragment.withdrawals.insert(cred(1));
         block
+    }
+
+    fn committee_block(slot: u64, act: CommitteeAct) -> AnchoredVolatileFragment {
+        let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
+        match act {
+            CommitteeAct::Auth => block.fragment.committee.bind_left(cred(1), Some(cred(2))).unwrap(),
+            CommitteeAct::Resign => block.fragment.committee.unregister(cred(1)),
+        }
+        block
+    }
+
+    fn committee_update(committee: Option<CommitteeUpdate>) -> GovernanceUpdates {
+        GovernanceUpdates {
+            roots: ProposalsRoots {
+                protocol_parameters: None,
+                hard_fork: None,
+                constitutional_committee: None,
+                constitution: None,
+            },
+            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            pruned_proposals: BTreeSet::new(),
+            payouts: BTreeMap::new(),
+            is_dormant_epoch: false,
+            constitutional_committee: committee,
+            new_constitution: None,
+        }
     }
 }

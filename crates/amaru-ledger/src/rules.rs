@@ -111,8 +111,8 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
             context.require_account(credential);
             context.require_drep_delegation(drep);
         }
-        Certificate::AuthCommitteeHot(_, _) => {}
-        Certificate::ResignCommitteeCold(_, _) => {}
+        Certificate::AuthCommitteeHot(cold_credential, _) => context.require_committee_member(cold_credential),
+        Certificate::ResignCommitteeCold(cold_credential, _) => context.require_committee_member(cold_credential),
         Certificate::RegDRepCert(drep, _, _) => context.require_drep(drep),
         Certificate::UnRegDRepCert(drep, _) => context.require_drep(drep),
         Certificate::UpdateDRepCert(drep, _) => context.require_drep(drep),

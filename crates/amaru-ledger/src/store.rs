@@ -211,6 +211,9 @@ pub trait ReadStore {
 
     fn drep(&self, credential: &StakeCredential) -> Result<Option<dreps::Row>>;
 
+    /// Get details about a specific constitutional committee member
+    fn cc_member(&self, credential: &StakeCredential) -> Result<Option<cc_members::Row>>;
+
     /// Get details about a specific UTxO
     fn utxo(&self, input: &TransactionInput) -> Result<Option<MemoizedTransactionOutput>>;
 

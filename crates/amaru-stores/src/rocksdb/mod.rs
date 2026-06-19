@@ -441,6 +441,13 @@ macro_rules! impl_ReadStore_body {
                 dreps::get(|key| self.db.get_pinned(key), credential)
             }
 
+            fn cc_member(
+                &self,
+                credential: &StakeCredential,
+            ) -> Result<Option<scolumns::cc_members::Row>, StoreError> {
+                cc_members::get(|key| self.db.get_pinned(key), credential)
+            }
+
             fn utxo(
                 &self,
                 input: &TransactionInput,

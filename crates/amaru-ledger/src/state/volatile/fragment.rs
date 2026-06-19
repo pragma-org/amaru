@@ -40,6 +40,10 @@ pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePoin
 /// A DRep's accumulated binding: metadata anchor, and the DRep registration data.
 pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
 
+/// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
+/// since no in-block cert establishes them.
+pub type CommitteeBind = Bind<StakeCredential, Empty, Empty>;
+
 /// A volatile layer's verdict on an entity.
 /// - `T` is the resolved record.
 /// - `Gone` is a tombstone, so don't fall back to the stable store.
@@ -117,6 +121,18 @@ impl VolatileFragment {
         if let Some(bind) = self.dreps.registered.get(credential) {
             Existence::Exists(bind.clone())
         } else if self.dreps.unregistered.contains(credential) {
+            Existence::Gone
+        } else {
+            Existence::Unknown
+        }
+    }
+
+    /// This fragment's verdict on a CC member. Resignation is immediate, so an `unregistered`
+    /// entry is a live tombstone.
+    pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
+        if let Some(bind) = self.committee.registered.get(credential) {
+            Existence::Exists(bind.clone())
+        } else if self.committee.unregistered.contains(credential) {
             Existence::Gone
         } else {
             Existence::Unknown
