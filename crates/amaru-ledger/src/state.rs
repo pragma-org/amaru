@@ -22,9 +22,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher,
-    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, StakeCredential, Tip, Transaction,
-    TransactionInput, TransactionPointer, parse_reward_account, to_cbor,
+    Block, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash,
+    Hasher, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, StakeCredential, Tip,
+    Transaction, TransactionInput, TransactionPointer, parse_reward_account, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
@@ -669,12 +669,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[expect(clippy::unwrap_used)]
     pub fn resolve_accounts<'a>(
         &self,
+        ongoing_state: &VolatileFragment,
         credentials: impl Iterator<Item = &'a StakeCredential>,
     ) -> Result<BTreeMap<StakeCredential, AccountState>, StoreError> {
         let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_ACCOUNTS);
         let _guard = _span.enter();
 
         let mut result = BTreeMap::new();
+        let mut resolved_from_context = 0;
         let mut resolved_from_volatile = 0;
         let mut resolved_from_db = 0;
 
@@ -683,8 +685,17 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // TODO: perform lookup in batch, and possibly within the same transaction as other
         // required data pre-fetch.
         for credential in credentials {
-            let state = match self.volatile.resolve_account(credential) {
-                // deregistered in volatile; skip the stale stable entry
+            // The ongoing block is the newest layer, above the volatile DB and the stable store.
+            let withdrawn_in_context = ongoing_state.withdrew(credential);
+            let reward_balance =
+                |base| if withdrawn_in_context { 0 } else { self.volatile.resolve_reward_balance(credential, base) };
+
+            // Attribute to the newest layer with a verdict: the ongoing block, else the volatile DB.
+            let ongoing = ongoing_state.resolve_account(credential);
+            let from_context = !matches!(ongoing, Existence::Unknown);
+
+            let state = match ongoing.layer_over(|| self.volatile.resolve_account(credential)) {
+                // deregistered in a volatile layer; skip the stale stable entry
                 Existence::Gone => None,
                 Existence::Exists(bind) => {
                     let resolved = if let Some(deposit) = bind.value {
@@ -693,7 +704,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                             deposit,
                             pool: bind.left.apply_over(None),
                             drep: bind.right.apply_over(None),
-                            rewards: self.volatile.resolve_reward_balance(credential, 0),
+                            rewards: reward_balance(0),
                         })
                     } else {
                         // bind-only update layered over the stable row
@@ -701,19 +712,25 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                             deposit: row.deposit,
                             pool: bind.left.apply_over(row.pool),
                             drep: bind.right.apply_over(row.drep),
-                            rewards: self.volatile.resolve_reward_balance(credential, row.rewards),
+                            rewards: reward_balance(row.rewards),
                         })
                     };
-                    resolved.inspect(|_| resolved_from_volatile += 1)
+                    resolved.inspect(|_| {
+                        if from_context {
+                            resolved_from_context += 1;
+                        } else {
+                            resolved_from_volatile += 1;
+                        }
+                    })
                 }
-                // untouched in volatile; resolve from stable
+                // untouched by any volatile layer; resolve from stable
                 Existence::Unknown => db.account(credential)?.map(|row| {
                     resolved_from_db += 1;
                     AccountState {
                         deposit: row.deposit,
                         pool: row.pool,
                         drep: row.drep,
-                        rewards: self.volatile.resolve_reward_balance(credential, row.rewards),
+                        rewards: reward_balance(row.rewards),
                     }
                 }),
             };
@@ -723,6 +740,80 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             }
         }
 
+        tracing::Span::current().record("resolved_from_context", resolved_from_context);
+        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
+        tracing::Span::current().record("resolved_from_db", resolved_from_db);
+
+        Ok(result)
+    }
+
+    /// The materialized [`DRepRegistration`] for each existing credential, layering the ongoing block
+    /// over the volatile DB over the stable store; a `Gone` tombstone skips the stale stable entry.
+    /// DReps carry no balance, so there is no reward dimension; the anchor is metadata outside the
+    /// registration record, so a bind-only (anchor) update reads the registration from below.
+    #[expect(clippy::unwrap_used)]
+    pub fn resolve_dreps<'a>(
+        &self,
+        ongoing_state: &VolatileFragment,
+        credentials: impl Iterator<Item = &'a StakeCredential>,
+    ) -> Result<BTreeMap<StakeCredential, DRepRegistration>, StoreError> {
+        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_DREPS);
+        let _guard = _span.enter();
+
+        let mut result = BTreeMap::new();
+        let mut resolved_from_context = 0;
+        let mut resolved_from_volatile = 0;
+        let mut resolved_from_db = 0;
+
+        let db = self.stable.lock().unwrap();
+
+        // TODO: perform lookup in batch, and possibly within the same transaction as other
+        // required data pre-fetch.
+        for credential in credentials {
+            // Attribute to the newest layer with a verdict: the ongoing block, else the volatile DB.
+            let ongoing = ongoing_state.resolve_drep(credential);
+            let from_context = !matches!(ongoing, Existence::Unknown);
+
+            let registration = match ongoing.layer_over(|| self.volatile.resolve_drep(credential)) {
+                // deregistered in a volatile layer; skip the stale stable entry
+                Existence::Gone => None,
+                Existence::Exists(bind) => {
+                    let resolved = if let Some(record) = bind.value {
+                        // fresh registration; carries its own record
+                        Some(record)
+                    } else {
+                        // anchor-only update; the registration lives in the stable store
+                        db.drep(credential)?.map(|row| DRepRegistration {
+                            deposit: row.deposit,
+                            registered_at: row.registered_at,
+                            valid_until: row.valid_until,
+                        })
+                    };
+                    resolved.inspect(|_| {
+                        if from_context {
+                            resolved_from_context += 1;
+                        } else {
+                            resolved_from_volatile += 1;
+                        }
+                    })
+                }
+                // untouched by any volatile layer; resolve from stable
+                Existence::Unknown => db.drep(credential)?.map(|row| {
+                    resolved_from_db += 1;
+                    DRepRegistration {
+                        deposit: row.deposit,
+                        registered_at: row.registered_at,
+                        valid_until: row.valid_until,
+                    }
+                }),
+            };
+
+            if let Some(registration) = registration {
+                result.insert(credential.clone(), registration);
+            }
+        }
+
+        tracing::Span::current().record("resolved_from_context", resolved_from_context);
         tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
         tracing::Span::current().record("resolved_from_db", resolved_from_db);
 
@@ -774,7 +865,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         ctx: DefaultPreparationContext<'_>,
         unresolved_input_policy: UnresolvedInputPolicy,
     ) -> Result<DefaultValidationContext, ValidationContextError> {
-        let DefaultPreparationContext { utxo, pools, accounts, withdrawals } = ctx;
+        let DefaultPreparationContext { utxo, pools, accounts, withdrawals, dreps, drep_delegations } = ctx;
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
         // of the current .resolve_inputs; once the latter is no longer needed for the state
@@ -830,10 +921,25 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .collect::<BTreeSet<_>>();
 
         let accounts = self
-            .resolve_accounts(accounts.into_iter().chain(withdrawal_credentials.iter()))
+            .resolve_accounts(&Default::default(), accounts.into_iter().chain(withdrawal_credentials.iter()))
             .map_err(ValidationContextError::ResolveAccounts)?;
 
-        Ok(DefaultValidationContext::new(inputs, pools, accounts))
+        // Vote-delegation targets are constructed from their `DRep` here; `Abstain`/`NoConfidence`
+        // aren't registered entities, so they drop out.
+        let delegated_dreps = drep_delegations
+            .into_iter()
+            .filter_map(|drep| match drep {
+                DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
+                DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
+                DRep::Abstain | DRep::NoConfidence => None,
+            })
+            .collect::<BTreeSet<_>>();
+
+        let dreps = self
+            .resolve_dreps(&Default::default(), dreps.into_iter().chain(delegated_dreps.iter()))
+            .map_err(ValidationContextError::ResolveDReps)?;
+
+        Ok(DefaultValidationContext::new(inputs, pools, accounts, dreps))
     }
 
     /// Create a validation context from the current ledger state for the transaction, and
@@ -1066,6 +1172,9 @@ pub enum ValidationContextError {
 
     #[error("failed to resolve accounts: {0}")]
     ResolveAccounts(StoreError),
+
+    #[error("failed to resolve dreps: {0}")]
+    ResolveDReps(StoreError),
 
     #[error("missing transaction inputs: {inputs:?}")]
     MissingInputs { inputs: Vec<TransactionInput> },

@@ -233,6 +233,8 @@ pub trait ReadStore {
     /// Get details about a specific Account
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>>;
 
+    fn drep(&self, credential: &StakeCredential) -> Result<Option<dreps::Row>>;
+
     /// Get details about a specific UTxO
     fn utxo(&self, input: &TransactionInput) -> Result<Option<MemoizedTransactionOutput>>;
 
