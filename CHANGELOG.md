@@ -49,6 +49,7 @@ Other guiding principles:
 - **amaru-kernel**: `ConsensusParameters` and `GlobalParameters` now live in their own modules instead of being paired with `ProtocolParameters`. Still exported at the top-level. ([#886][])
 - **amaru-kernel**: remove `From` instances between `NetworkName` and `GlobalParameters`, `ProtocolParameters` and `EraHistory` in favor of faillible `as_*`.
 - **pure-stage**: rename to `amaru-pure-stage` ([#954][])
+- **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
 
 ### Removed
 
@@ -71,3 +72,4 @@ Other guiding principles:
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#953]: https://github.com/pragma-org/amaru/pull/953
 [#954]: https://github.com/pragma-org/amaru/pull/954
+[#959]: https://github.com/pragma-org/amaru/pull/959

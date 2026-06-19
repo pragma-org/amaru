@@ -26,10 +26,21 @@ pub struct EraSummary {
 }
 
 impl EraSummary {
+    /// Check whether an era is empty; which may occurs for custom testnets where the first
+    /// eras are typically skipped. By convention, those eras have an epoch size of 0 and the start
+    /// and end slots are the same.
+    fn is_empty(&self) -> bool {
+        self.end.as_ref().is_some_and(|end| &self.start == end)
+    }
+
     /// Checks whether the current `EraSummary` ends after the given slot; In case
     /// where the EraSummary doesn't have any upper bound, then we check whether the
     /// point is within a foreseeable horizon.
     pub fn contains_slot(&self, slot: &Slot, tip: &Slot, stability_window: &Slot) -> bool {
+        if self.is_empty() {
+            return false;
+        }
+
         &self.end.as_ref().map(|end| end.slot).unwrap_or_else(|| self.calculate_end_bound(tip, stability_window).slot)
             >= slot
     }
@@ -37,6 +48,10 @@ impl EraSummary {
     /// Like contains_slot, but doesn't enforce anything about the upper bound. So when there's no
     /// upper bound, the slot is simply always considered within the era.
     pub fn contains_slot_unchecked_horizon(&self, slot: &Slot) -> bool {
+        if self.is_empty() {
+            return false;
+        }
+
         self.end.as_ref().map(|end| &end.slot >= slot).unwrap_or(true)
     }
 

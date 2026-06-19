@@ -456,6 +456,7 @@ impl EraHistory {
         if eras.is_empty() {
             panic!("EraHistory cannot be empty");
         }
+
         // TODO ensures only last era ends with Option
         EraHistory { stability_window, eras: eras.to_vec() }
     }
@@ -839,6 +840,46 @@ mod tests {
                 },
             ],
         }
+    }
+
+    #[test]
+    fn slot_to_epoch_with_null_eras_prefix() {
+        let eras = EraHistory::new(
+            &[
+                {
+                    let start = EraBound { time: Duration::from_secs(0), slot: Slot::new(0), epoch: Epoch::new(0) };
+                    let end = EraBound { time: Duration::from_secs(0), slot: Slot::new(0), epoch: Epoch::new(0) };
+                    let params = EraParams::from_bounds(&start, &end, EraName::Byron).unwrap();
+                    EraSummary { start, end: Some(end), params }
+                },
+                {
+                    let start = EraBound { time: Duration::from_secs(0), slot: Slot::new(0), epoch: Epoch::new(0) };
+                    let end = EraBound { time: Duration::from_secs(0), slot: Slot::new(0), epoch: Epoch::new(0) };
+                    let params = EraParams::from_bounds(&start, &end, EraName::Shelley).unwrap();
+                    EraSummary { start, end: Some(end), params }
+                },
+                {
+                    let start = EraBound { time: Duration::from_secs(0), slot: Slot::new(0), epoch: Epoch::new(0) };
+                    let params = default_params();
+                    EraSummary { start, end: None, params }
+                },
+            ],
+            Slot::new(25920),
+        );
+
+        let s0 = Slot::new(0);
+        let s1 = Slot::new(1);
+        let s2 = Slot::new(86400);
+
+        let e0 = Epoch::new(0);
+        let e1 = Epoch::new(1);
+
+        assert_eq!(eras.slot_to_epoch(s0, s0), Ok(e0), "slot=0; epoch=0");
+        assert_eq!(eras.slot_to_epoch_unchecked_horizon(s0), Ok(e0), "slot=0; epoch=0; unchecked");
+        assert_eq!(eras.slot_to_epoch(s1, s1), Ok(e0), "slot=1; epoch=0");
+        assert_eq!(eras.slot_to_epoch_unchecked_horizon(s1), Ok(e0), "slot=1; epoch=0; unchecked");
+        assert_eq!(eras.slot_to_epoch(s2, s2), Ok(e1), "slot=86400; epoch=1");
+        assert_eq!(eras.slot_to_epoch_unchecked_horizon(s2), Ok(e1), "slot=86400; epoch=1l unchecked");
     }
 
     #[test]
