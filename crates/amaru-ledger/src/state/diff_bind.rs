@@ -125,7 +125,7 @@ impl<A> From<Option<A>> for Resettable<A> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Empty;
 
 impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {

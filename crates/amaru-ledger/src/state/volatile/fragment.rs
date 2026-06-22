@@ -75,7 +75,7 @@ pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer)>>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Empty, Arc<DRepRegistration>>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
@@ -155,12 +155,6 @@ impl VolatileFragment {
 
     /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.
     /// This maintains the running aggregate of a [`crate::state::volatile::VolatileSeries`].
-    ///
-    /// `accounts`, `dreps` (with `dreps_deregistrations`) and `committee` are
-    /// deliberately not folded here: they are resolved against the stable store and
-    /// will be maintained as materialized state rather than a composed diff. The
-    /// exhaustive destructuring forces this decision to be revisited if a column is
-    /// added.
     pub fn compose(&mut self, more_recent: &VolatileFragment) {
         let VolatileFragment {
             utxo,
@@ -169,10 +163,10 @@ impl VolatileFragment {
             withdrawals,
             proposals,
             fees,
-            accounts: _,
-            dreps: _,
-            dreps_deregistrations: _,
-            committee: _,
+            accounts,
+            dreps,
+            dreps_deregistrations,
+            committee,
         } = more_recent;
 
         self.utxo.merge(utxo.clone());
@@ -180,6 +174,10 @@ impl VolatileFragment {
         self.pools.append(pools.clone());
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.iter().map(|(id, value)| (id.clone(), value.clone())));
+        self.accounts.append(accounts.clone());
+        self.dreps.append(dreps.clone());
+        self.dreps_deregistrations.extend(dreps_deregistrations.iter().map(|(k, v)| (k.clone(), *v)));
+        self.committee.append(committee.clone());
         self.fees += *fees;
     }
 }
@@ -344,10 +342,10 @@ pub(crate) fn add_accounts(
 // ------------------------------------------------------------------------------------------- DReps
 
 pub(crate) fn add_dreps(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, Arc<DRepRegistration>>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(move |(credential, Bind { left: anchor, right: _, value: registration }): (_, Bind<_, Empty, _>)| {
-        (credential, (anchor, registration))
+        (credential, (anchor, registration.map(Arc::unwrap_or_clone)))
     })
 }
 

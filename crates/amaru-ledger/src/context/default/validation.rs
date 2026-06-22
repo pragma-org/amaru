@@ -273,7 +273,7 @@ impl DRepsSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
-        self.state.dreps.register(drep, registration, anchor, None)?;
+        self.state.dreps.register(drep, Arc::new(registration), anchor, None)?;
         Ok(())
     }
 
