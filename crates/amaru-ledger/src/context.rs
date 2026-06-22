@@ -279,7 +279,7 @@ pub struct ProposalState {
 
 pub trait ProposalsSlice {
     /// The proposal at this point in the block, including ones acknowledged earlier in the block.
-    fn lookup(&self, id: &ComparableProposalId) -> Option<ProposalState>;
+    fn lookup(&self, id: &ComparableProposalId) -> Option<&ProposalState>;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;
