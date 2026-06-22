@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Account, Bytes, CertificatePointer, DRep, DRepRegistration, DRepState, Epoch, Hash, Lovelace, Network, NetworkName,
-    Nullable, PoolId, PoolMetadata, PoolParams, RationalNumber, Relay, RewardAccount, Set, StakeCredential,
-    StakePayload, StrictMaybe, cbor, new_stake_address, reward_account_to_stake_credential, size,
+    Account, Anchor, Bytes, CertificatePointer, DRep, DRepRegistration, DRepState, Epoch, Hash, Lovelace, Network,
+    NetworkName, Nullable, PoolId, PoolMetadata, PoolParams, RationalNumber, Relay, RewardAccount, Set,
+    StakeCredential, StakePayload, StrictMaybe, cbor, new_stake_address, reward_account_to_stake_credential, size,
 };
 
 /// The set of registered pool ids from a decoded pool state. The read-path only
@@ -35,6 +35,47 @@ pub fn pool_ids(pools: BTreeMap<PoolId, PoolParams>) -> BTreeSet<PoolId> {
 // registration instead.
 pub fn drep_registration(state: DRepState, registered_at: CertificatePointer) -> DRepRegistration {
     DRepRegistration { deposit: state.deposit, registered_at, valid_until: state.expiry }
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+pub enum ConstitutionalCommitteeAuthorization {
+    DelegatedToHotCredential(StakeCredential),
+    Resigned(StrictMaybe<Anchor>),
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| match d.u8()? {
+            0 => {
+                assert_len(2)?;
+                Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
+            }
+            1 => {
+                assert_len(2)?;
+                Ok(Self::Resigned(d.decode_with(ctx)?))
+            }
+            t => Err(cbor::decode::Error::message(format!(
+                "unexpected ConstitutionalCommitteeAuthorization kind: {t}; expected 0 or 1."
+            ))),
+        })
+    }
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+pub struct ConstitutionalCommittee {
+    pub members: BTreeMap<StakeCredential, Epoch>,
+    pub threshold: RationalNumber,
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(ConstitutionalCommittee { members: d.decode_with(ctx)?, threshold: d.decode_with(ctx)? })
+        })
+    }
 }
 
 pub fn decode_node_pool_state(
