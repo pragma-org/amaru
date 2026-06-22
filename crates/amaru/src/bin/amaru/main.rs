@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cmd::dev::DevCommand::Plutus(cmd) => match cmd {},
             cmd::dev::DevCommand::Traces(traces_cmd) => match traces_cmd {
                 cmd::dev::traces::TracesCommand::Dump(args) => cmd::dev::traces::dump::run(args).await,
+                cmd::dev::traces::TracesCommand::Schema(args) => cmd::dev::traces::dump::run(args).await,
             },
         },
         Command::Transaction(cmd) => match cmd {},

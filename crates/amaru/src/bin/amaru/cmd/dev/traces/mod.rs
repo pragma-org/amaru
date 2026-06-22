@@ -23,4 +23,7 @@ pub(crate) enum TracesCommand {
     /// This command outputs all registered trace schemas in JSON Schema format.
     /// Useful for documentation, tooling, and validation.
     Dump(dump::Args),
+
+    /// Get the traces JSON schema (alias for dump).
+    Schema(dump::Args),
 }
