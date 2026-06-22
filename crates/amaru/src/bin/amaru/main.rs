@@ -59,10 +59,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Command::Dev(dev_cmd) => match dev_cmd {
             cmd::dev::DevCommand::Chain(chain_cmd) => match chain_cmd {
-                cmd::dev::chain::ChainCommand::Dump(args) => cmd::dev::chain::dump::run(args).await,
+                cmd::dev::chain::ChainCommand::Ancestors(args) => cmd::dev::chain::ancestors::run(args).await,
+                cmd::dev::chain::ChainCommand::BestChain(args) => cmd::dev::chain::best_chain::run(args).await,
+                cmd::dev::chain::ChainCommand::Children(args) => cmd::dev::chain::children::run(args).await,
                 cmd::dev::chain::ChainCommand::ClearInvalid(args) => cmd::dev::chain::clear_invalid::run(args).await,
+                cmd::dev::chain::ChainCommand::Dump(args) => cmd::dev::chain::dump::run(args).await,
                 cmd::dev::chain::ChainCommand::Fetch(args) => cmd::dev::chain::fetch::run(args).await,
                 cmd::dev::chain::ChainCommand::Migrate(args) => cmd::dev::chain::migrate::run(args).await,
+                cmd::dev::chain::ChainCommand::Prune(args) => cmd::dev::chain::prune::run(args).await,
                 cmd::dev::chain::ChainCommand::Remove(args) => cmd::dev::chain::remove::run(args).await,
             },
             cmd::dev::DevCommand::Ledger(cmd) => match cmd {},

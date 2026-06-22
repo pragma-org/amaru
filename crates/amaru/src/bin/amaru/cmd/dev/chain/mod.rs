@@ -14,14 +14,30 @@
 
 use clap::Subcommand;
 
+pub(crate) mod ancestors;
+pub(crate) mod best_chain;
+pub(crate) mod children;
 pub(crate) mod clear_invalid;
 pub(crate) mod dump;
 pub(crate) mod fetch;
 pub(crate) mod migrate;
+pub(crate) mod prune;
 pub(crate) mod remove;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ChainCommand {
+    /// Walk back from a given point showing block height, presence, validation status and best chain flag.
+    Ancestors(ancestors::Args),
+
+    /// Show the best chain tip and computed best tip candidate.
+    BestChain(best_chain::Args),
+
+    /// Walk forward from a given point showing child tips with validation status.
+    Children(children::Args),
+
+    /// Clear the validation status of the given blocks from the chain database.
+    ClearInvalid(clear_invalid::Args),
+
     /// Dump the content of the chain database for troubleshooting purposes.
     ///
     /// This command dumps the _whole_ content of the chain database in a human-readable format:
@@ -32,9 +48,6 @@ pub(crate) enum ChainCommand {
     ///  - Best chain anchor, tip and length
     Dump(dump::Args),
 
-    /// Clear the validation status of the given blocks from the chain database.
-    ClearInvalid(clear_invalid::Args),
-
     /// Fetch specified chain headers.
     Fetch(fetch::Args),
 
@@ -43,6 +56,9 @@ pub(crate) enum ChainCommand {
     /// This command is only relevant when one upgrades Amaru to a newer version that
     /// requires changes in the database format.
     Migrate(migrate::Args),
+
+    /// Prune old chain data going backward, limited by available ledger states.
+    Prune(prune::Args),
 
     /// Remove the given chain fragment from the chain database.
     Remove(remove::Args),
