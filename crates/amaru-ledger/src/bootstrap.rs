@@ -20,11 +20,12 @@ use std::{
 };
 
 use amaru_kernel::{
-    Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepRegistration,
+    Account, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution, DRep, DRepRegistration,
     DRepState, Epoch, EraHistory, Hash, Lovelace, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Reward, Set,
-    Slot, StakeCredential, StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
-    new_epoch_state,
+    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolParameters, Reward, Set, Slot,
+    StakeCredential, StrictMaybe, TransactionPointer, Vote, Voter, cbor,
+    cbor::lazy::LazyDecoder,
+    new_epoch_state::{self, ConstitutionalCommittee, ConstitutionalCommitteeAuthorization},
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -900,47 +901,6 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
                 proposed_in: d.decode_with(ctx)?,
                 expires_after: d.decode_with(ctx)?,
             })
-        })
-    }
-}
-
-// TODO: Move to Pallas
-#[derive(Debug)]
-enum ConstitutionalCommitteeAuthorization {
-    DelegatedToHotCredential(StakeCredential),
-    Resigned(#[expect(dead_code)] StrictMaybe<Anchor>),
-}
-
-impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {
-    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| match d.u8()? {
-            0 => {
-                assert_len(2)?;
-                Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
-            }
-            1 => {
-                assert_len(2)?;
-                Ok(Self::Resigned(d.decode_with(ctx)?))
-            }
-            t => Err(cbor::decode::Error::message(format!(
-                "unexpected ConstitutionalCommitteeAuthorization kind: {t}; expected 0 or 1."
-            ))),
-        })
-    }
-}
-
-// TODO: Move to Pallas
-#[derive(Debug)]
-struct ConstitutionalCommittee {
-    members: BTreeMap<StakeCredential, Epoch>,
-    threshold: RationalNumber,
-}
-
-impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
-    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(2)?;
-            Ok(ConstitutionalCommittee { members: d.decode_with(ctx)?, threshold: d.decode_with(ctx)? })
         })
     }
 }
