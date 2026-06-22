@@ -229,6 +229,8 @@ pub use serde_json as json;
 
 pub mod macros;
 
+pub mod new_epoch_state;
+
 mod traits;
 pub use traits::{
     AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasNetwork, HasOwnership, HasRedeemers,

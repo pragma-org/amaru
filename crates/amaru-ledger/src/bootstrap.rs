@@ -24,6 +24,7 @@ use amaru_kernel::{
     DRepState, Epoch, EraHistory, Hash, Lovelace, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId,
     PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Reward, Set,
     Slot, StakeCredential, StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
+    new_epoch_state,
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -101,16 +102,6 @@ pub fn import_initial_snapshot(
     era_history: &EraHistory,
     network: NetworkName,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-    decode_pool_state: for<'a> fn(
-        &mut cbor::Decoder<'a>,
-        NetworkName,
-    ) -> Result<
-        (BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>),
-        cbor::decode::Error,
-    >,
-    decode_accounts: for<'a> fn(
-        &mut cbor::Decoder<'a>,
-    ) -> Result<BTreeMap<StakeCredential, Account>, cbor::decode::Error>,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
     let mut decoder = LazyDecoder::new(reader);
     let tip = point.slot_or_default();
@@ -165,13 +156,15 @@ pub fn import_initial_snapshot(
         Ok(governance_activity)
     })?;
 
-    let (pools, pools_updates, pools_retirements) =
-        decoder.with_decoder(|d| Ok(decode_pool_state(d, network)?)).map_err(format_pool_state_decode_error)?;
+    let (pools, pools_updates, pools_retirements) = decoder
+        .with_decoder(|d| Ok(new_epoch_state::decode_node_pool_state(d, network)?))
+        .map_err(format_pool_state_decode_error)?;
     import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
         .map_err(|err| format!("import pool state: {err}"))?;
 
-    let accounts =
-        decoder.with_decoder(|d| Ok(decode_accounts(d)?)).map_err(|err| format!("decode accounts: {err}"))?;
+    let accounts = decoder
+        .with_decoder(|d| Ok(new_epoch_state::decode_node_accounts(d)?))
+        .map_err(|err| format!("decode accounts: {err}"))?;
 
     skip_embedded_utxo(&mut decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
 
