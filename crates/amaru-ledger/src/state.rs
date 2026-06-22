@@ -899,7 +899,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let mut resolved_from_volatile = 0;
         let mut resolved_from_db = 0;
 
-        let lifetime = self.protocol_parameters().gov_action_lifetime;
         let db = self.stable.lock().unwrap();
 
         // TODO: perform lookup in batch, and possibly within the same transaction as other
@@ -920,6 +919,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 Existence::Exists(record) => {
                     let (proposal, proposed_in) = Arc::unwrap_or_clone(record);
                     let proposed_in_epoch = unsafe_slot_to_epoch(&self.era_history, proposed_in.transaction.slot);
+                    let lifetime = self.protocol_parameters_for(proposed_in_epoch).gov_action_lifetime;
                     if from_context {
                         resolved_from_context += 1;
                     } else {
