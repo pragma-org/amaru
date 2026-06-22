@@ -909,16 +909,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let from_context = matches!(ongoing, Existence::Exists(_));
 
             let verdict = match ongoing {
-                Existence::Exists(record) => Existence::Exists(record),
-                Existence::Gone => Existence::Gone,
                 Existence::Unknown => self.volatile.resolve_proposal(id),
+                decided @ (Existence::Exists(_) | Existence::Gone) => decided,
             };
 
             let state = match verdict {
                 // pruned at the boundary; skip the stale stable entry
                 Existence::Gone => None,
                 Existence::Exists(record) => {
-                    let (proposal, proposed_in) = (record.0.clone(), record.1);
+                    let (proposal, proposed_in) = Arc::unwrap_or_clone(record);
                     let proposed_in_epoch = unsafe_slot_to_epoch(&self.era_history, proposed_in.transaction.slot);
                     if from_context {
                         resolved_from_context += 1;
