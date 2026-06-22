@@ -209,6 +209,9 @@ generate-test-snapshots: ## &test Generate test snapshots for test-e2e
 	@npm --prefix conformance-tests run generate-all -- "$(AMARU_NETWORK)"
 	@./scripts/generate-snapshot-test-cases
 
+regenerate-cbor-fixtures: ## &test Regenerate cuddle/antigen CBOR fixtures (requires GHC + cabal)
+	@./scripts/regenerate-cbor-fixtures
+
 test-e2e: ## &test Run snapshot tests, assuming snapshots are available
 	cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 

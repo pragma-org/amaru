@@ -1,0 +1,30 @@
+schema-version = "1.12.0"
+
+[install]
+# Haskell build toolchain (used once by `cabal install cuddle`).
+cabal-install.pkg-path = "cabal-install"
+ghc.pkg-path = "ghc"
+
+# C-side build deps cuddle's cardano-binary stack pulls in.
+# `outputs = "all"` is required so the `dev` outputs (.pc files, headers)
+# are linked into PATH / PKG_CONFIG_PATH.
+pkg-config.pkg-path = "pkg-config"
+autoconf.pkg-path = "autoconf"
+libtool.pkg-path = "libtool"
+libsodium.pkg-path = "libsodium"
+libsodium.outputs = "all"
+secp256k1.pkg-path = "secp256k1"
+secp256k1.outputs = "all"
+blst.pkg-path = "blst"
+blst.outputs = "all"
+
+# Used by the script for blake2b hashing and meta.json manipulation.
+python3.pkg-path = "python3"
+
+[options]
+systems = [
+  "aarch64-darwin",
+  "x86_64-darwin",
+  "aarch64-linux",
+  "x86_64-linux",
+]

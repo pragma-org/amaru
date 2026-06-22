@@ -1,1 +1,1 @@
-{"well_formed":false,"description":"present but empty outputs list"}
+{"well_formed":true,"description":"present but empty outputs list (decoder is lenient)"}

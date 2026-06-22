@@ -79,6 +79,18 @@ impl Block {
             self.header.header_body.block_number.into(),
         )
     }
+
+    /// Compare two `Block`s by their CBOR-encoded forms.
+    ///
+    /// The derived `PartialEq` compares every field, including ones that are derived from the
+    /// input bytes at decode time.
+    ///
+    /// Those field could legitimately differ after a re-encode -> re-decode round-trip.
+    /// This method bypasses the issue by encoding both blocks and comparing the resulting bytes.
+    /// (the `#[cbor(skip)]` fields are then excluded from the equality by construction)
+    pub fn cbor_eq(&self, other: &Self) -> bool {
+        amaru_minicbor_extra::to_cbor(self) == amaru_minicbor_extra::to_cbor(other)
+    }
 }
 
 impl IntoIterator for Block {

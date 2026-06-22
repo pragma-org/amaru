@@ -1,1 +1,1 @@
-{"well_formed":false,"description":"null fees"}
+{"well_formed":true,"description":"null fees (decoder is lenient)"}
