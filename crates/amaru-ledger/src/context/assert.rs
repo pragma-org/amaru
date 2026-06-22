@@ -265,7 +265,7 @@ impl CommitteeSlice for AssertValidationContext {
 }
 
 impl ProposalsSlice for AssertValidationContext {
-    fn lookup(&self, _id: &ComparableProposalId) -> Option<ProposalState> {
+    fn lookup(&self, _id: &ComparableProposalId) -> Option<&ProposalState> {
         unimplemented!()
     }
 

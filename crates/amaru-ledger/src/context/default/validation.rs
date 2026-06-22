@@ -357,10 +357,10 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn lookup(&self, id: &ComparableProposalId) -> Option<ProposalState> {
+    fn lookup(&self, id: &ComparableProposalId) -> Option<&ProposalState> {
         // TODO: also fold proposals acknowledged earlier in this block, once the voting rule needs
         // it. Their expiry is the current epoch's horizon, which that rule already has.
-        self.proposals.get(id).cloned()
+        self.proposals.get(id)
     }
 
     fn roots(&self) -> &ProposalsRoots {
