@@ -772,7 +772,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 Existence::Exists(bind) => {
                     let resolved = if let Some(record) = bind.value {
                         // fresh registration; carries its own record
-                        Some(record)
+                        Some(*record)
                     } else {
                         db.drep(credential)?.map(|row| DRepRegistration {
                             deposit: row.deposit,

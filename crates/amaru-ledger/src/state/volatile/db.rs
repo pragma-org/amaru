@@ -150,7 +150,11 @@ impl VolatileStore for VolatileDB {
 impl VolatileDB {
     /// Construct an empty volatile DB whose overlay is anchored to the given epoch.
     pub fn new(epoch: Epoch) -> Self {
-        Self { current: VolatileSeries::default(), draining: VolatileSeries::default(), overlay: StateOverlay::new(epoch) }
+        Self {
+            current: VolatileSeries::default(),
+            draining: VolatileSeries::default(),
+            overlay: StateOverlay::new(epoch),
+        }
     }
 
     /// A read-only handle on the epoch-transition overlay.
