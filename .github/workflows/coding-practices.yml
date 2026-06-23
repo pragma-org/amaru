@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Required to expose outputs to dependent jobs (unused-dependencies, licenses-compatibility)
     outputs:
+      crates: ${{ steps.changes.outputs.crates }}
       dependencies: ${{ steps.changes.outputs.dependencies }}
     steps:
       - uses: actions/checkout@v6
@@ -29,11 +30,24 @@ jobs:
         id: changes
         with:
           filters: |
+            crates:
+              - "crates/**"
             dependencies:
               - "Cargo.toml"
               - "Cargo.lock"
               - "crates/**/Cargo.toml"
               - "crates/**/Cargo.lock"
+
+  changelog:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.crates == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate changelog updates
+        run: python3 scripts/check-changelog
 
   unused-dependencies:
     runs-on: ubuntu-24.04

@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+
+# Copyright 2026 PRAGMA
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from datetime import date, timedelta
+from pathlib import Path
+
+
+UNRELEASED_HEADER_RE = re.compile(
+    r"^##\s+(v\d+\.\d+\.\d{8})(?:\s+.*?(?P<planned_date>\d{4}-\d{2}-\d{2}).*)?\s*$"
+)
+RELEASED_HEADER_RE = re.compile(r"^## \[(v\d+\.\d+\.\d{8})\]\(([^)]+)\)$")
+
+
+def next_thursday(today: date) -> date:
+    days = (3 - today.weekday()) % 7
+    if days == 0:
+        days = 7
+    return today + timedelta(days=days)
+
+
+def warning(message: str) -> None:
+    print(f"warning: {message}", file=sys.stderr)
+
+
+def insert_next_release_header(lines: list[str], version: str, release_day: date) -> list[str]:
+    major, minor, _patch = version.split(".", 2)
+    next_day = next_thursday(release_day)
+    next_version = f"v{major}.{minor}.{next_day.strftime('%Y%m%d')}"
+    next_header = f"## {next_version} _[unreleased; planned for {next_day.isoformat()}]_"
+
+    if any((match := UNRELEASED_HEADER_RE.match(line)) and match.group(1) == next_version for line in lines):
+        return lines
+
+    insert_at = 1
+    while insert_at < len(lines) and lines[insert_at].startswith("<!--"):
+        insert_at += 1
+    while insert_at < len(lines) and not lines[insert_at].startswith("## "):
+        insert_at += 1
+
+    return lines[:insert_at] + ["", next_header, ""] + lines[insert_at:]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--release-tag", required=True)
+    parser.add_argument("--repo", default="pragma-org/amaru")
+    parser.add_argument("--changelog", default="CHANGELOG.md")
+    args = parser.parse_args()
+
+    changelog_path = Path(args.changelog)
+    lines = changelog_path.read_text(encoding="utf-8").splitlines()
+
+    release_version = f"v{args.version}"
+    release_url = f"https://github.com/{args.repo}/releases/tag/{args.release_tag}"
+    release_day = date.fromisoformat(f"{args.version[-8:-4]}-{args.version[-4:-2]}-{args.version[-2:]}")
+
+    try:
+        updated = False
+        for index, line in enumerate(lines):
+            match = UNRELEASED_HEADER_RE.match(line)
+            if match and match.group(1) == release_version:
+                lines[index] = f"## [{release_version}]({release_url})"
+                updated = True
+                break
+            match = RELEASED_HEADER_RE.match(line)
+            if match and match.group(1) == release_version:
+                updated = True
+                break
+
+        if not updated:
+            warning(f"could not find changelog header for {release_version}")
+
+        lines = insert_next_release_header(lines, args.version, release_day)
+        changelog_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception as err:  # pragma: no cover
+        warning(f"failed to update changelog: {err}")
+        return 0
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

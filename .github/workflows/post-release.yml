@@ -144,6 +144,18 @@ jobs:
           chmod +x scripts/update-readme-installation-sections
           ./scripts/update-readme-installation-sections --version "${VERSION}"
 
+      - name: Update changelog release headers
+        continue-on-error: true
+        shell: bash
+        env:
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
+        run: |
+          python3 scripts/update-changelog-after-release \
+            --version "${VERSION}" \
+            --release-tag "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}"
+
       - name: Create packaging update PR
         uses: peter-evans/create-pull-request@v8
         with:
@@ -157,6 +169,7 @@ jobs:
 
             This PR was created automatically by the `release-published` workflow.
           add-paths: |
+            CHANGELOG.md
             Formula/**
             flake.nix
             README.md

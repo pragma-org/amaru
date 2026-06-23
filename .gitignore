@@ -68,3 +68,6 @@ dist/
 # with the repo. Build artefacts inside .flox/ (cache/, run/, log/, lib/)
 # are filtered by .flox/.gitignore.
 !.flox/
+
+# Python scripts
+__pycache__
