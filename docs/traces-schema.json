@@ -1719,6 +1719,84 @@
       "description": "Full-table scan via IterBorrow (tick/epoch operations)",
       "public": true
     },
+    "amaru::stores::ledger::columns::LAST_OPCERT_SEQUENCE_NUMBER_GET": {
+      "type": "object",
+      "properties": {
+        "db_system_name": {
+          "type": "string"
+        },
+        "db_operation_name": {
+          "type": "string"
+        },
+        "db_collection_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "db_system_name",
+        "db_operation_name",
+        "db_collection_name"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "last_opcert_sequence_number_get",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::columns",
+      "description": "Point-read an opcert last sequence number entry",
+      "public": true
+    },
+    "amaru::stores::ledger::columns::LAST_OPCERT_SEQUENCE_NUMBER_PUT": {
+      "type": "object",
+      "properties": {
+        "db_system_name": {
+          "type": "string"
+        },
+        "db_operation_name": {
+          "type": "string"
+        },
+        "db_collection_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "db_system_name",
+        "db_operation_name",
+        "db_collection_name"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "last_opcert_sequence_number_put",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::columns",
+      "description": "Write an opcert last sequence number entry",
+      "public": true
+    },
+    "amaru::stores::ledger::columns::LAST_OPCERT_SEQUENCE_NUMBER_REMOVE": {
+      "type": "object",
+      "properties": {
+        "db_system_name": {
+          "type": "string"
+        },
+        "db_operation_name": {
+          "type": "string"
+        },
+        "db_collection_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "db_system_name",
+        "db_operation_name",
+        "db_collection_name"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "last_opcert_sequence_number_remove",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::columns",
+      "description": "Remove an opcert last sequence number entry",
+      "public": true
+    },
     "amaru::stores::ledger::columns::POOLS_ADD": {
       "type": "object",
       "properties": {

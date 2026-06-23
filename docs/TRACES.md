@@ -636,6 +636,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `dreps_remove` | `TRACE` | public | Record DRep de-registration | db_system_name, db_operation_name, db_collection_name |  |
 | `dreps_set_valid_until` | `TRACE` | public | Refresh DRep expiry after a vote | db_system_name, db_operation_name, db_collection_name |  |
 | `iter_scan` | `TRACE` | public | Full-table scan via IterBorrow (tick/epoch operations) | db_system_name, db_operation_name, db_collection_name | rows_scanned, rows_written, rows_deleted |
+| `last_opcert_sequence_number_get` | `TRACE` | public | Point-read an opcert last sequence number entry | db_system_name, db_operation_name, db_collection_name |  |
+| `last_opcert_sequence_number_put` | `TRACE` | public | Write an opcert last sequence number entry | db_system_name, db_operation_name, db_collection_name |  |
+| `last_opcert_sequence_number_remove` | `TRACE` | public | Remove an opcert last sequence number entry | db_system_name, db_operation_name, db_collection_name |  |
 | `pools_add` | `TRACE` | public | Batch-upsert pool entries | db_system_name, db_operation_name, db_collection_name |  |
 | `pools_get` | `TRACE` | public | Point-read a pool entry | db_system_name, db_operation_name, db_collection_name |  |
 | `pools_remove` | `TRACE` | public | Schedule pool retirement | db_system_name, db_operation_name, db_collection_name |  |
@@ -760,6 +763,36 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `rows_scanned` | `integer` |  |
 | `rows_written` | `integer` |  |
 | `rows_deleted` | `integer` |  |
+
+</details>
+
+<details><summary>span: `last_opcert_sequence_number_get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `last_opcert_sequence_number_put`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `last_opcert_sequence_number_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
 
 </details>
 

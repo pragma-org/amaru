@@ -427,6 +427,10 @@ macro_rules! impl_ReadStore_body {
                 pools::get(|key| self.db.get_pinned(key), pool)
             }
 
+            fn operational_cert_sequence_number(&self, pool: &PoolId) -> Result<Option<scolumns::opcerts::Row>, StoreError> {
+                opcerts::get(|key| self.db.get_pinned(key), pool)
+            }
+
             fn account(
                 &self,
                 credential: &StakeCredential,
@@ -777,6 +781,18 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(governance_activity)
     }
 
+    fn save_operational_cert_sequence_number(
+        &self,
+        issuer: &scolumns::pools::Key,
+        operational_cert_sequence_number: u64,
+    ) -> Result<(), StoreError> {
+        opcerts::put(&self.db, issuer, scolumns::opcerts::Row::new(operational_cert_sequence_number))
+    }
+
+    fn remove_operational_cert_sequence_number(&self, issuer: &scolumns::pools::Key) -> Result<(), StoreError> {
+        opcerts::remove(&self.db, issuer)
+    }
+
     fn with_pots<'db>(
         &self,
         mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
@@ -811,6 +827,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn with_block_issuers(&self, with: impl FnMut(scolumns::slots::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, slots::PREFIX, "slots", with)
+    }
+
+    fn with_last_operational_cert_sequence_numbers(
+        &self,
+        with: impl FnMut(scolumns::opcerts::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.db, opcerts::PREFIX, "opcerts", with)
     }
 
     fn with_dreps(&self, with: impl FnMut(scolumns::dreps::Iter<'_, '_>)) -> Result<(), StoreError> {

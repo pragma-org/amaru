@@ -206,6 +206,9 @@ pub trait ReadStore {
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>>;
 
+    /// Get the last operational cert sequence number for a given pool id
+    fn operational_cert_sequence_number(&self, pool_id: &PoolId) -> Result<Option<opcerts::Row>>;
+
     /// Get details about a specific Account
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>>;
 
@@ -346,6 +349,14 @@ pub trait TransactionalContext<'a>: ReadStore {
         withdrawals: impl Iterator<Item = accounts::Key>,
     ) -> Result<GovernanceActivity>;
 
+    fn save_operational_cert_sequence_number(
+        &self,
+        issuer: &pools::Key,
+        operational_cert_sequence_number: u64,
+    ) -> Result<()>;
+
+    fn remove_operational_cert_sequence_number(&self, issuer: &pools::Key) -> Result<()>;
+
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
     /// deposit.
     fn refund(&self, credential: &accounts::Key, deposit: Lovelace) -> Result<Lovelace>;
@@ -394,6 +405,9 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// stored as a bounded FIFO, so it only make sense to use this function at the end of an epoch
     /// (or at the beginning, before any block is applied, depending on your perspective).
     fn with_block_issuers(&self, with: impl FnMut(slots::Iter<'_, '_>)) -> Result<()>;
+
+    /// Provide an iterator over opcerts last sequence numbers
+    fn with_last_operational_cert_sequence_numbers(&self, with: impl FnMut(opcerts::Iter<'_, '_>)) -> Result<()>;
 
     /// Provide an access to iterate over utxo, similar to 'with_pools'.
     fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<()>;

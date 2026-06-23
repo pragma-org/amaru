@@ -27,7 +27,7 @@ use amaru_kernel::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
-use amaru_ouroboros_traits::{PoolSummary, pools::GetPoolError};
+use amaru_ouroboros_traits::{PoolSummary, StoreError::ReadError, pools::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
@@ -211,6 +211,22 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[expect(clippy::unwrap_used)]
+    pub fn operational_cert_sequence_number(&self, pool_id: &PoolId) -> Result<Option<u64>, StoreError> {
+        // Iterate from most recent to least recent
+        for fragment in self.volatile.iter().rev() {
+            if fragment.issuer() == *pool_id {
+                return Ok(Some(fragment.operational_cert_sequence_number()));
+            }
+        }
+        Ok(self
+            .stable
+            .lock()
+            .unwrap()
+            .operational_cert_sequence_number(pool_id)?
+            .map(|row| row.latest_opcert_sequence_number))
+    }
+
+    #[expect(clippy::unwrap_used)]
     pub fn registered_relay_socket_addrs(
         &self,
     ) -> Result<std::collections::BTreeSet<std::net::SocketAddr>, StoreError> {
@@ -270,7 +286,18 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             view.iter().find(|s| s.epoch == epoch).ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
 
         match stake_distribution.pools.get(pool) {
-            Some(st) => Ok(Some(PoolSummary::new(st.parameters.vrf, st.stake, stake_distribution.active_stake))),
+            Some(st) => {
+                let operational_cert_sequence_number = self
+                    .operational_cert_sequence_number(pool)
+                    .map_err(|e| GetPoolError::StoreError(ReadError { error: e.to_string() }))?
+                    .unwrap_or_default();
+                Ok(Some(PoolSummary::new(
+                    st.parameters.vrf,
+                    st.stake,
+                    stake_distribution.active_stake,
+                    operational_cert_sequence_number,
+                )))
+            }
             None => Ok(None),
         }
     }
@@ -297,8 +324,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         trace_span!(amaru_observability::amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(tip_slot)).in_scope(
             || {
                 // Persist changes for this block
-                let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
-                    now_stable.into_store_update(tip_epoch, self.protocol_parameters());
+                let StoreUpdate {
+                    point: stable_point,
+                    issuer: stable_issuer,
+                    operational_cert_sequence_number,
+                    fees,
+                    add,
+                    remove,
+                    withdrawals,
+                } = now_stable.into_store_update(tip_epoch, self.protocol_parameters());
 
                 let db = self.stable.lock().unwrap();
 
@@ -314,6 +348,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                             remove,
                             withdrawals,
                         )?;
+
+                        batch
+                            .save_operational_cert_sequence_number(&stable_issuer, operational_cert_sequence_number)?;
 
                         batch.with_pots(|mut row| {
                             row.borrow_mut().fees += fees;
@@ -729,6 +766,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             BlockValidation::from(self.try_epoch_transition(*point))?;
 
             let issuer: PoolId = block.issuer();
+            let operational_cert_sequence_number = block.operational_cert_sequence_number();
 
             let metrics = self.new_metrics(point, &block, issuer);
 
@@ -749,7 +787,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             // 5. Record new volatile state
             let tip = Tip::new(*point, block_height.into());
-            let fragment = VolatileFragment::from(context).anchor(tip, issuer);
+            let fragment = VolatileFragment::from(context).anchor(tip, issuer, operational_cert_sequence_number);
             if let Some(now_stable) = BlockValidation::from(self.push_fragment(fragment))? {
                 // 6-7. Flush overlay & Apply now-stable block
                 BlockValidation::from(self.apply_block(now_stable))?;
