@@ -37,6 +37,7 @@ use amaru_ledger::{
     summary::Pots,
 };
 use amaru_observability::{info_span, trace_record, trace_span};
+use anyhow::anyhow;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
@@ -214,9 +215,8 @@ impl RocksDB {
 }
 
 fn map_rocksdb_open_error(path: &Path, error: rocksdb::Error) -> StoreError {
-    let message = error.to_string();
-    if is_rocksdb_lock_error(&message) {
-        StoreError::Open(OpenErrorKind::locked(path, message))
+    if is_rocksdb_lock_error(error.as_ref()) {
+        StoreError::Open(OpenErrorKind::locked(path, anyhow!(error)))
     } else {
         StoreError::Internal(error.into())
     }

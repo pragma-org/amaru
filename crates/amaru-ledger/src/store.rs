@@ -17,7 +17,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, io, iter,
     ops::Deref,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use amaru_kernel::ProposalId;
@@ -58,12 +58,16 @@ pub use epoch_transition::{
 pub enum OpenErrorKind {
     #[error("IO error with file '{file}': {source}")]
     IO {
-        file: String,
+        file: PathBuf,
         #[source]
         source: io::Error,
     },
-    #[error("RocksDB database '{file}' is locked: {message}")]
-    Locked { file: String, message: String },
+    #[error("Ledger store at '{file}' is locked: {source}")]
+    Locked {
+        file: PathBuf,
+        #[source]
+        source: anyhow::Error,
+    },
     #[error("no ledger stable snapshot found; at least two are expected")]
     NoStableSnapshot,
 }
@@ -99,12 +103,12 @@ impl StoreError {
 }
 
 impl OpenErrorKind {
-    pub fn io_with_file<P: AsRef<Path>>(file: P, error: io::Error) -> Self {
-        Self::IO { file: file.as_ref().display().to_string(), source: error }
+    pub fn io_with_file<P: AsRef<Path>>(file: P, source: io::Error) -> Self {
+        Self::IO { file: file.as_ref().to_path_buf(), source }
     }
 
-    pub fn locked<P: AsRef<Path>>(file: P, message: impl Into<String>) -> Self {
-        Self::Locked { file: file.as_ref().display().to_string(), message: message.into() }
+    pub fn locked<P: AsRef<Path>>(file: P, source: anyhow::Error) -> Self {
+        Self::Locked { file: file.as_ref().to_path_buf(), source }
     }
 }
 

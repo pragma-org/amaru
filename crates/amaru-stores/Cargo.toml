@@ -17,10 +17,11 @@ categories.workspace = true
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+anyhow.workspace = true
 hex.workspace = true
+rand = { workspace = true, optional = true }
 rocksdb = { workspace = true, optional = true }
 tracing.workspace = true
-rand = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
