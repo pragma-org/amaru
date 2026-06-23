@@ -36,7 +36,7 @@ use amaru_pure_stage::{
     trace_buffer::TraceBuffer,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
@@ -107,8 +107,7 @@ pub fn build_node(
     let era_history = &config.era_history;
 
     // Make the ledger and get its tip
-    let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone())
-        .context("Failed to create ledger. Have you bootstrapped your node?")?;
+    let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone())?;
 
     let ledger_tip = ledger.get_tip();
     tracing::info!(

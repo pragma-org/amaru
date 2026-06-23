@@ -37,6 +37,7 @@ use amaru_ledger::{
     summary::Pots,
 };
 use amaru_observability::{info_span, trace_record, trace_span};
+use anyhow::anyhow;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
@@ -190,25 +191,40 @@ impl RocksDB {
     pub fn new(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let dir = config.dir.clone();
         assert_sufficient_snapshots(&dir)?;
+        let live_dir = dir.join(DIR_LIVE_DB);
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
-        OptimisticTransactionDB::open(&opts, dir.join(DIR_LIVE_DB))
+        OptimisticTransactionDB::open(&opts, &live_dir)
             .map(|db| Self { dir, incremental_save: false, db, ongoing_transaction: OngoingTransaction::new() })
-            .map_err(|err| StoreError::Internal(err.into()))
+            .map_err(|err| map_rocksdb_open_error(&live_dir, err))
     }
 
     pub fn empty(config: &RocksDbConfig) -> Result<RocksDB, StoreError> {
         let dir = config.dir.clone();
+        let live_dir = dir.join(DIR_LIVE_DB);
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
-        OptimisticTransactionDB::open(&opts, dir.join(DIR_LIVE_DB))
+        OptimisticTransactionDB::open(&opts, &live_dir)
             .map(|db| Self { dir, incremental_save: true, db, ongoing_transaction: OngoingTransaction::new() })
-            .map_err(|err| StoreError::Internal(err.into()))
+            .map_err(|err| map_rocksdb_open_error(&live_dir, err))
     }
 
     fn transaction_ended(&self) {
         self.ongoing_transaction.set(false);
     }
+}
+
+fn map_rocksdb_open_error(path: &Path, error: rocksdb::Error) -> StoreError {
+    if is_rocksdb_lock_error(error.as_ref()) {
+        StoreError::Open(OpenErrorKind::locked(path, anyhow!(error)))
+    } else {
+        StoreError::Internal(error.into())
+    }
+}
+
+fn is_rocksdb_lock_error(message: &str) -> bool {
+    let lowercase = message.to_ascii_lowercase();
+    lowercase.contains("lock") && (message.contains("/LOCK") || message.contains("\\LOCK"))
 }
 
 // RocksDBReadOnly
@@ -224,10 +240,11 @@ impl ReadOnlyRocksDB {
     pub fn new(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let dir = config.dir.clone();
         assert_sufficient_snapshots(&dir)?;
+        let live_dir = dir.join(DIR_LIVE_DB);
         let opts = set_default_opts(config.into());
-        rocksdb::DB::open_for_read_only(&opts, dir.join(DIR_LIVE_DB), false)
+        rocksdb::DB::open_for_read_only(&opts, &live_dir, false)
             .map(|db| ReadOnlyRocksDB { db })
-            .map_err(|err| StoreError::Internal(err.into()))
+            .map_err(|err| map_rocksdb_open_error(&live_dir, err))
     }
 }
 
@@ -300,9 +317,10 @@ pub struct RocksDBHistoricalStores {
 impl RocksDBHistoricalStores {
     pub fn for_epoch_with(config: &RocksDbConfig, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
         let base_dir = config.dir.clone();
+        let snapshot_dir = base_dir.join(PathBuf::from(format!("{epoch}")));
         let opts = set_default_opts(config.into());
-        OptimisticTransactionDB::open(&opts, base_dir.join(PathBuf::from(format!("{epoch}"))))
-            .map_err(|err| StoreError::Internal(err.into()))
+        OptimisticTransactionDB::open(&opts, &snapshot_dir)
+            .map_err(|err| map_rocksdb_open_error(&snapshot_dir, err))
             .map(|db| RocksDBSnapshot { epoch, db })
     }
 
@@ -996,7 +1014,7 @@ fn with_prefix_iterator<
 #[cfg(test)]
 mod tests {
     use amaru_kernel::PREPROD_ERA_HISTORY;
-    use amaru_ledger::store::{Store, StoreError};
+    use amaru_ledger::store::{OpenErrorKind, Store, StoreError};
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 
@@ -1036,6 +1054,16 @@ mod tests {
 
         let ro_db = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into())).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
+    }
+
+    #[test]
+    fn open_locked_writer_returns_locked_error() {
+        let dir = TempDir::new().unwrap();
+        let _db = RocksDB::empty(&RocksDbConfig::new(dir.path().into())).expect("first writer opens");
+
+        let result = RocksDB::empty(&RocksDbConfig::new(dir.path().into()));
+
+        assert!(matches!(result, Err(StoreError::Open(OpenErrorKind::Locked { .. }))));
     }
 
     #[test]

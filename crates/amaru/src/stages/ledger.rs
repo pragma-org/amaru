@@ -41,6 +41,7 @@ impl Ledger {
             era_history,
             global_parameters,
         )?;
+
         Ok(Ledger(ledger))
     }
 

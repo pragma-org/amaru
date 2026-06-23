@@ -17,7 +17,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, io, iter,
     ops::Deref,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use amaru_kernel::ProposalId;
@@ -56,11 +56,17 @@ pub use epoch_transition::{
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub enum OpenErrorKind {
-    #[error("IO error with file '{file}': {source}")]
+    #[error("IO error with file '{file}'")]
     IO {
-        file: String,
+        file: PathBuf,
         #[source]
         source: io::Error,
+    },
+    #[error("Ledger store at '{file}' is locked")]
+    Locked {
+        file: PathBuf,
+        #[source]
+        source: anyhow::Error,
     },
     #[error("no ledger stable snapshot found; at least two are expected")]
     NoStableSnapshot,
@@ -83,7 +89,17 @@ pub enum StoreError {
     #[error("error sending work unit through output port")]
     Send,
 
-    #[error("error opening the store: {0}")]
+    #[error(
+        "{}",
+        if .0.is_locked() {
+            "Failed to connect to the ledger store because it is is locked. Another Amaru \
+            process may still be using it, or a stale LOCK file may remain after an \
+            unclean shutdown. Stop any process using the ledger database before retrying; \
+            only remove the LOCK file after confirming no process is using it."
+        } else {
+            "Failed to create ledger. Did you bootstrap your node?"
+        }
+    )]
     Open(#[source] OpenErrorKind),
 
     #[error("error retrieving {0}: {1}")]
@@ -97,8 +113,16 @@ impl StoreError {
 }
 
 impl OpenErrorKind {
-    pub fn io_with_file<P: AsRef<Path>>(file: P, error: io::Error) -> Self {
-        Self::IO { file: file.as_ref().display().to_string(), source: error }
+    pub fn io_with_file<P: AsRef<Path>>(file: P, source: io::Error) -> Self {
+        Self::IO { file: file.as_ref().to_path_buf(), source }
+    }
+
+    pub fn locked<P: AsRef<Path>>(file: P, source: anyhow::Error) -> Self {
+        Self::Locked { file: file.as_ref().to_path_buf(), source }
+    }
+
+    pub fn is_locked(&self) -> bool {
+        matches!(self, Self::Locked { .. })
     }
 }
 
@@ -466,5 +490,28 @@ impl<U, P, A, D, C, PP, V> Columns<U, P, A, D, C, PP, V> {
             proposals: std::iter::empty(),
             votes: std::iter::empty(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::anyhow;
+
+    use super::*;
+
+    #[test]
+    fn better_context_on_open_locked() {
+        let error = StoreError::Open(OpenErrorKind::locked(PathBuf::from("db/live"), anyhow!("lock held")));
+        let message = format!("{error:#}");
+        assert!(message.contains("Failed to connect to the ledger store because it is is locked"));
+        assert!(!message.contains("Did you bootstrap your node?"));
+    }
+
+    #[test]
+    fn suggest_bootstrap_on_open_error() {
+        let error = StoreError::Open(OpenErrorKind::io_with_file(PathBuf::from("db/live"), io::Error::other("foo")));
+        let message = format!("{error:#}");
+        assert!(!message.contains("Failed to connect to the ledger store because it is is locked"));
+        assert!(message.contains("Did you bootstrap your node?"));
     }
 }

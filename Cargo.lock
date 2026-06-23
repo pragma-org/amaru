@@ -489,6 +489,7 @@ dependencies = [
  "amaru-ledger",
  "amaru-observability",
  "amaru-ouroboros-traits",
+ "anyhow",
  "hex",
  "proptest",
  "rand 0.9.2",
