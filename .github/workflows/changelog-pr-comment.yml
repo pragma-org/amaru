@@ -1,0 +1,131 @@
+name: Changelog PR Comment
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+on:
+  workflow_run:
+    workflows: ["Coding Practices"]
+    types:
+      - completed
+
+jobs:
+  comment:
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    steps:
+      # SECURITY WARNING:
+      # This workflow runs with a write-capable token in the base repository context.
+      # It must never check out or execute PR-controlled code, and it must never call
+      # repository scripts, sidecar scripts, or downloaded executables. Keep all logic
+      # inline in this workflow and restrict it to reading the previously uploaded
+      # artifact plus posting/updating/removing the sticky PR comment.
+      - name: Discover changelog artifact
+        id: artifact
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
+              per_page: 100,
+            });
+
+            const artifact = artifacts.find((candidate) => candidate.name === 'changelog-check-report');
+
+            core.setOutput('found', artifact ? 'true' : 'false');
+      - name: Download changelog artifact
+        if: steps.artifact.outputs.found == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: changelog-check-report
+          path: changelog-check-artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Synchronize PR changelog comment
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // SECURITY WARNING:
+            // Do not extend this step to execute files from the artifact or from the PR.
+            // Treat the artifact as untrusted data only; read text from it and call the
+            // GitHub API, but never shell out or load dynamic code.
+            const marker = '<!-- amaru:changelog-check -->';
+            const artifactDir = 'changelog-check-artifact';
+            const prNumberPath = path.join(artifactDir, 'pr_number');
+            const outcomePath = path.join(artifactDir, 'outcome');
+            const reportPath = path.join(artifactDir, 'report.md');
+            const fallbackPr = context.payload.workflow_run.pull_requests[0]?.number;
+
+            const issue_number = fs.existsSync(prNumberPath)
+              ? Number.parseInt(fs.readFileSync(prNumberPath, 'utf8').trim(), 10)
+              : fallbackPr;
+
+            if (!issue_number) {
+              core.info('No pull request number found for this workflow run; skipping comment sync.');
+              return;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+
+            if (!fs.existsSync(outcomePath)) {
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                });
+              }
+              core.info('No changelog artifact found for this run; removed any stale sticky comment.');
+              return;
+            }
+
+            const outcome = fs.readFileSync(outcomePath, 'utf8').trim();
+            if (outcome === 'success') {
+              if (existing) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                });
+              }
+              return;
+            }
+
+            const report = fs.existsSync(reportPath)
+              ? fs.readFileSync(reportPath, 'utf8').trim()
+              : '## Changelog check failed\n\nSee the workflow run for details.';
+
+            const body = `${marker}\n${report}`;
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }

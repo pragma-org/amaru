@@ -42,9 +42,6 @@ jobs:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.crates == 'true' }}
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      issues: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -53,62 +50,22 @@ jobs:
         id: validate
         continue-on-error: true
         run: python3 scripts/check-changelog --report-file changelog-check-report.md
-      - name: Synchronize PR changelog comment
+      - name: Prepare changelog report artifact
         if: always()
-        uses: actions/github-script@v8
-        env:
-          CHANGELOG_CHECK_OUTCOME: ${{ steps.validate.outcome }}
+        run: |
+          mkdir -p changelog-check-artifact
+          printf '%s\n' '${{ github.event.pull_request.number }}' > changelog-check-artifact/pr_number
+          printf '%s\n' '${{ steps.validate.outcome }}' > changelog-check-artifact/outcome
+          if [ -f changelog-check-report.md ]; then
+            cp changelog-check-report.md changelog-check-artifact/report.md
+          fi
+      - name: Upload changelog report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          script: |
-            const fs = require('fs');
-
-            const marker = '<!-- amaru:changelog-check -->';
-            const reportPath = 'changelog-check-report.md';
-            const outcome = process.env.CHANGELOG_CHECK_OUTCOME;
-            const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner,
-              repo,
-              issue_number,
-              per_page: 100,
-            });
-
-            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
-
-            if (outcome === 'success') {
-              if (existing) {
-                await github.rest.issues.deleteComment({
-                  owner,
-                  repo,
-                  comment_id: existing.id,
-                });
-              }
-              return;
-            }
-
-            const report = fs.existsSync(reportPath)
-              ? fs.readFileSync(reportPath, 'utf8').trim()
-              : '## Changelog check failed\n\nSee the workflow run for details.';
-
-            const body = `${marker}\n${report}`;
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body,
-              });
-            }
+          name: changelog-check-report
+          path: changelog-check-artifact
+          if-no-files-found: error
       - name: Fail on changelog validation errors
         if: steps.validate.outcome != 'success'
         run: exit 1
