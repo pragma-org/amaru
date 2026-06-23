@@ -22,18 +22,61 @@ jobs:
     runs-on: ubuntu-24.04
     # Required to expose outputs to dependent jobs (unused-dependencies, licenses-compatibility)
     outputs:
+      crates: ${{ steps.changes.outputs.crates }}
       dependencies: ${{ steps.changes.outputs.dependencies }}
     steps:
       - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: changes
         with:
           filters: |
+            crates:
+              - "crates/**"
             dependencies:
               - "Cargo.toml"
               - "Cargo.lock"
               - "crates/**/Cargo.toml"
               - "crates/**/Cargo.lock"
+
+  changelog:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.crates == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate changelog updates
+        id: validate
+        continue-on-error: true
+        run: python3 scripts/check-changelog --report-file changelog-check-report.md
+      - name: Prepare changelog report artifact
+        if: always()
+        run: |
+          mkdir -p changelog-check-artifact
+          printf '%s\n' '${{ github.event.pull_request.number }}' > changelog-check-artifact/pr_number
+          printf '%s\n' '${{ steps.validate.outcome }}' > changelog-check-artifact/outcome
+          if [ -f changelog-check-report.md ]; then
+            cp changelog-check-report.md changelog-check-artifact/report.md
+          fi
+      - name: Upload changelog report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: changelog-check-report
+          path: changelog-check-artifact
+          if-no-files-found: error
+      - name: Fail on changelog validation errors
+        if: steps.validate.outcome != 'success'
+        run: |
+          echo "Changelog validation failed."
+          echo
+          if [ -f changelog-check-report.md ]; then
+            cat changelog-check-report.md
+          else
+            echo "No report file was generated; see the 'Validate changelog updates' step for details."
+          fi
+          exit 1
 
   unused-dependencies:
     runs-on: ubuntu-24.04
