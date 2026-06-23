@@ -501,8 +501,19 @@ def validate_target_release(
     relevant_commits: list[str],
     failures: list[Failure],
 ) -> None:
+    failure_count_before = len(failures)
     parse_sections(lines, head_block)
     sections = head_block.sections
+
+    for idx in range(head_block.start_index + 1, head_block.end_index):
+        line = lines[idx]
+        if line.startswith("### ") and not SECTION_RE.match(line):
+            heading = line.removeprefix("### ").strip()
+            message = (
+                f"Invalid changelog section '{heading}'. "
+                "Use one of: Added, Changed, Deprecated, Removed, Fixed, Security."
+            )
+            record_failure(failures, message, line=idx + 1, title="Invalid section")
 
     previous_index = -1
     for section in sections:
@@ -549,6 +560,9 @@ def validate_target_release(
                     record_failure(failures, message, line=entry.start_line, title="Missing link definition")
 
     if not require_new_entry:
+        return
+
+    if len(failures) > failure_count_before:
         return
 
     base_entries = set()
