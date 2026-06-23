@@ -856,6 +856,84 @@
       "description": "Forward ledger state with new volatile state",
       "public": true
     },
+    "amaru::ledger::state::RESOLVE_ACCOUNTS": {
+      "type": "object",
+      "properties": {
+        "resolved_from_context": {
+          "type": "integer"
+        },
+        "resolved_from_volatile": {
+          "type": "integer"
+        },
+        "resolved_from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "resolved_from_context",
+        "resolved_from_volatile",
+        "resolved_from_db"
+      ],
+      "additionalProperties": false,
+      "name": "resolve_accounts",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve account data from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::RESOLVE_CC_MEMBERS": {
+      "type": "object",
+      "properties": {
+        "resolved_from_context": {
+          "type": "integer"
+        },
+        "resolved_from_volatile": {
+          "type": "integer"
+        },
+        "resolved_from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "resolved_from_context",
+        "resolved_from_volatile",
+        "resolved_from_db"
+      ],
+      "additionalProperties": false,
+      "name": "resolve_cc_members",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve constitutional committee member data from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::RESOLVE_DREPS": {
+      "type": "object",
+      "properties": {
+        "resolved_from_context": {
+          "type": "integer"
+        },
+        "resolved_from_volatile": {
+          "type": "integer"
+        },
+        "resolved_from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "resolved_from_context",
+        "resolved_from_volatile",
+        "resolved_from_db"
+      ],
+      "additionalProperties": false,
+      "name": "resolve_dreps",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve dRep data from various sources",
+      "public": true
+    },
     "amaru::ledger::state::RESOLVE_INPUTS": {
       "type": "object",
       "properties": {
@@ -880,6 +958,58 @@
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Resolve transaction inputs from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::RESOLVE_POOLS": {
+      "type": "object",
+      "properties": {
+        "resolved_from_context": {
+          "type": "integer"
+        },
+        "resolved_from_volatile": {
+          "type": "integer"
+        },
+        "resolved_from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "resolved_from_context",
+        "resolved_from_volatile",
+        "resolved_from_db"
+      ],
+      "additionalProperties": false,
+      "name": "resolve_pools",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve pool data from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::RESOLVE_PROPOSALS": {
+      "type": "object",
+      "properties": {
+        "resolved_from_context": {
+          "type": "integer"
+        },
+        "resolved_from_volatile": {
+          "type": "integer"
+        },
+        "resolved_from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "resolved_from_context",
+        "resolved_from_volatile",
+        "resolved_from_db"
+      ],
+      "additionalProperties": false,
+      "name": "resolve_proposals",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve governance proposal data from various sources",
       "public": true
     },
     "amaru::ledger::state::ROLL_BACKWARD": {
@@ -1550,6 +1680,32 @@
       "description": "Update rewards balance for a single account",
       "public": true
     },
+    "amaru::stores::ledger::columns::CC_MEMBERS_GET": {
+      "type": "object",
+      "properties": {
+        "db_system_name": {
+          "type": "string"
+        },
+        "db_operation_name": {
+          "type": "string"
+        },
+        "db_collection_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "db_system_name",
+        "db_operation_name",
+        "db_collection_name"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "cc_members_get",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::columns",
+      "description": "Point-read a constitutional committee member",
+      "public": true
+    },
     "amaru::stores::ledger::columns::CC_MEMBERS_UPSERT": {
       "type": "object",
       "properties": {
@@ -1873,6 +2029,32 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::columns",
       "description": "Insert governance proposals",
+      "public": true
+    },
+    "amaru::stores::ledger::columns::PROPOSALS_GET": {
+      "type": "object",
+      "properties": {
+        "db_system_name": {
+          "type": "string"
+        },
+        "db_operation_name": {
+          "type": "string"
+        },
+        "db_collection_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "db_system_name",
+        "db_operation_name",
+        "db_collection_name"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "proposals_get",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::columns",
+      "description": "Point-read a governance proposal",
       "public": true
     },
     "amaru::stores::ledger::columns::PROPOSALS_REMOVE": {
