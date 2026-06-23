@@ -82,15 +82,22 @@ jobs:
               per_page: 100,
             });
 
-            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+            const matchingComments = comments.filter((comment) => comment.body && comment.body.includes(marker));
+            const newestMatchingComment = matchingComments.at(-1);
 
-            if (!fs.existsSync(outcomePath)) {
-              if (existing) {
+            async function deleteMatchingComments() {
+              for (const comment of matchingComments) {
                 await github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  comment_id: existing.id,
+                  comment_id: comment.id,
                 });
+              }
+            }
+
+            if (!fs.existsSync(outcomePath)) {
+              if (matchingComments.length > 0) {
+                await deleteMatchingComments();
               }
               core.info('No changelog artifact found for this run; removed any stale sticky comment.');
               return;
@@ -98,12 +105,8 @@ jobs:
 
             const outcome = fs.readFileSync(outcomePath, 'utf8').trim();
             if (outcome === 'success') {
-              if (existing) {
-                await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                });
+              if (matchingComments.length > 0) {
+                await deleteMatchingComments();
               }
               return;
             }
@@ -114,13 +117,25 @@ jobs:
 
             const body = `${marker}\n${report}`;
 
-            if (existing) {
+            if (newestMatchingComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: existing.id,
+                comment_id: newestMatchingComment.id,
                 body,
               });
+
+              for (const comment of matchingComments) {
+                if (comment.id === newestMatchingComment.id) {
+                  continue;
+                }
+
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id,
+                });
+              }
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
