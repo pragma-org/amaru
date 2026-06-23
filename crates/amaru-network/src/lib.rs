@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_sync_client;
 pub mod connection;
 pub mod point;
 pub mod session;

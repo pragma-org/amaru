@@ -145,7 +145,7 @@ impl From<AssertValidationContext> for () {
 
 impl PotsSlice for AssertValidationContext {
     fn add_fees(&mut self, fee: Lovelace) {
-        let _span = trace_span!(amaru_observability::amaru::ledger::context::ADD_FEES, fee = fee);
+        let _span = trace_span!(ledger::state::context::ADD_FEES, fee = fee);
         let _guard = _span.enter();
     }
 
@@ -219,7 +219,7 @@ impl AccountsSlice for AssertValidationContext {
 
     fn withdraw_from(&mut self, credential: StakeCredential) {
         let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::WITHDRAW_FROM,
+            ledger::state::context::WITHDRAW_FROM,
             credential_type = StakeCredentialKind::from(&credential),
             credential_hash = credential.as_hash()
         );
@@ -287,7 +287,7 @@ impl ProposalsSlice for AssertValidationContext {
 
     fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
         let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::VOTE,
+            ledger::state::context::VOTE,
             voter_type = VoterKind::from(&_voter),
             credential_type = StakeCredentialKind::from(&_voter),
             credential_hash = _voter.as_hash()
@@ -298,20 +298,14 @@ impl ProposalsSlice for AssertValidationContext {
 
 impl WitnessSlice for AssertValidationContext {
     fn require_vkey_witness(&mut self, vkey_hash: Hash<28>) {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::REQUIRE_VKEY_WITNESS,
-            hash = format!("{}", vkey_hash)
-        );
+        let _span = trace_span!(ledger::state::context::REQUIRE_VKEY_WITNESS, hash = format!("{}", vkey_hash));
         let _guard = _span.enter();
         self.required_signers.insert(vkey_hash);
     }
 
     // TODO: add purpose to fields
     fn require_script_witness(&mut self, script: RequiredScript) {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::REQUIRE_SCRIPT_WITNESS,
-            hash = format!("{}", script.hash)
-        );
+        let _span = trace_span!(ledger::state::context::REQUIRE_SCRIPT_WITNESS, hash = format!("{}", script.hash));
         let _guard = _span.enter();
         self.required_scripts.insert(script);
     }
@@ -326,7 +320,7 @@ impl WitnessSlice for AssertValidationContext {
 
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
         let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::REQUIRE_BOOTSTRAP_WITNESS,
+            ledger::state::context::REQUIRE_BOOTSTRAP_WITNESS,
             bootstrap_witness_hash = format!("{}", root)
         );
         let _guard = _span.enter();

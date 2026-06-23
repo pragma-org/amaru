@@ -30,5 +30,5 @@ define_local_schemas! {
 }
 
 fn main() {
-    let _span = trace_span!(test::example::NON_DISPLAY, value = NoDisplay);
+    let _span = trace_span!(crate::test::example::NON_DISPLAY, value = NoDisplay);
 }

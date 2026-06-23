@@ -110,33 +110,34 @@ impl<'a> Visit for SpanMetadataVisitor<'a> {
 // ============================================================================
 
 fn sync_blocks_trace(block_height: u64) {
-    let _span = trace_span!(network::sync::SYNC_BLOCKS, block_height = block_height);
+    let _span = trace_span!(crate::network::sync::SYNC_BLOCKS, block_height = block_height);
     let _guard = _span.enter();
 }
 
 fn sync_blocks_debug(block_height: u64) {
-    let _span = trace_span!(DEBUG, network::sync::SYNC_BLOCKS, block_height = block_height);
+    let _span = trace_span!(DEBUG, crate::network::sync::SYNC_BLOCKS, block_height = block_height);
     let _guard = _span.enter();
 }
 
 fn connection_opened_info(peer_id: String) {
-    let _span = trace_span!(INFO, network::sync::CONNECTION_OPENED, peer_id = &peer_id);
+    let _span = trace_span!(INFO, crate::network::sync::CONNECTION_OPENED, peer_id = &peer_id);
     let _guard = _span.enter();
 }
 
 fn validate_rule_warn(rule_name: String, result: String) {
-    let _span = trace_span!(WARN, validation::rules::VALIDATE_RULE, rule_name = &rule_name, result = &result);
+    let _span = trace_span!(WARN, crate::validation::rules::VALIDATE_RULE, rule_name = &rule_name, result = &result);
     let _guard = _span.enter();
 }
 
 fn validate_rule_error(rule_name: String, result: String) {
-    let _span = trace_span!(ERROR, validation::rules::VALIDATE_RULE, rule_name = &rule_name, result = &result);
+    let _span = trace_span!(ERROR, crate::validation::rules::VALIDATE_RULE, rule_name = &rule_name, result = &result);
     let _guard = _span.enter();
 }
 
 // With custom field expressions and level
 fn connection_opened_with_ip(peer_id: String) {
-    let _span = trace_span!(DEBUG, network::sync::CONNECTION_OPENED, peer_id = &peer_id, ip_address = "127.0.0.1");
+    let _span =
+        trace_span!(DEBUG, crate::network::sync::CONNECTION_OPENED, peer_id = &peer_id, ip_address = "127.0.0.1");
     let _guard = _span.enter();
 }
 

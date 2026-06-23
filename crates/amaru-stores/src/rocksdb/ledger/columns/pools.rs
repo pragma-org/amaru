@@ -20,7 +20,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::error;
 
@@ -33,8 +33,8 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     pool: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::POOLS_GET,
+    let _span = debug_span!(
+        stores::ledger::columns::POOLS_GET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "get".to_string(),
         db_collection_name = "pool".to_string()
@@ -46,8 +46,8 @@ pub fn get<'a>(
 }
 
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::POOLS_ADD,
+    let _span = debug_span!(
+        stores::ledger::columns::POOLS_ADD,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "pool".to_string()
@@ -79,8 +79,8 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
 }
 
 pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Epoch)>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::POOLS_REMOVE,
+    let _span = debug_span!(
+        stores::ledger::columns::POOLS_REMOVE,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "pool".to_string()

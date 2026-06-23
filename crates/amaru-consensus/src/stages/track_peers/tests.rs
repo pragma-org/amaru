@@ -31,7 +31,7 @@ use crate::stages::{
         DeferReqNextMsg, TrackPeers, TrackPeersMsg,
         defer_req_next::DeferReqNext,
         test_setup::{
-            FailingHeaderValidation, build_store, make_block_header, setup, setup_with_ledger_tip,
+            FailingHeaderValidation, build_store, make_block_header, new_tip, setup, setup_with_ledger_tip,
             setup_with_validation, te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
             test_prep_with_max_forecast, tm_store_header,
         },
@@ -226,7 +226,7 @@ fn test_roll_forward_unknown_peer_removes_peer() {
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &state),
         ],
     );
@@ -302,7 +302,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
             te_store_header("tp-1", header.clone()),
-            te_send("tp-1", "downstream", (header.tip(), parent.point())),
+            te_send("tp-1", "downstream", new_tip(header.tip(), parent.point())),
             te_state("tp-1", &expected),
         ],
     );
@@ -335,7 +335,7 @@ fn test_roll_forward_invalid_variant_removes_peer() {
         &[
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -368,7 +368,7 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
         &[
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -401,7 +401,7 @@ fn test_roll_forward_invalid_parent_removes_peer() {
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -433,7 +433,7 @@ fn test_roll_forward_invalid_height_removes_peer() {
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -465,7 +465,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -510,7 +510,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
             te_validate_header("tp-1", header.clone()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -579,7 +579,7 @@ fn test_roll_backward_unknown_peer_removes_peer() {
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
             te_load_tip("tp-1", current.hash()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &state),
         ],
     );
@@ -612,7 +612,7 @@ fn test_roll_backward_unknown_point_removes_peer() {
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
             te_load_tip("tp-1", current.hash()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );

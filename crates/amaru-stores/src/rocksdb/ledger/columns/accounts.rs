@@ -20,7 +20,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::{debug, error};
 
@@ -31,8 +31,8 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
 
 /// Register a new credential, with or without a stake pool.
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_ADD,
+    let _span = debug_span!(
+        stores::ledger::columns::ACCOUNTS_ADD,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "account".to_string()
@@ -72,8 +72,8 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 
 /// Reset rewards counter of many accounts.
 pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_RESET_MANY,
+    let _span = debug_span!(
+        stores::ledger::columns::ACCOUNTS_RESET_MANY,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "account".to_string()
@@ -105,8 +105,8 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_GET,
+    let _span = debug_span!(
+        stores::ledger::columns::ACCOUNTS_GET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "get".to_string(),
         db_collection_name = "account".to_string()
@@ -125,8 +125,8 @@ pub fn set<DB>(
     credential: &Key,
     with_rewards: impl FnOnce(Lovelace) -> Lovelace,
 ) -> Result<Lovelace, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_SET,
+    let _span = debug_span!(
+        stores::ledger::columns::ACCOUNTS_SET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "account".to_string()
@@ -155,8 +155,8 @@ pub fn set<DB>(
 
 /// Clear a stake credential registration.
 pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::ACCOUNTS_REMOVE,
+    let _span = debug_span!(
+        stores::ledger::columns::ACCOUNTS_REMOVE,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "delete".to_string(),
         db_collection_name = "account".to_string()

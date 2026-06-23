@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
@@ -162,14 +162,14 @@ impl ConnectionProvider for TokioConnections {
                         }
                         tracing::info!(%local, "accept loop stopped");
                     }
-                    .instrument(trace_span!(amaru_observability::amaru::network::connection::ACCEPT_LOOP)),
+                    .instrument(debug_span!(network::io::connection::ACCEPT_LOOP,)),
                 );
 
                 inner.tasks.lock().insert(local, task);
 
                 Ok(local)
             }
-            .instrument(trace_span!(amaru_observability::amaru::network::connection::LISTEN)),
+            .instrument(debug_span!(network::io::connection::LISTEN,)),
         )
     }
 
@@ -192,15 +192,12 @@ impl ConnectionProvider for TokioConnections {
 
                 Ok((Peer::from_addr(&peer_addr), id))
             }
-            .instrument(trace_span!(amaru_observability::amaru::network::connection::ACCEPT)),
+            .instrument(debug_span!(network::io::connection::ACCEPT,)),
         )
     }
 
     fn connect(&self, addr: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        Box::pin(
-            connect(addr, self.inner.clone(), timeout)
-                .instrument(trace_span!(amaru_observability::amaru::network::connection::CONNECT)),
-        )
+        Box::pin(connect(addr, self.inner.clone(), timeout).instrument(debug_span!(network::io::connection::CONNECT,)))
     }
 
     fn connect_addrs(
@@ -215,7 +212,7 @@ impl ConnectionProvider for TokioConnections {
                 tracing::debug!(?addr, "resolved addresses");
                 connect(addr, resource, timeout).await
             }
-            .instrument(trace_span!(amaru_observability::amaru::network::connection::CONNECT_ADDRS)),
+            .instrument(debug_span!(network::io::connection::CONNECT_ADDRS,)),
         )
     }
 
@@ -233,7 +230,7 @@ impl ConnectionProvider for TokioConnections {
                 tokio::time::timeout(Duration::from_secs(100), connection.lock().await.write_all(&data)).await??;
                 Ok(())
             }
-            .instrument(trace_span!(amaru_observability::amaru::network::connection::SEND)),
+            .instrument(debug_span!(network::io::connection::SEND,)),
         )
     }
 
@@ -259,7 +256,7 @@ impl ConnectionProvider for TokioConnections {
                 #[expect(clippy::expect_used)]
                 Ok(buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize"))
             }
-            .instrument(trace_span!(amaru_observability::amaru::network::connection::RECV)),
+            .instrument(debug_span!(network::io::connection::RECV,)),
         )
     }
 
@@ -274,7 +271,7 @@ impl ConnectionProvider for TokioConnections {
                 connection.writer.lock().await.shutdown().await?;
                 Ok(())
             }
-            .instrument(trace_span!(amaru_observability::amaru::network::connection::CLOSE)),
+            .instrument(debug_span!(network::io::connection::CLOSE,)),
         )
     }
 }

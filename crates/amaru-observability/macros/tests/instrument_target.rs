@@ -16,7 +16,7 @@
 //!
 //! These tests verify:
 //! - Correct target and span names are generated
-//! - Schema fields are declared in span metadata
+//! - Schema and built-in fields are declared in span metadata
 //! - Field values are auto-recorded
 //! - trace_record! records to current span
 
@@ -28,7 +28,7 @@ use std::{
 
 use amaru_observability_macros::{define_local_schemas, trace_record, trace_span};
 use tracing::field::Visit;
-use tracing_subscriber::{Registry, layer::SubscriberExt};
+use tracing_subscriber::layer::SubscriberExt;
 
 #[derive(Clone)]
 struct DistinctFormatting;
@@ -46,38 +46,61 @@ impl fmt::Debug for DistinctFormatting {
 }
 
 define_local_schemas! {
-    formatting {
-        test {
-            /// Formatter behavior for testing
-            public DISTINCT_FORMATTING {
-                required display_value: DistinctFormatting
-                required debug_value: DistinctFormatting
+    amaru {
+        formatting {
+            test {
+                /// Formatter behavior for testing
+                public DISTINCT_FORMATTING {
+                    required display_value: DistinctFormatting
+                    required debug_value: DistinctFormatting
+                }
             }
         }
-    }
-
-    consensus {
-        validate_header {
-            /// Evolve nonce for testing
-            public EVOLVE_NONCE {
-                required hash: String
+        consensus {
+            state {
+                roll_forward {
+                    /// Roll forward processing for testing
+                    public PROCESS {
+                        required peer: String
+                    }
+                }
+                header {
+                    /// Evolve nonce for testing
+                    public EVOLVE_NONCE {
+                        required hash: String
+                    }
+                }
+                chain_sync {
+                    /// Roll forward for testing
+                    public ROLL_FORWARD {
+                        required peer: String
+                    }
+                }
             }
         }
-    }
-
-    ledger {
-        state {
-            /// Apply block for testing
-            public APPLY_BLOCK {
-                required point_slot: u64
+        ledger {
+            state {
+                block {
+                    /// Apply block for testing
+                    public APPLY {
+                        required point_slot: u64
+                    }
+                    /// Create validation context for testing
+                    public CREATE_VALIDATION_CONTEXT {
+                        required block_body_hash: String
+                        required block_number: u64
+                        required block_body_size: u64
+                        optional total_inputs: u64
+                    }
+                }
             }
-
-            /// Create validation context for testing
-            public CREATE_VALIDATION_CONTEXT {
-                required block_body_hash: String
-                required block_number: u64
-                required block_body_size: u64
-                optional total_inputs: u64
+        }
+        classification {
+            test {
+                /// Span classification for testing
+                public REGISTERED_SPAN {
+                    required tip: String
+                }
             }
         }
     }
@@ -89,26 +112,32 @@ struct CapturedSpan {
     target: String,
     level: tracing::Level,
     fields: Vec<String>,
+    parent: Option<String>,
 }
 
 struct CapturingLayer {
     captured_spans: Arc<Mutex<Vec<CapturedSpan>>>,
 }
 
-impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CapturingLayer {
+impl<S> tracing_subscriber::Layer<S> for CapturingLayer
+where
+    S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
     fn on_new_span(
         &self,
         attrs: &tracing::span::Attributes<'_>,
-        _id: &tracing::span::Id,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
+        id: &tracing::span::Id,
+        ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let field_names: Vec<_> = attrs.metadata().fields().iter().map(|f| f.name().to_string()).collect();
+        let parent = ctx.span(id).and_then(|span| span.parent().map(|parent| parent.metadata().name().to_string()));
 
         self.captured_spans.lock().unwrap().push(CapturedSpan {
             name: attrs.metadata().name().to_string(),
             target: attrs.metadata().target().to_string(),
             level: *attrs.metadata().level(),
             fields: field_names,
+            parent,
         });
     }
 }
@@ -162,18 +191,18 @@ where
 }
 
 fn evolve_nonce(hash: String) {
-    let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+    let _span = trace_span!(crate::amaru::consensus::state::header::EVOLVE_NONCE, hash = &hash);
     let _guard = _span.enter();
 }
 
 fn apply_block(point_slot: u64) {
-    let _span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+    let _span = trace_span!(crate::amaru::ledger::state::block::APPLY, point_slot = point_slot);
     let _guard = _span.enter();
 }
 
 fn process_block(block_body_hash: String, block_number: u64, block_body_size: u64) {
     let _span = trace_span!(
-        ledger::state::CREATE_VALIDATION_CONTEXT,
+        crate::amaru::ledger::state::block::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
         block_number = block_number,
         block_body_size = block_body_size
@@ -183,7 +212,7 @@ fn process_block(block_body_hash: String, block_number: u64, block_body_size: u6
 
 fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size: u64) {
     let _span = trace_span!(
-        ledger::state::CREATE_VALIDATION_CONTEXT,
+        crate::amaru::ledger::state::block::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
         block_number = block_number,
         block_body_size = block_body_size
@@ -193,110 +222,207 @@ fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size
 }
 
 fn inner_record(_total_inputs: u64) {
-    trace_record!(ledger::state::CREATE_VALIDATION_CONTEXT, total_inputs = _total_inputs);
+    trace_record!(crate::amaru::ledger::state::block::CREATE_VALIDATION_CONTEXT, total_inputs = _total_inputs);
 }
 
 fn distinct_formatting(display_value: DistinctFormatting, debug_value: DistinctFormatting) {
     let _span = trace_span!(
-        formatting::test::DISTINCT_FORMATTING,
+        crate::amaru::formatting::test::DISTINCT_FORMATTING,
         display_value = %display_value,
         debug_value = ?debug_value
     );
     let _guard = _span.enter();
 }
 
-#[test]
-fn test_span_target_and_name() {
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
-
-    tracing::subscriber::with_default(subscriber, || {
-        evolve_nonce("test".into());
-        apply_block(42);
-    });
-
-    let spans = captured.lock().unwrap();
-    assert_eq!(spans.len(), 2);
-
-    assert_eq!(spans[0].target, "consensus::validate_header");
-    assert_eq!(spans[0].name, "evolve_nonce");
-
-    assert_eq!(spans[1].target, "ledger::state");
-    assert_eq!(spans[1].name, "apply_block");
+fn roll_forward(peer: String) {
+    let _span = trace_span!(crate::amaru::consensus::state::roll_forward::PROCESS, peer = &peer);
+    let _guard = _span.enter();
 }
 
-#[test]
-fn test_span_level_is_trace() {
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
-
-    tracing::subscriber::with_default(subscriber, || {
-        evolve_nonce("test".into());
-    });
-
-    let spans = captured.lock().unwrap();
-    assert_eq!(spans[0].level, tracing::Level::TRACE);
+fn root_roll_forward(peer: String) {
+    let _outer = tracing::debug_span!("outer");
+    let _outer_guard = _outer.enter();
+    let _span = trace_span!(root, crate::amaru::consensus::state::roll_forward::PROCESS, peer = &peer);
+    let _guard = _span.enter();
 }
 
-#[test]
-fn test_schema_fields_declared() {
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
-
-    tracing::subscriber::with_default(subscriber, || {
-        process_block("hash".into(), 100, 1024);
-    });
-
-    let spans = captured.lock().unwrap();
-    let fields = &spans[0].fields;
-
-    assert!(fields.contains(&"block_body_hash".into()));
-    assert!(fields.contains(&"block_number".into()));
-    assert!(fields.contains(&"block_body_size".into()));
-    assert!(fields.contains(&"total_inputs".into())); // optional field also declared
+fn registered_span(_category: String, tip: String) {
+    let _span = trace_span!(crate::amaru::classification::test::REGISTERED_SPAN, tip = &tip);
+    let _guard = _span.enter();
 }
 
-#[test]
-fn test_field_values_recorded() {
-    let values = Arc::new(Mutex::new(BTreeMap::new()));
-    let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
+#[cfg(test)]
+mod test {
+    use std::{
+        collections::BTreeMap,
+        sync::{Arc, Mutex},
+    };
 
-    tracing::subscriber::with_default(subscriber, || {
-        process_block("0xabc".into(), 100, 1024);
-    });
+    use tracing_subscriber::Registry;
 
-    let recorded = values.lock().unwrap();
-    assert_eq!(recorded.get("block_body_hash"), Some(&"0xabc".to_string()));
-}
+    use super::*;
 
-#[test]
-fn test_trace_record_records_to_span() {
-    let values = Arc::new(Mutex::new(BTreeMap::new()));
-    let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
+    #[test]
+    fn test_span_target_and_name() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
 
-    tracing::subscriber::with_default(subscriber, || {
-        outer_with_record("hash".into(), 100, 1024);
-    });
+        tracing::subscriber::with_default(subscriber, || {
+            evolve_nonce("test".into());
+            apply_block(42);
+        });
 
-    let recorded = values.lock().unwrap();
-    // The inner record function should record total_inputs
-    assert!(
-        recorded.contains_key("total_inputs") || recorded.contains_key("block_body_hash"),
-        "Expected some fields to be recorded, got {:?}",
-        recorded
-    );
-}
+        let spans = captured.lock().unwrap();
+        assert_eq!(spans.len(), 2);
 
-#[test]
-fn test_trace_span_preserves_formatter_kind() {
-    let values = Arc::new(Mutex::new(BTreeMap::new()));
-    let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
+        assert_eq!(spans[0].target, "amaru::consensus");
+        assert_eq!(spans[0].name, "state.header.evolve_nonce");
 
-    tracing::subscriber::with_default(subscriber, || {
-        distinct_formatting(DistinctFormatting, DistinctFormatting);
-    });
+        assert_eq!(spans[1].target, "amaru::ledger");
+        assert_eq!(spans[1].name, "state.block.apply");
+    }
 
-    let recorded = values.lock().unwrap();
-    assert_eq!(recorded.get("display_value"), Some(&"display-format".to_string()));
-    assert_eq!(recorded.get("debug_value"), Some(&"debug-format".to_string()));
+    #[test]
+    fn test_span_level_is_trace() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            evolve_nonce("test".into());
+        });
+
+        let spans = captured.lock().unwrap();
+        assert_eq!(spans[0].level, tracing::Level::TRACE);
+    }
+
+    #[test]
+    fn test_schema_fields_declared() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            process_block("hash".into(), 100, 1024);
+        });
+
+        let spans = captured.lock().unwrap();
+        let fields = &spans[0].fields;
+
+        assert!(fields.contains(&"block_body_hash".into()));
+        assert!(fields.contains(&"block_number".into()));
+        assert!(fields.contains(&"block_body_size".into()));
+        assert!(fields.contains(&"total_inputs".into())); // optional field also declared
+        assert!(!fields.contains(&"category".into()));
+    }
+
+    #[test]
+    fn test_field_values_recorded() {
+        let values = Arc::new(Mutex::new(BTreeMap::new()));
+        let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            process_block("0xabc".into(), 100, 1024);
+        });
+
+        let recorded = values.lock().unwrap();
+        assert_eq!(recorded.get("block_body_hash"), Some(&"0xabc".to_string()));
+        assert_eq!(recorded.get("category"), None);
+    }
+
+    #[test]
+    fn test_category_field_is_ignored_without_overriding_span_name() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let values = Arc::new(Mutex::new(BTreeMap::new()));
+        let subscriber = Registry::default()
+            .with(CapturingLayer { captured_spans: captured.clone() })
+            .with(ValueCapturingLayer { captured: values.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            registered_span("state.msg.process".into(), "tip".into());
+        });
+
+        let spans = captured.lock().unwrap();
+        let fields = &spans[0].fields;
+        assert!(!fields.contains(&"category".into()));
+        assert!(!fields.contains(&"otel.name".into()));
+        assert!(!fields.contains(&"schema".into()));
+        assert!(!fields.contains(&"name".into()));
+        assert_eq!(spans[0].name, "test.registered_span");
+
+        let recorded = values.lock().unwrap();
+        assert_eq!(recorded.get("category"), None);
+    }
+
+    #[test]
+    fn test_roll_forward_sets_category_without_otel_name() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let values = Arc::new(Mutex::new(BTreeMap::new()));
+        let subscriber = Registry::default()
+            .with(CapturingLayer { captured_spans: captured.clone() })
+            .with(ValueCapturingLayer { captured: values.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            roll_forward("peer-1".into());
+        });
+
+        let spans = captured.lock().unwrap();
+        let fields = &spans[0].fields;
+        assert!(fields.contains(&"peer".into()));
+        assert!(!fields.contains(&"category".into()));
+        assert!(!fields.contains(&"otel.name".into()));
+        assert!(!fields.contains(&"schema".into()));
+        assert!(!fields.contains(&"name".into()));
+        assert_eq!(spans[0].target, "amaru::consensus");
+        assert_eq!(spans[0].name, "state.roll_forward.process");
+
+        let recorded = values.lock().unwrap();
+        assert_eq!(recorded.get("otel.name"), None);
+        assert_eq!(recorded.get("peer"), Some(&"peer-1".to_string()));
+        assert_eq!(recorded.get("category"), None);
+    }
+
+    #[test]
+    fn test_root_span_does_not_inherit_current_span() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = Registry::default().with(CapturingLayer { captured_spans: captured.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            root_roll_forward("peer-1".into());
+        });
+
+        let spans = captured.lock().unwrap();
+        let roll_forward = spans.iter().find(|span| span.name == "state.roll_forward.process").unwrap();
+        assert_eq!(roll_forward.parent, None);
+    }
+
+    #[test]
+    fn test_trace_record_records_to_span() {
+        let values = Arc::new(Mutex::new(BTreeMap::new()));
+        let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            outer_with_record("hash".into(), 100, 1024);
+        });
+
+        let recorded = values.lock().unwrap();
+        // The inner record function should record total_inputs
+        assert!(
+            recorded.contains_key("total_inputs") || recorded.contains_key("block_body_hash"),
+            "Expected some fields to be recorded, got {:?}",
+            recorded
+        );
+    }
+
+    #[test]
+    fn test_trace_span_preserves_formatter_kind() {
+        let values = Arc::new(Mutex::new(BTreeMap::new()));
+        let subscriber = Registry::default().with(ValueCapturingLayer { captured: values.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            distinct_formatting(DistinctFormatting, DistinctFormatting);
+        });
+
+        let recorded = values.lock().unwrap();
+        assert_eq!(recorded.get("display_value"), Some(&"display-format".to_string()));
+        assert_eq!(recorded.get("debug_value"), Some(&"debug-format".to_string()));
+    }
 }

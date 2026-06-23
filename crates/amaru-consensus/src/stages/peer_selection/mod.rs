@@ -18,11 +18,12 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeight, Peer};
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{Effects, ScheduleId, StageRef};
 use rand::{SeedableRng, rngs::StdRng, seq::IteratorRandom};
+use tracing::Instrument;
 
 use crate::effects::{GenerateRandomSeed, Ledger, LedgerOps};
 
@@ -226,7 +227,7 @@ pub enum PeerSelectionMsg {
     ///
     /// This peer will be removed and banned for some time period; static peers are banned
     /// shorter than non-static peers.
-    Adversarial(Peer),
+    Adversarial(Peer, #[serde(skip, default)] TraceContext),
     /// Manually add a peer, mostly for testing.
     AddPeer(Peer),
     /// The cooldown period for a peer has ended, and the peer can be re-added.
@@ -241,6 +242,13 @@ pub enum PeerSelectionMsg {
     ConnectFailed(Peer),
     /// Internal message from ledger check with new candidates.
     LedgerCheckCandidates(BTreeSet<Peer>),
+}
+
+impl PeerSelectionMsg {
+    /// Shortcut for creating an adversarial message when no trace context is available
+    pub fn adversarial(peer: Peer) -> PeerSelectionMsg {
+        PeerSelectionMsg::Adversarial(peer, Default::default())
+    }
 }
 
 impl PeerSelection {
@@ -359,9 +367,10 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 .await;
             eff.send(&ledger_check, ()).await;
         }
-        PeerSelectionMsg::Adversarial(peer) => {
+        PeerSelectionMsg::Adversarial(peer, trace_context) => {
             tracing::debug!(%peer, "peer_selection.adversarial");
-            state.ban_peer(peer, &eff).await;
+            let span = debug_span!(parent_context: trace_context, consensus::state::peer::BAN, peer = peer.clone());
+            state.ban_peer(peer, &eff).instrument(span).await;
         }
         PeerSelectionMsg::CooldownEnded(peer) => {
             state.cooldown_timers.remove(&peer);
@@ -389,8 +398,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, connection.id)).await;
                 return state;
             }
-            let span = trace_span!(
-                amaru::protocols::peer_selection::CONNECTED,
+            let span = debug_span!(
+                amaru::protocols::peer_selection::peer::CONNECTED,
                 peer = &peer,
                 conn_id = connection.id.as_u64(),
                 direction = ConnectionDirection::Inbound,
@@ -406,8 +415,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Outbound) => {
-            let span = trace_span!(
-                amaru::protocols::peer_selection::CONNECTED,
+            let span = debug_span!(
+                amaru::protocols::peer_selection::peer::CONNECTED,
                 peer = &peer,
                 conn_id = connection.id.as_u64(),
                 direction = ConnectionDirection::Inbound,
@@ -423,8 +432,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
         }
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound, _) => {
-            let _span = trace_span!(
-                amaru::protocols::peer_selection::DISCONNECTED,
+            let _span = debug_span!(
+                amaru::protocols::peer_selection::peer::DISCONNECTED,
                 peer = &peer,
                 conn_id = conn_id.as_u64(),
                 direction = ConnectionDirection::Inbound,
@@ -442,8 +451,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 && let PeerState::Connected(conn) = entry.get()
                 && conn.id == conn_id
             {
-                let span = trace_span!(
-                    amaru::protocols::peer_selection::DISCONNECTED,
+                let span = debug_span!(
+                    amaru::protocols::peer_selection::peer::DISCONNECTED,
                     peer = peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Inbound,
@@ -480,7 +489,7 @@ impl LedgerCheck {
     }
 }
 
-#[tracing::instrument(level = "info", skip_all, fields(last_height = %state.last_height))]
+#[tracing::instrument(level = "trace", skip_all, fields(last_height = %state.last_height))]
 async fn get_ledger_candidates(mut state: LedgerCheck, _msg: (), eff: Effects<()>) -> LedgerCheck {
     let ledger = Ledger::new(eff.clone());
     let current_height = ledger.volatile_tip().await.block_height();

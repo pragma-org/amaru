@@ -44,6 +44,7 @@ Other guiding principles:
 - **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
 - **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
+- **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
 
 ### Fixed
 
@@ -151,6 +152,7 @@ Other guiding principles:
 [#983]: https://github.com/pragma-org/amaru/pull/983
 [#985]: https://github.com/pragma-org/amaru/pull/985
 [#988]: https://github.com/pragma-org/amaru/pull/988
+[#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013

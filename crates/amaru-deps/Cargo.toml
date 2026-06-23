@@ -71,6 +71,8 @@ ignored = [
   "tokio",
   "tracing",
   "tracing-core",
+  "tracing-log",
+  "tracing-subscriber",
   "zerocopy",
   "zeroize",
 ]

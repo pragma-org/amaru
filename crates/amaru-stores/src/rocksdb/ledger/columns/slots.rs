@@ -19,7 +19,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -28,8 +28,8 @@ use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 pub const PREFIX: [u8; PREFIX_LEN] = [0x73, 0x6c, 0x6f, 0x74];
 
 pub fn get<T: ThreadMode>(db: &OptimisticTransactionDB<T>, key: &Key) -> Result<Option<Value>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::SLOTS_GET,
+    let _span = debug_span!(
+        stores::ledger::columns::SLOTS_GET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "get".to_string(),
         db_collection_name = "slot".to_string()
@@ -43,8 +43,8 @@ pub fn get<T: ThreadMode>(db: &OptimisticTransactionDB<T>, key: &Key) -> Result<
 }
 
 pub fn put<DB>(db: &Transaction<'_, DB>, key: &Key, value: Value) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::SLOTS_PUT,
+    let _span = debug_span!(
+        stores::ledger::columns::SLOTS_PUT,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "slot".to_string()

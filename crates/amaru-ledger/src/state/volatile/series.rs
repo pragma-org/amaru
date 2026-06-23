@@ -188,7 +188,7 @@ impl VolatileSeries {
     fn recompute_aggregate(&mut self) {
         self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
 
-        debug_span!(amaru_observability::amaru::ledger::state::AGGREGATE).in_scope(|| {
+        debug_span!(ledger::state::volatile::AGGREGATE).in_scope(|| {
             let mut aggregate = VolatileFragment::default();
 
             for anchored in &self.sequence {

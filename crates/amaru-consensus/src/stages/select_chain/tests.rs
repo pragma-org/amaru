@@ -40,7 +40,7 @@ fn test_tip_not_found() {
     let tip = prep.headers.h3.tip();
     let parent = prep.headers.h2.point();
 
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -65,7 +65,7 @@ fn test_tip_already_validated() {
     prep.set_validity(prep.headers.h2.hash(), true);
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -89,7 +89,7 @@ fn test_tip_extends_from_origin() {
     prep.store_headers(&[&prep.headers.h0]);
     let tip = prep.headers.h0.tip();
     let parent = Point::Origin;
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let expected = SelectChain {
         best_tip: Some(prep.header(tip.hash())),
@@ -105,7 +105,7 @@ fn test_tip_extends_from_origin() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -122,7 +122,7 @@ fn test_tip_extends_from_h1() {
     prep.store_headers(&prep.headers.main());
     let tip = prep.headers.h2.tip();
     let parent = prep.headers.h1.point();
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let expected = SelectChain {
         best_tip: Some(prep.header(tip.hash())),
@@ -142,7 +142,7 @@ fn test_tip_extends_from_h1() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -159,7 +159,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
     prep.set_anchor(prep.headers.h2.hash());
     let tip = prep.headers.h3.tip();
     let parent = prep.headers.h2.point();
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let expected = SelectChain {
         best_tip: Some(prep.header(tip.hash())),
@@ -176,7 +176,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -196,7 +196,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
     prep.set_anchor(prep.headers.h0.hash());
     let tip = prep.headers.h3.tip();
     let parent = prep.headers.h2.point();
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let expected = SelectChain {
         best_tip: Some(prep.header(tip.hash())),
@@ -219,7 +219,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -240,7 +240,7 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
     prep.set_anchor(prep.headers.h0.hash());
     let tip = prep.headers.h3a.tip();
     let parent = prep.headers.h2a.point();
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let expected = SelectChain {
         tips: BTreeMap::from_iter([
@@ -276,7 +276,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
     prep.set_anchor(prep.headers.h1.hash());
     let tip = prep.headers.h3a.tip();
     let parent = prep.headers.h2a.point();
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let expected = SelectChain {
         best_tip: Some(prep.header(tip.hash())),
@@ -296,7 +296,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", (tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -314,7 +314,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
     prep.set_anchor(prep.headers.h0.hash());
     let tip = prep.headers.h3.tip();
     let parent = prep.headers.h2.point();
-    let msg = SelectChainMsg::TipFromUpstream(tip, parent);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
     let mut expected = SelectChain::new(prep.downstream.clone());
@@ -395,7 +395,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
             te_load_tip("sc-1", prep.headers.h0.hash()),
-            te_send("sc-1", "downstream", (prep.headers.h1.tip(), prep.headers.h0.point())),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.tip(), prep.headers.h0.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
             te_state("sc-1", &expected),
         ],
@@ -439,7 +439,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
             te_load_tip("sc-1", prep.headers.h2a.hash()),
-            te_send("sc-1", "downstream", (prep.headers.h3a.tip(), prep.headers.h2a.point())),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.tip(), prep.headers.h2a.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
             te_state("sc-1", &expected),
         ],
@@ -550,7 +550,7 @@ fn test_startup_with_non_empty_store() {
     prep.store_headers(&prep.headers.main());
     prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.may_fetch_blocks = false;
-    let msg = SelectChainMsg::FetchNextFrom(Point::Origin);
+    let msg = SelectChainMsg::fetch_next_from(Point::Origin);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -560,7 +560,7 @@ fn test_startup_with_non_empty_store() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", prep.headers.h3.hash(), false),
             te_load_tip("sc-1", prep.headers.h2.hash()),
-            te_send("sc-1", "downstream", (prep.headers.h3.tip(), prep.headers.h2.point())),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.tip(), prep.headers.h2.point())),
             te_state("sc-1", &prep.state),
         ],
     );
@@ -582,7 +582,7 @@ fn test_fetch_next_from_resumes_best_candidate() {
     prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.state.may_fetch_blocks = false;
 
-    let msg = SelectChainMsg::FetchNextFrom(prep.headers.h1.point());
+    let msg = SelectChainMsg::fetch_next_from(prep.headers.h1.point());
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -592,7 +592,7 @@ fn test_fetch_next_from_resumes_best_candidate() {
             te_input("sc-1", &msg).into(),
             te_load_header("sc-1", prep.headers.h3.hash(), false).into(),
             te_load_tip("sc-1", prep.headers.h2.hash()).into(),
-            te_send("sc-1", "downstream", (prep.headers.h3.tip(), prep.headers.h2.point())).into(),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.tip(), prep.headers.h2.point())).into(),
         ],
     );
 
@@ -611,7 +611,7 @@ fn test_fetch_next_from_enables_may_fetch_blocks() {
     prep.state.may_fetch_blocks = false;
 
     // Asking for the current best tip point → just enable fetching
-    let msg = SelectChainMsg::FetchNextFrom(prep.headers.h3.point());
+    let msg = SelectChainMsg::fetch_next_from(prep.headers.h3.point());
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 

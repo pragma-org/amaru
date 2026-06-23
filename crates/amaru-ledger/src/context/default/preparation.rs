@@ -174,7 +174,7 @@ fn resolve_inputs<'a>(
     policy: UnresolvedInputPolicy,
     mut keys: impl Iterator<Item = &'a TransactionInput>,
 ) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, ContextHydratationError> {
-    trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_INPUTS).in_scope(|| {
+    trace_span!(ledger::state::inputs::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -223,7 +223,7 @@ fn resolve_pools(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
 ) -> Result<BTreeSet<PoolId>, ContextHydratationError> {
-    trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_POOLS).in_scope(|| {
+    trace_span!(ledger::state::pools::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -264,7 +264,7 @@ fn resolve_accounts(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydratationError> {
-    trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_ACCOUNTS).in_scope(|| {
+    trace_span!(ledger::state::accounts::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -339,7 +339,7 @@ fn resolve_dreps(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydratationError> {
-    trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_DREPS).in_scope(|| {
+    trace_span!(ledger::state::dreps::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -395,7 +395,7 @@ fn resolve_committee<'a>(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = &'a StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
-    trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_CC_MEMBERS).in_scope(|| {
+    trace_span!(ledger::state::committee::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -463,7 +463,7 @@ pub fn resolve_proposals(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ComparableProposalId>,
 ) -> Result<BTreeSet<ComparableProposalId>, ContextHydratationError> {
-    trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_PROPOSALS).in_scope(|| {
+    trace_span!(ledger::state::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 

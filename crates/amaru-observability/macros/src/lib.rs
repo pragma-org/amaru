@@ -21,7 +21,7 @@
 //! The macros in this crate work together to provide compile-time validation of tracing:
 //!
 //! - [`define_schemas!`] - Declares schemas with their fields and types
-//! - [`trace_span!`](macro@trace_span) - Creates typed spans with strict schema validation
+//! - [`debug_span!`](macro@trace_span) - Creates typed spans with strict schema validation
 //! - [`trace_record!`](macro@trace_record) - Records fields to the current span
 //!
 //! # Disabling Tracing at Compile Time
@@ -105,15 +105,15 @@ pub fn define_local_schemas(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// fn apply_block(point_slot: u64, error: Option<&str>) {
-///     let _span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+///     let _span = debug_span!(ledger::state::block::APPLY, point_slot = point_slot);
 ///     let _guard = _span.enter();
 ///
 ///     if let Some(error) = error {
 ///         // Record to span only
-///         trace_record!(ledger::state::APPLY_BLOCK, error = error);
+///         trace_record!(ledger::state::block::APPLY, error = error);
 ///
 ///         // Record to span and emit INFO log event
-///         trace_record!(INFO, ledger::state::APPLY_BLOCK, error = error);
+///         trace_record!(INFO, ledger::state::block::APPLY, error = error);
 ///     }
 /// }
 /// ```
@@ -130,16 +130,16 @@ pub fn trace_record(input: TokenStream) -> TokenStream {
 /// # Syntax
 ///
 /// ```text
-/// trace_span!(SCHEMA, field = value, ...);           // TRACE-level span (default)
-/// trace_span!(LEVEL, SCHEMA, field = value, ...);    // Custom level span
+/// debug_span!(SCHEMA, field = value, ...);           // TRACE-level span (default)
+/// debug_span!(LEVEL, SCHEMA, field = value, ...);    // Custom level span
 /// ```
 ///
 /// # Example
 ///
 /// ```text
-/// trace_span!(operations::database::OPENING_CHAIN_DB, path = "...")
-/// trace_span!(DEBUG, ledger::state::APPLY_BLOCK, point_slot = 1024)
-/// trace_span!(INFO, consensus::VALIDATE_HEADER)
+/// debug_span!(operations::database::OPENING_CHAIN_DB, path = "...")
+/// debug_span!(DEBUG, ledger::state::block::APPLY, point_slot = 1024)
+/// debug_span!(INFO, consensus::VALIDATE_HEADER)
 /// ```
 #[proc_macro]
 pub fn trace_span(input: TokenStream) -> TokenStream {

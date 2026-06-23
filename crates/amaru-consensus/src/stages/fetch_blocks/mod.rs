@@ -17,9 +17,11 @@ use std::time::Duration;
 use amaru_kernel::{
     BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
 };
+use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
+use tracing::Instrument;
 
 use crate::stages::{
     block_source::BlockSourceMsg,
@@ -100,7 +102,7 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 /// The `stage()` fn ensures the child then dispatches the 4 msg variants to the impl methods and returns updated state. All error paths that cannot continue call `eff.terminate()`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchBlocks {
-    downstream: StageRef<(Tip, Point, BlockHeight)>,
+    downstream: StageRef<DownloadedBlock>,
     req_id: u64,
     missing: Option<MissingBlocks>,
     upstream: StageRef<SelectChainMsg>,
@@ -110,11 +112,15 @@ pub struct FetchBlocks {
     cleanup_replies: StageRef<Blocks>,
     timeout: Option<ScheduleId>,
     block_height: BlockHeight,
+    /// Trace context originating from the reception of a new tip. Additional spans created by
+    /// this stage are children of that context
+    #[serde(skip, default)]
+    trace_context: Option<TraceContext>,
 }
 
 impl FetchBlocks {
     pub fn new(
-        downstream: StageRef<(Tip, Point, BlockHeight)>,
+        downstream: StageRef<DownloadedBlock>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         block_source: StageRef<BlockSourceMsg>,
@@ -131,34 +137,31 @@ impl FetchBlocks {
             cleanup_replies: StageRef::blackhole(),
             timeout: None,
             block_height: BlockHeight::from(0),
+            trace_context: Default::default(),
         }
     }
 
     /// Constructor for tests: use a mock cleanup_replies stage instead of wiring the real one.
     #[cfg(test)]
     pub fn for_tests(
-        downstream: StageRef<(Tip, Point, BlockHeight)>,
+        downstream: StageRef<DownloadedBlock>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
         block_source: StageRef<BlockSourceMsg>,
         peer_selection: StageRef<PeerSelectionMsg>,
         cleanup_replies: StageRef<Blocks>,
     ) -> Self {
-        Self {
-            downstream,
-            req_id: 0,
-            missing: None,
-            upstream,
-            manager,
-            block_source,
-            peer_selection,
-            cleanup_replies,
-            timeout: None,
-            block_height: BlockHeight::from(0),
-        }
+        let fetch_blocks = FetchBlocks::new(downstream, upstream, manager, block_source, peer_selection);
+        Self { cleanup_replies, ..fetch_blocks }
     }
 
-    pub async fn new_tip(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
+    pub async fn new_tip(
+        &mut self,
+        tip: Tip,
+        parent: Point,
+        eff: Effects<FetchBlocksMsg>,
+        parent_context: TraceContext,
+    ) {
         self.block_height = tip.block_height().max(self.block_height);
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
@@ -168,21 +171,31 @@ impl FetchBlocks {
             self.missing
         );
 
-        self.request_missing_blocks(tip, parent, eff).await;
+        let span = debug_span!(
+            parent_context: parent_context.clone(),
+            consensus::state::blocks::FETCH,
+            tip = tip,
+            header_hash = tip.hash(),
+        );
+        let stage_context = (&span).into();
+
+        self.request_missing_blocks(tip, parent, eff, parent_context, stage_context).instrument(span).await;
     }
 
     /// Startup-only recovery: resubmit downloaded blocks whose validity was not
     /// persisted before shutdown, then fetch from the first missing block.
     pub async fn recover_stored_blocks(&mut self, eff: Effects<FetchBlocksMsg>, best_hash: HeaderHash) {
+        let span = debug_span!(consensus::setup::blocks::RECOVER_STORED, best_hash = best_hash,);
+        let trace_context = (&span).into();
         assert!(
             self.missing.is_none(),
             "there shouldn't be any missing blocks when recovering stored blocks: {:?}",
             self.missing
         );
 
-        let store = Store::new(eff.clone());
+        let store = Store::new(eff.clone()).with_trace_context(&trace_context);
         if best_hash == ORIGIN_HASH {
-            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(Point::Origin)).await;
+            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(Point::Origin, trace_context)).await;
             return;
         }
         let best_tip = store
@@ -212,11 +225,17 @@ impl FetchBlocks {
             match store.has_block(&hash).await {
                 Ok(true) => {
                     tracing::debug!(point = %tip.point(), "validating stored block");
-                    eff.send(&self.downstream, (tip, block_parent, self.block_height)).await;
+                    let downloaded_block = DownloadedBlock {
+                        tip,
+                        parent: block_parent,
+                        max_block_height: self.block_height,
+                        trace_context: trace_context.clone(),
+                    };
+                    eff.send(&self.downstream, downloaded_block).await;
                     parent = Some(tip.point());
                 }
                 Ok(false) => {
-                    self.request_missing_blocks(tip, block_parent, eff).await;
+                    self.request_missing_blocks(tip, block_parent, eff, trace_context.clone(), trace_context).await;
                     return;
                 }
                 Err(error) => {
@@ -227,11 +246,18 @@ impl FetchBlocks {
         }
 
         tracing::info!(tip = %tip.point(), "no blocks to fetch");
-        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
+        self.fetch_next_from(eff, tip.point()).await;
     }
 
-    async fn request_missing_blocks(&mut self, tip: Tip, parent: Point, eff: Effects<FetchBlocksMsg>) {
-        let store = Store::new(eff.clone());
+    async fn request_missing_blocks(
+        &mut self,
+        tip: Tip,
+        parent: Point,
+        eff: Effects<FetchBlocksMsg>,
+        parent_context: TraceContext,
+        stage_context: TraceContext,
+    ) {
+        let store = Store::new(eff.clone()).with_trace_context(&stage_context);
         match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_PER_BATCH).await {
             Ok(MissingBlocksResult::StartHeaderNotFound) => {
                 tracing::error!("failed to load initial header");
@@ -257,11 +283,12 @@ impl FetchBlocks {
             None => {
                 self.missing = None;
                 tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
-                eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(tip.point())).await;
+                self.fetch_next_from(eff, tip.point()).await;
             }
             Some((from, to)) => {
                 tracing::debug!(%from, %to, length = missing.nb_missing_blocks(), "requesting blocks");
                 self.req_id += 1;
+                self.trace_context = Some(parent_context);
                 eff.send(
                     &self.manager,
                     ManagerMessage::FetchBlocks {
@@ -293,7 +320,10 @@ impl FetchBlocks {
 
         // check that body belongs to header
         if header.header().header_body.block_body_hash != block.body_hash() {
-            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
+            let trace_context =
+                debug_span!(consensus::state::block::MISMATCHED_HASH, peer = peer.clone(), header_hash = point.hash())
+                    .into();
+            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
             tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
@@ -319,7 +349,13 @@ impl FetchBlocks {
             })
             .await;
         let tip = Tip::new(point, block.header.header_body.block_number.into());
-        eff.send(&self.downstream, (tip, missing.boundary(), self.block_height)).await;
+
+        // retrieve the trace context that led to fetching that block to send downstream
+        let trace_context = self.trace_context.clone().unwrap_or_default();
+
+        let downloaded_block =
+            DownloadedBlock { tip, parent: missing.boundary(), max_block_height: self.block_height, trace_context };
+        eff.send(&self.downstream, downloaded_block).await;
 
         missing.shift_one_block();
         if missing.is_empty() {
@@ -327,7 +363,7 @@ impl FetchBlocks {
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;
             }
-            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(point)).await;
+            self.fetch_next_from(eff, point).await;
         }
     }
 
@@ -335,24 +371,60 @@ impl FetchBlocks {
         if req_id != self.req_id {
             return;
         }
+
         tracing::error!(%req_id, "timeout fetching blocks");
         match self.missing.as_ref().map(|m| m.boundary()) {
             None => (),
             Some(from) => {
                 self.timeout = None;
                 self.missing = None;
-                eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from)).await;
+                self.fetch_next_from(eff, from).await;
             }
         }
+    }
+
+    async fn fetch_next_from(&mut self, eff: Effects<FetchBlocksMsg>, from: Point) {
+        let trace_context = self.trace_context.take().unwrap_or_default();
+        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from, trace_context)).await;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DownloadedBlock {
+    pub tip: Tip,
+    pub parent: Point,
+    pub max_block_height: BlockHeight,
+    #[serde(skip, default)]
+    pub trace_context: TraceContext,
+}
+
+impl DownloadedBlock {
+    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight) -> Self {
+        Self { tip, parent, max_block_height, trace_context: Default::default() }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
-    NewTip(Tip, Point),
-    RecoverStoredBlocks(HeaderHash),
+    NewTip {
+        tip: Tip,
+        parent: Point,
+        #[serde(skip, default)]
+        trace_context: TraceContext,
+    },
+    RecoverStoredBlocks(HeaderHash, #[serde(skip, default)] TraceContext),
     Block(Peer, NetworkBlock),
     Timeout(u64),
+}
+
+impl FetchBlocksMsg {
+    pub fn new_tip(tip: Tip, parent: Point) -> Self {
+        Self::NewTip { tip, parent, trace_context: Default::default() }
+    }
+
+    pub fn recover_stored_blocks(best_hash: HeaderHash) -> Self {
+        Self::RecoverStoredBlocks(best_hash, Default::default())
+    }
 }
 
 pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<FetchBlocksMsg>) -> FetchBlocks {
@@ -361,8 +433,11 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     })
     .await;
     match msg {
-        FetchBlocksMsg::NewTip(tip, parent) => state.new_tip(tip, parent, eff).await,
-        FetchBlocksMsg::RecoverStoredBlocks(best_hash) => state.recover_stored_blocks(eff, best_hash).await,
+        FetchBlocksMsg::NewTip { tip, parent, trace_context } => state.new_tip(tip, parent, eff, trace_context).await,
+        FetchBlocksMsg::RecoverStoredBlocks(best_hash, trace_context) => {
+            state.trace_context = Some(trace_context);
+            state.recover_stored_blocks(eff, best_hash).await
+        }
         FetchBlocksMsg::Block(peer, block) => state.block(peer, block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
     }
@@ -399,7 +474,7 @@ async fn cleanup_replies(mut state: Cleanup, msg: Blocks, eff: Effects<Blocks>) 
                 Ok(header) => header,
                 Err(error) => {
                     tracing::warn!(%error, "failed to decode block in cleanup");
-                    eff.send(&state.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
+                    eff.send(&state.peer_selection, PeerSelectionMsg::adversarial(peer)).await;
                     return state;
                 }
             };

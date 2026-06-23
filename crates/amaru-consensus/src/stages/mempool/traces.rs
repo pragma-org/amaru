@@ -24,17 +24,9 @@ use crate::effects::{Metrics, MetricsOps};
 
 /// Add traces for a transaction that is candidate for mempool insertion.
 pub(super) fn emit_tx_received(tx_id: &TransactionId, origin: &TxOrigin) {
-    trace_record!(
-        amaru_observability::amaru::mempool::TX_RECEIVED,
-        tx_id = tx_id.to_string(),
-        origin = tx_origin_label(origin)
-    );
+    trace_record!(mempool::transaction::RECEIVED, tx_id = tx_id.to_string(), origin = tx_origin_label(origin));
     if let TxOrigin::Remote(peer) = origin {
-        trace_record!(
-            amaru_observability::amaru::mempool::TX_RECEIVED_DETAIL,
-            tx_id = tx_id.to_string(),
-            peer = peer.to_string()
-        );
+        trace_record!(mempool::transaction::RECEIVED_DETAIL, tx_id = tx_id.to_string(), peer = peer.to_string());
     }
 }
 
@@ -49,7 +41,7 @@ pub(super) async fn record_insert(
     match result {
         TxInsertResult::Accepted { tx_id, seq_no } => {
             trace_record!(
-                amaru_observability::amaru::mempool::TX_ACCEPTED,
+                mempool::transaction::ACCEPTED,
                 tx_id = tx_id.to_string(),
                 seq_no = seq_no.0,
                 origin = tx_origin_label(origin)
@@ -61,18 +53,14 @@ pub(super) async fn record_insert(
                 TxRejectReason::Invalid(err) => {
                     let validation_error = err.to_string();
                     trace_record!(
-                        amaru_observability::amaru::mempool::TX_REJECTED,
+                        mempool::transaction::REJECTED,
                         tx_id = tx_id.to_string(),
                         reason = reason_label,
                         validation_error = validation_error
                     );
                 }
                 TxRejectReason::Duplicate | TxRejectReason::MempoolFull => {
-                    trace_record!(
-                        amaru_observability::amaru::mempool::TX_REJECTED,
-                        tx_id = tx_id.to_string(),
-                        reason = reason_label
-                    );
+                    trace_record!(mempool::transaction::REJECTED, tx_id = tx_id.to_string(), reason = reason_label);
                 }
             }
         }
@@ -96,7 +84,7 @@ pub(super) async fn record_revalidation(
 
     for tx_id in &outcome.evicted_tx_ids {
         trace_record!(
-            amaru_observability::amaru::mempool::TX_EVICTED,
+            mempool::transaction::EVICTED,
             tx_id = tx_id.to_string(),
             reason = "invalid_after_tip".to_string()
         );
@@ -111,7 +99,7 @@ pub(super) async fn record_revalidation(
     }
 
     trace_record!(
-        amaru_observability::amaru::mempool::REVALIDATION_DETAIL,
+        mempool::transaction::REVALIDATION_DETAIL,
         tip_slot = outcome.tip_slot,
         total_before = outcome.total_before,
         evicted_count = evicted_count,

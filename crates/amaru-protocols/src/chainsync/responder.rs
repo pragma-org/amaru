@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{EraName, Peer, Point, Tip};
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -44,7 +44,7 @@ pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
-    NewTip(Tip),
+    NewTip(Tip, #[serde(skip, default)] TraceContext),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -77,10 +77,17 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
-            ResponderMessage::NewTip(tip) => {
-                tracing::trace!(%tip, "New tip");
+            ResponderMessage::NewTip(tip, trace_context) => {
+                let span = debug_span!(
+                    parent_context: trace_context,
+                    consensus::state::header::FORWARD,
+                    tip = tip,
+                    header_hash = tip.hash(),
+                    peer = self.peer.clone()
+                );
                 self.upstream = tip;
                 let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                    .instrument(span)
                     .await
                     .context("failed to get next header")?;
                 Ok((action, self))
@@ -119,8 +126,8 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 }
             }
         }
-        .instrument(trace_span!(
-            amaru_observability::amaru::protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE,
+        .instrument(debug_span!(
+            protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE,
             message_type = message_type
         ))
         .await
@@ -228,8 +235,8 @@ impl ProtocolState<Responder> for ResponderState {
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::chainsync::responder::CHAINSYNC_RESPONDER_PROTOCOL,
+        let _span = debug_span!(
+            protocols::chainsync::responder::CHAINSYNC_RESPONDER_PROTOCOL,
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();

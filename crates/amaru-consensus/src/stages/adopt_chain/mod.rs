@@ -15,10 +15,12 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
+use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
+use tracing::Instrument;
 
 use crate::stages::{block_source::BlockSourceMsg, select_chain::cmp_tip};
 
@@ -116,97 +118,114 @@ impl AdoptChain {
 pub struct AdoptChainMsg {
     tip: Tip,
     max_block_height: BlockHeight,
+    #[serde(skip, default)]
+    trace_context: TraceContext,
 }
 
 impl AdoptChainMsg {
     pub fn new(tip: Tip, max_block_height: BlockHeight) -> Self {
-        Self { tip, max_block_height }
+        Self { tip, max_block_height, trace_context: Default::default() }
+    }
+
+    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+        self.trace_context = trace_context.clone();
+        self
     }
 }
 
 pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<AdoptChainMsg>) -> AdoptChain {
     state.max_block_height = msg.max_block_height.max(state.max_block_height);
-    let AdoptChainMsg { tip: msg, .. } = msg;
+    let AdoptChainMsg { tip: msg, trace_context, .. } = msg;
+    let root_trace_context = trace_context.clone();
+    let span = debug_span!(
+        parent_context: trace_context,
+        amaru::consensus::state::block::ADOPT,
+        tip = msg,
+        header_hash = msg.hash()
+    );
+    let trace_context = (&span).into();
 
-    if msg.block_height() < state.current_best_tip.block_height() {
-        tracing::debug!(tip = %msg, current_best_tip = %state.current_best_tip, "incoming tip shorter than current best, skipping");
-        return state;
-    }
-
-    let store = Store::new(eff.clone());
-
-    let incoming_header = store
-        .load_header(&msg.hash())
-        .or_terminate_with(&eff, async |_| {
-            tracing::warn!(tip = %msg, "failed to load incoming tip");
-        })
-        .await;
-
-    let current_best = if state.current_best_tip.point() == Point::Origin {
-        None
-    } else {
-        Some(
-            store
-                .load_header(&state.current_best_tip.hash())
-                .or_terminate_with(&eff, async |_| {
-                    tracing::warn!("failed to load current best");
-                })
-                .await,
-        )
-    };
-
-    if cmp_tip(Some(&incoming_header), current_best.as_ref()) != Ordering::Greater {
-        tracing::debug!(tip = %msg, "incoming tip not better than current best, not adopting");
-        return state;
-    }
-
-    if let Some(current_best) = current_best.as_ref() {
-        let adopt_result = adopt_tip(&store, &incoming_header, current_best)
-            .or_terminate_with(&eff, async |error| {
-                tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
-            })
-            .await;
-        match adopt_result {
-            AdoptTipResult::BestChainRolledForward | AdoptTipResult::BestChainSwitched => {}
-            AdoptTipResult::HeaderNotFound => {
-                tracing::error!(tip = %msg, "invariant violated: incoming header was loaded but find_ancestor_on_best_chain reports it missing");
-                return eff.terminate().await;
-            }
-            AdoptTipResult::AncestorOnBestChainNotFound => {
-                tracing::error!(tip = %msg, "invariant violated: incoming chain shares no ancestor with the best chain");
-                return eff.terminate().await;
-            }
+    async {
+        if msg.block_height() < state.current_best_tip.block_height() {
+            tracing::debug!(tip = %msg, current_best_tip = %state.current_best_tip, "incoming tip shorter than current best, skipping");
+            return state;
         }
-    } else {
-        store
-            .roll_forward_chain(&incoming_header.point())
-            .or_terminate_with(&eff, async |error| {
-                tracing::error!(error = %error, tip = %msg, "failed to adopt first tip");
+
+        let store = Store::new(eff.clone()).with_trace_context(&trace_context);
+
+        let incoming_header = store
+            .load_header(&msg.hash())
+            .or_terminate_with(&eff, async |_| {
+                tracing::warn!(tip = %msg, "failed to load incoming tip");
             })
             .await;
-    }
 
-    drag_anchor_forward(&store, &msg, state.consensus_security_param)
-        .or_terminate_with(&eff, async |error| {
-            tracing::error!(error = %error, tip = %msg, "failed to drag anchor forward");
-        })
-        .await;
+        let current_best = if state.current_best_tip.point() == Point::Origin {
+            None
+        } else {
+            Some(
+                store
+                    .load_header(&state.current_best_tip.hash())
+                    .or_terminate_with(&eff, async |_| {
+                        tracing::warn!("failed to load current best");
+                    })
+                    .await,
+            )
+        };
 
-    // do not print every single block while catching up
-    let now = eff.clock().await;
-    if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
-        tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
-        state.last_printed = now;
-        state.suppressed = 0;
-    } else {
-        tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
-        state.suppressed += 1;
-    }
-    eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
-    eff.send(&state.downstream, ManagerMessage::NewTip(msg)).await;
-    eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
-    state.current_best_tip = msg;
-    state
+        if cmp_tip(Some(&incoming_header), current_best.as_ref()) != Ordering::Greater {
+            tracing::debug!(tip = %msg, "incoming tip not better than current best, not adopting");
+            return state;
+        }
+
+        if let Some(current_best) = current_best.as_ref() {
+            let adopt_result = adopt_tip(&store, &incoming_header, current_best)
+                .or_terminate_with(&eff, async |error| {
+                    tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
+                })
+                .await;
+            match adopt_result {
+                AdoptTipResult::BestChainRolledForward | AdoptTipResult::BestChainSwitched => {}
+                AdoptTipResult::HeaderNotFound => {
+                    tracing::error!(tip = %msg, "invariant violated: incoming header was loaded but find_ancestor_on_best_chain reports it missing");
+                    return eff.terminate().await;
+                }
+                AdoptTipResult::AncestorOnBestChainNotFound => {
+                    tracing::error!(tip = %msg, "invariant violated: incoming chain shares no ancestor with the best chain");
+                    return eff.terminate().await;
+                }
+            }
+        } else {
+            store
+                .roll_forward_chain(&incoming_header.point())
+                .or_terminate_with(&eff, async |error| {
+                    tracing::error!(error = %error, tip = %msg, "failed to adopt first tip");
+                })
+                .await;
+        }
+
+        drag_anchor_forward(&store, &msg, state.consensus_security_param)
+            .or_terminate_with(&eff, async |error| {
+                tracing::error!(error = %error, tip = %msg, "failed to drag anchor forward");
+            })
+            .await;
+
+        // do not print every single block while catching up
+        let now = eff.clock().await;
+        if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
+            tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
+            state.last_printed = now;
+            state.suppressed = 0;
+        } else {
+            tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
+            state.suppressed += 1;
+        }
+        eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
+        eff.send(&state.downstream, ManagerMessage::NewTip(msg, root_trace_context)).await;
+        eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
+        state.current_best_tip = msg;
+        state
+    }.instrument(span).await
 }
 
 /// Adopt the tip: update the best chain fragment and best chain hash in a single store transaction.

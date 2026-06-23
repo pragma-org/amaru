@@ -46,7 +46,7 @@ impl PoolsEpochTransitionUpdates {
     /// Create a new transition update from a read-only store and the epoch that is *beginning*. So
     /// when transitioning from e -> e + 1; 'epoch' is e + 1.
     pub fn new(pools_iter: impl Iterator<Item = (PoolId, Pool)>, epoch: Epoch) -> Self {
-        info_span!(amaru_observability::amaru::ledger::epoch_transition::NEW_POOLS_UPDATES).in_scope(|| {
+        info_span!(ledger::state::epoch_transition::NEW_POOLS_UPDATES).in_scope(|| {
             let mut pools_updates = Self::default();
 
             for (_pool_id, pool) in pools_iter {

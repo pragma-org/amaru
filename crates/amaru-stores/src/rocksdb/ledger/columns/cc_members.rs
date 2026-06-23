@@ -19,7 +19,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -32,8 +32,8 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::CC_MEMBERS_GET,
+    let _span = debug_span!(
+        stores::ledger::columns::CC_MEMBERS_GET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "get".to_string(),
         db_collection_name = "cc_member".to_string()
@@ -47,8 +47,8 @@ pub fn get<'a>(
 
 /// Register a new CC Member.
 pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::CC_MEMBERS_UPSERT,
+    let _span = debug_span!(
+        stores::ledger::columns::CC_MEMBERS_UPSERT,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "cc_member".to_string()

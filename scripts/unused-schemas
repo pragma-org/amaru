@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Find schema constants (from dump-traces-schema JSON) never referenced in trace_span! calls.
+# Find schema constants (from dump-traces-schema JSON) never referenced in debug_span! calls.
 #
 # Private schemas (public: false) are included in the registry so they appear here too.
 
@@ -19,11 +19,15 @@ unused=0
 used=$(find crates -name "*.rs" \
     -not -path "*/target/*" \
     -not -path "*/amaru-observability/*" \
-    | xargs grep -ohE '([a-z_]+::)+[A-Z][A-Z0-9_]+' 2>/dev/null \
+    | xargs grep -ohE '([a-z_][a-z0-9_]*::)+[A-Z][A-Z0-9_]+' 2>/dev/null \
     | sort -u)
 
+# Schema keys are fully qualified with a leading `amaru::`, but call sites
+# typically use crate-relative paths (e.g. `ledger::state::block::APPLY`).
+# Match against the suffix so both forms count as used.
 while IFS= read -r path; do
-    if ! echo "$used" | grep -qF "$path"; then
+    suffix=${path#amaru::}
+    if ! echo "$used" | grep -qF "$suffix"; then
         echo "UNUSED  $path"
         unused=$((unused + 1))
     fi

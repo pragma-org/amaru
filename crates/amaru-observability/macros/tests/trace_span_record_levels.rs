@@ -96,7 +96,7 @@ fn test_trace_span_default_trace_level() {
         Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
-        let _span = trace_span!(database::operations::QUERY, query_id = 12345);
+        let _span = trace_span!(crate::database::operations::QUERY, query_id = 12345);
     });
 
     let captured = spans.lock().unwrap();
@@ -111,7 +111,7 @@ fn test_trace_span_with_debug_level() {
         Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
-        let _span = trace_span!(DEBUG, database::operations::QUERY, query_id = 12345);
+        let _span = trace_span!(DEBUG, crate::database::operations::QUERY, query_id = 12345);
     });
 
     let captured = spans.lock().unwrap();
@@ -126,7 +126,7 @@ fn test_trace_span_with_info_level() {
         Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
-        let _span = trace_span!(INFO, database::operations::QUERY, query_id = 99);
+        let _span = trace_span!(INFO, crate::database::operations::QUERY, query_id = 99);
     });
 
     let captured = spans.lock().unwrap();
@@ -141,7 +141,7 @@ fn test_trace_span_with_warn_level() {
         Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
-        let _span = trace_span!(WARN, database::operations::QUERY, query_id = 42);
+        let _span = trace_span!(WARN, crate::database::operations::QUERY, query_id = 42);
     });
 
     let captured = spans.lock().unwrap();
@@ -156,7 +156,7 @@ fn test_trace_span_with_error_level() {
         Registry::default().with(CaptureLayer { spans: spans.clone(), events: Arc::new(Mutex::new(Vec::new())) });
 
     tracing::subscriber::with_default(subscriber, || {
-        let _span = trace_span!(ERROR, database::operations::QUERY, query_id = 1);
+        let _span = trace_span!(ERROR, crate::database::operations::QUERY, query_id = 1);
     });
 
     let captured = spans.lock().unwrap();
@@ -176,7 +176,7 @@ fn test_trace_record_without_level_no_event() {
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
-        trace_record!(database::operations::QUERY, query_id = 12345);
+        trace_record!(crate::database::operations::QUERY, query_id = 12345);
     });
 
     let captured = events.lock().unwrap();
@@ -191,7 +191,7 @@ fn test_trace_record_with_debug_level_emits_event() {
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
-        trace_record!(DEBUG, database::operations::QUERY, query_id = 555);
+        trace_record!(DEBUG, crate::database::operations::QUERY, query_id = 555);
     });
 
     let captured = events.lock().unwrap();
@@ -208,7 +208,7 @@ fn test_trace_record_with_info_level_emits_event() {
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
-        trace_record!(INFO, database::operations::QUERY, query_id = 777);
+        trace_record!(INFO, crate::database::operations::QUERY, query_id = 777);
     });
 
     let captured = events.lock().unwrap();
@@ -224,7 +224,7 @@ fn test_trace_record_with_warn_level_emits_event() {
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
-        trace_record!(WARN, database::operations::QUERY, query_id = 888);
+        trace_record!(WARN, crate::database::operations::QUERY, query_id = 888);
     });
 
     let captured = events.lock().unwrap();
@@ -240,7 +240,7 @@ fn test_trace_record_with_error_level_emits_event() {
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
-        trace_record!(ERROR, database::operations::QUERY, query_id = 999);
+        trace_record!(ERROR, crate::database::operations::QUERY, query_id = 999);
     });
 
     let captured = events.lock().unwrap();
@@ -256,7 +256,7 @@ fn test_trace_record_with_trace_level_emits_event() {
 
     tracing::subscriber::with_default(subscriber, || {
         let _span = tracing::info_span!("test").entered();
-        trace_record!(TRACE, database::operations::QUERY, query_id = 111);
+        trace_record!(TRACE, crate::database::operations::QUERY, query_id = 111);
     });
 
     let captured = events.lock().unwrap();

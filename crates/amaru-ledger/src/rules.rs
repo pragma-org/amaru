@@ -42,7 +42,7 @@ impl<T: Display> Display for WithPosition<T> {
 
 /// Prepare the context for a whole block of transactions.
 pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
-    let _span = trace_span!(amaru_observability::amaru::ledger::state::PREPARE_BLOCK);
+    let _span = trace_span!(ledger::state::block::PREPARE,);
     let _guard = _span.enter();
     block.transaction_bodies.iter().for_each(|transaction| prepare_transaction(context, transaction));
 }

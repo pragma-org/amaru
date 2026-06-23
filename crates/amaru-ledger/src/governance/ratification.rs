@@ -97,57 +97,55 @@ impl<'distr> RatificationContext<'distr> {
         treasury: Lovelace,
     ) -> Result<Self, StoreError> {
         let epoch = snapshot.epoch();
-        info_span!(
-            amaru_observability::amaru::ledger::governance::NEW_RATIFICATION_CONTEXT,
-            ratifying_epoch = u64::from(epoch)
+        info_span!(ledger::state::governance::NEW_RATIFICATION_CONTEXT, ratifying_epoch = u64::from(epoch)).in_scope(
+            || {
+                let constitutional_committee = match snapshot.constitutional_committee()? {
+                    ConstitutionalCommitteeStatus::NoConfidence => None,
+                    ConstitutionalCommitteeStatus::Trusted { threshold } => {
+                        let members = snapshot
+                            .iter_cc_members()?
+                            .filter_map(|(cold_credential, row)| {
+                                row.valid_until.map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
+                            })
+                            .collect();
+
+                        Some(ConstitutionalCommittee::new(into_safe_ratio(&threshold), members))
+                    }
+                };
+
+                // FIXME: votes entirely stored in-memory
+                //
+                // This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
+                // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
+                // require much memory; but it becomes a potential attack vector.
+                //
+                // We must avoid loading ALL votes in memory at once. Especially since we do not prune
+                // votes at the moment...
+                let mut votes_count: u64 = 0;
+                let votes = snapshot.iter_votes()?.fold(BTreeMap::new(), |mut votes, (k, v)| {
+                    votes_count += 1;
+                    votes.entry(k.proposal).or_insert_with(Vec::new).push((k.voter, v));
+                    votes
+                });
+
+                let span = Span::current();
+                span.record("treasury", treasury);
+                span.record("votes", votes_count);
+
+                Ok(RatificationContext {
+                    epoch,
+                    treasury,
+                    stake_distribution,
+                    protocol_parameters,
+                    pruned_proposals: BTreeMap::new(),
+                    withdrawals: BTreeMap::new(),
+                    constitutional_committee,
+                    constitutional_committee_update: None,
+                    new_constitution: None,
+                    votes,
+                })
+            },
         )
-        .in_scope(|| {
-            let constitutional_committee = match snapshot.constitutional_committee()? {
-                ConstitutionalCommitteeStatus::NoConfidence => None,
-                ConstitutionalCommitteeStatus::Trusted { threshold } => {
-                    let members = snapshot
-                        .iter_cc_members()?
-                        .filter_map(|(cold_credential, row)| {
-                            row.valid_until.map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
-                        })
-                        .collect();
-
-                    Some(ConstitutionalCommittee::new(into_safe_ratio(&threshold), members))
-                }
-            };
-
-            // FIXME: votes entirely stored in-memory
-            //
-            // This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
-            // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
-            // require much memory; but it becomes a potential attack vector.
-            //
-            // We must avoid loading ALL votes in memory at once. Especially since we do not prune
-            // votes at the moment...
-            let mut votes_count: u64 = 0;
-            let votes = snapshot.iter_votes()?.fold(BTreeMap::new(), |mut votes, (k, v)| {
-                votes_count += 1;
-                votes.entry(k.proposal).or_insert_with(Vec::new).push((k.voter, v));
-                votes
-            });
-
-            let span = Span::current();
-            span.record("treasury", treasury);
-            span.record("votes", votes_count);
-
-            Ok(RatificationContext {
-                epoch,
-                treasury,
-                stake_distribution,
-                protocol_parameters,
-                pruned_proposals: BTreeMap::new(),
-                withdrawals: BTreeMap::new(),
-                constitutional_committee,
-                constitutional_committee_update: None,
-                new_constitution: None,
-                votes,
-            })
-        })
     }
 
     pub fn ratify_proposals(
@@ -157,7 +155,7 @@ impl<'distr> RatificationContext<'distr> {
         roots: ProposalsRootsRc,
     ) -> Result<ProposalsRootsRc, RatificationInternalError> {
         info_span!(
-            amaru_observability::amaru::ledger::governance::RATIFY_PROPOSALS,
+            ledger::state::governance::RATIFY_PROPOSALS,
             epoch = u64::from(self.epoch),
             roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
             roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
@@ -286,7 +284,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
-            amaru_observability::amaru::ledger::governance::ENACTING,
+            ledger::state::governance::ENACTING,
             proposal_id = id.to_compact_string(),
             proposal_kind = proposal.display_kind(),
         )
@@ -294,7 +292,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
-            amaru_observability::amaru::ledger::governance::RATIFYING,
+            ledger::state::governance::RATIFYING,
             proposal_id = id.to_compact_string(),
             proposal_kind = proposal.display_kind(),
         )

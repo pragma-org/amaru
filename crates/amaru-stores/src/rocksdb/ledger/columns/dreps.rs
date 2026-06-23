@@ -22,7 +22,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::{error, warn};
 
@@ -36,8 +36,8 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_GET,
+    let _span = debug_span!(
+        stores::ledger::columns::DREPS_GET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "get".to_string(),
         db_collection_name = "drep".to_string()
@@ -55,8 +55,8 @@ pub fn add<DB>(
     valid_until_on_update: Epoch,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_ADD,
+    let _span = debug_span!(
+        stores::ledger::columns::DREPS_ADD,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "drep".to_string()
@@ -117,8 +117,8 @@ pub fn set_valid_until<DB>(
     credentials: BTreeSet<StakeCredential>,
     valid_until: Epoch,
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_SET_VALID_UNTIL,
+    let _span = debug_span!(
+        stores::ledger::columns::DREPS_SET_VALID_UNTIL,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "drep".to_string()
@@ -150,8 +150,8 @@ pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_REMOVE,
+    let _span = debug_span!(
+        stores::ledger::columns::DREPS_REMOVE,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "drep".to_string()

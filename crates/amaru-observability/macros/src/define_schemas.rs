@@ -29,8 +29,8 @@ use syn::Type;
 use crate::utils::{
     format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_assign_macro_name,
     make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_schema_field_const_name, make_schema_field_count_const_name,
-    make_schema_public_const_name,
+    make_require_macro_name, make_required_field_check_macro_name, make_schema_field_const_name,
+    make_schema_field_count_const_name, make_schema_public_const_name,
 };
 
 // =============================================================================
@@ -361,6 +361,14 @@ impl ParserState {
             return;
         };
 
+        if name == "name" || name == "schema" {
+            errors.push(format!(
+                "Reserved field '{}' in schema {}. The tracing macros manage this field internally.",
+                name, schema.name
+            ));
+            return;
+        }
+
         // Check for duplicate field names
         let is_duplicate = schema.required_fields.iter().chain(schema.optional_fields.iter()).any(|f| f.name == name);
 
@@ -684,7 +692,8 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
 
     for (i, field_ident) in field_idents.iter().enumerate() {
         let field_name_str = &required_names[i];
-        let helper_name = make_ident(&format!("__{}_CHECK_{}", schema.name, required_names[i].to_uppercase()));
+        let helper_name =
+            make_ident(&make_required_field_check_macro_name(&schema.categories, &schema.name, &required_names[i]));
 
         helper_macros.push(quote! {
             #macro_export
@@ -715,7 +724,8 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
     let helper_calls: Vec<_> = required_names
         .iter()
         .map(|field_name| {
-            let helper_name = make_ident(&format!("__{}_CHECK_{}", schema.name, field_name.to_uppercase()));
+            let helper_name =
+                make_ident(&make_required_field_check_macro_name(&schema.categories, &schema.name, field_name));
             quote! { #crate_prefix #helper_name!($($fields)*); }
         })
         .collect();
@@ -747,13 +757,14 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
     let macro_export = config.macro_export_attr();
     let crate_prefix = config.crate_prefix();
 
-    let target = schema.target_path();
-    let name = schema.name.to_lowercase();
+    let full_path = schema.categories.iter().chain(std::iter::once(&schema.name)).collect::<Vec<_>>();
+    let target = full_path.iter().take(2).map(|part| part.as_str()).collect::<Vec<_>>().join("::");
+    let name = full_path.iter().skip(2).map(|part| part.to_lowercase()).collect::<Vec<_>>().join(".");
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
-    let field_count = all_fields.len();
     let field_name_literals: Vec<_> =
         all_fields.iter().map(|field| syn::LitStr::new(&field.name, proc_macro2::Span::call_site())).collect();
+    let field_count = field_name_literals.len();
 
     let span_expr = quote! {{
         use ::tracing::__macro_support::Callsite as _;
@@ -859,10 +870,9 @@ fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
 
-    let assign_patterns: Vec<_> = schema
-        .required_fields
+    let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
+    let assign_patterns: Vec<_> = all_fields
         .iter()
-        .chain(schema.optional_fields.iter())
         .enumerate()
         .map(|(index, field)| {
             let field_name = &field.name;
@@ -1329,7 +1339,7 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) 
                 modules.push(quote! {
                     pub const #schema_ident: &str = #schema_name_lowercase;
 
-                    /// Compile-time validation constant for the `trace_span!` macro.
+                    /// Compile-time validation constant for the `debug_span!` macro.
                     /// Format: R|required_field:type,...|O|optional_field:type,...
                     pub const #validation_const_ident: &str = #validation_string;
 
@@ -1497,7 +1507,7 @@ mod tests {
                         /// Test schema
                         SCHEMA {
                             required id: String
-                            optional name: String
+                            optional label: String
                         }
                     }
                 }
@@ -1508,7 +1518,7 @@ mod tests {
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].optional_fields.len(), 1);
-        assert_eq!(schemas[0].optional_fields[0].name, "name");
+        assert_eq!(schemas[0].optional_fields[0].name, "label");
     }
 
     #[test]

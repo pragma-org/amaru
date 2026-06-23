@@ -133,80 +133,77 @@ impl StateOverlay {
     /// transition was applied, so the caller can refresh its cached copy. Returns `None` when there
     /// was no governance update to apply, in which case the cached values are left untouched.
     pub fn apply(&mut self, db: &impl Store) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
-        let updated = info_span!(
-            amaru_observability::amaru::ledger::epoch_transition::APPLYING_OVERLAY,
-            epoch = u64::from(self.epoch)
-        )
-        .in_scope(|| {
-            use EpochTransitionProgress::*;
+        let updated = info_span!(ledger::state::epoch_transition::APPLYING_OVERLAY, epoch = u64::from(self.epoch))
+            .in_scope(|| {
+                use EpochTransitionProgress::*;
 
-            // ---------------------------------------------------------------------------- End of epoch
-            db.with_transaction::<_, StateError>(|batch| {
-                let should_end_epoch = batch.try_epoch_transition(None, Some(EpochEnded))?;
+                // ---------------------------------------------------------------------------- End of epoch
+                db.with_transaction::<_, StateError>(|batch| {
+                    let should_end_epoch = batch.try_epoch_transition(None, Some(EpochEnded))?;
 
-                Span::current().record("should_end_epoch", should_end_epoch);
+                    Span::current().record("should_end_epoch", should_end_epoch);
 
-                if should_end_epoch {
-                    if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
-                        pay_rewards(batch, effective_rewards)?;
-                        reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
+                    if should_end_epoch {
+                        if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
+                            pay_rewards(batch, effective_rewards)?;
+                            reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
+                        } else {
+                            return Err(StateError::NoEffectiveRewards);
+                        }
                     } else {
-                        return Err(StateError::NoEffectiveRewards);
-                    }
-                } else {
-                    mem::take(&mut self.rewards);
-                }
-
-                Ok(())
-            })?;
-
-            // ------------------------------------------------------------------------------ Snapshot
-            db.with_transaction::<_, StateError>(|batch| {
-                let should_snapshot = batch.try_epoch_transition(Some(EpochEnded), Some(SnapshotTaken))?;
-
-                Span::current().record("should_snapshot", should_snapshot);
-
-                if should_snapshot {
-                    db.next_snapshot(self.epoch - 1)?;
-                    self.most_recent_snapshot.replace(Some(self.epoch - 1));
-                }
-
-                Ok(())
-            })?;
-
-            // -------------------------------------------------------------------------- Start of epoch
-            db.with_transaction::<_, StateError>(|batch| {
-                let should_begin_epoch = batch.try_epoch_transition(Some(SnapshotTaken), None)?;
-
-                Span::current().record("should_begin_epoch", should_begin_epoch);
-
-                let updated = if should_begin_epoch {
-                    reset_blocks_count(batch)?;
-
-                    reset_fees_and_donations(batch)?;
-
-                    if let Some(mut pools_updates) = mem::take(&mut self.pools_updates) {
-                        update_or_retire_pools(batch, pools_updates.take_updated(), pools_updates.take_retired())?;
-                        pay_or_refund_accounts(batch, pools_updates.refunds())?;
-                    } else {
-                        debug!(name: "overlay.no_pools_updates", "overlay.no_pools_updates");
+                        mem::take(&mut self.rewards);
                     }
 
-                    if let Some(governance_updates) = mem::take(&mut self.governance_updates) {
-                        Some(apply_governance_updates(batch, governance_updates)?)
+                    Ok(())
+                })?;
+
+                // ------------------------------------------------------------------------------ Snapshot
+                db.with_transaction::<_, StateError>(|batch| {
+                    let should_snapshot = batch.try_epoch_transition(Some(EpochEnded), Some(SnapshotTaken))?;
+
+                    Span::current().record("should_snapshot", should_snapshot);
+
+                    if should_snapshot {
+                        db.next_snapshot(self.epoch - 1)?;
+                        self.most_recent_snapshot.replace(Some(self.epoch - 1));
+                    }
+
+                    Ok(())
+                })?;
+
+                // -------------------------------------------------------------------------- Start of epoch
+                db.with_transaction::<_, StateError>(|batch| {
+                    let should_begin_epoch = batch.try_epoch_transition(Some(SnapshotTaken), None)?;
+
+                    Span::current().record("should_begin_epoch", should_begin_epoch);
+
+                    let updated = if should_begin_epoch {
+                        reset_blocks_count(batch)?;
+
+                        reset_fees_and_donations(batch)?;
+
+                        if let Some(mut pools_updates) = mem::take(&mut self.pools_updates) {
+                            update_or_retire_pools(batch, pools_updates.take_updated(), pools_updates.take_retired())?;
+                            pay_or_refund_accounts(batch, pools_updates.refunds())?;
+                        } else {
+                            debug!(name: "overlay.no_pools_updates", "overlay.no_pools_updates");
+                        }
+
+                        if let Some(governance_updates) = mem::take(&mut self.governance_updates) {
+                            Some(apply_governance_updates(batch, governance_updates)?)
+                        } else {
+                            debug!(name: "overlay.no_governance_updates", "overlay.no_governance_updates");
+                            None
+                        }
                     } else {
-                        debug!(name: "overlay.no_governance_updates", "overlay.no_governance_updates");
+                        mem::take(&mut self.pools_updates);
+                        mem::take(&mut self.governance_updates);
                         None
-                    }
-                } else {
-                    mem::take(&mut self.pools_updates);
-                    mem::take(&mut self.governance_updates);
-                    None
-                };
+                    };
 
-                Ok(updated)
-            })
-        })?;
+                    Ok(updated)
+                })
+            })?;
 
         assert!(matches!(self.rewards, RewardsState::NotReady), "rewards leftovers after flushing overlay?");
         assert!(self.governance_updates.is_none(), "governance updates leftovers after flushing overlay?");

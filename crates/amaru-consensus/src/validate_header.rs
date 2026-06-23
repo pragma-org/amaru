@@ -15,7 +15,7 @@
 use std::{fmt, sync::Arc};
 
 use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{CanValidateHeaders, ChainStore, HasStakeDistribution, HeaderValidationError, Praos};
 use anyhow::anyhow;
@@ -47,14 +47,15 @@ impl ValidateHeader {
     }
 
     pub fn validate(&self, header: &BlockHeader) -> Result<(), ConsensusError> {
+        let _span = debug_span!(consensus::state::header::VALIDATE, header_hash = &header.hash());
+        let _guard = _span.enter();
         let epoch_nonce = self.evolve_nonce(header)?;
         self.check_header(header, to_cbor(&header.header_body()).as_slice(), &epoch_nonce)?;
         Ok(())
     }
 
     fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonce, ConsensusError> {
-        let _span =
-            trace_span!(amaru_observability::amaru::consensus::validate_header::EVOLVE_NONCE, hash = header.hash());
+        let _span = debug_span!(consensus::state::header::EVOLVE_NONCE, header_hash = header.hash());
         let _guard = _span.enter();
         let nonces =
             PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone()).evolve_nonce(header)?;
@@ -67,11 +68,7 @@ impl ValidateHeader {
         raw_header_body: &[u8],
         epoch_nonce: &Nonce,
     ) -> Result<(), ConsensusError> {
-        let _span = trace_span!(
-            amaru_observability::amaru::consensus::validate_header::VALIDATE,
-            issuer_key = &header.header_body().issuer_vkey
-        );
-        let _guard = _span.enter();
+        let _span = debug_span!(consensus::state::header::CHECK, issuer_key = &header.header_body().issuer_vkey);
         praos::header::assert_all(
             self.consensus_parameters.clone(),
             header.header(),

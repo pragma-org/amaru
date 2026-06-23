@@ -36,7 +36,7 @@ use amaru_ledger::{
         TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
     },
 };
-use amaru_observability::{info_span, trace_record, trace_span};
+use amaru_observability::{debug_span, info_span, trace_record};
 use anyhow::anyhow;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
@@ -264,9 +264,8 @@ impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
-        let _span = trace_span!(
-            INFO,
-            amaru::stores::ledger::SNAPSHOT,
+        let _span = info_span!(
+            stores::ledger::epoch::CREATE_SNAPSHOT,
             epoch = u64::from(epoch),
             db_system_name = "rocksdb".to_string(),
             db_operation_name = "checkpoint".to_string()
@@ -329,7 +328,7 @@ impl HistoricalStores for RocksDBHistoricalStores {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
 
         info_span!(
-            amaru::stores::ledger::PRUNE,
+            stores::ledger::epoch::PRUNE_OLD_SNAPSHOTS,
             functional_minimum = u64::from(functional_minimum),
             desired_minimum = u64::from(desired_minimum),
             db_system_name = "rocksdb".to_string(),
@@ -598,8 +597,8 @@ impl Drop for RocksDBTransactionalContext<'_> {
 
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn commit(mut self) -> Result<(), StoreError> {
-        let _span = trace_span!(
-            amaru::stores::rocksdb::COMMIT,
+        let _span = debug_span!(
+            stores::rocksdb::transaction::COMMIT,
             db_system_name = "rocksdb".to_string(),
             db_operation_name = "commit".to_string()
         );
@@ -612,8 +611,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     }
 
     fn rollback(mut self) -> Result<(), StoreError> {
-        let _span = trace_span!(
-            amaru::stores::rocksdb::ROLLBACK,
+        let _span = debug_span!(
+            stores::rocksdb::transaction::ROLLBACK,
             db_system_name = "rocksdb".to_string(),
             db_operation_name = "rollback".to_string()
         );
@@ -634,8 +633,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         from: Option<EpochTransitionProgress>,
         to: Option<EpochTransitionProgress>,
     ) -> Result<bool, StoreError> {
-        let _span = trace_span!(
-            amaru::stores::ledger::TRY_EPOCH_TRANSITION,
+        let _span = debug_span!(
+            stores::ledger::epoch::TRY_TRANSITION,
             from = from.map(|s| s.to_string()).unwrap_or_else(|| "None".to_string()),
             to = to.map(|s| s.to_string()).unwrap_or_else(|| "None".to_string()),
             db_system_name = "rocksdb".to_string(),
@@ -761,7 +760,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             _ => {
                 let tip = point.slot_or_default();
                 trace_record!(
-                    amaru_observability::amaru::stores::rocksdb::SAVE_POINT,
+                    stores::rocksdb::point::SAVE,
                     slot = tip,
                     db_system_name = "rocksdb".to_string(),
                     db_operation_name = "write".to_string()
@@ -899,7 +898,7 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshot_count = snapshots.len() as u64;
     let continuous_ranges = snapshots_ranges.len() as u64;
     trace_record!(
-        amaru_observability::amaru::stores::rocksdb::VALIDATE_SNAPSHOTS,
+        stores::rocksdb::snapshots::VALIDATE,
         snapshot_count = snapshot_count,
         continuous_ranges = continuous_ranges,
         db_system_name = "rocksdb".to_string(),
@@ -995,8 +994,8 @@ fn with_prefix_iterator<
     collection: &'static str,
     mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru::stores::ledger::columns::ITER_SCAN,
+    let _span = debug_span!(
+        stores::ledger::columns::ITER_SCAN,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "scan".to_string(),
         db_collection_name = collection.to_string()
@@ -1028,7 +1027,7 @@ fn with_prefix_iterator<
         .map_err(|err| StoreError::Internal(err.into()))?;
     }
     trace_record!(
-        amaru_observability::amaru::stores::ledger::columns::ITER_SCAN,
+        stores::ledger::columns::ITER_SCAN,
         rows_scanned = rows_scanned,
         rows_written = rows_written,
         rows_deleted = rows_deleted

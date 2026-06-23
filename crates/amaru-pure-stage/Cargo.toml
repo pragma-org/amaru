@@ -17,7 +17,6 @@ categories.workspace = true
 default = []
 
 [dependencies]
-amaru-observability.workspace = true
 anyhow.workspace = true
 cbor4ii.workspace = true
 either.workspace = true
