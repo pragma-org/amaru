@@ -24,24 +24,24 @@ use crate::state::{
 #[derive(Default)]
 pub struct VolatileDB {
     current: VolatileSeries,
-    draining: Option<VolatileSeries>,
+    draining: VolatileSeries,
 }
 
 impl VolatileStore for VolatileDB {
     fn is_empty(&self) -> bool {
-        self.current.is_empty() && self.draining.as_ref().is_none_or(|draining| draining.is_empty())
+        self.current.is_empty() && self.draining.is_empty()
     }
 
     fn len(&self) -> usize {
-        self.current.len() + self.draining.as_ref().map(|draining| draining.len()).unwrap_or_default()
+        self.current.len() + self.draining.len()
     }
 
     fn view_back(&self) -> Option<&AnchoredVolatileFragment> {
-        self.current.view_back().or(self.draining.as_ref().and_then(|draining| draining.view_back()))
+        self.current.view_back().or(self.draining.view_back())
     }
 
     fn view_front(&self) -> Option<&AnchoredVolatileFragment> {
-        self.draining.as_ref().and_then(|draining| draining.view_front()).or(self.current.view_front())
+        self.draining.view_front().or(self.current.view_front())
     }
 
     fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
@@ -49,28 +49,19 @@ impl VolatileStore for VolatileDB {
             return None;
         }
 
-        self.current.resolve_input(input).or(self.draining.as_ref().and_then(|draining| draining.resolve_input(input)))
+        self.current.resolve_input(input).or(self.draining.resolve_input(input))
     }
 
     fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.current.has_consumed_input(input)
-            || self.draining.as_ref().is_some_and(|draining| draining.has_consumed_input(input))
+        self.current.has_consumed_input(input) || self.draining.has_consumed_input(input)
     }
 
     fn contains(&self, point: &Point) -> bool {
-        self.current.contains(point) || self.draining.as_ref().is_some_and(|draining| draining.contains(point))
+        self.current.contains(point) || self.draining.contains(point)
     }
 
     fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
-        if let Some(draining) = self.draining.as_mut() {
-            let popped = draining.pop_front();
-            if draining.is_empty() {
-                self.draining = None;
-            }
-            return popped.or_else(|| self.current.pop_front());
-        }
-
-        self.current.pop_front()
+        self.draining.pop_front().or_else(|| self.current.pop_front())
     }
 
     fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
@@ -99,8 +90,7 @@ impl VolatileStore for VolatileDB {
 
         // Check if the target point is before the active sequence
         // In this case we return an error since it means rolling back the stable DB
-        if let Some(first) =
-            self.draining.as_ref().and_then(|draining| draining.view_front()).or(self.current.view_front())
+        if let Some(first) = self.view_front()
             && target_slot < first.slot()
         {
             tracing::error!(
@@ -115,20 +105,17 @@ impl VolatileStore for VolatileDB {
         // Now we know the target point is within our volatile DB.
         // Keep all elements with point <= target point.
 
-        if self.current.contains(point) {
-            self.current.rollback_to(point)?;
-            return Ok(());
-        }
-
-        if self.draining.as_ref().is_some_and(|draining| draining.contains(point)) {
+        let should_rollback = if self.draining.contains(point) {
             // If we are rolling back to a point in the draining sequence, we need to
-            // promote the remaining sequence (after truncating) to current.
-            let mut draining = self.draining.take().expect("draining is Some");
+            // promote it as current while discarding the entire current series.
+            self.current = std::mem::take(&mut self.draining);
+            true
+        } else {
+            self.current.contains(point)
+        };
 
-            draining.rollback_to(point)?;
-
-            self.current = draining;
-
+        if should_rollback {
+            self.current.rollback_to(point)?;
             return Ok(());
         }
 
@@ -137,11 +124,11 @@ impl VolatileStore for VolatileDB {
 
     fn clear(&mut self) {
         self.current.clear();
-        self.draining = None;
+        self.draining.clear();
     }
 
     fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
-        self.draining.as_ref().map(|d| d.iter()).into_iter().flatten().chain(self.current.iter())
+        self.draining.iter().chain(self.current.iter())
     }
 }
 
@@ -162,15 +149,11 @@ impl VolatileDB {
     /// is far safer than silently overwriting `draining` and losing volatile history.
     pub fn seal(&mut self) {
         assert!(
-            self.draining.is_none(),
+            self.draining.is_empty(),
             "sealing while a draining series is still present; two epoch boundaries inside the k-block window?"
         );
 
-        if self.current.is_empty() {
-            return;
-        }
-
-        self.draining = Some(mem::take(&mut self.current));
+        self.draining = mem::take(&mut self.current);
     }
 }
 
@@ -265,7 +248,7 @@ mod tests {
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
         db.seal();
-        assert!(db.draining.is_some() && db.current.is_empty());
+        assert!(!db.draining.is_empty() && db.current.is_empty());
 
         let beyond = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
 
@@ -327,7 +310,7 @@ mod tests {
 
         db.seal();
 
-        assert!(db.draining.is_some(), "draining should hold the sealed series");
+        assert!(!db.draining.is_empty(), "draining should hold the sealed series");
         assert_eq!(db.current.len(), 0, "current should be reset to empty");
         assert_eq!(db.len(), 2, "total length is unchanged by sealing");
     }
@@ -338,7 +321,7 @@ mod tests {
 
         db.seal();
 
-        assert!(db.draining.is_none(), "sealing an empty current must not open a draining series");
+        assert!(db.draining.is_empty(), "sealing an empty current must not open a draining series");
     }
 
     #[test]
@@ -361,10 +344,10 @@ mod tests {
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(10)));
-        assert!(db.draining.is_some(), "draining still holds one block");
+        assert!(!db.draining.is_empty(), "draining still holds one block");
 
         assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(20)));
-        assert!(db.draining.is_none(), "draining is nulled once it empties");
+        assert!(db.draining.is_empty(), "draining is nulled once it empties");
 
         assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(30)));
         assert!(db.is_empty());
@@ -444,7 +427,7 @@ mod tests {
 
         db.pop_front();
         assert_eq!(db.len(), 1, "draining drained empty; only current is counted");
-        assert!(db.draining.is_none());
+        assert!(db.draining.is_empty());
         assert!(!db.is_empty());
 
         db.pop_front();
