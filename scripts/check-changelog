@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -82,7 +83,8 @@ class CheckContext:
     head_sha: str
     relevant_commits: list[str]
     override_requested: bool
-    source_repo_full_name: str | None
+    pr_number: int | None
+    pr_repository_full_name: str | None
     server_url: str
 
 
@@ -355,40 +357,42 @@ def markdown_bullets(items: list[str]) -> str:
     return "\n".join(rendered) + ("\n" if rendered else "")
 
 
-def changelog_line_url(
+def changelog_pr_diff_url(
     *,
-    source_repo_full_name: str | None,
+    pr_number: int | None,
+    pr_repository_full_name: str | None,
     server_url: str,
-    head_sha: str,
     changelog_path: Path,
-    line: int | None,
 ) -> str | None:
-    if source_repo_full_name is None or line is None:
+    if pr_number is None or pr_repository_full_name is None:
         return None
 
-    return f"{server_url}/{source_repo_full_name}/blob/{head_sha}/{changelog_path.as_posix()}#L{line}"
+    diff_hash = hashlib.sha256(changelog_path.as_posix().encode("utf-8")).hexdigest()
+    return f"{server_url}/{pr_repository_full_name}/pull/{pr_number}/files#diff-{diff_hash}"
 
 
 def render_failure_markdown(
     failure: Failure,
     *,
-    source_repo_full_name: str | None,
+    pr_number: int | None,
+    pr_repository_full_name: str | None,
     server_url: str,
-    head_sha: str,
     changelog_path: Path,
 ) -> str:
-    line_url = changelog_line_url(
-        source_repo_full_name=source_repo_full_name,
+    diff_url = changelog_pr_diff_url(
+        pr_number=pr_number,
+        pr_repository_full_name=pr_repository_full_name,
         server_url=server_url,
-        head_sha=head_sha,
         changelog_path=changelog_path,
-        line=failure.line,
     )
 
     lines = failure.message.splitlines()
     first_line = lines[0] if lines else failure.message
-    if line_url is not None:
-        first_line = f"{first_line} ([view line]({line_url}))"
+    if diff_url is not None:
+        if failure.line is not None:
+            first_line = f"{first_line} ([view in PR diff, around line {failure.line}]({diff_url}))"
+        else:
+            first_line = f"{first_line} ([view in PR diff]({diff_url}))"
 
     rendered = [f"- {first_line}"]
     rendered.extend(f"  {line}" for line in lines[1:])
@@ -401,18 +405,18 @@ def failure_report_markdown(
     expected_day: date,
     relevant_commits: list[str],
     failures: list[Failure],
-    source_repo_full_name: str | None,
+    pr_number: int | None,
+    pr_repository_full_name: str | None,
     server_url: str,
-    head_sha: str,
 ) -> str:
     guidance_titles = {"Missing next release header", "Missing changelog entry"}
     show_guidance = failures and all(failure.title in guidance_titles for failure in failures)
     rendered_failures = "\n".join(
         render_failure_markdown(
             failure,
-            source_repo_full_name=source_repo_full_name,
+            pr_number=pr_number,
+            pr_repository_full_name=pr_repository_full_name,
             server_url=server_url,
-            head_sha=head_sha,
             changelog_path=changelog_path,
         )
         for failure in failures
@@ -612,8 +616,13 @@ def prepare_changelog_check(
         head_sha=head_sha,
         relevant_commits=relevant_commits,
         override_requested=override_requested,
-        source_repo_full_name=(
-            event["pull_request"]["head"]["repo"]["full_name"]  # type: ignore[index]
+        pr_number=(
+            event["pull_request"]["number"]  # type: ignore[index]
+            if event is not None and "pull_request" in event
+            else None
+        ),
+        pr_repository_full_name=(
+            event["repository"]["full_name"]  # type: ignore[index]
             if event is not None and "pull_request" in event
             else os.environ.get("GITHUB_REPOSITORY")
         ),
@@ -631,9 +640,9 @@ def validate_changelog_contents(
     base_sha = context.base_sha
     relevant_commits = context.relevant_commits
     override_requested = context.override_requested
-    source_repo_full_name = context.source_repo_full_name
+    pr_number = context.pr_number
+    pr_repository_full_name = context.pr_repository_full_name
     server_url = context.server_url
-    head_sha = context.head_sha
 
     today = date.today()
     expected_day = next_thursday(today)
@@ -684,9 +693,9 @@ def validate_changelog_contents(
             expected_day,
             relevant_commits,
             failures,
-            source_repo_full_name,
+            pr_number,
+            pr_repository_full_name,
             server_url,
-            head_sha,
         )
         emit_annotation(
             "error",
