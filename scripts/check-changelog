@@ -37,7 +37,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 SECTION_ORDER = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]
 SECTION_INDEX = {name: idx for idx, name in enumerate(SECTION_ORDER)}
-OVERRIDE_LINES = {"No-Changelog", "Skip-Changelog"}
+BYPASS_LINES = {"no-changelog", "skip-changelog"}
 RELEASE_HEADER_RE = re.compile(r"^## \[(v\d+\.\d+\.\d{8})\]\(([^)]+)\)$")
 UNRELEASED_HEADER_RE = re.compile(
     r"^##\s+(v\d+\.\d+\.\d{8})(?:\s+.*?(?P<planned_date>\d{4}-\d{2}-\d{2}).*)?\s*$"
@@ -280,11 +280,11 @@ def version_date(version: str) -> date:
 def extract_override(event: dict[str, object] | None, base: str, head: str) -> bool:
     if event and "pull_request" in event:
         body = event["pull_request"].get("body") or ""  # type: ignore[index]
-        if any(line.strip() in OVERRIDE_LINES for line in str(body).splitlines()):
+        if any(line.strip().lower() in BYPASS_LINES for line in str(body).splitlines()):
             return True
 
     messages = git("log", "--format=%B", f"{base}..{head}")
-    return any(line.strip() in OVERRIDE_LINES for line in messages.splitlines())
+    return any(line.strip().lower() in BYPASS_LINES for line in messages.splitlines())
 
 
 def default_branch_from_git() -> str:
