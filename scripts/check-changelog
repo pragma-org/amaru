@@ -82,6 +82,15 @@ class CheckContext:
     head_sha: str
     relevant_commits: list[str]
     override_requested: bool
+    source_repo_full_name: str | None
+    server_url: str
+
+
+@dataclass
+class Failure:
+    title: str
+    message: str
+    line: int | None = None
 
 
 def git(*args: str, check: bool = True) -> str:
@@ -118,9 +127,15 @@ def emit_annotation(
         print(f"{kind.upper()}: {message}", file=sys.stderr)
 
 
-def record_failure(failures: list[str], message: str, *, line: int | None = None, title: str = "Changelog") -> None:
+def record_failure(
+    failures: list[Failure],
+    message: str,
+    *,
+    line: int | None = None,
+    title: str = "Changelog",
+) -> None:
     emit_annotation("error", message, line=line, title=title)
-    failures.append(message)
+    failures.append(Failure(title=title, message=message, line=line))
 
 
 def next_thursday(today: date) -> date:
@@ -340,25 +355,86 @@ def markdown_bullets(items: list[str]) -> str:
     return "\n".join(rendered) + ("\n" if rendered else "")
 
 
+def changelog_line_url(
+    *,
+    source_repo_full_name: str | None,
+    server_url: str,
+    head_sha: str,
+    changelog_path: Path,
+    line: int | None,
+) -> str | None:
+    if source_repo_full_name is None or line is None:
+        return None
+
+    return f"{server_url}/{source_repo_full_name}/blob/{head_sha}/{changelog_path.as_posix()}#L{line}"
+
+
+def render_failure_markdown(
+    failure: Failure,
+    *,
+    source_repo_full_name: str | None,
+    server_url: str,
+    head_sha: str,
+    changelog_path: Path,
+) -> str:
+    line_url = changelog_line_url(
+        source_repo_full_name=source_repo_full_name,
+        server_url=server_url,
+        head_sha=head_sha,
+        changelog_path=changelog_path,
+        line=failure.line,
+    )
+
+    lines = failure.message.splitlines()
+    first_line = lines[0] if lines else failure.message
+    if line_url is not None:
+        first_line = f"{first_line} ([view line]({line_url}))"
+
+    rendered = [f"- {first_line}"]
+    rendered.extend(f"  {line}" for line in lines[1:])
+    return "\n".join(rendered)
+
+
 def failure_report_markdown(
+    changelog_path: Path,
     expected_version: str,
     expected_day: date,
     relevant_commits: list[str],
-    failures: list[str],
+    failures: list[Failure],
+    source_repo_full_name: str | None,
+    server_url: str,
+    head_sha: str,
 ) -> str:
+    guidance_titles = {"Missing next release header", "Missing changelog entry"}
+    show_guidance = failures and all(failure.title in guidance_titles for failure in failures)
+    rendered_failures = "\n".join(
+        render_failure_markdown(
+            failure,
+            source_repo_full_name=source_repo_full_name,
+            server_url=server_url,
+            head_sha=head_sha,
+            changelog_path=changelog_path,
+        )
+        for failure in failures
+    )
+
     return (
         "## Changelog check failed\n\n"
         f"Expected release heading: `{expected_version}` (planned for {expected_day.isoformat()})\n\n"
         "Errors:\n\n"
-        + markdown_bullets(failures)
-        + "\n"
-        "Commits requiring changelog coverage:\n\n"
-        + markdown_bullets(relevant_commits)
-        + "\n"
-        "Suggested starting point:\n\n"
-        "```md\n"
-        f"{suggested_changelog_snippet(expected_version, expected_day)}\n"
-        "```\n"
+        + rendered_failures
+        + "\n\n"
+        + (
+            "Commits requiring changelog coverage:\n\n"
+            + markdown_bullets(relevant_commits)
+            + "\n"
+            "Suggested starting point:\n\n"
+            "```md\n"
+            f"{suggested_changelog_snippet(expected_version, expected_day)}\n"
+            "```\n"
+            if show_guidance
+            else ""
+        )
     )
 
 
@@ -374,7 +450,7 @@ def write_report(report_file: Path | None, content: str) -> None:
         report_file.write_text(content, encoding="utf-8")
 
 
-def validate_references(lines: list[str], failures: list[str]) -> None:
+def validate_references(lines: list[str], failures: list[Failure]) -> None:
     refs = changelog_references(lines)
     labels = [label for label, _line in refs]
     if labels != sorted(labels):
@@ -393,7 +469,7 @@ def validate_release_order(
     lines: list[str],
     blocks: list[ReleaseBlock],
     expected_version: str,
-    failures: list[str],
+    failures: list[Failure],
 ) -> None:
     if not blocks:
         message = "CHANGELOG.md contains no release headers."
@@ -419,7 +495,7 @@ def validate_target_release(
     base_block: ReleaseBlock | None,
     require_new_entry: bool,
     relevant_commits: list[str],
-    failures: list[str],
+    failures: list[Failure],
 ) -> None:
     parse_sections(lines, head_block)
     sections = head_block.sections
@@ -492,7 +568,7 @@ def validate_target_release(
             f"{commit_lines}"
         )
         emit_annotation("error", detailed_message, line=line, title="Missing changelog entry")
-        failures.append(summary_message)
+        failures.append(Failure(title="Missing changelog entry", message=summary_message, line=line))
 
 
 def prepare_changelog_check(
@@ -536,6 +612,12 @@ def prepare_changelog_check(
         head_sha=head_sha,
         relevant_commits=relevant_commits,
         override_requested=override_requested,
+        source_repo_full_name=(
+            event["pull_request"]["head"]["repo"]["full_name"]  # type: ignore[index]
+            if event is not None and "pull_request" in event
+            else os.environ.get("GITHUB_REPOSITORY")
+        ),
+        server_url=os.environ.get("GITHUB_SERVER_URL", "https://github.com"),
     )
 
 
@@ -549,6 +631,9 @@ def validate_changelog_contents(
     base_sha = context.base_sha
     relevant_commits = context.relevant_commits
     override_requested = context.override_requested
+    source_repo_full_name = context.source_repo_full_name
+    server_url = context.server_url
+    head_sha = context.head_sha
 
     today = date.today()
     expected_day = next_thursday(today)
@@ -557,22 +642,19 @@ def validate_changelog_contents(
     lines = changelog_path.read_text().splitlines()
     blocks = parse_release_headers(lines)
 
-    failures: list[str] = []
+    failures: list[Failure] = []
     validate_references(lines, failures)
     validate_release_order(lines, blocks, expected_version, failures)
 
     target_block = find_release(blocks, expected_version)
     if target_block is None:
-        message = (
+        detailed_message = (
             f"Missing unreleased changelog heading for {expected_version}. Add this block:\n\n"
             f"{suggested_changelog_snippet(expected_version, expected_day)}"
         )
-        record_failure(
-            failures,
-            message,
-            line=next_release_header_line(lines, blocks),
-            title="Missing next release header",
-        )
+        line = next_release_header_line(lines, blocks)
+        emit_annotation("error", detailed_message, line=line, title="Missing next release header")
+        failures.append(Failure(title="Missing next release header", message=f"Missing unreleased changelog heading for {expected_version}.", line=line))
     else:
         if target_block.released:
             message = (
@@ -596,7 +678,16 @@ def validate_changelog_contents(
         validate_target_release(lines, target_block, base_block, not override_requested, relevant_commits, failures)
 
     if failures:
-        report = failure_report_markdown(expected_version, expected_day, relevant_commits, failures)
+        report = failure_report_markdown(
+            changelog_path,
+            expected_version,
+            expected_day,
+            relevant_commits,
+            failures,
+            source_repo_full_name,
+            server_url,
+            head_sha,
+        )
         emit_annotation(
             "error",
             f"CHANGELOG.md validation failed with {len(failures)} error(s). See file annotations and step summary for details.",

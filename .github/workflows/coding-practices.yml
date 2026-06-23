@@ -68,7 +68,15 @@ jobs:
           if-no-files-found: error
       - name: Fail on changelog validation errors
         if: steps.validate.outcome != 'success'
-        run: exit 1
+        run: |
+          echo "Changelog validation failed."
+          echo
+          if [ -f changelog-check-report.md ]; then
+            cat changelog-check-report.md
+          else
+            echo "No report file was generated; see the 'Validate changelog updates' step for details."
+          fi
+          exit 1
 
   unused-dependencies:
     runs-on: ubuntu-24.04
