@@ -43,7 +43,9 @@ UNRELEASED_HEADER_RE = re.compile(
     r"^##\s+(v\d+\.\d+\.\d{8})(?:\s+.*?(?P<planned_date>\d{4}-\d{2}-\d{2}).*)?\s*$"
 )
 SECTION_RE = re.compile(r"^### (Added|Changed|Deprecated|Removed|Fixed|Security)$")
-ENTRY_RE = re.compile(r"^- \*\*(?P<area>[^*]+)\*\*: (?P<summary>.+) \((?P<refs>\[#\d+]\[\](?:, \[#\d+]\[\])*)\)$")
+ENTRY_RE = re.compile(
+    r"^- \*\*(?P<area>[^*]+)\*\*: (?P<summary>.+?)(?: \((?P<refs>\[#\d+]\[\](?:, \[#\d+]\[\])*)\))?$"
+)
 REF_DEF_RE = re.compile(r"^\[(#\d+)\]: https://github\.com/pragma-org/amaru/(?:pull|issues)/\d+$")
 @dataclass
 class Entry:
@@ -534,7 +536,8 @@ def validate_target_release(
         for entry in section.entries:
             if not ENTRY_RE.match(entry.first_line):
                 message = (
-                    "Entries must follow `- **CRATE/AREA**: SHORT DESCRIPTION ([#123][], [#456][])` "
+                    "Entries must follow `- **CRATE/AREA**: SHORT DESCRIPTION` with optional trailing references "
+                    "like `([#123][], [#456][])`, "
                     "and continuation lines must stay indented."
                 )
                 record_failure(failures, message, line=entry.start_line, title="Invalid entry format")
@@ -552,7 +555,10 @@ def validate_target_release(
             match = ENTRY_RE.match(entry.first_line)
             if not match:
                 continue
-            refs = [piece.strip() for piece in match.group("refs").split(",")]
+            refs_group = match.group("refs")
+            if refs_group is None:
+                continue
+            refs = [piece.strip() for piece in refs_group.split(",")]
             for ref in refs:
                 label = ref[1 : ref.index("]")]
                 if label not in refs_defined:
