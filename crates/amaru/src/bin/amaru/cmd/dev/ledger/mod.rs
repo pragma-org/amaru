@@ -14,5 +14,20 @@
 
 use clap::Subcommand;
 
+pub(crate) mod convert;
+pub(crate) mod nonces;
+pub(crate) mod states;
+
 #[derive(Debug, Subcommand)]
-pub(crate) enum LedgerCommand {}
+pub(crate) enum LedgerCommand {
+    /// Convert a Haskell cardano-node state for import into Amaru.
+    Convert(convert::Args),
+
+    /// Get or set nonces associated with a block in the chain store.
+    #[command(subcommand)]
+    Nonces(nonces::NoncesCommand),
+
+    /// Manage ledger state snapshots.
+    #[command(subcommand)]
+    States(states::StatesCommand),
+}

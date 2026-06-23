@@ -69,7 +69,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cmd::dev::chain::ChainCommand::Prune(args) => cmd::dev::chain::prune::run(args).await,
                 cmd::dev::chain::ChainCommand::Remove(args) => cmd::dev::chain::remove::run(args).await,
             },
-            cmd::dev::DevCommand::Ledger(cmd) => match cmd {},
+            cmd::dev::DevCommand::Ledger(ledger_cmd) => match ledger_cmd {
+                cmd::dev::ledger::LedgerCommand::Convert(args) => cmd::dev::ledger::convert::run(args).await,
+                cmd::dev::ledger::LedgerCommand::Nonces(nonces_cmd) => match nonces_cmd {
+                    cmd::dev::ledger::nonces::NoncesCommand::Get(args) => {
+                        cmd::dev::ledger::nonces::get::run(args).await
+                    }
+                    cmd::dev::ledger::nonces::NoncesCommand::Set(args) => {
+                        cmd::dev::ledger::nonces::set::run(args).await
+                    }
+                },
+                cmd::dev::ledger::LedgerCommand::States(states_cmd) => match states_cmd {
+                    cmd::dev::ledger::states::StatesCommand::List(args) => {
+                        cmd::dev::ledger::states::list::run(args).await
+                    }
+                    cmd::dev::ledger::states::StatesCommand::Import(args) => {
+                        cmd::dev::ledger::states::import::run(args).await
+                    }
+                    cmd::dev::ledger::states::StatesCommand::Remove(args) => {
+                        cmd::dev::ledger::states::remove::run(args).await
+                    }
+                },
+            },
             cmd::dev::DevCommand::Plutus(cmd) => match cmd {},
             cmd::dev::DevCommand::Traces(traces_cmd) => match traces_cmd {
                 cmd::dev::traces::TracesCommand::Dump(args) => cmd::dev::traces::dump::run(args).await,
