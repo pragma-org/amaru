@@ -333,8 +333,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             self.epoch_transition(next_epoch)?;
 
-            self.volatile.seal();
-
             let new_protocol_version = self.protocol_version();
 
             if old_protocol_version != new_protocol_version {
@@ -410,6 +408,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             drop(db); // Dropping the *mutable reference*, not the *actual database* :)
 
             self.overlay.transition(effective_rewards, pools_updates, governance_updates);
+
+            self.volatile.seal();
 
             Ok(())
         })
