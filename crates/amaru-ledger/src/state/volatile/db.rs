@@ -438,7 +438,7 @@ mod tests {
     proptest! {
         #[test]
         fn db_resolve_matches_naive_walk_over_both_series(
-            diffs in unique_lifecycle_diffs(),
+            diffs in unique_lifecycle_diffs(VOLATILE_WINDOW),
             transition_after in 1usize..VOLATILE_WINDOW,
         ) {
             let mut db = VolatileDB::default();

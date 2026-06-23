@@ -56,6 +56,12 @@ impl VolatileStore for VolatileSeries {
     fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
         let popped = self.sequence.pop_front();
         if popped.is_some() {
+            // TODO: consider introducing "undo" fragments?
+            //
+            // This recompute is 'expensive', in that it will happen for *every block* with only small changes
+            // since the vast majority of the fragment sequence stay the same (only one change). So we should
+            // find a way to avoid re-computing this entirely every time. One option could be to introduce
+            // 'undo' operations so that we can simply revert a single fragment while keeping the others.
             self.recompute_aggregate();
         }
         popped
@@ -118,7 +124,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn aggregated_lookups_match_naive_walk(diffs in unique_lifecycle_diffs()) {
+        fn aggregated_lookups_match_naive_walk(diffs in unique_lifecycle_diffs(VOLATILE_WINDOW)) {
             let series = series_from(&diffs);
             for tag in 0u8..16 {
                 let input = test_input(tag);
@@ -130,7 +136,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn aggregated_lookups_match_naive_walk_after_stabilization(diffs in unique_lifecycle_diffs()) {
+        fn aggregated_lookups_match_naive_walk_after_stabilization(diffs in unique_lifecycle_diffs(VOLATILE_WINDOW)) {
             let mut series = series_from(&diffs);
             series.pop_front();
             let remaining = &diffs[1..];
@@ -146,7 +152,7 @@ mod tests {
     proptest! {
         #[test]
         fn aggregated_lookups_match_naive_walk_after_rollback(
-            diffs in unique_lifecycle_diffs(),
+            diffs in unique_lifecycle_diffs(VOLATILE_WINDOW),
             rollback_ix in 0usize..VOLATILE_WINDOW,
         ) {
             let mut series = series_from(&diffs);

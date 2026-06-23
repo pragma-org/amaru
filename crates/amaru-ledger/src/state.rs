@@ -813,7 +813,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     self.overlay.rollback();
                 }
 
-                debug_assert_eq!(
+                assert_eq!(
                     self.overlay.epoch(),
                     unsafe_slot_to_epoch(&self.era_history, self.tip().slot_or_default()),
                     "overlay epoch desynced from the volatile tip after rollback"

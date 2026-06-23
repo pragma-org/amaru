@@ -58,21 +58,21 @@ pub(crate) mod test_support {
         /// A window of [`DiffSet`]s where each tagged UTxO has a unique lifecycle: produced once and
         /// optionally consumed at a strictly later index. Mirrors UTxO uniqueness, so a newest-first
         /// walk has a well-defined answer for every key.
-        pub(crate) fn unique_lifecycle_diffs()(
-            plan in prop::collection::btree_map(
-                0u8..16,
-                (0usize..VOLATILE_WINDOW, prop::option::of(0usize..VOLATILE_WINDOW)),
+        pub(crate) fn unique_lifecycle_diffs(volatile_window: usize)(
+            plan in prop::collection::vec(
+                (0usize..volatile_window, prop::option::of(0usize..volatile_window)),
                 0..16,
             )
         ) -> Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> {
             let mut diffs: Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> =
-                (0..VOLATILE_WINDOW).map(|_| DiffSet::default()).collect();
+                (0..volatile_window).map(|_| DiffSet::default()).collect();
 
-            for (tag, (produced_at, consume_offset)) in plan {
+            for (tag, (produced_at, consume_offset)) in plan.into_iter().enumerate() {
+                let tag = tag as u8;
                 diffs[produced_at].produce(test_input(tag), Arc::new(fixed_output()));
                 if let Some(offset) = consume_offset {
                     let consumed_at = produced_at + 1 + offset;
-                    if consumed_at < VOLATILE_WINDOW {
+                    if consumed_at < volatile_window {
                         diffs[consumed_at].consume(test_input(tag));
                     }
                 }
