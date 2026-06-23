@@ -39,6 +39,27 @@ impl<K: Ord, V> DiffSet<K, V> {
         self.produced.extend(other.produced);
     }
 
+    pub fn extend(&mut self, other: &DiffSet<K, V>)
+    where
+        // TODO: lower requirement to 'Copy' for DiffSet keys
+        //
+        // This needs to be clone because `TransactionInput` isn't `Copy` at the moment. But
+        // it's reasonable to ask keys to be always Copy in this scenario.
+        K: Clone,
+        V: Clone,
+    {
+        self.produced.retain(|k, _| !other.consumed.contains(k));
+        self.consumed.retain(|k| !other.produced.contains_key(k));
+
+        for k in &other.consumed {
+            self.consumed.insert(k.clone());
+        }
+
+        for (k, v) in &other.produced {
+            self.produced.insert(k.clone(), v.clone());
+        }
+    }
+
     pub fn produce(&mut self, k: K, v: V) {
         self.produced.insert(k, v);
     }

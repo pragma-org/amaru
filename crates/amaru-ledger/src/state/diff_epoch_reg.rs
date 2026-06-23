@@ -158,6 +158,23 @@ impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
             }
         }
     }
+
+    /// Like `append`, but for Clonable values.
+    pub fn extend(&mut self, most_recent: &DiffEpochReg<K, V>)
+    where
+        V: Clone,
+    {
+        for (k, v) in &most_recent.unregistered {
+            self.unregister(*k, *v)
+        }
+
+        for (k, v) in &most_recent.registered {
+            self.register(*k, v.0.0.clone());
+            if let Some(re_registration) = v.0.1.as_ref() {
+                self.register(*k, re_registration.clone());
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -84,9 +84,9 @@ impl VolatileFragment {
             committee: _,
         } = more_recent;
 
-        self.utxo.merge(utxo.clone());
-        self.votes.merge(votes.clone());
-        self.pools.append(pools.clone());
+        self.utxo.extend(utxo);
+        self.votes.extend(votes);
+        self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.iter().map(|(id, value)| (id.clone(), value.clone())));
         self.fees += *fees;
