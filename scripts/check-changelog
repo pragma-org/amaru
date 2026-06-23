@@ -99,9 +99,18 @@ def gha_escape(message: str) -> str:
     return message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
-def emit_annotation(kind: str, message: str, *, line: int | None = None, title: str = "Changelog") -> None:
+def emit_annotation(
+    kind: str,
+    message: str,
+    *,
+    file: str | None = "CHANGELOG.md",
+    line: int | None = None,
+    title: str = "Changelog",
+) -> None:
     if os.environ.get("GITHUB_ACTIONS") == "true":
-        attrs = ["file=CHANGELOG.md", f"title={title}"]
+        attrs = [f"title={title}"]
+        if file is not None:
+            attrs.insert(0, f"file={file}")
         if line is not None:
             attrs.append(f"line={line}")
         print(f"::{kind} {','.join(attrs)}::{gha_escape(message)}")
@@ -320,6 +329,51 @@ def suggested_changelog_snippet(expected_version: str, expected_day: date) -> st
     ).strip()
 
 
+def markdown_bullets(items: list[str]) -> str:
+    rendered: list[str] = []
+    for item in items:
+        lines = item.splitlines()
+        if not lines:
+            continue
+        rendered.append(f"- {lines[0]}")
+        rendered.extend(f"  {line}" for line in lines[1:])
+    return "\n".join(rendered) + ("\n" if rendered else "")
+
+
+def failure_report_markdown(
+    expected_version: str,
+    expected_day: date,
+    relevant_commits: list[str],
+    failures: list[str],
+) -> str:
+    return (
+        "## Changelog check failed\n\n"
+        f"Expected release heading: `{expected_version}` (planned for {expected_day.isoformat()})\n\n"
+        "Errors:\n\n"
+        + markdown_bullets(failures)
+        + "\n"
+        "Commits requiring changelog coverage:\n\n"
+        + markdown_bullets(relevant_commits)
+        + "\n"
+        "Suggested starting point:\n\n"
+        "```md\n"
+        f"{suggested_changelog_snippet(expected_version, expected_day)}\n"
+        "```\n"
+    )
+
+
+def unexpected_failure_report_markdown(message: str) -> str:
+    return (
+        "## Changelog check failed unexpectedly\n\n"
+        f"```\n{message}\n```\n"
+    )
+
+
+def write_report(report_file: Path | None, content: str) -> None:
+    if report_file is not None:
+        report_file.write_text(content, encoding="utf-8")
+
+
 def validate_references(lines: list[str], failures: list[str]) -> None:
     refs = changelog_references(lines)
     labels = [label for label, _line in refs]
@@ -431,12 +485,14 @@ def validate_target_release(
     if not any(entry not in base_entries for entry in head_entries):
         line = head_block.line_number
         commit_lines = "\n".join(f"  - {commit}" for commit in relevant_commits) if relevant_commits else "  - (none found)"
-        message = (
+        summary_message = "Crate changes require a new changelog entry under the next unreleased release heading."
+        detailed_message = (
             "Crate changes require a new changelog entry under the next unreleased release heading.\n"
             "Commits requiring changelog coverage:\n"
             f"{commit_lines}"
         )
-        record_failure(failures, message, line=line, title="Missing changelog entry")
+        emit_annotation("error", detailed_message, line=line, title="Missing changelog entry")
+        failures.append(summary_message)
 
 
 def prepare_changelog_check(
@@ -488,6 +544,7 @@ def validate_changelog_contents(
     changelog_path: Path,
     manifest_path: Path,
     context: CheckContext,
+    report_file: Path | None,
 ) -> int:
     base_sha = context.base_sha
     relevant_commits = context.relevant_commits
@@ -539,20 +596,17 @@ def validate_changelog_contents(
         validate_target_release(lines, target_block, base_block, not override_requested, relevant_commits, failures)
 
     if failures:
+        report = failure_report_markdown(expected_version, expected_day, relevant_commits, failures)
+        emit_annotation(
+            "error",
+            f"CHANGELOG.md validation failed with {len(failures)} error(s). See file annotations and step summary for details.",
+            file=None,
+            title="Changelog validation failed",
+        )
+        write_report(report_file, report)
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
-            Path(summary).write_text(
-                "## Changelog check failed\n\n"
-                f"Expected release heading: `{expected_version}` (planned for {expected_day.isoformat()})\n\n"
-                "Commits requiring changelog coverage:\n\n"
-                + "".join(f"- {commit}\n" for commit in relevant_commits)
-                + "\n"
-                "Suggested starting point:\n\n"
-                "```md\n"
-                f"{suggested_changelog_snippet(expected_version, expected_day)}\n"
-                "```\n",
-                encoding="utf-8",
-            )
+            Path(summary).write_text(report, encoding="utf-8")
         return 1
 
     print("CHANGELOG.md passes changelog validation.")
@@ -563,6 +617,7 @@ def check_changelog(
     *,
     changelog_path: Path,
     manifest_path: Path,
+    report_file: Path | None,
     base_sha: str | None,
     head_sha: str | None,
     default_branch: str | None,
@@ -584,6 +639,7 @@ def check_changelog(
         changelog_path=changelog_path,
         manifest_path=manifest_path,
         context=context,
+        report_file=report_file,
     )
 
 
@@ -591,6 +647,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--changelog", default="CHANGELOG.md")
     parser.add_argument("--cargo-toml", default="crates/amaru/Cargo.toml")
+    parser.add_argument("--report-file")
     parser.add_argument("--base-sha")
     parser.add_argument("--head-sha")
     parser.add_argument("--default-branch")
@@ -604,6 +661,7 @@ def main() -> int:
         return check_changelog(
             changelog_path=Path(args.changelog),
             manifest_path=Path(args.cargo_toml),
+            report_file=Path(args.report_file) if args.report_file else None,
             base_sha=args.base_sha,
             head_sha=args.head_sha,
             default_branch=args.default_branch,
@@ -612,14 +670,13 @@ def main() -> int:
         )
     except Exception as exc:
         message = f"check-changelog failed unexpectedly: {exc}"
-        emit_annotation("error", message, title="Unexpected failure")
+        emit_annotation("error", message, file=None, title="Unexpected failure")
+        report = unexpected_failure_report_markdown(message)
+        if args.report_file:
+            write_report(Path(args.report_file), report)
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
-            Path(summary).write_text(
-                "## Changelog check failed unexpectedly\n\n"
-                f"```\n{message}\n```\n",
-                encoding="utf-8",
-            )
+            Path(summary).write_text(report, encoding="utf-8")
         return 1
 
 
