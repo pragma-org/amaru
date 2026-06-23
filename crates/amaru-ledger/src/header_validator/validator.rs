@@ -12,56 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistoryError, HeaderHash, IsHeader, Nonce, Point, to_cbor};
+use amaru_kernel::{
+    to_cbor, BlockHeader, ConsensusParameters, Epoch, EraHistory, EraHistoryError, IsHeader, Nonce, Point, PoolId, Slot,
+};
 use amaru_observability::trace_span;
 use amaru_ouroboros_traits::{
-    CanValidateHeaders, ChainStore, HasPools, HeaderValidationError, Nonces, PoolSummary, StoreError,
+    CanValidateHeaders, ChainStore, GetPoolError, HasPools, HeaderValidationError, Nonces, NoncesError, PoolSummary,
+    StoreError::ReadError,
 };
 use anyhow::anyhow;
-use thiserror::Error;
+use num::CheckedSub;
 
 use crate::{
     header_validator::assertions::assert_all,
-    state::State,
-    store::{HistoricalStores, Store},
+    state::{StakeDistributions, State},
+    store::{HistoricalStores, Store, StoreError},
 };
 
-pub struct HeaderValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
-    state: Arc<Mutex<State<S, HS>>>,
+#[derive(Clone)]
+pub struct HeaderValidator {
+    stake_distributions: StakeDistributions,
+    era_history: Arc<EraHistory>,
     consensus_parameters: Arc<ConsensusParameters>,
     store: Arc<dyn ChainStore>,
 }
 
-impl<S, HS> Clone for HeaderValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
-    fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-            consensus_parameters: self.consensus_parameters.clone(),
-            store: self.store.clone(),
-        }
-    }
-}
-
-impl<S: Store + Send, HS: HistoricalStores + Send> HeaderValidator<S, HS> {
-    pub fn new(
+impl HeaderValidator {
+    #[expect(clippy::unwrap_used)]
+    pub fn new<S: Store, HS: HistoricalStores>(
         state: Arc<Mutex<State<S, HS>>>,
         consensus_parameters: Arc<ConsensusParameters>,
         store: Arc<dyn ChainStore>,
     ) -> anyhow::Result<Self> {
-        Ok(Self { state, consensus_parameters, store })
+        let state = state.lock().unwrap();
+        Ok(Self {
+            stake_distributions: state.stake_distributions(),
+            era_history: Arc::new(state.era_history().clone()),
+            consensus_parameters,
+            store,
+        })
     }
 
     pub fn validate(&self, header: &BlockHeader) -> Result<(), HeaderValidationError> {
@@ -89,6 +80,22 @@ impl<S: Store + Send, HS: HistoricalStores + Send> HeaderValidator<S, HS> {
                 assertions.into_par_iter().try_for_each(|assert| assert())
             })
             .map_err(|e| HeaderValidationError::new(anyhow!(e)))
+    }
+
+    #[expect(clippy::unwrap_used)]
+    pub fn operational_cert_sequence_number(&self, pool_id: &PoolId) -> Result<Option<u64>, StoreError> {
+        // Iterate from most recent to least recent
+        for fragment in self.volatile.iter().rev() {
+            if fragment.issuer() == *pool_id {
+                return Ok(Some(fragment.operational_cert_sequence_number()));
+            }
+        }
+        Ok(self
+            .stable
+            .lock()
+            .unwrap()
+            .operational_cert_sequence_number(pool_id)?
+            .map(|row| row.latest_opcert_sequence_number))
     }
 }
 
@@ -161,60 +168,59 @@ fn evolve_nonce(
     Ok(nonces)
 }
 
-impl<S, HS> fmt::Debug for HeaderValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("HeaderValidator")
-            .field("store", &"Arc<dyn ChainStore<H>>")
-            .field("state", &"Arc<Mutex<State<S, HS>>>")
-            .finish()
+impl HasPools for HeaderValidator {
+    fn get_pool_summary(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
+        let epoch = self
+            .era_history
+            // NOTE: This function is called by the consensus when validating block headers. So in
+            // theory, the slot is either within the current epoch or the next since blocks must
+            // form a chain. Either the previous block is well within the current epoch, or it was
+            // the last block of the previous epoch.
+            //
+            // Either way, we do know at this point how to forecast this slot.
+            .slot_to_epoch_unchecked_horizon(slot)
+            .map_err(GetPoolError::SlotToEpochConversionFailure)?
+            .checked_sub(Epoch::TWO)
+            .ok_or(GetPoolError::SlotToEpochConversionFailure(EraHistoryError::InvalidEraHistory))?;
+
+        let stake_distributions = self.stake_distributions.0.lock().unwrap();
+        let stake_distribution = stake_distributions
+            .iter()
+            .find(|s| s.epoch == epoch)
+            .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
+
+        match stake_distribution.pools.get(pool) {
+            Some(st) => {
+                let operational_cert_sequence_number = self
+                    .operational_cert_sequence_number(pool)
+                    .map_err(|e| GetPoolError::StoreError(ReadError { error: e.to_string() }))?
+                    .unwrap_or_default();
+                Ok(Some(PoolSummary::new(
+                    st.parameters.vrf,
+                    st.stake,
+                    stake_distribution.active_stake,
+                    operational_cert_sequence_number,
+                )))
+            }
+            None => Ok(None),
+        }
     }
 }
 
-impl<S: Store + Send, HS: HistoricalStores + Send> HasPools for HeaderValidator<S, HS> {
-    #[expect(clippy::unwrap_used)]
-    fn get_pool_summary(
-        &self,
-        slot: amaru_kernel::Slot,
-        pool_id: &amaru_kernel::PoolId,
-    ) -> Result<Option<PoolSummary>, amaru_ouroboros_traits::pools::GetPoolError> {
-        self.state.lock().unwrap().get_pool_summary(slot, pool_id)
-    }
-}
-
-impl<S: Store + Send, HS: HistoricalStores + Send> CanValidateHeaders for HeaderValidator<S, HS> {
+impl CanValidateHeaders for HeaderValidator {
     fn validate_header(&self, header: &BlockHeader) -> Result<(), HeaderValidationError> {
         self.validate(header)
     }
-}
-
-#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum NoncesError {
-    #[error("cannot find nonces: unknown parent {parent} from header {header}")]
-    UnknownParent { header: HeaderHash, parent: HeaderHash },
-
-    #[error("unknown header: {header}")]
-    UnknownHeader { header: HeaderHash },
-
-    #[error("no parent header for: {header} (where one is clearly expected)")]
-    NoParentHeader { header: HeaderHash },
-
-    #[error("{0}")]
-    StoreError(#[from] StoreError),
-
-    #[error("{0}")]
-    EraHistoryError(#[from] EraHistoryError),
 }
 
 #[cfg(test)]
 mod test {
     use std::sync::{Arc, LazyLock};
 
-    use amaru_kernel::{BlockHeader, Epoch, GlobalParameters, IsHeader, NetworkName, from_cbor, hash, to_cbor};
-    use amaru_ouroboros_traits::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+    use amaru_kernel::{
+        from_cbor, hash, to_cbor, BlockHeader, Epoch, GlobalParameters, HeaderHash, IsHeader, NetworkName,
+    };
+    use amaru_ouroboros_traits::{in_memory_chain_store::InMemoryChainStore, BaseReadChainStore, WriteChainStore};
     use proptest::{prelude::*, prop_compose, proptest};
 
     use super::*;

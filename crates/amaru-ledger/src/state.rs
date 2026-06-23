@@ -21,17 +21,16 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, MemoizedTransactionOutput,
-    NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionInput, TransactionPointer,
-    to_cbor,
+    to_cbor, Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId,
+    MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionInput,
+    TransactionPointer,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
-use amaru_ouroboros_traits::{PoolSummary, StoreError::ReadError, pools::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
-use tracing::{Span, info, trace, warn};
+use tracing::{info, trace, warn, Span};
 
 use crate::{
     context::{DefaultPreparationContext, DefaultValidationContext},
@@ -211,26 +210,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[expect(clippy::unwrap_used)]
-    pub fn operational_cert_sequence_number(&self, pool_id: &PoolId) -> Result<Option<u64>, StoreError> {
-        // Iterate from most recent to least recent
-        for fragment in self.volatile.iter().rev() {
-            if fragment.issuer() == *pool_id {
-                return Ok(Some(fragment.operational_cert_sequence_number()));
-            }
-        }
-        Ok(self
-            .stable
-            .lock()
-            .unwrap()
-            .operational_cert_sequence_number(pool_id)?
-            .map(|row| row.latest_opcert_sequence_number))
-    }
-
-    #[expect(clippy::unwrap_used)]
     pub fn registered_relay_socket_addrs(
         &self,
     ) -> Result<std::collections::BTreeSet<std::net::SocketAddr>, StoreError> {
         crate::peers_data::collect_from_read_store(&*self.stable.lock().unwrap())
+    }
+
+    /// Obtain a view of the stake distributions, to allow decoupling the ledger from other
+    /// components that require access to it.
+    pub fn stake_distributions(&self) -> StakeDistributions {
+        StakeDistributions(self.stake_distributions.clone())
     }
 
     pub fn network(&self) -> NetworkName {
@@ -265,41 +254,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Tip of the volatile (`VolatileDB`) sequence only, if non-empty.
     pub fn volatile_tip(&self) -> Option<Tip> {
         self.volatile.view_back().map(|fragment| fragment.tip())
-    }
-
-    #[expect(clippy::unwrap_used)]
-    pub fn get_pool_summary(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        let epoch = self
-            .era_history
-            // NOTE: This function is called by the consensus when validating block headers. So in
-            // theory, the slot is either within the current epoch or the next since blocks must
-            // form a chain. Either the previous block is well within the current epoch, or it was
-            // the last block of the previous epoch.
-            //
-            // Either way, we do know at this point how to forecast this slot.
-            .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(GetPoolError::SlotToEpochConversionFailure)?
-            .checked_sub(Epoch::TWO)
-            .ok_or(GetPoolError::SlotToEpochConversionFailure(EraHistoryError::InvalidEraHistory))?;
-        let view = self.stake_distributions.lock().unwrap();
-        let stake_distribution =
-            view.iter().find(|s| s.epoch == epoch).ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
-
-        match stake_distribution.pools.get(pool) {
-            Some(st) => {
-                let operational_cert_sequence_number = self
-                    .operational_cert_sequence_number(pool)
-                    .map_err(|e| GetPoolError::StoreError(ReadError { error: e.to_string() }))?
-                    .unwrap_or_default();
-                Ok(Some(PoolSummary::new(
-                    st.parameters.vrf,
-                    st.stake,
-                    stake_distribution.active_stake,
-                    operational_cert_sequence_number,
-                )))
-            }
-            None => Ok(None),
-        }
     }
 
     #[expect(clippy::unwrap_used)]
@@ -887,6 +841,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
     }
 }
+
+/// Encapsulation of an exclusive, shared, mutable access to stake distributions.
+#[derive(Clone)]
+pub struct StakeDistributions(pub Arc<Mutex<VecDeque<StakeDistribution>>>);
 
 /// Local enum deciding what we should do for unresolved inputs happening when validating transactions.
 /// If we are validating transactions from a block we can defer the check because the inputs might

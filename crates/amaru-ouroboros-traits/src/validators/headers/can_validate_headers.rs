@@ -14,8 +14,11 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::BlockHeader;
+use amaru_kernel::{BlockHeader, EraHistoryError, HeaderHash};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use crate::StoreError;
 
 pub trait CanValidateHeaders: Send + Sync {
     fn validate_header(&self, header: &BlockHeader) -> Result<(), HeaderValidationError>;
@@ -80,4 +83,22 @@ impl PartialEq for HeaderValidationError {
     fn eq(&self, other: &Self) -> bool {
         self.0.to_string() == other.0.to_string()
     }
+}
+
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum NoncesError {
+    #[error("cannot find nonces: unknown parent {parent} from header {header}")]
+    UnknownParent { header: HeaderHash, parent: HeaderHash },
+
+    #[error("unknown header: {header}")]
+    UnknownHeader { header: HeaderHash },
+
+    #[error("no parent header for: {header} (where one is clearly expected)")]
+    NoParentHeader { header: HeaderHash },
+
+    #[error("{0}")]
+    StoreError(#[from] StoreError),
+
+    #[error("{0}")]
+    EraHistoryError(#[from] EraHistoryError),
 }

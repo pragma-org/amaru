@@ -15,4 +15,4 @@
 mod assertions;
 mod validator;
 
-pub use validator::{HeaderValidator, NoncesError};
+pub use validator::HeaderValidator;
