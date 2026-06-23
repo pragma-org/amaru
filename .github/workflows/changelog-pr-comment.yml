@@ -10,6 +10,8 @@ on:
   workflow_run:
     workflows: ["Coding Practices"]
     types:
+      - requested
+      - in_progress
       - completed
 
 jobs:
@@ -24,6 +26,7 @@ jobs:
       # inline in this workflow and restrict it to reading the previously uploaded
       # artifact plus posting/updating/removing the sticky PR comment.
       - name: Discover changelog artifact
+        if: ${{ github.event.workflow_run.status == 'completed' }}
         id: artifact
         uses: actions/github-script@v8
         with:
@@ -40,7 +43,7 @@ jobs:
 
             core.setOutput('found', artifact ? 'true' : 'false');
       - name: Download changelog artifact
-        if: steps.artifact.outputs.found == 'true'
+        if: ${{ github.event.workflow_run.status == 'completed' && steps.artifact.outputs.found == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: changelog-check-report
@@ -49,6 +52,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Synchronize PR changelog comment
         uses: actions/github-script@v8
+        env:
+          WORKFLOW_RUN_STATUS: ${{ github.event.workflow_run.status }}
+          WORKFLOW_RUN_URL: ${{ github.event.workflow_run.html_url }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -65,6 +71,8 @@ jobs:
             const outcomePath = path.join(artifactDir, 'outcome');
             const reportPath = path.join(artifactDir, 'report.md');
             const fallbackPr = context.payload.workflow_run.pull_requests[0]?.number;
+            const workflowRunStatus = process.env.WORKFLOW_RUN_STATUS;
+            const workflowRunUrl = process.env.WORKFLOW_RUN_URL;
 
             const issue_number = fs.existsSync(prNumberPath)
               ? Number.parseInt(fs.readFileSync(prNumberPath, 'utf8').trim(), 10)
@@ -95,6 +103,43 @@ jobs:
               }
             }
 
+            async function upsertStickyComment(body) {
+              if (newestMatchingComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: newestMatchingComment.id,
+                  body,
+                });
+
+                for (const comment of matchingComments) {
+                  if (comment.id === newestMatchingComment.id) {
+                    continue;
+                  }
+
+                  await github.rest.issues.deleteComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: comment.id,
+                  });
+                }
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number,
+                  body,
+                });
+              }
+            }
+
+            if (workflowRunStatus !== 'completed') {
+              const runLink = workflowRunUrl ? `\n\n[Open workflow run](${workflowRunUrl})` : '';
+              const body = `${marker}\n## Analyzing changelog...\n\nA new changelog check is in progress. This comment will be updated when the workflow completes.${runLink}`;
+              await upsertStickyComment(body);
+              return;
+            }
+
             if (!fs.existsSync(outcomePath)) {
               if (matchingComments.length > 0) {
                 await deleteMatchingComments();
@@ -117,30 +162,4 @@ jobs:
 
             const body = `${marker}\n${report}`;
 
-            if (newestMatchingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: newestMatchingComment.id,
-                body,
-              });
-
-              for (const comment of matchingComments) {
-                if (comment.id === newestMatchingComment.id) {
-                  continue;
-                }
-
-                await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: comment.id,
-                });
-              }
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number,
-                body,
-              });
-            }
+            await upsertStickyComment(body);
