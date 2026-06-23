@@ -41,6 +41,10 @@ Other guiding principles:
 
 - **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
 
+### Fixed
+
+- **amaru-ledger**: report ledger RocksDB lock contention with dedicated startup guidance. ([#769][])
+
 ## [v10.10.20260618](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260618)
 
 ### Added
@@ -62,7 +66,6 @@ Other guiding principles:
 ### Fixed
 
 - **amaru**: fix `--help` being displayed as a debug Rust value instead of properly formatted. ([#953][])
-- **amaru**: report ledger RocksDB lock contention with dedicated startup guidance. ([#769][])
 - **amaru**: resolve era history from snapshots instead of inferring them from network (required for custom testnets). ([#886][])
 - **amaru-ouroboros**: default to `0` as leader relative stake when the leader has no stake (instad of crashing due to a division by zero) ([#886][])
 - **amaru-ouroboros**: skip leader-schedule check if active_slot_coeff is greater than or equal to 1 (degenerate case) ([#886][])
@@ -71,8 +74,8 @@ Other guiding principles:
 ## [v10.10.20260611](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260611)
 
 
-[#778]: https://github.com/pragma-org/amaru/issues/778
 [#769]: https://github.com/pragma-org/amaru/issues/769
+[#778]: https://github.com/pragma-org/amaru/issues/778
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#953]: https://github.com/pragma-org/amaru/pull/953
