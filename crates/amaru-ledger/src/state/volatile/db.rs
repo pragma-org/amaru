@@ -133,11 +133,11 @@ impl VolatileStore for VolatileDB {
 }
 
 impl VolatileDB {
-    /// Seal the live series at an epoch boundary: the `current` series, which, by the protocol
-    /// pre-condition, holds only the closing epoch's blocks, becomes the `draining` series, and a
-    /// fresh empty `current` is opened for the new epoch. This keeps each series epoch-homogeneous.
+    /// Mark the transition between two epochs by sealing the `current` series and turning it into
+    /// the `draining` series. This keeps each series epoch-homogeneous since, by the protocol
+    /// pre-condition, the `current` series holds only the closing epoch's blocks.
     ///
-    /// No-op when `current` is empty: there is nothing to seal, `draining` stays `None`, and
+    /// No-op when `current` is empty: there is nothing to transition, `draining` stays `None`, and
     /// homogeneity still holds because an empty `current` only ever takes new-epoch blocks.
     ///
     /// The `assert!` guards the design's load-bearing precondition: `epochLength` (~10k blocks) is
@@ -147,10 +147,10 @@ impl VolatileDB {
     /// window, impossible under the protocol. We `assert!` rather than `debug_assert!` because the
     /// check is effectively free, and if some other bug ever broke the invariant, halting the node
     /// is far safer than silently overwriting `draining` and losing volatile history.
-    pub fn seal(&mut self) {
+    pub fn transition(&mut self) {
         assert!(
             self.draining.is_empty(),
-            "sealing while a draining series is still present; two epoch boundaries inside the k-block window?"
+            "transitioning volatile series while a draining series is still present; two epoch boundaries inside the k-block window?"
         );
 
         self.draining = mem::take(&mut self.current);
@@ -247,7 +247,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.seal();
+        db.transition();
         assert!(!db.draining.is_empty() && db.current.is_empty());
 
         let beyond = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
@@ -303,36 +303,36 @@ mod tests {
     }
 
     #[test]
-    fn seal_opens_draining_and_resets_current() {
+    fn transition_opens_draining_and_resets_current() {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
 
-        db.seal();
+        db.transition();
 
-        assert!(!db.draining.is_empty(), "draining should hold the sealed series");
+        assert!(!db.draining.is_empty(), "draining should hold the transitioned series");
         assert_eq!(db.current.len(), 0, "current should be reset to empty");
-        assert_eq!(db.len(), 2, "total length is unchanged by sealing");
+        assert_eq!(db.len(), 2, "total length is unchanged by transitioning");
     }
 
     #[test]
-    fn seal_is_a_noop_on_empty_current() {
+    fn transition_is_a_noop_on_empty_current() {
         let mut db = VolatileDB::default();
 
-        db.seal();
+        db.transition();
 
-        assert!(db.draining.is_empty(), "sealing an empty current must not open a draining series");
+        assert!(db.draining.is_empty(), "transitioning an empty current must not open a draining series");
     }
 
     #[test]
     #[should_panic(expected = "two epoch boundaries")]
-    fn seal_panics_if_draining_already_present() {
+    fn transition_panics_if_draining_already_present() {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        db.seal();
+        db.transition();
 
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.seal();
+        db.transition();
     }
 
     #[test]
@@ -340,7 +340,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.seal();
+        db.transition();
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(10)));
@@ -358,7 +358,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.seal();
+        db.transition();
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
         db.push_back(AnchoredVolatileFragment::fixture(40, 4));
 
@@ -404,7 +404,7 @@ mod tests {
 
         let mut db = VolatileDB::default();
         db.push_back(draining_block);
-        db.seal();
+        db.transition();
         db.push_back(current_block);
 
         assert_eq!(db.resolve_input(&input).is_some(), resolvable);
@@ -416,7 +416,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.seal();
+        db.transition();
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.len(), 3, "two draining blocks plus one current block");
@@ -439,12 +439,12 @@ mod tests {
         #[test]
         fn db_resolve_matches_naive_walk_over_both_series(
             diffs in unique_lifecycle_diffs(),
-            seal_after in 1usize..VOLATILE_WINDOW,
+            transition_after in 1usize..VOLATILE_WINDOW,
         ) {
             let mut db = VolatileDB::default();
             for (index, diff) in diffs.iter().enumerate() {
-                if index == seal_after {
-                    db.seal();
+                if index == transition_after {
+                    db.transition();
                 }
                 let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
                 anchored.fragment.utxo = diff.clone();

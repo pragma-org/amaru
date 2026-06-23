@@ -409,7 +409,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             self.overlay.transition(effective_rewards, pools_updates, governance_updates);
 
-            self.volatile.seal();
+            self.volatile.transition();
 
             Ok(())
         })
