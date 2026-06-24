@@ -49,7 +49,9 @@ pub use cardano::{
     certificate_pointer::CertificatePointer,
     consensus_parameters::ConsensusParameters,
     constitution::Constitution,
-    constitutional_committee::ConstitutionalCommitteeStatus,
+    constitutional_committee::ConstitutionalCommittee,
+    constitutional_committee_member_status::ConstitutionalCommitteeMemberStatus,
+    constitutional_committee_status::ConstitutionalCommitteeStatus,
     cost_model::{self, CostModel},
     cost_models::{self, CostModels},
     drep::DRep,
@@ -164,7 +166,7 @@ pub use cardano::{
     block_height::any_block_height,
     certificate_pointer::any_certificate_pointer,
     constitution::any_constitution,
-    constitutional_committee::any_constitutional_committee_status,
+    constitutional_committee_status::any_constitutional_committee_status,
     drep::any_drep,
     epoch::any_epoch,
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
@@ -228,8 +230,6 @@ pub use data_structures::{
 pub use serde_json as json;
 
 pub mod macros;
-
-pub mod new_epoch_state;
 
 mod traits;
 pub use traits::{

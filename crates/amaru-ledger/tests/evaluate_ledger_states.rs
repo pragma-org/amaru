@@ -23,11 +23,11 @@ pub mod tests {
     };
 
     use amaru_kernel::{
-        Account, Bytes, CertificatePointer, ComparableProposalId, DRepRegistration, DRepState, Epoch, EraHistory,
-        MemoizedTransactionOutput, NetworkName, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState,
-        ProtocolParameters, Slot, StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer,
-        WitnessSet, cbor, cbor as minicbor,
-        new_epoch_state::{ConstitutionalCommittee, ConstitutionalCommitteeAuthorization, drep_registration, pool_ids},
+        Account, Bytes, CertificatePointer, ComparableProposalId, ConstitutionalCommittee,
+        ConstitutionalCommitteeMemberStatus, DRepRegistration, DRepState, Epoch, EraHistory, MemoizedTransactionOutput,
+        NetworkName, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState, ProtocolParameters, Slot,
+        StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer, WitnessSet, cbor,
+        cbor as minicbor,
     };
     use amaru_ledger::{
         self,
@@ -108,7 +108,7 @@ pub mod tests {
         pools: BTreeSet<PoolId>,
         accounts: BTreeMap<StakeCredential, Account>,
         dreps: BTreeMap<StakeCredential, DRepState>,
-        cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
+        cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
         cc_state: StrictMaybe<ConstitutionalCommittee>,
         proposals: Vec<NewEpochProposalState>,
         roots: [StrictMaybe<ComparableProposalId>; 4],
@@ -137,7 +137,7 @@ pub mod tests {
             for _ in 1..len.unwrap_or(0) {
                 d.skip()?;
             }
-            pool_ids(params)
+            params.into_keys().collect()
         };
 
         // DState: [unified map, future gen delegs, gen delegs, instantaneous rewards]. The unified map
@@ -250,12 +250,18 @@ pub mod tests {
         let governance_activity =
             GovernanceActivity { consecutive_dormant_epochs: u64::from(decoded.dormant_epochs) as u32 };
 
-        // A NewEpochState records no certificate pointers for existing registrations or delegations,
-        // so they are synthesized. The proposing slot is likewise unknown, hence the origin point.
+        // NOTE:  DRep registration pointer fabrication
+        //
+        // a NewEpochState records no DRep registration pointer, so callers stamp a
+        // synthesized `registered_at`. Any rule that orders against it,
+        // e.g. "vote delegation must follow DRep registration", can't be meaningfully
+        // checked on snapshot-seeded state; exercising that ordering needs an in-block
+        // registration instead.
         let registered_at = CertificatePointer {
             transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
             certificate_index: 0,
         };
+
         let point = Point::Origin;
 
         let accounts: BTreeMap<StakeCredential, AccountState> = decoded
@@ -269,7 +275,7 @@ pub mod tests {
         let dreps: BTreeMap<StakeCredential, DRepRegistration> = decoded
             .dreps
             .into_iter()
-            .map(|(credential, state)| (credential, drep_registration(state, registered_at)))
+            .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
             .collect();
         let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
         let proposals = decoded

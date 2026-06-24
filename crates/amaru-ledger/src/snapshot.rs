@@ -15,10 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Account, CertificatePointer, ComparableProposalId, DRep, EraHistory, EraHistoryError, Lovelace, Point, PoolId,
-    ProposalPointer, ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, StrictMaybe,
-    TransactionPointer,
-    new_epoch_state::{ConstitutionalCommittee, ConstitutionalCommitteeAuthorization},
+    Account, CertificatePointer, ComparableProposalId, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
+    DRep, EraHistory, EraHistoryError, Lovelace, Point, PoolId, ProposalPointer,
+    ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, StrictMaybe, TransactionPointer,
 };
 
 use crate::{
@@ -60,7 +59,7 @@ pub fn account_state(
 /// has no elected members.
 pub fn committee_members(
     cc: StrictMaybe<ConstitutionalCommittee>,
-    hot_cold_delegations: &BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
+    hot_cold_delegations: &BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
 ) -> BTreeMap<StakeCredential, CCMember> {
     let members = match cc {
         StrictMaybe::Just(ConstitutionalCommittee { members, .. }) => members,
@@ -71,8 +70,8 @@ pub fn committee_members(
         .into_iter()
         .map(|(cold_credential, valid_until)| {
             let hot_credential = match hot_cold_delegations.get(&cold_credential) {
-                Some(ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(hot)) => Some(hot.clone()),
-                None | Some(ConstitutionalCommitteeAuthorization::Resigned(..)) => None,
+                Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot)) => Some(hot.clone()),
+                None | Some(ConstitutionalCommitteeMemberStatus::Resigned(..)) => None,
             };
             (cold_credential, CCMember { hot_credential, valid_until: Some(valid_until) })
         })

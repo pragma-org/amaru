@@ -30,6 +30,8 @@ pub mod certificate_pointer;
 pub mod consensus_parameters;
 pub mod constitution;
 pub mod constitutional_committee;
+pub mod constitutional_committee_member_status;
+pub mod constitutional_committee_status;
 pub mod cost_model;
 pub mod cost_models;
 pub mod drep;
