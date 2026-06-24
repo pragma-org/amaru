@@ -692,7 +692,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let ongoing = ongoing_state.resolve_account(credential);
             let from_context = !matches!(ongoing, Existence::Unknown);
 
-            let state = match ongoing.layer_over(|| self.volatile.resolve_account(credential)) {
+            let state = match ongoing.or_else(|| self.volatile.resolve_account(credential)) {
                 Existence::Gone => None,
                 Existence::Exists(bind) => {
                     let resolved = if let Some(deposit) = bind.value {
@@ -767,7 +767,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let ongoing = ongoing_state.resolve_drep(credential);
             let from_context = !matches!(ongoing, Existence::Unknown);
 
-            let registration = match ongoing.layer_over(|| self.volatile.resolve_drep(credential)) {
+            let registration = match ongoing.or_else(|| self.volatile.resolve_drep(credential)) {
                 Existence::Gone => None,
                 Existence::Exists(bind) => {
                     let resolved = if let Some(record) = bind.value {
@@ -844,7 +844,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let ongoing = ongoing_state.resolve_committee(credential);
             let from_context = !matches!(ongoing, Existence::Unknown);
 
-            let member = match ongoing.layer_over(|| self.volatile.resolve_committee(credential)) {
+            let member = match ongoing.or_else(|| self.volatile.resolve_committee(credential)) {
                 Existence::Gone => None,
                 Existence::Exists(bind) => {
                     let resolved = if bind.value.is_some() {

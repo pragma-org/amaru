@@ -41,7 +41,7 @@ impl<L, R, V> Bind<L, R, V> {
     /// Absorb a more recent update in place.
     /// A `Set`/`Reset` overrides, `Unchanged` keeps what's here,
     /// and a `value: Some(...)` supersedes wholesale.
-    pub fn absorb(&mut self, newer: Self) {
+    pub fn then(&mut self, newer: Self) {
         if newer.value.is_some() {
             *self = newer;
         } else {
@@ -52,12 +52,6 @@ impl<L, R, V> Bind<L, R, V> {
                 self.right = newer.right;
             }
         }
-    }
-
-    /// Layer this update over an older bind, returning the result.
-    pub fn layer_over(self, mut older: Self) -> Self {
-        older.absorb(self);
-        older
     }
 }
 
@@ -176,7 +170,7 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
                 }
 
                 Entry::Occupied(mut e) => {
-                    e.get_mut().absorb(bind);
+                    e.get_mut().then(bind);
                 }
             };
         }

@@ -56,15 +56,33 @@ pub enum Existence<T> {
 
 impl<L, R, V> Existence<Bind<L, R, V>> {
     /// Layer this verdict over an `older` one, evaluated lazily
-    pub fn layer_over(self, older: impl FnOnce() -> Self) -> Self {
+    pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
         match self {
-            Existence::Gone => Existence::Gone,
-            Existence::Exists(newer) if newer.value.is_some() => Existence::Exists(newer),
-            Existence::Exists(newer) => match older() {
-                Existence::Exists(older) => Existence::Exists(newer.layer_over(older)),
-                Existence::Gone | Existence::Unknown => Existence::Exists(newer),
-            },
             Existence::Unknown => older(),
+
+            // If this is rebinding (i.e. value is None), then we must still take into
+            // account the previous value, if any.
+            //
+            // NOTE: superfluous 'is_none()' check actually not superfluous
+            //
+            // The `value.is_none()` guard may seem redundant with the implementation of `then`.
+            // But it allows to only lazily get the `older` state when we truly have to. Indeed, if
+            // there already exists a newer value, that means the object was entirely re-recreated
+            // and there's no need to fetch the previous state for any left or right binds. It's
+            // just been overidden.
+            //
+            // Hence, the guard doesn't fundamentally changes the logic since `older.then(newer)`
+            // would simply override `older` with `newer` when the value exists; but it saves us
+            // from fetching the `older` to begin with.
+            Existence::Exists(newer)
+                if newer.value.is_none()
+                    && let Existence::Exists(mut older) = older() =>
+            {
+                older.then(newer);
+                Existence::Exists(older)
+            }
+
+            Existence::Gone | Existence::Exists(..) => self,
         }
     }
 }

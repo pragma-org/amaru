@@ -186,7 +186,7 @@ impl VolatileDB {
     /// from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
     /// bind-only update layers over it.
     pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        self.current.resolve_account(credential).layer_over(|| self.draining.resolve_account(credential))
+        self.current.resolve_account(credential).or_else(|| self.draining.resolve_account(credential))
     }
 
     /// An account's withdrawable balance from its `base` (stable rewards, or `0` if freshly
@@ -207,15 +207,15 @@ impl VolatileDB {
     /// from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
     /// bind-only update layers over it.
     pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        self.current.resolve_drep(credential).layer_over(|| self.draining.resolve_drep(credential))
+        self.current.resolve_drep(credential).or_else(|| self.draining.resolve_drep(credential))
     }
 
     /// Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
     /// draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
     /// blocks, mirroring pool reaping. `Unknown` means consult the stable store.
     pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
-        self.current.resolve_committee(credential).layer_over(|| {
-            self.overlay.committee_verdict(credential).layer_over(|| self.draining.resolve_committee(credential))
+        self.current.resolve_committee(credential).or_else(|| {
+            self.overlay.committee_verdict(credential).or_else(|| self.draining.resolve_committee(credential))
         })
     }
 
