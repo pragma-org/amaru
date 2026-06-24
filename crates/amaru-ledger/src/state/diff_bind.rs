@@ -34,8 +34,8 @@ pub struct Bind<L, R, V> {
 }
 
 impl<L, R, V> Bind<L, R, V> {
-    pub fn into_borrowed(&self) -> Bind<&L, &R, &V> {
-        Bind { left: self.left.into_borrowed(), right: self.right.into_borrowed(), value: self.value.as_ref() }
+    pub fn as_borrowed(&self) -> Bind<&L, &R, &V> {
+        Bind { left: self.left.as_borrowed(), right: self.right.as_borrowed(), value: self.value.as_ref() }
     }
 
     /// Absorb a more recent update in place.
@@ -88,20 +88,11 @@ impl<A> Resettable<A> {
         }
     }
 
-    pub fn into_borrowed(&self) -> Resettable<&A> {
+    pub fn as_borrowed(&self) -> Resettable<&A> {
         match self {
-            Self::Set(a) => Resettable::Set(a),
+            Self::Set(value) => Resettable::Set(value),
             Self::Reset => Resettable::Reset,
             Self::Unchanged => Resettable::Unchanged,
-        }
-    }
-
-    /// Apply this change over a base: `Set`/`Reset` override, `Unchanged` keeps the base.
-    pub fn apply_over(self, base: Option<A>) -> Option<A> {
-        match self {
-            Resettable::Set(value) => Some(value),
-            Resettable::Reset => None,
-            Resettable::Unchanged => base,
         }
     }
 }
@@ -112,6 +103,16 @@ impl<A: ToOwned<Owned = A>> Resettable<&A> {
             Self::Set(a) => Resettable::Set((*a).to_owned()),
             Self::Reset => Resettable::Reset,
             Self::Unchanged => Resettable::Unchanged,
+        }
+    }
+
+    /// Transform into an `Option`, using the default value `when_unchanged` for the `Unchanged`
+    /// case.
+    pub fn to_option(&self, when_unchanged: Option<&A>) -> Option<A> {
+        match self {
+            Resettable::Set(value) => Some((*value).to_owned()),
+            Resettable::Reset => None,
+            Resettable::Unchanged => when_unchanged.map(|value| value.to_owned()),
         }
     }
 }
@@ -147,10 +148,10 @@ pub enum BindError<K> {
 }
 
 impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
-    pub fn into_borrowed(&self) -> DiffBind<&K, &L, &R, &V> {
+    pub fn as_borrowed(&self) -> DiffBind<&K, &L, &R, &V> {
         DiffBind {
             unregistered: self.unregistered.iter().collect(),
-            registered: self.registered.iter().map(|(k, bind)| (k, bind.into_borrowed())).collect(),
+            registered: self.registered.iter().map(|(k, bind)| (k, bind.as_borrowed())).collect(),
         }
     }
 

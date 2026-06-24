@@ -698,15 +698,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     let resolved = if let Some(deposit) = bind.value {
                         Some(AccountState {
                             deposit,
-                            pool: bind.left.apply_over(None),
-                            drep: bind.right.apply_over(None),
+                            pool: bind.left.as_borrowed().to_option(None),
+                            drep: bind.right.as_borrowed().to_option(None),
                             rewards: reward_balance(0),
                         })
                     } else {
                         db.account(credential)?.map(|row| AccountState {
                             deposit: row.deposit,
-                            pool: bind.left.apply_over(row.pool),
-                            drep: bind.right.apply_over(row.drep),
+                            pool: bind.left.as_borrowed().to_option(row.pool.as_ref()),
+                            drep: bind.right.as_borrowed().to_option(row.drep.as_ref()),
                             rewards: reward_balance(row.rewards),
                         })
                     };
@@ -848,10 +848,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 Existence::Gone => None,
                 Existence::Exists(bind) => {
                     let resolved = if bind.value.is_some() {
-                        Some(CCMember { hot_credential: bind.left.apply_over(None), valid_until: valid_until(None) })
+                        Some(CCMember {
+                            hot_credential: bind.left.as_borrowed().to_option(None),
+                            valid_until: valid_until(None),
+                        })
                     } else {
                         db.cc_member(credential)?.map(|row| CCMember {
-                            hot_credential: bind.left.apply_over(row.hot_credential),
+                            hot_credential: bind.left.as_borrowed().to_option(row.hot_credential.as_ref()),
                             valid_until: valid_until(row.valid_until),
                         })
                     };

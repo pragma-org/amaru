@@ -143,32 +143,33 @@ impl PoolsSlice for DefaultValidationContext {
 impl AccountsSlice for DefaultValidationContext {
     /// The block start state (`self.accounts`) with this block's changes (`self.state`) folded in
     fn lookup(&self, credential: &StakeCredential) -> Option<AccountState> {
-        let base = self.accounts.get(credential);
+        // deregistered in block; gone
+        if self.state.accounts.unregistered.contains(credential) {
+            return None;
+        }
 
         let mut account = match self.state.accounts.registered.get(credential) {
             Some(bind) => match bind.value {
                 // fresh in-block registration; supersedes the block start state
                 Some(deposit) => AccountState {
                     deposit,
-                    pool: bind.left.clone().apply_over(None),
-                    drep: bind.right.clone().apply_over(None),
+                    pool: bind.left.as_borrowed().to_option(None),
+                    drep: bind.right.as_borrowed().to_option(None),
                     rewards: 0,
                 },
                 // re-binding layered over the block start state
                 None => {
-                    let base = base?;
+                    let base = self.accounts.get(credential)?;
                     AccountState {
                         deposit: base.deposit,
-                        pool: bind.left.clone().apply_over(base.pool),
-                        drep: bind.right.clone().apply_over(base.drep.clone()),
+                        pool: bind.left.as_borrowed().to_option(base.pool.as_ref()),
+                        drep: bind.right.as_borrowed().to_option(base.drep.as_ref()),
                         rewards: base.rewards,
                     }
                 }
             },
-            // deregistered in block; gone
-            None if self.state.accounts.unregistered.contains(credential) => return None,
             // untouched in block; the block start state
-            None => base?.clone(),
+            None => self.accounts.get(credential)?.clone(),
         };
 
         if self.state.withdrawals.contains(credential) {
@@ -312,7 +313,7 @@ impl CommitteeSlice for DefaultValidationContext {
             Some(bind) => {
                 let base = base?;
                 Some(CCMember {
-                    hot_credential: bind.left.clone().apply_over(base.hot_credential.clone()),
+                    hot_credential: bind.left.as_borrowed().to_option(base.hot_credential.as_ref()),
                     valid_until: base.valid_until,
                 })
             }

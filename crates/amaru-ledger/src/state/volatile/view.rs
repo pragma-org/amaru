@@ -75,9 +75,9 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         let mut accounts = DiffBind::default();
 
         for anchored in volatile.iter() {
-            accounts.append(anchored.fragment.accounts.into_borrowed());
+            accounts.append(anchored.fragment.accounts.as_borrowed());
 
-            pools.append(anchored.fragment.pools.into_borrowed());
+            pools.append(anchored.fragment.pools.as_borrowed());
 
             for (k, v) in anchored.fragment.proposals.iter() {
                 proposals.insert(k, v);
