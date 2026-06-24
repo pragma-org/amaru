@@ -127,6 +127,14 @@ pub(crate) struct Cli {
     /// Control color output.
     #[clap(long, env = "AMARU_COLOR", default_value = "auto")]
     pub(crate) color: Color,
+
+    /// Emit trace events as structured JSON instead of human-readable text.
+    #[clap(long, action, env = "AMARU_WITH_JSON_TRACES")]
+    pub(crate) with_json_traces: bool,
+
+    /// Export traces and metrics via OpenTelemetry (OTLP).
+    #[clap(long, action, env = "AMARU_WITH_OPEN_TELEMETRY")]
+    pub(crate) with_open_telemetry: bool,
 }
 
 pub(crate) fn command(version: &'static str) -> clap::Command {
