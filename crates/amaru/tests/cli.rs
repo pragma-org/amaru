@@ -115,7 +115,6 @@ fn top_level_help_shows_visible_commands() -> Result<(), Box<dyn Error>> {
     let help = amaru_help(&[])?;
     assert!(help.contains("node"), "top-level help should show 'node'");
     assert!(help.contains("snapshot"), "top-level help should show 'snapshot'");
-    assert!(help.contains("transaction"), "top-level help should show 'transaction'");
     assert!(!help.contains("dev"), "top-level help should NOT show hidden 'dev'");
     assert!(!help.contains("dump-chain-db"), "top-level help should NOT show legacy commands");
     assert!(!help.contains("remove-validation-status"), "top-level help should NOT show legacy commands");
@@ -143,7 +142,6 @@ fn dev_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
     let help = amaru_help(&["dev"])?;
     assert!(help.contains("chain"), "dev help should show 'chain'");
     assert!(help.contains("ledger"), "dev help should show 'ledger'");
-    assert!(help.contains("plutus"), "dev help should show 'plutus'");
     assert!(help.contains("traces"), "dev help should show 'traces'");
     Ok(())
 }

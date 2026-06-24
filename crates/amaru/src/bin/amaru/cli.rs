@@ -32,10 +32,6 @@ pub(crate) enum Command {
     #[command(subcommand, hide = true)]
     Dev(cmd::dev::DevCommand),
 
-    /// Build and submit on-chain transactions.
-    #[command(subcommand)]
-    Transaction(cmd::transaction::TransactionCommand),
-
     #[command(name = "shell-completions", hide = true)]
     ShellCompletions(cmd::shell_completions::Args),
 

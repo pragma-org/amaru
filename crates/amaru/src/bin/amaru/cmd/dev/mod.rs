@@ -16,7 +16,6 @@ use clap::Subcommand;
 
 pub(crate) mod chain;
 pub(crate) mod ledger;
-pub(crate) mod plutus;
 pub(crate) mod traces;
 
 #[derive(Debug, Subcommand)]
@@ -28,10 +27,6 @@ pub(crate) enum DevCommand {
     /// Ledger store operations.
     #[command(subcommand)]
     Ledger(ledger::LedgerCommand),
-
-    /// Plutus / UPLC operations.
-    #[command(subcommand)]
-    Plutus(plutus::PlutusCommand),
 
     /// Observability and trace operations.
     #[command(subcommand)]
