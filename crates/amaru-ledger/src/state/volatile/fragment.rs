@@ -208,7 +208,7 @@ impl VolatileFragment {
             self.withdrawals.remove(credential);
         }
 
-        for (proposal_id, _) in proposals {
+        for proposal_id in proposals.keys() {
             self.proposals.remove(proposal_id);
         }
 

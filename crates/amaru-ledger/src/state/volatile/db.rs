@@ -644,6 +644,19 @@ mod tests {
         assert_eq!(db.resolve_reward_balance(&cred(1), 100), 0);
     }
 
+    #[test]
+    fn reward_balance_folds_in_a_pending_governance_payout_during_the_straddle() {
+        // A governance payout (proposal deposit refund or treasury withdrawal) destined for the
+        // account at the boundary credits its withdrawable balance during the straddle, exactly
+        // like a pool-deposit refund.
+        let mut db = VolatileDB::default();
+        let mut updates = committee_update(None);
+        updates.payouts = BTreeMap::from([(cred(1), 3_000_000)]);
+        db.overlay_mut().transition(None, PoolsEpochTransitionUpdates::default(), updates);
+
+        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 3_000_100);
+    }
+
     #[test_case(None, Some(CommitteeAct::Auth) => Expect::Registered ; "hot-auth in current")]
     #[test_case(None, Some(CommitteeAct::Resign) => Expect::Gone ; "resigned in current")]
     #[test_case(Some(CommitteeAct::Auth), None => Expect::Registered ; "hot-auth in draining, untouched in current")]

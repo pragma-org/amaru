@@ -59,7 +59,7 @@ impl<K: Ord, V> DiffSet<K, V> {
     /// `DiffSet`, but rather, to cleanup memory as much as we can in a cheap way; this ensures
     /// that one can use a `DiffSet` as a cache, while keeping the memory under control.
     pub fn cleanup(&mut self, other: &DiffSet<K, V>) {
-        for (k, _) in &other.produced {
+        for k in other.produced.keys() {
             self.produced.remove(k);
         }
 
