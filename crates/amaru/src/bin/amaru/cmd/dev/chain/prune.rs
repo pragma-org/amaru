@@ -19,7 +19,7 @@ use amaru_kernel::{IsHeader, NetworkName};
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -84,32 +84,40 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
     let anchor_hash = chain_store.get_anchor_hash();
 
-    let ancestors: Vec<_> = chain_store.ancestors_hashes(&anchor_hash).collect();
+    let tip_hash = chain_store.get_best_chain_hash();
+    let chain: Vec<_> = chain_store.ancestors_hashes(&tip_hash).collect();
 
-    let mut pruned = 0u64;
     let mut new_anchor_hash = None;
-
-    for hash in &ancestors {
+    let mut to_remove = Vec::new();
+    for hash in &chain {
         let Some(header) = chain_store.load_header(hash) else {
-            warn!(%hash, "header not found during prune walk; stopping");
-            break;
+            return Err(format!("header {hash} missing during prune walk; chain store may be corrupt").into());
         };
-
         if header.slot() >= boundary_slot {
             new_anchor_hash = Some(*hash);
         } else {
-            chain_store.remove_header(hash)?;
-            pruned += 1;
+            to_remove.push(*hash);
         }
     }
 
-    if let Some(new_anchor) = new_anchor_hash
-        && new_anchor != anchor_hash
-    {
+    let Some(new_anchor) = new_anchor_hash else {
+        return Err(format!(
+            "every stored header is older than the prune boundary (slot {}); refusing to prune",
+            u64::from(boundary_slot),
+        )
+        .into());
+    };
+
+    for hash in &to_remove {
+        chain_store.remove_header(hash)?;
+    }
+
+    if new_anchor != anchor_hash {
         chain_store.set_anchor_hash(&new_anchor)?;
         info!(%new_anchor, "updated anchor hash");
     }
 
+    let pruned = to_remove.len();
     println!(
         "Pruned {pruned} headers (boundary: slot {}, epoch {})",
         u64::from(boundary_slot),
