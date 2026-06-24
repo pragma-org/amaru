@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru**: restructure the CLI into noun-based command groups, following the guidelines in [EDR-019][]: `node` (`run`, `bootstrap`, `reset`), `snapshot` (`create`), and a hidden `dev` group for debugging tools (`chain`, `ledger`, `traces`). The previous top-level commands (`run`, `daemon`, `bootstrap`, `reset-to-epoch`, `create-snapshots`, `dump-chain-db`, `remove-validation-status`, `fetch-chain-headers`, `migrate-chain-db`, `remove-chain`, `dump-traces-schema`) remain as hidden, backward-compatible aliases. ([#973][])
 - **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
 
 ### Fixed
@@ -81,3 +82,5 @@ Other guiding principles:
 [#953]: https://github.com/pragma-org/amaru/pull/953
 [#954]: https://github.com/pragma-org/amaru/pull/954
 [#959]: https://github.com/pragma-org/amaru/pull/959
+[#973]: https://github.com/pragma-org/amaru/pull/973
+[EDR-019]: https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/019-guidelines-for-writing-cli.md
