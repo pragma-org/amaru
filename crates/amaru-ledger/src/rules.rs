@@ -91,53 +91,38 @@ fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a
 /// Collect and require values from a single certificate.
 fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificate: &'a Certificate) {
     match certificate {
-        Certificate::StakeDelegation(credential, pool_key_hash) => {
+        Certificate::StakeDelegation(credential, pool_key_hash)
+        | Certificate::StakeRegDeleg(credential, pool_key_hash, _) => {
             context.require_account(credential);
             context.require_pool(pool_key_hash);
         }
-        Certificate::PoolRegistration {
-            operator: pool_key_hash,
-            vrf_keyhash: _,
-            pledge: _,
-            cost: _,
-            margin: _,
-            reward_account: _,
-            pool_owners: _,
-            relays: _,
-            pool_metadata: _,
-        } => context.require_pool(pool_key_hash),
-        Certificate::PoolRetirement(pool_key_hash, _) => context.require_pool(pool_key_hash),
-        Certificate::StakeVoteDeleg(credential, pool_key_hash, drep) => {
+
+        Certificate::PoolRegistration { operator: pool_key_hash, .. }
+        | Certificate::PoolRetirement(pool_key_hash, _) => context.require_pool(pool_key_hash),
+
+        Certificate::StakeVoteDeleg(credential, pool_key_hash, drep)
+        | Certificate::StakeVoteRegDeleg(credential, pool_key_hash, drep, _) => {
             context.require_account(credential);
             context.require_pool(pool_key_hash);
             context.require_drep_delegation(drep);
         }
-        Certificate::StakeRegDeleg(credential, pool_key_hash, _) => {
-            context.require_account(credential);
-            context.require_pool(pool_key_hash);
-        }
-        Certificate::StakeVoteRegDeleg(credential, pool_key_hash, drep, _) => {
-            context.require_account(credential);
-            context.require_pool(pool_key_hash);
-            context.require_drep_delegation(drep);
-        }
-        Certificate::VoteRegDeleg(credential, drep, _) => {
+
+        Certificate::VoteRegDeleg(credential, drep, _) | Certificate::VoteDeleg(credential, drep) => {
             context.require_account(credential);
             context.require_drep_delegation(drep);
         }
-        Certificate::AuthCommitteeHot(cold_credential, _) => context.require_committee_member(cold_credential),
-        Certificate::ResignCommitteeCold(cold_credential, _) => context.require_committee_member(cold_credential),
-        Certificate::RegDRepCert(drep, _, _) => context.require_drep(drep),
-        Certificate::UnRegDRepCert(drep, _) => context.require_drep(drep),
-        Certificate::UpdateDRepCert(drep, _) => context.require_drep(drep),
-        Certificate::StakeRegistration(credential) => context.require_account(credential),
-        Certificate::Reg(credential, _) => context.require_account(credential),
-        Certificate::UnReg(credential, _) => context.require_account(credential),
-        Certificate::VoteDeleg(credential, drep) => {
-            context.require_account(credential);
-            context.require_drep_delegation(drep);
+        Certificate::AuthCommitteeHot(cold_credential, _) | Certificate::ResignCommitteeCold(cold_credential, _) => {
+            context.require_committee_member(cold_credential)
         }
-        Certificate::StakeDeregistration(credential) => context.require_account(credential),
+
+        Certificate::RegDRepCert(drep, _, _)
+        | Certificate::UnRegDRepCert(drep, _)
+        | Certificate::UpdateDRepCert(drep, _) => context.require_drep(drep),
+
+        Certificate::StakeRegistration(credential)
+        | Certificate::Reg(credential, _)
+        | Certificate::UnReg(credential, _)
+        | Certificate::StakeDeregistration(credential) => context.require_account(credential),
     };
 }
 
