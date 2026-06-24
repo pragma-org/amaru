@@ -51,6 +51,23 @@ impl<K: Ord, V> DiffSet<K, V> {
         }
     }
 
+    /// Remove the effect of a previous `DiffSet` on the current `DiffSet`. This is technically an
+    /// `undo` operation, but with the extra assumption that something consumed is never produced
+    /// again.
+    ///
+    /// An important consideration is also that this function's goal is not to exactly revert a
+    /// `DiffSet`, but rather, to cleanup memory as much as we can in a cheap way; this ensures
+    /// that one can use a `DiffSet` as a cache, while keeping the memory under control.
+    pub fn cleanup(&mut self, other: &DiffSet<K, V>) {
+        for (k, _) in &other.produced {
+            self.produced.remove(k);
+        }
+
+        for k in &other.consumed {
+            self.consumed.remove(k);
+        }
+    }
+
     pub fn produce(&mut self, k: K, v: V) {
         self.produced.insert(k, v);
     }

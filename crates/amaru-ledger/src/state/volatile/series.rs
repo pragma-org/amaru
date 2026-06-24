@@ -24,12 +24,42 @@ use crate::state::{
     AnchoredVolatileFragment, VolatileFragment,
     volatile::{
         AccountBind, Existence, VolatileStore,
-        fragment::{CommitteeBind, ComposeMeasurements, DRepBind},
+        fragment::{CommitteeBind, DRepBind},
     },
 };
 
+/// Number of blocks after which, if no rollback has been observed, we forcefully re-compute the
+/// aggregate. This number is chosen 'arbitrarily' but with a few considerations:
+///
+/// 1. We don't want the memory footprint of the volatile to grow *too much*. 100MB appears as a
+///    good arbitrary upper-bound. At least, that's one dimension we have freedom to decide on.
+///
+/// 2. We make a gross approximation that 1 block equals 90KB (i.e. the maximum block size) of
+///    memory allocation. In practice, it is far less since blocks contain a variety of
+///    informations that we do not store here, but it seems like a reasonable limit again. Plus, we
+///    do cleanup UTxOs, votes, and a couple of other things to reduce the growth.
+///
+/// 3. From there; we know that slot battles are "frequent enough" that they occurs somewhere
+///    around every ~13 minutes on average. Or said differently, they occur every 40 blocks on
+///    average. These don't necessarily lead to an observable rollback, but that gives a lower
+///    bound.
+///
+/// 4. We use a safe margin on top of what was described in (3) for two reasons: it gives some
+///    safety net in case where the block size would change due to a protocol parameter update
+///    (although we do expect to have time to notify our users about hardware requirements increase
+///    if that ever occurs); but also, it prevents the forced recompute to occur too often when
+///    syncing, since no rollbacks can be observed during that time.
+///
+/// So putting it all together; using 1080 means that the memory footprint of the volatile
+/// shouldn't grow beyond ~100MB. There should also be ~27 slot battles during that timeframe and
+/// it is highly likely that *at least one* would lead to an observable rollback. Finally, when
+/// syncing, the impact should be negligible as only one block every 1080 would cause an aggregate
+/// recompute.
+const FORCED_RECOMPUTE_DEFAULT: usize = 1080;
+
 #[derive(Default)]
 pub struct VolatileSeries {
+    forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
     aggregate: VolatileFragment,
 }
@@ -64,20 +94,17 @@ impl VolatileStore for VolatileSeries {
     }
 
     fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
-        let popped = self.sequence.pop_front();
-        if popped.is_some() {
-            // TODO: consider introducing "undo" fragments?
-            //
-            // This recompute is 'expensive', in that it will happen for *every block* with only small changes
-            // since the vast majority of the fragment sequence stay the same (only one change). So we should
-            // find a way to avoid re-computing this entirely every time. One option could be to introduce
-            // 'undo' operations so that we can simply revert a single fragment while keeping the others.
-            self.recompute_aggregate();
+        let popped = self.sequence.pop_front()?;
+        if self.forced_recompute_in == 0 {
+            self.recompute_aggregate()
+        } else {
+            self.aggregate.incremental_cleanup(&popped.fragment);
         }
-        popped
+        Some(popped)
     }
 
     fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
+        self.forced_recompute_in = self.forced_recompute_in.saturating_sub(1);
         self.aggregate.compose(&fragment.fragment);
         self.sequence.push_back(fragment);
     }
@@ -86,8 +113,8 @@ impl VolatileStore for VolatileSeries {
         let ix = self.sequence.binary_search_by_key(point, |anchored| anchored.point()).map_err(|_| point)?;
 
         self.sequence.truncate(ix + 1);
-
         self.recompute_aggregate();
+
         Ok(())
     }
 
@@ -134,6 +161,8 @@ impl VolatileSeries {
     }
 
     fn recompute_aggregate(&mut self) {
+        self.forced_recompute_in = FORCED_RECOMPUTE_DEFAULT;
+
         debug_span!(amaru_observability::amaru::ledger::state::AGGREGATE).in_scope(|| {
             let mut aggregate = VolatileFragment::default();
 

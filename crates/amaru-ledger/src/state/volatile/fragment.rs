@@ -171,6 +171,50 @@ impl VolatileFragment {
         self.withdrawals.contains(credential)
     }
 
+    /// A best-effort cleanup of a previous fragment in the current aggreate. This is not generally
+    /// possible (with our current design), for all elements in a fragment, because we loose
+    /// information each time we aggregate two fragments (a little thought exercise with account
+    /// registrations and delegations should be convincing enough).
+    ///
+    /// But it is possible for a few types such as the `DiffSet` and the various maps. Note that
+    /// not cleaning up all the data is not fundamentally wrong; but it is *leaking memory*. We
+    /// just keep in memory information that we should have flushed on-disk.
+    ///
+    /// Yet, this is counterbalanced by the frequent rollbacks happening on Cardano (once every
+    /// 10-15min due to slot battles). Rollbacks are infrequent enough and frequent enough that
+    /// they are the perfect opportunity to cleanup the now-stable memory (by re-computing the
+    /// aggregate from scratch). Also, because we cannot *guarantee* that rollbacks happen, we
+    /// still also manually perform such a cleanup every now-and-then using a counter that gets
+    /// reset for every rollback.
+    pub fn incremental_cleanup(&mut self, fragment: &VolatileFragment) {
+        let VolatileFragment {
+            utxo,
+            votes,
+            withdrawals,
+            proposals,
+            fees,
+            accounts: _,
+            committee: _,
+            dreps: _,
+            dreps_deregistrations: _,
+            pools: _,
+        } = fragment;
+
+        self.utxo.cleanup(utxo);
+
+        self.votes.cleanup(votes);
+
+        for credential in withdrawals {
+            self.withdrawals.remove(credential);
+        }
+
+        for (proposal_id, _) in proposals {
+            self.proposals.remove(proposal_id);
+        }
+
+        self.fees -= *fees;
+    }
+
     /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.
     /// This maintains the running aggregate of a [`crate::state::volatile::VolatileSeries`].
     pub fn compose(&mut self, more_recent: &VolatileFragment) {
