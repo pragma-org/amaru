@@ -34,7 +34,6 @@ fn main() {
     let flat_dir = conformance_root.join("flat");
     let textual_dir = conformance_root.join("textual");
 
-    println!("cargo:rerun-if-changed={}", skip_tests.join(","));
     println!("cargo:rerun-if-changed={}", flat_dir.display());
     println!("cargo:rerun-if-changed={}", textual_dir.display());
 
