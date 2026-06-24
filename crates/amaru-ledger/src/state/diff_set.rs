@@ -32,13 +32,6 @@ impl<K: Ord, V> Default for DiffSet<K, V> {
 }
 
 impl<K: Ord, V> DiffSet<K, V> {
-    pub fn merge(&mut self, other: Self) {
-        self.produced.retain(|k, _| !other.consumed.contains(k));
-        self.consumed.retain(|k| !other.produced.contains_key(k));
-        self.consumed.extend(other.consumed);
-        self.produced.extend(other.produced);
-    }
-
     pub fn extend(&mut self, other: &DiffSet<K, V>)
     where
         // TODO: lower requirement to 'Copy' for DiffSet keys
@@ -48,10 +41,8 @@ impl<K: Ord, V> DiffSet<K, V> {
         K: Clone,
         V: Clone,
     {
-        self.produced.retain(|k, _| !other.consumed.contains(k));
-        self.consumed.retain(|k| !other.produced.contains_key(k));
-
         for k in &other.consumed {
+            self.produced.remove(k);
             self.consumed.insert(k.clone());
         }
 
@@ -99,17 +90,24 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_merge_itself(mut st in any_diff()) {
-            let original = st.clone();
-            st.merge(st.clone());
+        fn prop_extend_itself(st in any_diff()) {
+            let mut original = st.clone();
+            original.extend(&st);
             prop_assert_eq!(st, original);
         }
     }
 
     proptest! {
         #[test]
-        fn prop_merge_no_overlap(mut st in any_diff(), diff in any_diff()) {
-            st.merge(diff.clone());
+        fn prop_merge_no_overlap(mut st in any_diff(), mut diff in any_diff()) {
+            // Extra assumptions that must hold for this property:
+            //
+            // - We cannot produce an item produced or consumed before
+            // - We cannot consume an item twice
+            diff.produced.retain(|k, _| !st.produced.contains_key(k) && !st.consumed.contains(k));
+            diff.consumed.retain(|k| !st.consumed.contains(k));
+
+            st.extend(&diff);
 
             for (k, v) in diff.produced.iter() {
                 prop_assert_eq!(
@@ -172,7 +170,7 @@ mod tests {
                 &diffs
                     .into_iter()
                     .fold(DiffSet::default(), |mut acc, diff| {
-                        acc.merge(diff);
+                        acc.extend(&diff);
                         acc
                     })
             );

@@ -172,6 +172,9 @@ define_schemas! {
             public ROLL_BACKWARD {
                 required rollback_point: String
             }
+
+            /// Recompute the volatile aggregate used for fast lookups
+            public AGGREGATE {}
         }
 
         epoch_transition {

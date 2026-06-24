@@ -156,21 +156,21 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     /// In particular, a `value: Some(...)` in `most_recent` denotes a re-registration of the key;
     /// it fully supersedes any prior registration or bindings accumulated for that key.
     /// This could happen when a single block deregisters and re-registers a credential.
-    pub fn append(&mut self, most_recent: Self) -> &mut Self {
-        for key in most_recent.unregistered {
+    pub fn append(&mut self, newer: Self) -> &mut Self {
+        for key in newer.unregistered {
             self.unregister(key);
         }
 
-        for (key, bind) in most_recent.registered {
+        for (key, newer) in newer.registered {
             self.unregistered.remove(&key);
 
             match self.registered.entry(key) {
                 Entry::Vacant(e) => {
-                    e.insert(bind);
+                    e.insert(newer);
                 }
 
                 Entry::Occupied(mut e) => {
-                    e.get_mut().then(bind);
+                    e.get_mut().then(newer);
                 }
             };
         }

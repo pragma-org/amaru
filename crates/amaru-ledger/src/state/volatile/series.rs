@@ -18,12 +18,13 @@ use amaru_kernel::{
     ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, Proposal, ProposalPointer, StakeCredential,
     TransactionInput,
 };
+use amaru_observability::debug_span;
 
 use crate::state::{
     AnchoredVolatileFragment, VolatileFragment,
     volatile::{
         AccountBind, Existence, VolatileStore,
-        fragment::{CommitteeBind, DRepBind},
+        fragment::{CommitteeBind, ComposeMeasurements, DRepBind},
     },
 };
 
@@ -133,12 +134,15 @@ impl VolatileSeries {
     }
 
     fn recompute_aggregate(&mut self) {
-        let mut aggregate = VolatileFragment::default();
-        for anchored in &self.sequence {
-            aggregate.compose(&anchored.fragment);
-        }
+        debug_span!(amaru_observability::amaru::ledger::state::AGGREGATE).in_scope(|| {
+            let mut aggregate = VolatileFragment::default();
 
-        self.aggregate = aggregate;
+            for anchored in &self.sequence {
+                aggregate.compose(&anchored.fragment);
+            }
+
+            self.aggregate = aggregate;
+        });
     }
 }
 
