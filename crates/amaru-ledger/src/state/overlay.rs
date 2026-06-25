@@ -14,7 +14,7 @@
 
 use std::mem;
 
-use amaru_kernel::{ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential};
+use amaru_kernel::{ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential, TermLimit};
 use amaru_observability::info_span;
 use tracing::{Span, debug};
 
@@ -26,7 +26,7 @@ use crate::{
     state::{
         StateError,
         diff_bind::{Bind, Empty, Resettable},
-        volatile::{CommitteeBind, Existence},
+        volatile::{CommitteeMemberBind, Existence},
     },
     store::{
         EpochTransitionProgress, Store, TransactionalContext, apply_governance_updates, pay_or_refund_accounts,
@@ -219,14 +219,14 @@ impl StateOverlay {
     /// entry until this overlay is flushed `k` blocks later. Pool-existence reads must therefore
     /// short-circuit on this *before* falling back to the stable store, or they'd resolve a reaped
     /// pool as still-existing.
-    pub fn is_pool_retired(&self, pool_id: &PoolId) -> bool {
-        self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(pool_id))
+    pub fn is_pool_retired(&self, pool_id: PoolId) -> bool {
+        self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(&pool_id))
     }
 
     /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
     /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
     /// so it defers to the layers below. `Unknown` outside the straddle window.
-    pub fn committee_verdict(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
+    pub fn committee_verdict(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
             Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
                 if removed.contains(credential) {
@@ -249,7 +249,7 @@ impl StateOverlay {
     /// A CC member's term at the pending boundary, if the transition sets one: `Some(term)` for a
     /// newly added member, `Some(None)` under no-confidence (members go inactive), `None` when the
     /// boundary leaves this member's term untouched.
-    pub fn pending_committee_term(&self, credential: &StakeCredential) -> Option<Option<Epoch>> {
+    pub fn pending_committee_term(&self, credential: &StakeCredential) -> Option<TermLimit> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref())? {
             CommitteeUpdate::ChangeMembers { added, .. } => added.get(credential).map(|epoch| Some(*epoch)),
             CommitteeUpdate::NoConfidence => Some(None),

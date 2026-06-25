@@ -278,11 +278,8 @@ pub mod tests {
             .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
             .collect();
         let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
-        let proposals = decoded
-            .proposals
-            .into_iter()
-            .map(|proposal| snapshot::proposal_state(proposal, era_history, &protocol_parameters))
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let proposals =
+            decoded.proposals.into_iter().map(|st| ComparableProposalId::from(st.id)).collect::<BTreeSet<_>>();
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
         let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
 

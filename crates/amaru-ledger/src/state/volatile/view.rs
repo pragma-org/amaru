@@ -29,7 +29,7 @@ use crate::{
         VolatileDB,
         diff_bind::DiffBind,
         diff_epoch_reg::DiffEpochReg,
-        volatile::{VolatileStore, fragment::add_proposals},
+        volatile::{VolatileSequence, fragment::add_proposals},
     },
     store::{
         ReadStore, StoreError,

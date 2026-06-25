@@ -31,8 +31,8 @@ use crate::{
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
         PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
-        PrepareProposalsSlice, PrepareUtxoSlice, ProposalState, ProposalsSlice, RegisterError, UnregisterError,
-        UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
+        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
 };
@@ -161,12 +161,14 @@ impl UtxoSlice for AssertValidationContext {
 }
 
 impl PoolsSlice for AssertValidationContext {
-    fn exists(&self, _pool: &PoolId) -> bool {
+    fn exists(&self, _pool: PoolId) -> bool {
         unimplemented!()
     }
+
     fn register(&mut self, _params: PoolParams, _pointer: CertificatePointer) {
         unimplemented!()
     }
+
     fn retire(&mut self, _pool: PoolId, _epoch: Epoch) {
         unimplemented!()
     }
@@ -265,7 +267,7 @@ impl CommitteeSlice for AssertValidationContext {
 }
 
 impl ProposalsSlice for AssertValidationContext {
-    fn lookup(&self, _id: &ComparableProposalId) -> Option<&ProposalState> {
+    fn exists(&self, _id: &ComparableProposalId) -> bool {
         unimplemented!()
     }
 

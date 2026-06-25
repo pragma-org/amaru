@@ -15,16 +15,15 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeSet, VecDeque},
     net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use amaru_kernel::{
-    Block, ComparableProposalId, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, GlobalParameters,
-    HasTransactionId, Hash, Hasher, MemoizedTransactionOutput, NetworkName, Point, PoolId, ProtocolParameters, Slot,
-    StakeCredential, Tip, Transaction, TransactionInput, TransactionPointer, parse_reward_account, to_cbor,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
+    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
@@ -35,12 +34,15 @@ use thiserror::Error;
 use tracing::{Span, info, trace, warn};
 
 use crate::{
-    context::{AccountState, CCMember, DefaultPreparationContext, DefaultValidationContext, ProposalState},
+    context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
     epoch_transition::{self, GovernanceActivity, RewardsState},
-    governance::ratification::{ProposalsRoots, RatificationContext},
-    rules::{self, block::BlockValidation},
+    governance::ratification::RatificationContext,
+    rules::{
+        self,
+        block::{BlockValidation, TransactionInvalid},
+    },
     state::volatile::{
-        AnchoredVolatileFragment, Existence, StoreUpdate, VolatileDB, VolatileFragment, VolatileStore, VolatileView,
+        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -563,399 +565,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         })
     }
 
-    #[expect(clippy::unwrap_used)]
-    pub fn resolve_inputs<'a>(
-        &'_ self,
-        ongoing_state: &VolatileFragment,
-        inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(TransactionInput, Option<MemoizedTransactionOutput>)>, StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_INPUTS);
-        let _guard = _span.enter();
-
-        let mut result = Vec::new();
-
-        let mut resolved_from_context = 0;
-        let mut resolved_from_volatile = 0;
-        let mut resolved_from_db = 0;
-
-        // TODO: perform lookup in batch, and possibly within the same transaction as other
-        // required data pre-fetch.
-        for input in inputs {
-            let output = if ongoing_state.has_consumed_input(input) || self.volatile.has_consumed_input(input) {
-                Ok(None)
-            } else {
-                ongoing_state
-                    .resolve_input(input)
-                    .cloned()
-                    .inspect(|_| resolved_from_context += 1)
-                    .or_else(|| self.volatile.resolve_input(input).inspect(|_| resolved_from_volatile += 1).cloned())
-                    .map(|output| Ok(Some(output)))
-                    .unwrap_or_else(|| {
-                        let db = self.stable.lock().unwrap();
-                        db.utxo(input).inspect(|_| resolved_from_db += 1)
-                    })
-            }?;
-
-            result.push((input.clone(), output));
-        }
-
-        tracing::Span::current().record("resolved_from_context", resolved_from_context);
-        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
-        tracing::Span::current().record("resolved_from_db", resolved_from_db);
-
-        Ok(result)
-    }
-
-    /// Resolves pools, confirming the existence of the provided `pool_ids`.
-    ///
-    /// Returns the subset of `pool_ids` that exist in our ledger state. This may be smaller than the
-    /// argument: a pool could be registering for the first time in this very block.
-    ///
-    /// Importantly, we only need existence, not the pool state. VRF-key uniqueness (pv11+) will be
-    /// enforced globally via a `vrf -> pool_id` index.
-    #[expect(clippy::unwrap_used)]
-    pub fn resolve_pools<'a>(
-        &'_ self,
-        ongoing_state: &VolatileFragment,
-        pool_ids: impl Iterator<Item = &'a PoolId>,
-    ) -> Result<BTreeSet<PoolId>, StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_POOLS);
-        let _guard = _span.enter();
-
-        let mut result = BTreeSet::new();
-
-        let mut resolved_from_context = 0;
-        let mut resolved_from_volatile = 0;
-        let mut resolved_from_db = 0;
-
-        let db = self.stable.lock().unwrap();
-
-        // TODO: perform lookup in batch, and possibly within the same transaction as other
-        // required data pre-fetch.
-        for pool_id in pool_ids {
-            if ongoing_state.pool_exists(pool_id) {
-                resolved_from_context += 1;
-                result.insert(*pool_id);
-                continue;
-            }
-
-            match self.volatile.has_pool(pool_id) {
-                Existence::Exists(()) => {
-                    resolved_from_volatile += 1;
-                    result.insert(*pool_id);
-                }
-                // reaped at the boundary; skip the stale stable entry
-                Existence::Gone => {}
-                Existence::Unknown => {
-                    if db.pool(pool_id)?.is_some() {
-                        resolved_from_db += 1;
-                        result.insert(*pool_id);
-                    }
-                }
-            }
-        }
-
-        tracing::Span::current().record("resolved_from_context", resolved_from_context);
-        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
-        tracing::Span::current().record("resolved_from_db", resolved_from_db);
-
-        Ok(result)
-    }
-
-    /// The materialized [`AccountState`] for each existing credential, layering volatile over stable.
-    /// Structural fields resolve `volatile -> stable` (a `Gone` tombstone skips the stale stable
-    /// entry); the reward balance folds in the overlay credit and volatile withdrawals via
-    /// [`VolatileDB::resolve_reward_balance`].
-    #[expect(clippy::unwrap_used)]
-    pub fn resolve_accounts<'a>(
-        &self,
-        ongoing_state: &VolatileFragment,
-        credentials: impl Iterator<Item = &'a StakeCredential>,
-    ) -> Result<BTreeMap<StakeCredential, AccountState>, StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_ACCOUNTS);
-        let _guard = _span.enter();
-
-        let mut result = BTreeMap::new();
-        let mut resolved_from_context = 0;
-        let mut resolved_from_volatile = 0;
-        let mut resolved_from_db = 0;
-
-        let db = self.stable.lock().unwrap();
-
-        // TODO: perform lookup in batch, and possibly within the same transaction as other
-        // required data pre-fetch.
-        for credential in credentials {
-            let withdrawn_in_context = ongoing_state.withdrew(credential);
-            let reward_balance =
-                |base| if withdrawn_in_context { 0 } else { self.volatile.resolve_reward_balance(credential, base) };
-
-            let ongoing = ongoing_state.resolve_account(credential);
-            let from_context = !matches!(ongoing, Existence::Unknown);
-
-            let state = match ongoing.or_else(|| self.volatile.resolve_account(credential)) {
-                Existence::Gone => None,
-                Existence::Exists(bind) => {
-                    let resolved = if let Some(deposit) = bind.value {
-                        Some(AccountState {
-                            deposit,
-                            pool: bind.left.as_borrowed().to_option(None),
-                            drep: bind.right.as_borrowed().to_option(None),
-                            rewards: reward_balance(0),
-                        })
-                    } else {
-                        db.account(credential)?.map(|row| AccountState {
-                            deposit: row.deposit,
-                            pool: bind.left.as_borrowed().to_option(row.pool.as_ref()),
-                            drep: bind.right.as_borrowed().to_option(row.drep.as_ref()),
-                            rewards: reward_balance(row.rewards),
-                        })
-                    };
-                    resolved.inspect(|_| {
-                        if from_context {
-                            resolved_from_context += 1;
-                        } else {
-                            resolved_from_volatile += 1;
-                        }
-                    })
-                }
-                Existence::Unknown => db.account(credential)?.map(|row| {
-                    resolved_from_db += 1;
-                    AccountState {
-                        deposit: row.deposit,
-                        pool: row.pool,
-                        drep: row.drep,
-                        rewards: reward_balance(row.rewards),
-                    }
-                }),
-            };
-
-            if let Some(state) = state {
-                result.insert(credential.clone(), state);
-            }
-        }
-
-        tracing::Span::current().record("resolved_from_context", resolved_from_context);
-        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
-        tracing::Span::current().record("resolved_from_db", resolved_from_db);
-
-        Ok(result)
-    }
-
-    /// The materialized [`DRepRegistration`] for each existing credential, layering the ongoing block
-    /// over the volatile DB over the stable store; a `Gone` tombstone skips the stale stable entry.
-    /// DReps carry no balance, so there is no reward dimension; the anchor is metadata outside the
-    /// registration record, so a bind-only (anchor) update reads the registration from below.
-    #[expect(clippy::unwrap_used)]
-    pub fn resolve_dreps<'a>(
-        &self,
-        ongoing_state: &VolatileFragment,
-        credentials: impl Iterator<Item = &'a StakeCredential>,
-    ) -> Result<BTreeMap<StakeCredential, DRepRegistration>, StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_DREPS);
-        let _guard = _span.enter();
-
-        let mut result = BTreeMap::new();
-        let mut resolved_from_context = 0;
-        let mut resolved_from_volatile = 0;
-        let mut resolved_from_db = 0;
-
-        let db = self.stable.lock().unwrap();
-
-        // TODO: perform lookup in batch, and possibly within the same transaction as other
-        // required data pre-fetch.
-        for credential in credentials {
-            let ongoing = ongoing_state.resolve_drep(credential);
-            let from_context = !matches!(ongoing, Existence::Unknown);
-
-            let registration = match ongoing.or_else(|| self.volatile.resolve_drep(credential)) {
-                Existence::Gone => None,
-                Existence::Exists(bind) => {
-                    let resolved = if let Some(record) = bind.value {
-                        // fresh registration; carries its own record
-                        Some(*record)
-                    } else {
-                        db.drep(credential)?.map(|row| DRepRegistration {
-                            deposit: row.deposit,
-                            registered_at: row.registered_at,
-                            valid_until: row.valid_until,
-                        })
-                    };
-                    resolved.inspect(|_| {
-                        if from_context {
-                            resolved_from_context += 1;
-                        } else {
-                            resolved_from_volatile += 1;
-                        }
-                    })
-                }
-                Existence::Unknown => db.drep(credential)?.map(|row| {
-                    resolved_from_db += 1;
-                    DRepRegistration {
-                        deposit: row.deposit,
-                        registered_at: row.registered_at,
-                        valid_until: row.valid_until,
-                    }
-                }),
-            };
-
-            if let Some(registration) = registration {
-                result.insert(credential.clone(), registration);
-            }
-        }
-
-        tracing::Span::current().record("resolved_from_context", resolved_from_context);
-        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
-        tracing::Span::current().record("resolved_from_db", resolved_from_db);
-
-        Ok(result)
-    }
-
-    /// The materialized [`CCMember`] for each existing credential, layering the ongoing block over
-    /// the volatile DB over the stable store; a `Gone` tombstone skips the stale stable entry. The
-    /// hot key resolves through the layers, but the term is set only at the boundary or in the
-    /// stable store, so it folds in the overlay's pending value via
-    /// [`VolatileDB::resolve_committee_term`].
-    ///
-    // TODO: a cold credential present in a pending UpdateCommittee proposal also counts as a known
-    // member (Haskell's `cgceCommitteeProposals`), which lets a not-yet-elected member pre-declare
-    // its hot key. That source needs the proposals read-path, so it is deferred until proposals are
-    // exposed.
-    #[expect(clippy::unwrap_used)]
-    pub fn resolve_committee<'a>(
-        &self,
-        ongoing_state: &VolatileFragment,
-        credentials: impl Iterator<Item = &'a StakeCredential>,
-    ) -> Result<BTreeMap<StakeCredential, CCMember>, StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_CC_MEMBERS);
-        let _guard = _span.enter();
-
-        let mut result = BTreeMap::new();
-        let mut resolved_from_context = 0;
-        let mut resolved_from_volatile = 0;
-        let mut resolved_from_db = 0;
-
-        let db = self.stable.lock().unwrap();
-
-        // TODO: perform lookup in batch, and possibly within the same transaction as other
-        // required data pre-fetch.
-        for credential in credentials {
-            let valid_until = |base: Option<Epoch>| self.volatile.resolve_committee_term(credential, base);
-
-            let ongoing = ongoing_state.resolve_committee(credential);
-            let from_context = !matches!(ongoing, Existence::Unknown);
-
-            let member = match ongoing.or_else(|| self.volatile.resolve_committee(credential)) {
-                Existence::Gone => None,
-                Existence::Exists(bind) => {
-                    let resolved = if bind.value.is_some() {
-                        Some(CCMember {
-                            hot_credential: bind.left.as_borrowed().to_option(None),
-                            valid_until: valid_until(None),
-                        })
-                    } else {
-                        db.cc_member(credential)?.map(|row| CCMember {
-                            hot_credential: bind.left.as_borrowed().to_option(row.hot_credential.as_ref()),
-                            valid_until: valid_until(row.valid_until),
-                        })
-                    };
-                    resolved.inspect(|_| {
-                        if from_context {
-                            resolved_from_context += 1;
-                        } else {
-                            resolved_from_volatile += 1;
-                        }
-                    })
-                }
-                Existence::Unknown => db.cc_member(credential)?.map(|row| {
-                    resolved_from_db += 1;
-                    CCMember { hot_credential: row.hot_credential, valid_until: valid_until(row.valid_until) }
-                }),
-            };
-
-            if let Some(member) = member {
-                result.insert(credential.clone(), member);
-            }
-        }
-
-        tracing::Span::current().record("resolved_from_context", resolved_from_context);
-        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
-        tracing::Span::current().record("resolved_from_db", resolved_from_db);
-
-        Ok(result)
-    }
-
-    /// The materialized [`ProposalState`] for each existing id, layering the ongoing block over the
-    /// volatile DB over the stable store; a `Gone` tombstone (boundary pruning) skips the stale
-    /// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
-    /// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
-    #[expect(clippy::unwrap_used)]
-    pub fn resolve_proposals<'a>(
-        &self,
-        ongoing_state: &VolatileFragment,
-        ids: impl Iterator<Item = &'a ComparableProposalId>,
-    ) -> Result<BTreeMap<ComparableProposalId, ProposalState>, StoreError> {
-        let _span = trace_span!(amaru_observability::amaru::ledger::state::RESOLVE_PROPOSALS);
-        let _guard = _span.enter();
-
-        let mut result = BTreeMap::new();
-        let mut resolved_from_context = 0;
-        let mut resolved_from_volatile = 0;
-        let mut resolved_from_db = 0;
-
-        let db = self.stable.lock().unwrap();
-
-        // TODO: perform lookup in batch, and possibly within the same transaction as other
-        // required data pre-fetch.
-        for id in ids {
-            // Attribute to the newest layer with a verdict: the ongoing block, else the volatile DB.
-            let ongoing = ongoing_state.resolve_proposal(id);
-            let from_context = matches!(ongoing, Existence::Exists(_));
-
-            let verdict = match ongoing {
-                Existence::Unknown => self.volatile.resolve_proposal(id),
-                decided @ (Existence::Exists(_) | Existence::Gone) => decided,
-            };
-
-            let state = match verdict {
-                // pruned at the boundary; skip the stale stable entry
-                Existence::Gone => None,
-                Existence::Exists(record) => {
-                    let (proposal, proposed_in) = Arc::unwrap_or_clone(record);
-                    let proposed_in_epoch = unsafe_slot_to_epoch(&self.era_history, proposed_in.transaction.slot);
-                    let lifetime = self.protocol_parameters_for(proposed_in_epoch).gov_action_lifetime;
-                    if from_context {
-                        resolved_from_context += 1;
-                    } else {
-                        resolved_from_volatile += 1;
-                    }
-                    Some(ProposalState { proposed_in, valid_until: proposed_in_epoch + lifetime, proposal })
-                }
-                // untouched by any volatile layer; resolve from stable
-                Existence::Unknown => db.proposal(id)?.map(|row| {
-                    resolved_from_db += 1;
-                    ProposalState { proposed_in: row.proposed_in, valid_until: row.valid_until, proposal: row.proposal }
-                }),
-            };
-
-            if let Some(state) = state {
-                result.insert(id.clone(), state);
-            }
-        }
-
-        tracing::Span::current().record("resolved_from_context", resolved_from_context);
-        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
-        tracing::Span::current().record("resolved_from_db", resolved_from_db);
-
-        Ok(result)
-    }
-
-    /// The governance roots, overlaying the pending boundary roots over the stable store.
-    #[expect(clippy::unwrap_used)]
-    fn resolve_proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
-        let base = self.stable.lock().unwrap().proposals_roots()?;
-        Ok(self.volatile.resolve_proposals_roots(&base).clone())
-    }
-
     /// View a stake distribution for a given epoch. Note that this *locks* the stake distribution
     /// mutext, meaning that it might block other thread awaiting to acquire this data.
     ///
@@ -966,135 +575,57 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         StakeDistributionView::new(guard, epoch)
     }
 
-    /// Create a `DefaultValidationContext` to validate a whole block.
-    fn create_block_validation_context(
-        &self,
-        block: &Block,
-    ) -> Result<DefaultValidationContext, ValidationContextError> {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::state::CREATE_VALIDATION_CONTEXT,
+    /// Create a validation context for a whole block.
+    #[allow(clippy::unwrap_used)]
+    fn create_block_validation_context(&self, block: &Block) -> Result<DefaultValidationContext, StateError> {
+        trace_span!(
+            amaru_observability::amaru::ledger::state::CREATE_BLOCK_VALIDATION_CONTEXT,
             block_body_hash = block.header.header_body.block_body_hash,
             block_number = block.header.header_body.block_number,
             block_body_size = block.header.header_body.block_body_size
-        );
-        let _guard = _span.enter();
-
-        let mut ctx = DefaultPreparationContext::new();
-        rules::prepare_block(&mut ctx, block);
-        Span::current().record("total_inputs", ctx.utxo.len());
-
-        self.create_validation_context(ctx, UnresolvedInputPolicy::Defer)
+        )
+        .in_scope(|| {
+            let mut ctx = DefaultPreparationContext::new();
+            rules::prepare_block(&mut ctx, block);
+            let db = &*self.stable.lock().unwrap();
+            ctx.into_validation_context(
+                UnresolvedInputPolicy::Defer,
+                self.volatile
+                    .pending_proposals_roots()
+                    .cloned()
+                    .unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
+                &self.volatile,
+                db,
+            )
+            .map_err(StateError::ContextHydratation)
+        })
     }
 
-    /// Create a `DefaultValidationContext` to validate a single transaction.
-    pub fn create_transaction_validation_context(
+    /// Create a validation context for a single transaction.
+    #[allow(clippy::unwrap_used)]
+    fn create_transaction_validation_context(
         &self,
         transaction: &Transaction,
-    ) -> Result<DefaultValidationContext, ValidationContextError> {
-        let mut ctx = DefaultPreparationContext::new();
-        rules::prepare_transaction(&mut ctx, &transaction.body);
-        self.create_validation_context(ctx, UnresolvedInputPolicy::Reject)
-    }
-
-    fn create_validation_context(
-        &self,
-        ctx: DefaultPreparationContext<'_>,
-        unresolved_input_policy: UnresolvedInputPolicy,
-    ) -> Result<DefaultValidationContext, ValidationContextError> {
-        let DefaultPreparationContext {
-            utxo,
-            pools,
-            accounts,
-            withdrawals,
-            dreps,
-            drep_delegations,
-            committee,
-            proposals,
-        } = ctx;
-
-        // TODO: Eventually move into a separate function, or integrate within the ledger instead
-        // of the current .resolve_inputs; once the latter is no longer needed for the state
-        // construction.
-        let resolved_inputs = self
-            .resolve_inputs(&Default::default(), utxo.into_iter())
-            .map_err(ValidationContextError::ResolveInputs)?
-            .into_iter();
-
-        let inputs = match unresolved_input_policy {
-            UnresolvedInputPolicy::Defer => resolved_inputs
-                // NOTE:
-                // It isn't okay to just fail early here because we may be missing UTxO even on valid
-                // transactions! Indeed, since we only have access to the _current_ volatile DB and the
-                // immutable DB. That means, we can't be aware of UTxO created and used within the block.
-                //
-                // Those will however be produced during the validation, and be tracked by the
-                // validation context.
-                //
-                // Hence, we *must* defer errors here until the moment we do expect the UTxO to be
-                // present.
-                .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
-                .collect(),
-            UnresolvedInputPolicy::Reject => {
-                let mut missing_inputs = Vec::new();
-                let inputs = resolved_inputs
-                    .filter_map(|(input, opt_output)| match opt_output {
-                        Some(output) => Some((input, output)),
-                        None => {
-                            missing_inputs.push(input);
-                            None
-                        }
-                    })
-                    .collect();
-
-                // TODO: manage the possibility of having chained transactions submitted to the mempool.
-                if !missing_inputs.is_empty() {
-                    return Err(ValidationContextError::MissingInputs { inputs: missing_inputs });
-                }
-
-                inputs
-            }
-        };
-
-        let pools =
-            self.resolve_pools(&Default::default(), pools.into_iter()).map_err(ValidationContextError::ResolvePools)?;
-
-        // Withdrawal reward accounts are parsed to credentials here; the parse drops malformed ones,
-        // which the withdrawal rule rejects anyway.
-        let withdrawal_credentials = withdrawals
-            .into_iter()
-            .filter_map(|reward_account| parse_reward_account(reward_account).map(|(credential, _)| credential))
-            .collect::<BTreeSet<_>>();
-
-        let accounts = self
-            .resolve_accounts(&Default::default(), accounts.into_iter().chain(withdrawal_credentials.iter()))
-            .map_err(ValidationContextError::ResolveAccounts)?;
-
-        // Vote-delegation targets are constructed from their `DRep` here; `Abstain`/`NoConfidence`
-        // aren't registered entities, so they drop out.
-        let delegated_dreps = drep_delegations
-            .into_iter()
-            .filter_map(|drep| match drep {
-                DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
-                DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
-                DRep::Abstain | DRep::NoConfidence => None,
-            })
-            .collect::<BTreeSet<_>>();
-
-        let dreps = self
-            .resolve_dreps(&Default::default(), dreps.into_iter().chain(delegated_dreps.iter()))
-            .map_err(ValidationContextError::ResolveDReps)?;
-
-        let committee = self
-            .resolve_committee(&Default::default(), committee.into_iter())
-            .map_err(ValidationContextError::ResolveCommittee)?;
-
-        let proposals = self
-            .resolve_proposals(&Default::default(), proposals.iter())
-            .map_err(ValidationContextError::ResolveProposals)?;
-
-        let proposals_roots = self.resolve_proposals_roots().map_err(ValidationContextError::ResolveProposals)?;
-
-        Ok(DefaultValidationContext::new(inputs, pools, accounts, dreps, committee, proposals, proposals_roots))
+    ) -> Result<DefaultValidationContext, StateError> {
+        trace_span!(
+            amaru_observability::amaru::ledger::state::CREATE_TRANSACTION_VALIDATION_CONTEXT,
+            transaction_id = transaction.body.id(),
+        )
+        .in_scope(|| {
+            let mut ctx = DefaultPreparationContext::new();
+            rules::prepare_transaction(&mut ctx, &transaction.body);
+            let db = &*self.stable.lock().unwrap();
+            ctx.into_validation_context(
+                UnresolvedInputPolicy::Reject,
+                self.volatile
+                    .pending_proposals_roots()
+                    .cloned()
+                    .unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
+                &self.volatile,
+                db,
+            )
+            .map_err(StateError::ContextHydratation)
+        })
     }
 
     /// Create a validation context from the current ledger state for the transaction, and
@@ -1108,11 +639,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         transaction: &Transaction,
         slot: Slot,
         arena_pool: &ArenaPool,
-    ) -> Result<(), rules::block::TransactionValidationFailed> {
-        let mut context = self.create_transaction_validation_context(transaction).map_err(|error| {
-            rules::block::TransactionValidationFailed::Preparation { transaction_id: transaction.tx_id(), error }
-        })?;
+    ) -> Result<(), TransactionValidationError> {
+        let transaction_id = transaction.tx_id();
+
+        let mut context = self
+            .create_transaction_validation_context(transaction)
+            .map_err(|error| TransactionValidationError::Preparation { transaction_id, error })?;
+
         let tx_size = to_cbor(transaction).len() as u64;
+
         rules::block::validate_transaction(
             &mut context,
             arena_pool,
@@ -1125,6 +660,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             transaction,
             tx_size,
         )
+        .map_err(|violation| TransactionValidationError::Validation { transaction_id, violation: Box::new(violation) })
     }
 
     /// Roll the ledger forward given a new upcoming block. This roughly unwinds the following
@@ -1290,8 +826,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         )
     }
 
+    // TODO: awkward `contains_volatile_point`
+    //
+    // This is a bit weird; but it seems that what this accessor is used for is to determine
+    // whether a rollback is possible to a given point (without throwing away the entire ledger by
+    // trying to rollback). So this should likely be the API `can_rollback_to` instead.
     pub fn contains_volatile_point(&self, point: &Point) -> bool {
-        self.volatile.contains(point)
+        self.volatile.has_point(point)
     }
 
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
@@ -1307,38 +848,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             max(1, self.volatile.len()) as f64 / (u64::from(latest_slot) - u64::from(k_slot)) as f64
         }
     }
-}
-
-/// Local enum deciding what we should do for unresolved inputs happening when validating transactions.
-/// If we are validating transactions from a block we can defer the check because the inputs might
-/// be provided by transactions in the same block.
-enum UnresolvedInputPolicy {
-    Defer,
-    Reject,
-}
-
-#[derive(Debug, Error)]
-pub enum ValidationContextError {
-    #[error("failed to resolve inputs: {0}")]
-    ResolveInputs(#[from] StoreError),
-
-    #[error("failed to resolve pools: {0}")]
-    ResolvePools(StoreError),
-
-    #[error("failed to resolve accounts: {0}")]
-    ResolveAccounts(StoreError),
-
-    #[error("failed to resolve dreps: {0}")]
-    ResolveDReps(StoreError),
-
-    #[error("failed to resolve committee members: {0}")]
-    ResolveCommittee(StoreError),
-
-    #[error("failed to resolve proposals: {0}")]
-    ResolveProposals(StoreError),
-
-    #[error("missing transaction inputs: {inputs:?}")]
-    MissingInputs { inputs: Vec<TransactionInput> },
 }
 
 // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
@@ -1584,6 +1093,25 @@ pub enum StateError {
 
     #[error("failed to compute epoch from slot {0:?}: {1}")]
     ErrorComputingEpoch(Slot, EraHistoryError),
+
+    #[error("failed to hydrate validation context")]
+    ContextHydratation(#[source] ContextHydratationError),
+}
+
+#[derive(Debug, Error)]
+pub enum TransactionValidationError {
+    #[error("transaction {transaction_id} is invalid")]
+    Validation {
+        transaction_id: TransactionId,
+        #[source]
+        violation: Box<TransactionInvalid>,
+    },
+    #[error("failed to prepare transaction {transaction_id} for validation")]
+    Preparation {
+        transaction_id: TransactionId,
+        #[source]
+        error: StateError,
+    },
 }
 
 impl From<governance::Error> for StateError {

@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{mem, sync::Arc};
+use std::mem;
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, Proposal, ProposalPointer,
-    StakeCredential, TransactionInput,
+    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TermLimit,
+    TransactionInput,
 };
 
 use crate::{
@@ -24,12 +24,11 @@ use crate::{
     state::{
         AnchoredVolatileFragment,
         overlay::StateOverlay,
-        volatile::{AccountBind, CommitteeBind, DRepBind, Existence, VolatileSeries, VolatileStore},
+        volatile::{
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileSequence, VolatileSeries, VolatileState,
+        },
     },
 };
-
-/// Pools need existence only. `Gone` means reaped at the boundary.
-pub type PoolExistence = Existence<()>;
 
 #[derive(Default)]
 pub struct VolatileDB {
@@ -42,23 +41,8 @@ pub struct VolatileDB {
     overlay: StateOverlay,
 }
 
-impl VolatileStore for VolatileDB {
-    fn is_empty(&self) -> bool {
-        self.current.is_empty() && self.draining.is_empty()
-    }
-
-    fn len(&self) -> usize {
-        self.current.len() + self.draining.len()
-    }
-
-    fn view_back(&self) -> Option<&AnchoredVolatileFragment> {
-        self.current.view_back().or(self.draining.view_back())
-    }
-
-    fn view_front(&self) -> Option<&AnchoredVolatileFragment> {
-        self.draining.view_front().or(self.current.view_front())
-    }
-
+impl VolatileState for VolatileDB {
+    // --------------------------------------------------------------------------------------- UTxOs
     fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         if self.has_consumed_input(input) {
             return None;
@@ -71,20 +55,126 @@ impl VolatileStore for VolatileDB {
         self.current.has_consumed_input(input) || self.draining.has_consumed_input(input)
     }
 
-    fn contains(&self, point: &Point) -> bool {
-        self.current.contains(point) || self.draining.contains(point)
+    // --------------------------------------------------------------------------------------- Pools
+    type Pool = Existence<()>;
+    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
+        // Whether a pool exists per the volatile state, precedence `current -> overlay (reaping) ->
+        // draining`. A re-registration in `current` cancels a boundary reaping; otherwise a reaping is
+        // `Gone`. `Unknown` means consult the stable store.
+        if self.current.resolve_pool(pool_id) {
+            Existence::Exists(())
+        } else if self.overlay.is_pool_retired(pool_id) {
+            Existence::Gone
+        } else if self.draining.resolve_pool(pool_id) {
+            Existence::Exists(())
+        } else {
+            Existence::Unknown
+        }
     }
 
-    fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
+    // ------------------------------------------------------------------------------------ Accounts
+    type Account = (Existence<AccountBind>, RewardsAtTip);
+    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
+        // Resolve a stake account across the volatile layers, precedence `current -> draining`. A `Gone`
+        // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
+        // bind-only update layers over it.
+        let account = self.current.resolve_account(credential).or_else(|| self.draining.resolve_account(credential));
+
+        let rewards_at_tip = if self.current.withdrew(credential) {
+            // rewards withdrawn after the boundary credit
+            RewardsAtTip::Reset
+        } else {
+            let credit = self.overlay.pending_reward_credit(credential);
+            if self.draining.withdrew(credential) {
+                // rewards withdrawn before the boundary credit
+                RewardsAtTip::Replace(credit)
+            } else {
+                // rewards not withdrawn, full bonus
+                RewardsAtTip::Add(credit)
+            }
+        };
+
+        (account, rewards_at_tip)
+    }
+
+    // --------------------------------------------------------------------------------------- DReps
+    type DRep = Existence<DRepBind>;
+    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
+        // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
+        // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
+        // bind-only update layers over it.
+        self.current.resolve_drep(credential).or_else(|| self.draining.resolve_drep(credential))
+    }
+
+    // ----------------------------------------------------------------------------------- CCMembers
+    type CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>);
+    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
+        // Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
+        // draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
+        // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
+        let member = self.current.resolve_cc_member(credential).or_else(|| {
+            self.overlay.committee_verdict(credential).or_else(|| self.draining.resolve_cc_member(credential))
+        });
+
+        let term_limit = self.overlay.pending_committee_term(credential);
+
+        (member, term_limit)
+    }
+
+    // ----------------------------------------------------------------------------------- Proposals
+    type Proposal = Existence<()>;
+    /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
+    /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
+    /// the stable store.
+    fn resolve_proposal(&self, id: &ComparableProposalId) -> Self::Proposal {
+        if let Existence::Exists(proposal) = self.current.resolve_proposal(id) {
+            Existence::Exists(proposal)
+        } else if self.overlay.is_proposal_pruned(id) {
+            Existence::Gone
+        } else {
+            self.draining.resolve_proposal(id)
+        }
+    }
+}
+
+impl VolatileSequence for VolatileDB {
+    type Item = AnchoredVolatileFragment;
+
+    fn is_empty(&self) -> bool {
+        self.current.is_empty() && self.draining.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.current.len() + self.draining.len()
+    }
+
+    fn view_back(&self) -> Option<&Self::Item> {
+        self.current.view_back().or(self.draining.view_back())
+    }
+
+    fn view_front(&self) -> Option<&Self::Item> {
+        self.draining.view_front().or(self.current.view_front())
+    }
+
+    /// Check whether any fragment is anchored at the given point.
+    fn has_point(&self, point: &Point) -> bool {
+        self.current.has_point(point) || self.draining.has_point(point)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Self::Item> {
+        self.draining.iter().chain(self.current.iter())
+    }
+
+    fn pop_front(&mut self) -> Option<Self::Item> {
         self.draining.pop_front().or_else(|| self.current.pop_front())
     }
 
-    fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
+    fn push_back(&mut self, item: Self::Item) {
         // By design, we should never be pushing to the back of the draining sequence
-        self.current.push_back(fragment);
+        self.current.push_back(item);
     }
 
-    #[allow(clippy::expect_used)]
+    /// Rewind the volatile DB back to a given point, discarding everything that came after.
     fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
         let target_slot = point.slot_or_default();
 
@@ -120,13 +210,13 @@ impl VolatileStore for VolatileDB {
         // Now we know the target point is within our volatile DB.
         // Keep all elements with point <= target point.
 
-        let should_rollback = if self.draining.contains(point) {
+        let should_rollback = if self.draining.has_point(point) {
             // If we are rolling back to a point in the draining sequence, we need to
             // promote it as current while discarding the entire current series.
             self.current = std::mem::take(&mut self.draining);
             true
         } else {
-            self.current.contains(point)
+            self.current.has_point(point)
         };
 
         if should_rollback {
@@ -140,10 +230,6 @@ impl VolatileStore for VolatileDB {
     fn clear(&mut self) {
         self.current.clear();
         self.draining.clear();
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
-        self.draining.iter().chain(self.current.iter())
     }
 }
 
@@ -167,80 +253,9 @@ impl VolatileDB {
         &mut self.overlay
     }
 
-    /// Whether a pool exists per the volatile state, precedence `current -> overlay (reaping) ->
-    /// draining`. A re-registration in `current` cancels a boundary reaping; otherwise a reaping is
-    /// `Gone`. `Unknown` means consult the stable store.
-    pub fn has_pool(&self, pool_id: &PoolId) -> PoolExistence {
-        if self.current.pool_exists(pool_id) {
-            Existence::Exists(())
-        } else if self.overlay.is_pool_retired(pool_id) {
-            Existence::Gone
-        } else if self.draining.pool_exists(pool_id) {
-            Existence::Exists(())
-        } else {
-            Existence::Unknown
-        }
-    }
-
-    /// Resolve a stake account across the volatile layers, precedence `current -> draining`. A `Gone`
-    /// from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
-    /// bind-only update layers over it.
-    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        self.current.resolve_account(credential).or_else(|| self.draining.resolve_account(credential))
-    }
-
-    /// An account's withdrawable balance from its `base` (stable rewards, or `0` if freshly
-    /// registered in the window): add the overlay's pending boundary credit, but a volatile
-    /// withdrawal zeroes it.
-    pub fn resolve_reward_balance(&self, credential: &StakeCredential, base: Lovelace) -> Lovelace {
-        let credit = self.overlay.pending_reward_credit(credential);
-        if self.current.withdrew(credential) {
-            0 // withdrawn after the boundary credit
-        } else if self.draining.withdrew(credential) {
-            credit // withdrawn before the boundary credit
-        } else {
-            base + credit
-        }
-    }
-
-    /// Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
-    /// from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
-    /// bind-only update layers over it.
-    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        self.current.resolve_drep(credential).or_else(|| self.draining.resolve_drep(credential))
-    }
-
-    /// Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
-    /// draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
-    /// blocks, mirroring pool reaping. `Unknown` means consult the stable store.
-    pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
-        self.current.resolve_committee(credential).or_else(|| {
-            self.overlay.committee_verdict(credential).or_else(|| self.draining.resolve_committee(credential))
-        })
-    }
-
-    /// A CC member's term from its `base` (stable or freshly added): the overlay's pending term wins
-    /// during the straddle, otherwise the base flows through.
-    pub fn resolve_committee_term(&self, credential: &StakeCredential, base: Option<Epoch>) -> Option<Epoch> {
-        self.overlay.pending_committee_term(credential).unwrap_or(base)
-    }
-
-    /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
-    /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
-    /// the stable store.
-    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<Arc<(Proposal, ProposalPointer)>> {
-        if let Existence::Exists(proposal) = self.current.resolve_proposal(id) {
-            Existence::Exists(proposal)
-        } else if self.overlay.is_proposal_pruned(id) {
-            Existence::Gone
-        } else {
-            self.draining.resolve_proposal(id)
-        }
-    }
-
     /// The governance roots, overlaying the pending boundary roots over the stable `base`.
-    pub fn resolve_proposals_roots<'a>(&'a self, base: &'a ProposalsRoots) -> &'a ProposalsRoots {
-        self.overlay.pending_proposals_roots().unwrap_or(base)
+    pub fn pending_proposals_roots(&self) -> Option<&ProposalsRoots> {
+        self.overlay.pending_proposals_roots()
     }
 
     /// Mark the transition between two epochs by sealing the `current` series and turning it into
@@ -264,6 +279,26 @@ impl VolatileDB {
         );
 
         self.draining = mem::take(&mut self.current);
+    }
+}
+
+/// A type for capturing the latest rewards state of an account, in order to properly resolve its
+/// rewards.
+#[derive(Debug, PartialEq)]
+pub enum RewardsAtTip {
+    Reset,
+    Replace(Lovelace),
+    Add(Lovelace),
+}
+
+impl RewardsAtTip {
+    /// Compute a current rewards balance from the latest known stable amount.
+    pub fn into_balance(&self, base: Lovelace) -> Lovelace {
+        match self {
+            Self::Reset => 0,
+            Self::Replace(credit) => *credit,
+            Self::Add(credit) => base + credit,
+        }
     }
 }
 
@@ -598,9 +633,9 @@ mod tests {
         }
 
         match db.resolve_account(&cred(1)) {
-            Existence::Exists(_) => Expect::Registered,
-            Existence::Gone => Expect::Gone,
-            Existence::Unknown => Expect::Unknown,
+            (Existence::Exists(_), _) => Expect::Registered,
+            (Existence::Gone, _) => Expect::Gone,
+            (Existence::Unknown, _) => Expect::Unknown,
         }
     }
 
@@ -609,19 +644,19 @@ mod tests {
         // No withdrawal and no pending overlay credit: the base flows through untouched.
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 100);
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(0));
 
         // A withdrawal in `current` (post-boundary) zeroes the balance.
         let mut db = VolatileDB::default();
         db.push_back(withdrawal_block(10));
-        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 0);
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Reset);
 
         // A withdrawal in `draining` (pre-boundary) with no pending credit also leaves nothing.
         let mut db = VolatileDB::default();
         db.push_back(withdrawal_block(10));
         db.transition();
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 0);
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(0));
     }
 
     #[test]
@@ -632,16 +667,16 @@ mod tests {
         *db.overlay_mut().rewards_mut() = RewardsState::Effective(effective);
 
         // The pending boundary credit is added on top of the stable base.
-        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 5_000_100);
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(5_000_000));
 
         // Withdrawn in `draining`, before the boundary credit: only the credit remains.
         db.push_back(withdrawal_block(10));
         db.transition();
-        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 5_000_000);
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(5_000_000));
 
         // Withdrawn again in `current`, after the boundary credit: nothing remains.
         db.push_back(withdrawal_block(20));
-        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 0);
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Reset);
     }
 
     #[test]
@@ -654,7 +689,7 @@ mod tests {
         updates.payouts = BTreeMap::from([(cred(1), 3_000_000)]);
         db.overlay_mut().transition(None, PoolsEpochTransitionUpdates::default(), updates);
 
-        assert_eq!(db.resolve_reward_balance(&cred(1), 100), 3_000_100);
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
 
     #[test_case(None, Some(CommitteeAct::Auth) => Expect::Registered ; "hot-auth in current")]
@@ -673,7 +708,7 @@ mod tests {
             db.push_back(committee_block(20, act));
         }
 
-        match db.resolve_committee(&cred(1)) {
+        match db.resolve_cc_member(&cred(1)).0 {
             Existence::Exists(_) => Expect::Registered,
             Existence::Gone => Expect::Gone,
             Existence::Unknown => Expect::Unknown,
@@ -684,17 +719,20 @@ mod tests {
     fn resolve_committee_reflects_the_pending_boundary() {
         // Added at the boundary: a fresh member with the pending term, no stable row needed.
         let mut db = VolatileDB::default();
+        let valid_until = Epoch::from(99);
         db.overlay_mut().transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
-                added: BTreeMap::from([(cred(1), Epoch::from(99))]),
+                added: BTreeMap::from([(cred(1), valid_until)]),
                 removed: BTreeSet::new(),
                 threshold: SafeRatio::zero(),
             })),
         );
-        assert!(matches!(db.resolve_committee(&cred(1)), Existence::Exists(_)));
-        assert_eq!(db.resolve_committee_term(&cred(1), None), Some(Epoch::from(99)));
+        let expected_term_limit = Some(valid_until);
+        assert!(
+            matches!(db.resolve_cc_member(&cred(1)), (Existence::Exists(_), Some(term_limit)) if term_limit == expected_term_limit)
+        );
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
         let mut db = VolatileDB::default();
@@ -707,7 +745,7 @@ mod tests {
                 threshold: SafeRatio::zero(),
             })),
         );
-        assert!(matches!(db.resolve_committee(&cred(1)), Existence::Gone));
+        assert!(matches!(db.resolve_cc_member(&cred(1)).0, Existence::Gone));
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
@@ -716,8 +754,7 @@ mod tests {
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::NoConfidence)),
         );
-        assert!(matches!(db.resolve_committee(&cred(1)), Existence::Unknown));
-        assert_eq!(db.resolve_committee_term(&cred(1), Some(Epoch::from(50))), None);
+        assert!(matches!(db.resolve_cc_member(&cred(1)), (Existence::Unknown, Some(None))));
     }
 
     // HELPERS

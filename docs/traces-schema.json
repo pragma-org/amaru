@@ -741,6 +741,18 @@
       "description": "Ratify proposals at epoch boundary",
       "public": true
     },
+    "amaru::ledger::state::AGGREGATE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "aggregate",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Recompute the volatile aggregate used for fast lookups",
+      "public": true
+    },
     "amaru::ledger::state::APPLY_BLOCK": {
       "type": "object",
       "properties": {
@@ -800,7 +812,7 @@
       "description": "Compute stake distribution for epoch",
       "public": true
     },
-    "amaru::ledger::state::CREATE_VALIDATION_CONTEXT": {
+    "amaru::ledger::state::CREATE_BLOCK_VALIDATION_CONTEXT": {
       "type": "object",
       "properties": {
         "block_body_hash": {
@@ -812,9 +824,6 @@
         },
         "block_body_size": {
           "type": "integer"
-        },
-        "total_inputs": {
-          "type": "integer"
         }
       },
       "required": [
@@ -822,14 +831,163 @@
         "block_number",
         "block_body_size"
       ],
-      "optional": [
-        "total_inputs"
-      ],
+      "optional": [],
       "additionalProperties": false,
-      "name": "create_validation_context",
+      "name": "create_block_validation_context",
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Create validation context for a block",
+      "public": true
+    },
+    "amaru::ledger::state::CREATE_TRANSACTION_VALIDATION_CONTEXT": {
+      "type": "object",
+      "properties": {
+        "transaction_id": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<32>"
+        }
+      },
+      "required": [
+        "transaction_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "create_transaction_validation_context",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Create validation context for a block",
+      "public": true
+    },
+    "amaru::ledger::state::HYDRATE_ACCOUNTS": {
+      "type": "object",
+      "properties": {
+        "from_volatile": {
+          "type": "integer"
+        },
+        "from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "from_volatile",
+        "from_db"
+      ],
+      "additionalProperties": false,
+      "name": "hydrate_accounts",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve account data from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::HYDRATE_CC_MEMBERS": {
+      "type": "object",
+      "properties": {
+        "from_volatile": {
+          "type": "integer"
+        },
+        "from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "from_volatile",
+        "from_db"
+      ],
+      "additionalProperties": false,
+      "name": "hydrate_cc_members",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve constitutional committee member data from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::HYDRATE_DREPS": {
+      "type": "object",
+      "properties": {
+        "from_volatile": {
+          "type": "integer"
+        },
+        "from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "from_volatile",
+        "from_db"
+      ],
+      "additionalProperties": false,
+      "name": "hydrate_dreps",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve dRep data from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::HYDRATE_INPUTS": {
+      "type": "object",
+      "properties": {
+        "from_volatile": {
+          "type": "integer"
+        },
+        "from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "from_volatile",
+        "from_db"
+      ],
+      "additionalProperties": false,
+      "name": "hydrate_inputs",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve transaction inputs from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::HYDRATE_POOLS": {
+      "type": "object",
+      "properties": {
+        "from_volatile": {
+          "type": "integer"
+        },
+        "from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "from_volatile",
+        "from_db"
+      ],
+      "additionalProperties": false,
+      "name": "hydrate_pools",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve pool data from various sources",
+      "public": true
+    },
+    "amaru::ledger::state::HYDRATE_PROPOSALS": {
+      "type": "object",
+      "properties": {
+        "from_volatile": {
+          "type": "integer"
+        },
+        "from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "from_volatile",
+        "from_db"
+      ],
+      "additionalProperties": false,
+      "name": "hydrate_proposals",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Resolve governance proposal data from various sources",
       "public": true
     },
     "amaru::ledger::state::PREPARE_BLOCK": {
@@ -854,162 +1012,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Forward ledger state with new volatile state",
-      "public": true
-    },
-    "amaru::ledger::state::RESOLVE_ACCOUNTS": {
-      "type": "object",
-      "properties": {
-        "resolved_from_context": {
-          "type": "integer"
-        },
-        "resolved_from_volatile": {
-          "type": "integer"
-        },
-        "resolved_from_db": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "resolved_from_context",
-        "resolved_from_volatile",
-        "resolved_from_db"
-      ],
-      "additionalProperties": false,
-      "name": "resolve_accounts",
-      "level": "TRACE",
-      "target": "amaru::ledger::state",
-      "description": "Resolve account data from various sources",
-      "public": true
-    },
-    "amaru::ledger::state::RESOLVE_CC_MEMBERS": {
-      "type": "object",
-      "properties": {
-        "resolved_from_context": {
-          "type": "integer"
-        },
-        "resolved_from_volatile": {
-          "type": "integer"
-        },
-        "resolved_from_db": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "resolved_from_context",
-        "resolved_from_volatile",
-        "resolved_from_db"
-      ],
-      "additionalProperties": false,
-      "name": "resolve_cc_members",
-      "level": "TRACE",
-      "target": "amaru::ledger::state",
-      "description": "Resolve constitutional committee member data from various sources",
-      "public": true
-    },
-    "amaru::ledger::state::RESOLVE_DREPS": {
-      "type": "object",
-      "properties": {
-        "resolved_from_context": {
-          "type": "integer"
-        },
-        "resolved_from_volatile": {
-          "type": "integer"
-        },
-        "resolved_from_db": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "resolved_from_context",
-        "resolved_from_volatile",
-        "resolved_from_db"
-      ],
-      "additionalProperties": false,
-      "name": "resolve_dreps",
-      "level": "TRACE",
-      "target": "amaru::ledger::state",
-      "description": "Resolve dRep data from various sources",
-      "public": true
-    },
-    "amaru::ledger::state::RESOLVE_INPUTS": {
-      "type": "object",
-      "properties": {
-        "resolved_from_context": {
-          "type": "integer"
-        },
-        "resolved_from_volatile": {
-          "type": "integer"
-        },
-        "resolved_from_db": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "resolved_from_context",
-        "resolved_from_volatile",
-        "resolved_from_db"
-      ],
-      "additionalProperties": false,
-      "name": "resolve_inputs",
-      "level": "TRACE",
-      "target": "amaru::ledger::state",
-      "description": "Resolve transaction inputs from various sources",
-      "public": true
-    },
-    "amaru::ledger::state::RESOLVE_POOLS": {
-      "type": "object",
-      "properties": {
-        "resolved_from_context": {
-          "type": "integer"
-        },
-        "resolved_from_volatile": {
-          "type": "integer"
-        },
-        "resolved_from_db": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "resolved_from_context",
-        "resolved_from_volatile",
-        "resolved_from_db"
-      ],
-      "additionalProperties": false,
-      "name": "resolve_pools",
-      "level": "TRACE",
-      "target": "amaru::ledger::state",
-      "description": "Resolve pool data from various sources",
-      "public": true
-    },
-    "amaru::ledger::state::RESOLVE_PROPOSALS": {
-      "type": "object",
-      "properties": {
-        "resolved_from_context": {
-          "type": "integer"
-        },
-        "resolved_from_volatile": {
-          "type": "integer"
-        },
-        "resolved_from_db": {
-          "type": "integer"
-        }
-      },
-      "required": [],
-      "optional": [
-        "resolved_from_context",
-        "resolved_from_volatile",
-        "resolved_from_db"
-      ],
-      "additionalProperties": false,
-      "name": "resolve_proposals",
-      "level": "TRACE",
-      "target": "amaru::ledger::state",
-      "description": "Resolve governance proposal data from various sources",
       "public": true
     },
     "amaru::ledger::state::ROLL_BACKWARD": {

@@ -42,7 +42,12 @@ pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
 
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.
-pub type CommitteeBind = Bind<StakeCredential, Empty, Empty>;
+//
+// TODO: Is a 'Bind' really needed here?
+//
+// There's nothing to "bind" on as indicated by the two 'Empty' / 'Empty'. I suspect that a plain
+// BTreeMap might be sufficient here.
+pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Empty>;
 
 /// A volatile layer's verdict on an entity.
 /// - `T` is the resolved record.
@@ -117,8 +122,8 @@ impl VolatileFragment {
 
     /// Whether this fragment registered the given pool. Unregistrations
     /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
-    pub fn pool_exists(&self, pool_id: &PoolId) -> bool {
-        self.pools.registered.contains_key(pool_id)
+    pub fn resolve_pool(&self, pool_id: PoolId) -> bool {
+        self.pools.registered.contains_key(&pool_id)
     }
 
     /// This fragment's verdict on a stake account. Deregistration is immediate, so an `unregistered`
@@ -147,7 +152,7 @@ impl VolatileFragment {
 
     /// This fragment's verdict on a CC member. Resignation is immediate, so an `unregistered`
     /// entry is a live tombstone.
-    pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
+    pub fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
         if let Some(bind) = self.committee.registered.get(credential) {
             Existence::Exists(bind.clone())
         } else if self.committee.unregistered.contains(credential) {
@@ -159,9 +164,9 @@ impl VolatileFragment {
 
     /// This fragment's view of a governance proposal. Proposals are add-only in a block, so this is
     /// `Exists` or `Unknown`; pruning only happens at the boundary.
-    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<Arc<(Proposal, ProposalPointer)>> {
+    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
         match self.proposals.get(id) {
-            Some(proposal) => Existence::Exists(proposal.clone()),
+            Some(_) => Existence::Exists(()),
             None => Existence::Unknown,
         }
     }

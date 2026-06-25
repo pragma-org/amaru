@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+
 mod db;
-use amaru_kernel::{MemoizedTransactionOutput, Point, TransactionInput};
-pub use db::{PoolExistence, VolatileDB};
+pub use db::{RewardsAtTip, VolatileDB};
 
 mod fragment;
 pub use fragment::{
-    AccountBind, AnchoredVolatileFragment, CommitteeBind, DRepBind, Existence, StoreUpdate, VolatileFragment,
+    AccountBind, AnchoredVolatileFragment, CommitteeMemberBind, DRepBind, Existence, StoreUpdate, VolatileFragment,
 };
 
 mod series;
@@ -27,19 +28,51 @@ pub use series::VolatileSeries;
 mod view;
 pub use view::VolatileView;
 
-pub trait VolatileStore {
-    fn is_empty(&self) -> bool;
-    fn len(&self) -> usize;
-    fn view_back(&self) -> Option<&AnchoredVolatileFragment>;
-    fn view_front(&self) -> Option<&AnchoredVolatileFragment>;
+/// An outward-facing store API to query the volatile as a store.
+pub trait VolatileState {
+    // --------------------------------------------------------------------------------------- UTxOs
+    // TODO: unify this API with the others; we could simply return an 'Existence'
     fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput>;
     fn has_consumed_input(&self, input: &TransactionInput) -> bool;
-    fn contains(&self, point: &Point) -> bool;
-    fn pop_front(&mut self) -> Option<AnchoredVolatileFragment>;
-    fn push_back(&mut self, fragment: AnchoredVolatileFragment);
+
+    // --------------------------------------------------------------------------------------- Pools
+    type Pool;
+    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool;
+
+    // ------------------------------------------------------------------------------------ Accounts
+    type Account;
+    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account;
+
+    // --------------------------------------------------------------------------------------- DReps
+    type DRep;
+    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep;
+
+    // ----------------------------------------------------------------------------------- CCMembers
+    type CCMember;
+    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember;
+
+    // ----------------------------------------------------------------------------------- Proposals
+    type Proposal;
+    fn resolve_proposal(&self, proposal_id: &ComparableProposalId) -> Self::Proposal;
+}
+
+/// A sequence-like API used by the VolatileDB and VolatileSeries.
+pub trait VolatileSequence {
+    type Item;
+
+    fn is_empty(&self) -> bool;
+    fn len(&self) -> usize;
+    fn view_back(&self) -> Option<&Self::Item>;
+    fn view_front(&self) -> Option<&Self::Item>;
+    fn has_point(&self, point: &Point) -> bool;
+
+    fn iter(&self) -> impl Iterator<Item = &Self::Item>;
+
+    fn pop_front(&mut self) -> Option<Self::Item>;
+    fn push_back(&mut self, item: Self::Item);
+
     fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point>;
     fn clear(&mut self);
-    fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment>;
 }
 
 /// Shared test fixtures for the volatile keystone proptests, used by both `series` and `db`: a

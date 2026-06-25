@@ -12,19 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
-use amaru_kernel::{
-    ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, Proposal, ProposalPointer, StakeCredential,
-    TransactionInput,
-};
+use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
 use amaru_observability::debug_span;
 
 use crate::state::{
     AnchoredVolatileFragment, VolatileFragment,
     volatile::{
-        AccountBind, Existence, VolatileStore,
-        fragment::{CommitteeBind, DRepBind},
+        AccountBind, Existence, VolatileSequence, VolatileState,
+        fragment::{CommitteeMemberBind, DRepBind},
     },
 };
 
@@ -55,32 +52,26 @@ use crate::state::{
 /// it is highly likely that *at least one* would lead to an observable rollback. Finally, when
 /// syncing, the impact should be negligible as only one block every 1080 would cause an aggregate
 /// recompute.
-const FORCED_RECOMPUTE_DEFAULT: usize = 1080;
+const DEFAULT_FORCED_RECOMPUTE_IN: usize = 1080;
 
-#[derive(Default)]
 pub struct VolatileSeries {
     forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
     aggregate: VolatileFragment,
 }
 
-impl VolatileStore for VolatileSeries {
-    fn is_empty(&self) -> bool {
-        self.sequence.is_empty()
+impl Default for VolatileSeries {
+    fn default() -> Self {
+        Self {
+            forced_recompute_in: DEFAULT_FORCED_RECOMPUTE_IN,
+            sequence: Default::default(),
+            aggregate: Default::default(),
+        }
     }
+}
 
-    fn len(&self) -> usize {
-        self.sequence.len()
-    }
-
-    fn view_back(&self) -> Option<&AnchoredVolatileFragment> {
-        self.sequence.back()
-    }
-
-    fn view_front(&self) -> Option<&AnchoredVolatileFragment> {
-        self.sequence.front()
-    }
-
+impl VolatileState for VolatileSeries {
+    // --------------------------------------------------------------------------------------- UTxOs
     fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.aggregate.utxo.produced.get(input).map(|output| output.as_ref())
     }
@@ -89,11 +80,68 @@ impl VolatileStore for VolatileSeries {
         self.aggregate.utxo.consumed.contains(input)
     }
 
-    fn contains(&self, point: &Point) -> bool {
+    // --------------------------------------------------------------------------------------- Pools
+    type Pool = bool;
+    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
+        // Whether the given pool is registered (or re-registered) anywhere in this series' aggregate.
+        // Deferred retirements do not affect this; reaping is handled one level up, in the volatile DB.
+        self.aggregate.resolve_pool(pool_id)
+    }
+
+    // ------------------------------------------------------------------------------------ Accounts
+    type Account = Existence<AccountBind>;
+    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
+        self.aggregate.resolve_account(credential)
+    }
+
+    // --------------------------------------------------------------------------------------- DReps
+    type DRep = Existence<DRepBind>;
+    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
+        // This series' verdict on a DRep account, read off its aggregate.
+        self.aggregate.resolve_drep(credential)
+    }
+
+    // ----------------------------------------------------------------------------------- CCMembers
+    type CCMember = Existence<CommitteeMemberBind>;
+    fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+        self.aggregate.resolve_cc_member(credential)
+    }
+
+    // ----------------------------------------------------------------------------------- Proposals
+    type Proposal = Existence<()>;
+    fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
+        self.aggregate.resolve_proposal(id)
+    }
+}
+
+impl VolatileSequence for VolatileSeries {
+    type Item = AnchoredVolatileFragment;
+
+    fn is_empty(&self) -> bool {
+        self.sequence.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.sequence.len()
+    }
+
+    fn view_back(&self) -> Option<&Self::Item> {
+        self.sequence.back()
+    }
+
+    fn view_front(&self) -> Option<&Self::Item> {
+        self.sequence.front()
+    }
+
+    fn has_point(&self, point: &Point) -> bool {
         self.sequence.binary_search_by_key(point, |anchored| anchored.point()).is_ok()
     }
 
-    fn pop_front(&mut self) -> Option<AnchoredVolatileFragment> {
+    fn iter(&self) -> impl Iterator<Item = &Self::Item> {
+        self.sequence.iter()
+    }
+
+    fn pop_front(&mut self) -> Option<Self::Item> {
         let popped = self.sequence.pop_front()?;
         if self.forced_recompute_in == 0 {
             self.recompute_aggregate()
@@ -103,10 +151,10 @@ impl VolatileStore for VolatileSeries {
         Some(popped)
     }
 
-    fn push_back(&mut self, fragment: AnchoredVolatileFragment) {
+    fn push_back(&mut self, item: Self::Item) {
         self.forced_recompute_in = self.forced_recompute_in.saturating_sub(1);
-        self.aggregate.compose(&fragment.fragment);
-        self.sequence.push_back(fragment);
+        self.aggregate.compose(&item.fragment);
+        self.sequence.push_back(item);
     }
 
     fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
@@ -121,47 +169,18 @@ impl VolatileStore for VolatileSeries {
     fn clear(&mut self) {
         self.sequence.clear();
         self.aggregate = Default::default();
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
-        self.sequence.iter()
+        self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
     }
 }
 
 impl VolatileSeries {
-    /// Whether the given pool is registered (or re-registered) anywhere in this series' aggregate.
-    /// Deferred retirements do not affect this; reaping is handled one level up, in the volatile DB.
-    pub fn pool_exists(&self, pool_id: &PoolId) -> bool {
-        self.aggregate.pool_exists(pool_id)
-    }
-
-    /// This series' verdict on a stake account, read off its aggregate.
-    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        self.aggregate.resolve_account(credential)
-    }
-
-    /// This series' verdict on a DRep account, read off its aggregate.
-    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        self.aggregate.resolve_drep(credential)
-    }
-
-    /// This series' verdict on a CC member, read off its aggregate.
-    pub fn resolve_committee(&self, credential: &StakeCredential) -> Existence<CommitteeBind> {
-        self.aggregate.resolve_committee(credential)
-    }
-
-    /// This series' view of a governance proposal, read off its aggregate.
-    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<Arc<(Proposal, ProposalPointer)>> {
-        self.aggregate.resolve_proposal(id)
-    }
-
     /// Whether this series withdrew the account's rewards anywhere in its aggregate.
     pub fn withdrew(&self, credential: &StakeCredential) -> bool {
         self.aggregate.withdrew(credential)
     }
 
     fn recompute_aggregate(&mut self) {
-        self.forced_recompute_in = FORCED_RECOMPUTE_DEFAULT;
+        self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
 
         debug_span!(amaru_observability::amaru::ledger::state::AGGREGATE).in_scope(|| {
             let mut aggregate = VolatileFragment::default();

@@ -29,8 +29,8 @@ use amaru_observability::trace_span;
 use crate::{
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-        ProposalState, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
-        WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        blanket_known_datums, blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
@@ -43,7 +43,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeMap<ComparableProposalId, ProposalState>,
+    proposals: BTreeSet<ComparableProposalId>,
     proposals_roots: ProposalsRoots,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
@@ -61,7 +61,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeMap<ComparableProposalId, ProposalState>,
+        proposals: BTreeSet<ComparableProposalId>,
         proposals_roots: ProposalsRoots,
     ) -> Self {
         Self {
@@ -115,10 +115,16 @@ impl UtxoSlice for DefaultValidationContext {
 }
 
 impl PoolsSlice for DefaultValidationContext {
-    fn exists(&self, pool: &PoolId) -> bool {
-        self.pools.contains(pool) || self.state.pools.registered.contains_key(pool)
+    /// Whether the given pool exists in the resolved ledger state (including pools registered
+    /// earlier within the same block).
+    fn exists(&self, pool: PoolId) -> bool {
+        self.pools.contains(&pool)
     }
 
+    /// FIXME: In ProtocolVersion 11, we must also check for uniqueness of the VRF key when registering pools
+    ///
+    /// A `PoolId` isn't going to be sufficient context; we'll also need a way to resolve and
+    /// assert existence of VRF keys. Possibly in another BTreeSet of known VRF keys.
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer) {
         let pool_id = params.id;
         let _span = trace_span!(
@@ -358,9 +364,9 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn lookup(&self, id: &ComparableProposalId) -> Option<&ProposalState> {
+    fn exists(&self, id: &ComparableProposalId) -> bool {
         // FIXME: also fold proposals discovered in the block during validation
-        self.proposals.get(id)
+        self.proposals.contains(id)
     }
 
     fn roots(&self) -> &ProposalsRoots {
@@ -458,7 +464,7 @@ mod tests {
             accounts,
             BTreeMap::new(),
             BTreeMap::new(),
-            BTreeMap::new(),
+            BTreeSet::new(),
             ProposalsRoots::default(),
         )
     }
@@ -513,7 +519,7 @@ mod tests {
             BTreeMap::new(),
             BTreeMap::new(),
             committee,
-            BTreeMap::new(),
+            BTreeSet::new(),
             ProposalsRoots::default(),
         )
     }

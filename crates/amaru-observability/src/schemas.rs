@@ -99,53 +99,51 @@ define_schemas! {
             }
 
             /// Resolve transaction inputs from various sources
-            public RESOLVE_INPUTS {
-                optional resolved_from_context: u64
-                optional resolved_from_volatile: u64
-                optional resolved_from_db: u64
+            public HYDRATE_INPUTS {
+                optional from_volatile: u64
+                optional from_db: u64
             }
 
             /// Resolve pool data from various sources
-            public RESOLVE_POOLS {
-                optional resolved_from_context: u64
-                optional resolved_from_volatile: u64
-                optional resolved_from_db: u64
+            public HYDRATE_POOLS {
+                optional from_volatile: u64
+                optional from_db: u64
             }
 
             /// Resolve account data from various sources
-            public RESOLVE_ACCOUNTS {
-                optional resolved_from_context: u64
-                optional resolved_from_volatile: u64
-                optional resolved_from_db: u64
+            public HYDRATE_ACCOUNTS {
+                optional from_volatile: u64
+                optional from_db: u64
             }
 
             /// Resolve dRep data from various sources
-            public RESOLVE_DREPS {
-                optional resolved_from_context: u64
-                optional resolved_from_volatile: u64
-                optional resolved_from_db: u64
+            public HYDRATE_DREPS {
+                optional from_volatile: u64
+                optional from_db: u64
             }
 
             /// Resolve constitutional committee member data from various sources
-            public RESOLVE_CC_MEMBERS {
-                optional resolved_from_context: u64
-                optional resolved_from_volatile: u64
-                optional resolved_from_db: u64
+            public HYDRATE_CC_MEMBERS {
+                optional from_volatile: u64
+                optional from_db: u64
             }
 
             /// Resolve governance proposal data from various sources
-            public RESOLVE_PROPOSALS {
-                optional resolved_from_context: u64
-                optional resolved_from_volatile: u64
-                optional resolved_from_db: u64
+            public HYDRATE_PROPOSALS {
+                optional from_volatile: u64
+                optional from_db: u64
             }
 
             /// Create validation context for a block
-            public CREATE_VALIDATION_CONTEXT {
+            public CREATE_BLOCK_VALIDATION_CONTEXT {
                 required block_body_hash: amaru_kernel::HeaderHash
                 required block_number: u64
                 required block_body_size: u64
-                optional total_inputs: u64
+            }
+
+            /// Create validation context for a block
+            public CREATE_TRANSACTION_VALIDATION_CONTEXT {
+                required transaction_id: amaru_kernel::Hash<32>
             }
 
             /// Compute stake distribution for epoch

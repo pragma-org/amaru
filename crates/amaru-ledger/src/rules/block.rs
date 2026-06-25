@@ -30,7 +30,6 @@ use crate::{
     context::ValidationContext,
     epoch_transition::GovernanceActivity,
     rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
-    state::ValidationContextError,
 };
 
 pub mod body_hash;
@@ -54,14 +53,6 @@ pub enum InvalidBlockDetails {
     InvalidBodyHash { header: Hash<BLOCK_BODY>, actual: Hash<BLOCK_BODY> },
     HeaderProtVerTooHigh { header_major: u64, max_major: u64 },
     Transaction { transaction_id: TransactionId, transaction_index: u32, violation: Box<TransactionInvalid> },
-}
-
-#[derive(Debug, Error)]
-pub enum TransactionValidationFailed {
-    #[error("transaction {transaction_id} is invalid: {violation}")]
-    Transaction { transaction_id: TransactionId, violation: Box<TransactionInvalid> },
-    #[error("failed to prepare transaction {transaction_id} for validation: {error}")]
-    Preparation { transaction_id: TransactionId, error: ValidationContextError },
 }
 
 #[derive(Debug)]
@@ -222,7 +213,7 @@ where
     for (i, transaction, tx_size) in block {
         let transaction_id = transaction.tx_id();
 
-        if let Err(err) = validate_transaction(
+        if let Err(violation) = validate_transaction(
             context,
             arena_pool,
             network,
@@ -237,12 +228,7 @@ where
             return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_id,
                 transaction_index: i,
-                violation: match err {
-                    TransactionValidationFailed::Transaction { violation, .. } => violation,
-                    TransactionValidationFailed::Preparation { error, .. } => {
-                        return BlockValidation::Err(error.into());
-                    }
-                },
+                violation: Box::new(violation),
             }));
         };
     }
@@ -271,12 +257,10 @@ pub fn validate_transaction<C>(
     pointer: TransactionPointer,
     transaction: &Transaction,
     tx_size: u64,
-) -> Result<(), TransactionValidationFailed>
+) -> Result<(), TransactionInvalid>
 where
     C: ValidationContext + fmt::Debug,
 {
-    let transaction_id = transaction.tx_id();
-
     transaction.body.required_signers.as_deref().unwrap_or(&[]).iter().for_each(|vk_hash| {
         context.require_vkey_witness(*vk_hash);
     });
@@ -293,8 +277,7 @@ where
         &transaction.witnesses,
         transaction.auxiliary_data.as_ref(),
         tx_size,
-    )
-    .map_err(|err| TransactionValidationFailed::Transaction { transaction_id, violation: Box::new(err.into()) })?;
+    )?;
 
     transaction::phase_two::execute(
         context,
@@ -306,9 +289,9 @@ where
         transaction.is_expected_valid,
         &transaction.body,
         &transaction.witnesses,
-    )
-    .map_err(|err| TransactionValidationFailed::Transaction { transaction_id, violation: Box::new(err.into()) })?;
+    )?;
 
     consumed_inputs.into_iter().for_each(|input| context.consume(input));
+
     Ok(())
 }

@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub(crate) mod assert;
-mod default;
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -26,10 +23,15 @@ use amaru_kernel::{
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
     ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
+    transaction_input_to_string,
 };
-pub use default::*;
+use thiserror::Error;
 
-use crate::{governance::ratification::ProposalsRoots, state::diff_bind};
+use crate::{governance::ratification::ProposalsRoots, state::diff_bind, store::StoreError};
+
+pub(crate) mod assert;
+mod default;
+pub use default::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
@@ -49,7 +51,45 @@ pub trait PreparationContext<'a>:
 {
 }
 
-// Errors
+/// Local enum deciding what we should do for unresolved inputs happening when validating transactions.
+/// If we are validating transactions from a block we can defer the check because the inputs might
+/// be provided by transactions in the same block.
+///
+/// However, there are cases (such as mempool validation) where a missing input may not be acceptable.
+#[derive(Debug, Clone, Copy)]
+pub enum UnresolvedInputPolicy {
+    Defer,
+    Reject,
+}
+
+// Errors (preparation)
+// -------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum ContextHydratationError {
+    #[error("failed to hydrate inputs")]
+    ResolveInputs(#[source] StoreError),
+
+    #[error("unknown (but required) transaction input or reference input: {}", transaction_input_to_string(.0))]
+    UnknownInput(TransactionInput),
+
+    #[error("failed to hydrate pools")]
+    ResolvePools(#[source] StoreError),
+
+    #[error("failed to hydrate accounts")]
+    ResolveAccounts(#[source] StoreError),
+
+    #[error("failed to hydrate dreps")]
+    ResolveDReps(#[source] StoreError),
+
+    #[error("failed to hydrate committee members")]
+    ResolveCommittee(#[source] StoreError),
+
+    #[error("failed to hydrate proposals")]
+    ResolveProposals(#[source] StoreError),
+}
+
+// Errors (validation)
 // -------------------------------------------------------------------------------------------------
 
 #[derive(thiserror::Error, Debug)]
@@ -131,10 +171,7 @@ pub trait PrepareUtxoSlice<'a> {
 
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
-    /// Whether the given pool exists in the resolved ledger state (including pools registered
-    /// earlier within the same block). We only ever need existence, not the pool parameters: VRF-key
-    /// uniqueness (pv11+) is enforced globally, so no rule needs the per-pool [`PoolParams`].
-    fn exists(&self, pool: &PoolId) -> bool;
+    fn exists(&self, pool: PoolId) -> bool;
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer);
 
@@ -279,7 +316,7 @@ pub struct ProposalState {
 
 pub trait ProposalsSlice {
     /// The proposal at this point in the block, including ones acknowledged earlier in the block.
-    fn lookup(&self, id: &ComparableProposalId) -> Option<&ProposalState>;
+    fn exists(&self, id: &ComparableProposalId) -> bool;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;

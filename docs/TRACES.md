@@ -323,18 +323,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `aggregate` | `TRACE` | public | Recompute the volatile aggregate used for fast lookups |  |  |
 | `apply_block` | `TRACE` | public | Apply a block to stable state | point_slot |  |
 | `compute_rewards` | `TRACE` | public | Compute rewards for epoch | current_epoch | stake_distribution_epoch |
 | `compute_stake_distribution` | `TRACE` | public | Compute stake distribution for epoch | epoch |  |
-| `create_validation_context` | `TRACE` | public | Create validation context for a block | block_body_hash, block_number, block_body_size | total_inputs |
+| `create_block_validation_context` | `TRACE` | public | Create validation context for a block | block_body_hash, block_number, block_body_size |  |
+| `create_transaction_validation_context` | `TRACE` | public | Create validation context for a block | transaction_id |  |
+| `hydrate_accounts` | `TRACE` | public | Resolve account data from various sources | from_volatile, from_db |  |
+| `hydrate_cc_members` | `TRACE` | public | Resolve constitutional committee member data from various sources | from_volatile, from_db |  |
+| `hydrate_dreps` | `TRACE` | public | Resolve dRep data from various sources | from_volatile, from_db |  |
+| `hydrate_inputs` | `TRACE` | public | Resolve transaction inputs from various sources | from_volatile, from_db |  |
+| `hydrate_pools` | `TRACE` | public | Resolve pool data from various sources | from_volatile, from_db |  |
+| `hydrate_proposals` | `TRACE` | public | Resolve governance proposal data from various sources | from_volatile, from_db |  |
 | `prepare_block` | `TRACE` | public | Prepare block for validation |  |  |
 | `push_state` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
-| `resolve_accounts` | `TRACE` | public | Resolve account data from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
-| `resolve_cc_members` | `TRACE` | public | Resolve constitutional committee member data from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
-| `resolve_dreps` | `TRACE` | public | Resolve dRep data from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
-| `resolve_inputs` | `TRACE` | public | Resolve transaction inputs from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
-| `resolve_pools` | `TRACE` | public | Resolve pool data from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
-| `resolve_proposals` | `TRACE` | public | Resolve governance proposal data from various sources | resolved_from_context, resolved_from_volatile, resolved_from_db |  |
 | `roll_backward` | `TRACE` | public | Roll backward to a specific point | rollback_point |  |
 | `roll_forward` | `TRACE` | public | Roll forward ledger state with a new block |  |  |
 | `validate_block` | `TRACE` | public | Validate block against rules |  |  |
@@ -364,74 +366,75 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `create_validation_context`</summary>
+<details><summary>span: `create_block_validation_context`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `block_body_hash` | `string` | ✓ |
 | `block_number` | `integer` | ✓ |
 | `block_body_size` | `integer` | ✓ |
-| `total_inputs` | `integer` |  |
 
 </details>
 
-<details><summary>span: `resolve_accounts`</summary>
+<details><summary>span: `create_transaction_validation_context`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `resolved_from_context` | `integer` |  |
-| `resolved_from_volatile` | `integer` |  |
-| `resolved_from_db` | `integer` |  |
+| `transaction_id` | `string` | ✓ |
 
 </details>
 
-<details><summary>span: `resolve_cc_members`</summary>
+<details><summary>span: `hydrate_accounts`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `resolved_from_context` | `integer` |  |
-| `resolved_from_volatile` | `integer` |  |
-| `resolved_from_db` | `integer` |  |
+| `from_volatile` | `integer` |  |
+| `from_db` | `integer` |  |
 
 </details>
 
-<details><summary>span: `resolve_dreps`</summary>
+<details><summary>span: `hydrate_cc_members`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `resolved_from_context` | `integer` |  |
-| `resolved_from_volatile` | `integer` |  |
-| `resolved_from_db` | `integer` |  |
+| `from_volatile` | `integer` |  |
+| `from_db` | `integer` |  |
 
 </details>
 
-<details><summary>span: `resolve_inputs`</summary>
+<details><summary>span: `hydrate_dreps`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `resolved_from_context` | `integer` |  |
-| `resolved_from_volatile` | `integer` |  |
-| `resolved_from_db` | `integer` |  |
+| `from_volatile` | `integer` |  |
+| `from_db` | `integer` |  |
 
 </details>
 
-<details><summary>span: `resolve_pools`</summary>
+<details><summary>span: `hydrate_inputs`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `resolved_from_context` | `integer` |  |
-| `resolved_from_volatile` | `integer` |  |
-| `resolved_from_db` | `integer` |  |
+| `from_volatile` | `integer` |  |
+| `from_db` | `integer` |  |
 
 </details>
 
-<details><summary>span: `resolve_proposals`</summary>
+<details><summary>span: `hydrate_pools`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `resolved_from_context` | `integer` |  |
-| `resolved_from_volatile` | `integer` |  |
-| `resolved_from_db` | `integer` |  |
+| `from_volatile` | `integer` |  |
+| `from_db` | `integer` |  |
+
+</details>
+
+<details><summary>span: `hydrate_proposals`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from_volatile` | `integer` |  |
+| `from_db` | `integer` |  |
 
 </details>
 
