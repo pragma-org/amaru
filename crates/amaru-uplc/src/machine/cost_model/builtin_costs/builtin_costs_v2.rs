@@ -1010,7 +1010,45 @@ impl BuiltinCostModel for BuiltinCostsV2 {
                 self.byte_string_to_integer.mem.cost([args[0], args[1]]),
                 self.byte_string_to_integer.cpu.cost([args[0], args[1]]),
             )),
-            _ => None,
+            DefaultFunction::Keccak_256
+            | DefaultFunction::Blake2b_224
+            | DefaultFunction::Bls12_381_G1_Add
+            | DefaultFunction::Bls12_381_G1_Neg
+            | DefaultFunction::Bls12_381_G1_ScalarMul
+            | DefaultFunction::Bls12_381_G1_Equal
+            | DefaultFunction::Bls12_381_G1_Compress
+            | DefaultFunction::Bls12_381_G1_Uncompress
+            | DefaultFunction::Bls12_381_G1_HashToGroup
+            | DefaultFunction::Bls12_381_G2_Add
+            | DefaultFunction::Bls12_381_G2_Neg
+            | DefaultFunction::Bls12_381_G2_ScalarMul
+            | DefaultFunction::Bls12_381_G2_Equal
+            | DefaultFunction::Bls12_381_G2_Compress
+            | DefaultFunction::Bls12_381_G2_Uncompress
+            | DefaultFunction::Bls12_381_G2_HashToGroup
+            | DefaultFunction::Bls12_381_MillerLoop
+            | DefaultFunction::Bls12_381_MulMlResult
+            | DefaultFunction::Bls12_381_FinalVerify
+            | DefaultFunction::AndByteString
+            | DefaultFunction::OrByteString
+            | DefaultFunction::XorByteString
+            | DefaultFunction::ComplementByteString
+            | DefaultFunction::ReadBit
+            | DefaultFunction::WriteBits
+            | DefaultFunction::ReplicateByte
+            | DefaultFunction::ShiftByteString
+            | DefaultFunction::RotateByteString
+            | DefaultFunction::CountSetBits
+            | DefaultFunction::FindFirstSetBit
+            | DefaultFunction::Bls12_381_G1_MultiScalarMul
+            | DefaultFunction::Bls12_381_G2_MultiScalarMul
+            | DefaultFunction::InsertCoin
+            | DefaultFunction::LookupCoin
+            | DefaultFunction::UnionValue
+            | DefaultFunction::ValueContains
+            | DefaultFunction::ValueData
+            | DefaultFunction::UnValueData
+            | DefaultFunction::ScaleValue => None,
         }
     }
 }
