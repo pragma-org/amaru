@@ -806,8 +806,8 @@ mod tests {
     fn committee_block(slot: u64, act: CommitteeAct) -> AnchoredVolatileFragment {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         match act {
-            CommitteeAct::Auth => block.fragment.committee.bind_left(cred(1), Some(cred(2))).unwrap(),
-            CommitteeAct::Resign => block.fragment.committee.unregister(cred(1)),
+            CommitteeAct::Auth => block.fragment.committee.produce(cred(1), cred(2)),
+            CommitteeAct::Resign => block.fragment.committee.consume(cred(1)),
         }
         block
     }

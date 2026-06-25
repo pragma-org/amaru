@@ -42,11 +42,6 @@ pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
 
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.
-//
-// TODO: Is a 'Bind' really needed here?
-//
-// There's nothing to "bind" on as indicated by the two 'Empty' / 'Empty'. I suspect that a plain
-// BTreeMap might be sufficient here.
 pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Empty>;
 
 /// A volatile layer's verdict on an entity.
@@ -100,7 +95,9 @@ pub struct VolatileFragment {
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, Arc<DRepRegistration>>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
+    /// CC hot-key delegations as `produced` (member -> hot key) and resignations as `consumed`
+    /// tombstones. No in-block cert establishes membership, so this only ever tracks those two.
+    pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: BTreeMap<ComparableProposalId, Arc<(Proposal, ProposalPointer)>>,
     pub votes: DiffSet<BallotId, Ballot>,
@@ -150,12 +147,17 @@ impl VolatileFragment {
         }
     }
 
-    /// This fragment's verdict on a CC member. Resignation is immediate, so an `unregistered`
-    /// entry is a live tombstone.
+    /// This fragment's verdict on a CC member. Resignation is immediate, so a resignation entry is a
+    /// live tombstone. A delegation resolves as a bind-only update (`value: None`): no in-block cert
+    /// establishes membership, so existence still defers to the layer below.
     pub fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
-        if let Some(bind) = self.committee.registered.get(credential) {
-            Existence::Exists(bind.clone())
-        } else if self.committee.unregistered.contains(credential) {
+        if let Some(hot_credential) = self.committee.produced.get(credential) {
+            Existence::Exists(Bind {
+                left: Resettable::Set(hot_credential.clone()),
+                right: Resettable::Unchanged,
+                value: None,
+            })
+        } else if self.committee.consumed.contains(credential) {
             Existence::Gone
         } else {
             Existence::Unknown
@@ -244,7 +246,7 @@ impl VolatileFragment {
         self.accounts.append(accounts.clone());
         self.dreps.append(dreps.clone());
         self.dreps_deregistrations.extend(dreps_deregistrations.iter().map(|(k, v)| (k.clone(), *v)));
-        self.committee.append(committee.clone());
+        self.committee.extend(committee);
         self.fees += *fees;
     }
 }
@@ -326,7 +328,7 @@ impl AnchoredVolatileFragment {
                 pools: add_pools(pools.registered.into_iter(), epoch),
                 accounts: add_accounts(accounts.registered.into_iter()),
                 dreps: add_dreps(dreps.registered.into_iter()),
-                cc_members: add_committee(committee.registered.into_iter()),
+                cc_members: add_committee(committee.produced.into_iter()),
                 proposals: add_proposals(proposals.into_iter(), epoch + gov_action_lifetime),
                 votes: votes.produced.into_iter(),
             },
@@ -335,7 +337,7 @@ impl AnchoredVolatileFragment {
                 pools: pools.unregistered.into_iter(),
                 accounts: accounts.unregistered.into_iter(),
                 dreps: remove_dreps(dreps.unregistered.into_iter(), dreps_deregistrations),
-                cc_members: committee.unregistered.into_iter(),
+                cc_members: committee.consumed.into_iter(),
                 proposals: std::iter::empty(),
                 votes: {
                     debug_assert!(votes.consumed.is_empty());
@@ -432,11 +434,9 @@ pub(crate) fn remove_dreps(
 // ------------------------------------------------------------------------ Constitutional Committee
 
 pub(crate) fn add_committee(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<StakeCredential, Empty, Empty>)>,
+    iterator: impl Iterator<Item = (StakeCredential, StakeCredential)>,
 ) -> impl Iterator<Item = (cc_members::Key, cc_members::Value)> {
-    iterator.map(|(credential, Bind { left: hot_credential, right: _, value: _ })| {
-        (credential, (hot_credential, Resettable::Unchanged))
-    })
+    iterator.map(|(credential, hot_credential)| (credential, (Resettable::Set(hot_credential), Resettable::Unchanged)))
 }
 
 // --------------------------------------------------------------------------------------- Proposals

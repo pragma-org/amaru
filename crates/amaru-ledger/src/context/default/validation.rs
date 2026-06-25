@@ -315,16 +315,13 @@ impl CommitteeSlice for DefaultValidationContext {
     fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember> {
         let base = self.committee.get(cc_member);
 
-        match self.state.committee.registered.get(cc_member) {
-            Some(bind) => {
+        match self.state.committee.produced.get(cc_member) {
+            Some(hot_credential) => {
                 let base = base?;
-                Some(CCMember {
-                    hot_credential: bind.left.as_borrowed().to_option(base.hot_credential.as_ref()),
-                    valid_until: base.valid_until,
-                })
+                Some(CCMember { hot_credential: Some(hot_credential.clone()), valid_until: base.valid_until })
             }
             // resigned in-block; gone
-            None if self.state.committee.unregistered.contains(cc_member) => None,
+            None if self.state.committee.consumed.contains(cc_member) => None,
             // untouched in-block; the block-start state
             None => base.cloned(),
         }
@@ -341,7 +338,10 @@ impl CommitteeSlice for DefaultValidationContext {
             delegate = format!("{delegate:?}")
         );
         let _guard = _span.enter();
-        self.state.committee.bind_left(cc_member, Some(delegate))?;
+        if self.state.committee.consumed.contains(&cc_member) {
+            return Err(DelegateError::UnknownSource(cc_member));
+        }
+        self.state.committee.produce(cc_member, delegate);
         Ok(())
     }
 
@@ -358,7 +358,7 @@ impl CommitteeSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
-        self.state.committee.unregister(cc_member);
+        self.state.committee.consume(cc_member);
         Ok(())
     }
 }
