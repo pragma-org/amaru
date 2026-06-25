@@ -44,7 +44,8 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])]
+- **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])
+- **amaru-uplc**: replaced wildcard matches in `get_cost` so the compiler catches missing cost entries when new builtins are added. ([#971][])
 
 
 ## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
