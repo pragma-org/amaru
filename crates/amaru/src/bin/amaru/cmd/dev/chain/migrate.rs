@@ -50,7 +50,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let config = RocksDbConfig::new(chain_dir.clone());
 
     info!(
-        _command = "migrate-chain-db",
+        _command = "dev chain migrate",
         chain_dir = %chain_dir.to_string_lossy(),
         network = %args.network,
         "running",

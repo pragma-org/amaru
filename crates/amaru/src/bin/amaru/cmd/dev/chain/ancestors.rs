@@ -15,20 +15,21 @@
 use std::path::PathBuf;
 
 use amaru::default_chain_dir;
-use amaru_kernel::NetworkName;
+use amaru_kernel::{IsHeader, NetworkName};
+use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
+use clap::Parser;
+use tracing::info;
 
 use crate::cmd::PointOrHash;
 
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, Parser)]
 pub struct Args {
-    /// The blocks from which to remove the validation status
-    #[arg(
-        value_name = amaru::value_names::POINT_OR_HASH,
-    )]
-    blocks: Vec<PointOrHash>,
+    /// The point or hash to walk back from.
+    #[arg(value_name = amaru::value_names::POINT_OR_HASH)]
+    start: PointOrHash,
 
-    /// The path to the chain store database to remove the validation status from
+    /// The path to the chain database.
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
@@ -45,22 +46,47 @@ pub struct Args {
     network: NetworkName,
 }
 
+#[expect(clippy::print_stdout)]
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    tracing::info!(
-        _command = "remove-validation-status",
+    info!(
+        _command = "dev chain ancestors",
         chain_dir = %chain_dir.to_string_lossy(),
         network = %args.network,
+        start = %*args.start,
         "running",
     );
 
-    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
+    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 
-    for PointOrHash(hash) in args.blocks {
-        tracing::info!(%hash, "removing block validation status");
-        chain_store.remove_block_valid(&hash)?;
+    let mut count = 0u64;
+    for (header, valid) in db.ancestors_with_validity(*args.start) {
+        let point = header.point();
+        let height = header.block_height();
+        let has_block = db.has_block(&header.hash()).unwrap_or(false);
+        let on_best_chain = db.load_from_best_chain(&point).is_some();
+
+        println!(
+            "{} height={} block={} valid={} best-chain={}",
+            point,
+            height,
+            if has_block { "yes" } else { "no" },
+            valid_str(valid),
+            if on_best_chain { "yes" } else { "no" },
+        );
+        count += 1;
     }
 
+    println!("\n=> {count} ancestors");
+
     Ok(())
+}
+
+fn valid_str(valid: Option<bool>) -> &'static str {
+    match valid {
+        Some(true) => "valid",
+        Some(false) => "invalid",
+        None => "-",
+    }
 }

@@ -50,7 +50,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "reset-to-epoch",
+        _command = "node reset",
         epoch = %args.epoch,
         ledger_dir = %ledger_dir.to_string_lossy(),
         network = %args.network,

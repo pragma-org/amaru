@@ -81,7 +81,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
 
     info!(
-        _command = "fetch-chain-headers",
+        _command = "dev chain fetch",
         headers_dir = %args.headers_dir.to_string_lossy(),
         network = %args.network,
         parent = %args.parent.join(", "),

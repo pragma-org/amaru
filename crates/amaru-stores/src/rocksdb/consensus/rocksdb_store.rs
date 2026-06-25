@@ -22,7 +22,9 @@ use crate::rocksdb::{
     RocksDbConfig,
     consensus::{
         DbOps, check_db_version, migrate_db, set_version,
-        util::{BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, open_db, open_or_create_db},
+        util::{
+            BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+        },
     },
 };
 
@@ -125,6 +127,7 @@ impl RocksDBStore<DB> {
             batch.delete([&HEADER_PREFIX[..], &hash[..]].concat());
             batch.delete([&BLOCK_PREFIX[..], &hash[..]].concat());
             batch.delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat());
+            batch.delete([&NONCES_PREFIX[..], &hash[..]].concat());
             Ok(())
         })
     }

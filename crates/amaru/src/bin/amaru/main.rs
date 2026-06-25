@@ -37,39 +37,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Skip observability setup for dump-traces-schema to avoid polluting stderr
-    let skip_logging = cli.quiet || matches!(cli.command, Command::DumpTracesSchema(_) | Command::ShellCompletions(_));
+    let color_enabled = Color::is_enabled(cli.color);
 
-    let (metrics, teardown) = if skip_logging {
+    let (metrics, teardown) = if cli.command.skip_logging() {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>)
     } else {
-        let (m, t) = setup_observability(
-            cli.with_open_telemetry,
-            cli.with_json_traces,
-            Color::is_enabled(cli.color),
-            &cli.command,
-        );
+        let (m, t) = setup_observability(cli.with_open_telemetry, cli.with_json_traces, color_enabled, &cli.command);
         (Some(m), t)
     };
 
-    info!(
-        with_open_telemetry = cli.with_open_telemetry,
-        with_json_traces = cli.with_json_traces,
-        "Started with global arguments"
-    );
+    info!("Started");
 
     let result = match cli.command {
-        Command::Run(args) => cmd::run::run(args, metrics.unwrap()).await,
-        Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
-        Command::FetchChainHeaders(args) => cmd::fetch_chain_headers::run(args).await,
-        Command::CreateSnapshots(args) => cmd::create_snapshots::run(args).await,
+        Command::Node(node_cmd) => match node_cmd {
+            cmd::node::NodeCommand::Run(args) => cmd::node::run::run(args, metrics.unwrap()).await,
+            cmd::node::NodeCommand::Bootstrap(args) => cmd::node::bootstrap::run(args).await,
+            cmd::node::NodeCommand::Reset(args) => cmd::node::reset::run(args).await,
+        },
+        Command::Snapshot(snap_cmd) => match snap_cmd {
+            cmd::snapshot::SnapshotCommand::Create(args) => cmd::snapshot::create::run(args).await,
+        },
+        Command::Dev(dev_cmd) => match dev_cmd {
+            cmd::dev::DevCommand::Chain(chain_cmd) => match chain_cmd {
+                cmd::dev::chain::ChainCommand::Ancestors(args) => cmd::dev::chain::ancestors::run(args).await,
+                cmd::dev::chain::ChainCommand::BestChain(args) => cmd::dev::chain::best_chain::run(args).await,
+                cmd::dev::chain::ChainCommand::Children(args) => cmd::dev::chain::children::run(args).await,
+                cmd::dev::chain::ChainCommand::ClearInvalid(args) => cmd::dev::chain::clear_invalid::run(args).await,
+                cmd::dev::chain::ChainCommand::Dump(args) => cmd::dev::chain::dump::run(args).await,
+                cmd::dev::chain::ChainCommand::Fetch(args) => cmd::dev::chain::fetch::run(args).await,
+                cmd::dev::chain::ChainCommand::Migrate(args) => cmd::dev::chain::migrate::run(args).await,
+                cmd::dev::chain::ChainCommand::Prune(args) => cmd::dev::chain::prune::run(args).await,
+                cmd::dev::chain::ChainCommand::Remove(args) => cmd::dev::chain::remove::run(args).await,
+            },
+            cmd::dev::DevCommand::Ledger(ledger_cmd) => match ledger_cmd {
+                cmd::dev::ledger::LedgerCommand::Convert(args) => cmd::dev::ledger::convert::run(args).await,
+                cmd::dev::ledger::LedgerCommand::Nonces(nonces_cmd) => match nonces_cmd {
+                    cmd::dev::ledger::nonces::NoncesCommand::Get(args) => {
+                        cmd::dev::ledger::nonces::get::run(args).await
+                    }
+                    cmd::dev::ledger::nonces::NoncesCommand::Set(args) => {
+                        cmd::dev::ledger::nonces::set::run(args).await
+                    }
+                },
+                cmd::dev::ledger::LedgerCommand::States(states_cmd) => match states_cmd {
+                    cmd::dev::ledger::states::StatesCommand::List(args) => {
+                        cmd::dev::ledger::states::list::run(args).await
+                    }
+                    cmd::dev::ledger::states::StatesCommand::Import(args) => {
+                        cmd::dev::ledger::states::import::run(args).await
+                    }
+                    cmd::dev::ledger::states::StatesCommand::Remove(args) => {
+                        cmd::dev::ledger::states::remove::run(args).await
+                    }
+                },
+            },
+            cmd::dev::DevCommand::Traces(traces_cmd) => match traces_cmd {
+                cmd::dev::traces::TracesCommand::Dump(args) => cmd::dev::traces::dump::run(args).await,
+                cmd::dev::traces::TracesCommand::Schema(args) => cmd::dev::traces::dump::run(args).await,
+            },
+        },
         Command::ShellCompletions(args) => cmd::shell_completions::run(args).await,
-        Command::DumpChainDB(args) => cmd::dump_chain_db::run(args).await,
-        Command::RemoveValidationStatus(args) => cmd::remove_validation_status::run(args).await,
-        Command::RemoveChain(args) => cmd::remove_chain::run(args).await,
-        Command::DumpTracesSchema(args) => cmd::dump_schemas::run(args).await,
-        Command::MigrateChainDB(args) => cmd::migrate_chain_db::run(args).await,
-        Command::ResetToEpoch(args) => cmd::reset_to_epoch::run(args).await,
+
+        // Legacy aliases
+        Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::run(args, metrics.unwrap()).await,
+        Command::LegacyBootstrap(args) => cmd::node::bootstrap::run(args).await,
+        Command::LegacyResetToEpoch(args) => cmd::node::reset::run(args).await,
+        Command::LegacyCreateSnapshots(args) => cmd::snapshot::create::run(args).await,
+        Command::LegacyDumpChainDB(args) => cmd::dev::chain::dump::run(args).await,
+        Command::LegacyRemoveValidationStatus(args) => cmd::dev::chain::clear_invalid::run(args).await,
+        Command::LegacyFetchChainHeaders(args) => cmd::dev::chain::fetch::run(args).await,
+        Command::LegacyMigrateChainDB(args) => cmd::dev::chain::migrate::run(args).await,
+        Command::LegacyRemoveChain(args) => cmd::dev::chain::remove::run(args).await,
+        Command::LegacyDumpTracesSchema(args) => cmd::dev::traces::dump::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
