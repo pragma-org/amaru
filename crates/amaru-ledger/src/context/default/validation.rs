@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
+    sync::Arc,
 };
 
 use amaru_kernel::{
@@ -31,12 +32,19 @@ use crate::{
         ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
         blanket_known_datums, blanket_known_scripts,
     },
+    governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
 };
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    pools: BTreeSet<PoolId>,
+    accounts: BTreeMap<StakeCredential, AccountState>,
+    dreps: BTreeMap<StakeCredential, DRepRegistration>,
+    committee: BTreeMap<StakeCredential, CCMember>,
+    proposals: BTreeSet<ComparableProposalId>,
+    proposals_roots: ProposalsRoots,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -47,9 +55,23 @@ pub struct DefaultValidationContext {
 }
 
 impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
+    pub fn new(
+        utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+        pools: BTreeSet<PoolId>,
+        accounts: BTreeMap<StakeCredential, AccountState>,
+        dreps: BTreeMap<StakeCredential, DRepRegistration>,
+        committee: BTreeMap<StakeCredential, CCMember>,
+        proposals: BTreeSet<ComparableProposalId>,
+        proposals_roots: ProposalsRoots,
+    ) -> Self {
         Self {
             utxo,
+            pools,
+            accounts,
+            dreps,
+            committee,
+            proposals,
+            proposals_roots,
             state: VolatileFragment::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
@@ -79,7 +101,7 @@ impl PotsSlice for DefaultValidationContext {
 
 impl UtxoSlice for DefaultValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.get(input).or(self.state.utxo.produced.get(input))
+        self.utxo.get(input).or_else(|| self.state.utxo.produced.get(input).map(|output| output.as_ref()))
     }
 
     fn consume(&mut self, input: TransactionInput) {
@@ -88,15 +110,21 @@ impl UtxoSlice for DefaultValidationContext {
     }
 
     fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
-        self.state.utxo.produce(input, output)
+        self.state.utxo.produce(input, Arc::new(output))
     }
 }
 
 impl PoolsSlice for DefaultValidationContext {
-    fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
-        unimplemented!()
+    /// Whether the given pool exists in the resolved ledger state (including pools registered
+    /// earlier within the same block).
+    fn exists(&self, pool: PoolId) -> bool {
+        self.pools.contains(&pool)
     }
 
+    /// FIXME: In ProtocolVersion 11, we must also check for uniqueness of the VRF key when registering pools
+    ///
+    /// A `PoolId` isn't going to be sufficient context; we'll also need a way to resolve and
+    /// assert existence of VRF keys. Possibly in another BTreeSet of known VRF keys.
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer) {
         let pool_id = params.id;
         let _span = trace_span!(
@@ -104,7 +132,7 @@ impl PoolsSlice for DefaultValidationContext {
             pool_id = %pool_id
         );
         let _guard = _span.enter();
-        self.state.pools.register(params.id, (params, pointer))
+        self.state.pools.register(params.id, Arc::new((params, pointer)))
     }
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) {
@@ -119,8 +147,42 @@ impl PoolsSlice for DefaultValidationContext {
 }
 
 impl AccountsSlice for DefaultValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
-        unimplemented!()
+    /// The block start state (`self.accounts`) with this block's changes (`self.state`) folded in
+    fn lookup(&self, credential: &StakeCredential) -> Option<AccountState> {
+        // deregistered in block; gone
+        if self.state.accounts.unregistered.contains(credential) {
+            return None;
+        }
+
+        let mut account = match self.state.accounts.registered.get(credential) {
+            Some(bind) => match bind.value {
+                // fresh in-block registration; supersedes the block start state
+                Some(deposit) => AccountState {
+                    deposit,
+                    pool: bind.left.as_borrowed().to_option(None),
+                    drep: bind.right.as_borrowed().to_option(None),
+                    rewards: 0,
+                },
+                // re-binding layered over the block start state
+                None => {
+                    let base = self.accounts.get(credential)?;
+                    AccountState {
+                        deposit: base.deposit,
+                        pool: bind.left.as_borrowed().to_option(base.pool.as_ref()),
+                        drep: bind.right.as_borrowed().to_option(base.drep.as_ref()),
+                        rewards: base.rewards,
+                    }
+                }
+            },
+            // untouched in block; the block start state
+            None => self.accounts.get(credential)?.clone(),
+        };
+
+        if self.state.withdrawals.contains(credential) {
+            account.rewards = 0;
+        }
+
+        Some(account)
     }
 
     fn register(
@@ -191,8 +253,16 @@ impl AccountsSlice for DefaultValidationContext {
 }
 
 impl DRepsSlice for DefaultValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepRegistration> {
-        unimplemented!()
+    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration> {
+        match self.state.dreps.registered.get(credential) {
+            // a fresh in-block registration carries its own record; an anchor-only update has no
+            // `value`, so fall through to the block-start registration.
+            Some(bind) => bind.value.as_deref().or_else(|| self.dreps.get(credential)),
+            // deregistered in-block; gone
+            None if self.state.dreps.unregistered.contains(credential) => None,
+            // untouched in-block; the block-start state
+            None => self.dreps.get(credential),
+        }
     }
 
     fn register(
@@ -210,7 +280,7 @@ impl DRepsSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
-        self.state.dreps.register(drep, registration, anchor, None)?;
+        self.state.dreps.register(drep, Arc::new(registration), anchor, None)?;
         Ok(())
     }
 
@@ -240,6 +310,23 @@ impl DRepsSlice for DefaultValidationContext {
 }
 
 impl CommitteeSlice for DefaultValidationContext {
+    /// The block start state (`self.committee`) with this block's hot-key change folded in. No
+    /// in-block cert establishes membership, so a binding only ever layers over an existing member.
+    fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember> {
+        let base = self.committee.get(cc_member);
+
+        match self.state.committee.produced.get(cc_member) {
+            Some(hot_credential) => {
+                let base = base?;
+                Some(CCMember { hot_credential: Some(hot_credential.clone()), valid_until: base.valid_until })
+            }
+            // resigned in-block; gone
+            None if self.state.committee.consumed.contains(cc_member) => None,
+            // untouched in-block; the block-start state
+            None => base.cloned(),
+        }
+    }
+
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -251,7 +338,10 @@ impl CommitteeSlice for DefaultValidationContext {
             delegate = format!("{delegate:?}")
         );
         let _guard = _span.enter();
-        self.state.committee.bind_left(cc_member, Some(delegate))?;
+        if self.state.committee.consumed.contains(&cc_member) {
+            return Err(DelegateError::UnknownSource(cc_member));
+        }
+        self.state.committee.produce(cc_member, delegate);
         Ok(())
     }
 
@@ -268,14 +358,23 @@ impl CommitteeSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
-        self.state.committee.unregister(cc_member);
+        self.state.committee.consume(cc_member);
         Ok(())
     }
 }
 
 impl ProposalsSlice for DefaultValidationContext {
+    fn exists(&self, id: &ComparableProposalId) -> bool {
+        // FIXME: also fold proposals discovered in the block during validation
+        self.proposals.contains(id)
+    }
+
+    fn roots(&self) -> &ProposalsRoots {
+        &self.proposals_roots
+    }
+
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
-        self.state.proposals.insert(id.into(), (proposal, pointer));
+        self.state.proposals.insert(id.into(), Arc::new((proposal, pointer)));
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
@@ -334,5 +433,114 @@ impl WitnessSlice for DefaultValidationContext {
     fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{Slot, TransactionPointer};
+
+    use super::*;
+
+    fn cred(tag: u8) -> StakeCredential {
+        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    }
+
+    fn pointer() -> CertificatePointer {
+        CertificatePointer {
+            transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+            certificate_index: 0,
+        }
+    }
+
+    fn account(rewards: Lovelace) -> AccountState {
+        AccountState { deposit: 2_000_000, pool: None, drep: None, rewards }
+    }
+
+    fn ctx_with(accounts: BTreeMap<StakeCredential, AccountState>) -> DefaultValidationContext {
+        DefaultValidationContext::new(
+            BTreeMap::new(),
+            BTreeSet::new(),
+            accounts,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            ProposalsRoots::default(),
+        )
+    }
+
+    #[test]
+    fn lookup_returns_the_block_start_state_when_untouched() {
+        let ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.rewards), Some(7));
+    }
+
+    #[test]
+    fn lookup_reflects_an_in_block_registration() {
+        let mut ctx = ctx_with(BTreeMap::new());
+        AccountsSlice::register(&mut ctx, cred(1), account(0)).unwrap();
+        assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.deposit), Some(2_000_000));
+    }
+
+    #[test]
+    fn lookup_is_none_after_an_in_block_deregistration() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        AccountsSlice::unregister(&mut ctx, cred(1));
+        assert!(AccountsSlice::lookup(&ctx, &cred(1)).is_none());
+    }
+
+    #[test]
+    fn lookup_zeroes_rewards_after_an_in_block_withdrawal() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        ctx.withdraw_from(cred(1));
+        assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.rewards), Some(0));
+    }
+
+    #[test]
+    fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
+        let pool = Hash::new([9; 28]);
+        ctx.delegate_pool(cred(1), pool, pointer()).unwrap();
+
+        let found = AccountsSlice::lookup(&ctx, &cred(1)).unwrap();
+        assert_eq!(found.pool.map(|(p, _)| p), Some(pool));
+        assert_eq!(found.rewards, 7);
+        assert_eq!(found.deposit, 2_000_000);
+    }
+
+    fn cc_member(hot: Option<u8>) -> CCMember {
+        CCMember { hot_credential: hot.map(cred), valid_until: Some(Epoch::from(10)) }
+    }
+
+    fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
+        DefaultValidationContext::new(
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            committee,
+            BTreeSet::new(),
+            ProposalsRoots::default(),
+        )
+    }
+
+    #[test]
+    fn committee_lookup_returns_the_block_start_state_when_untouched() {
+        let ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
+        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)), Some(cc_member(None)));
+    }
+
+    #[test]
+    fn committee_lookup_folds_in_an_in_block_hot_key_auth() {
+        let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
+        ctx.delegate_cold_key(cred(1), cred(2)).unwrap();
+        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)).and_then(|m| m.hot_credential), Some(cred(2)));
+    }
+
+    #[test]
+    fn committee_lookup_is_none_after_an_in_block_resignation() {
+        let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
+        ctx.resign(cred(1), None).unwrap();
+        assert!(CommitteeSlice::lookup(&ctx, &cred(1)).is_none());
     }
 }

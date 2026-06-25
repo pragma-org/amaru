@@ -37,9 +37,7 @@ use amaru_ledger::{
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
 
-use super::{
-    decode_node_accounts, decode_node_pool_state, mempack, parse_state_snapshot, parse_state_snapshot_with_nonces,
-};
+use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_nonces};
 use crate::bootstrap::InitialNonces;
 
 pub fn import_snapshot_from_tvar<S, F>(
@@ -71,16 +69,7 @@ where
 
     state_file.seek(SeekFrom::Start(new_epoch_state_offset as u64))?;
 
-    let epoch = import_initial_snapshot(
-        db,
-        state_file,
-        &point,
-        &parsed_snapshot.era_history,
-        network,
-        with_progress,
-        decode_node_pool_state,
-        decode_node_accounts,
-    )?;
+    let epoch = import_initial_snapshot(db, state_file, &point, &parsed_snapshot.era_history, network, with_progress)?;
 
     import_utxo_from_tvar(utxo_file, db, with_progress, &point, &parsed_snapshot.era_history, network)?;
 

@@ -18,19 +18,23 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, AsHash, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, StakeCredential, StakeCredentialKind, TransactionInput, Vote, Voter, VoterKind,
+    Anchor, AsHash, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Vote,
+    Voter, VoterKind,
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
 use amaru_observability::trace_span;
 
-use crate::context::{
-    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
-    RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
-    blanket_known_scripts,
+use crate::{
+    context::{
+        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+        PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
+        PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
+        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+    },
+    governance::ratification::ProposalsRoots,
 };
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -79,10 +83,30 @@ impl PrepareAccountsSlice<'_> for AssertPreparationContext {
     fn require_account(&mut self, _credential: &StakeCredential) {
         unimplemented!();
     }
+
+    fn require_withdrawal(&mut self, _reward_account: &RewardAccount) {
+        unimplemented!();
+    }
 }
 
 impl PrepareDRepsSlice<'_> for AssertPreparationContext {
     fn require_drep(&mut self, _drep: &StakeCredential) {
+        unimplemented!();
+    }
+
+    fn require_drep_delegation(&mut self, _drep: &DRep) {
+        unimplemented!();
+    }
+}
+
+impl PrepareCommitteeSlice<'_> for AssertPreparationContext {
+    fn require_committee_member(&mut self, _cc_member: &StakeCredential) {
+        unimplemented!();
+    }
+}
+
+impl PrepareProposalsSlice<'_> for AssertPreparationContext {
+    fn require_proposal(&mut self, _id: &ProposalId) {
         unimplemented!();
     }
 }
@@ -137,19 +161,21 @@ impl UtxoSlice for AssertValidationContext {
 }
 
 impl PoolsSlice for AssertValidationContext {
-    fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
+    fn exists(&self, _pool: PoolId) -> bool {
         unimplemented!()
     }
+
     fn register(&mut self, _params: PoolParams, _pointer: CertificatePointer) {
         unimplemented!()
     }
+
     fn retire(&mut self, _pool: PoolId, _epoch: Epoch) {
         unimplemented!()
     }
 }
 
 impl AccountsSlice for AssertValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<AccountState> {
         unimplemented!()
     }
 
@@ -219,6 +245,10 @@ impl DRepsSlice for AssertValidationContext {
 }
 
 impl CommitteeSlice for AssertValidationContext {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<CCMember> {
+        unimplemented!()
+    }
+
     fn delegate_cold_key(
         &mut self,
         _cc_member: StakeCredential,
@@ -237,6 +267,14 @@ impl CommitteeSlice for AssertValidationContext {
 }
 
 impl ProposalsSlice for AssertValidationContext {
+    fn exists(&self, _id: &ComparableProposalId) -> bool {
+        unimplemented!()
+    }
+
+    fn roots(&self) -> &ProposalsRoots {
+        unimplemented!()
+    }
+
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 
     fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {

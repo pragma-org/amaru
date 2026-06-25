@@ -50,10 +50,7 @@ use tokio_util::io::StreamReader;
 use tracing::{error, info};
 
 use crate::{
-    cardano_node::{
-        ParsedStateSnapshot, decode_node_accounts, decode_node_pool_state, parse_state_snapshot_with_nonces,
-        tvar::import_snapshot_from_tvar,
-    },
+    cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
     default_data_dir, default_snapshots_dir, get_bootstrap_file,
 };
 
@@ -817,16 +814,9 @@ async fn import_cbor_snapshot_file(
     let builder = std::thread::Builder::new().stack_size(10_000_000);
     let (db, epoch) = builder
         .spawn(move || {
-            import_initial_snapshot(
-                &db,
-                &mut file,
-                &point,
-                &era_history,
-                network,
-                |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
-                decode_node_pool_state,
-                decode_node_accounts,
-            )
+            import_initial_snapshot(&db, &mut file, &point, &era_history, network, |size, template| {
+                TerminalProgressBar::new(size as u64, template).boxed()
+            })
             .map_err(|e| e.to_string())
             .map(|epoch| (db, epoch))
         })

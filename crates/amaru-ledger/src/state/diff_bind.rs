@@ -34,8 +34,24 @@ pub struct Bind<L, R, V> {
 }
 
 impl<L, R, V> Bind<L, R, V> {
-    pub fn into_borrowed(&self) -> Bind<&L, &R, &V> {
-        Bind { left: self.left.into_borrowed(), right: self.right.into_borrowed(), value: self.value.as_ref() }
+    pub fn as_borrowed(&self) -> Bind<&L, &R, &V> {
+        Bind { left: self.left.as_borrowed(), right: self.right.as_borrowed(), value: self.value.as_ref() }
+    }
+
+    /// Absorb a more recent update in place.
+    /// A `Set`/`Reset` overrides, `Unchanged` keeps what's here,
+    /// and a `value: Some(...)` supersedes wholesale.
+    pub fn then(&mut self, newer: Self) {
+        if newer.value.is_some() {
+            *self = newer;
+        } else {
+            if !matches!(newer.left, Resettable::Unchanged) {
+                self.left = newer.left;
+            }
+            if !matches!(newer.right, Resettable::Unchanged) {
+                self.right = newer.right;
+            }
+        }
     }
 }
 
@@ -66,9 +82,9 @@ impl<A> Resettable<A> {
         }
     }
 
-    pub fn into_borrowed(&self) -> Resettable<&A> {
+    pub fn as_borrowed(&self) -> Resettable<&A> {
         match self {
-            Self::Set(a) => Resettable::Set(a),
+            Self::Set(value) => Resettable::Set(value),
             Self::Reset => Resettable::Reset,
             Self::Unchanged => Resettable::Unchanged,
         }
@@ -83,6 +99,16 @@ impl<A: ToOwned<Owned = A>> Resettable<&A> {
             Self::Unchanged => Resettable::Unchanged,
         }
     }
+
+    /// Transform into an `Option`, using the default value `when_unchanged` for the `Unchanged`
+    /// case.
+    pub fn to_option(&self, when_unchanged: Option<&A>) -> Option<A> {
+        match self {
+            Resettable::Set(value) => Some((*value).to_owned()),
+            Resettable::Reset => None,
+            Resettable::Unchanged => when_unchanged.map(|value| value.to_owned()),
+        }
+    }
 }
 
 impl<A> From<Option<A>> for Resettable<A> {
@@ -94,7 +120,7 @@ impl<A> From<Option<A>> for Resettable<A> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Empty;
 
 impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
@@ -116,10 +142,10 @@ pub enum BindError<K> {
 }
 
 impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
-    pub fn into_borrowed(&self) -> DiffBind<&K, &L, &R, &V> {
+    pub fn as_borrowed(&self) -> DiffBind<&K, &L, &R, &V> {
         DiffBind {
             unregistered: self.unregistered.iter().collect(),
-            registered: self.registered.iter().map(|(k, bind)| (k, bind.into_borrowed())).collect(),
+            registered: self.registered.iter().map(|(k, bind)| (k, bind.as_borrowed())).collect(),
         }
     }
 
@@ -130,31 +156,21 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     /// In particular, a `value: Some(...)` in `most_recent` denotes a re-registration of the key;
     /// it fully supersedes any prior registration or bindings accumulated for that key.
     /// This could happen when a single block deregisters and re-registers a credential.
-    pub fn append(&mut self, most_recent: Self) -> &mut Self {
-        for key in most_recent.unregistered {
+    pub fn append(&mut self, newer: Self) -> &mut Self {
+        for key in newer.unregistered {
             self.unregister(key);
         }
 
-        for (key, bind) in most_recent.registered {
+        for (key, newer) in newer.registered {
             self.unregistered.remove(&key);
 
             match self.registered.entry(key) {
                 Entry::Vacant(e) => {
-                    e.insert(bind);
+                    e.insert(newer);
                 }
 
                 Entry::Occupied(mut e) => {
-                    if bind.value.is_some() {
-                        *e.get_mut() = bind;
-                    } else {
-                        if !matches!(&bind.left, &Resettable::Unchanged) {
-                            e.get_mut().left = bind.left;
-                        }
-
-                        if !matches!(&bind.right, &Resettable::Unchanged) {
-                            e.get_mut().right = bind.right;
-                        }
-                    }
+                    e.get_mut().then(newer);
                 }
             };
         }

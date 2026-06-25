@@ -14,7 +14,7 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::{Block, TransactionBody};
+use amaru_kernel::{Block, Certificate, TransactionBody};
 use amaru_observability::trace_span;
 pub use block::execute as validate_block;
 
@@ -49,10 +49,81 @@ pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a B
 
 /// Prepare the context for a single transaction.
 pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
+    prepare_inputs(context, transaction);
+    prepare_withdrawals(context, transaction);
+
+    let certificates = transaction.certificates.as_deref().unwrap_or(&[]).iter();
+    certificates.for_each(|certificate| prepare_certificate(context, certificate));
+
+    prepare_votes(context, transaction);
+}
+
+/// Collect and require the inputs from a single transaction.
+fn prepare_inputs<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
     let inputs = transaction.inputs.iter();
     let collaterals = transaction.collateral.as_deref().unwrap_or(&[]).iter();
     let reference_inputs = transaction.reference_inputs.as_deref().unwrap_or(&[]).iter();
     inputs.chain(reference_inputs).chain(collaterals).for_each(|input| context.require_input(input));
+}
+
+/// Collect and require the reward accounts referenced by a transaction's withdrawals.
+fn prepare_withdrawals<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
+    let Some(withdrawals) = transaction.withdrawals.as_ref() else {
+        return;
+    };
+    for (reward_account, _) in withdrawals.iter() {
+        context.require_withdrawal(reward_account);
+    }
+}
+
+/// Collect and require the proposals a transaction votes on.
+fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
+    let Some(votes) = transaction.votes.as_ref() else {
+        return;
+    };
+    for (_, ballots) in votes.iter() {
+        for (proposal_id, _) in ballots.iter() {
+            context.require_proposal(proposal_id);
+        }
+    }
+}
+
+/// Collect and require values from a single certificate.
+fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificate: &'a Certificate) {
+    match certificate {
+        Certificate::StakeDelegation(credential, pool_key_hash)
+        | Certificate::StakeRegDeleg(credential, pool_key_hash, _) => {
+            context.require_account(credential);
+            context.require_pool(pool_key_hash);
+        }
+
+        Certificate::PoolRegistration { operator: pool_key_hash, .. }
+        | Certificate::PoolRetirement(pool_key_hash, _) => context.require_pool(pool_key_hash),
+
+        Certificate::StakeVoteDeleg(credential, pool_key_hash, drep)
+        | Certificate::StakeVoteRegDeleg(credential, pool_key_hash, drep, _) => {
+            context.require_account(credential);
+            context.require_pool(pool_key_hash);
+            context.require_drep_delegation(drep);
+        }
+
+        Certificate::VoteRegDeleg(credential, drep, _) | Certificate::VoteDeleg(credential, drep) => {
+            context.require_account(credential);
+            context.require_drep_delegation(drep);
+        }
+        Certificate::AuthCommitteeHot(cold_credential, _) | Certificate::ResignCommitteeCold(cold_credential, _) => {
+            context.require_committee_member(cold_credential)
+        }
+
+        Certificate::RegDRepCert(drep, _, _)
+        | Certificate::UnRegDRepCert(drep, _)
+        | Certificate::UpdateDRepCert(drep, _) => context.require_drep(drep),
+
+        Certificate::StakeRegistration(credential)
+        | Certificate::Reg(credential, _)
+        | Certificate::UnReg(credential, _)
+        | Certificate::StakeDeregistration(credential) => context.require_account(credential),
+    };
 }
 
 #[cfg(test)]

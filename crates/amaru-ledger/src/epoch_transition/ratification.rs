@@ -280,6 +280,14 @@ impl GovernanceUpdates {
             })
         })
     }
+
+    /// The pending governance payout for the given account, or `0`. This covers both proposal
+    /// deposit refunds (on enactment, expiry, or pruning) and treasury withdrawals; both land on
+    /// the reward balance at the epoch boundary, so they count towards a withdrawable balance
+    /// during the straddle.
+    pub fn payout(&self, account: &StakeCredential) -> Lovelace {
+        self.payouts.get(account).copied().unwrap_or(0)
+    }
 }
 
 // ----------------------------------------------------------------------------------------- Tracing

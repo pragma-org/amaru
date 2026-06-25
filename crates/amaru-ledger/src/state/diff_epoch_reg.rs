@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::Epoch;
 
@@ -69,8 +69,11 @@ impl<V> Registrations<V> {
         inner.1.unwrap_or(inner.0)
     }
 
-    pub fn into_borrowed(&self) -> Registrations<&V> {
-        Registrations((&self.0.0, self.0.1.as_ref()))
+    pub fn as_borrowed<T>(&self) -> Registrations<&T>
+    where
+        V: Deref<Target = T>,
+    {
+        Registrations((self.0.0.deref(), self.0.1.as_deref()))
     }
 }
 
@@ -120,11 +123,14 @@ impl<K: Ord, V> DiffEpochReg<K, V> {
 
 impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
     /// Create a structure of borrowed keys and values from an initial borrowed structure.
-    pub fn into_borrowed(&self) -> DiffEpochReg<K, &V> {
+    pub fn as_borrowed<T>(&self) -> DiffEpochReg<K, &T>
+    where
+        V: Deref<Target = T>,
+    {
         let mut borrowed = DiffEpochReg::default();
 
         for (k, v) in self.registered.iter() {
-            borrowed.registered.insert(*k, v.into_borrowed());
+            borrowed.registered.insert(*k, v.as_borrowed());
         }
 
         for (k, v) in self.unregistered.iter() {
@@ -149,6 +155,23 @@ impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
             self.register(k, v.0.0);
             if let Some(re_registration) = v.0.1 {
                 self.register(k, re_registration);
+            }
+        }
+    }
+
+    /// Like `append`, but for Clonable values.
+    pub fn extend(&mut self, most_recent: &DiffEpochReg<K, V>)
+    where
+        V: Clone,
+    {
+        for (k, v) in &most_recent.unregistered {
+            self.unregister(*k, *v)
+        }
+
+        for (k, v) in &most_recent.registered {
+            self.register(*k, v.0.0.clone());
+            if let Some(re_registration) = v.0.1.as_ref() {
+                self.register(*k, re_registration.clone());
             }
         }
     }

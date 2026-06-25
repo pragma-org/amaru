@@ -12,11 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{CertificatePointer, Epoch, Lovelace};
+use crate::{CertificatePointer, DRepState, Epoch, Lovelace};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct DRepRegistration {
     pub deposit: Lovelace,
     pub registered_at: CertificatePointer,
     pub valid_until: Epoch,
+}
+
+impl DRepRegistration {
+    /// Construct a new `DRepRegistration` from a decoded state and a registration pointer.
+    pub fn from_state(state: DRepState, registered_at: CertificatePointer) -> DRepRegistration {
+        DRepRegistration { deposit: state.deposit, registered_at, valid_until: state.expiry }
+    }
 }

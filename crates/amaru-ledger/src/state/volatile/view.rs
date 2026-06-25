@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
+    sync::Arc,
 };
 
 use amaru_kernel::{
@@ -24,7 +25,12 @@ use amaru_kernel::{
 
 use crate::{
     governance::ratification::ProposalsRootsRc,
-    state::{VolatileDB, diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, volatile::fragment::add_proposals},
+    state::{
+        VolatileDB,
+        diff_bind::DiffBind,
+        diff_epoch_reg::DiffEpochReg,
+        volatile::{VolatileSequence, fragment::add_proposals},
+    },
     store::{
         ReadStore, StoreError,
         columns::{pools::Row as Pool, *},
@@ -44,7 +50,7 @@ pub struct VolatileView<'volatile, 'store, DB: ReadStore> {
     proposal_lifetime: u64,
     db: &'store DB,
     pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer)>>,
-    proposals: BTreeMap<&'volatile ComparableProposalId, &'volatile (Proposal, ProposalPointer)>,
+    proposals: BTreeMap<&'volatile ComparableProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
     accounts: Option<AccountVolatileView<'volatile>>,
 }
 
@@ -69,9 +75,9 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         let mut accounts = DiffBind::default();
 
         for anchored in volatile.iter() {
-            accounts.append(anchored.fragment.accounts.into_borrowed());
+            accounts.append(anchored.fragment.accounts.as_borrowed());
 
-            pools.append(anchored.fragment.pools.into_borrowed());
+            pools.append(anchored.fragment.pools.as_borrowed());
 
             for (k, v) in anchored.fragment.proposals.iter() {
                 proposals.insert(k, v);

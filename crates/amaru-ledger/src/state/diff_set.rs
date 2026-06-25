@@ -32,11 +32,40 @@ impl<K: Ord, V> Default for DiffSet<K, V> {
 }
 
 impl<K: Ord, V> DiffSet<K, V> {
-    pub fn merge(&mut self, other: Self) {
-        self.produced.retain(|k, _| !other.consumed.contains(k));
-        self.consumed.retain(|k| !other.produced.contains_key(k));
-        self.consumed.extend(other.consumed);
-        self.produced.extend(other.produced);
+    pub fn extend(&mut self, other: &DiffSet<K, V>)
+    where
+        // TODO: lower requirement to 'Copy' for DiffSet keys
+        //
+        // This needs to be clone because `TransactionInput` isn't `Copy` at the moment. But
+        // it's reasonable to ask keys to be always Copy in this scenario.
+        K: Clone,
+        V: Clone,
+    {
+        for k in &other.consumed {
+            self.produced.remove(k);
+            self.consumed.insert(k.clone());
+        }
+
+        for (k, v) in &other.produced {
+            self.produced.insert(k.clone(), v.clone());
+        }
+    }
+
+    /// Remove the effect of a previous `DiffSet` on the current `DiffSet`. This is technically an
+    /// `undo` operation, but with the extra assumption that something consumed is never produced
+    /// again.
+    ///
+    /// An important consideration is also that this function's goal is not to exactly revert a
+    /// `DiffSet`, but rather, to cleanup memory as much as we can in a cheap way; this ensures
+    /// that one can use a `DiffSet` as a cache, while keeping the memory under control.
+    pub fn cleanup(&mut self, other: &DiffSet<K, V>) {
+        for k in other.produced.keys() {
+            self.produced.remove(k);
+        }
+
+        for k in &other.consumed {
+            self.consumed.remove(k);
+        }
     }
 
     pub fn produce(&mut self, k: K, v: V) {
@@ -78,17 +107,24 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_merge_itself(mut st in any_diff()) {
-            let original = st.clone();
-            st.merge(st.clone());
+        fn prop_extend_itself(st in any_diff()) {
+            let mut original = st.clone();
+            original.extend(&st);
             prop_assert_eq!(st, original);
         }
     }
 
     proptest! {
         #[test]
-        fn prop_merge_no_overlap(mut st in any_diff(), diff in any_diff()) {
-            st.merge(diff.clone());
+        fn prop_merge_no_overlap(mut st in any_diff(), mut diff in any_diff()) {
+            // Extra assumptions that must hold for this property:
+            //
+            // - We cannot produce an item produced or consumed before
+            // - We cannot consume an item twice
+            diff.produced.retain(|k, _| !st.produced.contains_key(k) && !st.consumed.contains(k));
+            diff.consumed.retain(|k| !st.consumed.contains(k));
+
+            st.extend(&diff);
 
             for (k, v) in diff.produced.iter() {
                 prop_assert_eq!(
@@ -151,7 +187,7 @@ mod tests {
                 &diffs
                     .into_iter()
                     .fold(DiffSet::default(), |mut acc, diff| {
-                        acc.merge(diff);
+                        acc.extend(&diff);
                         acc
                     })
             );

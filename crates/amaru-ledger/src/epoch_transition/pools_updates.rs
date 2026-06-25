@@ -79,6 +79,12 @@ impl PoolsEpochTransitionUpdates {
         self.refunds.iter().map(|(account, refund)| (account, *refund))
     }
 
+    /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
+    /// balance, so they count towards a withdrawable balance during the straddle.
+    pub fn refund(&self, account: &StakeCredential) -> Lovelace {
+        self.refunds.get(account).copied().unwrap_or(0)
+    }
+
     /// Only check if a pool would be retiring, without taking ownership or modifying the original
     /// object.
     pub fn is_retiring(epoch: Epoch, pool: &Pool) -> bool {

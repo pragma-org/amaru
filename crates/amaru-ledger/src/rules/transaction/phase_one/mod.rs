@@ -338,7 +338,15 @@ mod tests {
         let protocol_parameters: ProtocolParameters =
             fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
 
-        let mut ctx = DefaultValidationContext::new(fixture.initial_state.utxo);
+        let mut ctx = DefaultValidationContext::new(
+            fixture.initial_state.utxo,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
 
         // Mirror block::execute: body.required_signers is pushed into the witness slice before
         // phase-one runs, so the conformance harness must do the same to faithfully test that

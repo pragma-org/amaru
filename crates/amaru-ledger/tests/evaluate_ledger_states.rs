@@ -15,7 +15,7 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         env, fs,
         io::Write as _,
         path::{Path, PathBuf},
@@ -23,11 +23,18 @@ pub mod tests {
     };
 
     use amaru_kernel::{
-        Bytes, Epoch, EraHistory, NetworkName, ProtocolParameters, Transaction, TransactionPointer, WitnessSet, cbor,
+        Account, Bytes, CertificatePointer, ComparableProposalId, ConstitutionalCommittee,
+        ConstitutionalCommitteeMemberStatus, DRepRegistration, DRepState, Epoch, EraHistory, MemoizedTransactionOutput,
+        NetworkName, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState, ProtocolParameters, Slot,
+        StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer, WitnessSet, cbor,
         cbor as minicbor,
     };
     use amaru_ledger::{
-        self, context::DefaultValidationContext, epoch_transition::GovernanceActivity, rules::transaction,
+        self,
+        context::{AccountState, DefaultValidationContext},
+        epoch_transition::GovernanceActivity,
+        rules::transaction,
+        snapshot,
     };
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
@@ -94,36 +101,75 @@ pub mod tests {
         }
     }
 
-    // Traverse into the NewEpochState and find the utxos. In practice the initial ledger state for
-    // each vector is very simple so we don't need to worry about every field. We really just care
-    // about the utxos.
-    fn decode_ledger_state<'b>(
-        d: &mut cbor::Decoder<'b>,
-    ) -> Result<(DefaultValidationContext, &'b cbor::bytes::ByteSlice, GovernanceActivity), cbor::decode::Error> {
+    // Decode the NewEpochState's initial ledger state into the pieces a ValidationContext needs.
+    // Conformance vectors currently carry only UTxO state; the other sections decode as empty.
+    struct DecodedLedgerState<'b> {
+        utxos: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+        pools: BTreeSet<PoolId>,
+        accounts: BTreeMap<StakeCredential, Account>,
+        dreps: BTreeMap<StakeCredential, DRepState>,
+        cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
+        cc_state: StrictMaybe<ConstitutionalCommittee>,
+        proposals: Vec<NewEpochProposalState>,
+        roots: [StrictMaybe<ComparableProposalId>; 4],
+        pparams_hash: &'b cbor::bytes::ByteSlice,
+        dormant_epochs: Epoch,
+    }
+
+    fn decode_ledger_state<'b>(d: &mut cbor::Decoder<'b>) -> Result<DecodedLedgerState<'b>, cbor::decode::Error> {
         let _begin_nes = d.array()?;
         let _epoch_no = d.u64()?;
-        d.skip()?; // blocks_made
-        d.skip()?; // blocks_made
+        d.skip()?; // blocks_made (previous)
+        d.skip()?; // blocks_made (current)
         let _begin_epoch_state = d.array()?;
-        d.skip()?; // begin_account_state
+        d.skip()?; // account_state
         let _begin_ledger_state = d.array()?;
         let _cert_state = d.array()?;
         let _voting_state = d.array()?;
-        d.skip()?; // dreps
-        d.skip()?; // committee_state
-        let number_of_dormant_epochs: Epoch = d.decode()?;
-        d.skip()?; // p_state
-        d.skip()?; // d_state
+        let dreps = d.decode()?;
+        let cc_members = d.decode()?;
+        let dormant_epochs: Epoch = d.decode()?;
+
+        // PState: [stake pools, future pools, retiring, deposits]. Only pool existence matters here.
+        let pools = {
+            let len = d.array()?;
+            let params: BTreeMap<PoolId, PoolParams> = d.decode()?;
+            for _ in 1..len.unwrap_or(0) {
+                d.skip()?;
+            }
+            params.into_keys().collect()
+        };
+
+        // DState: [unified map, future gen delegs, gen delegs, instantaneous rewards]. The unified map
+        // is [accounts, pointers], where each account entry is what cardano-ledger calls a UMElem
+        // (reward and deposit, pointers, pool and drep delegation), whose layout the kernel `Account`
+        // type mirrors.
+
+        // NOTE: Uncovered branch
+        //
+        // Every conformance vector has an empty account map, so this UMElem
+        // decoding is unexercised here, verified only by construction against the ledger encoding.
+        let accounts = {
+            let len = d.array()?;
+            let _umap_len = d.array()?;
+            let accounts: BTreeMap<StakeCredential, Account> = d.decode()?;
+            d.skip()?; // pointers
+            for _ in 1..len.unwrap_or(0) {
+                d.skip()?;
+            }
+            accounts
+        };
+
         let _utxo_state = d.array()?;
 
-        let mut utxos_map = BTreeMap::new();
-        let utxos_map_count = d.map()?;
-        match utxos_map_count {
+        let mut utxos = BTreeMap::new();
+        let utxos_count = d.map()?;
+        match utxos_count {
             Some(n) => {
                 for _ in 0..n {
                     let tx_in = d.decode()?;
                     let tx_out = d.decode()?;
-                    utxos_map.insert(tx_in, tx_out);
+                    utxos.insert(tx_in, tx_out);
                 }
             }
             None => loop {
@@ -133,34 +179,45 @@ pub mod tests {
                 }
                 let tx_in = d.decode()?;
                 let tx_out = d.decode()?;
-                utxos_map.insert(tx_in, tx_out);
+                utxos.insert(tx_in, tx_out);
             },
         }
         d.skip()?; // deposits
         d.skip()?; // fees
 
         let _gov_state = d.array()?;
-        d.skip()?; // proposals
-        d.skip()?; // committee
+        // The proposals field nests the governance roots ahead of the proposals themselves.
+        d.array()?;
+        d.array()?;
+        let roots = [d.decode()?, d.decode()?, d.decode()?, d.decode()?];
+        let proposals = d.decode()?;
+        let cc_state = d.decode()?;
         d.skip()?; // constitution
-        let current_pparams_hash = d.decode()?;
-        d.skip()?; //previous_pparams_hash
+        let pparams_hash = d.decode()?;
+        d.skip()?; // previous_pparams_hash
         d.skip()?; // future_pparams
         d.skip()?; // drep_pulsing_state
 
         d.skip()?; // stake distr
         d.skip()?; // donation
-        d.skip()?; //snapshots
+        d.skip()?; // snapshots
         d.skip()?; // non-myopic
         d.skip()?; // pulsing rewards
         d.skip()?; // pool distribution
         d.skip()?; // stashed
 
-        Ok((
-            DefaultValidationContext::new(utxos_map),
-            current_pparams_hash,
-            GovernanceActivity { consecutive_dormant_epochs: u64::from(number_of_dormant_epochs) as u32 },
-        ))
+        Ok(DecodedLedgerState {
+            utxos,
+            pools,
+            accounts,
+            dreps,
+            cc_members,
+            cc_state,
+            proposals,
+            roots,
+            pparams_hash,
+            dormant_epochs,
+        })
     }
 
     fn decode_segregated_parameters(
@@ -187,9 +244,54 @@ pub mod tests {
         pparams_dir: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut decoder = cbor::Decoder::new(&record.initial_state);
-        let (mut validation_context, pparams_hash, governance_activity) = decode_ledger_state(&mut decoder)?;
+        let decoded = decode_ledger_state(&mut decoder)?;
 
-        let protocol_parameters = decode_segregated_parameters(pparams_dir, pparams_hash)?;
+        let protocol_parameters = decode_segregated_parameters(pparams_dir, decoded.pparams_hash)?;
+        let governance_activity =
+            GovernanceActivity { consecutive_dormant_epochs: u64::from(decoded.dormant_epochs) as u32 };
+
+        // NOTE:  DRep registration pointer fabrication
+        //
+        // a NewEpochState records no DRep registration pointer, so callers stamp a
+        // synthesized `registered_at`. Any rule that orders against it,
+        // e.g. "vote delegation must follow DRep registration", can't be meaningfully
+        // checked on snapshot-seeded state; exercising that ordering needs an in-block
+        // registration instead.
+        let registered_at = CertificatePointer {
+            transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+            certificate_index: 0,
+        };
+
+        let point = Point::Origin;
+
+        let accounts: BTreeMap<StakeCredential, AccountState> = decoded
+            .accounts
+            .into_iter()
+            // Pulsing reward updates aren't decoded, so the balance is the settled rewards only.
+            .map(|(credential, account)| {
+                (credential, snapshot::account_state(account, 0, &point, &protocol_parameters))
+            })
+            .collect();
+        let dreps: BTreeMap<StakeCredential, DRepRegistration> = decoded
+            .dreps
+            .into_iter()
+            .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
+            .collect();
+        let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
+        let proposals =
+            decoded.proposals.into_iter().map(|st| ComparableProposalId::from(st.id)).collect::<BTreeSet<_>>();
+        let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
+        let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
+
+        let mut validation_context = DefaultValidationContext::new(
+            decoded.utxos,
+            decoded.pools,
+            accounts,
+            dreps,
+            committee,
+            proposals,
+            proposals_roots,
+        );
 
         for (ix, event) in record.events.into_iter().enumerate() {
             let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {

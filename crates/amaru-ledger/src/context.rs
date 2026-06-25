@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub(crate) mod assert;
-mod default;
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -22,14 +19,19 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
+    transaction_input_to_string,
 };
-pub use default::*;
+use thiserror::Error;
 
-use crate::state::diff_bind;
+use crate::{governance::ratification::ProposalsRoots, state::diff_bind, store::StoreError};
+
+pub(crate) mod assert;
+mod default;
+pub use default::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
@@ -40,11 +42,54 @@ pub trait ValidationContext:
 
 /// The PreparationContext is a collection of interfaces needed to prepare a block
 pub trait PreparationContext<'a>:
-    PrepareUtxoSlice<'a> + PreparePoolsSlice<'a> + PrepareAccountsSlice<'a> + PrepareDRepsSlice<'a>
+    PrepareUtxoSlice<'a>
+    + PreparePoolsSlice<'a>
+    + PrepareAccountsSlice<'a>
+    + PrepareDRepsSlice<'a>
+    + PrepareCommitteeSlice<'a>
+    + PrepareProposalsSlice<'a>
 {
 }
 
-// Errors
+/// Local enum deciding what we should do for unresolved inputs happening when validating transactions.
+/// If we are validating transactions from a block we can defer the check because the inputs might
+/// be provided by transactions in the same block.
+///
+/// However, there are cases (such as mempool validation) where a missing input may not be acceptable.
+#[derive(Debug, Clone, Copy)]
+pub enum UnresolvedInputPolicy {
+    Defer,
+    Reject,
+}
+
+// Errors (preparation)
+// -------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum ContextHydratationError {
+    #[error("failed to hydrate inputs")]
+    ResolveInputs(#[source] StoreError),
+
+    #[error("unknown (but required) transaction input or reference input: {}", transaction_input_to_string(.0))]
+    UnknownInput(TransactionInput),
+
+    #[error("failed to hydrate pools")]
+    ResolvePools(#[source] StoreError),
+
+    #[error("failed to hydrate accounts")]
+    ResolveAccounts(#[source] StoreError),
+
+    #[error("failed to hydrate dreps")]
+    ResolveDReps(#[source] StoreError),
+
+    #[error("failed to hydrate committee members")]
+    ResolveCommittee(#[source] StoreError),
+
+    #[error("failed to hydrate proposals")]
+    ResolveProposals(#[source] StoreError),
+}
+
+// Errors (validation)
 // -------------------------------------------------------------------------------------------------
 
 #[derive(thiserror::Error, Debug)]
@@ -126,7 +171,7 @@ pub trait PrepareUtxoSlice<'a> {
 
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
-    fn lookup(&self, pool: &PoolId) -> Option<&PoolParams>;
+    fn exists(&self, pool: PoolId) -> bool;
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer);
 
@@ -142,16 +187,21 @@ pub trait PreparePoolsSlice<'a> {
 // Accounts
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AccountState {
     pub deposit: Lovelace,
     pub pool: Option<(PoolId, CertificatePointer)>,
     pub drep: Option<(DRep, CertificatePointer)>,
+    /// Withdrawable reward balance as of the start of the block; a withdrawal must claim exactly
+    /// this. `0` for a freshly registered account.
+    pub rewards: Lovelace,
 }
 
 /// An interface for interacting with a subset of the Accounts state.
 pub trait AccountsSlice {
-    fn lookup(&self, credential: &StakeCredential) -> Option<&AccountState>;
+    /// The account state at this point in the block; the resolved block-start state with the
+    /// in-block changes folded in.
+    fn lookup(&self, credential: &StakeCredential) -> Option<AccountState>;
 
     fn register(
         &mut self,
@@ -181,7 +231,11 @@ pub trait AccountsSlice {
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.
 pub trait PrepareAccountsSlice<'a> {
-    fn require_account(&'_ mut self, credential: &'a StakeCredential);
+    fn require_account(&mut self, credential: &'a StakeCredential);
+
+    /// Require the account behind a withdrawal. The reward account is parsed to a credential at
+    /// resolution, so the borrowed bytes are collected rather than a credential.
+    fn require_withdrawal(&mut self, reward_account: &'a RewardAccount);
 }
 
 // DRep
@@ -189,6 +243,8 @@ pub trait PrepareAccountsSlice<'a> {
 
 /// An interface for interacting with a subset of the DReps state.
 pub trait DRepsSlice {
+    /// The DRep registration at this point in the block: the block-start record, or a fresh in-block
+    /// registration that supersedes it. Unlike accounts this never merges, so it returns a reference.
     fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration>;
 
     fn register(
@@ -206,16 +262,29 @@ pub trait DRepsSlice {
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
 pub trait PrepareDRepsSlice<'a> {
     fn require_drep(&'_ mut self, credential: &'a StakeCredential);
+
+    /// Require the DRep targeted by a vote delegation. The credential is constructed from the `DRep`
+    /// at resolution (and `Abstain`/`NoConfidence` drop out), so the borrowed `DRep` is collected.
+    fn require_drep_delegation(&'_ mut self, drep: &'a DRep);
 }
 
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub struct CCMember {}
+#[derive(Debug, Clone, PartialEq)]
+pub struct CCMember {
+    /// The authorized hot credential, if the member has declared one.
+    pub hot_credential: Option<StakeCredential>,
+    /// The term expiry; `None` once the member is inactive (no-confidence).
+    pub valid_until: Option<Epoch>,
+}
 
 /// An interface for interacting with a subset of the Constitutional Committee members state.
 pub trait CommitteeSlice {
+    /// The committee member at this point in the block: the block-start record with the in-block
+    /// hot-key change folded in, or `None` once it has resigned.
+    fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember>;
+
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -229,13 +298,37 @@ pub trait CommitteeSlice {
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
 }
 
+/// An interface to help constructing the concrete CommitteeSlice ahead of time.
+pub trait PrepareCommitteeSlice<'a> {
+    fn require_committee_member(&'_ mut self, cc_member: &'a StakeCredential);
+}
+
 // Governance Proposals
 // -------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Clone)]
+pub struct ProposalState {
+    pub proposed_in: ProposalPointer,
+    /// Last epoch the proposal can be voted on.
+    pub valid_until: Epoch,
+    pub proposal: Proposal,
+}
+
 pub trait ProposalsSlice {
+    /// The proposal at this point in the block, including ones acknowledged earlier in the block.
+    fn exists(&self, id: &ComparableProposalId) -> bool;
+
+    /// The current governance roots, i.e. the latest enacted action per category.
+    fn roots(&self) -> &ProposalsRoots;
+
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
+}
+
+/// An interface to help constructing the concrete ProposalsSlice ahead of time.
+pub trait PrepareProposalsSlice<'a> {
+    fn require_proposal(&'_ mut self, id: &'a ProposalId);
 }
 
 // Witnesses

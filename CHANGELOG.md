@@ -38,6 +38,15 @@ Other guiding principles:
 
 ## v10.10.20260702 _[unreleased; planned for 2026-07-02]_
 
+### Added
+
+- **amaru-ledger**: added more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
+
+### Changed
+
+- **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])]
+
+
 ## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
 
 ### Changed
@@ -85,4 +94,6 @@ Other guiding principles:
 [#953]: https://github.com/pragma-org/amaru/pull/953
 [#954]: https://github.com/pragma-org/amaru/pull/954
 [#959]: https://github.com/pragma-org/amaru/pull/959
+[#963]: https://github.com/pragma-org/amaru/pull/963
 [#973]: https://github.com/pragma-org/amaru/pull/973
+[#975]: https://github.com/pragma-org/amaru/pull/975

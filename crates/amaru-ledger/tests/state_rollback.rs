@@ -176,6 +176,27 @@ impl ReadStore for MockStore {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
+    fn drep(
+        &self,
+        credential: &amaru_kernel::StakeCredential,
+    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::dreps::Row>> {
+        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
+    }
+
+    fn cc_member(
+        &self,
+        credential: &amaru_kernel::StakeCredential,
+    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::cc_members::Row>> {
+        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
+    }
+
+    fn proposal(
+        &self,
+        id: &amaru_kernel::ComparableProposalId,
+    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::proposals::Row>> {
+        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
+    }
+
     fn utxo(
         &self,
         input: &amaru_kernel::TransactionInput,

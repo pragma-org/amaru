@@ -16,6 +16,16 @@ pub use pallas_primitives::conway::DRep;
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
+use crate::StakeCredential;
+
+pub fn to_stake_credential(drep: &DRep) -> Option<StakeCredential> {
+    match drep {
+        DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
+        DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
+        DRep::Abstain | DRep::NoConfidence => None,
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use proptest::prelude::*;
