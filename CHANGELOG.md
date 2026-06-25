@@ -45,7 +45,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])]
-
+- **amaru-ledger**: fully encapsulated the `StateOverlay` inside of `VolatileDB` ([#983][])
 
 ## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
 
@@ -97,3 +97,4 @@ Other guiding principles:
 [#963]: https://github.com/pragma-org/amaru/pull/963
 [#973]: https://github.com/pragma-org/amaru/pull/973
 [#975]: https://github.com/pragma-org/amaru/pull/975
+[#983]: https://github.com/pragma-org/amaru/pull/983
