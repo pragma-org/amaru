@@ -122,7 +122,7 @@ Compared with the Haskell node and ledger stack, `amaru-ledger` makes a few expl
 - It is snapshot-first by design. The crate assumes bootstrap from ledger snapshots and historical snapshots for epoch work, rather than trying to solve full chain synchronization from genesis inside the ledger component itself.
 - It keeps storage, rule evaluation, and consensus integration as separate layers. `Store` traits, slice-based contexts, summaries, and the `BlockValidator` adapter are all first-class boundaries in the code.
 - A single `State` value is intentionally linear: it tracks one candidate chain. Multiple candidates can share the same stable backend while maintaining their own volatile views. This differs from representing every branch as one large shared in-memory structure.
-- Delayed epoch state is modeled explicitly through [`StateOverlay`](src/state/overlay.rs), rather than being implicit in one globally updated structure. This makes the boundary between "already relevant for validation" and "stable enough to persist" visible in the code.
+- Delayed epoch state is modeled explicitly through [`StateOverlay`](src/state/volatile/overlay.rs), rather than being implicit in one globally updated structure. This makes the boundary between "already relevant for validation" and "stable enough to persist" visible in the code. It is fully encapsulated within the `VolatileDB` and never handed out.
 
 These choices are mostly about operational trade-offs: memory footprint, restart behavior, persistence boundaries, and keeping the ledger core testable in isolation.
 

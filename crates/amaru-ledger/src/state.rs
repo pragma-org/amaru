@@ -35,7 +35,7 @@ use tracing::{Span, info, trace, warn};
 
 use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
-    epoch_transition::{self, GovernanceActivity, RewardsState},
+    epoch_transition::{self, GovernanceActivity},
     governance::ratification::RatificationContext,
     rules::{
         self,
@@ -55,7 +55,6 @@ use crate::{
 pub mod diff_bind;
 pub mod diff_epoch_reg;
 pub mod diff_set;
-pub mod overlay;
 pub mod volatile;
 
 /// The minimum number of past (from the current epoch) snapshots required for the ledger to
@@ -131,7 +130,7 @@ where
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// The last known epoch; or said differently, the epoch the volatile overlay is valid for.
     pub fn epoch(&self) -> Epoch {
-        self.volatile.overlay().epoch()
+        self.volatile.epoch()
     }
 
     /// Get the current protocol version, applying any pending overlay change.
@@ -142,7 +141,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Obtain the latest protocol parameters: the cached base, overlaid with any in-flight change
     /// pending in the volatile overlay.
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
-        self.volatile.overlay().pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
+        self.volatile.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
     }
 
     /// Obtain the protocol parameters for a specific epoch; which can either be the *current* epoch
@@ -166,7 +165,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn governance_activity(&self) -> GovernanceActivity {
         let mut governance_activity = self.governance_activity;
 
-        if self.volatile.overlay().is_dormant_epoch() {
+        if self.volatile.is_dormant_epoch() {
             governance_activity.consecutive_dormant_epochs += 1;
         }
 
@@ -334,16 +333,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // Hence, we know in advanced that the overlay must be applied. In fact, there can be
         // between 1s and multiple minutes before the next block. So we could get a head start and
         // start flushing right away; instead of awaiting for the next block to arrive.
-        if self.epoch() == tip_epoch && !self.volatile.overlay().is_empty() {
+        if self.epoch() == tip_epoch && self.volatile.has_pending_epoch_transition() {
             let updated = {
                 let db = self.stable.lock().unwrap();
-                self.volatile.overlay_mut().apply(&*db)?
+                self.volatile.flush_epoch_transition(&*db)?
             };
             if let Some((protocol_parameters, governance_activity)) = updated {
                 self.protocol_parameters = protocol_parameters;
                 self.governance_activity = governance_activity;
             }
-            self.snapshots.prune(self.volatile.overlay().epoch() - MIN_LEDGER_SNAPSHOTS)?;
+            self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
         }
 
         trace_span!(amaru_observability::amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(tip_slot)).in_scope(
@@ -420,7 +419,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // FIXME: This should eventually be a '.await', as we always expect to *eventually*
             // have some rewards summary being available. There's no way to continue progressing
             // the ledger if we don't.
-            let computed_rewards = self.volatile.overlay_mut().take_computed_rewards();
+            let computed_rewards = self.volatile.take_computed_rewards();
 
             #[allow(clippy::unwrap_used)]
             let db = self.stable.lock().unwrap();
@@ -474,7 +473,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             drop(db); // Dropping the *mutable reference*, not the *actual database* :)
 
-            self.volatile.overlay_mut().transition(effective_rewards, pools_updates, governance_updates);
+            self.volatile.record_epoch_transition(effective_rewards, pools_updates, governance_updates);
 
             self.volatile.transition();
 
@@ -495,9 +494,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // compute rewards in a thread, or in a non-blocking manner to carry on with other
         // tasks while rewards are being computed; they only need to be available at the epoch
         // boundary.
-        if matches!(self.volatile.overlay().rewards(), RewardsState::NotReady) && is_stake_distribution_stable {
-            let computed = RewardsState::Computed(self.compute_rewards(next_epoch)?.into());
-            *self.volatile.overlay_mut().rewards_mut() = computed;
+        if self.volatile.rewards_not_ready() && is_stake_distribution_stable {
+            let computed = self.compute_rewards(next_epoch)?.into();
+            self.volatile.set_computed_rewards(computed);
         }
 
         Ok(())
@@ -812,11 +811,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 let epoch_to = unsafe_slot_to_epoch(&self.era_history, to.slot_or_default());
 
                 if epoch_to < epoch_from {
-                    self.volatile.overlay_mut().rollback();
+                    self.volatile.rollback_epoch_transition();
                 }
 
                 assert_eq!(
-                    self.volatile.overlay().epoch(),
+                    self.volatile.epoch(),
                     unsafe_slot_to_epoch(&self.era_history, self.tip().slot_or_default()),
                     "overlay epoch desynced from the volatile tip after rollback"
                 );

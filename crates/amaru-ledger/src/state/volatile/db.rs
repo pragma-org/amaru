@@ -15,19 +15,23 @@
 use std::mem;
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TermLimit,
-    TransactionInput,
+    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, ProtocolParameters,
+    StakeCredential, TermLimit, TransactionInput,
 };
 
 use crate::{
+    epoch_transition::{
+        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+    },
     governance::ratification::ProposalsRoots,
     state::{
-        AnchoredVolatileFragment,
-        overlay::StateOverlay,
+        AnchoredVolatileFragment, StateError,
         volatile::{
             AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileSequence, VolatileSeries, VolatileState,
+            overlay::StateOverlay,
         },
     },
+    store::Store,
 };
 
 #[derive(Default)]
@@ -243,19 +247,69 @@ impl VolatileDB {
         }
     }
 
-    /// A read-only handle on the epoch-transition overlay.
-    pub fn overlay(&self) -> &StateOverlay {
-        &self.overlay
+    /// The epoch this volatile state is anchored to.
+    pub fn epoch(&self) -> Epoch {
+        self.overlay.epoch()
     }
 
-    /// A mutable handle on the epoch-transition overlay.
-    pub fn overlay_mut(&mut self) -> &mut StateOverlay {
-        &mut self.overlay
+    /// The protocol parameters carried by an in-flight epoch transition, if any.
+    pub fn pending_protocol_parameters(&self) -> Option<&ProtocolParameters> {
+        self.overlay.pending_protocol_parameters()
+    }
+
+    /// Whether the in-flight epoch transition (if any) corresponds to a dormant epoch.
+    pub fn is_dormant_epoch(&self) -> bool {
+        self.overlay.is_dormant_epoch()
+    }
+
+    /// Whether an epoch transition has been computed but not yet flushed to the stable store.
+    pub fn has_pending_epoch_transition(&self) -> bool {
+        !self.overlay.is_empty()
+    }
+
+    /// Whether the rewards for the in-flight epoch are still to be computed.
+    pub fn rewards_not_ready(&self) -> bool {
+        matches!(self.overlay.rewards(), RewardsState::NotReady)
     }
 
     /// The governance roots, overlaying the pending boundary roots over the stable `base`.
     pub fn pending_proposals_roots(&self) -> Option<&ProposalsRoots> {
         self.overlay.pending_proposals_roots()
+    }
+
+    /// Take the rewards summary computed earlier in the epoch, marking the rewards as not-ready.
+    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
+        self.overlay.take_computed_rewards()
+    }
+
+    /// Stash the freshly computed rewards summary, to be applied at the next epoch boundary.
+    pub fn set_computed_rewards(&mut self, rewards: Rewards<Computed>) {
+        *self.overlay.rewards_mut() = RewardsState::Computed(rewards);
+    }
+
+    /// Record the result of an epoch-boundary computation into the overlay, to be folded into
+    /// validation until it is flushed `k` blocks later.
+    pub fn record_epoch_transition(
+        &mut self,
+        effective_rewards: Option<Rewards<Effective>>,
+        pools_updates: PoolsEpochTransitionUpdates,
+        governance_updates: GovernanceUpdates,
+    ) {
+        self.overlay.transition(effective_rewards, pools_updates, governance_updates);
+    }
+
+    /// Flush the pending epoch transition to the stable store. Returns the freshly-enacted
+    /// `(protocol_parameters, governance_activity)` when a governance transition was applied.
+    pub fn flush_epoch_transition(
+        &mut self,
+        db: &impl Store,
+    ) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
+        self.overlay.apply(db)
+    }
+
+    /// Roll the overlay back by one epoch, discarding the pending epoch-transition computation.
+    pub fn rollback_epoch_transition(&mut self) {
+        self.overlay.rollback();
     }
 
     /// Mark the transition between two epochs by sealing the `current` series and turning it into
@@ -328,9 +382,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        epoch_transition::{
-            Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
-        },
+        epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
         governance::ratification::{CommitteeUpdate, ProposalsRoots},
         state::volatile::test_support::*,
         summary::SafeRatio,
@@ -664,7 +716,7 @@ mod tests {
         let mut db = VolatileDB::default();
         let computed = Rewards::<Computed>::new(0, 0, BTreeMap::from([(cred(1), 5_000_000)]));
         let effective = Rewards::<Effective>::new(computed, std::iter::once(cred(1)));
-        *db.overlay_mut().rewards_mut() = RewardsState::Effective(effective);
+        db.record_epoch_transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         // The pending boundary credit is added on top of the stable base.
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(5_000_000));
@@ -687,7 +739,7 @@ mod tests {
         let mut db = VolatileDB::default();
         let mut updates = committee_update(None);
         updates.payouts = BTreeMap::from([(cred(1), 3_000_000)]);
-        db.overlay_mut().transition(None, PoolsEpochTransitionUpdates::default(), updates);
+        db.record_epoch_transition(None, PoolsEpochTransitionUpdates::default(), updates);
 
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
@@ -720,7 +772,7 @@ mod tests {
         // Added at the boundary: a fresh member with the pending term, no stable row needed.
         let mut db = VolatileDB::default();
         let valid_until = Epoch::from(99);
-        db.overlay_mut().transition(
+        db.record_epoch_transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
@@ -736,7 +788,7 @@ mod tests {
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
         let mut db = VolatileDB::default();
-        db.overlay_mut().transition(
+        db.record_epoch_transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
@@ -749,7 +801,7 @@ mod tests {
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
-        db.overlay_mut().transition(
+        db.record_epoch_transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::NoConfidence)),

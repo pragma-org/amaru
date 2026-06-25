@@ -95,8 +95,6 @@ pub struct VolatileFragment {
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, Arc<DRepRegistration>>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    /// CC hot-key delegations as `produced` (member -> hot key) and resignations as `consumed`
-    /// tombstones. No in-block cert establishes membership, so this only ever tracks those two.
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: BTreeMap<ComparableProposalId, Arc<(Proposal, ProposalPointer)>>,

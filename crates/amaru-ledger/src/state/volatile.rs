@@ -17,6 +17,8 @@ use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolI
 mod db;
 pub use db::{RewardsAtTip, VolatileDB};
 
+mod overlay;
+
 mod fragment;
 pub use fragment::{
     AccountBind, AnchoredVolatileFragment, CommitteeMemberBind, DRepBind, Existence, StoreUpdate, VolatileFragment,
