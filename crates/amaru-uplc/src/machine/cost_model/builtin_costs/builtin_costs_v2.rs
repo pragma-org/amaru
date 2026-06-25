@@ -91,6 +91,8 @@ pub struct BuiltinCostsV2 {
     mk_nil_pair_data: OneArgumentCosting,
     serialise_data: OneArgumentCosting,
     // bitwise
+    integer_to_byte_string: ThreeArgumentsCosting,
+    byte_string_to_integer: TwoArgumentsCosting,
     ripemd_160: OneArgumentCosting,
 
     exp_mod_integer: ThreeArgumentsCosting,
@@ -318,6 +320,14 @@ impl Default for BuiltinCostsV2 {
             serialise_data: OneArgumentCosting::new(
                 OneArgumentCosting::linear_cost(0, 2),
                 OneArgumentCosting::linear_cost(955506, 213312),
+            ),
+            integer_to_byte_string: ThreeArgumentsCosting::new(
+                ThreeArgumentsCosting::literal_in_y_or_linear_in_z(0, 1),
+                ThreeArgumentsCosting::quadratic_in_z(1293828, 28716, 63),
+            ),
+            byte_string_to_integer: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::linear_in_y(0, 1),
+                TwoArgumentsCosting::quadratic_in_y(1006041, 43623, 251),
             ),
             ripemd_160: OneArgumentCosting::new(
                 OneArgumentCosting::constant_cost(3),
@@ -702,6 +712,30 @@ impl BuiltinCostModel for BuiltinCostsV2 {
                     cost_map["verify_schnorr_secp256k1_signature-cpu-arguments-slope"],
                 ),
             ),
+            integer_to_byte_string: ThreeArgumentsCosting::new(
+                ThreeArgumentsCosting::literal_in_y_or_linear_in_z(
+                    cost_map["integerToByteString-mem-arguments-intercept"],
+                    cost_map["integerToByteString-mem-arguments-slope"],
+                ),
+                ThreeArgumentsCosting::quadratic_in_z(
+                    cost_map["integerToByteString-cpu-arguments-c0"],
+                    cost_map["integerToByteString-cpu-arguments-c1"],
+                    cost_map["integerToByteString-cpu-arguments-c2"],
+                ),
+            ),
+
+            byte_string_to_integer: TwoArgumentsCosting::new(
+                TwoArgumentsCosting::linear_in_y(
+                    cost_map["byteStringToInteger-mem-arguments-intercept"],
+                    cost_map["byteStringToInteger-mem-arguments-slope"],
+                ),
+                TwoArgumentsCosting::quadratic_in_y(
+                    cost_map["byteStringToInteger-cpu-arguments-c0"],
+                    cost_map["byteStringToInteger-cpu-arguments-c1"],
+                    cost_map["byteStringToInteger-cpu-arguments-c2"],
+                ),
+            ),
+
             ripemd_160: OneArgumentCosting::new(
                 OneArgumentCosting::constant_cost(cost_map["ripemd_160-memory-arguments"]),
                 OneArgumentCosting::linear_cost(
@@ -967,6 +1001,14 @@ impl BuiltinCostModel for BuiltinCostsV2 {
             DefaultFunction::IndexArray => Some(ExBudget::new(
                 self.index_array.mem.cost([args[0], args[1]]),
                 self.index_array.cpu.cost([args[0], args[1]]),
+            )),
+            DefaultFunction::IntegerToByteString => Some(ExBudget::new(
+                self.integer_to_byte_string.mem.cost([args[0], args[1], args[2]]),
+                self.integer_to_byte_string.cpu.cost([args[0], args[1], args[2]]),
+            )),
+            DefaultFunction::ByteStringToInteger => Some(ExBudget::new(
+                self.byte_string_to_integer.mem.cost([args[0], args[1]]),
+                self.byte_string_to_integer.cpu.cost([args[0], args[1]]),
             )),
             _ => None,
         }
