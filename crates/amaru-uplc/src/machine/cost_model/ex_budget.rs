@@ -34,8 +34,8 @@ impl ExBudget {
     }
 
     pub fn scale(mut self, n: u8) -> Self {
-        self.mem *= n as i64;
-        self.cpu *= n as i64;
+        self.mem = self.mem.saturating_mul(n as i64);
+        self.cpu = self.cpu.saturating_mul(n as i64);
         self
     }
 
@@ -52,6 +52,6 @@ impl std::ops::Sub for ExBudget {
     type Output = ExBudget;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        ExBudget { mem: self.mem - rhs.mem, cpu: self.cpu - rhs.cpu }
+        ExBudget { mem: self.mem.saturating_sub(rhs.mem), cpu: self.cpu.saturating_sub(rhs.cpu) }
     }
 }

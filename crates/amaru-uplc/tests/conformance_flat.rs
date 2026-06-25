@@ -111,4 +111,21 @@ fn run_conformance(fixture_json: &str) {
     assert_eq!(result.info.consumed_budget, *budget);
 }
 
+fn run_conformance_expect_eval_error(fixture_json: &str) {
+    let fixture: Fixture = serde_json::from_str(fixture_json).expect("parse fixture json");
+    let input = hex::decode(&fixture.input).expect("decode input hex");
+
+    let arena = Arena::new();
+
+    let mut costs = default_v3_cost_model();
+    costs.extend(PV11_COST_VALUES);
+
+    let program =
+        flat::decode_strict::<DeBruijn>(&arena, &input, PLUTUS_VERSION, PROTOCOL_VERSION.0 as u32).expect("decode");
+
+    let result = program.eval_with_params(&arena, PLUTUS_VERSION, PROTOCOL_VERSION, &costs, ExBudget::default());
+
+    assert!(result.term.is_err(), "expected evaluation failure but evaluation succeeded");
+}
+
 include!(concat!(env!("OUT_DIR"), "/generated_flat_tests.rs"));

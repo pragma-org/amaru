@@ -17,10 +17,11 @@ use std::{env, ffi::OsStr, fs, path::PathBuf};
 use walkdir::WalkDir;
 
 fn main() {
-    // These tests currently fail because we do not support "counting mode" yet
-    // Which means they will always run out of budget.
-    // Once counting mode is implemented, these tests should not be skipped.
-    let skip_tests = [
+    // These tests expect success in "counting mode" (upstream Plutus reference), but our
+    // evaluator runs in "restricting mode" and exhausts the budget. We override the expected
+    // result to "evaluation failure" instead of skipping, so the tests still run and the
+    // upstream fixture files remain untouched (safe to overwrite on sync).
+    let expect_eval_failure = [
         "builtin_semantics_droplist_droplist_09",
         "builtin_semantics_droplist_droplist_10",
         "builtin_semantics_droplist_droplist_14",
@@ -39,14 +40,14 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    let textual_tests = generate_textual_tests(&textual_dir, &skip_tests);
+    let textual_tests = generate_textual_tests(&textual_dir, &expect_eval_failure);
     fs::write(out_dir.join("generated_tests.rs"), textual_tests).unwrap();
 
-    let flat_tests = generate_flat_tests(&flat_dir, &skip_tests);
+    let flat_tests = generate_flat_tests(&flat_dir, &expect_eval_failure);
     fs::write(out_dir.join("generated_flat_tests.rs"), flat_tests).unwrap();
 }
 
-fn generate_flat_tests(dir_path: &PathBuf, skip_tests: &[&str]) -> String {
+fn generate_flat_tests(dir_path: &PathBuf, expect_eval_failure: &[&str]) -> String {
     let mut tests = String::new();
 
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
@@ -66,25 +67,33 @@ fn generate_flat_tests(dir_path: &PathBuf, skip_tests: &[&str]) -> String {
             .replace(|c: char| !c.is_alphanumeric(), "_")
             .to_lowercase();
 
-        let ignore = if skip_tests.contains(&test_name.as_str()) { "\n#[ignore]" } else { "" };
-
         let file_path = path.to_str().unwrap().replace('\\', "/");
 
-        tests.push_str(&format!(
-            r#"
-{ignore}
+        if expect_eval_failure.contains(&test_name.as_str()) {
+            tests.push_str(&format!(
+                r#"
+#[test]
+fn {test_name}() {{
+    run_conformance_expect_eval_error(include_str!("{file_path}"));
+}}
+"#,
+            ));
+        } else {
+            tests.push_str(&format!(
+                r#"
 #[test]
 fn {test_name}() {{
     run_conformance(include_str!("{file_path}"));
 }}
 "#,
-        ));
+            ));
+        }
     }
 
     tests
 }
 
-fn generate_textual_tests(dir_path: &PathBuf, skip_tests: &[&str]) -> String {
+fn generate_textual_tests(dir_path: &PathBuf, expect_eval_failure: &[&str]) -> String {
     let mut tests = String::new();
 
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
@@ -104,15 +113,27 @@ fn generate_textual_tests(dir_path: &PathBuf, skip_tests: &[&str]) -> String {
             .replace(|c: char| !c.is_alphanumeric(), "_")
             .to_lowercase();
 
-        let ignore = if skip_tests.contains(&test_name.as_str()) { "\n#[ignore]" } else { "" };
-
         let file_path = path.to_str().unwrap().replace('\\', "/");
-        let expected_path = path.with_extension("uplc.expected").to_str().unwrap().replace('\\', "/");
-        let budget_path = path.with_extension("uplc.budget.expected").to_str().unwrap().replace('\\', "/");
 
-        tests.push_str(&format!(
-            r#"
-{ignore}
+        if expect_eval_failure.contains(&test_name.as_str()) {
+            tests.push_str(&format!(
+                r#"
+#[test]
+fn {test_name}() {{
+    run_conformance(
+        include_str!("{file_path}"),
+        "evaluation failure",
+        "evaluation failure",
+    );
+}}
+"#,
+            ));
+        } else {
+            let expected_path = path.with_extension("uplc.expected").to_str().unwrap().replace('\\', "/");
+            let budget_path = path.with_extension("uplc.budget.expected").to_str().unwrap().replace('\\', "/");
+
+            tests.push_str(&format!(
+                r#"
 #[test]
 fn {test_name}() {{
     run_conformance(
@@ -122,7 +143,8 @@ fn {test_name}() {{
     );
 }}
 "#,
-        ));
+            ));
+        }
     }
 
     tests
