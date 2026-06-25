@@ -128,6 +128,10 @@ pub(crate) struct Cli {
     #[clap(long, env = "AMARU_COLOR", default_value = "auto")]
     pub(crate) color: Color,
 
+    /// Raise the minimum log level from INFO to WARN.
+    #[clap(long, action, env = "AMARU_QUIET")]
+    pub(crate) quiet: bool,
+
     /// Emit trace events as structured JSON instead of human-readable text.
     #[clap(long, action, env = "AMARU_WITH_JSON_TRACES")]
     pub(crate) with_json_traces: bool,

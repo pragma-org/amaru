@@ -42,7 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (metrics, teardown) = if cli.command.skip_logging() {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>)
     } else {
-        let (m, t) = setup_observability(cli.with_open_telemetry, cli.with_json_traces, color_enabled, &cli.command);
+        let (m, t) =
+            setup_observability(cli.with_open_telemetry, cli.with_json_traces, cli.quiet, color_enabled, &cli.command);
         (Some(m), t)
     };
 
