@@ -15,7 +15,7 @@ import Cardano.Ledger.Hashes
     ( KeyHash
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (StakePool)
+    ( KeyRole (..)
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -60,7 +60,7 @@ data RewardsProvenance = RewardsProvenance
     , efficiency :: !Rational
       -- ^ The ratio of the number of blocks actually made versus the number
       -- of blocks that were expected. a.k.a. η (eta)
-    , stakePools :: !(Map.Map (KeyHash 'StakePool) PoolRewardsInfo)
+    , stakePools :: !(Map.Map (KeyHash StakePool) PoolRewardsInfo)
       -- ^ Stake pools specific information needed to compute the rewards for its members.
     }
 
@@ -77,7 +77,7 @@ instance ToJSON RewardsProvenance where
             , "stake_pools" .= object (stakePoolPairs stakePools)
             ]
 
-stakePoolPairs :: Map.Map (KeyHash 'StakePool) PoolRewardsInfo -> [Pair]
+stakePoolPairs :: Map.Map (KeyHash StakePool) PoolRewardsInfo -> [Pair]
 stakePoolPairs stakePools =
     [ fromText (poolIdText poolId) .= poolRewardsInfo
     | (poolId, poolRewardsInfo) <- Map.toAscList stakePools

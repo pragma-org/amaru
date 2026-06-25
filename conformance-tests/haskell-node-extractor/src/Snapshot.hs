@@ -42,12 +42,14 @@ import Ouroboros.Consensus.Cardano.Block
     , CardanoLedgerState
     , CodecConfig (CardanoCodecConfig)
     , ConwayEra
+    , DijkstraEra
     , LedgerState
         ( LedgerStateAllegra
         , LedgerStateAlonzo
         , LedgerStateBabbage
         , LedgerStateByron
         , LedgerStateConway
+        , LedgerStateDijkstra
         , LedgerStateMary
         , LedgerStateShelley
         )
@@ -57,6 +59,7 @@ import Ouroboros.Consensus.Cardano.Block
     , pattern ChainDepStateBabbage
     , pattern ChainDepStateByron
     , pattern ChainDepStateConway
+    , pattern ChainDepStateDijkstra
     , pattern ChainDepStateMary
     , pattern ChainDepStateShelley
     )
@@ -104,7 +107,8 @@ import System.FS.IO
     , ioHasFS
     )
 import System.FilePath
-    ( makeRelative
+    ( (</>)
+    , makeRelative
     , normalise
     , splitDirectories
     )
@@ -120,7 +124,7 @@ loadSnapshot :: ExtractSnapshotOptions -> ExceptT AppError IO LoadedSnapshot
 loadSnapshot ExtractSnapshotOptions{snapshotPath} = do
     absoluteSnapshotPath <- liftIO (makeAbsolute snapshotPath)
     let filesystem = SomeHasFS (ioHasFS rootMountPoint :: HasFS IO HandleIO)
-    let snapshotFsPath = toFsPath absoluteSnapshotPath
+    let snapshotFsPath = toFsPath (absoluteSnapshotPath </> "state")
 
     snapshotResult <-
         liftIO
@@ -178,6 +182,8 @@ extractConwayNewEpochState snapshotFilePath = \case
         Left (UnsupportedSnapshotEra snapshotFilePath "Babbage")
     LedgerStateConway ledgerSt ->
         Right (shelleyLedgerState ledgerSt)
+    LedgerStateDijkstra _ ->
+        Left (UnsupportedSnapshotEra snapshotFilePath "Dijkstra")
 
 extractConwayPraosState
     :: FilePath
@@ -198,6 +204,8 @@ extractConwayPraosState snapshotFilePath = \case
         Left (UnsupportedSnapshotEra snapshotFilePath "Babbage")
     ChainDepStateConway praosState ->
         Right praosState
+    ChainDepStateDijkstra _ ->
+        Left (UnsupportedSnapshotEra snapshotFilePath "Dijkstra")
 
 extractTipSlot :: WithOrigin (AnnTip blk) -> Maybe Word64
 extractTipSlot = \case
@@ -210,6 +218,7 @@ cardanoCodecConfig :: CardanoCodecConfig StandardCrypto
 cardanoCodecConfig =
     CardanoCodecConfig
         (ByronCodecConfig $ EpochSlots 21600)
+        ShelleyCodecConfig
         ShelleyCodecConfig
         ShelleyCodecConfig
         ShelleyCodecConfig

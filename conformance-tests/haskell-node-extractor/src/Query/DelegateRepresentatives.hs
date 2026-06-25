@@ -17,6 +17,9 @@ import Cardano.Ledger.Api.State.Query
 import Cardano.Ledger.Coin
     ( Coin
     )
+import Cardano.Ledger.Compactible
+    ( fromCompact
+    )
 import Cardano.Ledger.Credential
     ( Credential
     , StakeCredential
@@ -33,7 +36,7 @@ import Cardano.Ledger.DRep
     , credToDRep
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (DRepRole)
+    ( KeyRole (..)
     )
 import Cardano.Ledger.Shelley.LedgerState
     ( NewEpochState
@@ -79,7 +82,7 @@ queryDelegateRepresentatives newEpochState =
         queryDRepDelegations newEpochState Set.empty
 
 mergeStateAndStake
-    :: Map.Map DRep (Credential 'DRepRole, DRepState)
+    :: Map.Map DRep (Credential DRepRole, DRepState)
     -> Map.Map DRep Coin
     -> Map.Map DRep DelegateRepresentative
 mergeStateAndStake dRepStates dRepStakes =
@@ -97,7 +100,11 @@ mergeDelegations
 mergeDelegations dReps dRepDelegations =
     Merge.merge
         (Merge.mapMissing $ \_ -> identity)
-        (Merge.mapMissing $ \drep _ -> error ("DRep has delegation but not stake or state: " <> show drep))
+        (Merge.mapMaybeMissing $ \drep delegators ->
+            case drep of
+                DRepAlwaysAbstain        -> Just (setDelegators delegators (predefinedDRep drep mempty))
+                DRepAlwaysNoConfidence   -> Just (setDelegators delegators (predefinedDRep drep mempty))
+                _                        -> Nothing)
         (Merge.zipWithMatched $ \_ delegateRepresentative delegators -> setDelegators delegators delegateRepresentative)
         dReps
         dRepDelegations
@@ -117,7 +124,7 @@ predefinedDRep dRep stake = case dRep of
     predefined = PredefinedDRep{stake, delegators = Set.empty}
 
 registeredDRep
-    :: Credential 'DRepRole
+    :: Credential DRepRole
     -> DRepState
     -> Coin
     -> DelegateRepresentative
@@ -126,7 +133,7 @@ registeredDRep credential dRepState stake =
         RegisteredDRep
             { credential
             , mandate = Mandate (drepExpiry dRepState)
-            , deposit = drepDeposit dRepState
+            , deposit = fromCompact (drepDeposit dRepState)
             , stake
             , delegators = Set.empty
             }

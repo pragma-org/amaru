@@ -18,7 +18,7 @@ import Cardano.Ledger.Credential
     , StakeCredential
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (DRepRole)
+    ( KeyRole (..)
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -49,7 +49,7 @@ data DelegateRepresentative
 data RegisteredDRep = RegisteredDRep
     { stake :: !Coin
     , delegators :: !(Set.Set StakeCredential)
-    , credential :: !(Credential 'DRepRole)
+    , credential :: !(Credential DRepRole)
     , mandate :: !Mandate
     , deposit :: !Coin
     }

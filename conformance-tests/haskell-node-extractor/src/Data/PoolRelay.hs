@@ -10,7 +10,7 @@ import Cardano.Ledger.BaseTypes
     ( DnsName (dnsToText)
     , Port (portToWord16)
     )
-import Cardano.Ledger.PoolParams
+import Cardano.Ledger.State
     ( StakePoolRelay
         ( MultiHostName
         , SingleHostAddr

@@ -88,9 +88,7 @@ library
     , mtl
     , microlens
     , optparse-applicative
-    , ouroboros-consensus
-    , ouroboros-consensus-cardano
-    , ouroboros-consensus-protocol
+    , ouroboros-consensus:{ouroboros-consensus, cardano, protocol}
     , relude
     , serialise
     , text
