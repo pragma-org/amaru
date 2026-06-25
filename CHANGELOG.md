@@ -38,17 +38,21 @@ Other guiding principles:
 
 ## v10.10.20260702 _[unreleased; planned for 2026-07-02]_
 
-## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
-
 ### Added
 
 - **amaru-ledger**: added more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
 
 ### Changed
 
+- **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])]
+
+
+## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
+
+### Changed
+
 - **amaru**: restructure the CLI into noun-based command groups, following the guidelines in [EDR-019](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/019-guidelines-for-writing-cli.md): `node` (`run`, `bootstrap`, `reset`), `snapshot` (`create`), and a hidden `dev` group for debugging tools (`chain`, `ledger`, `traces`). The previous top-level commands (`run`, `daemon`, `bootstrap`, `reset-to-epoch`, `create-snapshots`, `dump-chain-db`, `remove-validation-status`, `fetch-chain-headers`, `migrate-chain-db`, `remove-chain`, `dump-traces-schema`) remain as hidden, backward-compatible aliases. ([#973][])
 - **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
-- **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])]
 
 ### Fixed
 
