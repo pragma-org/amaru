@@ -103,7 +103,9 @@ pre: ## &cmd check required tools, libraries, and local build configuration
 	fi; \
 
 build: ## &cmd compile the main binary
+	$(CABAL) update
 	$(CABAL) build exe:haskell-node-extractor
+	cp "$$($(CABAL) list-bin exe:haskell-node-extractor)" haskell-node-extractor
 
 secp256k1: ## &cmd install secp256k1 as required for Cardano
 	mkdir -p "$(DEPS_DIR)"
@@ -132,7 +134,7 @@ blst: ## &cmd install blst as required for Cardano
 		'Name: libblst' \
 		'Description: Multilingual BLS12-381 signature library' \
 		'URL: https://github.com/supranational/blst' \
-		'Version: 0.3.10' \
+		'Version: $(BLST_VERSION:v%=%)' \
 		'Cflags: -I$${includedir}' \
 		'Libs: -L$${libdir} -lblst' \
 		> "$(BLST_PC)"
