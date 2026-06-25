@@ -6,14 +6,12 @@ module Query.Pots
 
 import Relude
 
-import Cardano.Ledger.Alonzo.State
-    ( AccountState (asReserves, asTreasury)
-    )
-import Cardano.Ledger.Api.State.Query
-    ( queryAccountState
-    )
 import Cardano.Ledger.Shelley.LedgerState
-    ( NewEpochState
+    ( EpochState (esChainAccountState)
+    , NewEpochState (nesEs)
+    )
+import Cardano.Ledger.State
+    ( ChainAccountState (casTreasury, casReserves)
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -25,19 +23,19 @@ import Data.Coin
     )
 
 newtype Pots = Pots
-    { unPots :: AccountState
+    { unPots :: ChainAccountState
     }
 
 instance ToJSON Pots where
-    toJSON (Pots accountState) =
+    toJSON (Pots chainAccountState) =
         object
-            [ "treasury" .= JsonCoin (asTreasury accountState)
-            , "reserves" .= JsonCoin (asReserves accountState)
+            [ "treasury" .= JsonCoin (casTreasury chainAccountState)
+            , "reserves" .= JsonCoin (casReserves chainAccountState)
             ]
 
 queryPots :: NewEpochState era -> Pots
 queryPots =
-    Pots . queryAccountState
+    Pots . esChainAccountState . nesEs
 
 potsOutputPath :: Word64 -> FilePath
 potsOutputPath epochNumber =

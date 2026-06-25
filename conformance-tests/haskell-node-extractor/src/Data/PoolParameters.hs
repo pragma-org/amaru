@@ -12,19 +12,19 @@ import Cardano.Ledger.BaseTypes
 import Cardano.Ledger.Hashes
     ( VRFVerKeyHash (unVRFVerKeyHash)
     )
-import Cardano.Ledger.PoolParams
+import Cardano.Ledger.State
     ( PoolMetadata
-    , PoolParams
-        ( PoolParams
-        , ppCost
-        , ppId
-        , ppMargin
-        , ppMetadata
-        , ppOwners
-        , ppPledge
-        , ppRelays
-        , ppRewardAccount
-        , ppVrf
+    , StakePoolParams
+        ( StakePoolParams
+        , sppCost
+        , sppId
+        , sppMargin
+        , sppMetadata
+        , sppOwners
+        , sppPledge
+        , sppRelays
+        , sppAccountAddress
+        , sppVrf
         )
     )
 import Data.Aeson
@@ -63,22 +63,22 @@ import Data.RewardAccount
 import qualified Data.Set as Set
 
 newtype JsonPoolParameters = JsonPoolParameters
-    { unJsonPoolParameters :: PoolParams
+    { unJsonPoolParameters :: StakePoolParams
     }
 
 instance ToJSON JsonPoolParameters where
-    toJSON (JsonPoolParameters PoolParams{ppId, ppVrf, ppPledge, ppCost, ppMargin, ppRewardAccount, ppOwners, ppRelays, ppMetadata}) =
+    toJSON (JsonPoolParameters StakePoolParams{sppId, sppVrf, sppPledge, sppCost, sppMargin, sppAccountAddress, sppOwners, sppRelays, sppMetadata}) =
         object $
-            [ "id" .= JsonPoolId ppId
-            , "vrf" .= unVRFVerKeyHash ppVrf
-            , "pledge" .= JsonCoin ppPledge
-            , "cost" .= JsonCoin ppCost
-            , "margin" .= JsonRational (unboundRational ppMargin)
-            , "reward_account" .= JsonRewardAccount ppRewardAccount
-            , "owners" .= Set.toAscList ppOwners
-            , "relays" .= fmap JsonPoolRelay (toList ppRelays)
+            [ "id" .= JsonPoolId sppId
+            , "vrf" .= unVRFVerKeyHash sppVrf
+            , "pledge" .= JsonCoin sppPledge
+            , "cost" .= JsonCoin sppCost
+            , "margin" .= JsonRational (unboundRational sppMargin)
+            , "reward_account" .= JsonRewardAccount sppAccountAddress
+            , "owners" .= Set.toAscList sppOwners
+            , "relays" .= fmap JsonPoolRelay (toList sppRelays)
             ]
-                <> metadataPair ppMetadata
+                <> metadataPair sppMetadata
 
 metadataPair :: StrictMaybe PoolMetadata -> [Pair]
 metadataPair = \case

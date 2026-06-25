@@ -11,10 +11,10 @@ import Cardano.Ledger.Hashes
     ( KeyHash
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (StakePool)
+    ( KeyRole (..)
     )
-import Cardano.Ledger.PoolParams
-    ( PoolParams
+import Cardano.Ledger.State
+    ( StakePoolParams
     )
 import Data.Aeson
     ( ToJSON (toJSON)
@@ -37,14 +37,14 @@ import Data.PoolParameters
 import qualified Data.Map.Strict as Map
 
 newtype Pools = Pools
-    { unPools :: Map.Map (KeyHash 'StakePool) PoolParams
+    { unPools :: Map.Map (KeyHash StakePool) StakePoolParams
     }
 
 instance ToJSON Pools where
     toJSON (Pools pools) =
         object (poolPairs pools)
 
-poolPairs :: Map.Map (KeyHash 'StakePool) PoolParams -> [Pair]
+poolPairs :: Map.Map (KeyHash StakePool) StakePoolParams -> [Pair]
 poolPairs pools =
     [ fromText (poolIdText poolId) .= JsonPoolParameters poolParameters
     | (poolId, poolParameters) <- Map.toAscList pools
