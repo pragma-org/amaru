@@ -153,6 +153,7 @@ where
         governance_activity,
         pointer,
         mem::take(&mut transaction_body.certificates),
+        is_valid,
     )?;
 
     let ref_scripts_size = inputs::execute(
@@ -223,7 +224,12 @@ where
         },
     )?;
 
-    withdrawals::execute(context, mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()), network)?;
+    withdrawals::execute(
+        context,
+        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
+        network,
+        is_valid,
+    )?;
 
     proposals::execute(
         context,
@@ -232,9 +238,10 @@ where
         era_history,
         (transaction_id, pointer),
         mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+        is_valid,
     )?;
 
-    voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
+    voting_procedures::execute(context, mem::take(&mut transaction_body.votes), is_valid);
 
     vkey_witness::execute(
         context,

@@ -78,6 +78,7 @@ pub enum InvalidCertificates {
     DRepNotRegistered(StakeCredential),
 }
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
     context: &mut C,
     network: Network,
@@ -86,6 +87,7 @@ pub(crate) fn execute<C>(
     governance_activity: GovernanceActivity,
     transaction: TransactionPointer,
     certificates: Option<NonEmptySet<Certificate>>,
+    is_valid: bool,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
@@ -100,12 +102,14 @@ where
                 governance_activity,
                 CertificatePointer { transaction, certificate_index },
                 certificate,
+                is_valid,
             )
         },
     )
 }
 
 // FIXME: Perform all necessary rules validations down here.
+#[expect(clippy::too_many_arguments)]
 fn execute_one<C>(
     context: &mut C,
     network: Network,
@@ -114,6 +118,7 @@ fn execute_one<C>(
     governance_activity: GovernanceActivity,
     pointer: CertificatePointer,
     certificate: Certificate,
+    is_valid: bool,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
@@ -168,10 +173,13 @@ where
             let is_new_pool = !context.exists(id);
 
             let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
-            PoolsSlice::register(context, params, pointer);
 
-            if is_new_pool {
-                context.produce_lovelace(protocol_parameters.stake_pool_deposit);
+            if is_valid {
+                PoolsSlice::register(context, params, pointer);
+
+                if is_new_pool {
+                    context.produce_lovelace(protocol_parameters.stake_pool_deposit);
+                }
             }
 
             Ok(())
@@ -195,22 +203,27 @@ where
                 });
             }
 
-            PoolsSlice::retire(context, id, Epoch::from(epoch));
+            if is_valid {
+                PoolsSlice::retire(context, id, Epoch::from(epoch));
+            }
+
             Ok(())
         }
 
         Certificate::StakeRegistration(credential) => {
-            AccountsSlice::register(
-                context,
-                credential,
-                AccountState {
-                    deposit: protocol_parameters.stake_credential_deposit,
-                    pool: None,
-                    drep: None,
-                    rewards: 0,
-                },
-            )?;
-            context.produce_lovelace(protocol_parameters.stake_credential_deposit);
+            if is_valid {
+                AccountsSlice::register(
+                    context,
+                    credential,
+                    AccountState {
+                        deposit: protocol_parameters.stake_credential_deposit,
+                        pool: None,
+                        drep: None,
+                        rewards: 0,
+                    },
+                )?;
+                context.produce_lovelace(protocol_parameters.stake_credential_deposit);
+            }
             Ok(())
         }
 
@@ -232,8 +245,14 @@ where
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: deposit, expected });
             }
 
-            AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None, rewards: 0 })?;
-            context.produce_lovelace(deposit);
+            if is_valid {
+                AccountsSlice::register(
+                    context,
+                    credential,
+                    AccountState { deposit, pool: None, drep: None, rewards: 0 },
+                )?;
+                context.produce_lovelace(deposit);
+            }
             Ok(())
         }
 
@@ -248,8 +267,11 @@ where
                 Some(account) => account.deposit,
                 None => return Err(InvalidCertificates::StakeCredentialNotRegistered(credential)),
             };
-            AccountsSlice::unregister(context, credential);
-            context.consume_lovelace(deposit);
+
+            if is_valid {
+                AccountsSlice::unregister(context, credential);
+                context.consume_lovelace(deposit);
+            }
             Ok(())
         }
 
@@ -262,11 +284,15 @@ where
                 Some(account) => account.deposit,
                 None => return Err(InvalidCertificates::StakeCredentialNotRegistered(credential)),
             };
+
             if refund != deposit {
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: deposit });
             }
-            AccountsSlice::unregister(context, credential);
-            context.consume_lovelace(refund);
+
+            if is_valid {
+                AccountsSlice::unregister(context, credential);
+                context.consume_lovelace(refund);
+            }
             Ok(())
         }
 
@@ -275,7 +301,11 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            context.delegate_pool(credential, pool, pointer)?;
+
+            if is_valid {
+                context.delegate_pool(credential, pool, pointer)?;
+            }
+
             Ok(())
         }
 
@@ -294,13 +324,15 @@ where
                 + protocol_parameters.drep_expiry
                 - governance_activity.consecutive_dormant_epochs as u64;
 
-            DRepsSlice::register(
-                context,
-                drep,
-                DRepRegistration { deposit, registered_at: pointer, valid_until },
-                Option::from(anchor),
-            )?;
-            context.produce_lovelace(deposit);
+            if is_valid {
+                DRepsSlice::register(
+                    context,
+                    drep,
+                    DRepRegistration { deposit, registered_at: pointer, valid_until },
+                    Option::from(anchor),
+                )?;
+                context.produce_lovelace(deposit);
+            }
             Ok(())
         }
 
@@ -316,8 +348,11 @@ where
             if refund != deposit {
                 return Err(InvalidCertificates::IncorrectDRepDeposit { provided: refund, expected: deposit });
             }
-            DRepsSlice::unregister(context, drep, refund, pointer);
-            context.consume_lovelace(refund);
+
+            if is_valid {
+                DRepsSlice::unregister(context, drep, refund, pointer);
+                context.consume_lovelace(refund);
+            }
             Ok(())
         }
 
@@ -326,7 +361,11 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
+
+            if is_valid {
+                DRepsSlice::update(context, drep, Option::from(anchor))?;
+            }
+
             Ok(())
         }
 
@@ -335,7 +374,11 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
+
+            if is_valid {
+                AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
+            }
+
             Ok(())
         }
 
@@ -359,32 +402,113 @@ where
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)?;
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                drep_deleg,
+                is_valid,
+            )?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                pool_deleg,
+                is_valid,
+            )
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                reg,
+                is_valid,
+            )?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                pool_deleg,
+                is_valid,
+            )
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                reg,
+                is_valid,
+            )?;
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)?;
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                pool_deleg,
+                is_valid,
+            )?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                drep_deleg,
+                is_valid,
+            )
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                reg,
+                is_valid,
+            )?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
+            execute_one(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                drep_deleg,
+                is_valid,
+            )
         }
     }
 }

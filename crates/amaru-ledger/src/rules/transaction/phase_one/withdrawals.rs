@@ -38,6 +38,7 @@ pub(crate) fn execute<C>(
     context: &mut C,
     withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
     network: Network,
+    is_valid: bool,
 ) -> Result<(), InvalidWithdrawals>
 where
     C: WitnessSlice + AccountsSlice + BalanceSlice,
@@ -80,8 +81,10 @@ where
                     amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 };
 
-                context.consume_lovelace(amount);
-                context.withdraw_from(credential);
+                if is_valid {
+                    context.consume_lovelace(amount);
+                    context.withdraw_from(credential);
+                }
             });
     }
 
@@ -130,7 +133,7 @@ mod test {
             || {
                 let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: Default::default() });
 
-                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()), Network::Testnet)
+                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()), Network::Testnet, true)
             },
             expected_traces,
         )
