@@ -370,6 +370,8 @@ mod tests {
     #[test_case(fixture!("fail/OutputTooBigUTxO/0"); "output value larger than maxValueSize")]
     #[test_case(fixture!("fail/WrongNetworkInTxOutput/0"); "output address on wrong network")]
     #[test_case(fixture!("pass/script-integrity-hash/0"); "interesting script integrity hash on preprod")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/0"); "input lovelace exceeds outputs plus fee")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/1"); "input native asset left unaccounted by outputs")]
     fn conformance(fixture: Fixture) {
         // Fixtures encode a standalone conway transaction (a 4-element array including the is_valid byte)
         // but the ledger expects a transaction to be the 3-element array (without the is_valid byte), so we subtract one byte to

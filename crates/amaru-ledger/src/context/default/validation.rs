@@ -125,7 +125,7 @@ impl PoolsSlice for DefaultValidationContext {
     /// Whether the given pool exists in the resolved ledger state (including pools registered
     /// earlier within the same block).
     fn exists(&self, pool: PoolId) -> bool {
-        self.pools.contains(&pool)
+        self.pools.contains(&pool) || self.state.pools.registered.contains_key(&pool)
     }
 
     /// FIXME: In ProtocolVersion 11, we must also check for uniqueness of the VRF key when registering pools

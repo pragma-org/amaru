@@ -92,6 +92,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    ValueNotConservedUTxO,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
     WrongNetworkWithdrawal,
@@ -135,6 +136,7 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
+            PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
@@ -142,8 +144,7 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Withdrawals(_)
             | PhaseOneError::Scripts(_)
             | PhaseOneError::Collateral(_)
-            | PhaseOneError::Proposals(_)
-            | PhaseOneError::ValueNotPreserved(_) => unreachable!("no predicate mapping yet for {err}"),
+            | PhaseOneError::Proposals(_) => unreachable!("no predicate mapping yet for {err}"),
         }
     }
 }
