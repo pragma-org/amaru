@@ -35,13 +35,29 @@ required-field rules.
 | `network`            | `mainnet`, `preprod`, `preview`, or `testnet_<magic>`. |
 | `eraHistory`         | Inline `{ stabilityWindow, eras: [EraSummary] }` or a `$ref` to a shared file. |
 | `protocolParameters` | Inline (see `schema.json`) or a `$ref` to a shared file, optionally with `$override`. |
-| `initialState`       | `{ utxo: [{input, output}], governanceActivity }`.     |
+| `initialState`       | See [Initial state](#initial-state).                   |
 | `point`              | `{ slot, transactionIndex }`.                          |
 | `transaction`        | Hex-encoded CBOR.                                      |
 | `expected`           | `"Pass"` or `{ "predicate": "<Name>", ... }`.          |
 
 UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 `output` is the transaction output.
+
+### Initial state
+
+Initial state represents the state on which the transaction is validated. Currently,
+it is made up of five fields:
+
+
+- `pools`: array of hex-encoded pool key hashes, does not contain pool's parameters.
+- `accounts`: `[{ credential, deposit, rewards?, pool?, drep? }]`. `credential`
+  is hex-encoded CBOR of a `StakeCredential`; `deposit`/`rewards` are lovelace
+  (`rewards` defaults to `0`); `pool`/`drep` are optional delegations of the form
+  `{ id, delegatedAt }`, where `id` is a hex pool hash or, for the drep delegation, a hex-encoded CBOR `DRep`
+  and `delegatedAt` is a `{ transaction, certificateIndex }` pointer.
+- `dreps`: `[{ credential, deposit, registeredAt, validUntil }]`, with the same
+  `credential` encoding, a `registeredAt` certificate pointer, and a `validUntil`
+  epoch.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:

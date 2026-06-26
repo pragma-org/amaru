@@ -16,7 +16,8 @@ use std::fmt;
 
 use crate::{Slot, TransactionPointer, cbor};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CertificatePointer {
     pub transaction: TransactionPointer,
     pub certificate_index: usize,
