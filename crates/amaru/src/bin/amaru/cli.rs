@@ -128,7 +128,7 @@ pub(crate) struct Cli {
     #[clap(long, env = "AMARU_COLOR", default_value = "auto")]
     pub(crate) color: Color,
 
-    /// Raise the minimum log level from INFO to WARN.
+    /// Disable logging and metrics collection.
     #[clap(long, action, env = "AMARU_QUIET")]
     pub(crate) quiet: bool,
 
