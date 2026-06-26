@@ -1,10 +1,12 @@
 module Data.NetworkName
     ( NetworkName (..)
     , networkNameToNetwork
+    , networkNameToText
     ) where
 
 import Relude
-    ()
+    ( Text
+    )
 
 import Cardano.Ledger.BaseTypes
     ( Network
@@ -25,3 +27,9 @@ networkNameToNetwork = \case
         Ledger.Testnet
     Preview ->
         Ledger.Testnet
+
+networkNameToText :: NetworkName -> Text
+networkNameToText = \case
+    Mainnet -> "mainnet"
+    Preprod -> "preprod"
+    Preview -> "preview"

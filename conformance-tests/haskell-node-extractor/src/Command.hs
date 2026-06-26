@@ -18,6 +18,7 @@ import Data.Aeson.Encode.Pretty
     )
 import Data.NetworkName
     ( networkNameToNetwork
+    , networkNameToText
     )
 import Error
     ( AppError
@@ -65,7 +66,8 @@ import System.Directory
     ( createDirectoryIfMissing
     )
 import System.FilePath
-    ( takeDirectory
+    ( (</>)
+    , takeDirectory
     )
 
 data Command
@@ -89,22 +91,23 @@ runCommand = \case
         processSnapshot options
 
 processSnapshot :: ExtractSnapshotOptions -> ExceptT AppError IO ()
-processSnapshot options@ExtractSnapshotOptions{networkName} = do
+processSnapshot options@ExtractSnapshotOptions{networkName, outputDir} = do
     loadedSnapshot <- loadSnapshot options
     let genesis = networkToGenesis networkName
     let network = networkNameToNetwork networkName
+    let networkDir = outputDir </> toString (networkNameToText networkName)
     let epochNumber = loadedSnapshotEpochNumber loadedSnapshot
     let tipSlot = loadedSnapshotTipSlot loadedSnapshot
     let pots = queryPots (loadedSnapshotState loadedSnapshot)
-    let potsPath = potsOutputPath epochNumber
+    let potsPath = networkDir </> potsOutputPath epochNumber
     let nonces = queryNonces (loadedSnapshotPraosState loadedSnapshot)
-    let noncesPath = noncesOutputPath epochNumber
+    let noncesPath = networkDir </> noncesOutputPath epochNumber
     let delegateRepresentatives = queryDelegateRepresentatives (loadedSnapshotState loadedSnapshot)
-    let delegateRepresentativesPath = delegateRepresentativesOutputPath epochNumber
+    let delegateRepresentativesPath = networkDir </> delegateRepresentativesOutputPath epochNumber
     let rewardsProvenance = queryRewardsProvenance genesis (loadedSnapshotState loadedSnapshot)
-    let rewardsProvenancePath = rewardsProvenanceOutputPath epochNumber
+    let rewardsProvenancePath = networkDir </> rewardsProvenanceOutputPath epochNumber
     let pools = queryPools network (loadedSnapshotState loadedSnapshot)
-    let poolsPath = poolsOutputPath epochNumber
+    let poolsPath = networkDir </> poolsOutputPath epochNumber
 
     liftIO $ do
         putTextLn

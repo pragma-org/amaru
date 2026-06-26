@@ -87,7 +87,7 @@ import qualified Data.VMap as VMap
 
 rewardsProvenanceOutputPath :: Word64 -> FilePath
 rewardsProvenanceOutputPath epochNumber =
-    "data/rewardsProvenance/" <> toString (show epochNumber :: Text) <> ".json"
+    "rewardsProvenance/" <> toString (show epochNumber :: Text) <> ".json"
 
 queryRewardsProvenance :: Genesis -> NewEpochState ConwayEra -> RewardsProvenance
 queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochState =
