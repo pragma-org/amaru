@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = match cli.command {
         Command::Node(node_cmd) => match node_cmd {
-            cmd::node::NodeCommand::Run(args) => cmd::node::run::run(args, metrics.unwrap()).await,
+            cmd::node::NodeCommand::Run(args) => cmd::node::run::run(args, metrics.unwrap_or(None)).await,
             cmd::node::NodeCommand::Bootstrap(args) => cmd::node::bootstrap::run(args).await,
             cmd::node::NodeCommand::Reset(args) => cmd::node::reset::run(args).await,
         },
