@@ -65,11 +65,17 @@ pub enum InvalidCertificates {
     #[error("pool retirement epoch out of range: epoch {epoch}, must satisfy {current_epoch} < epoch <= {max_epoch}")]
     PoolRetirementWrongEpoch { epoch: Epoch, current_epoch: Epoch, max_epoch: Epoch },
 
-    #[error("incorrect stake registration deposit: provided {provided}, expected {expected}")]
+    #[error("incorrect stake deposit: provided {provided}, expected {expected}")]
     IncorrectStakeDeposit { provided: Lovelace, expected: Lovelace },
 
-    #[error("incorrect drep registration deposit: provided {provided}, expected {expected}")]
+    #[error("incorrect drep deposit: provided {provided}, expected {expected}")]
     IncorrectDRepDeposit { provided: Lovelace, expected: Lovelace },
+
+    #[error("stake credential not registered: {0:?}")]
+    StakeCredentialNotRegistered(StakeCredential),
+
+    #[error("drep not registered: {0:?}")]
+    DRepNotRegistered(StakeCredential),
 }
 
 pub(crate) fn execute<C>(
@@ -236,14 +242,14 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
+            // The refund is the deposit originally paid at registration, recorded in the account
+            // state. It may differ from the current protocol parameter if it changed since.
+            let deposit = match AccountsSlice::lookup(context, &credential) {
+                Some(account) => account.deposit,
+                None => return Err(InvalidCertificates::StakeCredentialNotRegistered(credential)),
+            };
             AccountsSlice::unregister(context, credential);
-            // TODO: Refund should be the historical AccountState.deposit
-            //
-            // It is possible that the historical AccountState.deposit does not match the current pp.stake_credential_deposit due to a pp update.
-            // We are approtimating the current pp here, which is acceptable since it has always been the current value.
-            //
-            // Handling this correctly requires the AccountSlice::lookup to be wired up
-            context.consume_lovelace(protocol_parameters.stake_credential_deposit);
+            context.consume_lovelace(deposit);
             Ok(())
         }
 
@@ -252,6 +258,13 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
+            let deposit = match AccountsSlice::lookup(context, &credential) {
+                Some(account) => account.deposit,
+                None => return Err(InvalidCertificates::StakeCredentialNotRegistered(credential)),
+            };
+            if refund != deposit {
+                return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: deposit });
+            }
             AccountsSlice::unregister(context, credential);
             context.consume_lovelace(refund);
             Ok(())
@@ -296,6 +309,13 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
+            let deposit = match DRepsSlice::lookup(context, &drep) {
+                Some(registration) => registration.deposit,
+                None => return Err(InvalidCertificates::DRepNotRegistered(drep)),
+            };
+            if refund != deposit {
+                return Err(InvalidCertificates::IncorrectDRepDeposit { provided: refund, expected: deposit });
+            }
             DRepsSlice::unregister(context, drep, refund, pointer);
             context.consume_lovelace(refund);
             Ok(())
