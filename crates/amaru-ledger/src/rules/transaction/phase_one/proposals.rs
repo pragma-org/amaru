@@ -61,6 +61,7 @@ pub(crate) fn execute<C>(
     era_history: &EraHistory,
     transaction: (TransactionId, TransactionPointer),
     proposals: Option<Vec<Proposal>>,
+    is_valid: bool,
 ) -> Result<(), InvalidProposals>
 where
     C: ProposalsSlice + WitnessSlice + BalanceSlice,
@@ -77,11 +78,13 @@ where
             });
         }
 
-        context.produce_lovelace(proposal.deposit);
+        if is_valid {
+            context.produce_lovelace(proposal.deposit);
 
-        let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
-        let id = ProposalId { transaction_id: *transaction.0.as_ref(), action_index: proposal_index as u32 };
-        context.acknowledge(id, pointer, proposal)
+            let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
+            let id = ProposalId { transaction_id: *transaction.0.as_ref(), action_index: proposal_index as u32 };
+            context.acknowledge(id, pointer, proposal)
+        }
     }
 
     Ok(())
@@ -302,6 +305,7 @@ mod tests {
                     &PREPROD_ERA_HISTORY,
                     (tx.tx_id(), tx_pointer),
                     mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
+                    true,
                 )
                 .expect("validation should not fail for this fixture")
             },
