@@ -15,8 +15,8 @@
 use std::mem;
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, ProtocolParameters,
-    StakeCredential, TermLimit, TransactionInput,
+    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point,
+    PoolId, ProtocolParameters, StakeCredential, TermLimit, TransactionInput,
 };
 
 use crate::{
@@ -34,15 +34,41 @@ use crate::{
     store::Store,
 };
 
-#[derive(Default)]
 pub struct VolatileDB {
+    /// The always active underlying volatiles series. New blocks are always added to the
+    /// `current`. It represents the *most* recent part of the syncing window, but always contains
+    /// block that belong to a single epoch.
     current: VolatileSeries,
+
+    /// The tail of blocks that belong to a previous epoch. This is empty most of the time, except
+    /// when the volatile is rolling into a new epoch. This is helpful to maintain one invariant:
+    /// fragments always belong to the same epoch. This simplifies a lot of calculations down the
+    /// line.
     draining: VolatileSeries,
+
     /// The volatile bits of the in-flight epoch transition (computed rewards,
     /// pending pools and governance updates). Co-located with the two series so that reads and
     /// rollback stay cohesive: the overlay is the boundary layer that sits *between* `draining`
     /// (the closing epoch) and `current` (the opening epoch).
     overlay: StateOverlay,
+
+    /// Cached, always-present protocol parameters. This holds the current/base value; it is only
+    /// ever *replaced* when the volatile overlay is flushed at an epoch boundary, never rolled
+    /// back. Any in-flight *change* lives in the volatile overlay (see [`VolatileDB::overlay`]), so
+    /// this must always be read through [`Self::protocol_parameters`] (which overlays the pending
+    /// change) rather than via direct field access, to avoid inconsistencies.
+    protocol_parameters: ProtocolParameters,
+
+    /// Cached, always-present governance activity. Same lifecycle as `protocol_parameters`: replaced
+    /// at flush, never rolled back, and read through [`Self::governance_activity`] to fold in any
+    /// pending dormant-epoch bump from the volatile overlay.
+    governance_activity: GovernanceActivity,
+}
+
+impl Default for VolatileDB {
+    fn default() -> Self {
+        Self::new(Epoch::default(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default())
+    }
 }
 
 impl VolatileState for VolatileDB {
@@ -174,6 +200,9 @@ impl VolatileSequence for VolatileDB {
     }
 
     fn push_back(&mut self, item: Self::Item) {
+        // FIXME:
+        // Reset governance activity if a proposal is present.
+
         // By design, we should never be pushing to the back of the draining sequence
         self.current.push_back(item);
     }
@@ -218,6 +247,8 @@ impl VolatileSequence for VolatileDB {
             // If we are rolling back to a point in the draining sequence, we need to
             // promote it as current while discarding the entire current series.
             self.current = std::mem::take(&mut self.draining);
+            // We must also rollback the overlay since we are crossing the epoch boundary again.
+            self.overlay.rollback();
             true
         } else {
             self.current.has_point(point)
@@ -233,17 +264,22 @@ impl VolatileSequence for VolatileDB {
 
     fn clear(&mut self) {
         self.current.clear();
+        if !self.draining.is_empty() {
+            self.overlay.rollback();
+        }
         self.draining.clear();
     }
 }
 
 impl VolatileDB {
     /// Construct an empty volatile DB whose overlay is anchored to the given epoch.
-    pub fn new(epoch: Epoch) -> Self {
+    pub fn new(epoch: Epoch, protocol_parameters: ProtocolParameters, governance_activity: GovernanceActivity) -> Self {
         Self {
             current: VolatileSeries::default(),
             draining: VolatileSeries::default(),
             overlay: StateOverlay::new(epoch),
+            protocol_parameters,
+            governance_activity,
         }
     }
 
@@ -253,28 +289,63 @@ impl VolatileDB {
     }
 
     /// The protocol parameters carried by an in-flight epoch transition, if any.
-    pub fn pending_protocol_parameters(&self) -> Option<&ProtocolParameters> {
-        self.overlay.pending_protocol_parameters()
+    pub fn protocol_parameters(&self) -> &ProtocolParameters {
+        self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
     }
 
-    /// Whether the in-flight epoch transition (if any) corresponds to a dormant epoch.
-    pub fn is_dormant_epoch(&self) -> bool {
-        self.overlay.is_dormant_epoch()
+    /// Obtain the protocol parameters for a specific epoch; which can either be the *current* epoch
+    /// as per the latest tip, or the previous one. This is useful when applying the last `k` blocks
+    /// of an epoch.
+    ///
+    /// At this point, the tip has already transitioned, but we still need some of the protocol
+    /// parameters *at the time of that block* during persistence; mostly because of branching logic
+    /// that depends on protocol version.
+    pub fn protocol_parameters_for(&self, epoch: Epoch) -> Option<&ProtocolParameters> {
+        let current_epoch = self.epoch();
+        if epoch == current_epoch {
+            Some(self.protocol_parameters())
+        } else if epoch + 1 == current_epoch {
+            Some(&self.protocol_parameters)
+        } else {
+            None
+        }
     }
 
-    /// Whether an epoch transition has been computed but not yet flushed to the stable store.
-    pub fn has_pending_epoch_transition(&self) -> bool {
-        !self.overlay.is_empty()
+    /// Obtain the latest governance activity, folding in any pending dormant-epoch bump from the
+    /// volatile overlay.
+    pub fn governance_activity(&self) -> GovernanceActivity {
+        let mut governance_activity = self.governance_activity;
+
+        if self.overlay.is_dormant_epoch() {
+            governance_activity.consecutive_dormant_epochs += 1;
+        }
+
+        governance_activity
+    }
+
+    /// Similar to [`Self::protocol_parameters_for`], we need to hold onto the governance activity at
+    /// the time of a block, and not the value at the tip (since we apply blocks with `k` blocks of
+    /// delay).
+    pub fn governance_activity_for(&self, epoch: Epoch) -> Option<GovernanceActivity> {
+        let current_epoch = self.epoch();
+
+        if epoch == current_epoch {
+            Some(self.governance_activity())
+        } else if epoch + 1 == current_epoch {
+            Some(self.governance_activity)
+        } else {
+            None
+        }
+    }
+
+    /// The governance roots, overlaying the pending boundary roots over the stable `base`.
+    pub fn proposals_roots(&self) -> Option<&ProposalsRoots> {
+        self.overlay.pending_proposals_roots()
     }
 
     /// Whether the rewards for the in-flight epoch are still to be computed.
     pub fn rewards_not_ready(&self) -> bool {
         matches!(self.overlay.rewards(), RewardsState::NotReady)
-    }
-
-    /// The governance roots, overlaying the pending boundary roots over the stable `base`.
-    pub fn pending_proposals_roots(&self) -> Option<&ProposalsRoots> {
-        self.overlay.pending_proposals_roots()
     }
 
     /// Take the rewards summary computed earlier in the epoch, marking the rewards as not-ready.
@@ -287,52 +358,48 @@ impl VolatileDB {
         *self.overlay.rewards_mut() = RewardsState::Computed(rewards);
     }
 
-    /// Record the result of an epoch-boundary computation into the overlay, to be folded into
-    /// validation until it is flushed `k` blocks later.
-    pub fn record_epoch_transition(
+    pub fn transition(
         &mut self,
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
     ) {
-        self.overlay.transition(effective_rewards, pools_updates, governance_updates);
-    }
-
-    /// Flush the pending epoch transition to the stable store. Returns the freshly-enacted
-    /// `(protocol_parameters, governance_activity)` when a governance transition was applied.
-    pub fn flush_epoch_transition(
-        &mut self,
-        db: &impl Store,
-    ) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
-        self.overlay.apply(db)
-    }
-
-    /// Roll the overlay back by one epoch, discarding the pending epoch-transition computation.
-    pub fn rollback_epoch_transition(&mut self) {
-        self.overlay.rollback();
-    }
-
-    /// Mark the transition between two epochs by sealing the `current` series and turning it into
-    /// the `draining` series. This keeps each series epoch-homogeneous since, by the protocol
-    /// pre-condition, the `current` series holds only the closing epoch's blocks.
-    ///
-    /// No-op when `current` is empty: there is nothing to transition, `draining` stays `None`, and
-    /// homogeneity still holds because an empty `current` only ever takes new-epoch blocks.
-    ///
-    /// The `assert!` guards the design's load-bearing precondition: `epochLength` (~10k blocks) is
-    /// far larger than the volatile window `k` (2160 blocks at the time of writing), so at most one
-    /// epoch boundary is ever inside the window and any prior `draining` series has fully drained
-    /// long before the next boundary arrives. A violation would mean two boundaries inside the
-    /// window, impossible under the protocol. We `assert!` rather than `debug_assert!` because the
-    /// check is effectively free, and if some other bug ever broke the invariant, halting the node
-    /// is far safer than silently overwriting `draining` and losing volatile history.
-    pub fn transition(&mut self) {
+        // Mark the transition between two epochs by sealing the `current` series and turning it into
+        // the `draining` series. This keeps each series epoch-homogeneous since, by the protocol
+        // pre-condition, the `current` series holds only the closing epoch's blocks.
+        //
+        // No-op when `current` is empty: there is nothing to transition, `draining` stays `None`, and
+        // homogeneity still holds because an empty `current` only ever takes new-epoch blocks.
+        //
+        // The `assert!` guards the design's load-bearing precondition: `epochLength` (~10k blocks) is
+        // far larger than the volatile window `k` (2160 blocks at the time of writing), so at most one
+        // epoch boundary is ever inside the window and any prior `draining` series has fully drained
+        // long before the next boundary arrives. A violation would mean two boundaries inside the
+        // window, impossible under the protocol. We `assert!` rather than `debug_assert!` because the
+        // check is effectively free, and if some other bug ever broke the invariant, halting the node
+        // is far safer than silently overwriting `draining` and losing volatile history.
         assert!(
             self.draining.is_empty(),
             "transitioning volatile series while a draining series is still present; two epoch boundaries inside the k-block window?"
         );
-
         self.draining = mem::take(&mut self.current);
+        self.overlay.transition(effective_rewards, pools_updates, governance_updates);
+    }
+
+    /// Whether an epoch transition has been computed but not yet flushed to the stable store.
+    pub fn is_epoch_transition_stable(&self) -> bool {
+        self.draining.is_empty() && !self.overlay.is_empty()
+    }
+
+    /// Flush the pending epoch transition to the stable store. Returns the freshly-enacted
+    /// `(protocol_parameters, governance_activity)` when a governance transition was applied.
+    pub fn apply_transition(&mut self, db: &impl Store) -> Result<(), StateError> {
+        if let Some((protocol_parameters, governance_activity)) = self.overlay.apply(db)? {
+            self.protocol_parameters = protocol_parameters;
+            self.governance_activity = governance_activity;
+        }
+
+        Ok(())
     }
 }
 
@@ -455,7 +522,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         assert!(!db.draining.is_empty() && db.current.is_empty());
 
         let beyond = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
@@ -516,7 +583,7 @@ mod tests {
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
 
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         assert!(!db.draining.is_empty(), "draining should hold the transitioned series");
         assert_eq!(db.current.len(), 0, "current should be reset to empty");
@@ -527,7 +594,7 @@ mod tests {
     fn transition_is_a_noop_on_empty_current() {
         let mut db = VolatileDB::default();
 
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         assert!(db.draining.is_empty(), "transitioning an empty current must not open a draining series");
     }
@@ -537,10 +604,10 @@ mod tests {
     fn transition_panics_if_draining_already_present() {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
     }
 
     #[test]
@@ -548,7 +615,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(10)));
@@ -566,7 +633,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
         db.push_back(AnchoredVolatileFragment::fixture(40, 4));
 
@@ -612,7 +679,7 @@ mod tests {
 
         let mut db = VolatileDB::default();
         db.push_back(draining_block);
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(current_block);
 
         assert_eq!(db.resolve_input(&input).is_some(), resolvable);
@@ -624,7 +691,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.len(), 3, "two draining blocks plus one current block");
@@ -652,7 +719,7 @@ mod tests {
             let mut db = VolatileDB::default();
             for (index, diff) in diffs.iter().enumerate() {
                 if index == transition_after {
-                    db.transition();
+                    db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
                 }
                 let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
                 anchored.fragment.utxo = diff.clone();
@@ -679,7 +746,7 @@ mod tests {
         if let Some(act) = draining {
             db.push_back(account_block(10, act));
         }
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         if let Some(act) = current {
             db.push_back(account_block(20, act));
         }
@@ -706,7 +773,7 @@ mod tests {
         // A withdrawal in `draining` (pre-boundary) with no pending credit also leaves nothing.
         let mut db = VolatileDB::default();
         db.push_back(withdrawal_block(10));
-        db.transition();
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(0));
     }
@@ -716,18 +783,20 @@ mod tests {
         let mut db = VolatileDB::default();
         let computed = Rewards::<Computed>::new(0, 0, BTreeMap::from([(cred(1), 5_000_000)]));
         let effective = Rewards::<Effective>::new(computed, std::iter::once(cred(1)));
-        db.record_epoch_transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         // The pending boundary credit is added on top of the stable base.
-        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(5_000_000));
+        assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(0));
+
+        db.push_back(withdrawal_block(10));
+
+        db.transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         // Withdrawn in `draining`, before the boundary credit: only the credit remains.
-        db.push_back(withdrawal_block(10));
-        db.transition();
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(5_000_000));
 
-        // Withdrawn again in `current`, after the boundary credit: nothing remains.
         db.push_back(withdrawal_block(20));
+
+        // Withdrawn again in `current`, after the boundary credit: nothing remains.
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Reset);
     }
 
@@ -739,8 +808,7 @@ mod tests {
         let mut db = VolatileDB::default();
         let mut updates = committee_update(None);
         updates.payouts = BTreeMap::from([(cred(1), 3_000_000)]);
-        db.record_epoch_transition(None, PoolsEpochTransitionUpdates::default(), updates);
-
+        db.transition(None, PoolsEpochTransitionUpdates::default(), updates);
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
 
@@ -752,10 +820,12 @@ mod tests {
     #[test_case(None, None => Expect::Unknown ; "untouched everywhere defers to the stable store")]
     fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Expect {
         let mut db = VolatileDB::default();
+        let computed = Rewards::<Computed>::new(0, 0, BTreeMap::new());
+        let effective = Rewards::<Effective>::new(computed, std::iter::empty());
         if let Some(act) = draining {
             db.push_back(committee_block(10, act));
         }
-        db.transition();
+        db.transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None));
         if let Some(act) = current {
             db.push_back(committee_block(20, act));
         }
@@ -772,7 +842,7 @@ mod tests {
         // Added at the boundary: a fresh member with the pending term, no stable row needed.
         let mut db = VolatileDB::default();
         let valid_until = Epoch::from(99);
-        db.record_epoch_transition(
+        db.transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
@@ -788,7 +858,7 @@ mod tests {
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
         let mut db = VolatileDB::default();
-        db.record_epoch_transition(
+        db.transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
@@ -801,7 +871,7 @@ mod tests {
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
-        db.record_epoch_transition(
+        db.transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::NoConfidence)),

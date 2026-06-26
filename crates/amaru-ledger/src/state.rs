@@ -89,18 +89,6 @@ where
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
 
-    /// Cached, always-present protocol parameters. This holds the current/base value; it is only
-    /// ever *replaced* when the volatile overlay is flushed at an epoch boundary, never rolled
-    /// back. Any in-flight *change* lives in the volatile overlay (see [`VolatileDB::overlay`]), so
-    /// this must always be read through [`Self::protocol_parameters`] (which overlays the pending
-    /// change) rather than via direct field access, to avoid inconsistencies.
-    protocol_parameters: ProtocolParameters,
-
-    /// Cached, always-present governance activity. Same lifecycle as `protocol_parameters`: replaced
-    /// at flush, never rolled back, and read through [`Self::governance_activity`] to fold in any
-    /// pending dormant-epoch bump from the volatile overlay.
-    governance_activity: GovernanceActivity,
-
     /// Global (i.e. non-updatable) parameters of the network. This includes things like
     /// slot length, epoch length, security parameter and other pieces that cannot generally
     /// be updated but grouped here to avoid dealing with magic values everywhere.
@@ -141,58 +129,25 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Obtain the latest protocol parameters: the cached base, overlaid with any in-flight change
     /// pending in the volatile overlay.
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
-        self.volatile.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
+        self.volatile.protocol_parameters()
     }
 
-    /// Obtain the protocol parameters for a specific epoch; which can either be the *current* epoch
-    /// as per the latest tip, or the previous one. This is useful when applying the last `k` blocks
-    /// of an epoch.
-    ///
-    /// At this point, the tip has already transitioned, but we still need some of the protocol
-    /// parameters *at the time of that block* during persistence; mostly because of branching logic
-    /// that depends on protocol version.
-    pub fn protocol_parameters_for(&self, epoch: Epoch) -> &ProtocolParameters {
-        if epoch == self.epoch() {
-            self.protocol_parameters()
-        } else {
-            self.assert_previous_epoch(epoch);
-            &self.protocol_parameters
-        }
+    /// Like `Self::protocol_parameters` but for a given epoch (must be reachable; i.e. current or
+    /// previous)
+    pub fn protocol_parameters_for(&self, epoch: Epoch) -> Option<&ProtocolParameters> {
+        self.volatile.protocol_parameters_for(epoch)
     }
 
     /// Obtain the latest governance activity, folding in any pending dormant-epoch bump from the
     /// volatile overlay.
     pub fn governance_activity(&self) -> GovernanceActivity {
-        let mut governance_activity = self.governance_activity;
-
-        if self.volatile.is_dormant_epoch() {
-            governance_activity.consecutive_dormant_epochs += 1;
-        }
-
-        governance_activity
+        self.volatile.governance_activity()
     }
 
-    /// Similar to [`Self::protocol_parameters_for`], we need to hold onto the governance activity at
-    /// the time of a block, and not the value at the tip (since we apply blocks with `k` blocks of
-    /// delay).
-    pub fn governance_activity_for(&self, epoch: Epoch) -> GovernanceActivity {
-        if epoch == self.epoch() {
-            self.governance_activity()
-        } else {
-            self.assert_previous_epoch(epoch);
-            self.governance_activity
-        }
-    }
-
-    fn assert_previous_epoch(&self, epoch: Epoch) {
-        let current = self.epoch();
-        assert!(
-            epoch + 1 == current,
-            "invariant violation: asking protocol parameters for an epoch ({}) that's neither current ({}) nor the precedent ({})",
-            epoch,
-            current,
-            current.saturating_sub(1),
-        );
+    /// Like `Self::governance_activity` but for a given epoch (must be reachable; i.e. current or
+    /// previous)
+    pub fn governance_activity_for(&self, epoch: Epoch) -> Option<GovernanceActivity> {
+        self.volatile.governance_activity_for(epoch)
     }
 }
 
@@ -252,11 +207,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // (2) Re-applying GlobalParameters::consensus_security_param (already synchronized) blocks is _fast-enough_ that it can be
             //     done on restart easily. To be measured; if this turns out to be too slow, we
             //     views of the volatile DB on-disk to be able to restore them quickly.
-            volatile: VolatileDB::new(epoch),
-
-            protocol_parameters,
-
-            governance_activity,
+            volatile: VolatileDB::new(epoch, protocol_parameters, governance_activity),
 
             global_parameters: Arc::new(global_parameters),
 
@@ -321,8 +272,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[expect(clippy::unwrap_used)]
     fn apply_block(&mut self, now_stable: AnchoredVolatileFragment) -> Result<(), StateError> {
-        let tip_slot = now_stable.anchor.0.slot();
-        let tip_epoch = unsafe_slot_to_epoch(&self.era_history, tip_slot);
+        let immutable_slot = now_stable.anchor.0.slot();
+        let immutable_epoch = unsafe_slot_to_epoch(&self.era_history, immutable_slot);
 
         // TODO: Flush ledger overlay sooner.
         //
@@ -333,32 +284,34 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // Hence, we know in advanced that the overlay must be applied. In fact, there can be
         // between 1s and multiple minutes before the next block. So we could get a head start and
         // start flushing right away; instead of awaiting for the next block to arrive.
-        if self.epoch() == tip_epoch && self.volatile.has_pending_epoch_transition() {
-            let updated = {
-                let db = self.stable.lock().unwrap();
-                self.volatile.flush_epoch_transition(&*db)?
-            };
-            if let Some((protocol_parameters, governance_activity)) = updated {
-                self.protocol_parameters = protocol_parameters;
-                self.governance_activity = governance_activity;
-            }
+        if self.volatile.is_epoch_transition_stable() {
+            let db = self.stable.lock().unwrap();
+            self.volatile.apply_transition(&*db)?;
             self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
         }
 
-        trace_span!(amaru_observability::amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(tip_slot)).in_scope(
+        trace_span!(amaru_observability::amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(immutable_slot)).in_scope(
             || {
+                let protocol_parameters = self.protocol_parameters_for(immutable_epoch).unwrap_or_else(|| unreachable! {
+                    "invariant violation: asking protocol parameters for an unreachable epoch; immutable epoch = {}; volatile epoch = {}",
+                    immutable_epoch,
+                    self.epoch(),
+                });
+
                 // Persist changes for this block
                 let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
-                    now_stable.into_store_update(tip_epoch, self.protocol_parameters());
+                    now_stable.into_store_update(immutable_epoch, protocol_parameters);
 
-                let db = self.stable.lock().unwrap();
-
-                let governance_activity = db
+                self.stable.lock().unwrap()
                     .with_transaction(|batch| {
-                        let governance_activity = batch.save(
+                        batch.save(
                             &self.era_history,
-                            self.protocol_parameters_for(tip_epoch),
-                            self.governance_activity_for(tip_epoch),
+                            protocol_parameters,
+                            self.governance_activity_for(immutable_epoch).unwrap_or_else(|| unreachable! {
+                                "invariant violation: asking governance activity for an unreachable epoch; immutable epoch = {}; volatile epoch = {}",
+                                immutable_epoch,
+                                self.epoch(),
+                            }),
                             &stable_point,
                             Some(&stable_issuer),
                             add,
@@ -372,15 +325,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                         batch.reset_epoch_transition_progress()?;
 
-                        Ok(governance_activity)
+                        Ok(())
                     })
                     .map_err(StateError::Storage)?;
 
-                drop(db); // Dropping the *mutable reference*, not the *actual database* :)
-
-                self.governance_activity = governance_activity;
-
-                Ok(())
+               Ok(())
             },
         )
     }
@@ -473,9 +422,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             drop(db); // Dropping the *mutable reference*, not the *actual database* :)
 
-            self.volatile.record_epoch_transition(effective_rewards, pools_updates, governance_updates);
-
-            self.volatile.transition();
+            self.volatile.transition(effective_rewards, pools_updates, governance_updates);
 
             Ok(())
         })
@@ -589,10 +536,18 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let db = &*self.stable.lock().unwrap();
             ctx.into_validation_context(
                 UnresolvedInputPolicy::Defer,
-                self.volatile
-                    .pending_proposals_roots()
-                    .cloned()
-                    .unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
+                // FIXME: Delayed proposal roots
+                //
+                // The Volatile's proposal_roots currently return an Option, but it really should
+                // return a plain object and be tracking the live candidate root (which may be
+                // updated by every fragment).
+                //
+                // Without that, we cannot properly validate proposals that depend on other
+                // proposals that have been submitted in the same epoch; since our roots are only
+                // updated on every epoch boundary. This means that we must properly initialize the
+                // roots on startup, from the "stable" roots (last changed after last
+                // ratification), and all the currently pending proposals.
+                self.volatile.proposals_roots().cloned().unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
                 &self.volatile,
                 db,
             )
@@ -616,10 +571,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let db = &*self.stable.lock().unwrap();
             ctx.into_validation_context(
                 UnresolvedInputPolicy::Reject,
-                self.volatile
-                    .pending_proposals_roots()
-                    .cloned()
-                    .unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
+                self.volatile.proposals_roots().cloned().unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
                 &self.volatile,
                 db,
             )
@@ -788,7 +740,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         info_span!(amaru_observability::amaru::ledger::state::ROLL_BACKWARD, rollback_point = to.to_string()).in_scope(
             || {
                 let immutable_tip = self.immutable_tip();
-
                 let volatile_tip = self.volatile_tip().map(|t| t.point()).unwrap_or(immutable_tip);
 
                 // NOTE: Rolling back to the tip of the immutable
@@ -806,19 +757,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                         BackwardError::unknown(*rollback_point, volatile_tip, immutable_tip)
                     })?;
                 }
-
-                let epoch_from = unsafe_slot_to_epoch(&self.era_history, volatile_tip.slot_or_default());
-                let epoch_to = unsafe_slot_to_epoch(&self.era_history, to.slot_or_default());
-
-                if epoch_to < epoch_from {
-                    self.volatile.rollback_epoch_transition();
-                }
-
-                assert_eq!(
-                    self.volatile.epoch(),
-                    unsafe_slot_to_epoch(&self.era_history, self.tip().slot_or_default()),
-                    "overlay epoch desynced from the volatile tip after rollback"
-                );
 
                 Ok(())
             },

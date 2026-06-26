@@ -743,7 +743,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
-    ) -> Result<GovernanceActivity, StoreError> {
+    ) -> Result<(), StoreError> {
         match (point, self.tip().ok()) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
                 if *new <= current && !self.host.incremental_save =>
@@ -807,13 +807,12 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     })?;
 
                     governance_activity.consecutive_dormant_epochs = 0;
-
                     self.set_governance_activity(governance_activity)?;
                 }
             }
         }
 
-        Ok(governance_activity)
+        Ok(())
     }
 
     fn with_pots<'db>(
