@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    EraHistoryProxy, MemoizedTransactionOutput, NetworkName, ProtocolParameters, TransactionInput, TransactionPointer,
-    json,
+    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Lovelace, MemoizedTransactionOutput,
+    NetworkName, PoolId, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
+    context::AccountState,
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -51,7 +52,98 @@ pub(super) struct Fixture {
 pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_utxo")]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    pub(super) pools: BTreeSet<PoolId>,
+    #[serde(deserialize_with = "deserialize_accounts")]
+    pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
+    #[serde(deserialize_with = "deserialize_dreps")]
+    pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
     pub(super) governance_activity: GovernanceActivity,
+}
+
+fn deserialize_cbor_hex<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: for<'b> cbor::Decode<'b, ()>,
+{
+    let hex = String::deserialize(deserializer)?;
+    let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
+    cbor::decode(&bytes).map_err(serde::de::Error::custom)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PoolDelegationProxy {
+    id: PoolId,
+    delegated_at: CertificatePointer,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VoteDelegationProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    id: DRep,
+    delegated_at: CertificatePointer,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    credential: StakeCredential,
+    deposit: Lovelace,
+    #[serde(default)]
+    rewards: Lovelace,
+    #[serde(default)]
+    pool: Option<PoolDelegationProxy>,
+    #[serde(default)]
+    drep: Option<VoteDelegationProxy>,
+}
+
+fn deserialize_accounts<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, AccountState>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<AccountProxy>::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let state = AccountState {
+                deposit: entry.deposit,
+                pool: entry.pool.map(|pool| (pool.id, pool.delegated_at)),
+                drep: entry.drep.map(|drep| (drep.id, drep.delegated_at)),
+                rewards: entry.rewards,
+            };
+            (entry.credential, state)
+        })
+        .collect())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DRepProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    credential: StakeCredential,
+    deposit: Lovelace,
+    registered_at: CertificatePointer,
+    valid_until: Epoch,
+}
+
+fn deserialize_dreps<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, DRepRegistration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<DRepProxy>::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let registration = DRepRegistration {
+                deposit: entry.deposit,
+                registered_at: entry.registered_at,
+                valid_until: entry.valid_until,
+            };
+            (entry.credential, registration)
+        })
+        .collect())
 }
 
 pub(super) enum Expected {

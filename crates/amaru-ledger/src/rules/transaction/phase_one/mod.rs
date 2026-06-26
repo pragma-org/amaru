@@ -372,6 +372,8 @@ mod tests {
     #[test_case(fixture!("pass/script-integrity-hash/0"); "interesting script integrity hash on preprod")]
     #[test_case(fixture!("fail/ValueNotConservedUTxO/0"); "input lovelace exceeds outputs plus fee")]
     #[test_case(fixture!("fail/ValueNotConservedUTxO/1"); "input native asset left unaccounted by outputs")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/2"); "stake deregistration refund unaccounted by outputs")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/3"); "drep deregistration refund unaccounted by outputs")]
     fn conformance(fixture: Fixture) {
         // Fixtures encode a standalone conway transaction (a 4-element array including the is_valid byte)
         // but the ledger expects a transaction to be the 3-element array (without the is_valid byte), so we subtract one byte to
@@ -388,9 +390,9 @@ mod tests {
 
         let mut ctx = DefaultValidationContext::new(
             fixture.initial_state.utxo,
-            Default::default(),
-            Default::default(),
-            Default::default(),
+            fixture.initial_state.pools,
+            fixture.initial_state.accounts,
+            fixture.initial_state.dreps,
             Default::default(),
             Default::default(),
             Default::default(),
