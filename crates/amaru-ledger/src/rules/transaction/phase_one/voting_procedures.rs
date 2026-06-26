@@ -24,6 +24,7 @@ use crate::context::{ProposalsSlice, WitnessSlice};
 pub(crate) fn execute<C>(
     context: &mut C,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
+    is_valid: bool,
 ) where
     C: WitnessSlice + ProposalsSlice,
 {
@@ -42,9 +43,11 @@ pub(crate) fn execute<C>(
                     StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 }
 
-                votes.into_iter().for_each(|(proposal_id, ballot)| {
-                    context.vote(proposal_id, voter.clone(), ballot.vote, Option::from(ballot.anchor));
-                })
+                if is_valid {
+                    votes.into_iter().for_each(|(proposal_id, ballot)| {
+                        context.vote(proposal_id, voter.clone(), ballot.vote, Option::from(ballot.anchor));
+                    })
+                }
             },
         );
     }
@@ -83,7 +86,7 @@ mod tests {
                 let mut validation_context =
                     AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
 
-                super::execute(&mut validation_context, voting_procedures)
+                super::execute(&mut validation_context, voting_procedures, true)
             },
             expected_traces,
         );
