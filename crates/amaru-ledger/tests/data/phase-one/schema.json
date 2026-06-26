@@ -171,13 +171,103 @@
         "consecutiveDormantEpochs": { "type": "integer", "minimum": 0 }
       }
     },
+    "PoolId": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{56}$",
+      "description": "Hex-encoded stake pool key hash (28 bytes)."
+    },
+    "CertificatePointer": {
+      "type": "object",
+      "required": ["transaction", "certificateIndex"],
+      "properties": {
+        "transaction": { "$ref": "#/$defs/TransactionPointer" },
+        "certificateIndex": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "PoolDelegation": {
+      "type": "object",
+      "required": ["id", "delegatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/PoolId" },
+        "delegatedAt": { "$ref": "#/$defs/CertificatePointer" }
+      }
+    },
+    "VoteDelegation": {
+      "type": "object",
+      "required": ["id", "delegatedAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of DRep."
+        },
+        "delegatedAt": { "$ref": "#/$defs/CertificatePointer" }
+      }
+    },
+    "Account": {
+      "type": "object",
+      "required": ["credential", "deposit"],
+      "properties": {
+        "credential": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of StakeCredential."
+        },
+        "deposit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace held as the registration deposit; refunded on deregistration."
+        },
+        "rewards": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace. Withdrawable reward balance. Defaults to 0."
+        },
+        "pool": { "$ref": "#/$defs/PoolDelegation" },
+        "drep": { "$ref": "#/$defs/VoteDelegation" }
+      }
+    },
+    "DRepRegistration": {
+      "type": "object",
+      "required": ["credential", "deposit", "registeredAt", "validUntil"],
+      "properties": {
+        "credential": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of StakeCredential."
+        },
+        "deposit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lovelace held as the registration deposit; refunded on deregistration."
+        },
+        "registeredAt": { "$ref": "#/$defs/CertificatePointer" },
+        "validUntil": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Epoch through which the registration is valid."
+        }
+      }
+    },
     "InitialState": {
       "type": "object",
-      "required": ["utxo", "governanceActivity"],
+      "required": ["utxo", "pools", "accounts", "dreps", "governanceActivity"],
       "properties": {
         "utxo": {
           "type": "array",
           "items": { "$ref": "#/$defs/UtxoEntry" }
+        },
+        "pools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PoolId" },
+          "description": "Registered stake pools. Empty when no pool state is seeded."
+        },
+        "accounts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Account" },
+          "description": "Registered stake accounts. Empty when no account state is seeded."
+        },
+        "dreps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DRepRegistration" },
+          "description": "Registered delegate representatives. Empty when no DRep state is seeded."
         },
         "governanceActivity": { "$ref": "#/$defs/VotingState" }
       }
