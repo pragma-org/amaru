@@ -40,7 +40,8 @@ Other guiding principles:
 
 ### Added
 
-- **amaru-ledger**: add more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
+- **amaru-ledger**: added more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
+- **amaru-ledger**: introduced the `ValueNotConservedUTxO` predicate. ([#892][], [#831][])
 
 ### Changed
 
@@ -93,7 +94,9 @@ Other guiding principles:
 
 [#769]: https://github.com/pragma-org/amaru/issues/769
 [#778]: https://github.com/pragma-org/amaru/issues/778
+[#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
+[#892]: https://github.com/pragma-org/amaru/issues/892
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#953]: https://github.com/pragma-org/amaru/pull/953
 [#954]: https://github.com/pragma-org/amaru/pull/954
