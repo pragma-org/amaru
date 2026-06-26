@@ -41,4 +41,4 @@ queryNonces =
 
 noncesOutputPath :: Word64 -> FilePath
 noncesOutputPath epochNumber =
-    "data/nonces/" <> toString (show epochNumber :: Text) <> ".json"
+    "nonces/" <> toString (show epochNumber :: Text) <> ".json"

@@ -2,8 +2,6 @@ module Data.RewardAccount
     ( JsonRewardAccount (..)
     ) where
 
-import Relude
-
 import Cardano.Ledger.Address
     ( AccountAddress
     , serialiseAccountAddress

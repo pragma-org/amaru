@@ -22,7 +22,6 @@ import Cardano.Ledger.Compactible
     )
 import Cardano.Ledger.Credential
     ( Credential
-    , StakeCredential
     )
 import Cardano.Ledger.DRep
     ( DRep
@@ -59,7 +58,7 @@ import qualified Data.Set as Set
 
 delegateRepresentativesOutputPath :: Word64 -> FilePath
 delegateRepresentativesOutputPath epochNumber =
-    "data/dreps/" <> toString (show epochNumber :: Text) <> ".json"
+    "dreps/" <> toString (show epochNumber :: Text) <> ".json"
 
 queryDelegateRepresentatives :: NewEpochState ConwayEra -> [DelegateRepresentative]
 queryDelegateRepresentatives newEpochState =
@@ -95,7 +94,7 @@ mergeStateAndStake dRepStates dRepStakes =
 
 mergeDelegations
     :: Map.Map DRep DelegateRepresentative
-    -> Map.Map DRep (Set.Set StakeCredential)
+    -> Map.Map DRep (Set.Set (Credential Staking))
     -> Map.Map DRep DelegateRepresentative
 mergeDelegations dReps dRepDelegations =
     Merge.merge
@@ -139,7 +138,7 @@ registeredDRep credential dRepState stake =
             }
 
 setDelegators
-    :: Set.Set StakeCredential
+    :: Set.Set (Credential Staking)
     -> DelegateRepresentative
     -> DelegateRepresentative
 setDelegators delegators = \case

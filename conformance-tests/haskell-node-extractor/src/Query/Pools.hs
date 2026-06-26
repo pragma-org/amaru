@@ -40,4 +40,4 @@ queryPools network newEpochState =
 
 poolsOutputPath :: Word64 -> FilePath
 poolsOutputPath epochNumber =
-    "data/pools/" <> toString (show epochNumber :: Text) <> ".json"
+    "pools/" <> toString (show epochNumber :: Text) <> ".json"

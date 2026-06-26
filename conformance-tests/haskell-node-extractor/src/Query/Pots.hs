@@ -39,4 +39,4 @@ queryPots =
 
 potsOutputPath :: Word64 -> FilePath
 potsOutputPath epochNumber =
-    "data/pots/" <> toString (show epochNumber :: Text) <> ".json"
+    "pots/" <> toString (show epochNumber :: Text) <> ".json"

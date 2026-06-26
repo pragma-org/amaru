@@ -24,6 +24,7 @@ import Options.Applicative
 data ExtractSnapshotOptions = ExtractSnapshotOptions
     { networkName :: !NetworkName
     , snapshotPath :: !FilePath
+    , outputDir :: !FilePath
     }
 
 extractSnapshotOptionsParser :: Parser ExtractSnapshotOptions
@@ -33,7 +34,12 @@ extractSnapshotOptionsParser =
         <*> strOption
             ( long "snapshot"
                 <> metavar "PATH"
-                <> help "Path to the consensus ledger snapshot file or directory"
+                <> help "Path to the consensus ledger snapshot directory"
+            )
+        <*> strOption
+            ( long "output"
+                <> metavar "DIR"
+                <> help "Directory where extracted JSON files will be written (e.g. ./data)"
             )
 
 networkNameParser :: Parser NetworkName

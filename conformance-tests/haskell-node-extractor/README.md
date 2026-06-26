@@ -42,7 +42,8 @@ Given a snapshot directory produced by `db-analyser` (or `cargo run create-snaps
 
 ```console
 cabal run exe:haskell-node-extractor -- extract --preprod \
-  --snapshot ../../snapshots/preprod/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912
+  --snapshot ../../snapshots/preprod/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912 \
+  --output ../../conformance-tests/data
 ```
 
 ## Make targets
