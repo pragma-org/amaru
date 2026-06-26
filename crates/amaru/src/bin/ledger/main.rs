@@ -71,7 +71,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_metrics, teardown) = setup_observability(
         args.with_open_telemetry,
         args.with_json_traces,
-        false,
         Color::is_enabled(args.color),
         &args.command,
     );
