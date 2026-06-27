@@ -12,12 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod decoder;
-mod error;
-
+use amaru_kernel::{HasMajorVersion, PlutusScript, PlutusVersion, ProtocolVersion, ToBytes, reify_plutus_version};
 use bumpalo::collections::Vec as BumpVec;
-pub use decoder::{Ctx, Decoder};
-pub use error::FlatDecodeError;
 use num::Zero;
 
 use super::{
@@ -26,14 +22,53 @@ use super::{
 };
 use crate::{
     arena::Arena,
-    binder::Binder,
+    binder::{Binder, DeBruijn},
     constant::Constant,
     ledger_value::{CurrencyEntry, LedgerValue, TokenEntry, check_quantity_range, count_stats},
-    machine::PlutusVersion,
     program::{Program, Version},
     term::Term,
     typ::Type,
 };
+
+mod decoder;
+pub use decoder::{Ctx, Decoder};
+
+mod error;
+pub use error::FlatDecodeError;
+
+/// Decode a 'DeBruijn' UPLC program from encoded flat bytes.
+pub fn decode_plutus_script<'a, const V: usize>(
+    script: &PlutusScript<V>,
+    protocol_version: ProtocolVersion,
+    arena: &'a Arena,
+) -> Result<(&'a Program<'a, DeBruijn>, PlutusVersion), FlatDecodeError> {
+    let bytes = script.to_bytes().map_err(|e| {
+        FlatDecodeError::Message(format!("unable to get raw flat bytes: error={e}, script={script:#?}"))
+    })?;
+
+    let pv = protocol_version.major();
+
+    // TODO: carry IsKnownPlutusVersion constraint
+    //
+    // We should carry the `IsKnownPlutusVersion` constraint up until here if possible, so
+    // that this conversion can be infaillible. This means that upon successfully decoding a
+    // transaction, we should instantiate the constraint and carry it through; until that is too
+    // cumbersome.
+    let plutus_version = reify_plutus_version::<V>()
+        .ok_or_else(|| FlatDecodeError::Message(format!("unable to reify type-level Plutus version '{V:#?}' ??!")))?;
+
+    // TODO: Remove indirection
+    //
+    // We are here matching on plutus_version for a certain behaviour, matching a specific decoder,
+    // and then passing the plutus version to that decoder function. We should really be doing this
+    // behaviour match inside one decoder instead!
+    let program = match plutus_version {
+        PlutusVersion::V3 => decode_strict::<DeBruijn>(arena, bytes, plutus_version, pv),
+        PlutusVersion::V1 | PlutusVersion::V2 => decode::<DeBruijn>(arena, bytes, plutus_version, pv),
+    }?;
+
+    Ok((program, plutus_version))
+}
 
 /// Decode a FLAT-encoded program with version gating.
 ///
@@ -452,7 +487,7 @@ mod tests {
         let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
         match program {
             Ok(program) => {
-                let eval_result = program.eval(&arena);
+                let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
                 assert_eq!(term, &Term::Constant(&Constant::Integer(&BigInt::from(129))));
             }
@@ -486,7 +521,7 @@ mod tests {
         let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
         match program {
             Ok(program) => {
-                let eval_result = program.eval(&arena);
+                let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
                 assert_eq!(
                     term,
@@ -522,7 +557,7 @@ mod tests {
         let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
         match program {
             Ok(program) => {
-                let eval_result = program.eval(&arena);
+                let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
                 assert_eq!(term, &Term::Constant(&Constant::Integer(&BigInt::from(28))));
             }

@@ -97,7 +97,7 @@ pub use cardano::{
     output_reference::OutputReference,
     peer::Peer,
     plutus_data::{PlutusData, PlutusDataSet, PlutusDatums},
-    plutus_script::{PlutusScript, decode_plutus_script},
+    plutus_script::PlutusScript,
     plutus_version::{IsKnownPlutusVersion, KnownPlutusVersion, PlutusVersion, reify_plutus_version},
     point::Point,
     pool_metadata::{self, PoolMetadata},

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::machine::PlutusVersion;
+use amaru_kernel::PlutusVersion;
 
 #[repr(u8)]
 #[allow(non_camel_case_types)]

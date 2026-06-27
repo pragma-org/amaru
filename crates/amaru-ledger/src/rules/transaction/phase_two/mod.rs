@@ -15,9 +15,9 @@
 use std::{collections::BTreeMap, fmt};
 
 use amaru_kernel::{
-    BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, ProtocolParameters, TransactionBody,
-    TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    decode_plutus_script, to_cbor, transaction_input_to_string,
+    BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, ProtocolVersion,
+    TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
+    to_cbor, transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
@@ -28,8 +28,8 @@ use amaru_uplc::{
     binder::Binder,
     constant::Constant,
     data::PlutusData,
-    flat::FlatDecodeError,
-    machine::{ExBudget, MachineInfo, PlutusVersion},
+    flat::{FlatDecodeError, decode_plutus_script},
+    machine::{CostModel, ExBudget, MachineInfo, cost_model::ParamName},
     program::Program,
     term::Term,
 };
@@ -49,12 +49,19 @@ pub enum PhaseTwoError {
     ScriptDeserializationError(cbor::decode::Error),
     #[error("failed to flat decode script: {0}")]
     FlatDecodingError(#[from] FlatDecodeError),
-    #[error("missing cost models for version: {0:?}")]
-    MissingCostModel(PlutusVersion),
+
     #[error("script evaluation failure: {0:?}")]
     UplcMachineError(UplcMachineError),
     #[error("expected scripts to fail but didn't")]
     ValidityStateError,
+    // These error should not be there; they aren't the users' fault, but only there due to our
+    // failure in typing this correctly early on.
+    #[error("missing cost models for version = {0:?}")]
+    MissingCostModel(PlutusVersion),
+    #[error(
+        "invalid cost model for plutus version = {0:?} and protocol version = {1:?}; missing expected parameter: {2:?}"
+    )]
+    InvalidCostModel(PlutusVersion, ProtocolVersion, ParamName),
 }
 
 #[derive(Debug)]
@@ -214,11 +221,11 @@ where
 
             let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
 
-            let result = program.eval_with_params(
+            let result = program.eval(
                 &arena,
-                plutus_version,
-                protocol_parameters.protocol_version,
-                cost_model,
+                CostModel::new(plutus_version, protocol_parameters.protocol_version, cost_model).map_err(|param| {
+                    PhaseTwoError::InvalidCostModel(plutus_version, protocol_parameters.protocol_version, param)
+                })?,
                 uplc_budget,
             );
 

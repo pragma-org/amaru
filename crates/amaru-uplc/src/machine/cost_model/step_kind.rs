@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,33 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod cek;
-pub use cek::*;
+#[derive(Debug, Clone, Copy)]
+#[repr(usize)]
+pub enum StepKind {
+    Constant = 0,
+    Var = 1,
+    Lambda = 2,
+    Apply = 3,
+    Delay = 4,
+    Force = 5,
+    Builtin = 6,
+    Constr = 7,
+    Case = 8,
+}
 
-pub mod context;
+impl StepKind {
+    pub const LEN: usize = 9;
 
-pub mod cost_model;
-pub use cost_model::{CostModel, ex_budget::*};
-
-pub mod discharge;
-
-mod error;
-pub use error::*;
-
-pub mod env;
-
-mod eval_result;
-pub use eval_result::*;
-
-mod info;
-pub use info::*;
-
-mod runtime;
-pub use runtime::*;
-
-mod semantics;
-pub use semantics::*;
-
-pub mod state;
-
-pub mod value;
+    pub fn enumerate() -> [Self; Self::LEN] {
+        use StepKind::*;
+        [Constant, Var, Lambda, Apply, Delay, Force, Builtin, Constr, Case]
+    }
+}

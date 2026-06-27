@@ -19,12 +19,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use amaru_uplc::{
-    arena::Arena,
-    binder::DeBruijn,
-    flat,
-    machine::{ExBudget, PlutusVersion},
-};
+use amaru_kernel::PlutusVersion;
+use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, machine::ExBudget};
 use bumpalo::Bump;
 use divan::Bencher;
 use itertools::Itertools;

@@ -12,47 +12,93 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::machine::{ExBudget, cost_model::cost_map::CostMap};
+#[allow(clippy::disallowed_types)]
+use std::collections::HashMap;
+
+use amaru_kernel::PlutusVersion;
+
+use crate::machine::{
+    ExBudget,
+    cost_model::{ParamName, StepKind},
+};
 
 #[derive(Debug, PartialEq)]
-pub struct MachineCosts([ExBudget; 9]);
+pub struct MachineCosts {
+    pub startup: ExBudget,
+    pub constant: ExBudget,
+    pub var: ExBudget,
+    pub lambda: ExBudget,
+    pub delay: ExBudget,
+    pub force: ExBudget,
+    pub apply: ExBudget,
+    pub constr: ExBudget,
+    pub case: ExBudget,
+    pub builtin: ExBudget,
+}
 
 impl Default for MachineCosts {
     fn default() -> Self {
-        Self::new()
+        Self {
+            startup: Self::default_startup_cost(),
+            constant: Self::default_machine_cost(),
+            var: Self::default_machine_cost(),
+            lambda: Self::default_machine_cost(),
+            apply: Self::default_machine_cost(),
+            delay: Self::default_machine_cost(),
+            force: Self::default_machine_cost(),
+            builtin: Self::default_machine_cost(),
+            constr: Self::default_machine_cost(),
+            case: Self::default_machine_cost(),
+        }
     }
 }
 
 impl MachineCosts {
-    pub fn new() -> Self {
-        MachineCosts([
-            ExBudget::constant(),
-            ExBudget::var(),
-            ExBudget::lambda(),
-            ExBudget::apply(),
-            ExBudget::delay(),
-            ExBudget::force(),
-            ExBudget::builtin(),
-            ExBudget::constr(),
-            ExBudget::case(),
-        ])
+    #[allow(clippy::disallowed_types)]
+    pub fn new(cost_map: &HashMap<ParamName, i64>, plutus_version: PlutusVersion) -> Result<Self, ParamName> {
+        use ParamName::*;
+
+        let always = |name: ParamName| cost_map.get(&name).copied().ok_or(name);
+
+        let if_v3: Box<dyn Fn(ParamName) -> Result<i64, ParamName>> = if plutus_version >= PlutusVersion::V3 {
+            Box::new(always)
+        } else {
+            Box::new(|_name: ParamName| Ok(i64::MAX))
+        };
+
+        Ok(Self {
+            startup: ExBudget { mem: always(CekStartupMem)?, cpu: always(CekStartupCpu)? },
+            constant: ExBudget { mem: always(CekConstMem)?, cpu: always(CekConstCpu)? },
+            var: ExBudget { mem: always(CekVarMem)?, cpu: always(CekVarCpu)? },
+            lambda: ExBudget { mem: always(CekLamMem)?, cpu: always(CekLamCpu)? },
+            apply: ExBudget { mem: always(CekApplyMem)?, cpu: always(CekApplyCpu)? },
+            delay: ExBudget { mem: always(CekDelayMem)?, cpu: always(CekDelayCpu)? },
+            force: ExBudget { mem: always(CekForceMem)?, cpu: always(CekForceCpu)? },
+            builtin: ExBudget { mem: always(CekBuiltinMem)?, cpu: always(CekBuiltinCpu)? },
+            constr: ExBudget { mem: if_v3(CekConstrMem)?, cpu: if_v3(CekConstrCpu)? },
+            case: ExBudget { mem: if_v3(CekCaseMem)?, cpu: if_v3(CekCaseCpu)? },
+        })
     }
 
-    pub fn get(&self, index: usize) -> ExBudget {
-        self.0[index]
+    pub fn step(&self, step_kind: StepKind) -> ExBudget {
+        match step_kind {
+            StepKind::Constant => self.constant,
+            StepKind::Var => self.var,
+            StepKind::Lambda => self.lambda,
+            StepKind::Apply => self.apply,
+            StepKind::Delay => self.delay,
+            StepKind::Force => self.force,
+            StepKind::Builtin => self.builtin,
+            StepKind::Constr => self.constr,
+            StepKind::Case => self.case,
+        }
     }
 
-    pub fn initialize_machine_costs(cost_map: &CostMap) -> Self {
-        MachineCosts([
-            ExBudget::new(cost_map["cek_const_cost-exBudgetmem"], cost_map["cek_const_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_var_cost-exBudgetmem"], cost_map["cek_var_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_lam_cost-exBudgetmem"], cost_map["cek_lam_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_apply_cost-exBudgetmem"], cost_map["cek_apply_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_delay_cost-exBudgetmem"], cost_map["cek_delay_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_force_cost-exBudgetmem"], cost_map["cek_force_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_builtin_cost-exBudgetmem"], cost_map["cek_builtin_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_constr_cost-exBudgetmem"], cost_map["cek_constr_cost-exBudgetCPU"]),
-            ExBudget::new(cost_map["cek_case_cost-exBudgetmem"], cost_map["cek_case_cost-exBudgetCPU"]),
-        ])
+    pub fn default_startup_cost() -> ExBudget {
+        ExBudget { mem: 100, cpu: 100 }
+    }
+
+    pub fn default_machine_cost() -> ExBudget {
+        ExBudget { mem: 100, cpu: 16000 }
     }
 }

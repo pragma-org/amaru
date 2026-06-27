@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::PlutusVersion;
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use super::FlatDecodeError;
-use crate::{
-    arena::Arena, builtin::DefaultFunction, constant::Integer, flat::zigzag::ZigZag, machine::PlutusVersion,
-    program::Version,
-};
+use crate::{arena::Arena, builtin::DefaultFunction, constant::Integer, flat::zigzag::ZigZag, program::Version};
 
 pub struct Decoder<'b> {
     pub buffer: &'b [u8],

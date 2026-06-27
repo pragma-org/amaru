@@ -13,7 +13,7 @@
 // limitations under the License.
 use std::{collections::BTreeMap, ops::Index};
 
-use crate::machine::PlutusVersion;
+use amaru_kernel::PlutusVersion;
 
 pub struct CostMap {
     map: BTreeMap<String, i64>,

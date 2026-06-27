@@ -14,7 +14,8 @@
 
 use std::{fs, time::Duration};
 
-use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, machine::PlutusVersion};
+use amaru_kernel::PlutusVersion;
+use amaru_uplc::{arena::Arena, binder::DeBruijn, flat};
 use bumpalo::Bump;
 use criterion::{Criterion, criterion_group, criterion_main};
 use itertools::Itertools;
@@ -35,7 +36,7 @@ pub fn bench_plutus_use_cases(c: &mut Criterion) {
                     let program =
                         flat::decode::<DeBruijn>(&arena, &script, PlutusVersion::V3, 10).expect("Failed to decode");
 
-                    let result = program.eval(&arena);
+                    let result = program.eval_default(&arena);
 
                     let _term = result.term.expect("Failed to evaluate");
 

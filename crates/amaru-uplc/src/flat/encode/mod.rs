@@ -293,8 +293,10 @@ fn safe_encode_bits(e: &mut Encoder, num_bits: usize, byte: u8) -> Result<(), Fl
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::PlutusVersion;
+
     use super::*;
-    use crate::{arena::Arena, binder::DeBruijn, flat::decode, machine::PlutusVersion};
+    use crate::{arena::Arena, binder::DeBruijn, flat::decode};
 
     #[test]
     fn roundtrip_program_big_constr_tag() {

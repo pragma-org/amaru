@@ -33,9 +33,10 @@ impl ExBudget {
         Self::machine_max()
     }
 
-    pub fn occurrences(&mut self, n: i64) {
-        self.mem *= n;
-        self.cpu *= n;
+    pub fn scale(mut self, n: u8) -> Self {
+        self.mem *= n as i64;
+        self.cpu *= n as i64;
+        self
     }
 
     pub fn machine() -> Self {
@@ -44,46 +45,6 @@ impl ExBudget {
 
     pub fn machine_max() -> Self {
         ExBudget { mem: 14_000_000_000_000, cpu: 10_000_000_000_000_000 }
-    }
-
-    pub fn start_up() -> Self {
-        ExBudget { mem: 100, cpu: 100 }
-    }
-
-    pub fn var() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn constant() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn lambda() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn delay() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn force() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn apply() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn builtin() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn constr() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
-    }
-
-    pub fn case() -> Self {
-        ExBudget { mem: 100, cpu: 16000 }
     }
 }
 

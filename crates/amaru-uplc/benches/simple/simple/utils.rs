@@ -33,7 +33,7 @@ impl BenchState {
     pub fn exec(&self) {
         self.with_program(|program| {
             self.with_arena(|arena| {
-                let _ = program.eval(arena);
+                let _ = program.eval_default(arena);
             });
         });
     }

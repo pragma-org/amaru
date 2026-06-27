@@ -12,59 +12,114 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod builtin_costs;
-pub(crate) mod cost_map;
-mod costing;
-pub mod ex_budget;
-mod machine_costs;
-mod value;
-
-pub use value::*;
+use amaru_kernel::{PlutusVersion, ProtocolVersion, protocol_version};
 
 use crate::machine::{
-    ExBudget, PlutusVersion,
-    cost_model::{builtin_costs::BuiltinCostModel, machine_costs::MachineCosts},
+    Semantics,
+    cost_model::{builtin_costs::BuiltinCosts, machine_costs::MachineCosts},
 };
 
-#[derive(Debug, PartialEq)]
-pub struct CostModel<B: BuiltinCostModel> {
-    pub machine_startup: ExBudget,
+pub mod builtin_costs;
+pub mod machine_costs;
+
+pub mod cost_map;
+pub mod costing;
+pub mod ex_budget;
+
+mod param_name;
+pub use param_name::*;
+
+mod step_kind;
+pub use step_kind::*;
+
+pub mod value;
+
+#[derive(Debug, PartialEq, Default)]
+pub struct CostModel {
+    pub semantics: Semantics,
     pub machine_costs: MachineCosts,
-    pub builtin_costs: B,
+    pub builtin_costs: BuiltinCosts,
 }
 
-impl<B: BuiltinCostModel> CostModel<B> {
-    pub fn initialize_cost_model(
-        version: &PlutusVersion,
-        protocol_version: (u64, u64),
-        cost_model: &[i64],
-    ) -> CostModel<B> {
-        let cost_map = cost_map::CostMap::new(version, protocol_version, cost_model);
-        Self {
-            machine_startup: ExBudget {
-                mem: cost_map["cek_startup_cost-exBudgetmem"],
-                cpu: cost_map["cek_startup_cost-exBudgetCPU"],
-            },
-            machine_costs: MachineCosts::initialize_machine_costs(&cost_map),
-            builtin_costs: B::initialize(&cost_map),
-        }
+impl CostModel {
+    /// Create a new `CostModel` for a given Plutus version and Protocol version. These two
+    /// versions determines how the array of cost numbers should be interpreted (how positions map
+    /// to specific parameters).
+    pub fn new(
+        plutus_version: PlutusVersion,
+        protocol_version: ProtocolVersion,
+        costs: &[i64],
+    ) -> Result<Self, ParamName> {
+        let semantics = Semantics::new(plutus_version, protocol_version);
+        let cost_map = ParamName::new_cost_map(plutus_version, costs);
+        Ok(Self {
+            semantics,
+            machine_costs: MachineCosts::new(&cost_map, plutus_version)?,
+            builtin_costs: BuiltinCosts::new(&cost_map, semantics, protocol_version)?,
+        })
     }
-}
 
-impl<B: BuiltinCostModel + Default> Default for CostModel<B> {
-    fn default() -> Self {
-        Self {
-            machine_startup: ExBudget::start_up(),
-            machine_costs: Default::default(),
-            builtin_costs: Default::default(),
-        }
+    fn predefined(plutus_version: PlutusVersion, protocol_version: ProtocolVersion, costs: &[i64]) -> Self {
+        Self::new(plutus_version, protocol_version, costs).unwrap_or_else(|param| {
+            unreachable!(
+                "invalid defaults for Plutus version = {:?}, protocol version = {:?}; missing parameter = {:?}",
+                plutus_version, protocol_version, param
+            )
+        })
     }
-}
 
-/// Default V3 cost model values (251 base + 46 PLOMIN = 297 entries).
-/// These match the Cardano mainnet default cost parameters for PlutusV3.
-pub fn default_v3_cost_model() -> Vec<i64> {
-    vec![
+    /// Latest cost models for Plutus V1
+    pub const DEFAULT_V1: [i64; 332] = [
+        100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000, 100,
+        16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010,
+        178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 228465, 122, 0, 1, 1, 1000, 42921, 4, 2, 30623, 28755, 75, 1,
+        898148, 27279, 1, 51775, 558, 1, 39184, 1000, 60594, 1, 141895, 32, 83150, 32, 15299, 32, 76049, 1, 13169, 4,
+        22100, 10, 28999, 74, 1, 28999, 74, 1, 43285, 552, 1, 44749, 541, 1, 33852, 32, 68246, 32, 72362, 32, 7243, 32,
+        7391, 32, 11546, 32, 85848, 228465, 122, 0, 1, 1, 90434, 519, 0, 1, 74433, 32, 85848, 228465, 122, 0, 1, 1,
+        85848, 228465, 122, 0, 1, 1, 270652, 22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32, 100788, 420, 1,
+        1, 81663, 32, 59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32, 53384111, 14333, 10, 955506,
+        213312, 0, 2, 43053543, 10, 43574283, 26308, 10, 16000, 100, 16000, 100, 962335, 18, 2780678, 6, 442008, 1,
+        52538055, 3756, 18, 267929, 18, 76433006, 8868, 18, 52948122, 18, 1995836, 36, 3227919, 12, 901022, 1,
+        166917843, 4307, 36, 284546, 36, 158221314, 26549, 36, 74698472, 36, 333849714, 1, 254006273, 72, 2174038, 72,
+        2261318, 64571, 4, 207616, 8310, 4, 1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1, 100181, 726, 719, 0,
+        1, 100181, 726, 719, 0, 1, 100181, 726, 719, 0, 1, 107878, 680, 0, 1, 95336, 1, 281145, 18848, 0, 1, 180194,
+        159, 1, 1, 158519, 8942, 0, 1, 159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3, 607153,
+        231697, 53144, 0, 1, 116711, 1957, 4, 231883, 10, 1000, 24838, 7, 1, 232010, 32, 321837444, 25087669, 18,
+        617887431, 67302824, 36, 356924, 18413, 45, 21, 219951, 9444, 1, 1000, 172116, 183150, 6, 24, 21, 213283,
+        618401, 1998, 28258, 1, 1000, 38159, 2, 22, 1000, 95933, 1, 1, 11, 1000, 277577, 12, 21,
+    ];
+
+    pub fn v1() -> Self {
+        Self::predefined(PlutusVersion::V1, protocol_version::DEFAULT, &Self::DEFAULT_V1[..])
+    }
+
+    /// Latest cost models for Plutus V2
+    pub const DEFAULT_V2: [i64; 332] = [
+        100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000, 100,
+        16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010,
+        178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 228465, 122, 0, 1, 1, 1000, 42921, 4, 2, 30623, 28755, 75, 1,
+        898148, 27279, 1, 51775, 558, 1, 39184, 1000, 60594, 1, 141895, 32, 83150, 32, 15299, 32, 76049, 1, 13169, 4,
+        22100, 10, 28999, 74, 1, 28999, 74, 1, 43285, 552, 1, 44749, 541, 1, 33852, 32, 68246, 32, 72362, 32, 7243, 32,
+        7391, 32, 11546, 32, 85848, 228465, 122, 0, 1, 1, 90434, 519, 0, 1, 74433, 32, 85848, 228465, 122, 0, 1, 1,
+        85848, 228465, 122, 0, 1, 1, 955506, 213312, 0, 2, 270652, 22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992,
+        32, 100788, 420, 1, 1, 81663, 32, 59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32, 43053543,
+        10, 53384111, 14333, 10, 43574283, 26308, 10, 1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1, 16000, 100,
+        16000, 100, 962335, 18, 2780678, 6, 442008, 1, 52538055, 3756, 18, 267929, 18, 76433006, 8868, 18, 52948122,
+        18, 1995836, 36, 3227919, 12, 901022, 1, 166917843, 4307, 36, 284546, 36, 158221314, 26549, 36, 74698472, 36,
+        333849714, 1, 254006273, 72, 2174038, 72, 2261318, 64571, 4, 207616, 8310, 4, 100181, 726, 719, 0, 1, 100181,
+        726, 719, 0, 1, 100181, 726, 719, 0, 1, 107878, 680, 0, 1, 95336, 1, 281145, 18848, 0, 1, 180194, 159, 1, 1,
+        158519, 8942, 0, 1, 159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3, 607153, 231697,
+        53144, 0, 1, 116711, 1957, 4, 231883, 10, 1000, 24838, 7, 1, 232010, 32, 321837444, 25087669, 18, 617887431,
+        67302824, 36, 356924, 18413, 45, 21, 219951, 9444, 1, 1000, 172116, 183150, 6, 24, 21, 213283, 618401, 1998,
+        28258, 1, 1000, 38159, 2, 22, 1000, 95933, 1, 1, 11, 1000, 277577, 12, 21,
+    ];
+
+    pub fn v2() -> Self {
+        Self::predefined(PlutusVersion::V2, protocol_version::DEFAULT, &Self::DEFAULT_V2[..])
+    }
+
+    /// Latest cost models for Plutus V3
+    pub const DEFAULT_V3: [i64; 350] = [
         100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000, 100,
         16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010,
         178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 123203, 7305, -900, 1716, 960, 57, 85848, 0, 1, 1, 1000, 42921,
@@ -79,19 +134,13 @@ pub fn default_v3_cost_model() -> Vec<i64> {
         166917843, 4307, 36, 284546, 36, 158221314, 26549, 36, 74698472, 36, 333849714, 1, 254006273, 72, 2174038, 72,
         2261318, 64571, 4, 207616, 8310, 4, 1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1, 100181, 726, 719, 0,
         1, 100181, 726, 719, 0, 1, 100181, 726, 719, 0, 1, 107878, 680, 0, 1, 95336, 1, 281145, 18848, 0, 1, 180194,
-        159, 1, 1, 158519, 8942, 0, 1, 159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3,
-    ]
-}
+        159, 1, 1, 158519, 8942, 0, 1, 159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3, 607153,
+        231697, 53144, 0, 1, 116711, 1957, 4, 231883, 10, 1000, 24838, 7, 1, 232010, 32, 321837444, 25087669, 18,
+        617887431, 67302824, 36, 356924, 18413, 45, 21, 219951, 9444, 1, 1000, 172116, 183150, 6, 24, 21, 213283,
+        618401, 1998, 28258, 1, 1000, 38159, 2, 22, 1000, 95933, 1, 1, 11, 1000, 277577, 12, 21,
+    ];
 
-#[repr(usize)]
-pub enum StepKind {
-    Constant = 0,
-    Var = 1,
-    Lambda = 2,
-    Apply = 3,
-    Delay = 4,
-    Force = 5,
-    Builtin = 6,
-    Constr = 7,
-    Case = 8,
+    pub fn v3() -> Self {
+        Self::predefined(PlutusVersion::V3, protocol_version::DEFAULT, &Self::DEFAULT_V3[..])
+    }
 }

@@ -20,13 +20,16 @@ use std::{
 
 use amaru_kernel::{
     ExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
-    ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
-    ValidityInterval, WitnessSet, decode_plutus_script, redeemer_tag_to_string,
+    PlutusVersion, ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
+    ValidityInterval, WitnessSet, redeemer_tag_to_string,
     size::{DATUM, SCRIPT},
     sum_ex_units,
     utils::string::display_collection,
 };
-use amaru_uplc::{arena::Arena, flat::FlatDecodeError, machine::PlutusVersion};
+use amaru_uplc::{
+    arena::Arena,
+    flat::{FlatDecodeError, decode_plutus_script},
+};
 use thiserror::Error;
 
 use crate::context::{UtxoSlice, WitnessSlice};
