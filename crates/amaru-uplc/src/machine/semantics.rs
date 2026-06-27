@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    PlutusVersion, ProtocolVersion,
-    protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_11},
-};
+use amaru_kernel::{PlutusVersion, ProtocolVersion, protocol_version::PROTOCOL_VERSION_11};
 
 /// Ledger builtin semantics variants. The semantic versioning is a little weird and are in-fact
 /// devided in two groups:
@@ -38,10 +35,8 @@ impl Semantics {
             PlutusVersion::V1 | PlutusVersion::V2 => {
                 if protocol_version >= PROTOCOL_VERSION_11 {
                     Self::D
-                } else if protocol_version >= PROTOCOL_VERSION_9 {
-                    Self::B
                 } else {
-                    Self::A
+                    Self::B
                 }
             }
             PlutusVersion::V3 => {

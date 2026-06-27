@@ -31,8 +31,8 @@ pub use bumpalo;
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        HasMajorVersion, PROTOCOL_VERSION_10, PlutusVersion,
-        protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_11},
+        PlutusVersion,
+        protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
     };
     use bumpalo::collections::Vec as BumpVec;
     use pretty_assertions::assert_eq;
@@ -298,29 +298,23 @@ mod tests {
         let version = Version::plutus_v3(&arena);
         let program = Program::<DeBruijn>::new(&arena, version, term);
 
-        let r9 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_9, &costs).unwrap(),
-            ExBudget::default(),
-        );
         let r10 = program.eval(
             &arena,
             CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs).unwrap(),
             ExBudget::default(),
         );
+
         let r11 = program.eval(
             &arena,
             CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs).unwrap(),
             ExBudget::default(),
         );
 
-        // All three should produce the correct result
-        assert_eq!(r9.term.unwrap(), Term::integer_from(&arena, 4));
+        // All should produce the correct result
         assert_eq!(r10.term.unwrap(), Term::integer_from(&arena, 4));
         assert_eq!(r11.term.unwrap(), Term::integer_from(&arena, 4));
 
         // Base builtin budgets should be identical regardless of protocol version
-        assert_eq!(r9.info.consumed_budget, r10.info.consumed_budget);
         assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
     }
 
@@ -351,7 +345,7 @@ mod tests {
                 &arena,
                 &flat::encode::<DeBruijn>(program).unwrap(),
                 PlutusVersion::V3,
-                PROTOCOL_VERSION_10.major(),
+                PROTOCOL_VERSION_10,
             )
             .is_err(),
             "builtin introduced in v11 should not be decoded successfully in v10"
@@ -385,7 +379,7 @@ mod tests {
                 &arena,
                 &flat::encode::<DeBruijn>(program).unwrap(),
                 PlutusVersion::V3,
-                PROTOCOL_VERSION_11.major(),
+                PROTOCOL_VERSION_11,
             )
             .is_ok(),
             "builtin introduced in v11 should be decoded successfully in v11"

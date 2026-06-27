@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HasMajorVersion, PlutusScript, PlutusVersion, ProtocolVersion, ToBytes, reify_plutus_version};
+use amaru_kernel::{PlutusScript, PlutusVersion, ProtocolVersion, ToBytes, reify_plutus_version};
 use bumpalo::collections::Vec as BumpVec;
 use num::Zero;
 
@@ -46,8 +46,6 @@ pub fn decode_plutus_script<'a, const V: usize>(
         FlatDecodeError::Message(format!("unable to get raw flat bytes: error={e}, script={script:#?}"))
     })?;
 
-    let pv = protocol_version.major();
-
     // TODO: carry IsKnownPlutusVersion constraint
     //
     // We should carry the `IsKnownPlutusVersion` constraint up until here if possible, so
@@ -63,8 +61,8 @@ pub fn decode_plutus_script<'a, const V: usize>(
     // and then passing the plutus version to that decoder function. We should really be doing this
     // behaviour match inside one decoder instead!
     let program = match plutus_version {
-        PlutusVersion::V3 => decode_strict::<DeBruijn>(arena, bytes, plutus_version, pv),
-        PlutusVersion::V1 | PlutusVersion::V2 => decode::<DeBruijn>(arena, bytes, plutus_version, pv),
+        PlutusVersion::V3 => decode_strict::<DeBruijn>(arena, bytes, plutus_version, protocol_version),
+        PlutusVersion::V1 | PlutusVersion::V2 => decode::<DeBruijn>(arena, bytes, plutus_version, protocol_version),
     }?;
 
     Ok((program, plutus_version))
@@ -78,7 +76,7 @@ pub fn decode<'a, V>(
     arena: &'a Arena,
     bytes: &[u8],
     plutus_version: PlutusVersion,
-    protocol_version: u32,
+    protocol_version: ProtocolVersion,
 ) -> Result<&'a Program<'a, V>, FlatDecodeError>
 where
     V: Binder<'a>,
@@ -93,7 +91,7 @@ pub fn decode_strict<'a, V>(
     arena: &'a Arena,
     bytes: &[u8],
     plutus_version: PlutusVersion,
-    protocol_version: u32,
+    protocol_version: ProtocolVersion,
 ) -> Result<&'a Program<'a, V>, FlatDecodeError>
 where
     V: Binder<'a>,
@@ -109,7 +107,7 @@ fn decode_inner<'a, V>(
     arena: &'a Arena,
     bytes: &[u8],
     plutus_version: Option<PlutusVersion>,
-    protocol_version: Option<u32>,
+    protocol_version: Option<ProtocolVersion>,
 ) -> Result<(&'a Program<'a, V>, usize), FlatDecodeError>
 where
     V: Binder<'a>,
@@ -185,7 +183,7 @@ where
 
             let function = builtin::try_from_tag(ctx.arena, builtin_tag)?;
 
-            if ctx.is_builtin_gated(function) {
+            if !ctx.is_builtin_available(function) {
                 return Err(FlatDecodeError::BuiltinNotAvailable(builtin_tag, format!("{function:?}")));
             }
 
@@ -462,6 +460,7 @@ fn decode_constant_tag(d: &mut Decoder) -> Result<u8, FlatDecodeError> {
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::PROTOCOL_VERSION_10;
     use hex;
     use num::BigInt;
 
@@ -484,7 +483,7 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370090011aab9d375498109d8668218809f0001ff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
+        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok(program) => {
                 let eval_result = program.eval_default(&arena);
@@ -518,7 +517,7 @@ mod tests {
         let bytes =
             hex::decode("0101003370090011bad357426aae78dd526112d8799fc24c033b2e3c9fd0803ce7ffffffff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
+        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok(program) => {
                 let eval_result = program.eval_default(&arena);
@@ -554,7 +553,7 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370490021bad357426ae88dd62601049f070eff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
+        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok(program) => {
                 let eval_result = program.eval_default(&arena);

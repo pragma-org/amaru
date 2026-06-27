@@ -293,7 +293,7 @@ fn safe_encode_bits(e: &mut Encoder, num_bits: usize, byte: u8) -> Result<(), Fl
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::PlutusVersion;
+    use amaru_kernel::{PlutusVersion, protocol_version::PROTOCOL_VERSION_10};
 
     use super::*;
     use crate::{arena::Arena, binder::DeBruijn, flat::decode};
@@ -315,7 +315,7 @@ mod tests {
         let bytes_hex = "0101003370090011aab9d37549810cd8668218809f4100420101ff0001";
         let bytes = hex::decode(bytes_hex).unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
+        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok(program) => {
                 let encoded = encode(program);
@@ -355,7 +355,7 @@ mod tests {
         let bytes_hex = "0101003370090011bad357426aae78dd526112d8799fc24c033b2e3c9fd0803ce7ffffffff0001";
         let bytes = hex::decode(bytes_hex).unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
+        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok(program) => {
                 let encoded = encode(program);
@@ -395,7 +395,7 @@ mod tests {
         let bytes_hex = "0101003370490021bad357426ae88dd62601049f070eff0001";
         let bytes = hex::decode(bytes_hex).unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, 9);
+        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok(program) => {
                 let encoded = encode(program);

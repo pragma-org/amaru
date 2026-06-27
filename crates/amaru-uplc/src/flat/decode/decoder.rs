@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::PlutusVersion;
+use amaru_kernel::{PlutusVersion, ProtocolVersion, protocol_version::PROTOCOL_VERSION_10};
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use super::FlatDecodeError;
@@ -28,7 +28,7 @@ pub struct Ctx<'a> {
     pub arena: &'a Arena,
     pub version: Option<&'a Version<'a>>,
     pub plutus_version: Option<PlutusVersion>,
-    pub protocol_version: Option<u32>,
+    pub protocol_version: Option<ProtocolVersion>,
 }
 
 impl<'a> Ctx<'a> {
@@ -37,16 +37,16 @@ impl<'a> Ctx<'a> {
     /// Both the protocol version (>= 9, i.e. Conway) and the program version
     /// (>= 1.1.0) must permit them.
     pub fn is_constr_case_available(&self) -> bool {
-        let protocol_ok = self.protocol_version.is_none_or(|pv| pv >= 9);
+        let protocol_ok = self.protocol_version.is_none_or(|pv| pv >= PROTOCOL_VERSION_10);
         let version_ok = self.version.is_none_or(|v| v.is_constr_case_available());
         protocol_ok && version_ok
     }
 
     /// Returns true if the given builtin is NOT available under the current
     /// plutus_version / protocol_version combination.
-    pub fn is_builtin_gated(&self, func: &DefaultFunction) -> bool {
-        match (self.plutus_version, self.protocol_version) {
-            (Some(pv), Some(proto)) => !func.is_available_in(pv, proto),
+    pub fn is_builtin_available(&self, func: &DefaultFunction) -> bool {
+        match self.protocol_version {
+            Some(proto) => func.is_available_in(proto),
             _ => false,
         }
     }
