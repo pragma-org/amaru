@@ -300,17 +300,11 @@ mod tests {
 
         let costs = CostModel::DEFAULT_V3;
 
-        let r10 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs).unwrap(),
-            ExBudget::default(),
-        );
+        let r10 =
+            program.eval(&arena, CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs), ExBudget::default());
 
-        let r11 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs).unwrap(),
-            ExBudget::default(),
-        );
+        let r11 =
+            program.eval(&arena, CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs), ExBudget::default());
 
         // All should produce the correct result
         assert_eq!(r10.term.unwrap(), Term::integer_from(&arena, 4));

@@ -15,8 +15,6 @@
 #[allow(clippy::disallowed_types)]
 use std::collections::HashMap;
 
-use amaru_kernel::PlutusVersion;
-
 use crate::machine::{
     ExBudget,
     cost_model::{ParamName, StepKind},
@@ -55,29 +53,23 @@ impl Default for MachineCosts {
 
 impl MachineCosts {
     #[allow(clippy::disallowed_types)]
-    pub fn new(cost_map: &HashMap<ParamName, i64>, plutus_version: PlutusVersion) -> Result<Self, ParamName> {
+    pub fn new(cost_map: &HashMap<ParamName, i64>) -> Self {
         use ParamName::*;
 
-        let always = |name: ParamName| cost_map.get(&name).copied().ok_or(name);
+        let param = |name: ParamName| cost_map.get(&name).copied().unwrap_or(i64::MAX);
 
-        let if_v3: Box<dyn Fn(ParamName) -> Result<i64, ParamName>> = if plutus_version >= PlutusVersion::V3 {
-            Box::new(always)
-        } else {
-            Box::new(|_name: ParamName| Ok(i64::MAX))
-        };
-
-        Ok(Self {
-            startup: ExBudget { mem: always(CekStartupMem)?, cpu: always(CekStartupCpu)? },
-            constant: ExBudget { mem: always(CekConstMem)?, cpu: always(CekConstCpu)? },
-            var: ExBudget { mem: always(CekVarMem)?, cpu: always(CekVarCpu)? },
-            lambda: ExBudget { mem: always(CekLamMem)?, cpu: always(CekLamCpu)? },
-            apply: ExBudget { mem: always(CekApplyMem)?, cpu: always(CekApplyCpu)? },
-            delay: ExBudget { mem: always(CekDelayMem)?, cpu: always(CekDelayCpu)? },
-            force: ExBudget { mem: always(CekForceMem)?, cpu: always(CekForceCpu)? },
-            builtin: ExBudget { mem: always(CekBuiltinMem)?, cpu: always(CekBuiltinCpu)? },
-            constr: ExBudget { mem: if_v3(CekConstrMem)?, cpu: if_v3(CekConstrCpu)? },
-            case: ExBudget { mem: if_v3(CekCaseMem)?, cpu: if_v3(CekCaseCpu)? },
-        })
+        Self {
+            startup: ExBudget { mem: param(CekStartupMem), cpu: param(CekStartupCpu) },
+            constant: ExBudget { mem: param(CekConstMem), cpu: param(CekConstCpu) },
+            var: ExBudget { mem: param(CekVarMem), cpu: param(CekVarCpu) },
+            lambda: ExBudget { mem: param(CekLamMem), cpu: param(CekLamCpu) },
+            apply: ExBudget { mem: param(CekApplyMem), cpu: param(CekApplyCpu) },
+            delay: ExBudget { mem: param(CekDelayMem), cpu: param(CekDelayCpu) },
+            force: ExBudget { mem: param(CekForceMem), cpu: param(CekForceCpu) },
+            builtin: ExBudget { mem: param(CekBuiltinMem), cpu: param(CekBuiltinCpu) },
+            constr: ExBudget { mem: param(CekConstrMem), cpu: param(CekConstrCpu) },
+            case: ExBudget { mem: param(CekCaseMem), cpu: param(CekCaseCpu) },
+        }
     }
 
     pub fn step(&self, step_kind: StepKind) -> ExBudget {

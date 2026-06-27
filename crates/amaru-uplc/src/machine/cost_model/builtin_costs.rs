@@ -15,8 +15,6 @@
 #[allow(clippy::disallowed_types)]
 use std::collections::HashMap;
 
-use amaru_kernel::{PROTOCOL_VERSION_10, ProtocolVersion, protocol_version::PROTOCOL_VERSION_11};
-
 use crate::{
     builtin::DefaultFunction,
     machine::{
@@ -159,363 +157,354 @@ impl Default for BuiltinCosts {
 
 impl BuiltinCosts {
     #[allow(clippy::disallowed_types)]
-    pub fn new(
-        cost_map: &HashMap<ParamName, i64>,
-        semantics: Semantics,
-        protocol_version: ProtocolVersion,
-    ) -> Result<Self, ParamName> {
+    pub fn new(cost_map: &HashMap<ParamName, i64>, semantics: Semantics) -> Self {
         use ParamName::*;
 
-        let always = |name: ParamName| cost_map.get(&name).copied().ok_or(name);
+        // NOTE: About missing cost models
+        //
+        // We must tolerate having less cost params in the map than the total we know of; this is
+        // because builtins and parameters are typically introduced before new cost models are
+        // enacted and available on-chain. The current default is to use the maximum possible
+        // value, making the builtins practically unusable until the introduction of the cost
+        // model.
+        let param = |name: ParamName| cost_map.get(&name).copied().unwrap_or(i64::MAX);
 
-        let if_pv10: Box<dyn Fn(ParamName) -> Result<i64, ParamName>> = if protocol_version >= PROTOCOL_VERSION_10 {
-            Box::new(always)
-        } else {
-            Box::new(|_name: ParamName| Ok(i64::MAX))
-        };
-
-        let if_pv11: Box<dyn Fn(ParamName) -> Result<i64, ParamName>> = if protocol_version >= PROTOCOL_VERSION_11 {
-            Box::new(always)
-        } else {
-            Box::new(|_name: ParamName| Ok(i64::MAX))
-        };
-
-        Ok(Self {
+        Self {
             add_integer: Costing {
                 mem: TwoArguments::MaxSize(MaxSize {
-                    intercept: always(AddIntegerMemIntercept)?,
-                    slope: always(AddIntegerMemSlope)?,
+                    intercept: param(AddIntegerMemIntercept),
+                    slope: param(AddIntegerMemSlope),
                 }),
                 cpu: TwoArguments::MaxSize(MaxSize {
-                    intercept: always(AddIntegerCpuIntercept)?,
-                    slope: always(AddIntegerCpuSlope)?,
+                    intercept: param(AddIntegerCpuIntercept),
+                    slope: param(AddIntegerCpuSlope),
                 }),
             },
             append_byte_string: Costing {
                 mem: TwoArguments::AddedSizes(AddedSizes {
-                    intercept: always(AppendByteStringMemIntercept)?,
-                    slope: always(AppendByteStringMemSlope)?,
+                    intercept: param(AppendByteStringMemIntercept),
+                    slope: param(AppendByteStringMemSlope),
                 }),
                 cpu: TwoArguments::AddedSizes(AddedSizes {
-                    intercept: always(AppendByteStringCpuIntercept)?,
-                    slope: always(AppendByteStringCpuSlope)?,
+                    intercept: param(AppendByteStringCpuIntercept),
+                    slope: param(AppendByteStringCpuSlope),
                 }),
             },
             append_string: Costing {
                 mem: TwoArguments::AddedSizes(AddedSizes {
-                    intercept: always(AppendStringMemIntercept)?,
-                    slope: always(AppendStringMemSlope)?,
+                    intercept: param(AppendStringMemIntercept),
+                    slope: param(AppendStringMemSlope),
                 }),
                 cpu: TwoArguments::AddedSizes(AddedSizes {
-                    intercept: always(AppendStringCpuIntercept)?,
-                    slope: always(AppendStringCpuSlope)?,
+                    intercept: param(AppendStringCpuIntercept),
+                    slope: param(AppendStringCpuSlope),
                 }),
             },
             b_data: Costing {
-                mem: OneArgument::Constant(always(BDataMem)?),
-                cpu: OneArgument::Constant(always(BDataCpu)?),
+                mem: OneArgument::Constant(param(BDataMem)),
+                cpu: OneArgument::Constant(param(BDataCpu)),
             },
             blake2b_256: Costing {
-                mem: OneArgument::Constant(always(Blake2b256Mem)?),
+                mem: OneArgument::Constant(param(Blake2b256Mem)),
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(Blake2b256CpuIntercept)?,
-                    slope: always(Blake2b256CpuSlope)?,
+                    intercept: param(Blake2b256CpuIntercept),
+                    slope: param(Blake2b256CpuSlope),
                 }),
             },
             choose_data: Costing {
-                mem: SixArguments::Constant(always(ChooseDataMem)?),
-                cpu: SixArguments::Constant(always(ChooseDataCpu)?),
+                mem: SixArguments::Constant(param(ChooseDataMem)),
+                cpu: SixArguments::Constant(param(ChooseDataCpu)),
             },
             choose_list: Costing {
-                mem: ThreeArguments::Constant(always(ChooseListMem)?),
-                cpu: ThreeArguments::Constant(always(ChooseListCpu)?),
+                mem: ThreeArguments::Constant(param(ChooseListMem)),
+                cpu: ThreeArguments::Constant(param(ChooseListCpu)),
             },
             choose_unit: Costing {
-                mem: TwoArguments::Constant(always(ChooseUnitMem)?),
-                cpu: TwoArguments::Constant(always(ChooseUnitCpu)?),
+                mem: TwoArguments::Constant(param(ChooseUnitMem)),
+                cpu: TwoArguments::Constant(param(ChooseUnitCpu)),
             },
             cons_byte_string: Costing {
                 mem: TwoArguments::AddedSizes(AddedSizes {
-                    intercept: always(ConsByteStringMemIntercept)?,
-                    slope: always(ConsByteStringMemSlope)?,
+                    intercept: param(ConsByteStringMemIntercept),
+                    slope: param(ConsByteStringMemSlope),
                 }),
                 cpu: TwoArguments::LinearInY(LinearSize {
-                    intercept: always(ConsByteStringCpuIntercept)?,
-                    slope: always(ConsByteStringCpuSlope)?,
+                    intercept: param(ConsByteStringCpuIntercept),
+                    slope: param(ConsByteStringCpuSlope),
                 }),
             },
             constr_data: Costing {
-                mem: TwoArguments::Constant(always(ConstrDataMem)?),
-                cpu: TwoArguments::Constant(always(ConstrDataCpu)?),
+                mem: TwoArguments::Constant(param(ConstrDataMem)),
+                cpu: TwoArguments::Constant(param(ConstrDataCpu)),
             },
             decode_utf8: Costing {
                 mem: OneArgument::LinearInX(LinearSize {
-                    intercept: always(DecodeUtf8MemIntercept)?,
-                    slope: always(DecodeUtf8MemSlope)?,
+                    intercept: param(DecodeUtf8MemIntercept),
+                    slope: param(DecodeUtf8MemSlope),
                 }),
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(DecodeUtf8CpuIntercept)?,
-                    slope: always(DecodeUtf8CpuSlope)?,
+                    intercept: param(DecodeUtf8CpuIntercept),
+                    slope: param(DecodeUtf8CpuSlope),
                 }),
             },
             divide_integer: Costing {
                 mem: TwoArguments::SubtractedSizes(SubtractedSizes {
-                    intercept: always(DivideIntegerMemIntercept)?,
-                    slope: always(DivideIntegerMemSlope)?,
-                    minimum: always(DivideIntegerMemMinimum)?,
+                    intercept: param(DivideIntegerMemIntercept),
+                    slope: param(DivideIntegerMemSlope),
+                    minimum: param(DivideIntegerMemMinimum),
                 }),
                 cpu: match semantics {
                     Semantics::A | Semantics::B => TwoArguments::ConstAboveDiagonal(
-                        always(DivideIntegerCpuConstant)?,
+                        param(DivideIntegerCpuConstant),
                         Box::new(TwoArguments::MultipliedSizes(MultipliedSizes {
-                            intercept: always(DivideIntegerCpuIntercept)?,
-                            slope: always(DivideIntegerCpuSlope)?,
+                            intercept: param(DivideIntegerCpuIntercept),
+                            slope: param(DivideIntegerCpuSlope),
                         })),
                     ),
                     Semantics::D => {
                         TwoArguments::AboveAndBelowDiagonal(Box::new(TwoArguments::MultipliedSizes(MultipliedSizes {
-                            intercept: always(DivideIntegerCpuIntercept)?,
-                            slope: always(DivideIntegerCpuSlope)?,
+                            intercept: param(DivideIntegerCpuIntercept),
+                            slope: param(DivideIntegerCpuSlope),
                         })))
                     }
                     Semantics::C => TwoArguments::ConstAboveDiagonal(
-                        always(DivideIntegerCpuConstant)?,
+                        param(DivideIntegerCpuConstant),
                         Box::new(TwoArguments::QuadraticInXAndY(TwoArgumentsQuadraticFunction {
-                            minimum: always(DivideIntegerCpuMinimum)?,
-                            coeff_00: always(DivideIntegerCpuC00)?,
-                            coeff_10: always(DivideIntegerCpuC10)?,
-                            coeff_01: always(DivideIntegerCpuC01)?,
-                            coeff_20: always(DivideIntegerCpuC20)?,
-                            coeff_11: always(DivideIntegerCpuC11)?,
-                            coeff_02: always(DivideIntegerCpuC02)?,
+                            minimum: param(DivideIntegerCpuMinimum),
+                            coeff_00: param(DivideIntegerCpuC00),
+                            coeff_10: param(DivideIntegerCpuC10),
+                            coeff_01: param(DivideIntegerCpuC01),
+                            coeff_20: param(DivideIntegerCpuC20),
+                            coeff_11: param(DivideIntegerCpuC11),
+                            coeff_02: param(DivideIntegerCpuC02),
                         })),
                     ),
                     Semantics::E => TwoArguments::AboveAndBelowDiagonal(Box::new(TwoArguments::QuadraticInXAndY(
                         TwoArgumentsQuadraticFunction {
-                            minimum: always(DivideIntegerCpuMinimum)?,
-                            coeff_00: always(DivideIntegerCpuC00)?,
-                            coeff_10: always(DivideIntegerCpuC10)?,
-                            coeff_01: always(DivideIntegerCpuC01)?,
-                            coeff_20: always(DivideIntegerCpuC20)?,
-                            coeff_11: always(DivideIntegerCpuC11)?,
-                            coeff_02: always(DivideIntegerCpuC02)?,
+                            minimum: param(DivideIntegerCpuMinimum),
+                            coeff_00: param(DivideIntegerCpuC00),
+                            coeff_10: param(DivideIntegerCpuC10),
+                            coeff_01: param(DivideIntegerCpuC01),
+                            coeff_20: param(DivideIntegerCpuC20),
+                            coeff_11: param(DivideIntegerCpuC11),
+                            coeff_02: param(DivideIntegerCpuC02),
                         },
                     ))),
                 },
             },
             encode_utf8: Costing {
                 mem: OneArgument::LinearInX(LinearSize {
-                    intercept: always(EncodeUtf8MemIntercept)?,
-                    slope: always(EncodeUtf8MemSlope)?,
+                    intercept: param(EncodeUtf8MemIntercept),
+                    slope: param(EncodeUtf8MemSlope),
                 }),
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(EncodeUtf8CpuIntercept)?,
-                    slope: always(EncodeUtf8CpuSlope)?,
+                    intercept: param(EncodeUtf8CpuIntercept),
+                    slope: param(EncodeUtf8CpuSlope),
                 }),
             },
             equals_byte_string: Costing {
-                mem: TwoArguments::Constant(always(EqualsByteStringMem)?),
+                mem: TwoArguments::Constant(param(EqualsByteStringMem)),
                 cpu: TwoArguments::LinearOnDiagonal(ConstantOrLinear {
-                    constant: always(EqualsByteStringCpuConstant)?,
-                    intercept: always(EqualsByteStringCpuIntercept)?,
-                    slope: always(EqualsByteStringCpuSlope)?,
+                    constant: param(EqualsByteStringCpuConstant),
+                    intercept: param(EqualsByteStringCpuIntercept),
+                    slope: param(EqualsByteStringCpuSlope),
                 }),
             },
             equals_data: Costing {
-                mem: TwoArguments::Constant(always(EqualsDataMem)?),
+                mem: TwoArguments::Constant(param(EqualsDataMem)),
                 cpu: TwoArguments::MinSize(MinSize {
-                    intercept: always(EqualsDataCpuIntercept)?,
-                    slope: always(EqualsDataCpuSlope)?,
+                    intercept: param(EqualsDataCpuIntercept),
+                    slope: param(EqualsDataCpuSlope),
                 }),
             },
             equals_integer: Costing {
-                mem: TwoArguments::Constant(always(EqualsIntegerMem)?),
+                mem: TwoArguments::Constant(param(EqualsIntegerMem)),
                 cpu: TwoArguments::MinSize(MinSize {
-                    intercept: always(EqualsIntegerCpuIntercept)?,
-                    slope: always(EqualsIntegerCpuSlope)?,
+                    intercept: param(EqualsIntegerCpuIntercept),
+                    slope: param(EqualsIntegerCpuSlope),
                 }),
             },
             equals_string: Costing {
-                mem: TwoArguments::Constant(always(EqualsStringMem)?),
+                mem: TwoArguments::Constant(param(EqualsStringMem)),
                 cpu: TwoArguments::LinearOnDiagonal(ConstantOrLinear {
-                    constant: always(EqualsStringCpuConstant)?,
-                    intercept: always(EqualsStringCpuIntercept)?,
-                    slope: always(EqualsStringCpuSlope)?,
+                    constant: param(EqualsStringCpuConstant),
+                    intercept: param(EqualsStringCpuIntercept),
+                    slope: param(EqualsStringCpuSlope),
                 }),
             },
             fst_pair: Costing {
-                mem: OneArgument::Constant(always(FstPairMem)?),
-                cpu: OneArgument::Constant(always(FstPairCpu)?),
+                mem: OneArgument::Constant(param(FstPairMem)),
+                cpu: OneArgument::Constant(param(FstPairCpu)),
             },
             head_list: Costing {
-                mem: OneArgument::Constant(always(HeadListMem)?),
-                cpu: OneArgument::Constant(always(HeadListCpu)?),
+                mem: OneArgument::Constant(param(HeadListMem)),
+                cpu: OneArgument::Constant(param(HeadListCpu)),
             },
             i_data: Costing {
-                mem: OneArgument::Constant(always(IDataMem)?),
-                cpu: OneArgument::Constant(always(IDataCpu)?),
+                mem: OneArgument::Constant(param(IDataMem)),
+                cpu: OneArgument::Constant(param(IDataCpu)),
             },
             if_then_else: Costing {
-                mem: ThreeArguments::Constant(always(IfThenElseMem)?),
-                cpu: ThreeArguments::Constant(always(IfThenElseCpu)?),
+                mem: ThreeArguments::Constant(param(IfThenElseMem)),
+                cpu: ThreeArguments::Constant(param(IfThenElseCpu)),
             },
             index_byte_string: Costing {
-                mem: TwoArguments::Constant(always(IndexByteStringMem)?),
-                cpu: TwoArguments::Constant(always(IndexByteStringCpu)?),
+                mem: TwoArguments::Constant(param(IndexByteStringMem)),
+                cpu: TwoArguments::Constant(param(IndexByteStringCpu)),
             },
             length_of_byte_string: Costing {
-                mem: OneArgument::Constant(always(LengthOfByteStringMem)?),
-                cpu: OneArgument::Constant(always(LengthOfByteStringCpu)?),
+                mem: OneArgument::Constant(param(LengthOfByteStringMem)),
+                cpu: OneArgument::Constant(param(LengthOfByteStringCpu)),
             },
             less_than_byte_string: Costing {
-                mem: TwoArguments::Constant(always(LessThanByteStringMem)?),
+                mem: TwoArguments::Constant(param(LessThanByteStringMem)),
                 cpu: TwoArguments::MinSize(MinSize {
-                    intercept: always(LessThanByteStringCpuIntercept)?,
-                    slope: always(LessThanByteStringCpuSlope)?,
+                    intercept: param(LessThanByteStringCpuIntercept),
+                    slope: param(LessThanByteStringCpuSlope),
                 }),
             },
             less_than_equals_byte_string: Costing {
-                mem: TwoArguments::Constant(always(LessThanEqualsByteStringMem)?),
+                mem: TwoArguments::Constant(param(LessThanEqualsByteStringMem)),
                 cpu: TwoArguments::MinSize(MinSize {
-                    intercept: always(LessThanEqualsByteStringCpuIntercept)?,
-                    slope: always(LessThanEqualsByteStringCpuSlope)?,
+                    intercept: param(LessThanEqualsByteStringCpuIntercept),
+                    slope: param(LessThanEqualsByteStringCpuSlope),
                 }),
             },
             less_than_equals_integer: Costing {
-                mem: TwoArguments::Constant(always(LessThanEqualsIntegerMem)?),
+                mem: TwoArguments::Constant(param(LessThanEqualsIntegerMem)),
                 cpu: TwoArguments::MinSize(MinSize {
-                    intercept: always(LessThanEqualsIntegerCpuIntercept)?,
-                    slope: always(LessThanEqualsIntegerCpuSlope)?,
+                    intercept: param(LessThanEqualsIntegerCpuIntercept),
+                    slope: param(LessThanEqualsIntegerCpuSlope),
                 }),
             },
             less_than_integer: Costing {
-                mem: TwoArguments::Constant(always(LessThanIntegerMem)?),
+                mem: TwoArguments::Constant(param(LessThanIntegerMem)),
                 cpu: TwoArguments::MinSize(MinSize {
-                    intercept: always(LessThanIntegerCpuIntercept)?,
-                    slope: always(LessThanIntegerCpuSlope)?,
+                    intercept: param(LessThanIntegerCpuIntercept),
+                    slope: param(LessThanIntegerCpuSlope),
                 }),
             },
             list_data: Costing {
-                mem: OneArgument::Constant(always(ListDataMem)?),
-                cpu: OneArgument::Constant(always(ListDataCpu)?),
+                mem: OneArgument::Constant(param(ListDataMem)),
+                cpu: OneArgument::Constant(param(ListDataCpu)),
             },
             map_data: Costing {
-                mem: OneArgument::Constant(always(MapDataMem)?),
-                cpu: OneArgument::Constant(always(MapDataCpu)?),
+                mem: OneArgument::Constant(param(MapDataMem)),
+                cpu: OneArgument::Constant(param(MapDataCpu)),
             },
             mk_cons: Costing {
-                mem: TwoArguments::Constant(always(MkConsMem)?),
-                cpu: TwoArguments::Constant(always(MkConsCpu)?),
+                mem: TwoArguments::Constant(param(MkConsMem)),
+                cpu: TwoArguments::Constant(param(MkConsCpu)),
             },
             mk_nil_data: Costing {
-                mem: OneArgument::Constant(always(MkNilDataMem)?),
-                cpu: OneArgument::Constant(always(MkNilDataCpu)?),
+                mem: OneArgument::Constant(param(MkNilDataMem)),
+                cpu: OneArgument::Constant(param(MkNilDataCpu)),
             },
             mk_nil_pair_data: Costing {
-                mem: OneArgument::Constant(always(MkNilPairDataMem)?),
-                cpu: OneArgument::Constant(always(MkNilPairDataCpu)?),
+                mem: OneArgument::Constant(param(MkNilPairDataMem)),
+                cpu: OneArgument::Constant(param(MkNilPairDataCpu)),
             },
             mk_pair_data: Costing {
-                mem: TwoArguments::Constant(always(MkPairDataMem)?),
-                cpu: TwoArguments::Constant(always(MkPairDataCpu)?),
+                mem: TwoArguments::Constant(param(MkPairDataMem)),
+                cpu: TwoArguments::Constant(param(MkPairDataCpu)),
             },
             mod_integer: Costing {
                 mem: match semantics {
                     Semantics::A | Semantics::B => TwoArguments::SubtractedSizes(SubtractedSizes {
-                        intercept: always(ModIntegerMemIntercept)?,
-                        minimum: always(ModIntegerMemMinimum)?,
-                        slope: always(ModIntegerMemSlope)?,
+                        intercept: param(ModIntegerMemIntercept),
+                        minimum: param(ModIntegerMemMinimum),
+                        slope: param(ModIntegerMemSlope),
                     }),
                     Semantics::C | Semantics::D | Semantics::E => TwoArguments::LinearInY(LinearSize {
-                        intercept: always(ModIntegerMemIntercept)?,
-                        slope: always(ModIntegerMemSlope)?,
+                        intercept: param(ModIntegerMemIntercept),
+                        slope: param(ModIntegerMemSlope),
                     }),
                 },
                 cpu: match semantics {
                     Semantics::A | Semantics::B => TwoArguments::ConstAboveDiagonal(
-                        always(ModIntegerCpuConstant)?,
+                        param(ModIntegerCpuConstant),
                         Box::new(TwoArguments::MultipliedSizes(MultipliedSizes {
-                            intercept: always(ModIntegerCpuIntercept)?,
-                            slope: always(ModIntegerCpuSlope)?,
+                            intercept: param(ModIntegerCpuIntercept),
+                            slope: param(ModIntegerCpuSlope),
                         })),
                     ),
                     Semantics::D => {
                         TwoArguments::AboveAndBelowDiagonal(Box::new(TwoArguments::MultipliedSizes(MultipliedSizes {
-                            intercept: always(ModIntegerCpuIntercept)?,
-                            slope: always(ModIntegerCpuSlope)?,
+                            intercept: param(ModIntegerCpuIntercept),
+                            slope: param(ModIntegerCpuSlope),
                         })))
                     }
                     Semantics::C => TwoArguments::ConstAboveDiagonal(
-                        always(ModIntegerCpuConstant)?,
+                        param(ModIntegerCpuConstant),
                         Box::new(TwoArguments::QuadraticInXAndY(TwoArgumentsQuadraticFunction {
-                            minimum: always(ModIntegerCpuMinimum)?,
-                            coeff_00: always(ModIntegerCpuC00)?,
-                            coeff_10: always(ModIntegerCpuC10)?,
-                            coeff_01: always(ModIntegerCpuC01)?,
-                            coeff_20: always(ModIntegerCpuC20)?,
-                            coeff_11: always(ModIntegerCpuC11)?,
-                            coeff_02: always(ModIntegerCpuC02)?,
+                            minimum: param(ModIntegerCpuMinimum),
+                            coeff_00: param(ModIntegerCpuC00),
+                            coeff_10: param(ModIntegerCpuC10),
+                            coeff_01: param(ModIntegerCpuC01),
+                            coeff_20: param(ModIntegerCpuC20),
+                            coeff_11: param(ModIntegerCpuC11),
+                            coeff_02: param(ModIntegerCpuC02),
                         })),
                     ),
                     Semantics::E => TwoArguments::AboveAndBelowDiagonal(Box::new(TwoArguments::QuadraticInXAndY(
                         TwoArgumentsQuadraticFunction {
-                            minimum: always(ModIntegerCpuMinimum)?,
-                            coeff_00: always(ModIntegerCpuC00)?,
-                            coeff_10: always(ModIntegerCpuC10)?,
-                            coeff_01: always(ModIntegerCpuC01)?,
-                            coeff_20: always(ModIntegerCpuC20)?,
-                            coeff_11: always(ModIntegerCpuC11)?,
-                            coeff_02: always(ModIntegerCpuC02)?,
+                            minimum: param(ModIntegerCpuMinimum),
+                            coeff_00: param(ModIntegerCpuC00),
+                            coeff_10: param(ModIntegerCpuC10),
+                            coeff_01: param(ModIntegerCpuC01),
+                            coeff_20: param(ModIntegerCpuC20),
+                            coeff_11: param(ModIntegerCpuC11),
+                            coeff_02: param(ModIntegerCpuC02),
                         },
                     ))),
                 },
             },
             multiply_integer: Costing {
                 mem: TwoArguments::AddedSizes(AddedSizes {
-                    intercept: always(MultiplyIntegerMemIntercept)?,
-                    slope: always(MultiplyIntegerMemSlope)?,
+                    intercept: param(MultiplyIntegerMemIntercept),
+                    slope: param(MultiplyIntegerMemSlope),
                 }),
                 cpu: match semantics {
                     Semantics::A => TwoArguments::AddedSizes(AddedSizes {
-                        intercept: always(MultiplyIntegerCpuIntercept)?,
-                        slope: always(MultiplyIntegerCpuSlope)?,
+                        intercept: param(MultiplyIntegerCpuIntercept),
+                        slope: param(MultiplyIntegerCpuSlope),
                     }),
                     Semantics::B | Semantics::C | Semantics::D | Semantics::E => {
                         TwoArguments::MultipliedSizes(MultipliedSizes {
-                            intercept: always(MultiplyIntegerCpuIntercept)?,
-                            slope: always(MultiplyIntegerCpuSlope)?,
+                            intercept: param(MultiplyIntegerCpuIntercept),
+                            slope: param(MultiplyIntegerCpuSlope),
                         })
                     }
                 },
             },
             null_list: Costing {
-                mem: OneArgument::Constant(always(NullListMem)?),
-                cpu: OneArgument::Constant(always(NullListCpu)?),
+                mem: OneArgument::Constant(param(NullListMem)),
+                cpu: OneArgument::Constant(param(NullListCpu)),
             },
             quotient_integer: Costing {
                 mem: TwoArguments::SubtractedSizes(SubtractedSizes {
-                    intercept: always(QuotientIntegerMemIntercept)?,
-                    slope: always(QuotientIntegerMemSlope)?,
-                    minimum: always(QuotientIntegerMemMinimum)?,
+                    intercept: param(QuotientIntegerMemIntercept),
+                    slope: param(QuotientIntegerMemSlope),
+                    minimum: param(QuotientIntegerMemMinimum),
                 }),
                 cpu: match semantics {
                     Semantics::A | Semantics::B | Semantics::D => TwoArguments::ConstAboveDiagonal(
-                        always(QuotientIntegerCpuConstant)?,
+                        param(QuotientIntegerCpuConstant),
                         Box::new(TwoArguments::MultipliedSizes(MultipliedSizes {
-                            intercept: always(QuotientIntegerCpuIntercept)?,
-                            slope: always(QuotientIntegerCpuSlope)?,
+                            intercept: param(QuotientIntegerCpuIntercept),
+                            slope: param(QuotientIntegerCpuSlope),
                         })),
                     ),
                     Semantics::C | Semantics::E => TwoArguments::ConstAboveDiagonal(
-                        always(QuotientIntegerCpuConstant)?,
+                        param(QuotientIntegerCpuConstant),
                         Box::new(TwoArguments::QuadraticInXAndY(TwoArgumentsQuadraticFunction {
-                            minimum: always(QuotientIntegerCpuMinimum)?,
-                            coeff_00: always(QuotientIntegerCpuC00)?,
-                            coeff_10: always(QuotientIntegerCpuC10)?,
-                            coeff_01: always(QuotientIntegerCpuC01)?,
-                            coeff_20: always(QuotientIntegerCpuC20)?,
-                            coeff_11: always(QuotientIntegerCpuC11)?,
-                            coeff_02: always(QuotientIntegerCpuC02)?,
+                            minimum: param(QuotientIntegerCpuMinimum),
+                            coeff_00: param(QuotientIntegerCpuC00),
+                            coeff_10: param(QuotientIntegerCpuC10),
+                            coeff_01: param(QuotientIntegerCpuC01),
+                            coeff_20: param(QuotientIntegerCpuC20),
+                            coeff_11: param(QuotientIntegerCpuC11),
+                            coeff_02: param(QuotientIntegerCpuC02),
                         })),
                     ),
                 },
@@ -523,489 +512,489 @@ impl BuiltinCosts {
             remainder_integer: Costing {
                 mem: match semantics {
                     Semantics::A | Semantics::B => TwoArguments::SubtractedSizes(SubtractedSizes {
-                        intercept: always(RemainderIntegerMemIntercept)?,
-                        minimum: always(RemainderIntegerMemMinimum)?,
-                        slope: always(RemainderIntegerMemSlope)?,
+                        intercept: param(RemainderIntegerMemIntercept),
+                        minimum: param(RemainderIntegerMemMinimum),
+                        slope: param(RemainderIntegerMemSlope),
                     }),
                     Semantics::C | Semantics::D | Semantics::E => TwoArguments::LinearInY(LinearSize {
-                        intercept: always(RemainderIntegerMemIntercept)?,
-                        slope: always(RemainderIntegerMemSlope)?,
+                        intercept: param(RemainderIntegerMemIntercept),
+                        slope: param(RemainderIntegerMemSlope),
                     }),
                 },
                 cpu: match semantics {
                     Semantics::A | Semantics::B | Semantics::D => TwoArguments::ConstAboveDiagonal(
-                        always(RemainderIntegerCpuConstant)?,
+                        param(RemainderIntegerCpuConstant),
                         Box::new(TwoArguments::MultipliedSizes(MultipliedSizes {
-                            intercept: always(RemainderIntegerCpuIntercept)?,
-                            slope: always(RemainderIntegerCpuSlope)?,
+                            intercept: param(RemainderIntegerCpuIntercept),
+                            slope: param(RemainderIntegerCpuSlope),
                         })),
                     ),
                     Semantics::C | Semantics::E => TwoArguments::ConstAboveDiagonal(
-                        always(RemainderIntegerCpuConstant)?,
+                        param(RemainderIntegerCpuConstant),
                         Box::new(TwoArguments::QuadraticInXAndY(TwoArgumentsQuadraticFunction {
-                            minimum: always(RemainderIntegerCpuMinimum)?,
-                            coeff_00: always(RemainderIntegerCpuC00)?,
-                            coeff_10: always(RemainderIntegerCpuC10)?,
-                            coeff_01: always(RemainderIntegerCpuC01)?,
-                            coeff_20: always(RemainderIntegerCpuC20)?,
-                            coeff_11: always(RemainderIntegerCpuC11)?,
-                            coeff_02: always(RemainderIntegerCpuC02)?,
+                            minimum: param(RemainderIntegerCpuMinimum),
+                            coeff_00: param(RemainderIntegerCpuC00),
+                            coeff_10: param(RemainderIntegerCpuC10),
+                            coeff_01: param(RemainderIntegerCpuC01),
+                            coeff_20: param(RemainderIntegerCpuC20),
+                            coeff_11: param(RemainderIntegerCpuC11),
+                            coeff_02: param(RemainderIntegerCpuC02),
                         })),
                     ),
                 },
             },
             serialise_data: Costing {
                 mem: OneArgument::LinearInX(LinearSize {
-                    intercept: always(SerialiseDataMemIntercept)?,
-                    slope: always(SerialiseDataMemSlope)?,
+                    intercept: param(SerialiseDataMemIntercept),
+                    slope: param(SerialiseDataMemSlope),
                 }),
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(SerialiseDataCpuIntercept)?,
-                    slope: always(SerialiseDataCpuSlope)?,
+                    intercept: param(SerialiseDataCpuIntercept),
+                    slope: param(SerialiseDataCpuSlope),
                 }),
             },
             sha2_256: Costing {
-                mem: OneArgument::Constant(always(Sha2256Mem)?),
+                mem: OneArgument::Constant(param(Sha2256Mem)),
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(Sha2256CpuIntercept)?,
-                    slope: always(Sha2256CpuSlope)?,
+                    intercept: param(Sha2256CpuIntercept),
+                    slope: param(Sha2256CpuSlope),
                 }),
             },
             sha3_256: Costing {
-                mem: OneArgument::Constant(always(Sha3256Mem)?),
+                mem: OneArgument::Constant(param(Sha3256Mem)),
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(Sha3256CpuIntercept)?,
-                    slope: always(Sha3256CpuSlope)?,
+                    intercept: param(Sha3256CpuIntercept),
+                    slope: param(Sha3256CpuSlope),
                 }),
             },
             slice_byte_string: Costing {
                 mem: ThreeArguments::LinearInZ(LinearSize {
-                    intercept: always(SliceByteStringMemIntercept)?,
-                    slope: always(SliceByteStringMemSlope)?,
+                    intercept: param(SliceByteStringMemIntercept),
+                    slope: param(SliceByteStringMemSlope),
                 }),
                 cpu: ThreeArguments::LinearInZ(LinearSize {
-                    intercept: always(SliceByteStringCpuIntercept)?,
-                    slope: always(SliceByteStringCpuSlope)?,
+                    intercept: param(SliceByteStringCpuIntercept),
+                    slope: param(SliceByteStringCpuSlope),
                 }),
             },
             snd_pair: Costing {
-                mem: OneArgument::Constant(always(SndPairMem)?),
-                cpu: OneArgument::Constant(always(SndPairCpu)?),
+                mem: OneArgument::Constant(param(SndPairMem)),
+                cpu: OneArgument::Constant(param(SndPairCpu)),
             },
             subtract_integer: Costing {
                 mem: TwoArguments::MaxSize(MaxSize {
-                    intercept: always(SubtractIntegerMemIntercept)?,
-                    slope: always(SubtractIntegerMemSlope)?,
+                    intercept: param(SubtractIntegerMemIntercept),
+                    slope: param(SubtractIntegerMemSlope),
                 }),
                 cpu: TwoArguments::MaxSize(MaxSize {
-                    intercept: always(SubtractIntegerCpuIntercept)?,
-                    slope: always(SubtractIntegerCpuSlope)?,
+                    intercept: param(SubtractIntegerCpuIntercept),
+                    slope: param(SubtractIntegerCpuSlope),
                 }),
             },
             tail_list: Costing {
-                mem: OneArgument::Constant(always(TailListMem)?),
-                cpu: OneArgument::Constant(always(TailListCpu)?),
+                mem: OneArgument::Constant(param(TailListMem)),
+                cpu: OneArgument::Constant(param(TailListCpu)),
             },
             trace: Costing {
-                mem: TwoArguments::Constant(always(TraceMem)?),
-                cpu: TwoArguments::Constant(always(TraceCpu)?),
+                mem: TwoArguments::Constant(param(TraceMem)),
+                cpu: TwoArguments::Constant(param(TraceCpu)),
             },
             un_b_data: Costing {
-                mem: OneArgument::Constant(always(UnBDataMem)?),
-                cpu: OneArgument::Constant(always(UnBDataCpu)?),
+                mem: OneArgument::Constant(param(UnBDataMem)),
+                cpu: OneArgument::Constant(param(UnBDataCpu)),
             },
             un_constr_data: Costing {
-                mem: OneArgument::Constant(always(UnConstrDataMem)?),
-                cpu: OneArgument::Constant(always(UnConstrDataCpu)?),
+                mem: OneArgument::Constant(param(UnConstrDataMem)),
+                cpu: OneArgument::Constant(param(UnConstrDataCpu)),
             },
             un_i_data: Costing {
-                mem: OneArgument::Constant(always(UnIDataMem)?),
-                cpu: OneArgument::Constant(always(UnIDataCpu)?),
+                mem: OneArgument::Constant(param(UnIDataMem)),
+                cpu: OneArgument::Constant(param(UnIDataCpu)),
             },
             un_list_data: Costing {
-                mem: OneArgument::Constant(always(UnListDataMem)?),
-                cpu: OneArgument::Constant(always(UnListDataCpu)?),
+                mem: OneArgument::Constant(param(UnListDataMem)),
+                cpu: OneArgument::Constant(param(UnListDataCpu)),
             },
             un_map_data: Costing {
-                mem: OneArgument::Constant(always(UnMapDataMem)?),
-                cpu: OneArgument::Constant(always(UnMapDataCpu)?),
+                mem: OneArgument::Constant(param(UnMapDataMem)),
+                cpu: OneArgument::Constant(param(UnMapDataCpu)),
             },
             verify_ecdsa_secp256k1_signature: Costing {
-                mem: ThreeArguments::Constant(always(VerifyEcdsaSecp256k1SignatureMem)?),
-                cpu: ThreeArguments::Constant(always(VerifyEcdsaSecp256k1SignatureCpu)?),
+                mem: ThreeArguments::Constant(param(VerifyEcdsaSecp256k1SignatureMem)),
+                cpu: ThreeArguments::Constant(param(VerifyEcdsaSecp256k1SignatureCpu)),
             },
             verify_ed25519_signature: Costing {
-                mem: ThreeArguments::Constant(always(VerifyEd25519SignatureMem)?),
+                mem: ThreeArguments::Constant(param(VerifyEd25519SignatureMem)),
                 cpu: match semantics {
                     Semantics::A => ThreeArguments::LinearInZ(LinearSize {
-                        intercept: always(VerifyEd25519SignatureCpuIntercept)?,
-                        slope: always(VerifyEd25519SignatureCpuSlope)?,
+                        intercept: param(VerifyEd25519SignatureCpuIntercept),
+                        slope: param(VerifyEd25519SignatureCpuSlope),
                     }),
                     Semantics::B | Semantics::C | Semantics::D | Semantics::E => {
                         ThreeArguments::LinearInY(LinearSize {
-                            intercept: always(VerifyEd25519SignatureCpuIntercept)?,
-                            slope: always(VerifyEd25519SignatureCpuSlope)?,
+                            intercept: param(VerifyEd25519SignatureCpuIntercept),
+                            slope: param(VerifyEd25519SignatureCpuSlope),
                         })
                     }
                 },
             },
             verify_schnorr_secp256k1_signature: Costing {
-                mem: ThreeArguments::Constant(always(VerifySchnorrSecp256k1SignatureMem)?),
+                mem: ThreeArguments::Constant(param(VerifySchnorrSecp256k1SignatureMem)),
                 cpu: ThreeArguments::LinearInY(LinearSize {
-                    intercept: always(VerifySchnorrSecp256k1SignatureCpuIntercept)?,
-                    slope: always(VerifySchnorrSecp256k1SignatureCpuSlope)?,
+                    intercept: param(VerifySchnorrSecp256k1SignatureCpuIntercept),
+                    slope: param(VerifySchnorrSecp256k1SignatureCpuSlope),
                 }),
             },
             bls12_381_g1_add: Costing {
-                cpu: TwoArguments::Constant(always(BlsG1AddCpu)?),
-                mem: TwoArguments::Constant(always(BlsG1AddMem)?),
+                cpu: TwoArguments::Constant(param(BlsG1AddCpu)),
+                mem: TwoArguments::Constant(param(BlsG1AddMem)),
             },
             bls12_381_g1_compress: Costing {
-                cpu: OneArgument::Constant(always(BlsG1CompressCpu)?),
-                mem: OneArgument::Constant(always(BlsG1CompressMem)?),
+                cpu: OneArgument::Constant(param(BlsG1CompressCpu)),
+                mem: OneArgument::Constant(param(BlsG1CompressMem)),
             },
             bls12_381_g1_equal: Costing {
-                cpu: TwoArguments::Constant(always(BlsG1EqualCpu)?),
-                mem: TwoArguments::Constant(always(BlsG1EqualMem)?),
+                cpu: TwoArguments::Constant(param(BlsG1EqualCpu)),
+                mem: TwoArguments::Constant(param(BlsG1EqualMem)),
             },
             bls12_381_g1_hash_to_group: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: always(BlsG1HashToGroupCpuIntercept)?,
-                    slope: always(BlsG1HashToGroupCpuSlope)?,
+                    intercept: param(BlsG1HashToGroupCpuIntercept),
+                    slope: param(BlsG1HashToGroupCpuSlope),
                 }),
-                mem: TwoArguments::Constant(always(BlsG1HashToGroupMem)?),
+                mem: TwoArguments::Constant(param(BlsG1HashToGroupMem)),
             },
             bls12_381_g1_neg: Costing {
-                cpu: OneArgument::Constant(always(BlsG1NegCpu)?),
-                mem: OneArgument::Constant(always(BlsG1NegMem)?),
+                cpu: OneArgument::Constant(param(BlsG1NegCpu)),
+                mem: OneArgument::Constant(param(BlsG1NegMem)),
             },
             bls12_381_g1_scalar_mul: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: always(BlsG1ScalarMulCpuIntercept)?,
-                    slope: always(BlsG1ScalarMulCpuSlope)?,
+                    intercept: param(BlsG1ScalarMulCpuIntercept),
+                    slope: param(BlsG1ScalarMulCpuSlope),
                 }),
-                mem: TwoArguments::Constant(always(BlsG1ScalarMulMem)?),
+                mem: TwoArguments::Constant(param(BlsG1ScalarMulMem)),
             },
             bls12_381_g1_uncompress: Costing {
-                cpu: OneArgument::Constant(always(BlsG1UncompressCpu)?),
-                mem: OneArgument::Constant(always(BlsG1UncompressMem)?),
+                cpu: OneArgument::Constant(param(BlsG1UncompressCpu)),
+                mem: OneArgument::Constant(param(BlsG1UncompressMem)),
             },
             bls12_381_g2_add: Costing {
-                cpu: TwoArguments::Constant(always(BlsG2AddCpu)?),
-                mem: TwoArguments::Constant(always(BlsG2AddMem)?),
+                cpu: TwoArguments::Constant(param(BlsG2AddCpu)),
+                mem: TwoArguments::Constant(param(BlsG2AddMem)),
             },
             bls12_381_g2_compress: Costing {
-                cpu: OneArgument::Constant(always(BlsG2CompressCpu)?),
-                mem: OneArgument::Constant(always(BlsG2CompressMem)?),
+                cpu: OneArgument::Constant(param(BlsG2CompressCpu)),
+                mem: OneArgument::Constant(param(BlsG2CompressMem)),
             },
             bls12_381_g2_equal: Costing {
-                cpu: TwoArguments::Constant(always(BlsG2EqualCpu)?),
-                mem: TwoArguments::Constant(always(BlsG2EqualMem)?),
+                cpu: TwoArguments::Constant(param(BlsG2EqualCpu)),
+                mem: TwoArguments::Constant(param(BlsG2EqualMem)),
             },
             bls12_381_g2_hash_to_group: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: always(BlsG2HashToGroupCpuIntercept)?,
-                    slope: always(BlsG2HashToGroupCpuSlope)?,
+                    intercept: param(BlsG2HashToGroupCpuIntercept),
+                    slope: param(BlsG2HashToGroupCpuSlope),
                 }),
-                mem: TwoArguments::Constant(always(BlsG2HashToGroupMem)?),
+                mem: TwoArguments::Constant(param(BlsG2HashToGroupMem)),
             },
             bls12_381_g2_neg: Costing {
-                cpu: OneArgument::Constant(always(BlsG2NegCpu)?),
-                mem: OneArgument::Constant(always(BlsG2NegMem)?),
+                cpu: OneArgument::Constant(param(BlsG2NegCpu)),
+                mem: OneArgument::Constant(param(BlsG2NegMem)),
             },
             bls12_381_g2_scalar_mul: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: always(BlsG2ScalarMulCpuIntercept)?,
-                    slope: always(BlsG2ScalarMulCpuSlope)?,
+                    intercept: param(BlsG2ScalarMulCpuIntercept),
+                    slope: param(BlsG2ScalarMulCpuSlope),
                 }),
-                mem: TwoArguments::Constant(always(BlsG2ScalarMulMem)?),
+                mem: TwoArguments::Constant(param(BlsG2ScalarMulMem)),
             },
             bls12_381_g2_uncompress: Costing {
-                cpu: OneArgument::Constant(always(BlsG2UncompressCpu)?),
-                mem: OneArgument::Constant(always(BlsG2UncompressMem)?),
+                cpu: OneArgument::Constant(param(BlsG2UncompressCpu)),
+                mem: OneArgument::Constant(param(BlsG2UncompressMem)),
             },
             bls12_381_final_verify: Costing {
-                cpu: TwoArguments::Constant(always(BlsFinalVerifyCpu)?),
-                mem: TwoArguments::Constant(always(BlsFinalVerifyMem)?),
+                cpu: TwoArguments::Constant(param(BlsFinalVerifyCpu)),
+                mem: TwoArguments::Constant(param(BlsFinalVerifyMem)),
             },
             bls12_381_miller_loop: Costing {
-                cpu: TwoArguments::Constant(always(BlsMillerLoopCpu)?),
-                mem: TwoArguments::Constant(always(BlsMillerLoopMem)?),
+                cpu: TwoArguments::Constant(param(BlsMillerLoopCpu)),
+                mem: TwoArguments::Constant(param(BlsMillerLoopMem)),
             },
             bls12_381_mul_ml_result: Costing {
-                cpu: TwoArguments::Constant(always(BlsMulMlResultCpu)?),
-                mem: TwoArguments::Constant(always(BlsMulMlResultMem)?),
+                cpu: TwoArguments::Constant(param(BlsMulMlResultCpu)),
+                mem: TwoArguments::Constant(param(BlsMulMlResultMem)),
             },
             keccak_256: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(Keccak256CpuIntercept)?,
-                    slope: always(Keccak256CpuSlope)?,
+                    intercept: param(Keccak256CpuIntercept),
+                    slope: param(Keccak256CpuSlope),
                 }),
-                mem: OneArgument::Constant(always(Keccak256Mem)?),
+                mem: OneArgument::Constant(param(Keccak256Mem)),
             },
             blake2b_224: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: always(Blake2b224CpuIntercept)?,
-                    slope: always(Blake2b224CpuSlope)?,
+                    intercept: param(Blake2b224CpuIntercept),
+                    slope: param(Blake2b224CpuSlope),
                 }),
-                mem: OneArgument::Constant(always(Blake2b224Mem)?),
+                mem: OneArgument::Constant(param(Blake2b224Mem)),
             },
             integer_to_byte_string: Costing {
                 cpu: ThreeArguments::QuadraticInZ(QuadraticFunction {
-                    coeff_0: always(IntegerToByteStringCpuC0)?,
-                    coeff_1: always(IntegerToByteStringCpuC1)?,
-                    coeff_2: always(IntegerToByteStringCpuC2)?,
+                    coeff_0: param(IntegerToByteStringCpuC0),
+                    coeff_1: param(IntegerToByteStringCpuC1),
+                    coeff_2: param(IntegerToByteStringCpuC2),
                 }),
                 mem: ThreeArguments::LiteralInYorLinearInZ(LinearSize {
-                    intercept: always(IntegerToByteStringMemIntercept)?,
-                    slope: always(IntegerToByteStringMemSlope)?,
+                    intercept: param(IntegerToByteStringMemIntercept),
+                    slope: param(IntegerToByteStringMemSlope),
                 }),
             },
             byte_string_to_integer: Costing {
                 cpu: TwoArguments::QuadraticInY(QuadraticFunction {
-                    coeff_0: always(ByteStringToIntegerCpuC0)?,
-                    coeff_1: always(ByteStringToIntegerCpuC1)?,
-                    coeff_2: always(ByteStringToIntegerCpuC2)?,
+                    coeff_0: param(ByteStringToIntegerCpuC0),
+                    coeff_1: param(ByteStringToIntegerCpuC1),
+                    coeff_2: param(ByteStringToIntegerCpuC2),
                 }),
                 mem: TwoArguments::LinearInY(LinearSize {
-                    intercept: always(ByteStringToIntegerMemIntercept)?,
-                    slope: always(ByteStringToIntegerMemSlope)?,
+                    intercept: param(ByteStringToIntegerMemIntercept),
+                    slope: param(ByteStringToIntegerMemSlope),
                 }),
             },
 
             // Starting from ProtocolVersion >= 10
             and_byte_string: Costing {
                 cpu: ThreeArguments::LinearInYAndZ(TwoVariableLinearSize {
-                    intercept: if_pv10(AndByteStringCpuIntercept)?,
-                    slope1: if_pv10(AndByteStringCpuSlope1)?,
-                    slope2: if_pv10(AndByteStringCpuSlope2)?,
+                    intercept: param(AndByteStringCpuIntercept),
+                    slope1: param(AndByteStringCpuSlope1),
+                    slope2: param(AndByteStringCpuSlope2),
                 }),
                 mem: ThreeArguments::LinearInMaxYZ(LinearSize {
-                    intercept: if_pv10(AndByteStringMemIntercept)?,
-                    slope: if_pv10(AndByteStringMemSlope)?,
+                    intercept: param(AndByteStringMemIntercept),
+                    slope: param(AndByteStringMemSlope),
                 }),
             },
             or_byte_string: Costing {
                 cpu: ThreeArguments::LinearInYAndZ(TwoVariableLinearSize {
-                    intercept: if_pv10(OrByteStringCpuIntercept)?,
-                    slope1: if_pv10(OrByteStringCpuSlope1)?,
-                    slope2: if_pv10(OrByteStringCpuSlope2)?,
+                    intercept: param(OrByteStringCpuIntercept),
+                    slope1: param(OrByteStringCpuSlope1),
+                    slope2: param(OrByteStringCpuSlope2),
                 }),
                 mem: ThreeArguments::LinearInMaxYZ(LinearSize {
-                    intercept: if_pv10(OrByteStringMemIntercept)?,
-                    slope: if_pv10(OrByteStringMemSlope)?,
+                    intercept: param(OrByteStringMemIntercept),
+                    slope: param(OrByteStringMemSlope),
                 }),
             },
             xor_byte_string: Costing {
                 cpu: ThreeArguments::LinearInYAndZ(TwoVariableLinearSize {
-                    intercept: if_pv10(XorByteStringCpuIntercept)?,
-                    slope1: if_pv10(XorByteStringCpuSlope1)?,
-                    slope2: if_pv10(XorByteStringCpuSlope2)?,
+                    intercept: param(XorByteStringCpuIntercept),
+                    slope1: param(XorByteStringCpuSlope1),
+                    slope2: param(XorByteStringCpuSlope2),
                 }),
                 mem: ThreeArguments::LinearInMaxYZ(LinearSize {
-                    intercept: if_pv10(XorByteStringMemIntercept)?,
-                    slope: if_pv10(XorByteStringMemSlope)?,
+                    intercept: param(XorByteStringMemIntercept),
+                    slope: param(XorByteStringMemSlope),
                 }),
             },
             complement_byte_string: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv10(ComplementByteStringCpuIntercept)?,
-                    slope: if_pv10(ComplementByteStringCpuSlope)?,
+                    intercept: param(ComplementByteStringCpuIntercept),
+                    slope: param(ComplementByteStringCpuSlope),
                 }),
                 mem: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv10(ComplementByteStringMemIntercept)?,
-                    slope: if_pv10(ComplementByteStringMemSlope)?,
+                    intercept: param(ComplementByteStringMemIntercept),
+                    slope: param(ComplementByteStringMemSlope),
                 }),
             },
             read_bit: Costing {
-                cpu: TwoArguments::Constant(if_pv10(ReadBitCpu)?),
-                mem: TwoArguments::Constant(if_pv10(ReadBitMem)?),
+                cpu: TwoArguments::Constant(param(ReadBitCpu)),
+                mem: TwoArguments::Constant(param(ReadBitMem)),
             },
             write_bits: Costing {
                 cpu: ThreeArguments::LinearInY(LinearSize {
-                    intercept: if_pv10(WriteBitsCpuIntercept)?,
-                    slope: if_pv10(WriteBitsCpuSlope)?,
+                    intercept: param(WriteBitsCpuIntercept),
+                    slope: param(WriteBitsCpuSlope),
                 }),
                 mem: ThreeArguments::LinearInX(LinearSize {
-                    intercept: if_pv10(WriteBitsMemIntercept)?,
-                    slope: if_pv10(WriteBitsMemSlope)?,
+                    intercept: param(WriteBitsMemIntercept),
+                    slope: param(WriteBitsMemSlope),
                 }),
             },
             replicate_byte: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv10(ReplicateByteCpuIntercept)?,
-                    slope: if_pv10(ReplicateByteCpuSlope)?,
+                    intercept: param(ReplicateByteCpuIntercept),
+                    slope: param(ReplicateByteCpuSlope),
                 }),
                 mem: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv10(ReplicateByteMemIntercept)?,
-                    slope: if_pv10(ReplicateByteMemSlope)?,
+                    intercept: param(ReplicateByteMemIntercept),
+                    slope: param(ReplicateByteMemSlope),
                 }),
             },
             shift_byte_string: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv10(ShiftByteStringCpuIntercept)?,
-                    slope: if_pv10(ShiftByteStringCpuSlope)?,
+                    intercept: param(ShiftByteStringCpuIntercept),
+                    slope: param(ShiftByteStringCpuSlope),
                 }),
                 mem: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv10(ShiftByteStringMemIntercept)?,
-                    slope: if_pv10(ShiftByteStringMemSlope)?,
+                    intercept: param(ShiftByteStringMemIntercept),
+                    slope: param(ShiftByteStringMemSlope),
                 }),
             },
             rotate_byte_string: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv10(RotateByteStringCpuIntercept)?,
-                    slope: if_pv10(RotateByteStringCpuSlope)?,
+                    intercept: param(RotateByteStringCpuIntercept),
+                    slope: param(RotateByteStringCpuSlope),
                 }),
                 mem: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv10(RotateByteStringMemIntercept)?,
-                    slope: if_pv10(RotateByteStringMemSlope)?,
+                    intercept: param(RotateByteStringMemIntercept),
+                    slope: param(RotateByteStringMemSlope),
                 }),
             },
             count_set_bits: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv10(CountSetBitsCpuIntercept)?,
-                    slope: if_pv10(CountSetBitsCpuSlope)?,
+                    intercept: param(CountSetBitsCpuIntercept),
+                    slope: param(CountSetBitsCpuSlope),
                 }),
-                mem: OneArgument::Constant(if_pv10(CountSetBitsMem)?),
+                mem: OneArgument::Constant(param(CountSetBitsMem)),
             },
             find_first_set_bit: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv10(FindFirstSetBitCpuIntercept)?,
-                    slope: if_pv10(FindFirstSetBitCpuSlope)?,
+                    intercept: param(FindFirstSetBitCpuIntercept),
+                    slope: param(FindFirstSetBitCpuSlope),
                 }),
-                mem: OneArgument::Constant(if_pv10(FindFirstSetBitMem)?),
+                mem: OneArgument::Constant(param(FindFirstSetBitMem)),
             },
             ripemd_160: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv10(Ripemd160CpuIntercept)?,
-                    slope: if_pv10(Ripemd160CpuSlope)?,
+                    intercept: param(Ripemd160CpuIntercept),
+                    slope: param(Ripemd160CpuSlope),
                 }),
-                mem: OneArgument::Constant(if_pv10(Ripemd160Mem)?),
+                mem: OneArgument::Constant(param(Ripemd160Mem)),
             },
 
             // Starting from ProtocolVersion >= 11
             exp_mod_integer: Costing {
                 cpu: ThreeArguments::ExpModCost(ExpModCost {
-                    coeff_00: if_pv11(ExpModIntegerCpuC00)?,
-                    coeff_11: if_pv11(ExpModIntegerCpuC11)?,
-                    coeff_12: if_pv11(ExpModIntegerCpuC12)?,
+                    coeff_00: param(ExpModIntegerCpuC00),
+                    coeff_11: param(ExpModIntegerCpuC11),
+                    coeff_12: param(ExpModIntegerCpuC12),
                 }),
                 mem: ThreeArguments::LinearInZ(LinearSize {
-                    intercept: if_pv11(ExpModIntegerMemIntercept)?,
-                    slope: if_pv11(ExpModIntegerMemSlope)?,
+                    intercept: param(ExpModIntegerMemIntercept),
+                    slope: param(ExpModIntegerMemSlope),
                 }),
             },
             drop_list: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv11(DropListCpuIntercept)?,
-                    slope: if_pv11(DropListCpuSlope)?,
+                    intercept: param(DropListCpuIntercept),
+                    slope: param(DropListCpuSlope),
                 }),
-                mem: TwoArguments::Constant(if_pv11(DropListMem)?),
+                mem: TwoArguments::Constant(param(DropListMem)),
             },
             length_of_array: Costing {
-                cpu: OneArgument::Constant(if_pv11(LengthOfArrayCpu)?),
-                mem: OneArgument::Constant(if_pv11(LengthOfArrayMem)?),
+                cpu: OneArgument::Constant(param(LengthOfArrayCpu)),
+                mem: OneArgument::Constant(param(LengthOfArrayMem)),
             },
             list_to_array: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv11(ListToArrayCpuIntercept)?,
-                    slope: if_pv11(ListToArrayCpuSlope)?,
+                    intercept: param(ListToArrayCpuIntercept),
+                    slope: param(ListToArrayCpuSlope),
                 }),
                 mem: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv11(ListToArrayMemIntercept)?,
-                    slope: if_pv11(ListToArrayMemSlope)?,
+                    intercept: param(ListToArrayMemIntercept),
+                    slope: param(ListToArrayMemSlope),
                 }),
             },
             index_array: Costing {
-                cpu: TwoArguments::Constant(if_pv11(IndexArrayCpu)?),
-                mem: TwoArguments::Constant(if_pv11(IndexArrayMem)?),
+                cpu: TwoArguments::Constant(param(IndexArrayCpu)),
+                mem: TwoArguments::Constant(param(IndexArrayMem)),
             },
             bls12_381_g1_multi_scalar_mul: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv11(BlsG1MultiScalarMulCpuIntercept)?,
-                    slope: if_pv11(BlsG1MultiScalarMulCpuSlope)?,
+                    intercept: param(BlsG1MultiScalarMulCpuIntercept),
+                    slope: param(BlsG1MultiScalarMulCpuSlope),
                 }),
-                mem: TwoArguments::Constant(if_pv11(BlsG1MultiScalarMulMem)?),
+                mem: TwoArguments::Constant(param(BlsG1MultiScalarMulMem)),
             },
             bls12_381_g2_multi_scalar_mul: Costing {
                 cpu: TwoArguments::LinearInX(LinearSize {
-                    intercept: if_pv11(BlsG2MultiScalarMulCpuIntercept)?,
-                    slope: if_pv11(BlsG2MultiScalarMulCpuSlope)?,
+                    intercept: param(BlsG2MultiScalarMulCpuIntercept),
+                    slope: param(BlsG2MultiScalarMulCpuSlope),
                 }),
-                mem: TwoArguments::Constant(if_pv11(BlsG2MultiScalarMulMem)?),
+                mem: TwoArguments::Constant(param(BlsG2MultiScalarMulMem)),
             },
             insert_coin: Costing {
                 cpu: FourArguments::LinearInU(LinearSize {
-                    intercept: if_pv11(InsertCoinCpuIntercept)?,
-                    slope: if_pv11(InsertCoinCpuSlope)?,
+                    intercept: param(InsertCoinCpuIntercept),
+                    slope: param(InsertCoinCpuSlope),
                 }),
                 mem: FourArguments::LinearInU(LinearSize {
-                    intercept: if_pv11(InsertCoinMemIntercept)?,
-                    slope: if_pv11(InsertCoinMemSlope)?,
+                    intercept: param(InsertCoinMemIntercept),
+                    slope: param(InsertCoinMemSlope),
                 }),
             },
             lookup_coin: Costing {
                 cpu: ThreeArguments::LinearInZ(LinearSize {
-                    intercept: if_pv11(LookupCoinCpuIntercept)?,
-                    slope: if_pv11(LookupCoinCpuSlope)?,
+                    intercept: param(LookupCoinCpuIntercept),
+                    slope: param(LookupCoinCpuSlope),
                 }),
-                mem: ThreeArguments::Constant(if_pv11(LookupCoinMem)?),
+                mem: ThreeArguments::Constant(param(LookupCoinMem)),
             },
             union_value: Costing {
                 cpu: TwoArguments::WithInteraction(WithInteraction {
-                    coeff_00: if_pv11(UnionValueCpuC00)?,
-                    coeff_10: if_pv11(UnionValueCpuC10)?,
-                    coeff_01: if_pv11(UnionValueCpuC01)?,
-                    coeff_11: if_pv11(UnionValueCpuC11)?,
+                    coeff_00: param(UnionValueCpuC00),
+                    coeff_10: param(UnionValueCpuC10),
+                    coeff_01: param(UnionValueCpuC01),
+                    coeff_11: param(UnionValueCpuC11),
                 }),
                 mem: TwoArguments::AddedSizes(AddedSizes {
-                    intercept: if_pv11(UnionValueMemIntercept)?,
-                    slope: if_pv11(UnionValueMemSlope)?,
+                    intercept: param(UnionValueMemIntercept),
+                    slope: param(UnionValueMemSlope),
                 }),
             },
             value_contains: Costing {
                 cpu: TwoArguments::ConstAboveDiagonal(
-                    if_pv11(ValueContainsCpuConstant)?,
+                    param(ValueContainsCpuConstant),
                     Box::new(TwoArguments::LinearInXAndY(TwoVariableLinearSize {
-                        intercept: if_pv11(ValueContainsCpuIntercept)?,
-                        slope1: if_pv11(ValueContainsCpuSlope1)?,
-                        slope2: if_pv11(ValueContainsCpuSlope2)?,
+                        intercept: param(ValueContainsCpuIntercept),
+                        slope1: param(ValueContainsCpuSlope1),
+                        slope2: param(ValueContainsCpuSlope2),
                     })),
                 ),
-                mem: TwoArguments::Constant(if_pv11(ValueContainsMem)?),
+                mem: TwoArguments::Constant(param(ValueContainsMem)),
             },
             value_data: Costing {
                 cpu: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv11(ValueDataCpuIntercept)?,
-                    slope: if_pv11(ValueDataCpuSlope)?,
+                    intercept: param(ValueDataCpuIntercept),
+                    slope: param(ValueDataCpuSlope),
                 }),
                 mem: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv11(ValueDataMemIntercept)?,
-                    slope: if_pv11(ValueDataMemSlope)?,
+                    intercept: param(ValueDataMemIntercept),
+                    slope: param(ValueDataMemSlope),
                 }),
             },
             un_value_data: Costing {
                 cpu: OneArgument::Quadratic(QuadraticFunction {
-                    coeff_0: if_pv11(UnValueDataCpuC0)?,
-                    coeff_1: if_pv11(UnValueDataCpuC1)?,
-                    coeff_2: if_pv11(UnValueDataCpuC2)?,
+                    coeff_0: param(UnValueDataCpuC0),
+                    coeff_1: param(UnValueDataCpuC1),
+                    coeff_2: param(UnValueDataCpuC2),
                 }),
                 mem: OneArgument::LinearInX(LinearSize {
-                    intercept: if_pv11(UnValueDataMemIntercept)?,
-                    slope: if_pv11(UnValueDataMemSlope)?,
+                    intercept: param(UnValueDataMemIntercept),
+                    slope: param(UnValueDataMemSlope),
                 }),
             },
             scale_value: Costing {
                 cpu: TwoArguments::LinearInY(LinearSize {
-                    intercept: if_pv11(ScaleValueCpuIntercept)?,
-                    slope: if_pv11(ScaleValueCpuSlope)?,
+                    intercept: param(ScaleValueCpuIntercept),
+                    slope: param(ScaleValueCpuSlope),
                 }),
                 mem: TwoArguments::LinearInY(LinearSize {
-                    intercept: if_pv11(ScaleValueMemIntercept)?,
-                    slope: if_pv11(ScaleValueMemSlope)?,
+                    intercept: param(ScaleValueMemIntercept),
+                    slope: param(ScaleValueMemSlope),
                 }),
             },
-        })
+        }
     }
 
     pub fn get_cost(&self, builtin: DefaultFunction, args: &[i64]) -> Option<ExBudget> {

@@ -15,9 +15,9 @@
 use std::{collections::BTreeMap, fmt};
 
 use amaru_kernel::{
-    BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, ProtocolVersion,
-    TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    to_cbor, transaction_input_to_string,
+    BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, TransactionBody,
+    TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor, to_cbor,
+    transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
@@ -29,7 +29,7 @@ use amaru_uplc::{
     constant::Constant,
     data::PlutusData,
     flat::{FlatDecodeError, decode_plutus_script},
-    machine::{CostModel, ExBudget, MachineInfo, cost_model::ParamName},
+    machine::{CostModel, ExBudget, MachineInfo},
     program::Program,
     term::Term,
 };
@@ -49,19 +49,12 @@ pub enum PhaseTwoError {
     ScriptDeserializationError(cbor::decode::Error),
     #[error("failed to flat decode script: {0}")]
     FlatDecodingError(#[from] FlatDecodeError),
-
     #[error("script evaluation failure: {0:?}")]
     UplcMachineError(UplcMachineError),
     #[error("expected scripts to fail but didn't")]
     ValidityStateError,
-    // These error should not be there; they aren't the users' fault, but only there due to our
-    // failure in typing this correctly early on.
     #[error("missing cost models for version = {0:?}")]
     MissingCostModel(PlutusVersion),
-    #[error(
-        "invalid cost model for plutus version = {0:?} and protocol version = {1:?}; missing expected parameter: {2:?}"
-    )]
-    InvalidCostModel(PlutusVersion, ProtocolVersion, ParamName),
 }
 
 #[derive(Debug)]
@@ -223,9 +216,7 @@ where
 
             let result = program.eval(
                 &arena,
-                CostModel::new(plutus_version, protocol_parameters.protocol_version, cost_model).map_err(|param| {
-                    PhaseTwoError::InvalidCostModel(plutus_version, protocol_parameters.protocol_version, param)
-                })?,
+                CostModel::new(plutus_version, protocol_parameters.protocol_version, cost_model),
                 uplc_budget,
             );
 
@@ -341,13 +332,7 @@ mod tests {
                     228465, 122, 0, 1, 1, 90434, 519, 0, 1, 74433, 32, 85848, 228465, 122, 0, 1, 1, 85848, 228465, 122,
                     0, 1, 1, 955506, 213312, 0, 2, 270652, 22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32,
                     100788, 420, 1, 1, 81663, 32, 59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32,
-                    43053543, 10, 53384111, 14333, 10, 43574283, 26308, 10, 16000, 100, 16000, 100, 962335, 18,
-                    2780678, 6, 442008, 1, 52538055, 3756, 18, 267929, 18, 76433006, 8868, 18, 52948122, 18, 1995836,
-                    36, 3227919, 12, 901022, 1, 166917843, 4307, 36, 284546, 36, 158221314, 26549, 36, 74698472, 36,
-                    333849714, 1, 254006273, 72, 2174038, 72, 2261318, 64571, 4, 207616, 8310, 4, 1293828, 28716, 63,
-                    0, 1, 1006041, 43623, 251, 0, 1, 100181, 726, 719, 0, 1, 100181, 726, 719, 0, 1, 100181, 726, 719,
-                    0, 1, 107878, 680, 0, 1, 95336, 1, 281145, 18848, 0, 1, 180194, 159, 1, 1, 158519, 8942, 0, 1,
-                    159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3,
+                    43053543, 10, 53384111, 14333, 10, 43574283, 26308, 10,
                 ]),
                 ..protocol_parameters.cost_models.clone()
             },

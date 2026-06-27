@@ -52,8 +52,7 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
         return;
     };
 
-    let result =
-        program.eval(&arena, CostModel::new(plutus_version, protocol_version, costs).unwrap(), ExBudget::default());
+    let result = program.eval(&arena, CostModel::new(plutus_version, protocol_version, costs), ExBudget::default());
 
     let info = result.info;
 
