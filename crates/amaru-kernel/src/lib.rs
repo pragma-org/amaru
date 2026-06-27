@@ -109,8 +109,8 @@ pub use cardano::{
     proposal_pointer::ProposalPointer,
     proposal_state::ProposalState,
     protocol_parameters::{
-        MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREVIEW_DEFAULT_PROTOCOL_PARAMETERS,
-        ProtocolParameters,
+        self, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
     },
     protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
     protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion},

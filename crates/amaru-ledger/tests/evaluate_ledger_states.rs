@@ -25,9 +25,9 @@ pub mod tests {
     use amaru_kernel::{
         Account, Bytes, CertificatePointer, ComparableProposalId, ConstitutionalCommittee,
         ConstitutionalCommitteeMemberStatus, DRepRegistration, DRepState, Epoch, EraHistory, MemoizedTransactionOutput,
-        NetworkName, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState, ProtocolParameters, Slot,
-        StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer, WitnessSet, cbor,
-        cbor as minicbor,
+        NetworkName, PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState,
+        ProtocolParameters, Slot, StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer,
+        WitnessSet, cbor, cbor as minicbor,
     };
     use amaru_ledger::{
         self,
@@ -246,7 +246,11 @@ pub mod tests {
         let mut decoder = cbor::Decoder::new(&record.initial_state);
         let decoded = decode_ledger_state(&mut decoder)?;
 
-        let protocol_parameters = decode_segregated_parameters(pparams_dir, decoded.pparams_hash)?;
+        let protocol_parameters = ProtocolParameters {
+            protocol_version: PROTOCOL_VERSION_10,
+            ..decode_segregated_parameters(pparams_dir, decoded.pparams_hash)?
+        };
+
         let governance_activity =
             GovernanceActivity { consecutive_dormant_epochs: u64::from(decoded.dormant_epochs) as u32 };
 
