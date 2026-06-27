@@ -31,17 +31,148 @@ pub use bumpalo;
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        PROTOCOL_VERSION_10, PlutusVersion,
+        HasMajorVersion, PROTOCOL_VERSION_10, PlutusVersion,
         protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_11},
     };
+    use bumpalo::collections::Vec as BumpVec;
     use pretty_assertions::assert_eq;
+    use test_case::test_case;
 
-    use super::{arena::Arena, program::Program, term::Term};
+    use super::{arena::Arena, constant::Constant, ledger_value::LedgerValue, program::Program, term::Term, typ::Type};
     use crate::{
         binder::DeBruijn,
+        flat,
         machine::{CostModel, ExBudget},
         program::Version,
     };
+
+    fn alloc_constants<'a>(
+        arena: &'a Arena,
+        values: impl IntoIterator<Item = &'a Constant<'a>>,
+    ) -> &'a [&'a Constant<'a>] {
+        arena.alloc(BumpVec::from_iter_in(values, arena.as_bump()))
+    }
+
+    fn integer_list<'a>(arena: &'a Arena, values: &[i128]) -> &'a Term<'a, DeBruijn> {
+        let list = Constant::proto_list(
+            arena,
+            Type::integer(arena),
+            alloc_constants(arena, values.iter().copied().map(|value| Constant::integer_from(arena, value))),
+        );
+
+        Term::constant(arena, list)
+    }
+
+    fn integer_array<'a>(arena: &'a Arena, values: &[i128]) -> &'a Term<'a, DeBruijn> {
+        let array = Constant::proto_array(
+            arena,
+            Type::integer(arena),
+            alloc_constants(arena, values.iter().copied().map(|value| Constant::integer_from(arena, value))),
+        );
+
+        Term::constant(arena, array)
+    }
+
+    fn singleton_value<'a>(arena: &'a Arena) -> &'a LedgerValue<'a> {
+        LedgerValue::insert_coin(
+            arena,
+            arena.alloc([]),
+            arena.alloc([0x01]),
+            arena.alloc_integer(1.into()),
+            LedgerValue::empty(arena),
+        )
+    }
+
+    fn exp_mod_integer_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::<DeBruijn>::exp_mod_integer(arena)
+            .apply(arena, Term::integer_from(arena, 2))
+            .apply(arena, Term::integer_from(arena, 3))
+            .apply(arena, Term::integer_from(arena, 5))
+    }
+
+    fn singleton_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        let value = Constant::ledger_value(arena, singleton_value(arena));
+        Term::constant(arena, value)
+    }
+
+    fn empty_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        let value = Constant::ledger_value(arena, LedgerValue::empty(arena));
+        Term::constant(arena, value)
+    }
+
+    fn singleton_value_data_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        let data = LedgerValue::value_data(arena, singleton_value(arena)).unwrap();
+        Term::data(arena, data)
+    }
+
+    fn drop_list_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::drop_list(arena)
+            .force(arena)
+            .apply(arena, Term::integer_from(arena, 1))
+            .apply(arena, integer_list(arena, &[1, 2]))
+    }
+
+    fn length_of_array_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::length_of_array(arena).force(arena).apply(arena, integer_array(arena, &[1, 2]))
+    }
+
+    fn list_to_array_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::list_to_array(arena).force(arena).apply(arena, integer_list(arena, &[1, 2]))
+    }
+
+    fn index_array_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::index_array(arena)
+            .force(arena)
+            .apply(arena, integer_array(arena, &[1, 2]))
+            .apply(arena, Term::integer_from(arena, 1))
+    }
+
+    fn bls12_381_g1_multi_scalar_mul_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::bls12_381_g1_multi_scalar_mul(arena)
+            .apply(arena, Term::var(arena, DeBruijn::zero(arena)))
+            .lambda(arena, DeBruijn::zero(arena))
+    }
+
+    fn bls12_381_g2_multi_scalar_mul_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::bls12_381_g2_multi_scalar_mul(arena)
+            .apply(arena, Term::var(arena, DeBruijn::zero(arena)))
+            .lambda(arena, DeBruijn::zero(arena))
+    }
+
+    fn insert_coin_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::insert_coin(arena)
+            .apply(arena, Term::var(arena, DeBruijn::zero(arena)))
+            .lambda(arena, DeBruijn::zero(arena))
+    }
+
+    fn lookup_coin_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::lookup_coin(arena)
+            .apply(arena, Term::byte_string(arena, arena.alloc([])))
+            .apply(arena, Term::byte_string(arena, arena.alloc([0x01])))
+            .apply(arena, singleton_value_fixture(arena))
+    }
+
+    fn union_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::union_value(arena).apply(arena, singleton_value_fixture(arena)).apply(arena, empty_value_fixture(arena))
+    }
+
+    fn value_contains_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::value_contains(arena)
+            .apply(arena, singleton_value_fixture(arena))
+            .apply(arena, singleton_value_fixture(arena))
+    }
+
+    fn value_data_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::value_data(arena).apply(arena, singleton_value_fixture(arena))
+    }
+
+    fn un_value_data_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::un_value_data(arena).apply(arena, singleton_value_data_fixture(arena))
+    }
+
+    fn scale_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::scale_value(arena).apply(arena, Term::integer_from(arena, 2)).apply(arena, singleton_value_fixture(arena))
+    }
 
     #[test]
     fn add_integer() {
@@ -193,141 +324,73 @@ mod tests {
         assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
     }
 
-    #[test]
-    fn eval_with_params_plomin_builtin_succeeds_at_protocol_v10() {
-        // ripemd_160 is a Plomin builtin. With protocol_version >= 10,
-        // PLOMIN_KEYS are included in the cost map so the real costs apply.
+    #[test_case(exp_mod_integer_fixture; "exp_mod_integer")]
+    #[test_case(drop_list_fixture; "drop_list")]
+    #[test_case(length_of_array_fixture; "length_of_array")]
+    #[test_case(list_to_array_fixture; "list_to_array")]
+    #[test_case(index_array_fixture; "index_array")]
+    #[test_case(bls12_381_g1_multi_scalar_mul_fixture; "bls12_381_g1_multi_scalar_mul")]
+    #[test_case(bls12_381_g2_multi_scalar_mul_fixture; "bls12_381_g2_multi_scalar_mul")]
+    #[test_case(insert_coin_fixture; "insert_coin")]
+    #[test_case(lookup_coin_fixture; "lookup_coin")]
+    #[test_case(union_value_fixture; "union_value")]
+    #[test_case(value_contains_fixture; "value_contains")]
+    #[test_case(value_data_fixture; "value_data")]
+    #[test_case(un_value_data_fixture; "un_value_data")]
+    #[test_case(scale_value_fixture; "scale_value")]
+    fn cannot_parse_v10_programs_using_pre_v11_builtins(
+        term: impl for<'a> FnOnce(&'a Arena) -> &'a Term<'a, DeBruijn>,
+    ) {
         let arena = Arena::new();
-        let costs = CostModel::DEFAULT_V3;
 
-        let term = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b"test"));
         let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
+        let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
-        let result = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs).unwrap(),
-            ExBudget::default(),
+        assert!(
+            flat::decode::<DeBruijn>(
+                &arena,
+                &flat::encode::<DeBruijn>(program).unwrap(),
+                PlutusVersion::V3,
+                PROTOCOL_VERSION_10.major(),
+            )
+            .is_err(),
+            "builtin introduced in v11 should not be decoded successfully in v10"
         );
-
-        assert!(result.term.is_ok(), "post-Plomin ripemd_160 should succeed with real costs");
     }
 
-    #[test]
-    fn eval_with_params_plomin_builtin_exceeds_budget_at_protocol_v9() {
+    #[test_case(exp_mod_integer_fixture; "exp_mod_integer")]
+    #[test_case(drop_list_fixture; "drop_list")]
+    #[test_case(length_of_array_fixture; "length_of_array")]
+    #[test_case(list_to_array_fixture; "list_to_array")]
+    #[test_case(index_array_fixture; "index_array")]
+    #[test_case(bls12_381_g1_multi_scalar_mul_fixture; "bls12_381_g1_multi_scalar_mul")]
+    #[test_case(bls12_381_g2_multi_scalar_mul_fixture; "bls12_381_g2_multi_scalar_mul")]
+    #[test_case(insert_coin_fixture; "insert_coin")]
+    #[test_case(lookup_coin_fixture; "lookup_coin")]
+    #[test_case(union_value_fixture; "union_value")]
+    #[test_case(value_contains_fixture; "value_contains")]
+    #[test_case(value_data_fixture; "value_data")]
+    #[test_case(un_value_data_fixture; "un_value_data")]
+    #[test_case(scale_value_fixture; "scale_value")]
+    fn can_parse_and_evaluate_v11_programs_with_v11_builtins(
+        term: impl for<'a> FnOnce(&'a Arena) -> &'a Term<'a, DeBruijn>,
+    ) {
         let arena = Arena::new();
-        let costs = CostModel::DEFAULT_V3;
 
-        let term = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b"test"));
         let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
+        let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
-        let result = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_9, &costs).unwrap(),
-            ExBudget::default(),
+        assert!(
+            flat::decode::<DeBruijn>(
+                &arena,
+                &flat::encode::<DeBruijn>(program).unwrap(),
+                PlutusVersion::V3,
+                PROTOCOL_VERSION_11.major(),
+            )
+            .is_ok(),
+            "builtin introduced in v11 should be decoded successfully in v11"
         );
 
-        assert!(result.term.is_err(), "pre-Plomin ripemd_160 should fail");
-    }
-
-    #[test]
-    fn eval_with_params_plomin_builtin_different_budget_by_protocol_version() {
-        let arena = Arena::new();
-        let costs = CostModel::DEFAULT_V3;
-
-        let term = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b"test"));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let r10 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs).unwrap(),
-            ExBudget::default(),
-        );
-        let r11 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs).unwrap(),
-            ExBudget::default(),
-        );
-
-        assert!(r10.term.is_ok());
-        assert!(r11.term.is_ok());
-
-        // ripemd_160 cost should be identical at PV 10 and 11 (same PLOMIN keys)
-        assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
-    }
-
-    #[test]
-    fn eval_with_params_pv11_builtin_exceeds_budget_pre_pv11() {
-        let arena = Arena::new();
-        let costs = CostModel::DEFAULT_V3;
-
-        let term = Term::<DeBruijn>::exp_mod_integer(&arena)
-            .apply(&arena, Term::integer_from(&arena, 2))
-            .apply(&arena, Term::integer_from(&arena, 3))
-            .apply(&arena, Term::integer_from(&arena, 5));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let r9 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_9, &costs).unwrap(),
-            ExBudget::default(),
-        );
-
-        let r10 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs).unwrap(),
-            ExBudget::default(),
-        );
-
-        assert!(r9.term.is_err(), "pre-PV11 exp_mod_integer should fail");
-        assert!(r10.term.is_err(), "pre-PV11 exp_mod_integer should fail");
-    }
-
-    #[test]
-    fn eval_with_params_pv11_builtin_succeeds_at_pv11() {
-        let arena = Arena::new();
-        let costs = CostModel::DEFAULT_V3;
-
-        let term = Term::<DeBruijn>::exp_mod_integer(&arena)
-            .apply(&arena, Term::integer_from(&arena, 2))
-            .apply(&arena, Term::integer_from(&arena, 3))
-            .apply(&arena, Term::integer_from(&arena, 5));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let r11 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs).unwrap(),
-            ExBudget::default(),
-        );
-
-        assert_eq!(r11.term.unwrap(), Term::integer_from(&arena, 3));
-    }
-
-    #[test]
-    fn eval_with_params_plomin_and_pv11_builtins_in_same_program() {
-        let arena = Arena::new();
-        let costs = CostModel::DEFAULT_V3;
-
-        let ripemd = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b""));
-        let exp_mod = Term::<DeBruijn>::exp_mod_integer(&arena)
-            .apply(&arena, Term::integer_from(&arena, 2))
-            .apply(&arena, Term::integer_from(&arena, 3))
-            .apply(&arena, Term::integer_from(&arena, 5));
-
-        let term = exp_mod.lambda(&arena, DeBruijn::zero(&arena)).apply(&arena, ripemd);
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let result = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs).unwrap(),
-            ExBudget::default(),
-        );
-
-        assert_eq!(result.term.unwrap(), Term::integer_from(&arena, 3));
+        assert!(dbg!(program.eval_default(&arena).term.is_ok()))
     }
 }

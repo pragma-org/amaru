@@ -2788,7 +2788,15 @@ impl<'a> Machine<'a> {
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::InsertCoin, &[ledger_value::value_max_depth(v)])
+                    .get_cost(
+                        DefaultFunction::InsertCoin,
+                        &[
+                            value::byte_string_ex_mem(ccy),
+                            value::byte_string_ex_mem(tok),
+                            value::integer_ex_mem(qty),
+                            ledger_value::value_max_depth(v),
+                        ],
+                    )
                     .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::InsertCoin))?;
 
                 self.spend_budget(budget)?;

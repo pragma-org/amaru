@@ -40,6 +40,7 @@ pretty_assertions.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+test-case.workspace = true
 
 [features]
 alloc_profiler = []
