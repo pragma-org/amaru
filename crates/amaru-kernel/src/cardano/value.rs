@@ -76,7 +76,7 @@ pub type Mint = NonEmptyKeyValuePairs<PolicyId, NonEmptyKeyValuePairs<AssetName,
 #[derive(Default, Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Balance {
     coin: i64,
-    multiasset: BTreeMap<(PolicyId, AssetName), i64>,
+    multiasset: BTreeMap<(PolicyId, AssetName), i128>,
 }
 
 impl Display for Balance {
@@ -130,7 +130,7 @@ impl Balance {
 
     /// Apply a signed `delta` to the multi-asset entry at `key`. A delta of zero is a no-op; an
     /// entry that nets to zero is removed.
-    fn apply_delta(&mut self, key: (PolicyId, AssetName), delta: i64) {
+    fn apply_delta(&mut self, key: (PolicyId, AssetName), delta: i128) {
         if delta == 0 {
             return;
         }
@@ -165,7 +165,7 @@ impl SubAssign<&Balance> for Balance {
     fn sub_assign(&mut self, other: &Balance) {
         self.coin = self.coin.checked_sub(other.coin).unwrap_or_else(|| unreachable!("Lovelace accumulator underflow"));
         for (key, qty) in &other.multiasset {
-            let neg = qty.checked_neg().unwrap_or_else(|| unreachable!("cannot negate i64::MIN"));
+            let neg = qty.checked_neg().unwrap_or_else(|| unreachable!("cannot negate i128::MIN"));
             self.apply_delta(key.clone(), neg);
         }
     }
@@ -179,7 +179,7 @@ impl AddAssign<&Value> for Balance {
         if let Some(ma) = multiasset {
             for (policy, assets) in ma.iter() {
                 for (name, qty) in assets.iter() {
-                    self.apply_delta((*policy, name.clone()), positive_to_i64(qty));
+                    self.apply_delta((*policy, name.clone()), positive_to_i128(qty));
                 }
             }
         }
@@ -195,7 +195,7 @@ impl SubAssign<&Value> for Balance {
             for (policy, assets) in ma.iter() {
                 for (name, qty) in assets.iter() {
                     let neg =
-                        positive_to_i64(qty).checked_neg().unwrap_or_else(|| unreachable!("cannot negate i64::MIN"));
+                        positive_to_i128(qty).checked_neg().unwrap_or_else(|| unreachable!("cannot negate i128::MIN"));
                     self.apply_delta((*policy, name.clone()), neg);
                 }
             }
@@ -209,7 +209,7 @@ impl AddAssign<&Mint> for Balance {
     fn add_assign(&mut self, mint: &Mint) {
         for (policy, assets) in mint.iter() {
             for (name, qty) in assets.iter() {
-                self.apply_delta((*policy, name.clone()), i64::from(qty));
+                self.apply_delta((*policy, name.clone()), i128::from(i64::from(qty)));
             }
         }
     }
@@ -234,7 +234,7 @@ fn lovelace_to_i64(amount: u64) -> i64 {
     i64::try_from(amount).unwrap_or_else(|_| unreachable!("Lovelace exceeds i64::MAX: {amount}"))
 }
 
-fn positive_to_i64(qty: &PositiveCoin) -> i64 {
+fn positive_to_i128(qty: &PositiveCoin) -> i128 {
     let raw: u64 = qty.into();
-    i64::try_from(raw).unwrap_or_else(|_| unreachable!("PositiveCoin exceeds i64::MAX: {raw}"))
+    i128::from(raw)
 }
