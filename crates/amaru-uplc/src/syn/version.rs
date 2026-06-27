@@ -15,9 +15,9 @@
 use chumsky::{Parser, prelude::*};
 
 use super::types::{Extra, MapExtra};
-use crate::program::Version;
+use crate::machine::MachineVersion;
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, &'a mut Version<'a>, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, &'a str, MachineVersion, Extra<'a>> {
     text::int(10)
         .map(|v: &str| v.parse().unwrap())
         .then_ignore(just('.'))
@@ -27,9 +27,9 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, &'a mut Version<'a>, Extra<'a>> 
         .map_with(|((major, minor), patch), e: &mut MapExtra<'a, '_>| {
             let state = e.state();
 
-            let version = Version::new(state.arena, major, minor, patch);
+            let version = MachineVersion::new(major, minor, patch);
 
-            state.set_version(*version);
+            state.set_machine_version(version);
 
             version
         })

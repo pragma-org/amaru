@@ -22,8 +22,7 @@ use crate::{
     arena::Arena,
     binder::Eval,
     constant::Constant,
-    machine::{context::Context, env::Env, state::MachineState},
-    program::Version,
+    machine::{MachineVersion, context::Context, env::Env, state::MachineState},
     term::Term,
 };
 
@@ -35,11 +34,11 @@ pub struct Machine<'a> {
     pub(super) costs: CostModel,
     slippage: u8,
     pub(super) logs: Vec<String>,
-    version: Version<'a>,
+    machine_version: MachineVersion,
 }
 
 impl<'a> Machine<'a> {
-    pub fn new(arena: &'a Arena, initial_budget: ExBudget, costs: CostModel, version: Version<'a>) -> Self {
+    pub fn new(arena: &'a Arena, initial_budget: ExBudget, costs: CostModel, machine_version: MachineVersion) -> Self {
         Machine {
             arena,
             initial_budget,
@@ -48,7 +47,7 @@ impl<'a> Machine<'a> {
             costs,
             slippage: 200,
             logs: Vec::new(),
-            version,
+            machine_version,
         }
     }
 
@@ -244,7 +243,7 @@ impl<'a> Machine<'a> {
                         Err(MachineError::MissingCaseBranch(branches, value))
                     }
                 }
-                Value::Con(constant) if self.version.is_constr_case_available() => {
+                Value::Con(constant) if self.machine_version.is_constr_case_available() => {
                     let (tag, max_branches, fields) = self.constant_as_tag_fields(constant)?;
 
                     if branches.len() > max_branches {

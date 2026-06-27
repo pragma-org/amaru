@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HasMajorVersion, protocol_version};
+use amaru_kernel::protocol_version;
 use amaru_uplc::{arena::Arena, syn::parse_program};
 
 fn run_conformance(file_contents: &str, expected_output: &str, expected_budget: &str) {
@@ -22,7 +22,7 @@ fn run_conformance(file_contents: &str, expected_output: &str, expected_budget: 
 
     let arena = Arena::new();
 
-    let Ok(program) = parse_program(&arena, file_contents, protocol_version::DEFAULT.major()).into_result() else {
+    let Ok(program) = parse_program(&arena, file_contents, protocol_version::DEFAULT).into_result() else {
         pretty_assertions::assert_eq!("parse error", expected_output.as_str());
         pretty_assertions::assert_eq!("parse error", expected_budget.as_str());
 
@@ -40,7 +40,7 @@ fn run_conformance(file_contents: &str, expected_output: &str, expected_budget: 
         return;
     };
 
-    let expected = parse_program(&arena, expected_output, protocol_version::DEFAULT.major()).into_result().unwrap();
+    let expected = parse_program(&arena, expected_output, protocol_version::DEFAULT).into_result().unwrap();
 
     pretty_assertions::assert_eq!(expected.term, term);
 

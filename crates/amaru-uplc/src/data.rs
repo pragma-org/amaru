@@ -16,7 +16,7 @@ use crate::{
     arena::Arena,
     binder::Eval,
     constant::{Constant, Integer, integer_from},
-    flat::Ctx,
+    flat::SimpleCtx,
     machine::MachineError,
 };
 
@@ -55,7 +55,7 @@ impl<'a> PlutusData<'a> {
     }
 
     pub fn from_cbor(arena: &'a Arena, cbor: &'_ [u8]) -> Result<&'a PlutusData<'a>, minicbor::decode::Error> {
-        minicbor::decode_with(cbor, &mut Ctx { arena, version: None, plutus_version: None, protocol_version: None })
+        minicbor::decode_with(cbor, &mut SimpleCtx { arena })
     }
 
     pub fn unwrap_constr<V>(&'a self) -> Result<(&'a u64, &'a [&'a PlutusData<'a>]), MachineError<'a, V>>

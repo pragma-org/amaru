@@ -17,18 +17,18 @@ use amaru_kernel::PlutusVersion;
 use crate::{
     arena::Arena,
     binder::Eval,
-    machine::{CostModel, EvalResult, ExBudget, Machine},
+    machine::{CostModel, EvalResult, ExBudget, Machine, MachineVersion},
     term::Term,
 };
 
 #[derive(Debug)]
 pub struct Program<'a, V> {
-    pub version: &'a Version<'a>,
+    pub version: MachineVersion,
     pub term: &'a Term<'a, V>,
 }
 
 impl<'a, V> Program<'a, V> {
-    pub fn new(arena: &'a Arena, version: &'a Version<'a>, term: &'a Term<'a, V>) -> &'a Self {
+    pub fn new(arena: &'a Arena, version: MachineVersion, term: &'a Term<'a, V>) -> &'a Self {
         let program = Program { version, term };
 
         arena.alloc(program)
@@ -47,7 +47,7 @@ where
 {
     /// Evaluate a program for the given `CostModel` and budget.
     pub fn eval(&'a self, arena: &'a Arena, cost_model: CostModel, budget: ExBudget) -> EvalResult<'a, V> {
-        let mut machine = Machine::new(arena, budget, cost_model, *self.version);
+        let mut machine = Machine::new(arena, budget, cost_model, self.version);
         let term = machine.run(self.term);
         let info = machine.info();
         EvalResult { term, info }
@@ -80,43 +80,5 @@ where
             },
             budget,
         )
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Version<'a>(&'a (usize, usize, usize));
-
-impl<'a> Version<'a> {
-    pub fn new(arena: &'a Arena, major: usize, minor: usize, patch: usize) -> &'a mut Self {
-        let version = arena.alloc((major, minor, patch));
-
-        arena.alloc(Version(version))
-    }
-
-    pub fn plutus_v1(arena: &'a Arena) -> &'a mut Self {
-        Self::new(arena, 1, 0, 0)
-    }
-
-    pub fn plutus_v2(arena: &'a Arena) -> &'a mut Self {
-        Self::new(arena, 1, 0, 0)
-    }
-
-    pub fn plutus_v3(arena: &'a Arena) -> &'a mut Self {
-        Self::new(arena, 1, 1, 0)
-    }
-    pub fn is_constr_case_available(&'a self) -> bool {
-        self.0.0 >= 1 && self.0.1 >= 1
-    }
-
-    pub fn major(&'a self) -> usize {
-        self.0.0
-    }
-
-    pub fn minor(&'a self) -> usize {
-        self.0.1
-    }
-
-    pub fn patch(&'a self) -> usize {
-        self.0.2
     }
 }

@@ -37,8 +37,11 @@ mod runtime;
 pub use runtime::*;
 
 mod semantics;
-pub use semantics::*;
+pub use semantics::Semantics;
 
 pub mod state;
 
 pub mod value;
+
+mod version;
+pub use version::MachineVersion;

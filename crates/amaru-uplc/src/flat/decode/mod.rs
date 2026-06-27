@@ -25,13 +25,14 @@ use crate::{
     binder::{Binder, DeBruijn},
     constant::Constant,
     ledger_value::{CurrencyEntry, LedgerValue, TokenEntry, check_quantity_range, count_stats},
-    program::{Program, Version},
+    machine::MachineVersion,
+    program::Program,
     term::Term,
     typ::Type,
 };
 
 mod decoder;
-pub use decoder::{Ctx, Decoder};
+pub use decoder::{Ctx, Decoder, SimpleCtx};
 
 mod error;
 pub use error::FlatDecodeError;
@@ -55,59 +56,23 @@ pub fn decode_plutus_script<'a, const V: usize>(
     let plutus_version = reify_plutus_version::<V>()
         .ok_or_else(|| FlatDecodeError::Message(format!("unable to reify type-level Plutus version '{V:#?}' ??!")))?;
 
-    // TODO: Remove indirection
-    //
-    // We are here matching on plutus_version for a certain behaviour, matching a specific decoder,
-    // and then passing the plutus version to that decoder function. We should really be doing this
-    // behaviour match inside one decoder instead!
-    let program = match plutus_version {
-        PlutusVersion::V3 => decode_strict::<DeBruijn>(arena, bytes, plutus_version, protocol_version),
-        PlutusVersion::V1 | PlutusVersion::V2 => decode::<DeBruijn>(arena, bytes, plutus_version, protocol_version),
-    }?;
+    let (program, remainder) = decode(arena, bytes, protocol_version)?;
+
+    if plutus_version >= PlutusVersion::V3 && remainder > 0 {
+        return Err(FlatDecodeError::TrailingBytes(remainder));
+    }
 
     Ok((program, plutus_version))
 }
 
-/// Decode a FLAT-encoded program with version gating.
+/// Decode a FLAT-encoded program according to a specific protocol version.
 ///
-/// CONSTR/CASE terms, the VALUE constant type, and certain builtins are rejected
-/// when the program version or plutus/protocol version combination disallows them.
+/// CONSTR/CASE terms, certain constants and certain builtins are rejected when the program version
+/// or protocol version combination disallows them.
 pub fn decode<'a, V>(
     arena: &'a Arena,
     bytes: &[u8],
-    plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
-) -> Result<&'a Program<'a, V>, FlatDecodeError>
-where
-    V: Binder<'a>,
-{
-    let (program, _remainder) = decode_inner(arena, bytes, Some(plutus_version), Some(protocol_version))?;
-    Ok(program)
-}
-
-/// Decode a flat-encoded UPLC program, validating builtins and rejecting
-/// trailing bytes after the filler.
-pub fn decode_strict<'a, V>(
-    arena: &'a Arena,
-    bytes: &[u8],
-    plutus_version: PlutusVersion,
-    protocol_version: ProtocolVersion,
-) -> Result<&'a Program<'a, V>, FlatDecodeError>
-where
-    V: Binder<'a>,
-{
-    let (program, remainder) = decode_inner(arena, bytes, Some(plutus_version), Some(protocol_version))?;
-    if remainder > 0 {
-        return Err(FlatDecodeError::TrailingBytes(remainder));
-    }
-    Ok(program)
-}
-
-fn decode_inner<'a, V>(
-    arena: &'a Arena,
-    bytes: &[u8],
-    plutus_version: Option<PlutusVersion>,
-    protocol_version: Option<ProtocolVersion>,
 ) -> Result<(&'a Program<'a, V>, usize), FlatDecodeError>
 where
     V: Binder<'a>,
@@ -117,10 +82,9 @@ where
     let major = decoder.word()?;
     let minor = decoder.word()?;
     let patch = decoder.word()?;
+    let machine_version = MachineVersion::new(major, minor, patch);
 
-    let version = Version::new(arena, major, minor, patch);
-
-    let mut ctx = Ctx { arena, version: Some(version), plutus_version, protocol_version };
+    let mut ctx = Ctx { arena, machine_version, protocol_version };
 
     let term = decode_term(&mut ctx, &mut decoder)?;
 
@@ -128,7 +92,7 @@ where
 
     let remainder = decoder.buffer.len() - decoder.pos;
 
-    Ok((Program::new(arena, version, term), remainder))
+    Ok((Program::new(arena, machine_version, term), remainder))
 }
 
 fn decode_term<'a, V>(ctx: &mut Ctx<'a>, decoder: &mut Decoder<'_>) -> Result<&'a Term<'a, V>, FlatDecodeError>
@@ -300,7 +264,7 @@ fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder) -> Result<&'a Constan
         }
         Type::Data => {
             let cbor = d.bytes(ctx.arena)?;
-            let data = minicbor::decode_with(&cbor, ctx)?;
+            let data = minicbor::decode_with(&cbor, &mut SimpleCtx { arena: ctx.arena })?;
             Ok(Constant::data(ctx.arena, data))
         }
         Type::Bls12_381G1Element => Err(FlatDecodeError::BlsTypeNotSupported),
@@ -360,7 +324,7 @@ fn decode_constant_with_type<'a>(
         }
         Type::Data => {
             let cbor = d.bytes(ctx.arena)?;
-            let data = minicbor::decode_with(&cbor, ctx)?;
+            let data = minicbor::decode_with(&cbor, &mut SimpleCtx { arena: ctx.arena })?;
 
             Ok(Constant::data(ctx.arena, data))
         }
@@ -483,9 +447,9 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370090011aab9d375498109d8668218809f0001ff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
-            Ok(program) => {
+            Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
                 assert_eq!(term, &Term::Constant(&Constant::Integer(&BigInt::from(129))));
@@ -517,9 +481,9 @@ mod tests {
         let bytes =
             hex::decode("0101003370090011bad357426aae78dd526112d8799fc24c033b2e3c9fd0803ce7ffffffff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
-            Ok(program) => {
+            Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
                 assert_eq!(
@@ -553,9 +517,9 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370490021bad357426ae88dd62601049f070eff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<&Program<DeBruijn>, _> = decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
-            Ok(program) => {
+            Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
                 assert_eq!(term, &Term::Constant(&Constant::Integer(&BigInt::from(28))));

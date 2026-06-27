@@ -109,8 +109,7 @@ fn collect_scripts(files: &[PathBuf]) -> Vec<(String, Vec<u8>, PlutusVersion)> {
 fn bench_turbo(arena: &mut Arena) -> impl FnMut(Vec<u8>, PlutusVersion) + use<'_> {
     move |flat, plutus_version| {
         // TODO: We are hardcoding 10, the current mainnet protocol version. This should be an argument
-        let program =
-            flat::decode::<DeBruijn>(arena, &flat, plutus_version, PROTOCOL_VERSION_10).expect("Failed to decode");
+        let (program, _) = flat::decode::<DeBruijn>(arena, &flat, PROTOCOL_VERSION_10).expect("Failed to decode");
 
         let result = program.eval_version_budget(arena, plutus_version, ExBudget::max());
 
@@ -123,8 +122,7 @@ fn bench_turbo(arena: &mut Arena) -> impl FnMut(Vec<u8>, PlutusVersion) + use<'_
 fn analyze_turbo(arena: &mut Arena, flat: Vec<u8>, plutus_version: PlutusVersion) -> (Duration, Duration, Duration) {
     let instant = Instant::now();
 
-    let program =
-        flat::decode::<DeBruijn>(arena, &flat, plutus_version, PROTOCOL_VERSION_10).expect("Failed to decode");
+    let (program, _) = flat::decode::<DeBruijn>(arena, &flat, PROTOCOL_VERSION_10).expect("Failed to decode");
     let elapsed_unflat = instant.elapsed();
 
     let result = program.eval_version_budget(arena, plutus_version, ExBudget::max());

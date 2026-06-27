@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HasMajorVersion, PlutusVersion, protocol_version};
+use amaru_kernel::{PlutusVersion, protocol_version};
 use amaru_uplc::{
     arena::Arena,
     machine::{CostModel, ExBudget},
@@ -46,7 +46,7 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
         159, 1, 1, 158519, 8942, 0, 1, 159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3,
     ];
 
-    let Ok(program) = parse_program(&arena, file_contents, protocol_version.major()).into_result() else {
+    let Ok(program) = parse_program(&arena, file_contents, protocol_version).into_result() else {
         pretty_assertions::assert_eq!("parse error", expected_output.trim_end());
         pretty_assertions::assert_eq!("parse error", expected_budget.trim_end());
         return;
@@ -63,7 +63,7 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
         return;
     };
 
-    let expected = parse_program(&arena, expected_output, protocol_version.major()).into_result().unwrap();
+    let expected = parse_program(&arena, expected_output, protocol_version).into_result().unwrap();
 
     pretty_assertions::assert_eq!(expected.term, term);
 

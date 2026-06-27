@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{PlutusVersion, protocol_version};
+use amaru_kernel::protocol_version;
 use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, machine::ExBudget, program::Program};
 use serde::Deserialize;
 
@@ -63,20 +63,24 @@ fn run_conformance(fixture_json: &str) {
 
     let arena = Arena::new();
 
-    let program =
-        match flat::decode_strict::<DeBruijn>(&arena, &input, PlutusVersion::default(), protocol_version::DEFAULT) {
-            Ok(p) => p,
-            Err(e) => {
-                match &fixture.expected {
-                    Expected::Ok { .. } => panic!("decode failed but fixture expects success: {e:?}"),
-                    Expected::Error { layer: Some(ErrorLayer::Eval) } => {
-                        panic!("fixture pinned `eval` but decode rejected first: {e:?}")
-                    }
-                    Expected::Error { .. } => {}
-                }
-                return;
+    let program = match flat::decode::<DeBruijn>(&arena, &input, protocol_version::DEFAULT) {
+        Ok((p, remainder)) => {
+            if remainder > 0 {
+                panic!("leftovers bytes after decoding");
             }
-        };
+            p
+        }
+        Err(e) => {
+            match &fixture.expected {
+                Expected::Ok { .. } => panic!("decode failed but fixture expects success: {e:?}"),
+                Expected::Error { layer: Some(ErrorLayer::Eval) } => {
+                    panic!("fixture pinned `eval` but decode rejected first: {e:?}")
+                }
+                Expected::Error { .. } => {}
+            }
+            return;
+        }
+    };
 
     if let Expected::Error { layer: Some(ErrorLayer::Decode) } = &fixture.expected {
         panic!("fixture pinned `decode` but decode succeeded; eval will run next");

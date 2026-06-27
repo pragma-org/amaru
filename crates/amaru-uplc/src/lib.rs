@@ -42,8 +42,7 @@ mod tests {
     use crate::{
         binder::DeBruijn,
         flat,
-        machine::{CostModel, ExBudget},
-        program::Version,
+        machine::{CostModel, ExBudget, MachineVersion},
     };
 
     fn alloc_constants<'a>(
@@ -178,11 +177,11 @@ mod tests {
     fn add_integer() {
         let arena = Arena::new();
 
+        let version = MachineVersion::V1_1_0;
+
         let term = Term::add_integer(&arena)
             .apply(&arena, Term::integer_from(&arena, 1))
             .apply(&arena, Term::integer_from(&arena, 3));
-
-        let version = Version::plutus_v3(&arena);
 
         let program = Program::<DeBruijn>::new(&arena, version, term);
 
@@ -194,6 +193,8 @@ mod tests {
     #[test]
     fn fibonacci() {
         let arena = &Arena::new();
+
+        let version = MachineVersion::V1_1_0;
 
         let double_force = Term::var(arena, DeBruijn::new(arena, 1))
             .apply(arena, Term::var(arena, DeBruijn::new(arena, 1)))
@@ -274,8 +275,6 @@ mod tests {
             .lambda(arena, DeBruijn::zero(arena))
             .apply(arena, Term::integer_from(arena, 15));
 
-        let version = Version::plutus_v3(arena);
-
         let program = Program::new(arena, version, term);
 
         let result = program.eval_default(arena);
@@ -290,13 +289,16 @@ mod tests {
         // Its costs should be identical regardless of protocol_version since they
         // are always included in the base key section.
         let arena = Arena::new();
-        let costs = CostModel::DEFAULT_V3;
+
+        let version = MachineVersion::V1_1_0;
 
         let term = Term::add_integer(&arena)
             .apply(&arena, Term::integer_from(&arena, 1))
             .apply(&arena, Term::integer_from(&arena, 3));
-        let version = Version::plutus_v3(&arena);
+
         let program = Program::<DeBruijn>::new(&arena, version, term);
+
+        let costs = CostModel::DEFAULT_V3;
 
         let r10 = program.eval(
             &arena,
@@ -337,17 +339,13 @@ mod tests {
     ) {
         let arena = Arena::new();
 
-        let version = Version::plutus_v3(&arena);
+        let version = MachineVersion::V1_1_0;
+
         let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
         assert!(
-            flat::decode::<DeBruijn>(
-                &arena,
-                &flat::encode::<DeBruijn>(program).unwrap(),
-                PlutusVersion::V3,
-                PROTOCOL_VERSION_10,
-            )
-            .is_err(),
+            flat::decode::<DeBruijn>(&arena, &flat::encode::<DeBruijn>(program).unwrap(), PROTOCOL_VERSION_10,)
+                .is_err(),
             "builtin introduced in v11 should not be decoded successfully in v10"
         );
     }
@@ -371,17 +369,12 @@ mod tests {
     ) {
         let arena = Arena::new();
 
-        let version = Version::plutus_v3(&arena);
+        let version = MachineVersion::V1_1_0;
+
         let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
         assert!(
-            flat::decode::<DeBruijn>(
-                &arena,
-                &flat::encode::<DeBruijn>(program).unwrap(),
-                PlutusVersion::V3,
-                PROTOCOL_VERSION_11,
-            )
-            .is_ok(),
+            flat::decode::<DeBruijn>(&arena, &flat::encode::<DeBruijn>(program).unwrap(), PROTOCOL_VERSION_11,).is_ok(),
             "builtin introduced in v11 should be decoded successfully in v11"
         );
 
