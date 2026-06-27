@@ -377,7 +377,7 @@ pub trait TransactionalContext<'a>: ReadStore {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
-    ) -> Result<GovernanceActivity>;
+    ) -> Result<()>;
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
     /// deposit.

@@ -301,11 +301,11 @@ fn save_point(
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
-    mut governance_activity: GovernanceActivity,
+    governance_activity: GovernanceActivity,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
-    governance_activity = transaction.save(
+    transaction.save(
         era_history,
         protocol_parameters,
         governance_activity,
@@ -315,8 +315,6 @@ fn save_point(
         Default::default(),
         iter::empty(),
     )?;
-
-    transaction.set_governance_activity(governance_activity)?;
 
     transaction.commit()?;
 

@@ -17,8 +17,7 @@ At a high level, the crate owns five related responsibilities:
 The central runtime type is [`State<S, HS>`](src/state.rs). It combines:
 
 - A stable store of finalized ledger state.
-- A volatile in-memory window of the latest block-level diffs.
-- An overlay for information that already matters for validation but is not yet stable enough to persist.
+- A volatile in-memory window of the latest block-level diffs, encapsulating an overlay for epoch-boundary information that already matters for validation but is not yet stable enough to persist.
 - Historical snapshots needed for rewards, governance, and stake-distribution work.
 
 ## Architecture
@@ -35,7 +34,10 @@ flowchart LR
     RW["Rewards"]
     SD["Stake distribution"]
     SS["Stable store"]
-    SO["State overlay"]
+
+    subgraph VD["Volatile DB"]
+        SO["State overlay"]
+    end
 
     BT --> HS
     BT --> SS
@@ -44,7 +46,7 @@ flowchart LR
     HS --> RW
     SD --> RW
     RW --> SO
-    SO --> LS
+    VD --> LS
 ```
 ### Block Validations
 
@@ -53,17 +55,19 @@ flowchart LR
     BK["Block"]
     LR["Ledger rules"]
     VC["Validation context"]
-    SO["State overlay"]
     SS["Stable store"]
-    VD["Volatile DB"]
     VV["Volatile view"]
+
+    subgraph VD["Volatile DB"]
+        SO["State overlay"]
+    end
 
     VD --> VV
     SS --> VV
     VV --> VC
     BK --> LR
     VC --> LR
-    SO --> LR
+    VD --> LR
 ```
 
 
@@ -74,10 +78,12 @@ flowchart LR
     ET["Epoch transition"]
     HS["Historical snapshots"]
     RW["Rewards"]
-    SO["State overlay"]
     SS["Stable store"]
-    VD["Volatile DB"]
     VV["Volatile view"]
+
+    subgraph VD["Volatile DB"]
+        SO["State overlay"]
+    end
 
     VD --> VV
     SS --> VV
@@ -85,13 +91,13 @@ flowchart LR
     HS --> ET
     RW --> ET
     ET --> SO
-    SO --> HS
+    VD --> HS
 ```
 
 ### Module map
 
 - [`src/state.rs`](src/state.rs), [`src/state/`](src/state): the main ledger runtime. This is where stable state, volatile diffs, overlay state, rollback, persistence, and epoch transitions are orchestrated.
-- [`src/state/volatile.rs`](src/state/volatile.rs), [`src/state/volatile/`](src/state/volatile): the volatile-state subsystem. This now splits the in-memory unstable window into the database, view, and per-block fragment types.
+- [`src/state/volatile.rs`](src/state/volatile.rs), [`src/state/volatile/`](src/state/volatile): the volatile-state subsystem. This now splits the in-memory unstable window into the database, view, per-block fragment, and epoch-transition overlay types. The overlay is private to this subsystem and only reachable through `VolatileDB`.
 - [`src/store.rs`](src/store.rs), [`src/store/`](src/store): storage traits and column layouts. The ledger logic is written against `ReadStore`, `Store`, `Snapshot`, and `HistoricalStores` rather than against a single concrete backend.
 - [`src/store/epoch_transition.rs`](src/store/epoch_transition.rs): persistence helpers for epoch-boundary effects once rewards, pool updates, and governance updates are ready to be flushed to stable storage.
 - [`src/context.rs`](src/context.rs), [`src/context/default/`](src/context/default): slice-based preparation and validation contexts. Ledger rules operate on traits describing the pieces of state they need instead of directly reaching into storage.
@@ -122,7 +128,7 @@ Compared with the Haskell node and ledger stack, `amaru-ledger` makes a few expl
 - It is snapshot-first by design. The crate assumes bootstrap from ledger snapshots and historical snapshots for epoch work, rather than trying to solve full chain synchronization from genesis inside the ledger component itself.
 - It keeps storage, rule evaluation, and consensus integration as separate layers. `Store` traits, slice-based contexts, summaries, and the `BlockValidator` adapter are all first-class boundaries in the code.
 - A single `State` value is intentionally linear: it tracks one candidate chain. Multiple candidates can share the same stable backend while maintaining their own volatile views. This differs from representing every branch as one large shared in-memory structure.
-- Delayed epoch state is modeled explicitly through [`StateOverlay`](src/state/overlay.rs), rather than being implicit in one globally updated structure. This makes the boundary between "already relevant for validation" and "stable enough to persist" visible in the code.
+- Delayed epoch state is modeled explicitly through [`StateOverlay`](src/state/volatile/overlay.rs), rather than being implicit in one globally updated structure. This makes the boundary between "already relevant for validation" and "stable enough to persist" visible in the code. It is fully encapsulated within the `VolatileDB` and never handed out.
 
 These choices are mostly about operational trade-offs: memory footprint, restart behavior, persistence boundaries, and keeping the ledger core testable in isolation.
 
