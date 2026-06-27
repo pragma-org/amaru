@@ -145,71 +145,6 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::SubtractInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::SubtractInteger,
-                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::SubtractInteger))?;
-
-                self.spend_budget(budget)?;
-
-                let result = arg1 - arg2;
-
-                let new = self.arena.alloc_integer(result);
-
-                let value = Value::integer(self.arena, new);
-
-                Ok(value)
-            }
-            DefaultFunction::EqualsInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::EqualsInteger,
-                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsInteger))?;
-
-                self.spend_budget(budget)?;
-
-                let result = arg1 == arg2;
-
-                let value = Value::bool(self.arena, result);
-
-                Ok(value)
-            }
-            DefaultFunction::LessThanEqualsInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::LessThanEqualsInteger,
-                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanEqualsInteger))?;
-
-                self.spend_budget(budget)?;
-
-                let result = arg1 <= arg2;
-
-                let value = Value::bool(self.arena, result);
-
-                Ok(value)
-            }
             DefaultFunction::AppendByteString => {
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
                 let arg2 = runtime.args[1].unwrap_byte_string()?;
@@ -236,63 +171,230 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::EqualsByteString => {
+            DefaultFunction::AppendString => {
+                let arg1 = runtime.args[0].unwrap_string()?;
+                let arg2 = runtime.args[1].unwrap_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::AppendString, &[value::string_ex_mem(arg1), value::string_ex_mem(arg2)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::AppendString))?;
+
+                self.spend_budget(budget)?;
+
+                let mut new = BumpString::new_in(self.arena.as_bump());
+
+                new.push_str(arg1);
+                new.push_str(arg2);
+
+                let new = self.arena.alloc(new);
+
+                let value = Value::string(self.arena, new);
+
+                Ok(value)
+            }
+            DefaultFunction::BData => {
+                let b = runtime.args[0].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::BData, &[value::byte_string_ex_mem(b)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::BData))?;
+
+                self.spend_budget(budget)?;
+
+                let b = PlutusData::byte_string(self.arena, b);
+
+                let value = b.constant(self.arena).value(self.arena);
+
+                Ok(value)
+            }
+            DefaultFunction::Blake2b_256 => {
+                use cryptoxide::{blake2b::Blake2b, digest::Digest};
+
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::Blake2b_256, &[value::byte_string_ex_mem(arg1)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Blake2b_256))?;
+
+                self.spend_budget(budget)?;
+
+                let mut digest = BumpVec::with_capacity_in(32, self.arena.as_bump());
+
+                unsafe {
+                    digest.set_len(32);
+                }
+
+                let mut context = Blake2b::new(32);
+
+                context.input(arg1);
+                context.result(&mut digest);
+
+                let digest = self.arena.alloc(digest);
+
+                let value = Value::byte_string(self.arena, digest);
+
+                Ok(value)
+            }
+            DefaultFunction::ChooseData => {
+                let arg1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let arg2 = runtime.args[1];
+                let arg3 = runtime.args[2];
+                let arg4 = runtime.args[3];
+                let arg5 = runtime.args[4];
+                let arg6 = runtime.args[5];
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::ChooseData,
+                        &[
+                            value::data_ex_mem(arg1),
+                            value::value_ex_mem(arg2),
+                            value::value_ex_mem(arg3),
+                            value::value_ex_mem(arg4),
+                            value::value_ex_mem(arg5),
+                            value::value_ex_mem(arg6),
+                        ],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ChooseData))?;
+
+                self.spend_budget(budget)?;
+
+                match arg1 {
+                    PlutusData::Constr { .. } => Ok(arg2),
+                    PlutusData::Map(_) => Ok(arg3),
+                    PlutusData::List(_) => Ok(arg4),
+                    PlutusData::Integer(_) => Ok(arg5),
+                    PlutusData::ByteString(_) => Ok(arg6),
+                }
+            }
+            DefaultFunction::ChooseList => {
+                let (_, list) = runtime.args[0].unwrap_list()?;
+                let arg2 = runtime.args[1];
+                let arg3 = runtime.args[2];
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::ChooseList,
+                        &[value::proto_list_ex_mem(list), value::value_ex_mem(arg2), value::value_ex_mem(arg3)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ChooseList))?;
+
+                self.spend_budget(budget)?;
+
+                if list.is_empty() { Ok(arg2) } else { Ok(arg3) }
+            }
+            DefaultFunction::ChooseUnit => {
+                runtime.args[0].unwrap_unit()?;
+                let arg2 = runtime.args[1];
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::ChooseUnit, &[value::UNIT_EX_MEM, value::value_ex_mem(arg2)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ChooseUnit))?;
+
+                self.spend_budget(budget)?;
+
+                Ok(arg2)
+            }
+            DefaultFunction::ConsByteString => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
                 let arg2 = runtime.args[1].unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
                     .get_cost(
-                        DefaultFunction::EqualsByteString,
-                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
+                        DefaultFunction::ConsByteString,
+                        &[value::integer_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
                     )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsByteString))?;
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ConsByteString))?;
 
                 self.spend_budget(budget)?;
 
-                let result = arg1 == arg2;
+                let byte: u8 = if self.costs.semantics.cons_byte_string_range_checks() {
+                    if *arg1 > Integer::from(255) || *arg1 < Integer::from(0) {
+                        return Err(MachineError::byte_string_cons_not_a_byte(arg1));
+                    }
+                    arg1.try_into().expect("should cast to u8 just fine")
+                } else {
+                    let wrap: Integer = arg1 % 256;
+                    wrap.try_into().expect("should cast to u64 just fine")
+                };
 
-                let value = Value::bool(self.arena, result);
+                let mut ret = BumpVec::with_capacity_in(arg2.len() + 1, self.arena.as_bump());
+
+                ret.push(byte);
+
+                ret.extend_from_slice(arg2);
+
+                let ret = self.arena.alloc(ret);
+
+                let value = Value::byte_string(self.arena, ret);
 
                 Ok(value)
             }
-            DefaultFunction::IfThenElse => {
-                let arg1 = runtime.args[0].unwrap_bool()?;
-                let arg2 = runtime.args[1];
-                let arg3 = runtime.args[2];
+            DefaultFunction::ConstrData => {
+                let tag = runtime.args[0].unwrap_integer()?;
+                let (typ, fields) = runtime.args[1].unwrap_list()?;
+
                 let budget = self
                     .costs
                     .builtin_costs
                     .get_cost(
-                        DefaultFunction::IfThenElse,
-                        &[value::BOOL_EX_MEM, value::value_ex_mem(arg2), value::value_ex_mem(arg3)],
+                        DefaultFunction::ConstrData,
+                        &[value::integer_ex_mem(tag), value::proto_list_ex_mem(fields)],
                     )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::IfThenElse))?;
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ConstrData))?;
+
                 self.spend_budget(budget)?;
 
-                if arg1 { Ok(arg2) } else { Ok(arg3) }
+                if *typ != Type::Data {
+                    return Err(MachineError::type_mismatch(Type::Data, runtime.args[1].unwrap_constant()?));
+                }
+
+                let tag = tag.try_into().expect("should cast to u64 just fine");
+                let fields: BumpVec<'_, _> = fields
+                    .iter()
+                    .map(|d| match d {
+                        Constant::Data(d) => *d,
+                        _ => unreachable!(),
+                    })
+                    .collect_in(self.arena.as_bump());
+                let fields = self.arena.alloc(fields);
+
+                let data = PlutusData::constr(self.arena, tag, fields);
+
+                let constant = Constant::data(self.arena, data);
+
+                let value = Value::con(self.arena, constant);
+
+                Ok(value)
             }
-            DefaultFunction::MultiplyInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+            DefaultFunction::DecodeUtf8 => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(
-                        DefaultFunction::MultiplyInteger,
-                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MultiplyInteger))?;
+                    .get_cost(DefaultFunction::DecodeUtf8, &[value::byte_string_ex_mem(arg1)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::DecodeUtf8))?;
 
                 self.spend_budget(budget)?;
 
-                let result = arg1 * arg2;
+                let string = str::from_utf8(arg1).map_err(|e| MachineError::decode_utf8(e))?;
 
-                let new = self.arena.alloc_integer(result);
-
-                let value = Value::integer(self.arena, new);
+                let value = Value::string(self.arena, string);
 
                 Ok(value)
             }
@@ -322,6 +424,523 @@ impl<'a> Machine<'a> {
                 } else {
                     Err(MachineError::division_by_zero(arg1, arg2))
                 }
+            }
+            DefaultFunction::EncodeUtf8 => {
+                let arg1 = runtime.args[0].unwrap_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::EncodeUtf8, &[value::string_ex_mem(arg1)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EncodeUtf8))?;
+
+                self.spend_budget(budget)?;
+
+                let s_bytes = arg1.as_bytes();
+
+                let mut bytes = BumpVec::with_capacity_in(s_bytes.len(), self.arena.as_bump());
+
+                bytes.extend_from_slice(s_bytes);
+
+                let bytes = self.arena.alloc(bytes);
+
+                let value = Value::byte_string(self.arena, bytes);
+
+                Ok(value)
+            }
+            DefaultFunction::EqualsByteString => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+                let arg2 = runtime.args[1].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::EqualsByteString,
+                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsByteString))?;
+
+                self.spend_budget(budget)?;
+
+                let result = arg1 == arg2;
+
+                let value = Value::bool(self.arena, result);
+
+                Ok(value)
+            }
+            DefaultFunction::EqualsData => {
+                let d1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let d2 = runtime.args[1].unwrap_constant()?.unwrap_data()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::EqualsData, &[value::data_ex_mem(d1), value::data_ex_mem(d2)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsData))?;
+
+                self.spend_budget(budget)?;
+
+                let value = Value::bool(self.arena, d1.eq(d2));
+
+                Ok(value)
+            }
+            DefaultFunction::EqualsInteger => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::EqualsInteger,
+                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsInteger))?;
+
+                self.spend_budget(budget)?;
+
+                let result = arg1 == arg2;
+
+                let value = Value::bool(self.arena, result);
+
+                Ok(value)
+            }
+            DefaultFunction::EqualsString => {
+                let arg1 = runtime.args[0].unwrap_string()?;
+                let arg2 = runtime.args[1].unwrap_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::EqualsString, &[value::string_ex_mem(arg1), value::string_ex_mem(arg2)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsString))?;
+
+                self.spend_budget(budget)?;
+
+                let value = Value::bool(self.arena, arg1 == arg2);
+
+                Ok(value)
+            }
+            DefaultFunction::FstPair => {
+                let (_, _, first, second) = runtime.args[0].unwrap_pair()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::FstPair, &[value::pair_ex_mem(first, second)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::FstPair))?;
+
+                self.spend_budget(budget)?;
+
+                let value = Value::con(self.arena, first);
+
+                Ok(value)
+            }
+            DefaultFunction::HeadList => {
+                let (_, list) = runtime.args[0].unwrap_list()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::HeadList, &[value::proto_list_ex_mem(list)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::HeadList))?;
+
+                self.spend_budget(budget)?;
+
+                if list.is_empty() {
+                    Err(MachineError::empty_list(list))
+                } else {
+                    let value = Value::con(self.arena, list[0]);
+
+                    Ok(value)
+                }
+            }
+            DefaultFunction::IData => {
+                let i = runtime.args[0].unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::IData, &[value::integer_ex_mem(i)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::IData))?;
+
+                self.spend_budget(budget)?;
+
+                let i = PlutusData::integer(self.arena, i);
+
+                let value = i.constant(self.arena).value(self.arena);
+
+                Ok(value)
+            }
+            DefaultFunction::IfThenElse => {
+                let arg1 = runtime.args[0].unwrap_bool()?;
+                let arg2 = runtime.args[1];
+                let arg3 = runtime.args[2];
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::IfThenElse,
+                        &[value::BOOL_EX_MEM, value::value_ex_mem(arg2), value::value_ex_mem(arg3)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::IfThenElse))?;
+                self.spend_budget(budget)?;
+
+                if arg1 { Ok(arg2) } else { Ok(arg3) }
+            }
+            DefaultFunction::IndexByteString => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::IndexByteString,
+                        &[value::byte_string_ex_mem(arg1), value::integer_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::IndexByteString))?;
+
+                self.spend_budget(budget)?;
+
+                let index: i128 = arg2.try_into().unwrap();
+
+                if 0 <= index && (index as usize) < arg1.len() {
+                    let result: Integer = arg1[index as usize].into();
+                    let new = self.arena.alloc_integer(result);
+                    let value = Value::integer(self.arena, new);
+
+                    Ok(value)
+                } else {
+                    Err(MachineError::byte_string_out_of_bounds(arg1, arg2))
+                }
+            }
+            DefaultFunction::LengthOfByteString => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::LengthOfByteString, &[value::byte_string_ex_mem(arg1)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LengthOfByteString))?;
+
+                self.spend_budget(budget)?;
+
+                let result: Integer = arg1.len().into();
+
+                let new = self.arena.alloc_integer(result);
+                let value = Value::integer(self.arena, new);
+
+                Ok(value)
+            }
+            DefaultFunction::LessThanByteString => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+                let arg2 = runtime.args[1].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::LessThanByteString,
+                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanByteString))?;
+
+                self.spend_budget(budget)?;
+
+                let result = arg1 < arg2;
+
+                let value = Value::bool(self.arena, result);
+
+                Ok(value)
+            }
+            DefaultFunction::LessThanEqualsByteString => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+                let arg2 = runtime.args[1].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::LessThanEqualsByteString,
+                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanEqualsByteString))?;
+
+                self.spend_budget(budget)?;
+
+                let result = arg1 <= arg2;
+
+                let value = Value::bool(self.arena, result);
+
+                Ok(value)
+            }
+            DefaultFunction::LessThanEqualsInteger => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::LessThanEqualsInteger,
+                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanEqualsInteger))?;
+
+                self.spend_budget(budget)?;
+
+                let result = arg1 <= arg2;
+
+                let value = Value::bool(self.arena, result);
+
+                Ok(value)
+            }
+            DefaultFunction::LessThanInteger => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::LessThanInteger,
+                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanInteger))?;
+
+                self.spend_budget(budget)?;
+
+                let result = arg1 < arg2;
+
+                let value = Value::bool(self.arena, result);
+
+                Ok(value)
+            }
+            DefaultFunction::ListData => {
+                let (typ, fields) = runtime.args[0].unwrap_list()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::ListData, &[value::proto_list_ex_mem(fields)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ListData))?;
+
+                self.spend_budget(budget)?;
+
+                if *typ != Type::Data {
+                    return Err(MachineError::type_mismatch(Type::Data, runtime.args[0].unwrap_constant()?));
+                }
+
+                let fields: BumpVec<'_, _> = fields
+                    .iter()
+                    .map(|d| match d {
+                        Constant::Data(d) => *d,
+                        _ => unreachable!(),
+                    })
+                    .collect_in(self.arena.as_bump());
+                let fields = self.arena.alloc(fields);
+
+                let value = PlutusData::list(self.arena, fields).constant(self.arena).value(self.arena);
+
+                Ok(value)
+            }
+            DefaultFunction::MapData => {
+                let (r#type, list) = runtime.args[0].unwrap_list()?;
+
+                if !matches!(r#type, Type::Pair(Type::Data, Type::Data)) {
+                    return Err(MachineError::type_mismatch(
+                        Type::List(Type::pair(self.arena, Type::data(self.arena), Type::data(self.arena))),
+                        runtime.args[0].unwrap_constant()?,
+                    ));
+                }
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::MapData, &[value::proto_list_ex_mem(list)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MapData))?;
+
+                self.spend_budget(budget)?;
+
+                let mut map = BumpVec::new_in(self.arena.as_bump());
+
+                for item in list {
+                    let Constant::ProtoPair(Type::Data, Type::Data, left, right) = item else {
+                        unreachable!("is this really unreachable?")
+                    };
+
+                    let Constant::Data(key) = left else { unreachable!() };
+
+                    let Constant::Data(value) = right else { unreachable!() };
+
+                    map.push((*key, *value));
+                }
+
+                let map = self.arena.alloc(map);
+
+                let value = PlutusData::map(self.arena, map).constant(self.arena).value(self.arena);
+
+                Ok(value)
+            }
+            DefaultFunction::MkCons => {
+                let item = runtime.args[0].unwrap_constant()?;
+                let (typ, list) = runtime.args[1].unwrap_list()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::MkCons, &[value::constant_ex_mem(item), value::proto_list_ex_mem(list)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkCons))?;
+
+                self.spend_budget(budget)?;
+
+                if item.type_of(self.arena) != typ {
+                    return Err(MachineError::mk_cons_type_mismatch(item));
+                }
+
+                let mut new_list = BumpVec::with_capacity_in(list.len() + 1, self.arena.as_bump());
+
+                new_list.push(item);
+
+                new_list.extend_from_slice(list);
+
+                let new_list = self.arena.alloc(new_list);
+
+                let constant = Constant::proto_list(self.arena, typ, new_list);
+
+                let value = constant.value(self.arena);
+
+                Ok(value)
+            }
+            DefaultFunction::MkNilData => {
+                runtime.args[0].unwrap_unit()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::MkNilData, &[value::UNIT_EX_MEM])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkNilData))?;
+
+                self.spend_budget(budget)?;
+
+                let list = BumpVec::new_in(self.arena.as_bump());
+                let list = self.arena.alloc(list);
+
+                let constant = Constant::proto_list(self.arena, Type::data(self.arena), list);
+
+                let value = Value::con(self.arena, constant);
+
+                Ok(value)
+            }
+            DefaultFunction::MkNilPairData => {
+                runtime.args[0].unwrap_unit()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::MkNilPairData, &[value::UNIT_EX_MEM])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkNilPairData))?;
+
+                self.spend_budget(budget)?;
+
+                let list = BumpVec::new_in(self.arena.as_bump());
+                let list = self.arena.alloc(list);
+
+                let constant = Constant::proto_list(
+                    self.arena,
+                    Type::pair(self.arena, Type::data(self.arena), Type::data(self.arena)),
+                    list,
+                );
+
+                let value = Value::con(self.arena, constant);
+
+                Ok(value)
+            }
+            DefaultFunction::MkPairData => {
+                let d1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let d2 = runtime.args[1].unwrap_constant()?.unwrap_data()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::MkPairData, &[value::data_ex_mem(d1), value::data_ex_mem(d2)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkPairData))?;
+
+                self.spend_budget(budget)?;
+
+                let constant = Constant::proto_pair(
+                    self.arena,
+                    Type::data(self.arena),
+                    Type::data(self.arena),
+                    Constant::data(self.arena, d1),
+                    Constant::data(self.arena, d2),
+                );
+
+                let value = Value::con(self.arena, constant);
+
+                Ok(value)
+            }
+            DefaultFunction::ModInteger => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::ModInteger, &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ModInteger))?;
+
+                self.spend_budget(budget)?;
+
+                if !arg2.is_zero() {
+                    let (_, result) = arg1.div_mod_floor(arg2);
+                    let result = self.arena.alloc_integer(result);
+                    let value = Value::integer(self.arena, result);
+
+                    Ok(value)
+                } else {
+                    Err(MachineError::division_by_zero(arg1, arg2))
+                }
+            }
+            DefaultFunction::MultiplyInteger => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::MultiplyInteger,
+                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MultiplyInteger))?;
+
+                self.spend_budget(budget)?;
+
+                let result = arg1 * arg2;
+
+                let new = self.arena.alloc_integer(result);
+
+                let value = Value::integer(self.arena, new);
+
+                Ok(value)
+            }
+            DefaultFunction::NullList => {
+                let (_, list) = runtime.args[0].unwrap_list()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::NullList, &[value::proto_list_ex_mem(list)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::NullList))?;
+
+                self.spend_budget(budget)?;
+
+                let value = Value::bool(self.arena, list.is_empty());
+
+                Ok(value)
             }
             DefaultFunction::QuotientInteger => {
                 let arg1 = runtime.args[0].unwrap_integer()?;
@@ -371,208 +990,19 @@ impl<'a> Machine<'a> {
                     Err(MachineError::division_by_zero(arg1, arg2))
                 }
             }
-            DefaultFunction::ModInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+            DefaultFunction::SerialiseData => {
+                let arg1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::ModInteger, &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ModInteger))?;
+                    .get_cost(DefaultFunction::SerialiseData, &[value::data_ex_mem(arg1)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::SerialiseData))?;
 
                 self.spend_budget(budget)?;
 
-                if !arg2.is_zero() {
-                    let (_, result) = arg1.div_mod_floor(arg2);
-                    let result = self.arena.alloc_integer(result);
-                    let value = Value::integer(self.arena, result);
-
-                    Ok(value)
-                } else {
-                    Err(MachineError::division_by_zero(arg1, arg2))
-                }
-            }
-            DefaultFunction::LessThanInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::LessThanInteger,
-                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanInteger))?;
-
-                self.spend_budget(budget)?;
-
-                let result = arg1 < arg2;
-
-                let value = Value::bool(self.arena, result);
-
-                Ok(value)
-            }
-            DefaultFunction::ConsByteString => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::ConsByteString,
-                        &[value::integer_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ConsByteString))?;
-
-                self.spend_budget(budget)?;
-
-                let byte: u8 = if self.costs.semantics.cons_byte_string_range_checks() {
-                    if *arg1 > Integer::from(255) || *arg1 < Integer::from(0) {
-                        return Err(MachineError::byte_string_cons_not_a_byte(arg1));
-                    }
-                    arg1.try_into().expect("should cast to u8 just fine")
-                } else {
-                    let wrap: Integer = arg1 % 256;
-                    wrap.try_into().expect("should cast to u64 just fine")
-                };
-
-                let mut ret = BumpVec::with_capacity_in(arg2.len() + 1, self.arena.as_bump());
-
-                ret.push(byte);
-
-                ret.extend_from_slice(arg2);
-
-                let ret = self.arena.alloc(ret);
-
-                let value = Value::byte_string(self.arena, ret);
-
-                Ok(value)
-            }
-            DefaultFunction::SliceByteString => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
-                let arg3 = runtime.args[2].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::SliceByteString,
-                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2), value::byte_string_ex_mem(arg3)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::SliceByteString))?;
-
-                self.spend_budget(budget)?;
-
-                let skip: usize = if *arg1 < Integer::ZERO {
-                    0
-                } else if *arg1 > arg3.len().into() {
-                    arg3.len()
-                } else {
-                    arg1.try_into().expect("should cast to usize just fine")
-                };
-
-                let take: usize = if *arg2 < Integer::ZERO {
-                    0
-                } else if *arg2 > arg3.len().into() {
-                    arg3.len()
-                } else {
-                    arg2.try_into().expect("should cast to usize just fine")
-                };
-
-                let skip_take: usize = if skip + take > arg3.len() { arg3.len() } else { skip + take };
-
-                let value = Value::byte_string(self.arena, &arg3[skip..(skip_take)]);
-
-                Ok(value)
-            }
-            DefaultFunction::LengthOfByteString => {
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::LengthOfByteString, &[value::byte_string_ex_mem(arg1)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LengthOfByteString))?;
-
-                self.spend_budget(budget)?;
-
-                let result: Integer = arg1.len().into();
-
-                let new = self.arena.alloc_integer(result);
-                let value = Value::integer(self.arena, new);
-
-                Ok(value)
-            }
-            DefaultFunction::IndexByteString => {
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::IndexByteString,
-                        &[value::byte_string_ex_mem(arg1), value::integer_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::IndexByteString))?;
-
-                self.spend_budget(budget)?;
-
-                let index: i128 = arg2.try_into().unwrap();
-
-                if 0 <= index && (index as usize) < arg1.len() {
-                    let result: Integer = arg1[index as usize].into();
-                    let new = self.arena.alloc_integer(result);
-                    let value = Value::integer(self.arena, new);
-
-                    Ok(value)
-                } else {
-                    Err(MachineError::byte_string_out_of_bounds(arg1, arg2))
-                }
-            }
-            DefaultFunction::LessThanByteString => {
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-                let arg2 = runtime.args[1].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::LessThanByteString,
-                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanByteString))?;
-
-                self.spend_budget(budget)?;
-
-                let result = arg1 < arg2;
-
-                let value = Value::bool(self.arena, result);
-
-                Ok(value)
-            }
-            DefaultFunction::LessThanEqualsByteString => {
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-                let arg2 = runtime.args[1].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::LessThanEqualsByteString,
-                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::LessThanEqualsByteString))?;
-
-                self.spend_budget(budget)?;
-
-                let result = arg1 <= arg2;
-
-                let value = Value::bool(self.arena, result);
+                let bytes = arg1.to_bytes(self.arena)?;
+                let value = Value::byte_string(self.arena, bytes);
 
                 Ok(value)
             }
@@ -638,324 +1068,41 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::Blake2b_256 => {
-                use cryptoxide::{blake2b::Blake2b, digest::Digest};
-
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::Blake2b_256, &[value::byte_string_ex_mem(arg1)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Blake2b_256))?;
-
-                self.spend_budget(budget)?;
-
-                let mut digest = BumpVec::with_capacity_in(32, self.arena.as_bump());
-
-                unsafe {
-                    digest.set_len(32);
-                }
-
-                let mut context = Blake2b::new(32);
-
-                context.input(arg1);
-                context.result(&mut digest);
-
-                let digest = self.arena.alloc(digest);
-
-                let value = Value::byte_string(self.arena, digest);
-
-                Ok(value)
-            }
-            DefaultFunction::Keccak_256 => {
-                use cryptoxide::{digest::Digest, sha3::Keccak256};
-
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::Keccak_256, &[value::byte_string_ex_mem(arg1)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Keccak_256))?;
-
-                self.spend_budget(budget)?;
-
-                let mut hasher = Keccak256::new();
-
-                hasher.input(arg1);
-
-                let mut bytes = BumpVec::with_capacity_in(hasher.output_bytes(), self.arena.as_bump());
-
-                unsafe {
-                    bytes.set_len(hasher.output_bytes());
-                }
-
-                hasher.result(&mut bytes);
-
-                let bytes = self.arena.alloc(bytes);
-
-                let value = Value::byte_string(self.arena, bytes);
-
-                Ok(value)
-            }
-            DefaultFunction::Blake2b_224 => {
-                use cryptoxide::{blake2b::Blake2b, digest::Digest};
-
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::Blake2b_224, &[value::byte_string_ex_mem(arg1)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Blake2b_224))?;
-
-                self.spend_budget(budget)?;
-
-                let mut digest = BumpVec::with_capacity_in(28, self.arena.as_bump());
-
-                unsafe {
-                    digest.set_len(28);
-                }
-
-                let mut context = Blake2b::new(28);
-
-                context.input(arg1);
-                context.result(&mut digest);
-
-                let digest = self.arena.alloc(digest);
-
-                let value = Value::byte_string(self.arena, digest);
-
-                Ok(value)
-            }
-            DefaultFunction::VerifyEd25519Signature => {
-                use cryptoxide::ed25519;
-
-                let public_key = runtime.args[0].unwrap_byte_string()?;
-                let message = runtime.args[1].unwrap_byte_string()?;
-                let signature = runtime.args[2].unwrap_byte_string()?;
+            DefaultFunction::SliceByteString => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg3 = runtime.args[2].unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
                     .get_cost(
-                        DefaultFunction::VerifyEd25519Signature,
-                        &[
-                            value::byte_string_ex_mem(public_key),
-                            value::byte_string_ex_mem(message),
-                            value::byte_string_ex_mem(signature),
-                        ],
+                        DefaultFunction::SliceByteString,
+                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2), value::byte_string_ex_mem(arg3)],
                     )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::VerifyEd25519Signature))?;
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::SliceByteString))?;
 
                 self.spend_budget(budget)?;
 
-                let public_key: [u8; 32] = public_key
-                    .try_into()
-                    .map_err(|e: TryFromSliceError| MachineError::unexpected_ed25519_public_key_length(e))?;
+                let skip: usize = if *arg1 < Integer::ZERO {
+                    0
+                } else if *arg1 > arg3.len().into() {
+                    arg3.len()
+                } else {
+                    arg1.try_into().expect("should cast to usize just fine")
+                };
 
-                let signature: [u8; 64] = signature
-                    .try_into()
-                    .map_err(|e: TryFromSliceError| MachineError::unexpected_ed25519_signature_length(e))?;
+                let take: usize = if *arg2 < Integer::ZERO {
+                    0
+                } else if *arg2 > arg3.len().into() {
+                    arg3.len()
+                } else {
+                    arg2.try_into().expect("should cast to usize just fine")
+                };
 
-                let valid = ed25519::verify(message, &public_key, &signature);
+                let skip_take: usize = if skip + take > arg3.len() { arg3.len() } else { skip + take };
 
-                let value = Value::bool(self.arena, valid);
-
-                Ok(value)
-            }
-            DefaultFunction::VerifyEcdsaSecp256k1Signature => {
-                use secp256k1::{Message, PublicKey, Secp256k1, ecdsa::Signature};
-
-                let public_key = runtime.args[0].unwrap_byte_string()?;
-                let message = runtime.args[1].unwrap_byte_string()?;
-                let signature = runtime.args[2].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::VerifyEcdsaSecp256k1Signature,
-                        &[
-                            value::byte_string_ex_mem(public_key),
-                            value::byte_string_ex_mem(message),
-                            value::byte_string_ex_mem(signature),
-                        ],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::VerifyEcdsaSecp256k1Signature))?;
-
-                self.spend_budget(budget)?;
-
-                let secp = Secp256k1::verification_only();
-
-                let public_key = PublicKey::from_slice(public_key).map_err(MachineError::secp256k1)?;
-
-                let signature = Signature::from_compact(signature).map_err(MachineError::secp256k1)?;
-
-                let message = Message::from_digest_slice(message).map_err(MachineError::secp256k1)?;
-
-                let valid = secp.verify_ecdsa(&message, &signature, &public_key);
-
-                let value = Value::bool(self.arena, valid.is_ok());
-
-                Ok(value)
-            }
-            DefaultFunction::VerifySchnorrSecp256k1Signature => {
-                use secp256k1::{Secp256k1, XOnlyPublicKey, schnorr::Signature};
-
-                let public_key = runtime.args[0].unwrap_byte_string()?;
-                let message = runtime.args[1].unwrap_byte_string()?;
-                let signature = runtime.args[2].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::VerifySchnorrSecp256k1Signature,
-                        &[
-                            value::byte_string_ex_mem(public_key),
-                            value::byte_string_ex_mem(message),
-                            value::byte_string_ex_mem(signature),
-                        ],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::VerifySchnorrSecp256k1Signature))?;
-
-                self.spend_budget(budget)?;
-
-                let secp = Secp256k1::verification_only();
-
-                let public_key = XOnlyPublicKey::from_slice(public_key).map_err(MachineError::secp256k1)?;
-
-                let signature = Signature::from_slice(signature).map_err(MachineError::secp256k1)?;
-
-                let valid = secp.verify_schnorr(&signature, message, &public_key);
-
-                let value = Value::bool(self.arena, valid.is_ok());
-
-                Ok(value)
-            }
-            DefaultFunction::AppendString => {
-                let arg1 = runtime.args[0].unwrap_string()?;
-                let arg2 = runtime.args[1].unwrap_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::AppendString, &[value::string_ex_mem(arg1), value::string_ex_mem(arg2)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::AppendString))?;
-
-                self.spend_budget(budget)?;
-
-                let mut new = BumpString::new_in(self.arena.as_bump());
-
-                new.push_str(arg1);
-                new.push_str(arg2);
-
-                let new = self.arena.alloc(new);
-
-                let value = Value::string(self.arena, new);
-
-                Ok(value)
-            }
-            DefaultFunction::EqualsString => {
-                let arg1 = runtime.args[0].unwrap_string()?;
-                let arg2 = runtime.args[1].unwrap_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::EqualsString, &[value::string_ex_mem(arg1), value::string_ex_mem(arg2)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsString))?;
-
-                self.spend_budget(budget)?;
-
-                let value = Value::bool(self.arena, arg1 == arg2);
-
-                Ok(value)
-            }
-            DefaultFunction::EncodeUtf8 => {
-                let arg1 = runtime.args[0].unwrap_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::EncodeUtf8, &[value::string_ex_mem(arg1)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EncodeUtf8))?;
-
-                self.spend_budget(budget)?;
-
-                let s_bytes = arg1.as_bytes();
-
-                let mut bytes = BumpVec::with_capacity_in(s_bytes.len(), self.arena.as_bump());
-
-                bytes.extend_from_slice(s_bytes);
-
-                let bytes = self.arena.alloc(bytes);
-
-                let value = Value::byte_string(self.arena, bytes);
-
-                Ok(value)
-            }
-            DefaultFunction::DecodeUtf8 => {
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::DecodeUtf8, &[value::byte_string_ex_mem(arg1)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::DecodeUtf8))?;
-
-                self.spend_budget(budget)?;
-
-                let string = str::from_utf8(arg1).map_err(|e| MachineError::decode_utf8(e))?;
-
-                let value = Value::string(self.arena, string);
-
-                Ok(value)
-            }
-            DefaultFunction::ChooseUnit => {
-                runtime.args[0].unwrap_unit()?;
-                let arg2 = runtime.args[1];
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::ChooseUnit, &[value::UNIT_EX_MEM, value::value_ex_mem(arg2)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ChooseUnit))?;
-
-                self.spend_budget(budget)?;
-
-                Ok(arg2)
-            }
-            DefaultFunction::Trace => {
-                let arg1 = runtime.args[0].unwrap_string()?;
-                let arg2 = runtime.args[1];
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::Trace, &[value::string_ex_mem(arg1), value::value_ex_mem(arg2)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Trace))?;
-
-                self.spend_budget(budget)?;
-
-                self.logs.push(arg1.to_string());
-
-                Ok(arg2)
-            }
-            DefaultFunction::FstPair => {
-                let (_, _, first, second) = runtime.args[0].unwrap_pair()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::FstPair, &[value::pair_ex_mem(first, second)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::FstPair))?;
-
-                self.spend_budget(budget)?;
-
-                let value = Value::con(self.arena, first);
+                let value = Value::byte_string(self.arena, &arg3[skip..(skip_take)]);
 
                 Ok(value)
             }
@@ -974,72 +1121,28 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::ChooseList => {
-                let (_, list) = runtime.args[0].unwrap_list()?;
-                let arg2 = runtime.args[1];
-                let arg3 = runtime.args[2];
+            DefaultFunction::SubtractInteger => {
+                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg2 = runtime.args[1].unwrap_integer()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
                     .get_cost(
-                        DefaultFunction::ChooseList,
-                        &[value::proto_list_ex_mem(list), value::value_ex_mem(arg2), value::value_ex_mem(arg3)],
+                        DefaultFunction::SubtractInteger,
+                        &[value::integer_ex_mem(arg1), value::integer_ex_mem(arg2)],
                     )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ChooseList))?;
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::SubtractInteger))?;
 
                 self.spend_budget(budget)?;
 
-                if list.is_empty() { Ok(arg2) } else { Ok(arg3) }
-            }
-            DefaultFunction::MkCons => {
-                let item = runtime.args[0].unwrap_constant()?;
-                let (typ, list) = runtime.args[1].unwrap_list()?;
+                let result = arg1 - arg2;
 
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::MkCons, &[value::constant_ex_mem(item), value::proto_list_ex_mem(list)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkCons))?;
+                let new = self.arena.alloc_integer(result);
 
-                self.spend_budget(budget)?;
-
-                if item.type_of(self.arena) != typ {
-                    return Err(MachineError::mk_cons_type_mismatch(item));
-                }
-
-                let mut new_list = BumpVec::with_capacity_in(list.len() + 1, self.arena.as_bump());
-
-                new_list.push(item);
-
-                new_list.extend_from_slice(list);
-
-                let new_list = self.arena.alloc(new_list);
-
-                let constant = Constant::proto_list(self.arena, typ, new_list);
-
-                let value = constant.value(self.arena);
+                let value = Value::integer(self.arena, new);
 
                 Ok(value)
-            }
-            DefaultFunction::HeadList => {
-                let (_, list) = runtime.args[0].unwrap_list()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::HeadList, &[value::proto_list_ex_mem(list)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::HeadList))?;
-
-                self.spend_budget(budget)?;
-
-                if list.is_empty() {
-                    Err(MachineError::empty_list(list))
-                } else {
-                    let value = Value::con(self.arena, list[0]);
-
-                    Ok(value)
-                }
             }
             DefaultFunction::TailList => {
                 let (t1, list) = runtime.args[0].unwrap_list()?;
@@ -1062,189 +1165,34 @@ impl<'a> Machine<'a> {
                     Ok(value)
                 }
             }
-            DefaultFunction::NullList => {
-                let (_, list) = runtime.args[0].unwrap_list()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::NullList, &[value::proto_list_ex_mem(list)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::NullList))?;
-
-                self.spend_budget(budget)?;
-
-                let value = Value::bool(self.arena, list.is_empty());
-
-                Ok(value)
-            }
-            DefaultFunction::ChooseData => {
-                let arg1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+            DefaultFunction::Trace => {
+                let arg1 = runtime.args[0].unwrap_string()?;
                 let arg2 = runtime.args[1];
-                let arg3 = runtime.args[2];
-                let arg4 = runtime.args[3];
-                let arg5 = runtime.args[4];
-                let arg6 = runtime.args[5];
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(
-                        DefaultFunction::ChooseData,
-                        &[
-                            value::data_ex_mem(arg1),
-                            value::value_ex_mem(arg2),
-                            value::value_ex_mem(arg3),
-                            value::value_ex_mem(arg4),
-                            value::value_ex_mem(arg5),
-                            value::value_ex_mem(arg6),
-                        ],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ChooseData))?;
+                    .get_cost(DefaultFunction::Trace, &[value::string_ex_mem(arg1), value::value_ex_mem(arg2)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Trace))?;
 
                 self.spend_budget(budget)?;
 
-                match arg1 {
-                    PlutusData::Constr { .. } => Ok(arg2),
-                    PlutusData::Map(_) => Ok(arg3),
-                    PlutusData::List(_) => Ok(arg4),
-                    PlutusData::Integer(_) => Ok(arg5),
-                    PlutusData::ByteString(_) => Ok(arg6),
-                }
+                self.logs.push(arg1.to_string());
+
+                Ok(arg2)
             }
-            DefaultFunction::ConstrData => {
-                let tag = runtime.args[0].unwrap_integer()?;
-                let (typ, fields) = runtime.args[1].unwrap_list()?;
+            DefaultFunction::UnBData => {
+                let bs = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(
-                        DefaultFunction::ConstrData,
-                        &[value::integer_ex_mem(tag), value::proto_list_ex_mem(fields)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ConstrData))?;
+                    .get_cost(DefaultFunction::UnBData, &[value::data_byte_string_ex_mem(bs)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::UnBData))?;
 
                 self.spend_budget(budget)?;
 
-                if *typ != Type::Data {
-                    return Err(MachineError::type_mismatch(Type::Data, runtime.args[1].unwrap_constant()?));
-                }
-
-                let tag = tag.try_into().expect("should cast to u64 just fine");
-                let fields: BumpVec<'_, _> = fields
-                    .iter()
-                    .map(|d| match d {
-                        Constant::Data(d) => *d,
-                        _ => unreachable!(),
-                    })
-                    .collect_in(self.arena.as_bump());
-                let fields = self.arena.alloc(fields);
-
-                let data = PlutusData::constr(self.arena, tag, fields);
-
-                let constant = Constant::data(self.arena, data);
-
-                let value = Value::con(self.arena, constant);
-
-                Ok(value)
-            }
-            DefaultFunction::MapData => {
-                let (r#type, list) = runtime.args[0].unwrap_list()?;
-
-                if !matches!(r#type, Type::Pair(Type::Data, Type::Data)) {
-                    return Err(MachineError::type_mismatch(
-                        Type::List(Type::pair(self.arena, Type::data(self.arena), Type::data(self.arena))),
-                        runtime.args[0].unwrap_constant()?,
-                    ));
-                }
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::MapData, &[value::proto_list_ex_mem(list)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MapData))?;
-
-                self.spend_budget(budget)?;
-
-                let mut map = BumpVec::new_in(self.arena.as_bump());
-
-                for item in list {
-                    let Constant::ProtoPair(Type::Data, Type::Data, left, right) = item else {
-                        unreachable!("is this really unreachable?")
-                    };
-
-                    let Constant::Data(key) = left else { unreachable!() };
-
-                    let Constant::Data(value) = right else { unreachable!() };
-
-                    map.push((*key, *value));
-                }
-
-                let map = self.arena.alloc(map);
-
-                let value = PlutusData::map(self.arena, map).constant(self.arena).value(self.arena);
-
-                Ok(value)
-            }
-            DefaultFunction::ListData => {
-                let (typ, fields) = runtime.args[0].unwrap_list()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::ListData, &[value::proto_list_ex_mem(fields)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::ListData))?;
-
-                self.spend_budget(budget)?;
-
-                if *typ != Type::Data {
-                    return Err(MachineError::type_mismatch(Type::Data, runtime.args[0].unwrap_constant()?));
-                }
-
-                let fields: BumpVec<'_, _> = fields
-                    .iter()
-                    .map(|d| match d {
-                        Constant::Data(d) => *d,
-                        _ => unreachable!(),
-                    })
-                    .collect_in(self.arena.as_bump());
-                let fields = self.arena.alloc(fields);
-
-                let value = PlutusData::list(self.arena, fields).constant(self.arena).value(self.arena);
-
-                Ok(value)
-            }
-            DefaultFunction::IData => {
-                let i = runtime.args[0].unwrap_integer()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::IData, &[value::integer_ex_mem(i)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::IData))?;
-
-                self.spend_budget(budget)?;
-
-                let i = PlutusData::integer(self.arena, i);
-
-                let value = i.constant(self.arena).value(self.arena);
-
-                Ok(value)
-            }
-            DefaultFunction::BData => {
-                let b = runtime.args[0].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::BData, &[value::byte_string_ex_mem(b)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::BData))?;
-
-                self.spend_budget(budget)?;
-
-                let b = PlutusData::byte_string(self.arena, b);
-
-                let value = b.constant(self.arena).value(self.arena);
+                let value = Value::byte_string(self.arena, bs);
 
                 Ok(value)
             }
@@ -1270,6 +1218,42 @@ impl<'a> Machine<'a> {
                     Constant::integer_from(self.arena, *tag as i128),
                     Constant::proto_list(self.arena, Type::data(self.arena), list),
                 );
+
+                let value = Value::con(self.arena, constant);
+
+                Ok(value)
+            }
+            DefaultFunction::UnIData => {
+                let i = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_integer()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::UnIData, &[value::data_integer_ex_mem(i)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::UnIData))?;
+
+                self.spend_budget(budget)?;
+
+                let value = Value::integer(self.arena, i);
+
+                Ok(value)
+            }
+            DefaultFunction::UnListData => {
+                let list = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_list()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::UnListData, &[value::data_list_ex_mem(list)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::UnListData))?;
+
+                self.spend_budget(budget)?;
+
+                let list: BumpVec<'_, _> =
+                    list.iter().map(|d| Constant::data(self.arena, d)).collect_in(self.arena.as_bump());
+                let list = self.arena.alloc(list);
+
+                let constant = Constant::proto_list(self.arena, Type::data(self.arena), list);
 
                 let value = Value::con(self.arena, constant);
 
@@ -1310,154 +1294,109 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::UnListData => {
-                let list = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_list()?;
+            DefaultFunction::VerifyEcdsaSecp256k1Signature => {
+                use secp256k1::{Message, PublicKey, Secp256k1, ecdsa::Signature};
+
+                let public_key = runtime.args[0].unwrap_byte_string()?;
+                let message = runtime.args[1].unwrap_byte_string()?;
+                let signature = runtime.args[2].unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::UnListData, &[value::data_list_ex_mem(list)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::UnListData))?;
+                    .get_cost(
+                        DefaultFunction::VerifyEcdsaSecp256k1Signature,
+                        &[
+                            value::byte_string_ex_mem(public_key),
+                            value::byte_string_ex_mem(message),
+                            value::byte_string_ex_mem(signature),
+                        ],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::VerifyEcdsaSecp256k1Signature))?;
 
                 self.spend_budget(budget)?;
 
-                let list: BumpVec<'_, _> =
-                    list.iter().map(|d| Constant::data(self.arena, d)).collect_in(self.arena.as_bump());
-                let list = self.arena.alloc(list);
+                let secp = Secp256k1::verification_only();
 
-                let constant = Constant::proto_list(self.arena, Type::data(self.arena), list);
+                let public_key = PublicKey::from_slice(public_key).map_err(MachineError::secp256k1)?;
 
-                let value = Value::con(self.arena, constant);
+                let signature = Signature::from_compact(signature).map_err(MachineError::secp256k1)?;
+
+                let message = Message::from_digest_slice(message).map_err(MachineError::secp256k1)?;
+
+                let valid = secp.verify_ecdsa(&message, &signature, &public_key);
+
+                let value = Value::bool(self.arena, valid.is_ok());
 
                 Ok(value)
             }
-            DefaultFunction::UnIData => {
-                let i = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_integer()?;
+            DefaultFunction::VerifyEd25519Signature => {
+                use cryptoxide::ed25519;
+
+                let public_key = runtime.args[0].unwrap_byte_string()?;
+                let message = runtime.args[1].unwrap_byte_string()?;
+                let signature = runtime.args[2].unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::UnIData, &[value::data_integer_ex_mem(i)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::UnIData))?;
+                    .get_cost(
+                        DefaultFunction::VerifyEd25519Signature,
+                        &[
+                            value::byte_string_ex_mem(public_key),
+                            value::byte_string_ex_mem(message),
+                            value::byte_string_ex_mem(signature),
+                        ],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::VerifyEd25519Signature))?;
 
                 self.spend_budget(budget)?;
 
-                let value = Value::integer(self.arena, i);
+                let public_key: [u8; 32] = public_key
+                    .try_into()
+                    .map_err(|e: TryFromSliceError| MachineError::unexpected_ed25519_public_key_length(e))?;
+
+                let signature: [u8; 64] = signature
+                    .try_into()
+                    .map_err(|e: TryFromSliceError| MachineError::unexpected_ed25519_signature_length(e))?;
+
+                let valid = ed25519::verify(message, &public_key, &signature);
+
+                let value = Value::bool(self.arena, valid);
 
                 Ok(value)
             }
-            DefaultFunction::UnBData => {
-                let bs = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_byte_string()?;
+            DefaultFunction::VerifySchnorrSecp256k1Signature => {
+                use secp256k1::{Secp256k1, XOnlyPublicKey, schnorr::Signature};
+
+                let public_key = runtime.args[0].unwrap_byte_string()?;
+                let message = runtime.args[1].unwrap_byte_string()?;
+                let signature = runtime.args[2].unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::UnBData, &[value::data_byte_string_ex_mem(bs)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::UnBData))?;
+                    .get_cost(
+                        DefaultFunction::VerifySchnorrSecp256k1Signature,
+                        &[
+                            value::byte_string_ex_mem(public_key),
+                            value::byte_string_ex_mem(message),
+                            value::byte_string_ex_mem(signature),
+                        ],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::VerifySchnorrSecp256k1Signature))?;
 
                 self.spend_budget(budget)?;
 
-                let value = Value::byte_string(self.arena, bs);
+                let secp = Secp256k1::verification_only();
 
-                Ok(value)
-            }
-            DefaultFunction::EqualsData => {
-                let d1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
-                let d2 = runtime.args[1].unwrap_constant()?.unwrap_data()?;
+                let public_key = XOnlyPublicKey::from_slice(public_key).map_err(MachineError::secp256k1)?;
 
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::EqualsData, &[value::data_ex_mem(d1), value::data_ex_mem(d2)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::EqualsData))?;
+                let signature = Signature::from_slice(signature).map_err(MachineError::secp256k1)?;
 
-                self.spend_budget(budget)?;
+                let valid = secp.verify_schnorr(&signature, message, &public_key);
 
-                let value = Value::bool(self.arena, d1.eq(d2));
-
-                Ok(value)
-            }
-            DefaultFunction::SerialiseData => {
-                let arg1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::SerialiseData, &[value::data_ex_mem(arg1)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::SerialiseData))?;
-
-                self.spend_budget(budget)?;
-
-                let bytes = arg1.to_bytes(self.arena)?;
-                let value = Value::byte_string(self.arena, bytes);
-
-                Ok(value)
-            }
-            DefaultFunction::MkPairData => {
-                let d1 = runtime.args[0].unwrap_constant()?.unwrap_data()?;
-                let d2 = runtime.args[1].unwrap_constant()?.unwrap_data()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::MkPairData, &[value::data_ex_mem(d1), value::data_ex_mem(d2)])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkPairData))?;
-
-                self.spend_budget(budget)?;
-
-                let constant = Constant::proto_pair(
-                    self.arena,
-                    Type::data(self.arena),
-                    Type::data(self.arena),
-                    Constant::data(self.arena, d1),
-                    Constant::data(self.arena, d2),
-                );
-
-                let value = Value::con(self.arena, constant);
-
-                Ok(value)
-            }
-            DefaultFunction::MkNilData => {
-                runtime.args[0].unwrap_unit()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::MkNilData, &[value::UNIT_EX_MEM])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkNilData))?;
-
-                self.spend_budget(budget)?;
-
-                let list = BumpVec::new_in(self.arena.as_bump());
-                let list = self.arena.alloc(list);
-
-                let constant = Constant::proto_list(self.arena, Type::data(self.arena), list);
-
-                let value = Value::con(self.arena, constant);
-
-                Ok(value)
-            }
-            DefaultFunction::MkNilPairData => {
-                runtime.args[0].unwrap_unit()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::MkNilPairData, &[value::UNIT_EX_MEM])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::MkNilPairData))?;
-
-                self.spend_budget(budget)?;
-
-                let list = BumpVec::new_in(self.arena.as_bump());
-                let list = self.arena.alloc(list);
-
-                let constant = Constant::proto_list(
-                    self.arena,
-                    Type::pair(self.arena, Type::data(self.arena), Type::data(self.arena)),
-                    list,
-                );
-
-                let value = Value::con(self.arena, constant);
+                let value = Value::bool(self.arena, valid.is_ok());
 
                 Ok(value)
             }
@@ -1481,6 +1420,84 @@ impl<'a> Machine<'a> {
                 unsafe {
                     blst::blst_p1_add_or_double(out as *mut _, arg1 as *const _, arg2 as *const _);
                 }
+
+                let constant = Constant::g1(self.arena, out);
+
+                let value = Value::con(self.arena, constant);
+
+                Ok(value)
+            }
+            DefaultFunction::Bls12_381_G1_Compress => {
+                let arg1 = runtime.args[0].unwrap_bls12_381_g1_element()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::Bls12_381_G1_Compress, &[value::g1_element_ex_mem()])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G1_Compress))?;
+
+                self.spend_budget(budget)?;
+
+                let out = arg1.compress(self.arena);
+
+                let value = Value::byte_string(self.arena, out);
+
+                Ok(value)
+            }
+            DefaultFunction::Bls12_381_G1_Equal => {
+                let arg1 = runtime.args[0].unwrap_bls12_381_g1_element()?;
+                let arg2 = runtime.args[1].unwrap_bls12_381_g1_element()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::Bls12_381_G1_Equal,
+                        &[value::g1_element_ex_mem(), value::g1_element_ex_mem()],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G1_Equal))?;
+
+                self.spend_budget(budget)?;
+
+                let is_equal = unsafe { blst::blst_p1_is_equal(arg1, arg2) };
+
+                let value = Value::bool(self.arena, is_equal);
+
+                Ok(value)
+            }
+            DefaultFunction::Bls12_381_G1_HashToGroup => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+                let arg2 = runtime.args[1].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::Bls12_381_G1_HashToGroup,
+                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G1_HashToGroup))?;
+
+                self.spend_budget(budget)?;
+
+                if arg2.len() > 255 {
+                    return Err(MachineError::hash_to_curve_dst_too_big());
+                }
+
+                let out = self.arena.alloc(blst::blst_p1::default());
+                let aug = [];
+
+                unsafe {
+                    blst::blst_hash_to_g1(
+                        out as *mut _,
+                        arg1.as_ptr(),
+                        arg1.len(),
+                        arg2.as_ptr(),
+                        arg2.len(),
+                        aug.as_ptr(),
+                        0,
+                    );
+                };
 
                 let constant = Constant::g1(self.arena, out);
 
@@ -1557,44 +1574,6 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::Bls12_381_G1_Equal => {
-                let arg1 = runtime.args[0].unwrap_bls12_381_g1_element()?;
-                let arg2 = runtime.args[1].unwrap_bls12_381_g1_element()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::Bls12_381_G1_Equal,
-                        &[value::g1_element_ex_mem(), value::g1_element_ex_mem()],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G1_Equal))?;
-
-                self.spend_budget(budget)?;
-
-                let is_equal = unsafe { blst::blst_p1_is_equal(arg1, arg2) };
-
-                let value = Value::bool(self.arena, is_equal);
-
-                Ok(value)
-            }
-            DefaultFunction::Bls12_381_G1_Compress => {
-                let arg1 = runtime.args[0].unwrap_bls12_381_g1_element()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::Bls12_381_G1_Compress, &[value::g1_element_ex_mem()])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G1_Compress))?;
-
-                self.spend_budget(budget)?;
-
-                let out = arg1.compress(self.arena);
-
-                let value = Value::byte_string(self.arena, out);
-
-                Ok(value)
-            }
             DefaultFunction::Bls12_381_G1_Uncompress => {
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
 
@@ -1607,46 +1586,6 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let out = blst::blst_p1::uncompress(self.arena, arg1).map_err(MachineError::bls)?;
-
-                let constant = Constant::g1(self.arena, out);
-
-                let value = Value::con(self.arena, constant);
-
-                Ok(value)
-            }
-            DefaultFunction::Bls12_381_G1_HashToGroup => {
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-                let arg2 = runtime.args[1].unwrap_byte_string()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::Bls12_381_G1_HashToGroup,
-                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G1_HashToGroup))?;
-
-                self.spend_budget(budget)?;
-
-                if arg2.len() > 255 {
-                    return Err(MachineError::hash_to_curve_dst_too_big());
-                }
-
-                let out = self.arena.alloc(blst::blst_p1::default());
-                let aug = [];
-
-                unsafe {
-                    blst::blst_hash_to_g1(
-                        out as *mut _,
-                        arg1.as_ptr(),
-                        arg1.len(),
-                        arg2.as_ptr(),
-                        arg2.len(),
-                        aug.as_ptr(),
-                        0,
-                    );
-                };
 
                 let constant = Constant::g1(self.arena, out);
 
@@ -1674,6 +1613,84 @@ impl<'a> Machine<'a> {
                 unsafe {
                     blst::blst_p2_add_or_double(out as *mut _, arg1 as *const _, arg2 as *const _);
                 }
+
+                let constant = Constant::g2(self.arena, out);
+
+                let value = Value::con(self.arena, constant);
+
+                Ok(value)
+            }
+            DefaultFunction::Bls12_381_G2_Compress => {
+                let arg1 = runtime.args[0].unwrap_bls12_381_g2_element()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::Bls12_381_G2_Compress, &[value::g2_element_ex_mem()])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G2_Compress))?;
+
+                self.spend_budget(budget)?;
+
+                let out = arg1.compress(self.arena);
+
+                let value = Value::byte_string(self.arena, out);
+
+                Ok(value)
+            }
+            DefaultFunction::Bls12_381_G2_Equal => {
+                let arg1 = runtime.args[0].unwrap_bls12_381_g2_element()?;
+                let arg2 = runtime.args[1].unwrap_bls12_381_g2_element()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::Bls12_381_G2_Equal,
+                        &[value::g2_element_ex_mem(), value::g2_element_ex_mem()],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G2_Equal))?;
+
+                self.spend_budget(budget)?;
+
+                let is_equal = unsafe { blst::blst_p2_is_equal(arg1, arg2) };
+
+                let value = Value::bool(self.arena, is_equal);
+
+                Ok(value)
+            }
+            DefaultFunction::Bls12_381_G2_HashToGroup => {
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+                let arg2 = runtime.args[1].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(
+                        DefaultFunction::Bls12_381_G2_HashToGroup,
+                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
+                    )
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G2_HashToGroup))?;
+
+                self.spend_budget(budget)?;
+
+                if arg2.len() > 255 {
+                    return Err(MachineError::hash_to_curve_dst_too_big());
+                }
+
+                let out = self.arena.alloc(blst::blst_p2::default());
+                let aug = [];
+
+                unsafe {
+                    blst::blst_hash_to_g2(
+                        out as *mut _,
+                        arg1.as_ptr(),
+                        arg1.len(),
+                        arg2.as_ptr(),
+                        arg2.len(),
+                        aug.as_ptr(),
+                        0,
+                    );
+                };
 
                 let constant = Constant::g2(self.arena, out);
 
@@ -1754,44 +1771,6 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::Bls12_381_G2_Equal => {
-                let arg1 = runtime.args[0].unwrap_bls12_381_g2_element()?;
-                let arg2 = runtime.args[1].unwrap_bls12_381_g2_element()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(
-                        DefaultFunction::Bls12_381_G2_Equal,
-                        &[value::g2_element_ex_mem(), value::g2_element_ex_mem()],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G2_Equal))?;
-
-                self.spend_budget(budget)?;
-
-                let is_equal = unsafe { blst::blst_p2_is_equal(arg1, arg2) };
-
-                let value = Value::bool(self.arena, is_equal);
-
-                Ok(value)
-            }
-            DefaultFunction::Bls12_381_G2_Compress => {
-                let arg1 = runtime.args[0].unwrap_bls12_381_g2_element()?;
-
-                let budget = self
-                    .costs
-                    .builtin_costs
-                    .get_cost(DefaultFunction::Bls12_381_G2_Compress, &[value::g2_element_ex_mem()])
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G2_Compress))?;
-
-                self.spend_budget(budget)?;
-
-                let out = arg1.compress(self.arena);
-
-                let value = Value::byte_string(self.arena, out);
-
-                Ok(value)
-            }
             DefaultFunction::Bls12_381_G2_Uncompress => {
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
 
@@ -1811,43 +1790,24 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::Bls12_381_G2_HashToGroup => {
-                let arg1 = runtime.args[0].unwrap_byte_string()?;
-                let arg2 = runtime.args[1].unwrap_byte_string()?;
+            DefaultFunction::Bls12_381_FinalVerify => {
+                let arg1 = runtime.args[0].unwrap_bls12_381_ml_result()?;
+                let arg2 = runtime.args[1].unwrap_bls12_381_ml_result()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
                     .get_cost(
-                        DefaultFunction::Bls12_381_G2_HashToGroup,
-                        &[value::byte_string_ex_mem(arg1), value::byte_string_ex_mem(arg2)],
+                        DefaultFunction::Bls12_381_FinalVerify,
+                        &[value::ml_result_ex_mem(), value::ml_result_ex_mem()],
                     )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_G2_HashToGroup))?;
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_FinalVerify))?;
 
                 self.spend_budget(budget)?;
 
-                if arg2.len() > 255 {
-                    return Err(MachineError::hash_to_curve_dst_too_big());
-                }
+                let verified = unsafe { blst::blst_fp12_finalverify(arg1, arg2) };
 
-                let out = self.arena.alloc(blst::blst_p2::default());
-                let aug = [];
-
-                unsafe {
-                    blst::blst_hash_to_g2(
-                        out as *mut _,
-                        arg1.as_ptr(),
-                        arg1.len(),
-                        arg2.as_ptr(),
-                        arg2.len(),
-                        aug.as_ptr(),
-                        0,
-                    );
-                };
-
-                let constant = Constant::g2(self.arena, out);
-
-                let value = Value::con(self.arena, constant);
+                let value = Value::bool(self.arena, verified);
 
                 Ok(value)
             }
@@ -1911,24 +1871,64 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
-            DefaultFunction::Bls12_381_FinalVerify => {
-                let arg1 = runtime.args[0].unwrap_bls12_381_ml_result()?;
-                let arg2 = runtime.args[1].unwrap_bls12_381_ml_result()?;
+            DefaultFunction::Keccak_256 => {
+                use cryptoxide::{digest::Digest, sha3::Keccak256};
+
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(
-                        DefaultFunction::Bls12_381_FinalVerify,
-                        &[value::ml_result_ex_mem(), value::ml_result_ex_mem()],
-                    )
-                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Bls12_381_FinalVerify))?;
+                    .get_cost(DefaultFunction::Keccak_256, &[value::byte_string_ex_mem(arg1)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Keccak_256))?;
 
                 self.spend_budget(budget)?;
 
-                let verified = unsafe { blst::blst_fp12_finalverify(arg1, arg2) };
+                let mut hasher = Keccak256::new();
 
-                let value = Value::bool(self.arena, verified);
+                hasher.input(arg1);
+
+                let mut bytes = BumpVec::with_capacity_in(hasher.output_bytes(), self.arena.as_bump());
+
+                unsafe {
+                    bytes.set_len(hasher.output_bytes());
+                }
+
+                hasher.result(&mut bytes);
+
+                let bytes = self.arena.alloc(bytes);
+
+                let value = Value::byte_string(self.arena, bytes);
+
+                Ok(value)
+            }
+            DefaultFunction::Blake2b_224 => {
+                use cryptoxide::{blake2b::Blake2b, digest::Digest};
+
+                let arg1 = runtime.args[0].unwrap_byte_string()?;
+
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::Blake2b_224, &[value::byte_string_ex_mem(arg1)])
+                    .ok_or(MachineError::NoCostForBuiltin(DefaultFunction::Blake2b_224))?;
+
+                self.spend_budget(budget)?;
+
+                let mut digest = BumpVec::with_capacity_in(28, self.arena.as_bump());
+
+                unsafe {
+                    digest.set_len(28);
+                }
+
+                let mut context = Blake2b::new(28);
+
+                context.input(arg1);
+                context.result(&mut digest);
+
+                let digest = self.arena.alloc(digest);
+
+                let value = Value::byte_string(self.arena, digest);
 
                 Ok(value)
             }
@@ -2062,6 +2062,7 @@ impl<'a> Machine<'a> {
 
                 Ok(value)
             }
+
             DefaultFunction::AndByteString => {
                 let should_pad = runtime.args[0].unwrap_bool()?;
                 let left_bytes = runtime.args[1].unwrap_byte_string()?;
