@@ -153,6 +153,53 @@ jobs:
         shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"
 
+  tooling:
+    name: Test tooling
+    needs: [build-linux-x86_64]
+    runs-on: ubuntu-24.04
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+      OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/preprod.tar.zstd"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache
+      - name: Download ledger snapshot from R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          DBDIR=$(mktemp -d)
+          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | \
+            tar --zstd -xf - -C "$DBDIR" --wildcards --no-anchored 'ledger/*'
+          SLOT=$(ls -d "$DBDIR/ledger"/*/ | sort -V | tail -1 | xargs basename)
+          echo "DBDIR=$DBDIR" >> "$GITHUB_ENV"
+          echo "SLOT=$SLOT" >> "$GITHUB_ENV"
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            libtool \
+            libpcre3-dev \
+            libsodium-dev \
+            liblmdb-dev \
+            liburing-dev \
+            llvm \
+            libnuma-dev \
+            libsystemd-dev
+          sudo make -C conformance-tests/haskell-node-extractor secp256k1 PREFIX=/usr/local
+          sudo make -C conformance-tests/haskell-node-extractor blst PREFIX=/usr/local
+      - name: Test haskell-node-extractor
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /usr/local/lib:${{ env.LD_LIBRARY_PATH }}
+        run: |
+          make -C conformance-tests/haskell-node-extractor build
+          # Tests are disabled for now as we don't have snapshots compatible with the current version of the extractor yet.
+          # make -C conformance-tests/haskell-node-extractor test SNAPSHOT="$SNAPSHOT" NETWORK=preprod
+
   trace-schemas:
     name: Test trace schemas & documentation
     needs: [build-linux-x86_64]

@@ -9,15 +9,17 @@ PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
 CABAL ?= cabal
 INSTALL ?= install
 DEPS_DIR ?= .build/deps
+SNAPSHOT ?=
+NETWORK ?= preprod
 
 SECP256K1_DIR := $(DEPS_DIR)/secp256k1
 SECP256K1_REV := ac83be33d0956faf6b7f61a60ab524ef7d6a473a
 
 BLST_DIR := $(DEPS_DIR)/blst
-BLST_VERSION := v0.3.10
+BLST_VERSION := v0.3.14
 BLST_PC := $(BLST_DIR)/libblst.pc
 
-.PHONY: all build run help blst secp256k1 pre
+.PHONY: all build run help blst secp256k1 pre test
 
 all: help
 
@@ -106,6 +108,30 @@ build: ## &cmd compile the main binary
 	$(CABAL) update
 	$(CABAL) build exe:haskell-node-extractor
 	cp "$$($(CABAL) list-bin exe:haskell-node-extractor)" haskell-node-extractor
+
+test: ## &cmd run extractor against a snapshot and validate output
+	@if [ -z "$(SNAPSHOT)" ]; then \
+		printf '\033[1;31m%s\033[00m\n' '  ✗ SNAPSHOT is required (absolute path to a cardano-node ledger snapshot directory)'; \
+		exit 1; \
+	fi; \
+	case "$(SNAPSHOT)" in \
+		/*) ;; \
+		*) printf '\033[1;31m%s\033[00m\n' '  ✗ SNAPSHOT must be an absolute path (got: $(SNAPSHOT))'; exit 1 ;; \
+	esac; \
+	tmpdir=$$(mktemp -d); \
+	./haskell-node-extractor extract --$(NETWORK) --snapshot "$(SNAPSHOT)" --output "$$tmpdir" \
+		|| { rm -rf "$$tmpdir"; exit 1; }; \
+	ok=1; \
+	for name in pots nonces dreps rewardsProvenance pools; do \
+		if [ -z "$$(ls "$$tmpdir/$(NETWORK)/$$name/" 2>/dev/null)" ]; then \
+			printf '\033[1;31m%s\033[00m\n' "  ✗ missing output: $$name"; \
+			ok=0; \
+		else \
+			printf '\033[1;32m%s\033[00m\n' "  ✓ $$name"; \
+		fi; \
+	done; \
+	rm -rf "$$tmpdir"; \
+	[ "$$ok" -eq 1 ]
 
 secp256k1: ## &cmd install secp256k1 as required for Cardano
 	mkdir -p "$(DEPS_DIR)"

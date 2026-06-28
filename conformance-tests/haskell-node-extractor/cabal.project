@@ -33,6 +33,10 @@ allow-newer:
   , io-sim:time
   , io-classes:time
   , *:formatting
+  , *:base
+  , *:template-haskell
+  , *:ghc-boot-th
+  , *:ghc-prim
 
 packages:
   .
