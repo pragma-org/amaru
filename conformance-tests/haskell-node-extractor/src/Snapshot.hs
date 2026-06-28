@@ -1,5 +1,6 @@
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# OPTIONS_GHC -w #-}
 
 module Snapshot
     ( LoadedSnapshot (..)
@@ -42,7 +43,6 @@ import Ouroboros.Consensus.Cardano.Block
     , CardanoLedgerState
     , CodecConfig (CardanoCodecConfig)
     , ConwayEra
-    , DijkstraEra
     , LedgerState
         ( LedgerStateAllegra
         , LedgerStateAlonzo

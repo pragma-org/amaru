@@ -8,9 +8,6 @@ module Data.PoolMetadata
 import Relude
     ()
 
-import Cardano.Ledger.BaseTypes
-    ( urlToText
-    )
 import Cardano.Ledger.State
     ( PoolMetadata
     )
