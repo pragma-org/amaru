@@ -38,6 +38,11 @@ Other guiding principles:
 
 ## v10.10.20260716 _[unreleased; planned for 2026-07-16]_
 
+### Added
+
+- **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
+- **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
+
 ### Fixed
 
 - **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
@@ -81,6 +86,8 @@ Other guiding principles:
 ### Added
 
 - **amaru-ledger**: add more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
+- **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
+- **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 
 - **workflows**: dedicated workflow to create and publish bootstrapping snapshots for all networks. ([#951][])
 
@@ -132,6 +139,7 @@ Other guiding principles:
 
 [#769]: https://github.com/pragma-org/amaru/issues/769
 [#778]: https://github.com/pragma-org/amaru/issues/778
+[#820]: https://github.com/pragma-org/amaru/pull/820
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
