@@ -1,0 +1,224 @@
+name: Tool Integrations
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  LEDGER_CACHE_VERSION: "v13"
+
+jobs:
+  prepare:
+    name: Build Amaru & restore bootstrap DBs
+    runs-on: ubuntu-24.04
+    outputs:
+      cache-hit: ${{ steps.cache-bootstrap.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/cache
+
+      - name: Build Amaru
+        shell: bash
+        run: |
+          cargo build --release --bin amaru --locked
+
+      - name: Restore Amaru bootstrap DBs
+        id: cache-bootstrap
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ./ledger.preprod.db
+            ./chain.preprod.db
+          key: bootstrap-state-${{ runner.os }}-preprod-${{ env.LEDGER_CACHE_VERSION }}
+
+      - name: Start Amaru
+        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          ./target/release/amaru node run > amaru.log 2>&1 &
+          echo $! > amaru.pid
+
+      - name: Wait for Amaru to be ready
+        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          timeout 60 bash -c 'until nc -z 127.0.0.1 3000; do sleep 1; done' || {
+            echo "Amaru did not start within 60s. Last log lines:"
+            tail -50 amaru.log
+            exit 1
+          }
+
+      - name: Wait for Amaru to adopt at least one block
+        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          # adopt_chain only fires after fetch_blocks stored the body and validate_block
+          # completed. Waiting for the first "adopted tip" guarantees at least one block
+          # body is in the chain DB before tools attempt to fetch via BlockFetch.
+          timeout 300 bash -c 'until grep -q "adopted tip" amaru.log; do sleep 2; done' || {
+            echo "Amaru did not adopt a block within 5 minutes. Last log lines:"
+            tail -50 amaru.log
+            exit 1
+          }
+
+      - name: Stop Amaru
+        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          kill "$(cat amaru.pid)"
+
+      - name: Upload Amaru artifacts
+        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: amaru-preprod
+          path: |
+            target/release/amaru
+            ledger.preprod.db
+            chain.preprod.db
+          retention-days: 1
+
+  test-tools:
+    name: Test ${{ matrix.tool.name }}
+    needs: prepare
+    if: needs.prepare.outputs.cache-hit == 'true'
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: yaci_store
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      AMARU_NETWORK: preprod
+      AMARU_CHAIN_DIR: ./chain.preprod.db
+      AMARU_LEDGER_DIR: ./ledger.preprod.db
+      AMARU_LISTEN_ADDRESS: 127.0.0.1:3000
+      AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
+    strategy:
+      fail-fast: false
+      matrix:
+        tool:
+          - name: Oura
+            install: |
+              curl --proto '=https' --tlsv1.2 -LsSf \
+                https://github.com/txpipe/oura/releases/latest/download/oura-installer.sh | sh
+            setup: ""
+            run: oura watch 127.0.0.1:3000 --bearer tcp
+            output: oura-output.txt
+            success-pattern: "BLOCK:"
+
+          - name: Dolos
+            install: |
+              curl --proto '=https' --tlsv1.2 -LsSf \
+                https://github.com/txpipe/dolos/releases/latest/download/dolos-installer.sh | sh
+              make download-haskell-config HASKELL_NODE_CONFIG_DIR=cardano-node-config AMARU_NETWORK=preprod
+            setup: |
+              sed "s|cardano-node-config/|${PWD}/cardano-node-config/|g" \
+                .github/dolos.toml > dolos.toml
+            run: dolos daemon
+            output: dolos-output.txt
+            success-pattern: "apply"
+
+          - name: Yaci Store
+            install: |
+              version=$(curl -sf \
+                "https://api.github.com/repos/bloxbean/yaci-store/releases/latest" \
+                | jq -r '.tag_name | ltrimstr("v")')
+              echo "Installing yaci-store $version"
+              curl -LsSf -o yaci-store.zip \
+                "https://github.com/bloxbean/yaci-store/releases/download/rel-native-${version}/yaci-store-${version}-linux-x64-all.zip"
+              unzip -q yaci-store.zip -d yaci-store-bin
+              chmod +x yaci-store-bin/*/yaci-store
+            setup: |
+              # Bootstrap stores only the ~k=2160 most-recent headers (no block bodies — bodies
+              # are fetched by fetch_blocks during live sync, not bootstrap). Yaci Store connects
+              # and immediately tries to fetch a block body via BlockFetch; since none are present
+              # in the bootstrap DB, it gets NoBlocks. Full block indexing therefore requires a
+              # live-running Amaru that has had time to fetch and store bodies after bootstrap.
+              # We test N2N protocol compatibility only: handshake + ChainSync negotiation.
+              export STORE_CARDANO_HOST=127.0.0.1
+              export STORE_CARDANO_PORT=3000
+              export STORE_CARDANO_PROTOCOL_MAGIC=1
+              export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/yaci_store"
+              export SPRING_DATASOURCE_USERNAME=postgres
+              export SPRING_DATASOURCE_PASSWORD=postgres
+            run: yaci-store-bin/*/yaci-store
+            output: yaci-store-output.txt
+            success-pattern: "Handshake Ok"
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download Amaru artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: amaru-preprod
+
+      - name: Restore executable permissions
+        shell: bash
+        run: chmod +x target/release/amaru
+
+      - name: Start Amaru
+        shell: bash
+        run: |
+          ./target/release/amaru node run > amaru.log 2>&1 &
+          echo $! > amaru.pid
+
+      - name: Wait for Amaru to be ready
+        shell: bash
+        run: |
+          timeout 60 bash -c 'until nc -z 127.0.0.1 3000; do sleep 1; done' || {
+            echo "Amaru did not start within 60s. Last log lines:"
+            tail -50 amaru.log
+            exit 1
+          }
+
+      - name: Install ${{ matrix.tool.name }}
+        shell: bash
+        run: ${{ matrix.tool.install }}
+
+      - name: Run ${{ matrix.tool.name }}
+        shell: bash
+        run: |
+          ${{ matrix.tool.setup }}
+          set +e
+          timeout 120 ${{ matrix.tool.run }} 2>&1 | tee ${{ matrix.tool.output }}
+          set -e
+          grep -q '${{ matrix.tool.success-pattern }}' ${{ matrix.tool.output }} || {
+            echo "Expected '${{ matrix.tool.success-pattern }}' in ${{ matrix.tool.name }} output but did not find it"
+            exit 1
+          }
+
+      - name: Stop Amaru
+        if: always()
+        shell: bash
+        run: |
+          kill "$(cat amaru.pid)" || true
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.tool.name }}-output
+          path: |
+            amaru.log
+            ${{ matrix.tool.output }}
+
