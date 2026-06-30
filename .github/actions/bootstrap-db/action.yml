@@ -33,6 +33,10 @@ runs:
     - name: Bootstrap Amaru from scratch
       if: steps.cache-restore.outputs.cache-hit != 'true'
       shell: bash
+      env:
+        AMARU_NETWORK: ${{ inputs.network }}
+        AMARU_LEDGER_DIR: ./ledger.${{ inputs.network }}.db
+        AMARU_CHAIN_DIR: ./chain.${{ inputs.network }}.db
       run: make bootstrap
 
     - name: Save bootstrap DBs to cache
