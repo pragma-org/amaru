@@ -17,31 +17,39 @@ use amaru_kernel::{ProtocolParameters, TransactionInput, cardano::memoized::scri
 use super::InvalidBlockDetails;
 use crate::context::UtxoSlice;
 
+// NOTE: Haskell Divergences
+//
+// This logic operates on some iterator of `TransactionInput`, which should include both the reference inputs and inputs.
+// In Haskell, that is implemented with a `Set.Union`. Here, we just chain iterators.
+// That difference means that we could have the same input in both the inputs and reference inputs, double counting a script in it.
+// However, that would tx would be invalid due to the `NonDisjointInputs` rule regardless, so that doesn't impact conformance.
+
+// TODO: Duplicate work and PV11 changes
+//
+// Currently, we are calcuating reference script sizes per transaction as well as at the block level.
+// This is not particularly expensive, and bailing here in the worst case saves significant work.
+//
+// That being said, in pv11+, we must also resolve inputs that could've been created in the current block.
+// We can deduplicate this logic when we implement that.
+
 /// Sum the on-wire byte size of every script
 /// reachable through the reference inputs of every transaction in a block, fail
 /// if the total exceeds [`ProtocolParameters::max_ref_script_size_per_block`]
 pub fn block_ref_scripts_size_valid<'a, C>(
-    reference_inputs: impl IntoIterator<Item = &'a TransactionInput>,
+    inputs: impl IntoIterator<Item = &'a TransactionInput>,
     context: &C,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails>
 where
     C: UtxoSlice,
 {
-    // NOTE: Duplicate work
-    //
-    // We are separately calculating reference script sizes for each transaction.
-    // While this could be avoided, the added cost here is not significant and bailing here
-    // in the worst case saves significant work. If we were to calculate per-tx sizes here
-    // and thread them to phase one, it wouldn't save any iterations since we have to iterate the inputs anyway.
-    // TL;DR: I am acknowledging the duplicate work, but not optimizing this away until it is needed.
     let allowed = protocol_parameters.max_ref_script_size_per_block as u64;
     let mut total: u64 = 0;
-    for input in reference_inputs {
+    for input in inputs {
         if let Some(output) = context.lookup(input)
             && let Some(script) = output.script.as_ref()
         {
-            total = total.saturating_add(script_size(script));
+            total += script_size(script);
         }
     }
     if total > allowed {
