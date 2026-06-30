@@ -337,6 +337,7 @@ mod tests {
     #[test_case(fixture!("pass/reference-script-size-at-limit"); "reference scripts size exactly at per-tx limit")]
     #[test_case(fixture!("fail/ConwayTxRefScriptsSizeTooBig/0"); "single reference script over per-tx limit")]
     #[test_case(fixture!("fail/ConwayTxRefScriptsSizeTooBig/1"); "summed reference scripts over per-tx limit")]
+    #[test_case(fixture!("fail/ConwayTxRefScriptsSizeTooBig/2"); "script on a spent input over per-tx limit")]
     #[test_case(fixture!("pass/min-fee-at-minimum"); "declared fee exactly at the minimum")]
     #[test_case(fixture!("fail/FeeTooSmallUTxO/0"); "declared fee one below the minimum")]
     #[test_case(fixture!("pass/min-fee-with-ref-script"); "fee at minimum including tiered ref-script cost")]

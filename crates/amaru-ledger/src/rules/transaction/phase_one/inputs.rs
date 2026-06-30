@@ -79,7 +79,7 @@ where
             };
 
             if let Some((script_hash, script_size)) = script_ref {
-                ref_scripts_size = ref_scripts_size.saturating_add(script_size);
+                ref_scripts_size += script_size;
                 context.acknowledge_script(script_hash, reference_input.clone());
             }
         }
@@ -90,9 +90,6 @@ where
     }
 
     let allowed = protocol_parameters.max_ref_script_size_per_tx as u64;
-    if ref_scripts_size > allowed {
-        return Err(InvalidInputs::RefScriptSizeTooBig { provided: ref_scripts_size, allowed });
-    }
 
     /*
     The Haskell node sorts inputs lexicographically when deserializing.
@@ -108,7 +105,7 @@ where
 
         let output = context.lookup(input).ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
 
-        let script = output.script.as_ref().map(|script| script.script_hash());
+        let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
 
         // TODO: Avoid cloning here. Could probably be achieved by having 'RequiredScript'
         // always take a datum hash, and lookup its value when needed.
@@ -145,9 +142,14 @@ where
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         }
 
-        if let Some(script_hash) = script {
+        if let Some((script_hash, script_size)) = script_ref {
+            ref_scripts_size += script_size;
             context.acknowledge_script(script_hash, input.clone());
         }
+    }
+
+    if ref_scripts_size > allowed {
+        return Err(InvalidInputs::RefScriptSizeTooBig { provided: ref_scripts_size, allowed });
     }
 
     Ok(ref_scripts_size)
