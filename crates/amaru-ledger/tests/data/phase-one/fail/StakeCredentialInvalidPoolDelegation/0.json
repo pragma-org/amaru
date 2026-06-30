@@ -1,0 +1,39 @@
+{
+  "title": "StakeCredentialInvalidPoolDelegation",
+  "description": "The transaction body carries two certificates: first a StakeDeregistration that removes the seeded credential, then a StakeDelegation on the same credential. The delegation fails because the credential was just unregistered within the same transaction.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4004d901028282018200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd883028200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581cdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584061c1a24c40f4b2ada1a8fc45d0ac5259f4911a7a27285b118abbdb286567dc7efb990c19e63f314ac1934451fb0f209d95f8b6cad5fece8eddb89941241de404f5f6",
+  "expected": {
+    "predicate": "StakeCredentialInvalidPoolDelegation"
+  }
+}
