@@ -15,11 +15,10 @@
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
 
-use super::Ctx;
-use crate::data::PlutusData;
+use crate::{data::PlutusData, flat::SimpleCtx};
 
-impl<'a, 'b> minicbor::decode::Decode<'b, Ctx<'a>> for &'a PlutusData<'a> {
-    fn decode(decoder: &mut minicbor::Decoder<'b>, ctx: &mut Ctx<'a>) -> Result<Self, minicbor::decode::Error> {
+impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> {
+    fn decode(decoder: &mut minicbor::Decoder<'b>, ctx: &mut SimpleCtx<'a>) -> Result<Self, minicbor::decode::Error> {
         let typ = decoder.datatype()?;
 
         match typ {

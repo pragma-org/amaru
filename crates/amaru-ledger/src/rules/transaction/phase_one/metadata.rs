@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryData, Bytes, Hash, ProtocolVersion, TransactionBody};
-use amaru_uplc::{arena::Arena, flat::FlatDecodeError, machine::PlutusVersion};
+use amaru_kernel::{AuxiliaryData, Bytes, Hash, PlutusVersion, ProtocolVersion, TransactionBody};
+use amaru_uplc::{arena::Arena, flat::FlatDecodeError};
 use thiserror::Error;
 
 use crate::rules::transaction::phase_one::scripts::validate_plutus_script;

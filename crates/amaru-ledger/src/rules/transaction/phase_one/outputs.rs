@@ -14,10 +14,10 @@
 
 use amaru_kernel::{
     AddrAttrProperty, Address, AddressPayload, AsIndex, HasNetwork, HasScriptHash, Hash, Lovelace, MemoizedDatum,
-    MemoizedScript, MemoizedTransactionOutput, Network, ProtocolParameters, ProtocolVersion, TransactionInput, cbor,
-    from_cbor, size::SCRIPT, utils::string::display_collection,
+    MemoizedScript, MemoizedTransactionOutput, Network, PlutusVersion, ProtocolParameters, ProtocolVersion,
+    TransactionInput, cbor, from_cbor, size::SCRIPT, utils::string::display_collection,
 };
-use amaru_uplc::{arena::Arena, machine::PlutusVersion};
+use amaru_uplc::arena::Arena;
 use thiserror::Error;
 
 use crate::{

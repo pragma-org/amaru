@@ -40,12 +40,16 @@ Other guiding principles:
 
 ### Added
 
-- **amaru-ledger**: added more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
+- **amaru-ledger**: add more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
 
 ### Changed
 
-- **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])]
-- **amaru-ledger**: fully encapsulated the `StateOverlay` inside of `VolatileDB` ([#983][])
+- **amaru-ledger**: redesign the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])
+- **amaru-ledger**: fully encapsulate the `StateOverlay` inside of `VolatileDB` ([#983][])
+
+### Fixed
+
+- **amaru-uplc**: make cost models semantics-aware and cleanup various parts and exposed API for in the UPLC crate ([#988][])
 
 ## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
 
@@ -98,3 +102,4 @@ Other guiding principles:
 [#973]: https://github.com/pragma-org/amaru/pull/973
 [#975]: https://github.com/pragma-org/amaru/pull/975
 [#983]: https://github.com/pragma-org/amaru/pull/983
+[#988]: https://github.com/pragma-org/amaru/pull/988

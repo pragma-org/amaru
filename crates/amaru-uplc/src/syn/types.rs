@@ -12,32 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::ProtocolVersion;
 use chumsky::{extra::SimpleState, input, prelude::*};
 
-use crate::{arena::Arena, program::Version};
+use crate::{arena::Arena, flat::Ctx, machine::MachineVersion};
 
 pub struct State<'a> {
     pub arena: &'a Arena,
     pub env: Vec<&'a str>,
-    pub version: Option<Version<'a>>,
-    pub protocol_version: Option<u32>,
+    pub machine_version: MachineVersion,
+    pub protocol_version: ProtocolVersion,
 }
 
 impl<'a> State<'a> {
-    pub fn new(arena: &'a Arena, protocol_version: Option<u32>) -> Self {
-        Self { arena, env: Vec::new(), version: None, protocol_version }
+    pub fn new(arena: &'a Arena, protocol_version: ProtocolVersion) -> Self {
+        Self { arena, env: Vec::new(), machine_version: MachineVersion::default(), protocol_version }
     }
 
-    pub fn set_version(&mut self, version: Version<'a>) {
-        self.version = Some(version);
+    pub fn set_machine_version(&mut self, machine_version: MachineVersion) {
+        self.machine_version = machine_version;
     }
 
     pub fn is_constr_case_available(&self) -> bool {
-        let protocol_ok = self.protocol_version.is_none_or(|pv| pv >= 9);
-        let version_ok = self.version.is_none_or(|v| v.is_constr_case_available());
-        protocol_ok && version_ok
+        Ctx { arena: self.arena, machine_version: self.machine_version, protocol_version: self.protocol_version }
+            .is_constr_case_available()
     }
 }
 
 pub type Extra<'a> = extra::Full<Rich<'a, char>, SimpleState<State<'a>>, ()>;
+
 pub type MapExtra<'a, 'b> = input::MapExtra<'a, 'b, &'a str, Extra<'a>>;

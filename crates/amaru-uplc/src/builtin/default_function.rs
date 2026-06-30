@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::machine::PlutusVersion;
+use amaru_kernel::{ProtocolVersion, protocol_version};
 
 #[repr(u8)]
 #[allow(non_camel_case_types)]
@@ -366,145 +366,31 @@ impl DefaultFunction {
     ///
     /// Follows the Haskell's `builtinsIntroducedIn` mapping from plutus-ledger-api:
     /// <https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/Common/Versions.hs>
-    pub fn is_available_in(&self, plutus_version: PlutusVersion, pv: u32) -> bool {
+    pub fn is_available_in(&self, protocol_version: ProtocolVersion) -> bool {
         use DefaultFunction::*;
 
-        // batch1: the original 51 builtins from Alonzo (PV 5)
-        let batch1 = matches!(
-            self,
-            AddInteger
-                | SubtractInteger
-                | MultiplyInteger
-                | DivideInteger
-                | QuotientInteger
-                | RemainderInteger
-                | ModInteger
-                | EqualsInteger
-                | LessThanInteger
-                | LessThanEqualsInteger
-                | AppendByteString
-                | ConsByteString
-                | SliceByteString
-                | LengthOfByteString
-                | IndexByteString
-                | EqualsByteString
-                | LessThanByteString
-                | LessThanEqualsByteString
-                | Sha2_256
-                | Sha3_256
-                | Blake2b_256
-                | VerifyEd25519Signature
-                | AppendString
-                | EqualsString
-                | EncodeUtf8
-                | DecodeUtf8
-                | IfThenElse
-                | ChooseUnit
-                | Trace
-                | FstPair
-                | SndPair
-                | ChooseList
-                | MkCons
-                | HeadList
-                | TailList
-                | NullList
-                | ChooseData
-                | ConstrData
-                | MapData
-                | ListData
-                | IData
-                | BData
-                | UnConstrData
-                | UnMapData
-                | UnListData
-                | UnIData
-                | UnBData
-                | EqualsData
-                | MkPairData
-                | MkNilData
-                | MkNilPairData
-        );
-
-        // batch2: SerialiseData (Vasil, PV 7)
-        let batch2 = matches!(self, SerialiseData);
-
-        // batch3: secp256k1 (Valentine, PV 8)
-        let batch3 = matches!(self, VerifyEcdsaSecp256k1Signature | VerifySchnorrSecp256k1Signature);
-
-        // batch4a: BLS + Keccak + Blake2b_224 (Chang, PV 9 for V3; van Rossem, PV 11 for V1/V2)
-        let batch4a = matches!(
-            self,
-            Bls12_381_G1_Add
-                | Bls12_381_G1_Neg
-                | Bls12_381_G1_ScalarMul
-                | Bls12_381_G1_Equal
-                | Bls12_381_G1_Compress
-                | Bls12_381_G1_Uncompress
-                | Bls12_381_G1_HashToGroup
-                | Bls12_381_G2_Add
-                | Bls12_381_G2_Neg
-                | Bls12_381_G2_ScalarMul
-                | Bls12_381_G2_Equal
-                | Bls12_381_G2_Compress
-                | Bls12_381_G2_Uncompress
-                | Bls12_381_G2_HashToGroup
-                | Bls12_381_MillerLoop
-                | Bls12_381_MulMlResult
-                | Bls12_381_FinalVerify
-                | Keccak_256
-                | Blake2b_224
-        );
-
-        // batch4b: integer-bytestring conversions (Chang, PV 9 for V3; Plomin, PV 10 for V2)
-        let batch4b = matches!(self, IntegerToByteString | ByteStringToInteger);
-
-        // batch5: bitwise operations + Ripemd_160 (Plomin, PV 10 for V3)
-        let batch5 = matches!(
-            self,
-            AndByteString
-                | OrByteString
-                | XorByteString
-                | ComplementByteString
-                | ReadBit
-                | WriteBits
-                | ReplicateByte
-                | ShiftByteString
-                | RotateByteString
-                | CountSetBits
-                | FindFirstSetBit
-                | Ripemd_160
-        );
-
-        match plutus_version {
-            PlutusVersion::V1 => {
-                if pv >= 11 {
-                    true
-                } else {
-                    batch1
-                }
-            }
-            PlutusVersion::V2 => {
-                if pv >= 11 {
-                    true
-                } else if pv >= 10 {
-                    batch1 || batch2 || batch3 || batch4b
-                } else if pv >= 8 {
-                    batch1 || batch2 || batch3
-                } else {
-                    // PV 7
-                    batch1 || batch2
-                }
-            }
-            PlutusVersion::V3 => {
-                if pv >= 11 {
-                    true
-                } else if pv >= 10 {
-                    batch1 || batch2 || batch3 || batch4a || batch4b || batch5
-                } else {
-                    // PV 9
-                    batch1 || batch2 || batch3 || batch4a || batch4b
-                }
-            }
+        if protocol_version >= protocol_version::PROTOCOL_VERSION_11 {
+            true
+        } else if protocol_version >= protocol_version::PROTOCOL_VERSION_10 {
+            !matches!(
+                self,
+                ExpModInteger
+                    | DropList
+                    | LengthOfArray
+                    | ListToArray
+                    | IndexArray
+                    | Bls12_381_G1_MultiScalarMul
+                    | Bls12_381_G2_MultiScalarMul
+                    | InsertCoin
+                    | LookupCoin
+                    | UnionValue
+                    | ValueContains
+                    | ValueData
+                    | UnValueData
+                    | ScaleValue
+            )
+        } else {
+            unreachable!("unsupported protocol version: {protocol_version:?}")
         }
     }
 }

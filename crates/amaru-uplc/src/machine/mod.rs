@@ -13,21 +13,35 @@
 // limitations under the License.
 
 mod cek;
-pub use cost_model::default_v3_cost_model;
-mod context;
-pub(crate) mod cost_model;
-mod discharge;
-mod env;
-mod error;
-mod eval_result;
-mod info;
-mod runtime;
-mod state;
-mod value;
-
 pub use cek::*;
+
+pub mod context;
+
+pub mod cost_model;
 pub use cost_model::{CostModel, ex_budget::*};
+
+pub mod discharge;
+
+mod error;
 pub use error::*;
+
+pub mod env;
+
+mod eval_result;
 pub use eval_result::*;
+
+mod info;
 pub use info::*;
-pub use runtime::{BuiltinSemantics, PlutusVersion};
+
+mod runtime;
+pub use runtime::*;
+
+mod semantics;
+pub use semantics::Semantics;
+
+pub mod state;
+
+pub mod value;
+
+mod version;
+pub use version::MachineVersion;

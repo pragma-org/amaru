@@ -15,9 +15,9 @@
 use std::{collections::BTreeMap, fmt};
 
 use amaru_kernel::{
-    BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, ProtocolParameters, TransactionBody,
-    TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    decode_plutus_script, to_cbor, transaction_input_to_string,
+    BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, TransactionBody,
+    TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor, to_cbor,
+    transaction_input_to_string,
 };
 use amaru_plutus::{
     arena_pool::ArenaPool,
@@ -28,8 +28,8 @@ use amaru_uplc::{
     binder::Binder,
     constant::Constant,
     data::PlutusData,
-    flat::FlatDecodeError,
-    machine::{ExBudget, MachineInfo, PlutusVersion},
+    flat::{FlatDecodeError, decode_plutus_script},
+    machine::{CostModel, ExBudget, MachineInfo},
     program::Program,
     term::Term,
 };
@@ -49,12 +49,12 @@ pub enum PhaseTwoError {
     ScriptDeserializationError(cbor::decode::Error),
     #[error("failed to flat decode script: {0}")]
     FlatDecodingError(#[from] FlatDecodeError),
-    #[error("missing cost models for version: {0:?}")]
-    MissingCostModel(PlutusVersion),
     #[error("script evaluation failure: {0:?}")]
     UplcMachineError(UplcMachineError),
     #[error("expected scripts to fail but didn't")]
     ValidityStateError,
+    #[error("missing cost models for version = {0:?}")]
+    MissingCostModel(PlutusVersion),
 }
 
 #[derive(Debug)]
@@ -214,11 +214,9 @@ where
 
             let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
 
-            let result = program.eval_with_params(
+            let result = program.eval(
                 &arena,
-                plutus_version,
-                protocol_parameters.protocol_version,
-                cost_model,
+                CostModel::new(plutus_version, protocol_parameters.protocol_version, cost_model),
                 uplc_budget,
             );
 
@@ -284,7 +282,10 @@ where
 mod tests {
     use std::{collections::BTreeMap, sync::LazyLock};
 
-    use amaru_kernel::{MemoizedTransactionOutput, NetworkName, Transaction, TransactionPointer, include_cbor};
+    use amaru_kernel::{
+        CostModels, MemoizedTransactionOutput, NetworkName, ProtocolParameters, Transaction, TransactionPointer,
+        include_cbor,
+    };
     use amaru_plutus::arena_pool::ArenaPool;
     use anyhow::Result;
 
@@ -318,10 +319,30 @@ mod tests {
 
         let mut context = AssertValidationContext::from(AssertPreparationContext { utxo });
 
+        let protocol_parameters = network.as_protocol_parameters().expect("missing network defaults");
+        let protocol_parameters = ProtocolParameters {
+            cost_models: CostModels {
+                plutus_v2: Some(vec![
+                    100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100,
+                    16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32,
+                    132994, 32, 61462, 4, 72010, 178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 228465, 122, 0, 1, 1,
+                    1000, 42921, 4, 2, 24548, 29498, 38, 1, 898148, 27279, 1, 51775, 558, 1, 39184, 1000, 60594, 1,
+                    141895, 32, 83150, 32, 15299, 32, 76049, 1, 13169, 4, 22100, 10, 28999, 74, 1, 28999, 74, 1, 43285,
+                    552, 1, 44749, 541, 1, 33852, 32, 68246, 32, 72362, 32, 7243, 32, 7391, 32, 11546, 32, 85848,
+                    228465, 122, 0, 1, 1, 90434, 519, 0, 1, 74433, 32, 85848, 228465, 122, 0, 1, 1, 85848, 228465, 122,
+                    0, 1, 1, 955506, 213312, 0, 2, 270652, 22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32,
+                    100788, 420, 1, 1, 81663, 32, 59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32,
+                    43053543, 10, 53384111, 14333, 10, 43574283, 26308, 10,
+                ]),
+                ..protocol_parameters.cost_models.clone()
+            },
+            ..protocol_parameters.clone()
+        };
+
         super::execute(
             &mut context,
             &ARENA_POOL,
-            network.as_protocol_parameters().expect("missing network defaults"),
+            &protocol_parameters,
             network.as_era_history().expect("missing network defaults"),
             network.as_global_parameters().expect("missing network defaults"),
             default_pointer(&transaction),

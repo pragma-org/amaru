@@ -12,13 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::PlutusScript;
+#[derive(Debug, Clone, Copy)]
+#[repr(usize)]
+pub enum StepKind {
+    Constant = 0,
+    Var = 1,
+    Lambda = 2,
+    Apply = 3,
+    Delay = 4,
+    Force = 5,
+    Builtin = 6,
+    Constr = 7,
+    Case = 8,
+}
 
-use crate::{ToBytes, cbor};
+impl StepKind {
+    pub const LEN: usize = 9;
 
-/// Unwrap the CBOR bytestring envelope to get the raw flat-encoded program bytes.
-impl<const V: usize> ToBytes for PlutusScript<V> {
-    fn to_bytes(&self) -> Result<&[u8], cbor::decode::Error> {
-        cbor::Decoder::new(&self.0).bytes()
+    pub fn enumerate() -> [Self; Self::LEN] {
+        use StepKind::*;
+        [Constant, Var, Lambda, Apply, Delay, Force, Builtin, Constr, Case]
     }
 }

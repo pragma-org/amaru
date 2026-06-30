@@ -15,6 +15,7 @@ publish = false
 walkdir.workspace = true
 
 [dependencies]
+amaru-kernel.workspace = true
 append-only-vec.workspace = true
 blst.workspace = true
 bumpalo = { workspace = true, features = ["collections"] }
@@ -39,6 +40,7 @@ pretty_assertions.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+test-case.workspace = true
 
 [features]
 alloc_profiler = []

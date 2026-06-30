@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_uplc::{
-    arena::Arena,
-    binder::DeBruijn,
-    program::{Program, Version},
-    term::Term,
-};
+use amaru_uplc::{arena::Arena, binder::DeBruijn, machine::MachineVersion, program::Program, term::Term};
 use ouroboros::self_referencing;
 
 #[self_referencing]
@@ -33,7 +28,7 @@ impl BenchState {
     pub fn exec(&self) {
         self.with_program(|program| {
             self.with_arena(|arena| {
-                let _ = program.eval(arena);
+                let _ = program.eval_default(arena);
             });
         });
     }
@@ -58,7 +53,7 @@ where
     setup_program(|arena| {
         let term = term_builder(arena);
 
-        let version = Version::plutus_v3(arena);
+        let version = MachineVersion::V1_1_0;
 
         Program::new(arena, version, term)
     })

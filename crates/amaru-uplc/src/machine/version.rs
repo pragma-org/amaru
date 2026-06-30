@@ -12,13 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::PlutusScript;
+#[derive(Debug, Copy, Clone)]
+pub struct MachineVersion {
+    pub major: usize,
+    pub minor: usize,
+    pub patch: usize,
+}
 
-use crate::{ToBytes, cbor};
+impl Default for MachineVersion {
+    fn default() -> Self {
+        Self::V1_1_0
+    }
+}
 
-/// Unwrap the CBOR bytestring envelope to get the raw flat-encoded program bytes.
-impl<const V: usize> ToBytes for PlutusScript<V> {
-    fn to_bytes(&self) -> Result<&[u8], cbor::decode::Error> {
-        cbor::Decoder::new(&self.0).bytes()
+impl MachineVersion {
+    pub const V1_0_0: Self = Self::new(1, 0, 0);
+    pub const V1_1_0: Self = Self::new(1, 1, 0);
+
+    pub const fn new(major: usize, minor: usize, patch: usize) -> Self {
+        Self { major, minor, patch }
+    }
+
+    pub fn is_constr_case_available(&self) -> bool {
+        (self.major, self.minor) >= (1, 1)
     }
 }

@@ -15,52 +15,39 @@
 use bumpalo::collections::Vec as BumpVec;
 
 use super::{
-    CostModel, ExBudget, MachineError,
-    cost_model::StepKind,
-    discharge,
-    info::MachineInfo,
-    runtime::{BuiltinSemantics, Runtime},
+    CostModel, ExBudget, MachineError, cost_model::StepKind, discharge, info::MachineInfo, runtime::Runtime,
     value::Value,
 };
 use crate::{
     arena::Arena,
     binder::Eval,
     constant::Constant,
-    machine::{context::Context, cost_model::builtin_costs::BuiltinCostModel, env::Env, state::MachineState},
-    program::Version,
+    machine::{MachineVersion, context::Context, env::Env, state::MachineState},
     term::Term,
 };
 
-pub struct Machine<'a, B: BuiltinCostModel> {
+pub struct Machine<'a> {
     pub(super) arena: &'a Arena,
     initial_budget: ExBudget,
     ex_budget: ExBudget,
-    unbudgeted_steps: [u8; 10],
-    pub(super) costs: CostModel<B>,
+    unbudgeted_steps: [u8; StepKind::LEN + 1],
+    pub(super) costs: CostModel,
     slippage: u8,
     pub(super) logs: Vec<String>,
-    pub(super) semantics: BuiltinSemantics,
-    version: Version<'a>,
+    machine_version: MachineVersion,
 }
 
-impl<'a, B: BuiltinCostModel> Machine<'a, B> {
-    pub fn new(
-        arena: &'a Arena,
-        initial_budget: ExBudget,
-        costs: CostModel<B>,
-        semantics: BuiltinSemantics,
-        version: Version<'a>,
-    ) -> Self {
+impl<'a> Machine<'a> {
+    pub fn new(arena: &'a Arena, initial_budget: ExBudget, costs: CostModel, machine_version: MachineVersion) -> Self {
         Machine {
             arena,
             initial_budget,
             ex_budget: initial_budget,
-            unbudgeted_steps: [0; 10],
+            unbudgeted_steps: [0; StepKind::LEN + 1],
             costs,
             slippage: 200,
             logs: Vec::new(),
-            semantics,
-            version,
+            machine_version,
         }
     }
 
@@ -76,7 +63,7 @@ impl<'a, B: BuiltinCostModel> Machine<'a, B> {
     where
         V: Eval<'a>,
     {
-        self.spend_budget(self.costs.machine_startup)?;
+        self.spend_budget(self.costs.machine_costs.startup)?;
 
         let initial_context = Context::no_frame(self.arena);
 
@@ -256,7 +243,7 @@ impl<'a, B: BuiltinCostModel> Machine<'a, B> {
                         Err(MachineError::MissingCaseBranch(branches, value))
                     }
                 }
-                Value::Con(constant) if self.version.is_constr_case_available() => {
+                Value::Con(constant) if self.machine_version.is_constr_case_available() => {
                     let (tag, max_branches, fields) = self.constant_as_tag_fields(constant)?;
 
                     if branches.len() > max_branches {
@@ -276,7 +263,7 @@ impl<'a, B: BuiltinCostModel> Machine<'a, B> {
                 v => Err(MachineError::NonConstrScrutinized(v)),
             },
             Context::NoFrame => {
-                if self.unbudgeted_steps[9] > 0 {
+                if self.unbudgeted_steps[StepKind::LEN] > 0 {
                     self.spend_unbudgeted_steps()?;
                 }
 
@@ -435,9 +422,9 @@ impl<'a, B: BuiltinCostModel> Machine<'a, B> {
         let index = step as usize;
 
         self.unbudgeted_steps[index] += 1;
-        self.unbudgeted_steps[9] += 1;
+        self.unbudgeted_steps[StepKind::LEN] += 1;
 
-        if self.unbudgeted_steps[9] >= self.slippage {
+        if self.unbudgeted_steps[StepKind::LEN] >= self.slippage {
             self.spend_unbudgeted_steps()?;
         }
 
@@ -448,17 +435,16 @@ impl<'a, B: BuiltinCostModel> Machine<'a, B> {
     where
         V: Eval<'a>,
     {
-        for step_kind in 0..self.unbudgeted_steps.len() - 1 {
-            let mut unspent_step_budget = self.costs.machine_costs.get(step_kind);
-
-            unspent_step_budget.occurrences(self.unbudgeted_steps[step_kind] as i64);
+        for step_kind in StepKind::enumerate() {
+            let unspent_step_budget =
+                self.costs.machine_costs.step(step_kind).scale(self.unbudgeted_steps[step_kind as usize]);
 
             self.spend_budget(unspent_step_budget)?;
 
-            self.unbudgeted_steps[step_kind] = 0;
+            self.unbudgeted_steps[step_kind as usize] = 0;
         }
 
-        self.unbudgeted_steps[9] = 0;
+        self.unbudgeted_steps[StepKind::LEN] = 0;
 
         Ok(())
     }

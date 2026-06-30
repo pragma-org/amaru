@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, fmt};
 
-use crate::{Hash, Hasher, Language, LanguageView, ProtocolParameters, WitnessSet, cbor, cbor::Encode};
+use crate::{CostModels, Hash, Hasher, Language, LanguageView, WitnessSet, cbor, cbor::Encode};
 
 /// All inputs that feed into the script integrity hash, kept around so a mismatch can be
 /// reported with enough detail for a user to byte-diff against their own encoder.
@@ -41,7 +41,7 @@ impl ScriptIntegrityData {
     /// datums, or language views (matching Haskell's `SNothing` case).
     pub fn from_witness_set(
         witness_set: &WitnessSet,
-        protocol_parameters: &ProtocolParameters,
+        cost_models: &CostModels,
         languages: &[Language],
     ) -> Option<Self> {
         let has_no_redeemers = witness_set.redeemer.is_none();
@@ -59,10 +59,8 @@ impl ScriptIntegrityData {
 
         let datums_bytes = witness_set.plutus_data.as_ref().map(|d| d.original_bytes().to_vec());
 
-        let language_views: BTreeSet<LanguageView> = languages
-            .iter()
-            .map(|lang| LanguageView::from_cost_models(lang.clone(), &protocol_parameters.cost_models))
-            .collect();
+        let language_views: BTreeSet<LanguageView> =
+            languages.iter().map(|lang| LanguageView::from_cost_models(lang.clone(), cost_models)).collect();
 
         Some(Self { redeemers_bytes, datums_bytes, language_views })
     }
@@ -119,10 +117,10 @@ impl fmt::Display for ScriptIntegrityData {
 /// underlying inputs for diagnostics.
 pub fn compute_script_integrity_hash(
     witness_set: &WitnessSet,
-    protocol_parameters: &ProtocolParameters,
+    cost_models: &CostModels,
     languages: &[Language],
 ) -> Option<Hash<32>> {
-    ScriptIntegrityData::from_witness_set(witness_set, protocol_parameters, languages).map(|d| d.hash())
+    ScriptIntegrityData::from_witness_set(witness_set, cost_models, languages).map(|d| d.hash())
 }
 
 #[cfg(test)]
@@ -130,51 +128,53 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
 
-    /// Selects which Plutus cost models are present in the protocol parameters used by a test.
-    #[derive(Clone, Copy)]
-    enum Pp {
-        AllCostModels,
-        NoV1,
-        NoV2,
-        NoV3,
+    fn fixture_cost_models() -> CostModels {
+        CostModels { plutus_v1: Some(vec![1]), plutus_v2: Some(vec![2]), plutus_v3: Some(vec![3]) }
     }
 
-    impl Pp {
-        fn build(self) -> ProtocolParameters {
-            let mut pp = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
-            match self {
-                Pp::AllCostModels => {}
-                Pp::NoV1 => pp.cost_models.plutus_v1 = None,
-                Pp::NoV2 => pp.cost_models.plutus_v2 = None,
-                Pp::NoV3 => pp.cost_models.plutus_v3 = None,
-            }
-            pp
-        }
+    fn no_v1_cost_models() -> CostModels {
+        let mut cost_models = fixture_cost_models();
+        cost_models.plutus_v1 = None;
+        cost_models
     }
 
-    #[test_case(Pp::AllCostModels, &[], None ; "no inputs returns None")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV1], Some("d278610b21b4804243125c49fa820a691fa3dd79cf4109ade08090068f466750") ; "v1 only")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV2], Some("2a6094c211d2bfca5c6ae0c4f8ae3556db95345d94a53a309a2eabc8b8083843") ; "v2 only")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV3], Some("870bd0633099c971d633098389a3479c85328f1f36e97ab8ee99638019034707") ; "v3 only")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV1, Language::PlutusV2], Some("c570a138a1c2a043e1ef7091f4942458ca13ad19372189f877eb110a118dcac1") ; "v1 + v2")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV2, Language::PlutusV1], Some("c570a138a1c2a043e1ef7091f4942458ca13ad19372189f877eb110a118dcac1") ; "v2 + v1 sorts to v1 + v2")]
-    #[test_case(Pp::AllCostModels, &[Language::PlutusV1, Language::PlutusV1], Some("d278610b21b4804243125c49fa820a691fa3dd79cf4109ade08090068f466750") ; "v1 + v1 dedups to v1")]
-    #[test_case(Pp::NoV1, &[Language::PlutusV1], Some("ac871208ce24bcee5ca68ab58c321750fa80f73bfb4e5d9a6acc2b1e3817dcc4") ; "v1 only with no v1 cost model")]
-    #[test_case(Pp::NoV2, &[Language::PlutusV2], Some("b96a45ab8016ded02c3fbf1939c695e86155a961c83fc695aba5316086ec47e3") ; "v2 only with no v2 cost model")]
-    #[test_case(Pp::NoV3, &[Language::PlutusV3], Some("302569f5de0c5cd3d1816ff8b95a9117398227639a0425915ee4f68b590382a1") ; "v3 only with no v3 cost model")]
-    fn integrity_hash(pp: Pp, languages: &[Language], expected: Option<&str>) {
-        let actual = compute_script_integrity_hash(&WitnessSet::default(), &pp.build(), languages);
+    fn no_v2_cost_models() -> CostModels {
+        let mut cost_models = fixture_cost_models();
+        cost_models.plutus_v2 = None;
+        cost_models
+    }
+
+    fn no_v3_cost_models() -> CostModels {
+        let mut cost_models = fixture_cost_models();
+        cost_models.plutus_v3 = None;
+        cost_models
+    }
+
+    #[test_case(fixture_cost_models(), &[], None ; "no inputs returns None")]
+    #[test_case(fixture_cost_models(), &[Language::PlutusV1], Some("450734f2bd32c2272c31e6a3c781104ee69040c89da0308e613674203a457e86") ; "v1 only")]
+    #[test_case(fixture_cost_models(), &[Language::PlutusV2], Some("7fb2dea121c7fea58be4e8e3a11c16d2c47436b6622edb6b12e682faafc9995f") ; "v2 only")]
+    #[test_case(fixture_cost_models(), &[Language::PlutusV3], Some("472370a6360002ce23e55c8e593754bca8cfb21c57c26eb16ff33049d61230ff") ; "v3 only")]
+    #[test_case(fixture_cost_models(), &[Language::PlutusV1, Language::PlutusV2], Some("b099d797177cb401334fa99d6fae4bb50c3789515865797bdddc7c00e43e0429") ; "v1 + v2")]
+    #[test_case(fixture_cost_models(), &[Language::PlutusV2, Language::PlutusV1], Some("b099d797177cb401334fa99d6fae4bb50c3789515865797bdddc7c00e43e0429") ; "v2 + v1 sorts to v1 + v2")]
+    #[test_case(fixture_cost_models(), &[Language::PlutusV1, Language::PlutusV1], Some("450734f2bd32c2272c31e6a3c781104ee69040c89da0308e613674203a457e86") ; "v1 + v1 dedups to v1")]
+    #[test_case(no_v1_cost_models(), &[Language::PlutusV1], Some("ac871208ce24bcee5ca68ab58c321750fa80f73bfb4e5d9a6acc2b1e3817dcc4") ; "v1 only with no v1 cost model")]
+    #[test_case(no_v2_cost_models(), &[Language::PlutusV2], Some("b96a45ab8016ded02c3fbf1939c695e86155a961c83fc695aba5316086ec47e3") ; "v2 only with no v2 cost model")]
+    #[test_case(no_v3_cost_models(), &[Language::PlutusV3], Some("302569f5de0c5cd3d1816ff8b95a9117398227639a0425915ee4f68b590382a1") ; "v3 only with no v3 cost model")]
+    fn integrity_hash(cost_models: CostModels, languages: &[Language], expected: Option<&str>) {
+        let actual = compute_script_integrity_hash(&WitnessSet::default(), &cost_models, languages);
         let actual_hex = actual.map(|h| hex::encode(h.as_ref()));
         assert_eq!(actual_hex.as_deref(), expected);
     }
 
     #[test]
     fn display_renders_components_as_hex() {
-        let pp = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
-        let data = ScriptIntegrityData::from_witness_set(&WitnessSet::default(), &pp, &[Language::PlutusV3])
-            .expect("languages provided => Some");
+        let data = ScriptIntegrityData::from_witness_set(
+            &WitnessSet::default(),
+            &fixture_cost_models(),
+            &[Language::PlutusV3],
+        )
+        .expect("languages provided => Some");
 
         let rendered = data.to_string();
         assert!(rendered.contains("redeemers: 0xa0"), "redeemers should default to empty CBOR map: {rendered}");
@@ -184,9 +184,12 @@ mod tests {
 
     #[test]
     fn encoded_buffer_hashes_to_same_value() {
-        let pp = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
-        let data = ScriptIntegrityData::from_witness_set(&WitnessSet::default(), &pp, &[Language::PlutusV2])
-            .expect("languages provided => Some");
+        let data = ScriptIntegrityData::from_witness_set(
+            &WitnessSet::default(),
+            &fixture_cost_models(),
+            &[Language::PlutusV2],
+        )
+        .expect("languages provided => Some");
 
         assert_eq!(Hasher::<256>::hash(&data.encoded_buffer()), data.hash());
     }

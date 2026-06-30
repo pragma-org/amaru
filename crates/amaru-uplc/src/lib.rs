@@ -30,36 +30,162 @@ pub use bumpalo;
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::{
+        PlutusVersion,
+        protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
+    };
+    use bumpalo::collections::Vec as BumpVec;
     use pretty_assertions::assert_eq;
+    use test_case::test_case;
 
-    use super::{arena::Arena, program::Program, term::Term};
+    use super::{arena::Arena, constant::Constant, ledger_value::LedgerValue, program::Program, term::Term, typ::Type};
     use crate::{
         binder::DeBruijn,
-        machine::{ExBudget, PlutusVersion, default_v3_cost_model},
-        program::Version,
+        flat,
+        machine::{CostModel, ExBudget, MachineVersion},
     };
 
-    fn default_pv11_cost_values() -> Vec<i64> {
-        vec![
-            607153, 231697, 53144, 0, 1, 116711, 1957, 4, 231883, 10, 1000, 24838, 7, 1, 232010, 32, 321837444,
-            25087669, 18, 617887431, 67302824, 36, 356924, 18413, 45, 21, 219951, 9444, 1, 1000, 172116, 183150, 6, 24,
-            21, 213283, 618401, 1998, 28258, 1, 1000, 38159, 2, 22, 1000, 95933, 1, 1, 11, 1000, 277577, 12, 21,
-        ]
+    fn alloc_constants<'a>(
+        arena: &'a Arena,
+        values: impl IntoIterator<Item = &'a Constant<'a>>,
+    ) -> &'a [&'a Constant<'a>] {
+        arena.alloc(BumpVec::from_iter_in(values, arena.as_bump()))
+    }
+
+    fn integer_list<'a>(arena: &'a Arena, values: &[i128]) -> &'a Term<'a, DeBruijn> {
+        let list = Constant::proto_list(
+            arena,
+            Type::integer(arena),
+            alloc_constants(arena, values.iter().copied().map(|value| Constant::integer_from(arena, value))),
+        );
+
+        Term::constant(arena, list)
+    }
+
+    fn integer_array<'a>(arena: &'a Arena, values: &[i128]) -> &'a Term<'a, DeBruijn> {
+        let array = Constant::proto_array(
+            arena,
+            Type::integer(arena),
+            alloc_constants(arena, values.iter().copied().map(|value| Constant::integer_from(arena, value))),
+        );
+
+        Term::constant(arena, array)
+    }
+
+    fn singleton_value<'a>(arena: &'a Arena) -> &'a LedgerValue<'a> {
+        LedgerValue::insert_coin(
+            arena,
+            arena.alloc([]),
+            arena.alloc([0x01]),
+            arena.alloc_integer(1.into()),
+            LedgerValue::empty(arena),
+        )
+    }
+
+    fn exp_mod_integer_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::<DeBruijn>::exp_mod_integer(arena)
+            .apply(arena, Term::integer_from(arena, 2))
+            .apply(arena, Term::integer_from(arena, 3))
+            .apply(arena, Term::integer_from(arena, 5))
+    }
+
+    fn singleton_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        let value = Constant::ledger_value(arena, singleton_value(arena));
+        Term::constant(arena, value)
+    }
+
+    fn empty_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        let value = Constant::ledger_value(arena, LedgerValue::empty(arena));
+        Term::constant(arena, value)
+    }
+
+    fn singleton_value_data_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        let data = LedgerValue::value_data(arena, singleton_value(arena)).unwrap();
+        Term::data(arena, data)
+    }
+
+    fn drop_list_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::drop_list(arena)
+            .force(arena)
+            .apply(arena, Term::integer_from(arena, 1))
+            .apply(arena, integer_list(arena, &[1, 2]))
+    }
+
+    fn length_of_array_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::length_of_array(arena).force(arena).apply(arena, integer_array(arena, &[1, 2]))
+    }
+
+    fn list_to_array_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::list_to_array(arena).force(arena).apply(arena, integer_list(arena, &[1, 2]))
+    }
+
+    fn index_array_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::index_array(arena)
+            .force(arena)
+            .apply(arena, integer_array(arena, &[1, 2]))
+            .apply(arena, Term::integer_from(arena, 1))
+    }
+
+    fn bls12_381_g1_multi_scalar_mul_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::bls12_381_g1_multi_scalar_mul(arena)
+            .apply(arena, Term::var(arena, DeBruijn::zero(arena)))
+            .lambda(arena, DeBruijn::zero(arena))
+    }
+
+    fn bls12_381_g2_multi_scalar_mul_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::bls12_381_g2_multi_scalar_mul(arena)
+            .apply(arena, Term::var(arena, DeBruijn::zero(arena)))
+            .lambda(arena, DeBruijn::zero(arena))
+    }
+
+    fn insert_coin_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::insert_coin(arena)
+            .apply(arena, Term::var(arena, DeBruijn::zero(arena)))
+            .lambda(arena, DeBruijn::zero(arena))
+    }
+
+    fn lookup_coin_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::lookup_coin(arena)
+            .apply(arena, Term::byte_string(arena, arena.alloc([])))
+            .apply(arena, Term::byte_string(arena, arena.alloc([0x01])))
+            .apply(arena, singleton_value_fixture(arena))
+    }
+
+    fn union_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::union_value(arena).apply(arena, singleton_value_fixture(arena)).apply(arena, empty_value_fixture(arena))
+    }
+
+    fn value_contains_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::value_contains(arena)
+            .apply(arena, singleton_value_fixture(arena))
+            .apply(arena, singleton_value_fixture(arena))
+    }
+
+    fn value_data_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::value_data(arena).apply(arena, singleton_value_fixture(arena))
+    }
+
+    fn un_value_data_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::un_value_data(arena).apply(arena, singleton_value_data_fixture(arena))
+    }
+
+    fn scale_value_fixture<'a>(arena: &'a Arena) -> &'a Term<'a, DeBruijn> {
+        Term::scale_value(arena).apply(arena, Term::integer_from(arena, 2)).apply(arena, singleton_value_fixture(arena))
     }
 
     #[test]
     fn add_integer() {
         let arena = Arena::new();
 
+        let version = MachineVersion::V1_1_0;
+
         let term = Term::add_integer(&arena)
             .apply(&arena, Term::integer_from(&arena, 1))
             .apply(&arena, Term::integer_from(&arena, 3));
 
-        let version = Version::plutus_v3(&arena);
-
         let program = Program::<DeBruijn>::new(&arena, version, term);
 
-        let result = program.eval(&arena);
+        let result = program.eval_default(&arena);
 
         assert_eq!(result.term.unwrap(), Term::integer_from(&arena, 4));
     }
@@ -67,6 +193,8 @@ mod tests {
     #[test]
     fn fibonacci() {
         let arena = &Arena::new();
+
+        let version = MachineVersion::V1_1_0;
 
         let double_force = Term::var(arena, DeBruijn::new(arena, 1))
             .apply(arena, Term::var(arena, DeBruijn::new(arena, 1)))
@@ -147,11 +275,9 @@ mod tests {
             .lambda(arena, DeBruijn::zero(arena))
             .apply(arena, Term::integer_from(arena, 15));
 
-        let version = Version::plutus_v3(arena);
-
         let program = Program::new(arena, version, term);
 
-        let result = program.eval(arena);
+        let result = program.eval_default(arena);
 
         assert_eq!(result.term.unwrap(), Term::integer_from(arena, 610));
     }
@@ -163,140 +289,89 @@ mod tests {
         // Its costs should be identical regardless of protocol_version since they
         // are always included in the base key section.
         let arena = Arena::new();
-        let costs = default_v3_cost_model();
+
+        let version = MachineVersion::V1_1_0;
 
         let term = Term::add_integer(&arena)
             .apply(&arena, Term::integer_from(&arena, 1))
             .apply(&arena, Term::integer_from(&arena, 3));
-        let version = Version::plutus_v3(&arena);
+
         let program = Program::<DeBruijn>::new(&arena, version, term);
 
-        let r9 = program.eval_with_params(&arena, PlutusVersion::V3, (9, 0), &costs, ExBudget::default());
-        let r10 = program.eval_with_params(&arena, PlutusVersion::V3, (10, 0), &costs, ExBudget::default());
-        let r11 = program.eval_with_params(&arena, PlutusVersion::V3, (11, 0), &costs, ExBudget::default());
+        let costs = CostModel::DEFAULT_V3;
 
-        // All three should produce the correct result
-        assert_eq!(r9.term.unwrap(), Term::integer_from(&arena, 4));
+        let r10 =
+            program.eval(&arena, CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs), ExBudget::default());
+
+        let r11 =
+            program.eval(&arena, CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs), ExBudget::default());
+
+        // All should produce the correct result
         assert_eq!(r10.term.unwrap(), Term::integer_from(&arena, 4));
         assert_eq!(r11.term.unwrap(), Term::integer_from(&arena, 4));
 
         // Base builtin budgets should be identical regardless of protocol version
-        assert_eq!(r9.info.consumed_budget, r10.info.consumed_budget);
         assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
     }
 
-    #[test]
-    fn eval_with_params_plomin_builtin_succeeds_at_protocol_v10() {
-        // ripemd_160 is a Plomin builtin. With protocol_version >= 10,
-        // PLOMIN_KEYS are included in the cost map so the real costs apply.
+    #[test_case(exp_mod_integer_fixture; "exp_mod_integer")]
+    #[test_case(drop_list_fixture; "drop_list")]
+    #[test_case(length_of_array_fixture; "length_of_array")]
+    #[test_case(list_to_array_fixture; "list_to_array")]
+    #[test_case(index_array_fixture; "index_array")]
+    #[test_case(bls12_381_g1_multi_scalar_mul_fixture; "bls12_381_g1_multi_scalar_mul")]
+    #[test_case(bls12_381_g2_multi_scalar_mul_fixture; "bls12_381_g2_multi_scalar_mul")]
+    #[test_case(insert_coin_fixture; "insert_coin")]
+    #[test_case(lookup_coin_fixture; "lookup_coin")]
+    #[test_case(union_value_fixture; "union_value")]
+    #[test_case(value_contains_fixture; "value_contains")]
+    #[test_case(value_data_fixture; "value_data")]
+    #[test_case(un_value_data_fixture; "un_value_data")]
+    #[test_case(scale_value_fixture; "scale_value")]
+    fn cannot_parse_v10_programs_using_pre_v11_builtins(
+        term: impl for<'a> FnOnce(&'a Arena) -> &'a Term<'a, DeBruijn>,
+    ) {
         let arena = Arena::new();
-        let costs = default_v3_cost_model();
 
-        let term = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b"test"));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
+        let version = MachineVersion::V1_1_0;
 
-        let result = program.eval_with_params(&arena, PlutusVersion::V3, (10, 0), &costs, ExBudget::default());
+        let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
-        assert!(result.term.is_ok(), "post-Plomin ripemd_160 should succeed with real costs");
+        assert!(
+            flat::decode::<DeBruijn>(&arena, &flat::encode::<DeBruijn>(program).unwrap(), PROTOCOL_VERSION_10,)
+                .is_err(),
+            "builtin introduced in v11 should not be decoded successfully in v10"
+        );
     }
 
-    #[test]
-    fn eval_with_params_plomin_builtin_exceeds_budget_at_protocol_v9() {
-        // With protocol_version < 10, PLOMIN_KEYS are NOT included. The ripemd_160
-        // cost keys are absent from the map, so the cost model falls back to the
-        // sentinel value (30_000_000_000) which exceeds the default budget.
+    #[test_case(exp_mod_integer_fixture; "exp_mod_integer")]
+    #[test_case(drop_list_fixture; "drop_list")]
+    #[test_case(length_of_array_fixture; "length_of_array")]
+    #[test_case(list_to_array_fixture; "list_to_array")]
+    #[test_case(index_array_fixture; "index_array")]
+    #[test_case(bls12_381_g1_multi_scalar_mul_fixture; "bls12_381_g1_multi_scalar_mul")]
+    #[test_case(bls12_381_g2_multi_scalar_mul_fixture; "bls12_381_g2_multi_scalar_mul")]
+    #[test_case(insert_coin_fixture; "insert_coin")]
+    #[test_case(lookup_coin_fixture; "lookup_coin")]
+    #[test_case(union_value_fixture; "union_value")]
+    #[test_case(value_contains_fixture; "value_contains")]
+    #[test_case(value_data_fixture; "value_data")]
+    #[test_case(un_value_data_fixture; "un_value_data")]
+    #[test_case(scale_value_fixture; "scale_value")]
+    fn can_parse_and_evaluate_v11_programs_with_v11_builtins(
+        term: impl for<'a> FnOnce(&'a Arena) -> &'a Term<'a, DeBruijn>,
+    ) {
         let arena = Arena::new();
-        let costs = default_v3_cost_model();
 
-        let term = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b"test"));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
+        let version = MachineVersion::V1_1_0;
 
-        let result = program.eval_with_params(&arena, PlutusVersion::V3, (9, 0), &costs, ExBudget::default());
+        let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
-        assert!(result.term.is_err(), "pre-Plomin ripemd_160 should fail: sentinel costs exceed budget");
-    }
+        assert!(
+            flat::decode::<DeBruijn>(&arena, &flat::encode::<DeBruijn>(program).unwrap(), PROTOCOL_VERSION_11,).is_ok(),
+            "builtin introduced in v11 should be decoded successfully in v11"
+        );
 
-    #[test]
-    fn eval_with_params_plomin_builtin_different_budget_by_protocol_version() {
-        // The same ripemd_160 program with protocol_version 10 vs 11 should both
-        // succeed, but protocol_version 11 also adds PV11_KEYS. Since the cost
-        // array only has 297 values (base + Plomin), PV11 keys get no values and
-        // fall back to sentinel. The ripemd_160 cost itself is the same in both
-        // cases because it's in PLOMIN_KEYS which are included at both PV 10 and 11.
-        let arena = Arena::new();
-        let costs = default_v3_cost_model();
-
-        let term = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b"test"));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let r10 = program.eval_with_params(&arena, PlutusVersion::V3, (10, 0), &costs, ExBudget::default());
-        let r11 = program.eval_with_params(&arena, PlutusVersion::V3, (11, 0), &costs, ExBudget::default());
-
-        assert!(r10.term.is_ok());
-        assert!(r11.term.is_ok());
-
-        // ripemd_160 cost should be identical at PV 10 and 11 (same PLOMIN keys)
-        assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
-    }
-
-    #[test]
-    fn eval_with_params_pv11_builtin_exceeds_budget_pre_pv11() {
-        let arena = Arena::new();
-        let costs = default_v3_cost_model();
-
-        let term = Term::<DeBruijn>::exp_mod_integer(&arena)
-            .apply(&arena, Term::integer_from(&arena, 2))
-            .apply(&arena, Term::integer_from(&arena, 3))
-            .apply(&arena, Term::integer_from(&arena, 5));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let r9 = program.eval_with_params(&arena, PlutusVersion::V3, (9, 0), &costs, ExBudget::default());
-        let r10 = program.eval_with_params(&arena, PlutusVersion::V3, (10, 0), &costs, ExBudget::default());
-
-        assert!(r9.term.is_err(), "pre-PV11 exp_mod_integer should fail: sentinel costs exceed budget");
-        assert!(r10.term.is_err(), "pre-PV11 exp_mod_integer should fail: sentinel costs exceed budget");
-    }
-
-    #[test]
-    fn eval_with_params_pv11_builtin_succeeds_at_pv11() {
-        let arena = Arena::new();
-        let mut costs = default_v3_cost_model();
-        costs.extend(default_pv11_cost_values());
-
-        let term = Term::<DeBruijn>::exp_mod_integer(&arena)
-            .apply(&arena, Term::integer_from(&arena, 2))
-            .apply(&arena, Term::integer_from(&arena, 3))
-            .apply(&arena, Term::integer_from(&arena, 5));
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let r11 = program.eval_with_params(&arena, PlutusVersion::V3, (11, 0), &costs, ExBudget::default());
-
-        assert_eq!(r11.term.unwrap(), Term::integer_from(&arena, 3));
-    }
-
-    #[test]
-    fn eval_with_params_plomin_and_pv11_builtins_in_same_program() {
-        let arena = Arena::new();
-        let mut costs = default_v3_cost_model();
-        costs.extend(default_pv11_cost_values());
-
-        let ripemd = Term::<DeBruijn>::ripemd_160(&arena).apply(&arena, Term::byte_string(&arena, b""));
-        let exp_mod = Term::<DeBruijn>::exp_mod_integer(&arena)
-            .apply(&arena, Term::integer_from(&arena, 2))
-            .apply(&arena, Term::integer_from(&arena, 3))
-            .apply(&arena, Term::integer_from(&arena, 5));
-
-        let term = exp_mod.lambda(&arena, DeBruijn::zero(&arena)).apply(&arena, ripemd);
-        let version = Version::plutus_v3(&arena);
-        let program = Program::<DeBruijn>::new(&arena, version, term);
-
-        let result = program.eval_with_params(&arena, PlutusVersion::V3, (11, 0), &costs, ExBudget::default());
-
-        assert_eq!(result.term.unwrap(), Term::integer_from(&arena, 3));
+        assert!(dbg!(program.eval_default(&arena).term.is_ok()))
     }
 }

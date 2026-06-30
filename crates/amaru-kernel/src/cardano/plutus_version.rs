@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use amaru_uplc::machine::PlutusVersion;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum PlutusVersion {
+    V1,
+    V2,
+    #[default]
+    V3,
+}
 
 // TODO: Unify with amaru-plutus::plutus_data::{IsKnownPlutusVersion} #[doc(hidden)]
 #[doc(hidden)]

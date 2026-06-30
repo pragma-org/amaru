@@ -12,27 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::PlutusVersion;
+
 use crate::{
     arena::Arena,
     binder::Eval,
-    machine::{
-        BuiltinSemantics, CostModel, EvalResult, ExBudget, Machine, PlutusVersion,
-        cost_model::builtin_costs::{
-            BuiltinCostModel, builtin_costs_v1::BuiltinCostsV1, builtin_costs_v2::BuiltinCostsV2,
-            builtin_costs_v3::BuiltinCostsV3,
-        },
-    },
+    machine::{CostModel, EvalResult, ExBudget, Machine, MachineVersion},
     term::Term,
 };
 
 #[derive(Debug)]
 pub struct Program<'a, V> {
-    pub version: &'a Version<'a>,
+    pub version: MachineVersion,
     pub term: &'a Term<'a, V>,
 }
 
 impl<'a, V> Program<'a, V> {
-    pub fn new(arena: &'a Arena, version: &'a Version<'a>, term: &'a Term<'a, V>) -> &'a Self {
+    pub fn new(arena: &'a Arena, version: MachineVersion, term: &'a Term<'a, V>) -> &'a Self {
         let program = Program { version, term };
 
         arena.alloc(program)
@@ -49,113 +45,40 @@ impl<'a, V> Program<'a, V>
 where
     V: Eval<'a>,
 {
-    pub fn eval(&'a self, arena: &'a Arena) -> EvalResult<'a, V> {
-        self.eval_version(arena, PlutusVersion::V3)
-    }
-
-    /// Evaluate with explicit Plutus version
-    pub fn eval_version(&'a self, arena: &'a Arena, plutus_version: PlutusVersion) -> EvalResult<'a, V> {
-        self.eval_version_budget(arena, plutus_version, ExBudget::default())
-    }
-
-    pub fn eval_version_budget(
-        &'a self,
-        arena: &'a Arena,
-        plutus_version: PlutusVersion,
-        initial_budget: ExBudget,
-    ) -> EvalResult<'a, V> {
-        match plutus_version {
-            PlutusVersion::V1 => {
-                self.evaluate(arena, CostModel::<BuiltinCostsV1>::default(), plutus_version, initial_budget)
-            }
-            PlutusVersion::V2 => {
-                self.evaluate(arena, CostModel::<BuiltinCostsV2>::default(), plutus_version, initial_budget)
-            }
-            PlutusVersion::V3 => {
-                self.evaluate(arena, CostModel::<BuiltinCostsV3>::default(), plutus_version, initial_budget)
-            }
-        }
-    }
-
-    fn evaluate<B: BuiltinCostModel>(
-        &'a self,
-        arena: &'a Arena,
-        cost_model: CostModel<B>,
-        plutus_version: PlutusVersion,
-        initial_budget: ExBudget,
-    ) -> EvalResult<'a, V> {
-        let mut machine =
-            Machine::new(arena, initial_budget, cost_model, BuiltinSemantics::from(&plutus_version), *self.version);
+    /// Evaluate a program for the given `CostModel` and budget.
+    pub fn eval(&'a self, arena: &'a Arena, cost_model: CostModel, budget: ExBudget) -> EvalResult<'a, V> {
+        let mut machine = Machine::new(arena, budget, cost_model, self.version);
         let term = machine.run(self.term);
         let info = machine.info();
         EvalResult { term, info }
     }
 
-    pub fn eval_with_params(
+    /// Evaluate with default (most recent) parameters.
+    pub fn eval_default(&'a self, arena: &'a Arena) -> EvalResult<'a, V> {
+        self.eval_version(arena, PlutusVersion::default())
+    }
+
+    /// Evaluate with explicit Plutus version but default budget. This uses the latest/default semantics.
+    pub fn eval_version(&'a self, arena: &'a Arena, plutus_version: PlutusVersion) -> EvalResult<'a, V> {
+        self.eval_version_budget(arena, plutus_version, ExBudget::default())
+    }
+
+    /// Evaluate with explicit Plutus version and budget, but default cost models for the given
+    /// version. This uses the latest/default semantics.
+    pub fn eval_version_budget(
         &'a self,
         arena: &'a Arena,
         plutus_version: PlutusVersion,
-        protocol_version: (u64, u64),
-        cost_model: &[i64],
-        initial_budget: ExBudget,
+        budget: ExBudget,
     ) -> EvalResult<'a, V> {
-        match plutus_version {
-            PlutusVersion::V1 => self.evaluate(
-                arena,
-                CostModel::<BuiltinCostsV1>::initialize_cost_model(&plutus_version, protocol_version, cost_model),
-                plutus_version,
-                initial_budget,
-            ),
-            PlutusVersion::V2 => self.evaluate(
-                arena,
-                CostModel::<BuiltinCostsV2>::initialize_cost_model(&plutus_version, protocol_version, cost_model),
-                plutus_version,
-                initial_budget,
-            ),
-            PlutusVersion::V3 => self.evaluate(
-                arena,
-                CostModel::<BuiltinCostsV3>::initialize_cost_model(&plutus_version, protocol_version, cost_model),
-                plutus_version,
-                initial_budget,
-            ),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Version<'a>(&'a (usize, usize, usize));
-
-impl<'a> Version<'a> {
-    pub fn new(arena: &'a Arena, major: usize, minor: usize, patch: usize) -> &'a mut Self {
-        let version = arena.alloc((major, minor, patch));
-
-        arena.alloc(Version(version))
-    }
-
-    pub fn plutus_v1(arena: &'a Arena) -> &'a mut Self {
-        Self::new(arena, 1, 0, 0)
-    }
-
-    pub fn plutus_v2(arena: &'a Arena) -> &'a mut Self {
-        Self::new(arena, 1, 0, 0)
-    }
-
-    pub fn plutus_v3(arena: &'a Arena) -> &'a mut Self {
-        Self::new(arena, 1, 1, 0)
-    }
-    pub fn is_constr_case_available(&'a self) -> bool {
-        self.0.0 >= 1 && self.0.1 >= 1
-    }
-
-    pub fn major(&'a self) -> usize {
-        self.0.0
-    }
-
-    pub fn minor(&'a self) -> usize {
-        self.0.1
-    }
-
-    pub fn patch(&'a self) -> usize {
-        self.0.2
+        self.eval(
+            arena,
+            match plutus_version {
+                PlutusVersion::V1 => CostModel::v1(),
+                PlutusVersion::V2 => CostModel::v2(),
+                PlutusVersion::V3 => CostModel::v3(),
+            },
+            budget,
+        )
     }
 }
