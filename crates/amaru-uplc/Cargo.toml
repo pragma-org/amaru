@@ -12,6 +12,7 @@ documentation.workspace = true
 publish = false
 
 [build-dependencies]
+indoc.workspace = true
 walkdir.workspace = true
 
 [dependencies]

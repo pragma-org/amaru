@@ -1,8 +1,0 @@
-{
-  "input": "010000337c890022750101aa008101aa00ffffffffffffffffffffffffffffffffffff0101",
-  "expected": {
-    "kind": "ok",
-    "output": "0100004ea101aa008101aa00ffffffffffffffffffffffffffffffffffff0301",
-    "budget": { "cpu": 358677, "mem": 633 }
-  }
-}

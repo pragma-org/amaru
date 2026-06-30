@@ -525,6 +525,7 @@ dependencies = [
  "divan",
  "hamming",
  "hex",
+ "indoc",
  "insta",
  "itertools 0.14.0",
  "minicbor",

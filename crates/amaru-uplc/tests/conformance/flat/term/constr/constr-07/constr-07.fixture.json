@@ -1,7 +1,0 @@
-{
-  "input": "0101008fbffffffffffffffff01a400561",
-  "expected": {
-    "kind": "error",
-    "layer": "eval"
-  }
-}

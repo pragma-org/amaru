@@ -21,7 +21,7 @@ use crate::{
     term::Term,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Program<'a, V> {
     pub version: MachineVersion,
     pub term: &'a Term<'a, V>,
