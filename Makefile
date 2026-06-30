@@ -122,7 +122,7 @@ serve-traces-doc: generate-traces-doc ## &build Regenerate traces docs and serve
 	@python3 -m http.server $(TRACES_PORT) --directory docs
 
 validate-trace-schemas: ## &test Validate generated trace schemas against docs/traces-schema.json
-	@cargo run --bin amaru --quiet -- dump-traces-schema 2> /tmp/schemas-current.json
+	@cargo run --quiet --bin amaru -- dump-traces-schema 2> /tmp/schemas-current.json
 	@./scripts/unused-schemas
 	@set -eu; \
 	jq -S 'walk(if type == "object" then del(.private) else . end)' docs/traces-schema.json > /tmp/expected.json; \
@@ -249,7 +249,7 @@ cli-assets: clean-dist  ## &dist Generate clap-derived man page and shell comple
 		printf 'Error: expected Amaru binary at %s; build it first or set AMARU_BIN\n' "$(abspath $(AMARU_BIN))" >&2; \
 		exit 1; \
 	fi
-	@"$(AMARU_BIN)" --quiet shell-completions --output-dir "$(DIST_DIR)"
+	@"$(AMARU_BIN)" shell-completions --output-dir "$(DIST_DIR)"
 	@if command -v tree >/dev/null 2>&1; then \
 		tree -h "$(DIST_DIR)"; \
 	else \

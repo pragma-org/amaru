@@ -44,12 +44,12 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru-ledger**: redesign the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][])
-- **amaru-ledger**: fully encapsulate the `StateOverlay` inside of `VolatileDB` ([#983][])
+- **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][], [#983][])
 
 ### Fixed
 
 - **amaru-uplc**: make cost models semantics-aware and cleanup various parts and exposed API for in the UPLC crate ([#988][])
+- **amaru**: remove the `--quiet` flag occurences in CI & scripts; silence can be obtained by setting `AMARU_LOG=off` already ([#981][]).
 
 ## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
 
@@ -101,5 +101,6 @@ Other guiding principles:
 [#963]: https://github.com/pragma-org/amaru/pull/963
 [#973]: https://github.com/pragma-org/amaru/pull/973
 [#975]: https://github.com/pragma-org/amaru/pull/975
+[#981]: https://github.com/pragma-org/amaru/pull/981
 [#983]: https://github.com/pragma-org/amaru/pull/983
 [#988]: https://github.com/pragma-org/amaru/pull/988
