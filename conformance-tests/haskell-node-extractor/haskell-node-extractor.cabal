@@ -59,40 +59,25 @@ library
       OverloadedStrings
       TypeApplications
   build-depends:
-      async
-    , aeson
+      aeson
     , aeson-pretty
     , base >=4.7 && <5
     , base16
-    , base58-bytestring
-    , bytestring
-    , cardano-ledger-allegra
-    , cardano-ledger-alonzo
     , cardano-ledger-api
-    , cardano-ledger-babbage
-    , cardano-ledger-binary
     , cardano-ledger-byron
-    , cardano-ledger-conway
     , cardano-ledger-core
-    , cardano-ledger-mary
     , cardano-ledger-shelley
-    , cardano-protocol-tpraos
     , cardano-slotting
     , cardano-strict-containers
     , containers
     , directory
     , filepath
     , fs-api
-    , io-classes
-    , io-sim
-    , mtl
     , microlens
     , optparse-applicative
     , ouroboros-consensus:{ouroboros-consensus, cardano, protocol}
     , relude
     , serialise
-    , text
-    , vector
     , vector-map
 
 executable haskell-node-extractor
