@@ -103,7 +103,7 @@ mergeDelegations dReps dRepDelegations =
             case drep of
                 DRepAlwaysAbstain        -> Just (setDelegators delegators (predefinedDRep drep mempty))
                 DRepAlwaysNoConfidence   -> Just (setDelegators delegators (predefinedDRep drep mempty))
-                _                        -> Nothing)
+                _                        -> error ("DRep has delegation but not stake or state: " <> show drep))
         (Merge.zipWithMatched $ \_ delegateRepresentative delegators -> setDelegators delegators delegateRepresentative)
         dReps
         dRepDelegations
