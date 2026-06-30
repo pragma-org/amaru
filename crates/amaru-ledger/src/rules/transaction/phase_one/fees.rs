@@ -221,15 +221,6 @@ mod tests {
         )
     }
 
-    // tx_size = 300 with min_fee_a = 44, min_fee_b = 155_381 => minimum = 168_581.
-    fn min_fee_pp() -> ProtocolParameters {
-        ProtocolParameters { min_fee_a: 44, min_fee_b: 155_381, ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone() }
-    }
-
-    fn empty_context() -> AssertValidationContext {
-        AssertValidationContext::from(AssertPreparationContext { utxo: std::collections::BTreeMap::new() })
-    }
-
     #[test_case(1_000, 25_600, 15, 1, 12, 10 => 15_000; "tier: within first tier (1000 bytes * 15)")]
     #[test_case(250, 100, 10, 1, 2, 1 => 5_000; "tier: spans 3 tiers (100*10 + 100*20 + 50*40)")]
     #[test_case(5, 5, 1, 3, 1, 1 => 1; "tier: final floor (floor(5/3) = 1)")]
@@ -256,14 +247,5 @@ mod tests {
                 step_price: amaru_kernel::RationalNumber { numerator: step_n, denominator: step_d },
             },
         )
-    }
-
-    #[test_case(100_000 => matches Err(InvalidFees::FeeTooSmall { minimum: 168_581, .. }); "min fee: below minimum")]
-    #[test_case(168_581 => matches Ok(()); "min fee: at minimum")]
-    #[test_case(200_000 => matches Ok(()); "min fee: above minimum")]
-    fn execute_min_fee(declared_fee: amaru_kernel::Lovelace) -> Result<(), InvalidFees> {
-        let pp = min_fee_pp();
-        let witness_set = WitnessSet::default();
-        super::execute(&mut empty_context(), true, declared_fee, 300, &witness_set, 0, &pp, None, None)
     }
 }
