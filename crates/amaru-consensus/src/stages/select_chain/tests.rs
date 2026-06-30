@@ -364,6 +364,38 @@ fn test_block_validation_result_valid() {
 }
 
 #[test]
+fn test_block_validation_result_valid_prunes_fully_validated_chains() {
+    let mut prep = test_prep();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
+    prep.state.tips = BTreeMap::from_iter([
+        (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
+        (prep.headers.h2a.hash(), vec![prep.headers.h2a.hash()]),
+    ]);
+    prep.store_headers(&prep.headers.all());
+    let tip = prep.headers.h2a.tip();
+    let msg = SelectChainMsg::BlockValidationResult(tip, true);
+
+    // Validating h2a empties the fork's chain; since it is not the current best tip,
+    // the now-dead entry is removed
+    let expected = SelectChain {
+        tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]),
+        ..prep.state.clone()
+    };
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &msg),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), true),
+            te_state("sc-1", &expected),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
 fn test_block_validation_result_invalid_best_tip_invalidated() {
     let mut prep = test_prep();
     prep.state.best_tip = Some(prep.headers.h3.clone());

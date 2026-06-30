@@ -64,7 +64,8 @@ use crate::effects::FindBestCandidate;
 /// - **BlockValidationResult(point: Tip, valid: bool)**:
 ///   - Terminates (error) if header not present in store.
 ///   - Persists the validity result via `set_block_valid` (terminates on store error).
-///   - If `valid`: for every pending chain, drains the prefix up through the now-validated hash (advances all branches).
+///   - If `valid`: for every pending chain, drains the prefix up through the now-validated hash (advances all branches),
+///     then drops any branch that is now fully validated, except the current `best_tip` (kept so it can still be extended).
 ///   - If `!valid`: prunes every `tips` entry whose first (unvalidated) element is this hash; `removed` count logged at warn if >0.
 ///     If the current `best_tip` is no longer present in `tips` (i.e., its branch was pruned): logs "best tip candidate invalidated",
 ///     calls `eff.external(FindBestCandidate)`, and on success (non-origin): loads the new header + parent point,
@@ -209,10 +210,15 @@ impl SelectChain {
 
         if valid {
             let h = tip.hash();
-            self.tips.values_mut().for_each(|v| {
-                if let Some(idx) = v.iter().position(|hash| hash == &h) {
-                    v.drain(0..=idx);
+            // Advance every pending chain past the now-validated block, then drop any branch
+            // that is now fully validated.
+            // The current best tip is always retained so it can still be extended.
+            let best = self.best_tip.as_ref().map(|header| header.hash());
+            self.tips.retain(|tip_hash, chain| {
+                if let Some(idx) = chain.iter().position(|hash| hash == &h) {
+                    chain.drain(0..=idx);
                 }
+                !chain.is_empty() || best.as_ref() == Some(tip_hash)
             });
             return;
         }
