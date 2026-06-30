@@ -1,0 +1,45 @@
+name: bootstrap-db
+
+description: Restore or create Amaru bootstrap DBs for a given network
+
+inputs:
+  network:
+    description: Network name (preprod, preview, mainnet)
+    required: true
+  # Bump this version whenever the ledger or chain store serialisation format
+  # changes and the cached databases become incompatible.
+  # This is the single source of truth for the bootstrap cache key version.
+  cache-version:
+    description: Cache key version
+    required: false
+    default: "v13"
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Amaru bootstrap DBs
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ./ledger.${{ inputs.network }}.db
+          ./chain.${{ inputs.network }}.db
+        # If the ledger or chain store serialisation format changes and become
+        # incompatible, it is necessary to bump the index below to invalidate
+        # the cached bootstrap databases and recompute them from scratch
+        # (i.e. Full bootstrap below).
+        key: bootstrap-state-${{ runner.os }}-${{ inputs.network }}-${{ inputs.cache-version }}
+
+    - name: Bootstrap Amaru from scratch
+      if: steps.cache-restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: make bootstrap
+
+    - name: Save bootstrap DBs to cache
+      if: steps.cache-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v5
+      with:
+        path: |
+          ./ledger.${{ inputs.network }}.db
+          ./chain.${{ inputs.network }}.db
+        key: bootstrap-state-${{ runner.os }}-${{ inputs.network }}-${{ inputs.cache-version }}
