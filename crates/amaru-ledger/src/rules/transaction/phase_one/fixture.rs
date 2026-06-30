@@ -80,6 +80,7 @@ pub(super) enum Predicate {
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
     ConflictingMetadataHash,
+    ConwayTxRefScriptsSizeTooBig,
     InputSetEmptyUTxO,
     InvalidWitnessesUTXOW,
     MaxTxSizeUTxO,
@@ -116,6 +117,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::EmptyInputSet) => Predicate::InputSetEmptyUTxO,
             PhaseOneError::Inputs(InvalidInputs::UnknownInput(_)) => Predicate::BadInputsUTxO,
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
+            PhaseOneError::Inputs(InvalidInputs::RefScriptSizeTooBig { .. }) => Predicate::ConwayTxRefScriptsSizeTooBig,
             PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
