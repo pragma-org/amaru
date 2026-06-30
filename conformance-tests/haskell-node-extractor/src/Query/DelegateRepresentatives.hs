@@ -23,17 +23,6 @@ import Cardano.Ledger.Compactible
 import Cardano.Ledger.Credential
     ( Credential
     )
-import Cardano.Ledger.DRep
-    ( DRep
-        ( DRepAlwaysAbstain
-        , DRepAlwaysNoConfidence
-        )
-    , DRepState
-        ( drepDeposit
-        , drepExpiry
-        )
-    , credToDRep
-    )
 import Cardano.Ledger.Keys
     ( KeyRole (..)
     )
@@ -41,7 +30,7 @@ import Cardano.Ledger.Shelley.LedgerState
     ( NewEpochState
     )
 import Data.DelegateRepresentative
-    ( DelegateRepresentative (..)
+    ( DRep (..)
     , PredefinedDRep (..)
     , RegisteredDRep (..)
     )
@@ -55,12 +44,13 @@ import Ouroboros.Consensus.Cardano.Block
 import qualified Data.Map.Merge.Strict as Merge
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Cardano.Ledger.DRep as Ledger
 
 delegateRepresentativesOutputPath :: Word64 -> FilePath
 delegateRepresentativesOutputPath epochNumber =
     "dreps/" <> toString (show epochNumber :: Text) <> ".json"
 
-queryDelegateRepresentatives :: NewEpochState ConwayEra -> [DelegateRepresentative]
+queryDelegateRepresentatives :: NewEpochState ConwayEra -> [DRep]
 queryDelegateRepresentatives newEpochState =
     Map.elems $
         mergeDelegations
@@ -72,7 +62,7 @@ queryDelegateRepresentatives newEpochState =
   where
     registeredDRepStates =
         Map.fromList
-            [ (credToDRep credential, (credential, st))
+            [ (Ledger.credToDRep credential, (credential, st))
             | (credential, st) <- Map.toList (queryDRepState newEpochState Set.empty)
             ]
     dRepStakeDistribution =
@@ -81,9 +71,9 @@ queryDelegateRepresentatives newEpochState =
         queryDRepDelegations newEpochState Set.empty
 
 mergeStateAndStake
-    :: Map.Map DRep (Credential DRepRole, DRepState)
-    -> Map.Map DRep Coin
-    -> Map.Map DRep DelegateRepresentative
+    :: Map.Map Ledger.DRep (Credential DRepRole, Ledger.DRepState)
+    -> Map.Map Ledger.DRep Coin
+    -> Map.Map Ledger.DRep DRep
 mergeStateAndStake dRepStates dRepStakes =
     Merge.merge
         (Merge.mapMissing $ \_ (credential, dRepState) -> registeredDRep credential dRepState mempty)
@@ -93,29 +83,29 @@ mergeStateAndStake dRepStates dRepStakes =
         dRepStakes
 
 mergeDelegations
-    :: Map.Map DRep DelegateRepresentative
-    -> Map.Map DRep (Set.Set (Credential Staking))
-    -> Map.Map DRep DelegateRepresentative
+    :: Map.Map Ledger.DRep DRep
+    -> Map.Map Ledger.DRep (Set.Set (Credential Staking))
+    -> Map.Map Ledger.DRep DRep
 mergeDelegations dReps dRepDelegations =
     Merge.merge
         (Merge.mapMissing $ \_ -> identity)
         (Merge.mapMaybeMissing $ \drep delegators ->
             case drep of
-                DRepAlwaysAbstain        -> Just (setDelegators delegators (predefinedDRep drep mempty))
-                DRepAlwaysNoConfidence   -> Just (setDelegators delegators (predefinedDRep drep mempty))
+                Ledger.DRepAlwaysAbstain      -> Just (setDelegators delegators (predefinedDRep drep mempty))
+                Ledger.DRepAlwaysNoConfidence -> Just (setDelegators delegators (predefinedDRep drep mempty))
                 _                        -> error ("DRep has delegation but not stake or state: " <> show drep))
         (Merge.zipWithMatched $ \_ delegateRepresentative delegators -> setDelegators delegators delegateRepresentative)
         dReps
         dRepDelegations
 
 predefinedDRep
-    :: DRep
+    :: Ledger.DRep
     -> Coin
-    -> DelegateRepresentative
+    -> DRep
 predefinedDRep dRep stake = case dRep of
-    DRepAlwaysAbstain ->
+    Ledger.DRepAlwaysAbstain ->
         AbstainDelegateRepresentative predefined
-    DRepAlwaysNoConfidence ->
+    Ledger.DRepAlwaysNoConfidence ->
         NoConfidenceDelegateRepresentative predefined
     _ ->
         error ("Registered DRep unexpectedly missing from queryDRepState results: " <> show dRep)
@@ -124,23 +114,23 @@ predefinedDRep dRep stake = case dRep of
 
 registeredDRep
     :: Credential DRepRole
-    -> DRepState
+    -> Ledger.DRepState
     -> Coin
-    -> DelegateRepresentative
+    -> DRep
 registeredDRep credential dRepState stake =
     RegisteredDelegateRepresentative
         RegisteredDRep
             { credential
-            , mandate = Mandate (drepExpiry dRepState)
-            , deposit = fromCompact (drepDeposit dRepState)
+            , mandate = Mandate (Ledger.drepExpiry dRepState)
+            , deposit = fromCompact (Ledger.drepDeposit dRepState)
             , stake
             , delegators = Set.empty
             }
 
 setDelegators
     :: Set.Set (Credential Staking)
-    -> DelegateRepresentative
-    -> DelegateRepresentative
+    -> DRep
+    -> DRep
 setDelegators delegators = \case
     RegisteredDelegateRepresentative RegisteredDRep{credential, deposit, mandate, stake} ->
         RegisteredDelegateRepresentative RegisteredDRep{credential, mandate, deposit, stake, delegators}

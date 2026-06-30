@@ -1,4 +1,4 @@
-module Command.ExtractSnapshot
+module Command.StakeDistribution
     ( Error (..)
     , Options (..)
     , optionsParser
@@ -6,14 +6,14 @@ module Command.ExtractSnapshot
     , run
     ) where
 
-import Command.ExtractSnapshot.Error
+import Command.StakeDistribution.Error
     ( Error (..)
     , renderError
     )
-import Command.ExtractSnapshot.Parse
+import Command.StakeDistribution.Parse
     ( Options (..)
     , optionsParser
     )
-import Command.ExtractSnapshot.Run
+import Command.StakeDistribution.Run
     ( run
     )

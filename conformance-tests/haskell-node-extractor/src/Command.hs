@@ -1,32 +1,11 @@
-{-# LANGUAGE NamedFieldPuns #-}
-
 module Command
     ( runCommandLine
     ) where
 
 import Relude
 
-import Command.ExtractSnapshot
-    ( ExtractSnapshotOptions (..)
-    , extractSnapshotOptionsParser
-    )
-import Data.Aeson
-    ( ToJSON
-    )
-import Data.Aeson.Encode.Pretty
-    ( encodePretty
-    )
-import Data.NetworkName
-    ( networkNameToNetwork
-    , networkNameToText
-    )
-import Error
-    ( AppError
-    , renderAppError
-    )
-import Genesis
-    ( networkToGenesis
-    )
+import qualified Command.ExtractSnapshot as ExtractSnapshot
+import qualified Command.StakeDistribution as StakeDistribution
 import Options.Applicative
     ( Parser
     , ParserInfo
@@ -38,96 +17,29 @@ import Options.Applicative
     , info
     , progDesc
     )
-import Query.DelegateRepresentatives
-    ( delegateRepresentativesOutputPath
-    , queryDelegateRepresentatives
-    )
-import Query.Nonces
-    ( noncesOutputPath
-    , queryNonces
-    )
-import Query.Pots
-    ( potsOutputPath
-    , queryPots
-    )
-import Query.Pools
-    ( poolsOutputPath
-    , queryPools
-    )
-import Query.RewardsProvenance
-    ( queryRewardsProvenance
-    , rewardsProvenanceOutputPath
-    )
-import Snapshot
-    ( LoadedSnapshot (..)
-    , loadSnapshot
-    )
-import System.Directory
-    ( createDirectoryIfMissing
-    )
-import System.FilePath
-    ( (</>)
-    , takeDirectory
-    )
 
 data Command
-    = ExtractSnapshot ExtractSnapshotOptions
+    = ExtractSnapshot ExtractSnapshot.Options
+    | StakeDistribution StakeDistribution.Options
 
 runCommandLine :: IO ()
 runCommandLine = do
     selectedCommand <- execParser commandParserInfo
-    result <- runExceptT (runCommand selectedCommand)
+    result <- runCommand selectedCommand
 
     case result of
-        Left appError -> do
-            putTextLn (renderAppError appError)
+        Left errorMessage -> do
+            putTextLn errorMessage
             exitFailure
         Right () ->
             pure ()
 
-runCommand :: Command -> ExceptT AppError IO ()
+runCommand :: Command -> IO (Either Text ())
 runCommand = \case
     ExtractSnapshot options ->
-        processSnapshot options
-
-processSnapshot :: ExtractSnapshotOptions -> ExceptT AppError IO ()
-processSnapshot options@ExtractSnapshotOptions{networkName, outputDir} = do
-    loadedSnapshot <- loadSnapshot options
-    let genesis = networkToGenesis networkName
-    let network = networkNameToNetwork networkName
-    let networkDir = outputDir </> toString (networkNameToText networkName)
-    let epochNumber = loadedSnapshotEpochNumber loadedSnapshot
-    let tipSlot = loadedSnapshotTipSlot loadedSnapshot
-    let pots = queryPots (loadedSnapshotState loadedSnapshot)
-    let potsPath = networkDir </> potsOutputPath epochNumber
-    let nonces = queryNonces (loadedSnapshotPraosState loadedSnapshot)
-    let noncesPath = networkDir </> noncesOutputPath epochNumber
-    let delegateRepresentatives = queryDelegateRepresentatives (loadedSnapshotState loadedSnapshot)
-    let delegateRepresentativesPath = networkDir </> delegateRepresentativesOutputPath epochNumber
-    let rewardsProvenance = queryRewardsProvenance genesis (loadedSnapshotState loadedSnapshot)
-    let rewardsProvenancePath = networkDir </> rewardsProvenanceOutputPath epochNumber
-    let pools = queryPools network (loadedSnapshotState loadedSnapshot)
-    let poolsPath = networkDir </> poolsOutputPath epochNumber
-
-    liftIO $ do
-        putTextLn
-            ( "Processing ledger state(epoch = "
-                <> show epochNumber
-                <> ", slot = "
-                <> show tipSlot
-                <> ")"
-            )
-        writeJsonOutput potsPath pots
-        writeJsonOutput noncesPath nonces
-        writeJsonOutput delegateRepresentativesPath delegateRepresentatives
-        writeJsonOutput rewardsProvenancePath rewardsProvenance
-        writeJsonOutput poolsPath pools
-
-writeJsonOutput :: ToJSON a => FilePath -> a -> IO ()
-writeJsonOutput outputPath jsonValue = do
-    putTextLn ("...extracting " <> toText outputPath)
-    createDirectoryIfMissing True (takeDirectory outputPath)
-    writeFileLBS outputPath (encodePretty jsonValue)
+        first ExtractSnapshot.renderError <$> runExceptT (ExtractSnapshot.run options)
+    StakeDistribution options ->
+        first StakeDistribution.renderError <$> runExceptT (StakeDistribution.run options)
 
 commandParserInfo :: ParserInfo Command
 commandParserInfo =
@@ -141,6 +53,12 @@ commandParser =
         command
             "extract"
             ( info
-                (ExtractSnapshot <$> extractSnapshotOptionsParser)
+                (ExtractSnapshot <$> ExtractSnapshot.optionsParser)
                 (progDesc "Read a ledger snapshot from disk")
             )
+            <> command
+                "stake-distribution"
+                ( info
+                    (StakeDistribution <$> StakeDistribution.optionsParser)
+                    (progDesc "Print a stake distribution snapshot as pretty JSON")
+                )

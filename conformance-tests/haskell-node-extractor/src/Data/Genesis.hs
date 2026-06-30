@@ -1,4 +1,4 @@
-module Genesis
+module Data.Genesis
     ( Genesis (..)
     , networkToGenesis
     ) where
@@ -36,21 +36,18 @@ data Genesis = Genesis
 networkToGenesis :: NetworkName -> Genesis
 networkToGenesis = \case
     Mainnet ->
-        -- TODO: Confirm these values against the intended mainnet genesis file.
         Genesis
             { epochSize = EpochSize 432000
             , maxSupply = Coin 45000000000000000
             , activeSlotCoeff = knownActiveSlotCoeff (1 % 20)
             }
     Preprod ->
-        -- TODO: Replace these placeholders with the preprod genesis values.
         Genesis
             { epochSize = EpochSize 432000
             , maxSupply = Coin 45000000000000000
             , activeSlotCoeff = knownActiveSlotCoeff (1 % 20)
             }
     Preview ->
-        -- TODO: Replace these placeholders with the preview genesis values.
         Genesis
             { epochSize = EpochSize 86400
             , maxSupply = Coin 45000000000000000
@@ -66,4 +63,4 @@ knownActiveSlotCoeff rationalValue =
             Just value ->
                 value
             Nothing ->
-                error "Invalid ActiveSlotCoeff placeholder in Genesis.networkToGenesis"
+                error "Invalid ActiveSlotCoeff placeholder in Data.Genesis.networkToGenesis"

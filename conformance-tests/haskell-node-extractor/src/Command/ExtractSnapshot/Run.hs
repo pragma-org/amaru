@@ -2,9 +2,10 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# OPTIONS_GHC -w #-}
 
-module Snapshot
+module Command.ExtractSnapshot.Run
     ( LoadedSnapshot (..)
     , loadSnapshot
+    , run
     ) where
 
 import Relude
@@ -24,11 +25,24 @@ import Cardano.Slotting.Slot
 import Codec.Serialise.Class
     ( decode
     )
-import Command.ExtractSnapshot
-    ( ExtractSnapshotOptions (..)
+import Command.ExtractSnapshot.Error
+    ( Error (SnapshotError)
+    )
+import Command.ExtractSnapshot.Parse
+    ( Options (..)
     )
 import Error
     ( AppError (..)
+    )
+import Data.Genesis
+    ( networkToGenesis
+    )
+import Data.NetworkName
+    ( networkNameToNetwork
+    , networkNameToText
+    )
+import Helpers.Json
+    ( writeJsonOutput
     )
 import Ouroboros.Consensus.Byron.Ledger
     ( CodecConfig (ByronCodecConfig)
@@ -90,6 +104,26 @@ import Ouroboros.Consensus.Shelley.Node.Serialisation
 import Ouroboros.Consensus.Storage.LedgerDB.Snapshots
     ( readExtLedgerState
     )
+import Query.DelegateRepresentatives
+    ( delegateRepresentativesOutputPath
+    , queryDelegateRepresentatives
+    )
+import Query.Nonces
+    ( noncesOutputPath
+    , queryNonces
+    )
+import Query.Pools
+    ( poolsOutputPath
+    , queryPools
+    )
+import Query.Pots
+    ( potsOutputPath
+    , queryPots
+    )
+import Query.RewardsProvenance
+    ( queryRewardsProvenance
+    , rewardsProvenanceOutputPath
+    )
 import System.Directory
     ( makeAbsolute
     )
@@ -120,8 +154,41 @@ data LoadedSnapshot = LoadedSnapshot
     , loadedSnapshotTipSlot :: !Word64
     }
 
-loadSnapshot :: ExtractSnapshotOptions -> ExceptT AppError IO LoadedSnapshot
-loadSnapshot ExtractSnapshotOptions{snapshotPath} = do
+run :: Options -> ExceptT Error IO ()
+run Options{networkName, outputDir, snapshotPath} = do
+    loadedSnapshot <- ExceptT (first SnapshotError <$> runExceptT (loadSnapshot snapshotPath))
+    let genesis = networkToGenesis networkName
+    let network = networkNameToNetwork networkName
+    let networkDir = outputDir </> toString (networkNameToText networkName)
+    let epochNumber = loadedSnapshotEpochNumber loadedSnapshot
+    let tipSlot = loadedSnapshotTipSlot loadedSnapshot
+    let pots = queryPots (loadedSnapshotState loadedSnapshot)
+    let potsPath = networkDir </> potsOutputPath epochNumber
+    let nonces = queryNonces (loadedSnapshotPraosState loadedSnapshot)
+    let noncesPath = networkDir </> noncesOutputPath epochNumber
+    let delegateRepresentatives = queryDelegateRepresentatives (loadedSnapshotState loadedSnapshot)
+    let delegateRepresentativesPath = networkDir </> delegateRepresentativesOutputPath epochNumber
+    let rewardsProvenance = queryRewardsProvenance genesis (loadedSnapshotState loadedSnapshot)
+    let rewardsProvenancePath = networkDir </> rewardsProvenanceOutputPath epochNumber
+    let pools = queryPools network (loadedSnapshotState loadedSnapshot)
+    let poolsPath = networkDir </> poolsOutputPath epochNumber
+
+    liftIO $ do
+        putTextLn
+            ( "Processing ledger state(epoch = "
+                <> show epochNumber
+                <> ", slot = "
+                <> show tipSlot
+                <> ")"
+            )
+        writeJsonOutput potsPath pots
+        writeJsonOutput noncesPath nonces
+        writeJsonOutput delegateRepresentativesPath delegateRepresentatives
+        writeJsonOutput rewardsProvenancePath rewardsProvenance
+        writeJsonOutput poolsPath pools
+
+loadSnapshot :: FilePath -> ExceptT AppError IO LoadedSnapshot
+loadSnapshot snapshotPath = do
     absoluteSnapshotPath <- liftIO (makeAbsolute snapshotPath)
     let filesystem = SomeHasFS (ioHasFS rootMountPoint :: HasFS IO HandleIO)
     let snapshotFsPath = toFsPath (absoluteSnapshotPath </> "state")

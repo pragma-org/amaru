@@ -18,17 +18,9 @@ import Cardano.Ledger.State
     )
 import Data.Aeson
     ( ToJSON (toJSON)
-    , object
-    , (.=)
-    )
-import Data.Aeson.Key
-    ( fromText
-    )
-import Data.Aeson.Types
-    ( Pair
     )
 import Data.PoolId
-    ( poolIdText
+    ( JsonPoolId (JsonPoolId)
     )
 import Data.PoolParameters
     ( JsonPoolParameters (JsonPoolParameters)
@@ -42,10 +34,8 @@ newtype Pools = Pools
 
 instance ToJSON Pools where
     toJSON (Pools pools) =
-        object (poolPairs pools)
-
-poolPairs :: Map.Map (KeyHash StakePool) StakePoolParams -> [Pair]
-poolPairs pools =
-    [ fromText (poolIdText poolId) .= JsonPoolParameters poolParameters
-    | (poolId, poolParameters) <- Map.toAscList pools
-    ]
+        toJSON
+            ( Map.map JsonPoolParameters
+                (Map.mapKeysMonotonic JsonPoolId pools)
+                :: Map.Map JsonPoolId JsonPoolParameters
+            )

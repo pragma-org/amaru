@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Data.RewardsProvenance
     ( RewardsProvenance (..)
@@ -8,77 +7,48 @@ module Data.RewardsProvenance
 
 import Relude
 
-import Cardano.Ledger.Coin
-    ( Coin
-    )
-import Cardano.Ledger.Hashes
-    ( KeyHash
-    )
-import Cardano.Ledger.Keys
-    ( KeyRole (..)
-    )
 import Data.Aeson
     ( ToJSON (toJSON)
-    , object
-    , (.=)
-    )
-import Data.Aeson.Key
-    ( fromText
-    )
-import Data.Aeson.Types
-    ( Pair
+    , genericToJSON
     )
 import Data.Coin
-    ( JsonCoin (JsonCoin)
+    ( JsonCoin
+    )
+import Helpers.Json
+    ( snakeCaseOptions
     )
 import Data.PoolId
-    ( poolIdText
+    ( JsonPoolId
     )
 import Data.PoolRewardsInfo
     ( PoolRewardsInfo
     )
 import Data.Rational
-    ( JsonRational (JsonRational)
+    ( JsonRational
     )
 
-import qualified Data.Map.Strict as Map
-
 data RewardsProvenance = RewardsProvenance
-    { totalStake :: !Coin
+    { totalStake :: !JsonCoin
       -- ^ The maximum Lovelace supply ('maxLL') less the current value of the reserves.
-    , activeStake :: !Coin
+    , activeStake :: !JsonCoin
       -- ^ The amount of Lovelace that is delegated during the given epoch.
-    , fees :: !Coin
+    , fees :: !JsonCoin
       -- ^ Fees collected for those rewards.
-    , incentives :: !Coin
+    , incentives :: !JsonCoin
       -- ^ The maximum amount of Lovelace which can be removed from the reserves
       -- to be given out as rewards for the given epoch. a.k.a ΔR1
-    , treasuryTax :: !Coin
+    , treasuryTax :: !JsonCoin
       -- ^ The amount of Lovelace taken from the treasury for the given epoch. a.k.a ΔT1
-    , totalRewards :: !Coin
+    , totalRewards :: !JsonCoin
       -- ^ The reward pot for the given epoch, equal to ΔR1 + fee pot
-    , efficiency :: !Rational
+    , efficiency :: !JsonRational
       -- ^ The ratio of the number of blocks actually made versus the number
       -- of blocks that were expected. a.k.a. η (eta)
-    , stakePools :: !(Map.Map (KeyHash StakePool) PoolRewardsInfo)
+    , stakePools :: !(Map JsonPoolId PoolRewardsInfo)
       -- ^ Stake pools specific information needed to compute the rewards for its members.
     }
+    deriving (Generic)
 
 instance ToJSON RewardsProvenance where
-    toJSON RewardsProvenance{totalStake, activeStake, fees, incentives, treasuryTax, totalRewards, efficiency, stakePools} =
-        object
-            [ "total_stake" .= JsonCoin totalStake
-            , "active_stake" .= JsonCoin activeStake
-            , "fees" .= JsonCoin fees
-            , "incentives" .= JsonCoin incentives
-            , "treasury_tax" .= JsonCoin treasuryTax
-            , "total_rewards" .= JsonCoin totalRewards
-            , "efficiency" .= JsonRational efficiency
-            , "stake_pools" .= object (stakePoolPairs stakePools)
-            ]
-
-stakePoolPairs :: Map.Map (KeyHash StakePool) PoolRewardsInfo -> [Pair]
-stakePoolPairs stakePools =
-    [ fromText (poolIdText poolId) .= poolRewardsInfo
-    | (poolId, poolRewardsInfo) <- Map.toAscList stakePools
-    ]
+    toJSON =
+        genericToJSON snakeCaseOptions

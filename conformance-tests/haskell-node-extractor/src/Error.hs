@@ -12,7 +12,6 @@ import Ouroboros.Consensus.Util.CBOR
 data AppError
     = SnapshotReadError !FilePath !ReadIncrementalErr
     | SnapshotHasNoTip !FilePath
-    | InvalidByronEpochSlots !Word64
     | UnsupportedSnapshotEra !FilePath !Text
 
 renderAppError :: AppError -> Text
@@ -26,10 +25,6 @@ renderAppError = \case
         "Snapshot at "
             <> toText snapshotFilePath
             <> " does not have a tip slot."
-    InvalidByronEpochSlots epochSlots ->
-        "Failed to construct Byron epoch slots from "
-            <> show epochSlots
-            <> "."
     UnsupportedSnapshotEra snapshotFilePath actualEra ->
         "Snapshot at "
             <> toText snapshotFilePath

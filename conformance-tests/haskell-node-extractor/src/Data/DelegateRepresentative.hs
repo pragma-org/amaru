@@ -3,7 +3,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Data.DelegateRepresentative
-    ( DelegateRepresentative (..)
+    ( DRep (..)
     , PredefinedDRep (..)
     , RegisteredDRep (..)
     ) where
@@ -40,7 +40,7 @@ import Data.Mandate
 
 import qualified Data.Set as Set
 
-data DelegateRepresentative
+data DRep
     = RegisteredDelegateRepresentative !RegisteredDRep
     | AbstainDelegateRepresentative !PredefinedDRep
     | NoConfidenceDelegateRepresentative !PredefinedDRep
@@ -58,7 +58,7 @@ data PredefinedDRep = PredefinedDRep
     , delegators :: !(Set.Set (Credential Staking))
     }
 
-instance ToJSON DelegateRepresentative where
+instance ToJSON DRep where
     toJSON = \case
         RegisteredDelegateRepresentative RegisteredDRep{credential, mandate, deposit, stake, delegators} ->
             object $ mconcat

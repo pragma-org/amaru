@@ -25,14 +25,23 @@ library
   exposed-modules:
       Command
     , Command.ExtractSnapshot
+    , Command.ExtractSnapshot.Error
+    , Command.ExtractSnapshot.Parse
+    , Command.ExtractSnapshot.Run
+    , Command.StakeDistribution
+    , Command.StakeDistribution.Error
+    , Command.StakeDistribution.Parse
+    , Command.StakeDistribution.Run
     , Data.Coin
     , Data.Credential
     , Data.DelegateRepresentative
+    , Data.Genesis
+    , Data.KeyHash
     , Data.Mandate
+    , Data.Metadata
     , Data.NetworkName
     , Data.Nonce
     , Data.HexString
-    , Data.PoolMetadata
     , Data.PoolParameters
     , Data.PoolDelegator
     , Data.PoolId
@@ -42,14 +51,20 @@ library
     , Data.RewardAccount
     , Data.RewardsProvenance
     , Data.Pools
+    , Data.ScriptHash
+    , Data.StakeDistribution.Account
+    , Data.StakeDistribution.DRep
+    , Data.StakeDistribution.Pool
+    , Data.StakeDistribution
+    , Data.VrfKeyHash
     , Error
-    , Genesis
+    , Helpers.Json
     , Query.DelegateRepresentatives
     , Query.Nonces
     , Query.Pots
     , Query.Pools
     , Query.RewardsProvenance
-    , Snapshot
+    , Query.StakeDistribution
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -Wunused-packages -threaded
   default-extensions:
       LambdaCase

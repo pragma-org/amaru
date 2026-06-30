@@ -61,16 +61,25 @@ import Cardano.Slotting.Slot
 import Data.PoolDelegator
     ( PoolDelegator (..)
     )
+import Data.Coin
+    ( JsonCoin (JsonCoin)
+    )
+import Data.PoolId
+    ( JsonPoolId (JsonPoolId)
+    )
 import Data.PoolRewardsInfo
     ( PoolRewardsInfo (..)
     )
 import Data.Ratio
     ( (%)
     )
+import Data.Rational
+    ( JsonRational (JsonRational)
+    )
 import Data.RewardsProvenance
     ( RewardsProvenance (..)
     )
-import Genesis
+import Data.Genesis
     ( Genesis (Genesis, activeSlotCoeff, epochSize, maxSupply)
     )
 import Lens.Micro
@@ -92,14 +101,14 @@ rewardsProvenanceOutputPath epochNumber =
 queryRewardsProvenance :: Genesis -> NewEpochState ConwayEra -> RewardsProvenance
 queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochState =
     RewardsProvenance
-        { activeStake
-        , efficiency
-        , fees
-        , incentives
+        { activeStake = JsonCoin activeStake
+        , efficiency = JsonRational efficiency
+        , fees = JsonCoin fees
+        , incentives = JsonCoin incentives
         , stakePools
-        , totalRewards = Coin rewardPot
-        , totalStake
-        , treasuryTax = Coin treasuryTax
+        , totalRewards = JsonCoin (Coin rewardPot)
+        , totalStake = JsonCoin totalStake
+        , treasuryTax = JsonCoin (Coin treasuryTax)
         }
   where
     activeStake = unNonZero ssTotalActiveStake
@@ -118,6 +127,7 @@ queryRewardsProvenance Genesis{epochSize, maxSupply, activeSlotCoeff} newEpochSt
             & Map.mapWithKey mkPoolRewardsInfo'
             & Map.mapWithKey
                 (toPoolRewardsInfo (delegatorsByPool ssActiveStake))
+            & Map.mapKeysMonotonic JsonPoolId
     Coin rewardPot =
         fees <> incentives
     totalStake = circulation epochState maxSupply

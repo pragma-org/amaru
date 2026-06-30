@@ -1,8 +1,5 @@
-{-# LANGUAGE DataKinds #-}
-
 module Data.PoolId
     ( JsonPoolId (..)
-    , poolIdText
     ) where
 
 import Relude
@@ -14,22 +11,26 @@ import Cardano.Ledger.Keys
     ( KeyRole (..)
     )
 import Data.Aeson
-    ( ToJSON (toJSON)
+    ( ToJSON (..)
+    , ToJSONKey (..)
     , Value (String)
+    )
+import Data.Aeson.Types
+    ( toJSONKeyText
+    )
+import Data.KeyHash
+    ( keyHashToText
     )
 
 newtype JsonPoolId = JsonPoolId
     { unJsonPoolId :: KeyHash StakePool
     }
+    deriving (Eq, Ord)
 
 instance ToJSON JsonPoolId where
     toJSON =
-        String . poolIdText . unJsonPoolId
+        String . keyHashToText . unJsonPoolId
 
-poolIdText :: KeyHash StakePool -> Text
-poolIdText poolId =
-    case toJSON poolId of
-        String textValue ->
-            textValue
-        _ ->
-            error "KeyHash StakePool ToJSON did not produce a JSON string"
+instance ToJSONKey JsonPoolId where
+    toJSONKey =
+        toJSONKeyText (keyHashToText . unJsonPoolId)

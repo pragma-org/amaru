@@ -9,9 +9,6 @@ import Relude
 import Cardano.Ledger.BaseTypes
     ( BoundedRational (unboundRational)
     )
-import Cardano.Ledger.Hashes
-    ( VRFVerKeyHash (unVRFVerKeyHash)
-    )
 import Cardano.Ledger.State
     ( PoolMetadata
     , StakePoolParams
@@ -38,17 +35,21 @@ import Data.Aeson.Types
 import Data.Coin
     ( JsonCoin (JsonCoin)
     )
+import Data.KeyHash
+    ( JsonKeyHash (JsonKeyHash)
+    )
 import Data.Maybe.Strict
     ( StrictMaybe
         ( SJust
         , SNothing
         )
     )
+import Data.Metadata
+    ( Metadata
+    , metadataFromPoolMetadata
+    )
 import Data.PoolId
     ( JsonPoolId (JsonPoolId)
-    )
-import Data.PoolMetadata
-    ( JsonPoolMetadata (JsonPoolMetadata)
     )
 import Data.PoolRelay
     ( JsonPoolRelay (JsonPoolRelay)
@@ -58,6 +59,9 @@ import Data.Rational
     )
 import Data.RewardAccount
     ( JsonRewardAccount (JsonRewardAccount)
+    )
+import Data.VrfKeyHash
+    ( JsonVrfKeyHash (JsonVrfKeyHash)
     )
 
 import qualified Data.Set as Set
@@ -70,12 +74,12 @@ instance ToJSON JsonPoolParameters where
     toJSON (JsonPoolParameters StakePoolParams{sppId, sppVrf, sppPledge, sppCost, sppMargin, sppAccountAddress, sppOwners, sppRelays, sppMetadata}) =
         object $
             [ "id" .= JsonPoolId sppId
-            , "vrf" .= unVRFVerKeyHash sppVrf
+            , "vrf" .= JsonVrfKeyHash sppVrf
             , "pledge" .= JsonCoin sppPledge
             , "cost" .= JsonCoin sppCost
             , "margin" .= JsonRational (unboundRational sppMargin)
             , "reward_account" .= JsonRewardAccount sppAccountAddress
-            , "owners" .= Set.toAscList sppOwners
+            , "owners" .= fmap JsonKeyHash (Set.toAscList sppOwners)
             , "relays" .= fmap JsonPoolRelay (toList sppRelays)
             ]
                 <> metadataPair sppMetadata
@@ -85,5 +89,5 @@ metadataPair = \case
     SNothing ->
         []
     SJust metadata ->
-        [ "metadata" .= JsonPoolMetadata metadata
+        [ "metadata" .= (metadataFromPoolMetadata metadata :: Metadata)
         ]
