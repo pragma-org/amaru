@@ -16,8 +16,12 @@ use amaru_kernel::{
     ExUnitPrices, ExUnits, HasExUnits, HasLovelace, Lovelace, MemoizedTransactionOutput, ProtocolParameters,
     RationalNumber, TransactionInput, WitnessSet,
 };
+use num::{ToPrimitive, Zero};
 
-use crate::context::{PotsSlice, UtxoSlice};
+use crate::{
+    context::{PotsSlice, UtxoSlice},
+    summary::{SafeRatio, into_safe_ratio, safe_ratio},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
@@ -84,7 +88,7 @@ where
 }
 
 fn compute_min_fee(tx_size: u64, witness_set: &WitnessSet, ref_scripts_size: u64, pp: &ProtocolParameters) -> Lovelace {
-    let linear = pp.min_fee_a.saturating_mul(tx_size).saturating_add(pp.min_fee_b);
+    let linear = pp.min_fee_a * tx_size + pp.min_fee_b;
     let plutus = plutus_exec_fee(witness_set.total_ex_units(), &pp.prices);
     let tiered = tier_ref_script_fee(
         ref_scripts_size,
@@ -92,31 +96,16 @@ fn compute_min_fee(tx_size: u64, witness_set: &WitnessSet, ref_scripts_size: u64
         &pp.min_fee_ref_script_lovelace_per_byte,
         &pp.ref_script_cost_multiplier,
     );
-    linear.saturating_add(plutus).saturating_add(tiered)
+    linear + plutus + tiered
 }
 
-/// Plutus execution cost.
-///
-/// `ceiling( mem * mem_price + steps * step_price )`
+/// Plutus execution cost: `ceil(mem * mem_price + steps * step_price)`.
 ///
 /// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/libs/cardano-ledger-core/src/Cardano/Ledger/Plutus/ExUnits.hs#L182>
 fn plutus_exec_fee(units: ExUnits, prices: &ExUnitPrices) -> Lovelace {
-    let mem_den = prices.mem_price.denominator;
-    let step_den = prices.step_price.denominator;
-    if mem_den == 0 || step_den == 0 {
-        return 0;
-    }
-
-    let mem_num = units.mem.saturating_mul(prices.mem_price.numerator);
-    let step_num = units.steps.saturating_mul(prices.step_price.numerator);
-
-    let denom = mem_den.saturating_mul(step_den);
-    if denom == 0 {
-        return 0;
-    }
-
-    let total_num = mem_num.saturating_mul(step_den).saturating_add(step_num.saturating_mul(mem_den));
-    total_num.saturating_add(denom - 1) / denom
+    let mem = safe_ratio(units.mem, 1) * into_safe_ratio(&prices.mem_price);
+    let steps = safe_ratio(units.steps, 1) * into_safe_ratio(&prices.step_price);
+    ratio_to_lovelace((mem + steps).ceil())
 }
 
 /// Tiered reference-script fee.
@@ -127,58 +116,32 @@ fn plutus_exec_fee(units: ExUnits, prices: &ExUnitPrices) -> Lovelace {
 ///
 /// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L111>
 fn tier_ref_script_fee(size: u64, stride: u64, base_rate: &RationalNumber, multiplier: &RationalNumber) -> Lovelace {
-    if size == 0 || stride == 0 || base_rate.denominator == 0 || multiplier.denominator == 0 {
+    if stride == 0 {
         return 0;
     }
 
-    let (acc_num, acc_den) = sum_tiers(
-        size,
-        stride,
-        (base_rate.numerator, base_rate.denominator),
-        (multiplier.numerator, multiplier.denominator),
-        (0, 1),
-    );
+    let multiplier = into_safe_ratio(multiplier);
+    let mut rate = into_safe_ratio(base_rate);
+    let mut acc = SafeRatio::zero();
+    let mut remaining = size;
 
-    if acc_den == 0 {
-        return 0;
-    }
-    acc_num / acc_den
-}
-
-fn sum_tiers(remaining: u64, stride: u64, rate: (u64, u64), mult: (u64, u64), acc: (u64, u64)) -> (u64, u64) {
-    let (rate_num, rate_den) = rate;
-    if remaining < stride {
-        if remaining == 0 {
-            return acc;
-        }
-        let term = (remaining.saturating_mul(rate_num), rate_den);
-        return rational_add(acc, term);
+    while remaining > 0 {
+        let chunk = remaining.min(stride);
+        acc += &rate * safe_ratio(chunk, 1);
+        remaining -= chunk;
+        rate *= &multiplier;
     }
 
-    let term = (stride.saturating_mul(rate_num), rate_den);
-    let acc = rational_add(acc, term);
-
-    let (mult_num, mult_den) = mult;
-    let next_num = rate_num.saturating_mul(mult_num);
-    let next_den = rate_den.saturating_mul(mult_den);
-    let g = gcd(next_num, next_den);
-    let next_rate = if g > 1 { (next_num / g, next_den / g) } else { (next_num, next_den) };
-
-    sum_tiers(remaining - stride, stride, next_rate, mult, acc)
+    ratio_to_lovelace(acc.floor())
 }
 
-/// `a/b + c/d`, reduced by GCD.
-fn rational_add(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
-    let (a_num, a_den) = a;
-    let (b_num, b_den) = b;
-    let num = a_num.saturating_mul(b_den).saturating_add(b_num.saturating_mul(a_den));
-    let den = a_den.saturating_mul(b_den);
-    let g = gcd(num, den);
-    if g > 1 { (num / g, den / g) } else { (num, den) }
-}
-
-fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 { a } else { gcd(b, a % b) }
+/// Narrow an integer-valued ratio (already floored or ceiled) into a [`Lovelace`]. The minimum
+/// fee is bounded by the total ADA supply, so it always fits in a `u64`.
+fn ratio_to_lovelace(value: SafeRatio) -> Lovelace {
+    match value.to_integer().to_u64() {
+        Some(lovelace) => lovelace,
+        None => unreachable!("value cannot be represented as Lovelace"),
+    }
 }
 
 #[cfg(test)]
