@@ -27,8 +27,8 @@ use crate::{
     rules::{
         WithPosition,
         transaction::phase_one::{
-            InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals,
-            PhaseOneError,
+            InvalidCertificates, InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness,
+            InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
         },
     },
@@ -181,6 +181,8 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    StakeCredentialInvalidPoolDelegation,
+    StakeCredentialInvalidVoteDelegation,
     ValueNotConservedUTxO,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -222,6 +224,12 @@ impl From<PhaseOneError> for Predicate {
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(_)) => {
+                Predicate::StakeCredentialInvalidPoolDelegation
+            }
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(_)) => {
+                Predicate::StakeCredentialInvalidVoteDelegation
+            }
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
