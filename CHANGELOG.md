@@ -49,7 +49,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-uplc**: make cost models semantics-aware and cleanup various parts and exposed API for in the UPLC crate ([#988][])
-- **amaru**: restore the `--quiet` flag (disable logging and metrics collection), inadvertently dropped during the CLI restructure. ([#981][])
+- **amaru**: remove the `--quiet` flag occurences in CI & scripts; silence can be obtained by setting `AMARU_LOG=off` already ([#981][]).
 
 ## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
 

@@ -128,10 +128,6 @@ pub(crate) struct Cli {
     #[clap(long, env = "AMARU_COLOR", default_value = "auto")]
     pub(crate) color: Color,
 
-    /// Disable logging and metrics collection.
-    #[clap(long, action, env = "AMARU_QUIET")]
-    pub(crate) quiet: bool,
-
     /// Emit trace events as structured JSON instead of human-readable text.
     #[clap(long, action, env = "AMARU_WITH_JSON_TRACES")]
     pub(crate) with_json_traces: bool,

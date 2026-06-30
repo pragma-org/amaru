@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let color_enabled = Color::is_enabled(cli.color);
 
-    let (metrics, teardown) = if cli.quiet || cli.command.skip_logging() {
+    let (metrics, teardown) = if cli.command.skip_logging() {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>)
     } else {
         let (m, t) = setup_observability(cli.with_open_telemetry, cli.with_json_traces, color_enabled, &cli.command);

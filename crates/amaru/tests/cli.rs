@@ -237,16 +237,3 @@ fn no_short_options_on_dump_chain_db() -> Result<(), Box<dyn Error>> {
     assert!(help.contains("--blocks"), "dump should have --blocks long option");
     Ok(())
 }
-
-#[test]
-fn quiet_flag_is_available() -> Result<(), Box<dyn Error>> {
-    let help = amaru_help(&[])?;
-    assert!(help.contains("--quiet"), "top-level help should show '--quiet'");
-
-    let amaru = cargo_bin("amaru");
-    let mut command = Command::new(&amaru);
-    command.arg("--quiet").arg("--help");
-    assert!(command.output()?.status.success(), "amaru --quiet --help should succeed");
-
-    Ok(())
-}
