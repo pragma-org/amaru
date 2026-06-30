@@ -18,6 +18,12 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       cache-hit: ${{ steps.cache-bootstrap.outputs.cache-hit }}
+    env:
+      AMARU_NETWORK: preprod
+      AMARU_CHAIN_DIR: ./chain.preprod.db
+      AMARU_LEDGER_DIR: ./ledger.preprod.db
+      AMARU_LISTEN_ADDRESS: 127.0.0.1:3000
+      AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
     steps:
       - uses: actions/checkout@v6
         with:
