@@ -512,3 +512,95 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use amaru_kernel::{
+        Certificate, EraHistory, Hash, Network, NonEmptySet, Slot, StakeCredential, TransactionPointer,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+    };
+
+    use crate::{
+        context::{AccountState, DefaultValidationContext},
+        epoch_transition::GovernanceActivity,
+        governance::ratification::ProposalsRoots,
+    };
+
+    fn cred(tag: u8) -> StakeCredential {
+        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    }
+
+    fn pool(tag: u8) -> Hash<28> {
+        Hash::new([tag; 28])
+    }
+
+    fn pointer() -> TransactionPointer {
+        TransactionPointer { slot: Slot::from(0), transaction_index: 0 }
+    }
+
+    fn account() -> AccountState {
+        AccountState { deposit: 2_000_000, pool: None, drep: None, rewards: 0 }
+    }
+
+    fn ctx_with(
+        accounts: BTreeMap<StakeCredential, AccountState>,
+        pools: BTreeSet<Hash<28>>,
+    ) -> DefaultValidationContext {
+        DefaultValidationContext::new(
+            BTreeMap::new(),
+            pools,
+            accounts,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            ProposalsRoots::default(),
+        )
+    }
+
+    fn run_certs(
+        ctx: &mut DefaultValidationContext,
+        certificates: Vec<Certificate>,
+    ) -> Result<(), super::InvalidCertificates> {
+        let certs = NonEmptySet::try_from(certificates).expect("non-empty");
+        super::execute(
+            ctx,
+            Network::Testnet,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+            &EraHistory::default(),
+            GovernanceActivity::default(),
+            pointer(),
+            Some(certs),
+            true,
+        )
+    }
+
+    #[test]
+    fn delegation_of_never_registered_credential_succeeds() {
+        let mut ctx = ctx_with(BTreeMap::new(), BTreeSet::new());
+        let result = run_certs(&mut ctx, vec![Certificate::StakeDelegation(cred(1), pool(2))]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn delegation_to_nonexistent_pool_succeeds() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account())]), BTreeSet::new());
+        let result = run_certs(&mut ctx, vec![Certificate::StakeDelegation(cred(1), pool(2))]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn deregister_reregister_then_delegate_succeeds() {
+        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account())]), BTreeSet::new());
+        let result = run_certs(
+            &mut ctx,
+            vec![
+                Certificate::StakeDeregistration(cred(1)),
+                Certificate::Reg(cred(1), 2_000_000),
+                Certificate::StakeDelegation(cred(1), pool(2)),
+            ],
+        );
+        assert!(result.is_ok());
+    }
+}
