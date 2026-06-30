@@ -70,7 +70,7 @@ import qualified Data.Map.Strict as Map
 
 data AccountSummary = AccountSummary
     { balance :: !JsonCoin
-    , stakePool :: !(Maybe JsonPoolId)
+    , pool :: !(Maybe JsonPoolId)
     , drep :: !(Maybe DRepReference)
     }
     deriving (Generic)
@@ -80,8 +80,8 @@ instance ToJSON AccountSummary where
         genericToJSON snakeCaseOptions
 
 data AccountsSummary = AccountsSummary
-    { verificationKey :: !(Map JsonKeyHash AccountSummary)
-    , script :: !(Map JsonScriptHash AccountSummary)
+    { verificationKeys :: !(Map JsonKeyHash AccountSummary)
+    , scripts :: !(Map JsonScriptHash AccountSummary)
     }
     deriving (Generic)
 
@@ -98,7 +98,7 @@ mkAccountSummary
 mkAccountSummary instantStake dRepDelegatees credential accountState =
     AccountSummary
         { balance = JsonCoin (rewardBalance <> stakeBalance)
-        , stakePool = JsonPoolId <$> (accountState ^. stakePoolDelegationAccountStateL)
+        , pool = JsonPoolId <$> (accountState ^. stakePoolDelegationAccountStateL)
         , drep = toDRepReference <$> Map.lookup credential dRepDelegatees
         }
   where
@@ -111,20 +111,20 @@ mkAccountSummary instantStake dRepDelegatees credential accountState =
 mkAccountsSummary :: Map.Map (Credential Staking) AccountSummary -> AccountsSummary
 mkAccountsSummary accountSummaries =
     AccountsSummary
-        { verificationKey
-        , script
+        { verificationKeys
+        , scripts
         }
   where
-    (verificationKey, script) =
+    (verificationKeys, scripts) =
         Map.foldlWithKey' partitionAccounts (mempty, mempty) accountSummaries
 
-    partitionAccounts (verificationKeys, scriptHashes) credential accountSummary =
+    partitionAccounts (verificationKeysMap, scriptsMap) credential accountSummary =
         case credential of
             KeyHashObj keyHash ->
-                ( Map.insert (JsonKeyHash keyHash) accountSummary verificationKeys
-                , scriptHashes
+                ( Map.insert (JsonKeyHash keyHash) accountSummary verificationKeysMap
+                , scriptsMap
                 )
             ScriptHashObj scriptHash ->
-                ( verificationKeys
-                , Map.insert (JsonScriptHash scriptHash) accountSummary scriptHashes
+                ( verificationKeysMap
+                , Map.insert (JsonScriptHash scriptHash) accountSummary scriptsMap
                 )

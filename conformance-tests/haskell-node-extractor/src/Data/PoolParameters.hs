@@ -57,8 +57,8 @@ import Data.PoolRelay
 import Data.Rational
     ( JsonRational (JsonRational)
     )
-import Data.RewardAccount
-    ( JsonRewardAccount (JsonRewardAccount)
+import Data.RewardAddress
+    ( JsonRewardAddress (JsonRewardAddress)
     )
 import Data.VrfKeyHash
     ( JsonVrfKeyHash (JsonVrfKeyHash)
@@ -78,7 +78,7 @@ instance ToJSON JsonPoolParameters where
             , "pledge" .= JsonCoin sppPledge
             , "cost" .= JsonCoin sppCost
             , "margin" .= JsonRational (unboundRational sppMargin)
-            , "reward_account" .= JsonRewardAccount sppAccountAddress
+            , "reward_address" .= JsonRewardAddress sppAccountAddress
             , "owners" .= fmap JsonKeyHash (Set.toAscList sppOwners)
             , "relays" .= fmap JsonPoolRelay (toList sppRelays)
             ]

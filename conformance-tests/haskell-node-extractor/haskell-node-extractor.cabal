@@ -48,7 +48,7 @@ library
     , Data.PoolRelay
     , Data.PoolRewardsInfo
     , Data.Rational
-    , Data.RewardAccount
+    , Data.RewardAddress
     , Data.RewardsProvenance
     , Data.Pools
     , Data.ScriptHash

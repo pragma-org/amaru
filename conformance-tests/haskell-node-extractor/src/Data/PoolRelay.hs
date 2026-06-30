@@ -44,7 +44,7 @@ instance ToJSON JsonPoolRelay where
         case relay of
             SingleHostAddr port ipv4 ipv6 ->
                 object $
-                    [ "type" .= ("ipAddress" :: Text)
+                    [ "type" .= ("ip_address" :: Text)
                     ]
                         <> maybePair "ipv4" ((show <$> strictMaybeToMaybe ipv4) :: Maybe Text)
                         <> maybePair "ipv6" ((show <$> strictMaybeToMaybe ipv6) :: Maybe Text)

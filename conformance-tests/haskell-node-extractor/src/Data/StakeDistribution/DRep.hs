@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Data.StakeDistribution.DRep
     ( DRepReference (..)
@@ -73,8 +73,8 @@ import qualified Data.Map.Strict as Map
 data DRepsSummary = DRepsSummary
     { abstain :: !DRepStakeSummary
     , noConfidence :: !DRepStakeSummary
-    , verificationKey :: !(Map JsonKeyHash DRepSummary)
-    , script :: !(Map JsonScriptHash DRepSummary)
+    , verificationKeys :: !(Map JsonKeyHash DRepSummary)
+    , scripts :: !(Map JsonScriptHash DRepSummary)
     }
     deriving (Generic)
 
@@ -137,14 +137,14 @@ mkDRepsSummary registeredDRepStates registeredDRepStakeDistribution dRepStakeDis
         { abstain = DRepStakeSummary (JsonCoin (Map.findWithDefault mempty DRepAlwaysAbstain dRepStakeDistribution))
         , noConfidence =
             DRepStakeSummary (JsonCoin (Map.findWithDefault mempty DRepAlwaysNoConfidence dRepStakeDistribution))
-        , verificationKey
-        , script
+        , verificationKeys
+        , scripts
         }
   where
-    (verificationKey, script) =
+    (verificationKeys, scripts) =
         Map.foldlWithKey' partitionDReps (mempty, mempty) registeredDRepStates
 
-    partitionDReps (verificationKeys, scriptHashes) credential dRepState =
+    partitionDReps (verificationKeysMap, scriptsMap) credential dRepState =
         let dRepSummary =
                 DRepSummary
                     { validUntil = unEpochNo (drepExpiry dRepState)
@@ -153,12 +153,12 @@ mkDRepsSummary registeredDRepStates registeredDRepStakeDistribution dRepStakeDis
                     }
          in case credential of
                 KeyHashObj keyHash ->
-                    ( Map.insert (JsonKeyHash keyHash) dRepSummary verificationKeys
-                    , scriptHashes
+                    ( Map.insert (JsonKeyHash keyHash) dRepSummary verificationKeysMap
+                    , scriptsMap
                     )
                 ScriptHashObj scriptHash ->
-                    ( verificationKeys
-                    , Map.insert (JsonScriptHash scriptHash) dRepSummary scriptHashes
+                    ( verificationKeysMap
+                    , Map.insert (JsonScriptHash scriptHash) dRepSummary scriptsMap
                     )
 
 data DRepReference = DRepReference
