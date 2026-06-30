@@ -26,8 +26,8 @@ use crate::{
     rules::{
         WithPosition,
         transaction::phase_one::{
-            InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals,
-            PhaseOneError,
+            InvalidFees, InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval,
+            InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
         },
     },
@@ -81,6 +81,7 @@ pub(super) enum Predicate {
     BadInputsUTxO,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
+    FeeTooSmallUTxO,
     InputSetEmptyUTxO,
     InvalidWitnessesUTXOW,
     MaxTxSizeUTxO,
@@ -118,6 +119,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::UnknownInput(_)) => Predicate::BadInputsUTxO,
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
             PhaseOneError::Inputs(InvalidInputs::RefScriptSizeTooBig { .. }) => Predicate::ConwayTxRefScriptsSizeTooBig,
+            PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
             PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
