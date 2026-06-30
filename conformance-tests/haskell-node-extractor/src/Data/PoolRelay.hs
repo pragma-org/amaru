@@ -18,15 +18,11 @@ import Cardano.Ledger.State
         )
     )
 import Data.Aeson
-    ( ToJSON (toJSON)
-    , object
-    , (.=)
-    )
-import Data.Aeson.Key
-    ( fromText
-    )
-import Data.Aeson.Types
-    ( Pair
+    ( KeyValueOmit ((.?=))
+    , KeyValue ((.=))
+    , ToJSON (toEncoding, toJSON)
+    , Value (Object)
+    , pairs
     )
 import Data.Maybe.Strict
     ( StrictMaybe
@@ -40,26 +36,27 @@ newtype JsonPoolRelay = JsonPoolRelay
     }
 
 instance ToJSON JsonPoolRelay where
-    toJSON (JsonPoolRelay relay) =
+    toJSON =
+        Object . poolRelayFields
+
+    toEncoding =
+        pairs . poolRelayFields
+
+poolRelayFields :: (KeyValueOmit e kv, Monoid kv) => JsonPoolRelay -> kv
+poolRelayFields (JsonPoolRelay relay) =
         case relay of
-            SingleHostAddr port ipv4 ipv6 ->
-                object $
-                    [ "type" .= ("ip_address" :: Text)
-                    ]
-                        <> maybePair "ipv4" ((show <$> strictMaybeToMaybe ipv4) :: Maybe Text)
-                        <> maybePair "ipv6" ((show <$> strictMaybeToMaybe ipv6) :: Maybe Text)
-                        <> maybePair "port" (portToWord16 <$> strictMaybeToMaybe port)
-            SingleHostName port dns ->
-                object $
-                    [ "type" .= ("hostname" :: Text)
-                    , "hostname" .= dnsToText dns
-                    ]
-                        <> maybePair "port" (portToWord16 <$> strictMaybeToMaybe port)
-            MultiHostName dns ->
-                object
-                    [ "type" .= ("hostname" :: Text)
-                    , "hostname" .= dnsToText dns
-                    ]
+            SingleHostAddr port ipv4 ipv6 -> mempty
+                <> "type" .= ("ip_address" :: Text)
+                <> "ipv4" .?= ((show <$> strictMaybeToMaybe ipv4) :: Maybe Text)
+                <> "ipv6" .?= ((show <$> strictMaybeToMaybe ipv6) :: Maybe Text)
+                <> "port" .?= (portToWord16 <$> strictMaybeToMaybe port)
+            SingleHostName port dns -> mempty
+                <> "type" .= ("hostname" :: Text)
+                <> "hostname" .= dnsToText dns
+                <> "port" .?= (portToWord16 <$> strictMaybeToMaybe port)
+            MultiHostName dns -> mempty
+                <> "type" .= ("hostname" :: Text)
+                <> "hostname" .= dnsToText dns
 
 strictMaybeToMaybe :: StrictMaybe a -> Maybe a
 strictMaybeToMaybe = \case
@@ -67,11 +64,3 @@ strictMaybeToMaybe = \case
         Nothing
     SJust value ->
         Just value
-
-maybePair :: ToJSON a => Text -> Maybe a -> [Pair]
-maybePair fieldName = \case
-    Nothing ->
-        []
-    Just fieldValue ->
-        [ fromText fieldName .= fieldValue
-        ]

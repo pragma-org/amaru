@@ -8,14 +8,13 @@ module Data.RewardsProvenance
 import Relude
 
 import Data.Aeson
-    ( ToJSON (toJSON)
-    , genericToJSON
+    ( KeyValue ((.=))
+    , ToJSON (toEncoding, toJSON)
+    , Value (Object)
+    , pairs
     )
 import Data.Coin
     ( JsonCoin
-    )
-import Helpers.Json
-    ( snakeCaseOptions
     )
 import Data.PoolId
     ( JsonPoolId
@@ -51,4 +50,18 @@ data RewardsProvenance = RewardsProvenance
 
 instance ToJSON RewardsProvenance where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . rewardsProvenanceFields
+
+    toEncoding =
+        pairs . rewardsProvenanceFields
+
+rewardsProvenanceFields :: (KeyValue e kv, Monoid kv) => RewardsProvenance -> kv
+rewardsProvenanceFields rp = mempty
+    <> "total_stake" .= totalStake rp
+    <> "active_stake" .= activeStake rp
+    <> "fees" .= fees rp
+    <> "incentives" .= incentives rp
+    <> "treasury_tax" .= treasuryTax rp
+    <> "total_rewards" .= totalRewards rp
+    <> "efficiency" .= efficiency rp
+    <> "stake_pools" .= stakePools rp

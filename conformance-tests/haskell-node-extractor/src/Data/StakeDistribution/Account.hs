@@ -37,17 +37,16 @@ import Cardano.Ledger.State
         )
     )
 import Data.Aeson
-    ( ToJSON (toJSON)
-    , genericToJSON
+    ( KeyValue ((.=))
+    , ToJSON (toEncoding, toJSON)
+    , Value (Object)
+    , pairs
     )
 import Data.Coin
     ( JsonCoin (JsonCoin)
     )
 import Data.KeyHash
     ( JsonKeyHash (JsonKeyHash)
-    )
-import Helpers.Json
-    ( snakeCaseOptions
     )
 import Data.PoolId
     ( JsonPoolId (JsonPoolId)
@@ -77,7 +76,10 @@ data AccountSummary = AccountSummary
 
 instance ToJSON AccountSummary where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . accountSummaryFields
+
+    toEncoding =
+        pairs . accountSummaryFields
 
 data AccountsSummary = AccountsSummary
     { verificationKeys :: !(Map JsonKeyHash AccountSummary)
@@ -87,7 +89,21 @@ data AccountsSummary = AccountsSummary
 
 instance ToJSON AccountsSummary where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . accountsSummaryFields
+
+    toEncoding =
+        pairs . accountsSummaryFields
+
+accountSummaryFields :: (KeyValue e kv, Monoid kv) => AccountSummary -> kv
+accountSummaryFields AccountSummary{balance, pool, drep} = mempty
+    <> "balance" .= balance
+    <> "pool" .= pool
+    <> "drep" .= drep
+
+accountsSummaryFields :: (KeyValue e kv, Monoid kv) => AccountsSummary -> kv
+accountsSummaryFields AccountsSummary{verificationKeys, scripts} = mempty
+    <> "verification_key" .= verificationKeys
+    <> "script" .= scripts
 
 mkAccountSummary
     :: Map.Map (Credential Staking) (CompactForm Coin)

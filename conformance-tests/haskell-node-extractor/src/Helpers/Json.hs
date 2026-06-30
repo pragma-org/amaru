@@ -2,6 +2,7 @@ module Helpers.Json
     ( snakeCaseFieldLabel
     , snakeCaseOptions
     , writeJsonOutput
+    , defaultConfig
     ) where
 
 import Relude
@@ -13,7 +14,10 @@ import Data.Aeson
     , defaultOptions
     )
 import Data.Aeson.Encode.Pretty
-    ( encodePretty
+    ( Config (confCompare)
+    , defConfig
+    , encodePretty'
+    , keyOrder
     )
 import System.Directory
     ( createDirectoryIfMissing
@@ -21,6 +25,9 @@ import System.Directory
 import System.FilePath
     ( takeDirectory
     )
+
+defaultConfig :: Config
+defaultConfig = defConfig
 
 snakeCaseFieldLabel :: String -> String
 snakeCaseFieldLabel =
@@ -32,8 +39,8 @@ snakeCaseOptions =
         { fieldLabelModifier = snakeCaseFieldLabel
         }
 
-writeJsonOutput :: ToJSON a => FilePath -> a -> IO ()
-writeJsonOutput outputPath jsonValue = do
+writeJsonOutput :: ToJSON a => FilePath -> Config -> a -> IO ()
+writeJsonOutput outputPath config jsonValue = do
     putTextLn ("...extracting " <> toText outputPath)
     createDirectoryIfMissing True (takeDirectory outputPath)
-    writeFileLBS outputPath (encodePretty jsonValue)
+    writeFileLBS outputPath (encodePretty' config jsonValue)

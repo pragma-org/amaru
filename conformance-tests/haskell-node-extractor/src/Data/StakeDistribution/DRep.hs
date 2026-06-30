@@ -42,20 +42,17 @@ import Cardano.Ledger.Slot
     ( EpochNo (unEpochNo)
     )
 import Data.Aeson
-    ( Options (constructorTagModifier, fieldLabelModifier, omitNothingFields)
-    , ToJSON (toJSON)
-    , defaultOptions
-    , genericToJSON
+    ( KeyValue ((.=))
+    , KeyValueOmit ((.?=))
+    , ToJSON (toEncoding, toJSON)
+    , Value (Object, String)
+    , pairs
     )
 import Data.Coin
     ( JsonCoin (JsonCoin)
     )
 import Data.KeyHash
     ( JsonKeyHash (JsonKeyHash)
-    )
-import Helpers.Json
-    ( snakeCaseFieldLabel
-    , snakeCaseOptions
     )
 import Data.Maybe.Strict
     ( strictMaybeToMaybe
@@ -80,7 +77,10 @@ data DRepsSummary = DRepsSummary
 
 instance ToJSON DRepsSummary where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . dRepsSummaryFields
+
+    toEncoding =
+        pairs . dRepsSummaryFields
 
 data DRepSummary = DRepSummary
     { validUntil :: !Word64
@@ -91,7 +91,10 @@ data DRepSummary = DRepSummary
 
 instance ToJSON DRepSummary where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . dRepSummaryFields
+
+    toEncoding =
+        pairs . dRepSummaryFields
 
 newtype DRepStakeSummary = DRepStakeSummary
     { votingStake :: JsonCoin
@@ -100,7 +103,10 @@ newtype DRepStakeSummary = DRepStakeSummary
 
 instance ToJSON DRepStakeSummary where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . dRepStakeSummaryFields
+
+    toEncoding =
+        pairs . dRepStakeSummaryFields
 
 data DRepReferenceType
     = Abstain
@@ -110,11 +116,25 @@ data DRepReferenceType
     deriving (Generic)
 
 instance ToJSON DRepReferenceType where
-    toJSON =
-        genericToJSON
-            defaultOptions
-                { constructorTagModifier = snakeCaseFieldLabel
-                }
+    toJSON = \case
+        Abstain ->
+            String "abstain"
+        NoConfidence ->
+            String "no_confidence"
+        VerificationKey ->
+            String "verification_key"
+        Script ->
+            String "script"
+
+    toEncoding = \case
+        Abstain ->
+            toEncoding ("abstain" :: Text)
+        NoConfidence ->
+            toEncoding ("no_confidence" :: Text)
+        VerificationKey ->
+            toEncoding ("verification_key" :: Text)
+        Script ->
+            toEncoding ("script" :: Text)
 
 data JsonDRepHash
     = JsonDRepKeyHash !JsonKeyHash
@@ -126,6 +146,12 @@ instance ToJSON JsonDRepHash where
             toJSON keyHash
         JsonDRepScriptHash scriptHash ->
             toJSON scriptHash
+
+    toEncoding = \case
+        JsonDRepKeyHash keyHash ->
+            toEncoding keyHash
+        JsonDRepScriptHash scriptHash ->
+            toEncoding scriptHash
 
 mkDRepsSummary
     :: Map.Map (Credential DRepRole) DRepState
@@ -169,15 +195,32 @@ data DRepReference = DRepReference
 
 instance ToJSON DRepReference where
     toJSON =
-        genericToJSON
-            defaultOptions
-                { fieldLabelModifier = \case
-                    "drepType" ->
-                        "type"
-                    otherField ->
-                        snakeCaseFieldLabel otherField
-                , omitNothingFields = True
-                }
+        Object . dRepReferenceFields
+
+    toEncoding =
+        pairs . dRepReferenceFields
+
+dRepsSummaryFields :: (KeyValue e kv, Monoid kv) => DRepsSummary -> kv
+dRepsSummaryFields DRepsSummary{abstain, noConfidence, verificationKeys, scripts} = mempty
+    <> "abstain" .= abstain
+    <> "no_confidence" .= noConfidence
+    <> "verification_key" .= verificationKeys
+    <> "script" .= scripts
+
+dRepSummaryFields :: (KeyValue e kv, Monoid kv) => DRepSummary -> kv
+dRepSummaryFields DRepSummary{validUntil, metadata, votingStake} = mempty
+    <> "valid_until" .= validUntil
+    <> "metadata" .= metadata
+    <> "voting_stake" .= votingStake
+
+dRepStakeSummaryFields :: (KeyValue e kv) => DRepStakeSummary -> kv
+dRepStakeSummaryFields DRepStakeSummary{votingStake} =
+    "voting_stake" .= votingStake
+
+dRepReferenceFields :: (KeyValueOmit e kv, Monoid kv) => DRepReference -> kv
+dRepReferenceFields DRepReference{hash, drepType} = mempty
+    <> "type" .= drepType
+    <> "hash" .?= hash
 
 toDRepReference :: DRep -> DRepReference
 toDRepReference = \case

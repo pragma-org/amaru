@@ -35,14 +35,13 @@ import Cardano.Ledger.State
         )
     )
 import Data.Aeson
-    ( ToJSON (toJSON)
-    , genericToJSON
+    ( KeyValue ((.=))
+    , ToJSON (toEncoding, toJSON)
+    , Value (Object)
+    , pairs
     )
 import Data.Coin
     ( JsonCoin (JsonCoin)
-    )
-import Helpers.Json
-    ( snakeCaseOptions
     )
 import Data.KeyHash
     ( JsonKeyHash (JsonKeyHash)
@@ -90,12 +89,29 @@ data PoolSummary = PoolSummary
 
 instance ToJSON PoolSummary where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . poolSummaryFields
+
+    toEncoding =
+        pairs . poolSummaryFields
+
+poolSummaryFields :: (KeyValue e kv, Monoid kv) => PoolSummary -> kv
+poolSummaryFields pool = mempty
+    <> "blocks_count" .= blocksCount pool
+    <> "stake" .= stake pool
+    <> "voting_stake" .= votingStake pool
+    <> "vrf_key_hash" .= vrfKeyHash pool
+    <> "pledge" .= pledge pool
+    <> "cost" .= cost pool
+    <> "margin" .= margin pool
+    <> "reward_address" .= rewardAddress pool
+    <> "owners" .= owners pool
+    <> "relays" .= relays pool
+    <> "metadata" .= metadata pool
 
 mkPoolSummaries
     :: Map.Map (KeyHash StakePool) Coin
     -> Map.Map (KeyHash StakePool) Coin
-    -> Map.Map (KeyHash StakePool) Word64
+    -> Map.Map (KeyHash StakePool) Natural
     -> Map.Map (KeyHash StakePool) StakePoolParams
     -> Map.Map JsonPoolId PoolSummary
 mkPoolSummaries stakePerPool votingStakePerPool blocksPerPool poolParameters =
@@ -106,7 +122,7 @@ mkPoolSummaries stakePerPool votingStakePerPool blocksPerPool poolParameters =
   where
     mkPoolSummary poolId StakePoolParams{sppVrf, sppPledge, sppCost, sppMargin, sppAccountAddress, sppOwners, sppRelays, sppMetadata} =
         PoolSummary
-            { blocksCount = Map.findWithDefault 0 poolId blocksPerPool
+            { blocksCount = fromIntegral (Map.findWithDefault 0 poolId blocksPerPool)
             , stake = JsonCoin (Map.findWithDefault mempty poolId stakePerPool)
             , votingStake = JsonCoin (Map.findWithDefault mempty poolId votingStakePerPool)
             , vrfKeyHash = JsonVrfKeyHash sppVrf

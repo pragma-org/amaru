@@ -11,17 +11,20 @@ import Command.StakeDistribution.Parse
     ( Options (..)
     )
 import Data.Aeson.Encode.Pretty
-    ( encodePretty
-    )
-import Data.NetworkName
-    ( networkNameToNetwork
+    ( encodePretty'
     )
 import Command.ExtractSnapshot.Run
     ( LoadedSnapshot (..)
     , loadSnapshot
     )
+import Data.NetworkName
+    ( networkNameToNetwork
+    )
 import Query.StakeDistribution
     ( queryStakeDistribution
+    )
+import Data.StakeDistribution
+    ( jsonConfig
     )
 
 import qualified Data.ByteString.Lazy as LBS
@@ -37,4 +40,4 @@ run Options{networkName, snapshotPath} = do
                 epochNumber
                 (loadedSnapshotState loadedSnapshot)
 
-    liftIO (LBS.putStr (encodePretty stakeDistribution))
+    liftIO (LBS.putStr (encodePretty' jsonConfig stakeDistribution))

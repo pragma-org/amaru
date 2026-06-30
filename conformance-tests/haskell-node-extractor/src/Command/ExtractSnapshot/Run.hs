@@ -42,7 +42,8 @@ import Data.NetworkName
     , networkNameToText
     )
 import Helpers.Json
-    ( writeJsonOutput
+    ( defaultConfig
+    , writeJsonOutput
     )
 import Ouroboros.Consensus.Byron.Ledger
     ( CodecConfig (ByronCodecConfig)
@@ -181,11 +182,11 @@ run Options{networkName, outputDir, snapshotPath} = do
                 <> show tipSlot
                 <> ")"
             )
-        writeJsonOutput potsPath pots
-        writeJsonOutput noncesPath nonces
-        writeJsonOutput delegateRepresentativesPath delegateRepresentatives
-        writeJsonOutput rewardsProvenancePath rewardsProvenance
-        writeJsonOutput poolsPath pools
+        writeJsonOutput potsPath defaultConfig pots
+        writeJsonOutput noncesPath defaultConfig nonces
+        writeJsonOutput delegateRepresentativesPath defaultConfig delegateRepresentatives
+        writeJsonOutput rewardsProvenancePath defaultConfig rewardsProvenance
+        writeJsonOutput poolsPath defaultConfig pools
 
 loadSnapshot :: FilePath -> ExceptT AppError IO LoadedSnapshot
 loadSnapshot snapshotPath = do

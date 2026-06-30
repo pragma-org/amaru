@@ -2,19 +2,24 @@
 
 module Data.StakeDistribution
     ( StakeDistribution (..)
+    , jsonConfig
     ) where
 
 import Relude
 
 import Data.Aeson
-    ( ToJSON (toJSON)
-    , genericToJSON
+    ( KeyValue ((.=))
+    , ToJSON (toEncoding, toJSON)
+    , Value (Object)
+    , pairs
+    )
+import Data.Aeson.Encode.Pretty
+    ( Config (..)
+    , defConfig
+    , keyOrder
     )
 import Data.Coin
     ( JsonCoin
-    )
-import Helpers.Json
-    ( snakeCaseOptions
     )
 import Data.PoolId
     ( JsonPoolId
@@ -34,7 +39,8 @@ data StakeDistribution = StakeDistribution
     , treasury :: !JsonCoin
     , reserves :: !JsonCoin
     , activeStake :: !JsonCoin
-    , votingStake :: !JsonCoin
+    , poolsVotingStake :: !JsonCoin
+    , drepsVotingStake :: !JsonCoin
     , accounts :: !AccountsSummary
     , pools :: !(Map JsonPoolId PoolSummary)
     , dreps :: !DRepsSummary
@@ -43,4 +49,36 @@ data StakeDistribution = StakeDistribution
 
 instance ToJSON StakeDistribution where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . stakeDistributionFields
+    toEncoding =
+        pairs . stakeDistributionFields
+
+stakeDistributionFields :: (KeyValue e kv, Monoid kv) => StakeDistribution -> kv
+stakeDistributionFields distr = mempty
+    <> "epoch" .= epoch distr
+    <> "treasury" .= treasury distr
+    <> "reserves" .= reserves distr
+    <> "active_stake" .= activeStake distr
+    <> "pools_voting_stake" .= poolsVotingStake distr
+    <> "dreps_voting_stake" .= drepsVotingStake distr
+    <> "accounts" .= accounts distr
+    <> "pools" .= pools distr
+    <> "dreps" .= dreps distr
+
+jsonConfig :: Config
+jsonConfig =
+    defConfig
+        { confCompare =
+            keyOrder
+                [ "epoch"
+                , "treasury"
+                , "reserves"
+                , "active_stake"
+                , "pools_voting_stake"
+                , "dreps_voting_stake"
+                , "accounts"
+                , "pools"
+                , "dreps"
+                ]
+                <> compare
+        }

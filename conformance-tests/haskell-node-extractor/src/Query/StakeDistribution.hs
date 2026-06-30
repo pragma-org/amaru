@@ -76,7 +76,8 @@ queryStakeDistribution network epochNumber newEpochState =
         , treasury = JsonCoin treasury
         , reserves = JsonCoin reserves
         , activeStake = JsonCoin (unNonZero (ssGoTotal stakeSnapshots))
-        , votingStake = JsonCoin (fold dRepStakeDistribution)
+        , poolsVotingStake = JsonCoin (fold votingStakePerPool)
+        , drepsVotingStake = JsonCoin (fold dRepStakeDistribution)
         , accounts = mkAccountsSummary accountSummaries
         , pools = mkPoolSummaries stakePerPool votingStakePerPool blocksPerPool poolParameters
         , dreps = mkDRepsSummary registeredDRepStates registeredDRepStakeDistribution dRepStakeDistribution
@@ -88,10 +89,8 @@ queryStakeDistribution network epochNumber newEpochState =
     stakeSnapshots =
         queryStakeSnapshots newEpochState Nothing
 
-    blocksPerPool =
-        case nesBprev newEpochState of
-            BlocksMade blocksCountMap ->
-                fromIntegral <$> blocksCountMap
+    BlocksMade blocksPerPool =
+        nesBprev newEpochState
 
     poolParameters =
         qpsrStakePoolParams (queryPoolState newEpochState Nothing network)

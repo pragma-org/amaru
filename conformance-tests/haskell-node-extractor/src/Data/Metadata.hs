@@ -29,15 +29,13 @@ import Cardano.Ledger.State
         )
     )
 import Data.Aeson
-    ( ToJSON (toJSON)
-    , Value (String)
-    , genericToJSON
+    ( KeyValue ((.=))
+    , ToJSON (toEncoding, toJSON)
+    , Value (Object, String)
+    , pairs
     )
 import Data.HexString
     ( bytesToHexText
-    )
-import Helpers.Json
-    ( snakeCaseOptions
     )
 import GHC.Exts
     ( Int (I#)
@@ -76,7 +74,15 @@ data Metadata = Metadata
 
 instance ToJSON Metadata where
     toJSON =
-        genericToJSON snakeCaseOptions
+        Object . metadataFields
+
+    toEncoding =
+        pairs . metadataFields
+
+metadataFields :: (KeyValue e kv, Monoid kv) => Metadata -> kv
+metadataFields Metadata{url, contentHash} = mempty
+    <> "url" .= url
+    <> "content_hash" .= contentHash
 
 metadataFromPoolMetadata :: PoolMetadata -> Metadata
 metadataFromPoolMetadata poolMetadata =
