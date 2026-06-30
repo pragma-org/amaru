@@ -126,7 +126,6 @@ jobs:
 
   snapshots:
     name: Compare ledger epoch snapshots
-    if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/template-ledger-epoch-snapshots.yml
     with:
       use_fixed_epoch: true
