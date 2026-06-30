@@ -372,10 +372,24 @@ fn supervision() {
             }
         }
 
-        let trigger = builder.stage("trigger", async |_: (), _msg: u32, eff| {
-            let child = eff.stage("child", child).await;
-            let child = eff.wire_up(child, (StageRef::blackhole(), StageRef::blackhole())).await;
-            eff.send(&child, 1).await;
+        let trigger = builder.stage("trigger", async |_: (), msg: u32, eff| {
+            if msg == 1 {
+                let child = eff.stage("child", child).await;
+                let child = eff.supervise(child, 420);
+                let child = eff.wire_up(child, (StageRef::blackhole(), StageRef::blackhole())).await;
+                eff.send(&child, 1).await;
+            } else if msg == 420 {
+                // NOTE:
+                //
+                // Unfortunately, this is quite difficult to make deterministic because there is no
+                // ordering requirement for stage shutdown, hence it is also not implemented
+                // (because stages cannot hold resources in their state, by design, and shutdown
+                // cannot run effects). Therefore, a 500ms sleep will hopefully ensure that c-5
+                // always terminates before the simulation ends--this termination is an important
+                // aspect of the test.
+                eff.wait(Duration::from_millis(500)).await;
+                return eff.terminate().await;
+            }
         });
         let trigger = builder.wire_up(trigger, ());
         builder.preload(trigger, [1]).unwrap();
@@ -390,7 +404,7 @@ fn supervision() {
             "trigger-1",
             "child-2",
             sdv((StageRef::<u32>::blackhole(), StageRef::<u32>::blackhole())),
-            None,
+            Some(sdv(420u32)),
         )),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::send("trigger-1", "child-2", sdv(1u32))),
@@ -442,7 +456,9 @@ fn supervision() {
         E::terminated("b-4", TerminationReason::Voluntary),
         E::terminated("child-2", TerminationReason::Supervision(n("b-4"))),
         E::terminated("c-5", TerminationReason::Aborted),
-        E::terminated("trigger-1", TerminationReason::Supervision(n("child-2"))),
+        E::input("trigger-1", sdv(420u32)),
+        E::resume("trigger-1", Resp::Unit),
+        E::suspend(Eff::wait("trigger-1", dur(500))),
     ];
     assert_equiv(run_sim(graph), &expected);
     assert_equiv(run_tokio(graph), &expected);

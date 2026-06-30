@@ -437,10 +437,13 @@ def failure_report_markdown(
             "Suggested starting point:\n\n"
             "```md\n"
             f"{suggested_changelog_snippet(expected_version, expected_day)}\n"
-            "```\n"
+            "```\n\n"
             if show_guidance
             else ""
         )
+        + "> [!TIP]"
+        + "\n"
+        + "> Nothing relevant to add to the changelog? Add `Skip-Changelog` to one of your commit messages or to the PR description.\n"
     )
 
 
