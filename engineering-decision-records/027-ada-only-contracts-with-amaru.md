@@ -21,8 +21,8 @@ Each contract paid in ada is valued according to the following rules:
 2. We consider the equivalent dollar amount for an FTE valued at $225k (as per our budget);
 3. For conversion rate, we use the lowest ada value of the previous semester.
 
-Hence for a contract signed in June, that covers the period from July to December;
-we use the lowest price of ada over the period [01 Jan, 30 Jun] of the same year.
+Hence for the contracts signed on the 08th of June, that covers the period from July to December;
+we used the lowest price of ada over the period [08 Dec 2025, 08 June 2026] which was 0.15 at the time of the review.
 
 ### Contract environment storage
 
