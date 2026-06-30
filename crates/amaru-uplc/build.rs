@@ -14,45 +14,48 @@
 
 use std::{env, ffi::OsStr, fs, path::PathBuf};
 
+use indoc::formatdoc;
 use walkdir::WalkDir;
 
-fn main() {
-    // These tests currently fail because we do not support "counting mode" yet
-    // Which means they will always run out of budget.
-    // Once counting mode is implemented, these tests should not be skipped.
-    let skip_tests = [
-        "builtin_semantics_droplist_droplist_09",
-        "builtin_semantics_droplist_droplist_10",
-        "builtin_semantics_droplist_droplist_14",
-        "builtin_semantics_droplist_droplist_15",
-        "builtin_semantics_droplist_droplist_16",
-    ];
+/// The original conformance test suite from the IntersectMBO/plutus codebase are run with the VM
+/// in "counting" mode. Some tests are purposely crafted to use a very large budget due to
+/// arguments themselves being huge, but not actually inducing an actual execution cost.
+///
+/// This is the case, for instance, of the dropList builtin, which cost depends on the size of the
+/// arguments, even if the list is empty (and thus, the drop virtually "free").
+///
+/// In the original conformance test suite, these tests pass successfully, but result in very large
+/// budgets; in our case, these fail because they run out of budget (as they would in a real
+/// scenario).
+const OUT_OF_BUDGET_TESTS: &[&str] = &[
+    "builtin_semantics_droplist_droplist_09",
+    "builtin_semantics_droplist_droplist_10",
+    "builtin_semantics_droplist_droplist_14",
+    "builtin_semantics_droplist_droplist_15",
+    "builtin_semantics_droplist_droplist_16",
+];
 
+const OUT_OF_BUDGET: &str = "\"out of budget\"";
+
+fn main() {
     let crate_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let conformance_root = crate_root.join("tests").join("conformance");
 
-    let flat_dir = conformance_root.join("flat");
-    let textual_dir = conformance_root.join("textual");
-
-    println!("cargo:rerun-if-changed={}", flat_dir.display());
-    println!("cargo:rerun-if-changed={}", textual_dir.display());
+    println!("cargo:rerun-if-changed={}", conformance_root.display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    let textual_tests = generate_textual_tests(&textual_dir, &skip_tests);
-    fs::write(out_dir.join("generated_tests.rs"), textual_tests).unwrap();
-
-    let flat_tests = generate_flat_tests(&flat_dir, &skip_tests);
-    fs::write(out_dir.join("generated_flat_tests.rs"), flat_tests).unwrap();
+    fs::write(out_dir.join("generated_tests.rs"), generate_conformance_tests(&conformance_root))
+        .unwrap_or_else(|e| panic!("failed to generate conformance tests: {e}"));
 }
 
-fn generate_flat_tests(dir_path: &PathBuf, skip_tests: &[&str]) -> String {
+fn generate_conformance_tests(dir_path: &PathBuf) -> String {
     let mut tests = String::new();
 
     for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
         let path = entry.path();
 
-        if !path.file_name().and_then(OsStr::to_str).is_some_and(|name| name.ends_with(".fixture.json")) {
+        if !path.file_name().and_then(OsStr::to_str).is_some_and(|name| name.ends_with(".uplc")) {
             continue;
         }
 
@@ -66,63 +69,36 @@ fn generate_flat_tests(dir_path: &PathBuf, skip_tests: &[&str]) -> String {
             .replace(|c: char| !c.is_alphanumeric(), "_")
             .to_lowercase();
 
-        let ignore = if skip_tests.contains(&test_name.as_str()) { "\n#[ignore]" } else { "" };
+        let text_path = path.to_str().unwrap().replace('\\', "/");
+        let text = format!("include_str!(\"{text_path}\")");
 
-        let file_path = path.to_str().unwrap().replace('\\', "/");
+        let flat_path = format!("{}.flat", text_path.strip_suffix(".uplc").unwrap());
+        let flat = format!("include_str!(\"{flat_path}\")",);
 
-        tests.push_str(&format!(
-            r#"
-{ignore}
-#[test]
-fn {test_name}() {{
-    run_conformance(include_str!("{file_path}"));
-}}
-"#,
-        ));
-    }
+        let (expected_text, expected_flat) = if OUT_OF_BUDGET_TESTS.contains(&test_name.as_str()) {
+            (OUT_OF_BUDGET.to_string(), OUT_OF_BUDGET.to_string())
+        } else {
+            (format!("include_str!(\"{text_path}.expected\")"), format!("include_str!(\"{flat_path}.expected\")"))
+        };
 
-    tests
-}
+        let budget = format!("include_str!(\"{text_path}.budget.expected\")");
 
-fn generate_textual_tests(dir_path: &PathBuf, skip_tests: &[&str]) -> String {
-    let mut tests = String::new();
-
-    for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
-        let path = entry.path();
-
-        if path.extension().and_then(OsStr::to_str) != Some("uplc") {
-            continue;
+        if !tests.is_empty() {
+            tests.push('\n');
         }
 
-        let test_name = path
-            .strip_prefix(dir_path)
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .replace(|c: char| !c.is_alphanumeric(), "_")
-            .to_lowercase();
-
-        let ignore = if skip_tests.contains(&test_name.as_str()) { "\n#[ignore]" } else { "" };
-
-        let file_path = path.to_str().unwrap().replace('\\', "/");
-        let expected_path = path.with_extension("uplc.expected").to_str().unwrap().replace('\\', "/");
-        let budget_path = path.with_extension("uplc.budget.expected").to_str().unwrap().replace('\\', "/");
-
-        tests.push_str(&format!(
-            r#"
-{ignore}
-#[test]
-fn {test_name}() {{
-    run_conformance(
-        include_str!("{file_path}"),
-        include_str!("{expected_path}"),
-        include_str!("{budget_path}"),
-    );
-}}
-"#,
-        ));
+        tests.push_str(&formatdoc! {r#"
+            #[test]
+            fn {test_name}() {{
+                run_conformance(
+                    {text},
+                    {expected_text},
+                    {flat},
+                    {expected_flat},
+                    {budget},
+                );
+            }}
+        "#});
     }
 
     tests

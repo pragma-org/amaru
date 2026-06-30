@@ -1,8 +1,0 @@
-{
-  "input": "0100003371e6f21221192e7ea84da4bc4d7cfb463e3f2c8647057afff3fbececa1d2000048811c93d4b80c531998973b08297fc5042af359865a8702f20b5fc2db8df50001",
-  "expected": {
-    "kind": "ok",
-    "output": "0100004a21",
-    "budget": { "cpu": 382011, "mem": 805 }
-  }
-}

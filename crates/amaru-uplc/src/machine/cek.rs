@@ -453,8 +453,8 @@ impl<'a> Machine<'a> {
     where
         V: Eval<'a>,
     {
-        self.ex_budget.mem -= spend_budget.mem;
-        self.ex_budget.cpu -= spend_budget.cpu;
+        self.ex_budget.mem = self.ex_budget.mem.saturating_sub(spend_budget.mem);
+        self.ex_budget.cpu = self.ex_budget.cpu.saturating_sub(spend_budget.cpu);
 
         if self.ex_budget.mem < 0 || self.ex_budget.cpu < 0 {
             Err(MachineError::OutOfExError(self.ex_budget))

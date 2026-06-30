@@ -45,8 +45,11 @@ impl Cost<1> for OneArgument {
 
         match self {
             OneArgument::Constant(c) => *c,
-            OneArgument::LinearInX(m) => m.slope * x + m.intercept,
-            OneArgument::Quadratic(q) => q.coeff_0 + (q.coeff_1 * x) + (q.coeff_2 * x * x),
+            OneArgument::LinearInX(m) => m.slope.saturating_mul(x).saturating_add(m.intercept),
+            OneArgument::Quadratic(q) => q
+                .coeff_0
+                .saturating_add(q.coeff_1.saturating_mul(x))
+                .saturating_add(q.coeff_2.saturating_mul(x).saturating_mul(x)),
         }
     }
 }
@@ -81,21 +84,37 @@ impl Cost<2> for TwoArguments {
 
         match self {
             TwoArguments::Constant(c) => *c,
-            TwoArguments::LinearInX(l) => l.slope * x + l.intercept,
-            TwoArguments::LinearInY(l) => l.slope * y + l.intercept,
-            TwoArguments::LinearInXAndY(l) => l.slope1 * x + l.slope2 * y + l.intercept,
-            TwoArguments::AddedSizes(s) => s.slope * (x + y) + s.intercept,
-            TwoArguments::SubtractedSizes(s) => s.slope * s.minimum.max(x - y) + s.intercept,
-            TwoArguments::MultipliedSizes(s) => s.slope * (x * y) + s.intercept,
-            TwoArguments::MinSize(s) => s.slope * x.min(y) + s.intercept,
-            TwoArguments::MaxSize(s) => s.slope * x.max(y) + s.intercept,
+            TwoArguments::LinearInX(l) => l.slope.saturating_mul(x).saturating_add(l.intercept),
+            TwoArguments::LinearInY(l) => l.slope.saturating_mul(y).saturating_add(l.intercept),
+            TwoArguments::LinearInXAndY(l) => {
+                l.slope1.saturating_mul(x).saturating_add(l.slope2.saturating_mul(y)).saturating_add(l.intercept)
+            }
+            TwoArguments::AddedSizes(s) => s.slope.saturating_mul(x.saturating_add(y)).saturating_add(s.intercept),
+            TwoArguments::SubtractedSizes(s) => {
+                s.slope.saturating_mul(s.minimum.max(x.saturating_sub(y))).saturating_add(s.intercept)
+            }
+            TwoArguments::MultipliedSizes(s) => s.slope.saturating_mul(x.saturating_mul(y)).saturating_add(s.intercept),
+            TwoArguments::MinSize(s) => s.slope.saturating_mul(x.min(y)).saturating_add(s.intercept),
+            TwoArguments::MaxSize(s) => s.slope.saturating_mul(x.max(y)).saturating_add(s.intercept),
             TwoArguments::LinearOnDiagonal(l) => {
                 if x == y {
-                    x * l.slope + l.intercept
+                    x.saturating_mul(l.slope).saturating_add(l.intercept)
                 } else {
                     l.constant
                 }
             }
+            TwoArguments::QuadraticInY(q) => q
+                .coeff_0
+                .saturating_add(q.coeff_1.saturating_mul(y))
+                .saturating_add(q.coeff_2.saturating_mul(y).saturating_mul(y)),
+            TwoArguments::QuadraticInXAndY(q) => q.minimum.max(
+                q.coeff_00
+                    .saturating_add(q.coeff_10.saturating_mul(x))
+                    .saturating_add(q.coeff_01.saturating_mul(y))
+                    .saturating_add(q.coeff_20.saturating_mul(x).saturating_mul(x))
+                    .saturating_add(q.coeff_11.saturating_mul(x).saturating_mul(y))
+                    .saturating_add(q.coeff_02.saturating_mul(y).saturating_mul(y)),
+            ),
             TwoArguments::ConstAboveDiagonal(constant, q) => {
                 if x < y {
                     *constant
@@ -104,16 +123,11 @@ impl Cost<2> for TwoArguments {
                 }
             }
             TwoArguments::AboveAndBelowDiagonal(q) => q.cost([x.max(y), x.min(y)]),
-            TwoArguments::QuadraticInY(q) => q.coeff_0 + (q.coeff_1 * y) + (q.coeff_2 * y * y),
-            TwoArguments::QuadraticInXAndY(q) => q.minimum.max(
-                q.coeff_00
-                    + q.coeff_10 * x
-                    + q.coeff_01 * y
-                    + q.coeff_20 * x * x
-                    + q.coeff_11 * x * y
-                    + q.coeff_02 * y * y,
-            ),
-            TwoArguments::WithInteraction(w) => w.coeff_00 + w.coeff_10 * x + w.coeff_01 * y + w.coeff_11 * x * y,
+            TwoArguments::WithInteraction(w) => w
+                .coeff_00
+                .saturating_add(w.coeff_10.saturating_mul(x))
+                .saturating_add(w.coeff_01.saturating_mul(y))
+                .saturating_add(w.coeff_11.saturating_mul(x).saturating_mul(y)),
         }
     }
 }
@@ -141,22 +155,30 @@ impl Cost<3> for ThreeArguments {
 
         match self {
             ThreeArguments::Constant(c) => *c,
-            ThreeArguments::LinearInX(l) => x * l.slope + l.intercept,
-            ThreeArguments::LinearInY(l) => y * l.slope + l.intercept,
-            ThreeArguments::LinearInZ(l) => z * l.slope + l.intercept,
-            ThreeArguments::QuadraticInZ(q) => q.coeff_0 + (q.coeff_1 * z) + (q.coeff_2 * z * z),
+            ThreeArguments::LinearInX(l) => x.saturating_mul(l.slope).saturating_add(l.intercept),
+            ThreeArguments::LinearInY(l) => y.saturating_mul(l.slope).saturating_add(l.intercept),
+            ThreeArguments::LinearInZ(l) => z.saturating_mul(l.slope).saturating_add(l.intercept),
+            ThreeArguments::QuadraticInZ(q) => q
+                .coeff_0
+                .saturating_add(q.coeff_1.saturating_mul(z))
+                .saturating_add(q.coeff_2.saturating_mul(z).saturating_mul(z)),
             ThreeArguments::LiteralInYorLinearInZ(l) => {
                 if y == 0 {
-                    l.slope * z + l.intercept
+                    l.slope.saturating_mul(z).saturating_add(l.intercept)
                 } else {
                     y
                 }
             }
-            ThreeArguments::LinearInYAndZ(l) => y * l.slope1 + z * l.slope2 + l.intercept,
-            ThreeArguments::LinearInMaxYZ(l) => y.max(z) * l.slope + l.intercept,
+            ThreeArguments::LinearInYAndZ(l) => {
+                y.saturating_mul(l.slope1).saturating_add(z.saturating_mul(l.slope2)).saturating_add(l.intercept)
+            }
+            ThreeArguments::LinearInMaxYZ(l) => y.max(z).saturating_mul(l.slope).saturating_add(l.intercept),
             ThreeArguments::ExpModCost(c) => {
-                let cost = c.coeff_00 + c.coeff_11 * y * z + c.coeff_12 * y * z * z;
-                if x <= z { cost } else { cost + (cost / 2) }
+                let cost = c
+                    .coeff_00
+                    .saturating_add(c.coeff_11.saturating_mul(y).saturating_mul(z))
+                    .saturating_add(c.coeff_12.saturating_mul(y).saturating_mul(z).saturating_mul(z));
+                if x <= z { cost } else { cost.saturating_add(cost / 2) }
             }
         }
     }

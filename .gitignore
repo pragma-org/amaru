@@ -53,7 +53,8 @@ heaptrack.*.gz
 data/**/blocks/**
 
 # Test arguments, generated data and traces created during the simulation
-amaru-sim/test-data/
+**/amaru-sim/test-data/
+**/amaru-uplc/benches/turbo/samples
 
 # Relay demos data
 scripts/relay*/run/**

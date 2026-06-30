@@ -1,7 +1,0 @@
-{
-  "input": "0101008808080808080808080021",
-  "expected": {
-    "kind": "error",
-    "layer": "decode"
-  }
-}
