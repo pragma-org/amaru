@@ -1,0 +1,20 @@
+[upstream]
+peer_address = "127.0.0.1:3000"
+
+[storage]
+version = "v3"
+path = "dolos-data"
+
+[genesis]
+byron_path = "cardano-node-config/byron-genesis.json"
+shelley_path = "cardano-node-config/shelley-genesis.json"
+alonzo_path = "cardano-node-config/alonzo-genesis.json"
+conway_path = "cardano-node-config/conway-genesis.json"
+
+[chain]
+type = "cardano"
+magic = 1
+is_testnet = true
+
+[sync]
+sync_limit = { MaxBlocks = 10 }
