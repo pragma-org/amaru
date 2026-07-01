@@ -298,6 +298,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         remove_target_outputs(&snapshot_output_dir, &targets)?;
     }
 
+    for target in &targets {
+        write_epoch_metadata(&metadata_dir, target)?;
+    }
+
     let existing_snapshots = existing_snapshot_paths(&snapshot_output_dir, &targets);
     let existing_archives = existing_archive_paths(&snapshot_output_dir, &targets);
     if !existing_snapshots.is_empty() || !existing_archives.is_empty() {
@@ -308,10 +312,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!("refusing to overwrite existing snapshot outputs: {existing_outputs}").into());
-    }
-
-    for target in &targets {
-        write_epoch_metadata(&metadata_dir, target)?;
     }
 
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
