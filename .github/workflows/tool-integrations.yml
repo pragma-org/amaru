@@ -9,15 +9,10 @@ permissions:
   contents: read
   actions: write
 
-env:
-  LEDGER_CACHE_VERSION: "v13"
-
 jobs:
   prepare:
     name: Build Amaru & restore bootstrap DBs
     runs-on: ubuntu-24.04
-    outputs:
-      cache-hit: ${{ steps.cache-bootstrap.outputs.cache-hit }}
     env:
       AMARU_NETWORK: preprod
       AMARU_CHAIN_DIR: ./chain.preprod.db
@@ -36,24 +31,18 @@ jobs:
         run: |
           cargo build --release --bin amaru --locked
 
-      - name: Restore Amaru bootstrap DBs
-        id: cache-bootstrap
-        uses: actions/cache/restore@v4
+      - name: Bootstrap DBs
+        uses: ./.github/actions/bootstrap-db
         with:
-          path: |
-            ./ledger.preprod.db
-            ./chain.preprod.db
-          key: bootstrap-state-${{ runner.os }}-preprod-${{ env.LEDGER_CACHE_VERSION }}
+          network: preprod
 
       - name: Start Amaru
-        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
         shell: bash
         run: |
           ./target/release/amaru node run > amaru.log 2>&1 &
           echo $! > amaru.pid
 
       - name: Wait for Amaru to be ready
-        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
         shell: bash
         run: |
           timeout 60 bash -c 'until nc -z 127.0.0.1 3000; do sleep 1; done' || {
@@ -63,7 +52,6 @@ jobs:
           }
 
       - name: Wait for Amaru to adopt at least one block
-        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
         shell: bash
         run: |
           # adopt_chain only fires after fetch_blocks stored the body and validate_block
@@ -76,13 +64,11 @@ jobs:
           }
 
       - name: Stop Amaru
-        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
         shell: bash
         run: |
           kill "$(cat amaru.pid)"
 
       - name: Upload Amaru artifacts
-        if: steps.cache-bootstrap.outputs.cache-hit == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: amaru-preprod
@@ -95,7 +81,6 @@ jobs:
   test-tools:
     name: Test ${{ matrix.tool.name }}
     needs: prepare
-    if: needs.prepare.outputs.cache-hit == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -152,15 +137,17 @@ jobs:
               unzip -q yaci-store.zip -d yaci-store-bin
               chmod +x yaci-store-bin/*/yaci-store
             setup: |
-              # Bootstrap stores only the ~k=2160 most-recent headers (no block bodies — bodies
-              # are fetched by fetch_blocks during live sync, not bootstrap). Yaci Store connects
-              # and immediately tries to fetch a block body via BlockFetch; since none are present
-              # in the bootstrap DB, it gets NoBlocks. Full block indexing therefore requires a
-              # live-running Amaru that has had time to fetch and store bodies after bootstrap.
-              # We test N2N protocol compatibility only: handshake + ChainSync negotiation.
+              # Point Yaci at Amaru's current best tip so it only requests blocks Amaru already
+              # has bodies for, rather than the entire chain history from the well-known point.
+              TIP_POINT=$(./target/release/amaru dev chain best-chain \
+                --network preprod 2>/dev/null | grep "Best tip (stored):" | awk '{print $NF}')
+              TIP_SLOT=$(echo "$TIP_POINT" | cut -d. -f1)
+              TIP_HASH=$(echo "$TIP_POINT" | cut -d. -f2)
               export STORE_CARDANO_HOST=127.0.0.1
               export STORE_CARDANO_PORT=3000
               export STORE_CARDANO_PROTOCOL_MAGIC=1
+              export STORE_CARDANO_SYNC_START_SLOT="$TIP_SLOT"
+              export STORE_CARDANO_SYNC_START_BLOCKHASH="$TIP_HASH"
               export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/yaci_store"
               export SPRING_DATASOURCE_USERNAME=postgres
               export SPRING_DATASOURCE_PASSWORD=postgres
