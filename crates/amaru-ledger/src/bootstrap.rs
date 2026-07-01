@@ -125,7 +125,6 @@ pub fn import_initial_snapshot(
 
         Ok(d.decode()?)
     })?;
-    import_block_issuers(db, point, era_history, block_issuers)?;
 
     let (treasury, reserves): (i64, i64) = decoder.with_decoder(|d| {
         // Epoch State
@@ -163,8 +162,6 @@ pub fn import_initial_snapshot(
 
     let (pools, pools_updates, pools_retirements) =
         decoder.with_decoder(|d| Ok(decode_node_pool_state(d, network)?)).map_err(format_pool_state_decode_error)?;
-    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
-        .map_err(|err| format!("import pool state: {err}"))?;
 
     let accounts =
         decoder.with_decoder(|d| Ok(decode_node_accounts(d)?)).map_err(|err| format!("decode accounts: {err}"))?;
@@ -187,7 +184,6 @@ pub fn import_initial_snapshot(
         d.array()?;
         Ok((d.decode()?, d.decode()?, d.decode()?, d.decode()?))
     })?;
-    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
 
     let proposals: Vec<ProposalState> = decoder.decode()?;
 
@@ -195,8 +191,9 @@ pub fn import_initial_snapshot(
 
     let constitution: Constitution = decoder.decode()?;
 
-    // Current Protocol Params
+    // Current Protocol Params — decode before any write so a stale snapshot fails cleanly.
     let pparams: ProtocolParameters = decoder.decode()?;
+
     protocol_version_validation::validate_protocol_version(
         pparams.protocol_version,
         MINIMUM_SUPPORTED_PROTOCOL_VERSION,
@@ -205,6 +202,11 @@ pub fn import_initial_snapshot(
         snapshot_version: e.snapshot_version,
         minimum_version: e.minimum_version,
     })?;
+
+    import_block_issuers(db, point, era_history, block_issuers)?;
+    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
+        .map_err(|err| format!("import pool state: {err}"))?;
+    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
 
     import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
