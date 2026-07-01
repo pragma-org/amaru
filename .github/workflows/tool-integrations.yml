@@ -137,15 +137,17 @@ jobs:
               unzip -q yaci-store.zip -d yaci-store-bin
               chmod +x yaci-store-bin/*/yaci-store
             setup: |
-              # Bootstrap stores only the ~k=2160 most-recent headers (no block bodies — bodies
-              # are fetched by fetch_blocks during live sync, not bootstrap). Yaci Store connects
-              # and immediately tries to fetch a block body via BlockFetch; since none are present
-              # in the bootstrap DB, it gets NoBlocks. Full block indexing therefore requires a
-              # live-running Amaru that has had time to fetch and store bodies after bootstrap.
-              # We test N2N protocol compatibility only: handshake + ChainSync negotiation.
+              # Point Yaci at Amaru's current best tip so it only requests blocks Amaru already
+              # has bodies for, rather than the entire chain history from the well-known point.
+              TIP_POINT=$(./target/release/amaru dev chain best-chain \
+                --network preprod 2>/dev/null | grep "Best tip (stored):" | awk '{print $NF}')
+              TIP_SLOT=$(echo "$TIP_POINT" | cut -d. -f1)
+              TIP_HASH=$(echo "$TIP_POINT" | cut -d. -f2)
               export STORE_CARDANO_HOST=127.0.0.1
               export STORE_CARDANO_PORT=3000
               export STORE_CARDANO_PROTOCOL_MAGIC=1
+              export STORE_CARDANO_SYNC_START_SLOT="$TIP_SLOT"
+              export STORE_CARDANO_SYNC_START_BLOCKHASH="$TIP_HASH"
               export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/yaci_store"
               export SPRING_DATASOURCE_USERNAME=postgres
               export SPRING_DATASOURCE_PASSWORD=postgres
