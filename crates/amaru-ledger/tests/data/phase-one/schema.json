@@ -164,6 +164,25 @@
         }
       }
     },
+    "CommitteeMember": {
+      "type": "object",
+      "required": ["member"],
+      "properties": {
+        "member": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of the committee cold StakeCredential."
+        },
+        "hotCredential": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of the authorized hot StakeCredential, if any."
+        },
+        "validUntil": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Term expiry epoch, if set."
+        }
+      }
+    },
     "VotingState": {
       "type": "object",
       "required": ["consecutiveDormantEpochs"],
@@ -173,11 +192,15 @@
     },
     "InitialState": {
       "type": "object",
-      "required": ["utxo", "governanceActivity"],
+      "required": ["utxo", "committee", "governanceActivity"],
       "properties": {
         "utxo": {
           "type": "array",
           "items": { "$ref": "#/$defs/UtxoEntry" }
+        },
+        "committee": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CommitteeMember" }
         },
         "governanceActivity": { "$ref": "#/$defs/VotingState" }
       }

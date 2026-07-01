@@ -1,0 +1,31 @@
+{
+  "title": "ConwayCommitteeIsUnknown",
+  "description": "An AuthCommitteeHot cert names a cold credential that is not a committee member.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "committee": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4004d9010281830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581c111111111111111111111111111111111111111111111111111111110f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840f0c514a5ce71aefd8161978f4772a04cdf38a3e7b5eede700082b39462f1e2b8747a68b3fdc2a3a15ca4b7f2726164d8300d2ba8d066322cf5f6f12ecb89610ff5f6",
+  "expected": {
+    "predicate": "ConwayCommitteeIsUnknown"
+  }
+}

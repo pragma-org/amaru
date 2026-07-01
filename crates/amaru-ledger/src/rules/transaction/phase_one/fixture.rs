@@ -15,13 +15,14 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    EraHistoryProxy, MemoizedTransactionOutput, NetworkName, ProtocolParameters, TransactionInput, TransactionPointer,
-    json,
+    Epoch, EraHistoryProxy, MemoizedTransactionOutput, NetworkName, ProtocolParameters, StakeCredential,
+    TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
+    context::{CCMember, DelegateError},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -51,7 +52,39 @@ pub(super) struct Fixture {
 pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_utxo")]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    #[serde(deserialize_with = "deserialize_committee")]
+    pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     pub(super) governance_activity: GovernanceActivity,
+}
+
+fn deserialize_committee<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, CCMember>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Entry {
+        member: String,
+        #[serde(default)]
+        hot_credential: Option<String>,
+        #[serde(default)]
+        valid_until: Option<Epoch>,
+    }
+
+    let decode = |hex_str: &str| -> Result<StakeCredential, D::Error> {
+        let bytes = hex::decode(hex_str).map_err(serde::de::Error::custom)?;
+        cbor::decode(&bytes).map_err(serde::de::Error::custom)
+    };
+
+    let entries: Vec<Entry> = serde::Deserialize::deserialize(deserializer)?;
+    entries
+        .into_iter()
+        .map(|entry| {
+            let member = decode(&entry.member)?;
+            let hot_credential = entry.hot_credential.as_deref().map(&decode).transpose()?;
+            Ok((member, CCMember { hot_credential, valid_until: entry.valid_until }))
+        })
+        .collect()
 }
 
 pub(super) enum Expected {
@@ -80,6 +113,7 @@ pub(super) enum Predicate {
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
     ConflictingMetadataHash,
+    ConwayCommitteeIsUnknown,
     IncorrectDepositDELEG,
     InputSetEmptyUTxO,
     InvalidWitnessesUTXOW,
@@ -126,6 +160,10 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::IncorrectStakeDeposit { .. }) => {
                 Predicate::IncorrectDepositDELEG
             }
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberUnknown(_)) => Predicate::ConwayCommitteeIsUnknown,
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
+                DelegateError::UnknownSource(_),
+            )) => Predicate::ConwayCommitteeIsUnknown,
             PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
                 [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,
