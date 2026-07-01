@@ -377,16 +377,25 @@ pub fn first_missing_immutable_chunk(immutable_dir: &Path) -> Result<u64, io::Er
     }
 }
 
-pub fn chunk_for_slot(network: NetworkName, slot: u64) -> u64 {
+pub fn chunk_for_slot(network: NetworkName, slot: u64) -> anyhow::Result<u64> {
     // Immutable chunks span one Byron epoch, i.e. 10 * k slots: 21600 on
     // mainnet and preprod (k = 2160), 4320 on preview (k = 432).
-    let global_parameters: &GlobalParameters = network.into();
-    let slots_per_chunk = 10 * global_parameters.consensus_security_param as u64;
-    slot / slots_per_chunk
+    let global_parameters: &GlobalParameters = network
+        .as_global_parameters()
+        .ok_or_else(|| anyhow::anyhow!("GlobalParameters not know for network name `{}`", network))?;
+    let slots_per_chunk = 10 * global_parameters.consensus_security_param;
+    Ok(slot / slots_per_chunk)
 }
 
-pub fn from_chunk_for_resume_point(network: NetworkName, latest_chunk: Option<u64>, resume_point: Point) -> u64 {
-    latest_chunk.unwrap_or_else(|| chunk_for_slot(network, resume_point.slot_or_default().into()).saturating_sub(1))
+pub fn from_chunk_for_resume_point(
+    network: NetworkName,
+    latest_chunk: Option<u64>,
+    resume_point: Point,
+) -> anyhow::Result<u64> {
+    if let Some(latest) = latest_chunk {
+        return Ok(latest);
+    }
+    Ok(chunk_for_slot(network, resume_point.slot_or_default().into())?.saturating_sub(1))
 }
 
 #[cfg(test)]
