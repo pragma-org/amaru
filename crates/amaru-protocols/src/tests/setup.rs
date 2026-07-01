@@ -73,7 +73,7 @@ pub(super) fn set_resources_with_connections(
     network: &mut TokioBuilder,
     connections: ConnectionsResource,
 ) -> anyhow::Result<()> {
-    let block_validation = Arc::new(MockCanValidateBlocks);
+    let block_validation = Arc::new(MockBlockValidator::new(chain_store.get_best_chain_tip().point()));
     network.resources().put::<Arc<dyn DiagnosticChainStore>>(chain_store.clone());
     network.resources().put::<ResourceHeaderStore>(chain_store);
     network.resources().put::<ResourceBlockValidation>(block_validation.clone());

@@ -16,16 +16,16 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use amaru::{default_data_dir, default_ledger_dir};
 use amaru_kernel::{NetworkName, Point, cbor};
+use amaru_ledger::store::ReadStore;
 use amaru_mithril::{
     BLOCKS_PER_ARCHIVE, archive_name_for_blocks, download_from_mithril, from_chunk_for_resume_point, get_latest_chunk,
     latest_archive, list_existing_archives, package_blocks, parse_header_slot_and_hash, resume_point_for_archives,
 };
 use amaru_network::point::to_network_point;
+use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use clap::Parser;
 use pallas_hardano::storage::immutable::read_blocks_from_point;
 use tracing::{info, warn};
-
-use crate::cmd::new_block_validator;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -67,8 +67,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let immutable_dir = target_dir.join("immutable");
     let blocks_dir = PathBuf::from(format!("{}/blocks", default_data_dir(network)));
 
-    let ledger = new_block_validator(network, ledger_dir)?;
-    let tip = ledger.get_tip();
+    let store = RocksDB::new(&RocksDbConfig::new(ledger_dir))?;
+    let tip = store.tip()?;
     let mut existing_archives = list_existing_archives(&blocks_dir)?;
     let tail_archive = latest_archive(&existing_archives);
 

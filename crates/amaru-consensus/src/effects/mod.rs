@@ -20,7 +20,7 @@ pub use amaru_protocols::metrics_effects::{Metrics, MetricsOps, RecordMetricsEff
 pub use ledger_effects::{
     ContainsPointEffect, Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation,
     ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourcePoolSummaries,
-    ResourceTxValidation, RollbackBlockEffect, TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect,
+    ResourceTxValidation, SwitchToForkEffect, TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect,
     VolatileTipEffect,
 };
 pub use random_effects::GenerateRandomSeed;

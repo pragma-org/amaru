@@ -264,7 +264,7 @@ fn setup_inner(
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());
-            let block_validation = Arc::new(MockCanValidateBlocks);
+            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());
             resources.put::<ResourceHasStakePools>(block_validation);
             let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
