@@ -45,6 +45,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][], [#983][])
+- **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported ([#1000][])
 
 ### Fixed
 
@@ -104,3 +105,4 @@ Other guiding principles:
 [#981]: https://github.com/pragma-org/amaru/pull/981
 [#983]: https://github.com/pragma-org/amaru/pull/983
 [#988]: https://github.com/pragma-org/amaru/pull/988
+[#1000]: https://github.com/pragma-org/amaru/pull/1000
