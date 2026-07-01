@@ -1,0 +1,104 @@
+#!/bin/bash
+
+set -euo pipefail
+
+SRC_DIR="conformance-tests/haskell-node-extractor/data"
+BASE_TESTS_DIR="crates/amaru/tests"
+
+# Check if snapshots directory exists
+if [[ ! -d "$SRC_DIR" ]]; then
+    echo "Error: Directory $SRC_DIR does not exist"
+    exit 1
+fi
+
+# Iterate through network directories
+for SRC_PATH in "$SRC_DIR"/*/*; do
+    echo "Walking $SRC_PATH"
+
+    if [[ -d "$SRC_PATH" ]]; then
+	KIND=$(basename $(dirname "$SRC_PATH"))
+        NETWORK_NAME=$(basename "$SRC_PATH")
+
+	if [[ "$KIND" != "stake-distributions" ]]; then
+	    echo "unexpected test case folder: $KIND; expected one of: 'stake-distributions' or 'rewards'"
+	    exit 1
+	fi
+
+        if [[ "$NETWORK_NAME" != "preview" && "$NETWORK_NAME" != "preprod" && "$NETWORK_NAME" != "mainnet" ]]; then
+	    echo "unexpected network name: $NETWORK_NAME; expected one of: 'preview', 'preprod' or 'mainnet'"
+	    exit 1
+	fi
+
+        # Ensure network-specific test directory exists
+	OUT_DIR="$BASE_TESTS_DIR/$KIND/$NETWORK_NAME"
+        mkdir -p "$OUT_DIR"
+
+        # Reset TEST_CASES for this network
+        TEST_CASES=()
+
+	LAST_EPOCH=""
+        # Collect all test cases for this network
+        for FILE_PATH in "$SRC_PATH"/*; do
+            if [[ -f "$FILE_PATH" ]]; then
+                FILE_NAME=$(basename "$FILE_PATH")
+
+                # Check if filename matches pattern: *.json
+                if [[ "$FILE_NAME" =~ ^([0-9]+)\.json$ ]]; then
+                    EPOCH="${BASH_REMATCH[1]}"
+
+		    if [[ -z "$LAST_EPOCH" ]]; then
+		      echo "  from epoch=$EPOCH"
+		    fi
+
+		    LAST_EPOCH=$EPOCH
+
+		    # Generate a corresponding snapfile.
+		    SNAP_FILE="$OUT_DIR"/"$EPOCH".snap
+		    echo "---" > "$SNAP_FILE"
+		    echo "source: $BASE_TESTS_DIR/summary.rs" >> "$SNAP_FILE"
+		    echo "---" >> "$SNAP_FILE"
+		    cat "$FILE_PATH" >> "$SNAP_FILE"
+
+                    TEST_CASES+=("$NETWORK_NAME:$EPOCH")
+                fi
+	    else
+		echo "ignoring $FILE_PATH: not a file"
+            fi
+        done
+
+	if [[ -n "$LAST_EPOCH" ]]; then
+	  echo "    to epoch=$LAST_EPOCH"
+	fi
+
+        # Skip if no test cases found
+        if [[ ${#TEST_CASES[@]} -eq 0 ]]; then
+            echo "No test cases found for network: $NETWORK_NAME"
+            continue
+        fi
+
+        # Sort test cases
+        IFS=$'\n' TEST_CASES=($(sort <<<"${TEST_CASES[*]}"))
+        unset IFS
+
+        # Create/truncate the output file
+	INCL="$OUT_DIR"/generated_test_cases.incl
+        > "$INCL"
+
+        # Write test cases to file
+        for TEST_CASE in "${TEST_CASES[@]}"; do
+            NETWORK="${TEST_CASE%:*}"
+            EPOCH="${TEST_CASE#*:}"
+            echo "#[test_case($EPOCH)]" >> "$INCL"
+        done
+
+        # Append the test function content
+        cat >> "$INCL" << EOF
+#[ignore]
+pub fn compare_snapshot_$NETWORK_NAME(epoch: u64) {
+    compare_stake_distribution_with_haskell_node(Epoch::from(epoch))
+}
+EOF
+
+        echo "✅ Generated $KIND test cases for network=$NETWORK_NAME at: $INCL"
+    fi
+done

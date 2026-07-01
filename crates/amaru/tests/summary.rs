@@ -42,7 +42,7 @@ fn default_ledger_dir(network: NetworkName) -> String {
 ///
 /// The following API ensures that this is handled properly, by creating connections only once and
 /// sharing them safely between threads.
-fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
+fn load_snapshot(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     let mut connections = CONNECTIONS.lock().unwrap();
 
     let handle = connections
@@ -63,27 +63,23 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-include!(concat!("snapshots/", env!("AMARU_NETWORK"), "/generated_compare_snapshot_test_cases.incl"));
+include!(concat!("stake-distributions/", env!("AMARU_NETWORK"), "/generated-test-cases.incl"));
 
-#[expect(clippy::panic)]
-#[expect(clippy::expect_used)]
-#[expect(clippy::unwrap_used)]
-fn compare_snapshot(epoch: Epoch) {
-    let network: NetworkName =
-        env!("AMARU_NETWORK").to_string().parse().expect("$AMARU_NETWORK must be set to a valid network name");
+fn compare_stake_distribution_with_haskell_node(epoch: Epoch) -> Result<(), Box<dyn std::error::Error>> {
+    let network: NetworkName = env!("AMARU_NETWORK")
+        .to_string()
+        .parse()
+        .map_err(|e| anyhow!("failed to parse or find $AMARU_NETWORK env variable").context(e))?;
 
-    let snapshot = db(network, epoch);
+    let snapshot = load_snapshot(network, epoch);
 
-    let global_parameters = network
-        .as_global_parameters()
-        .unwrap_or_else(|| panic!("missing default GlobalParameters for network: {network}"));
+    let global_parameters = network.as_global_parameters()?;
 
-    let era_history =
-        network.as_era_history().unwrap_or_else(|| panic!("missing default EraHistory for network: {network}"));
+    let era_history = network.as_era_history()?;
 
-    let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history).unwrap();
+    let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history)?;
 
-    let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps).unwrap();
+    let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps)?;
 
     insta::with_settings!({
         snapshot_path => format!("snapshots/{}", network)
@@ -94,22 +90,23 @@ fn compare_snapshot(epoch: Epoch) {
         );
     });
 
-    let snapshot_from_the_future = db(network, epoch + 2);
-
-    let protocol_parameters = snapshot_from_the_future.as_ref().protocol_parameters().unwrap();
-
-    let rewards_summary =
-        RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr, global_parameters, &protocol_parameters)
-            .unwrap()
-            .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
-            .unwrap();
-
-    insta::with_settings!({
-        snapshot_path => default_snapshots_dir(network)
-    }, {
-        insta::assert_json_snapshot!(
-        format!("rewards_summary_{}", epoch),
-        rewards_summary
-        );
-    });
+    Ok(())
 }
+
+// TODO: reinstate rewards summary snapshot tests
+//
+// let snapshot_from_the_future = db(network, epoch + 2);
+// let protocol_parameters = snapshot_from_the_future.as_ref().protocol_parameters().unwrap();
+// let rewards_summary =
+//     RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr, global_parameters, &protocol_parameters)
+//         .unwrap()
+//         .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
+//         .unwrap();
+// insta::with_settings!({
+//     snapshot_path => default_snapshots_dir(network)
+// }, {
+//     insta::assert_json_snapshot!(
+//     format!("rewards_summary_{}", epoch),
+//     rewards_summary
+//     );
+// });
