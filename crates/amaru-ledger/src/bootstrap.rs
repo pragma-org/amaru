@@ -23,9 +23,9 @@ use amaru_kernel::{
     Account, Ballot, BallotId, Bytes, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
-    ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount, Set,
-    Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
-    new_stake_address, reward_account_to_stake_credential, size,
+    ProposalId, ProposalPointer, ProposalState, ProtocolParameters, ProtocolVersion, RationalNumber, Relay, Reward,
+    RewardAccount, Set, Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter, cbor,
+    cbor::lazy::LazyDecoder, new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -38,6 +38,7 @@ use crate::{
 };
 
 const BATCH_SIZE: usize = 1000;
+const MINIMUM_SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = protocol_version::PROTOCOL_VERSION_10;
 
 static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> = LazyLock::new(|| CertificatePointer {
     transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
@@ -54,6 +55,11 @@ enum InitialSnapshotFormatError {
 
     #[error("invalid initial snapshot payload: expected a previous-blocks map immediately after the epoch")]
     MissingPreviousBlocksMap,
+
+    #[error(
+        "snapshot protocol version {snapshot_version} is too old; minimum supported version is {minimum_version}"
+    )]
+    ProtocolVersionTooOld { snapshot_version: String, minimum_version: String },
 }
 
 fn format_pool_state_decode_error(error: Box<dyn std::error::Error>) -> String {
@@ -192,7 +198,8 @@ pub fn import_initial_snapshot(
     let constitution: Constitution = decoder.decode()?;
 
     // Current Protocol Params
-    let pparams = decoder.decode()?;
+    let pparams: ProtocolParameters = decoder.decode()?;
+    validate_protocol_version(pparams.protocol_version, MINIMUM_SUPPORTED_PROTOCOL_VERSION)?;
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
 
     import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
@@ -317,6 +324,20 @@ fn save_point(
     )?;
 
     transaction.commit()?;
+
+    Ok(())
+}
+
+fn validate_protocol_version(
+    version: ProtocolVersion,
+    minimum_version: ProtocolVersion,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if version.0 < minimum_version.0 || (version.0 == minimum_version.0 && version.1 < minimum_version.1) {
+        return Err(Box::new(InitialSnapshotFormatError::ProtocolVersionTooOld {
+            snapshot_version: protocol_version::fmt(&version),
+            minimum_version: protocol_version::fmt(&minimum_version),
+        }));
+    }
 
     Ok(())
 }
