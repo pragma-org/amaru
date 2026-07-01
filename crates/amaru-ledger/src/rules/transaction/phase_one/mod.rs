@@ -321,6 +321,7 @@ mod tests {
     #[test_case(fixture!("pass/validity-interval-start-only"); "slot above start with no upper bound")]
     #[test_case(fixture!("pass/reference-input"); "tx with resolvable reference input")]
     #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
+    #[test_case(fixture!("fail/IncorrectDepositDELEG/0"); "stake registration cert with incorrect deposit")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
     #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
     #[test_case(fixture!("fail/BabbageOutputTooSmallUTxO/0"); "output below minimum lovelace")]

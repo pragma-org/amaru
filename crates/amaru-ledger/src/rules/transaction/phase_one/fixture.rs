@@ -26,8 +26,8 @@ use crate::{
     rules::{
         WithPosition,
         transaction::phase_one::{
-            InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals,
-            PhaseOneError,
+            InvalidCertificates, InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness,
+            InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
         },
     },
@@ -80,6 +80,7 @@ pub(super) enum Predicate {
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
     ConflictingMetadataHash,
+    IncorrectDepositDELEG,
     InputSetEmptyUTxO,
     InvalidWitnessesUTXOW,
     MaxTxSizeUTxO,
@@ -122,6 +123,9 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::OutsideValidityIntervalUTxO
             }
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideForecast(_)) => Predicate::OutsideForecast,
+            PhaseOneError::Certificates(InvalidCertificates::IncorrectStakeDeposit { .. }) => {
+                Predicate::IncorrectDepositDELEG
+            }
             PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
                 [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,
