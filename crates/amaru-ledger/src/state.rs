@@ -37,6 +37,7 @@ use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
     epoch_transition::{self, GovernanceActivity},
     governance::ratification::RatificationContext,
+    protocol_version_validation::{MINIMUM_SUPPORTED_PROTOCOL_VERSION, validate_protocol_version},
     rules::{
         self,
         block::{BlockValidation, TransactionInvalid},
@@ -160,6 +161,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         global_parameters: GlobalParameters,
     ) -> Result<Self, StoreError> {
         let protocol_parameters = stable.protocol_parameters()?;
+
+        validate_protocol_version(protocol_parameters.protocol_version, MINIMUM_SUPPORTED_PROTOCOL_VERSION)
+            .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
         let governance_activity = stable.governance_activity()?;
 

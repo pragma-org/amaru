@@ -21,6 +21,7 @@ pub mod bootstrap;
 pub mod context;
 pub mod epoch_transition;
 pub mod governance;
+pub mod protocol_version_validation;
 pub mod registered_relay_addrs;
 pub mod rules;
 pub mod snapshot;
