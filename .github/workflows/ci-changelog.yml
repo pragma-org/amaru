@@ -1,4 +1,4 @@
-name: Changelog PR Comment
+name: CI Changelog
 
 permissions:
   actions: read

@@ -1,4 +1,4 @@
-name: Tool Integrations
+name: Nightly Tool Integrations
 
 on:
   schedule:

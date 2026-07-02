@@ -1,4 +1,4 @@
-name: template-cargo-test
+name: Template Cargo Test
 
 permissions:
   contents: read

@@ -1,4 +1,4 @@
-name: UPLC Benchmarks
+name: Nightly UPLC Benchmarks
 
 on:
   schedule:
