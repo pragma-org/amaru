@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
-use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{
+    ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, Proposal, ProposalPointer, StakeCredential,
+    TransactionInput,
+};
 use amaru_observability::debug_span;
 
 use crate::state::{
@@ -108,9 +111,15 @@ impl VolatileState for VolatileSeries {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<()>;
-    fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
+    type Proposal = Existence<Arc<(Proposal, ProposalPointer)>>;
+    fn resolve_proposal(&self, id: &ComparableProposalId) -> Self::Proposal {
         self.aggregate.resolve_proposal(id)
+    }
+
+    fn iter_proposals(&self) -> impl Iterator<Item = (&ComparableProposalId, &(Proposal, ProposalPointer))> {
+        // A series only adds proposals within its epoch; pruning happens one level up, in the
+        // volatile DB overlay. So every added proposal is live here.
+        self.aggregate.proposals.iter().map(|(id, proposal)| (id, &**proposal))
     }
 }
 

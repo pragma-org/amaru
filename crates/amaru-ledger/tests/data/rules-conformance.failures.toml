@@ -41,7 +41,6 @@
 "conway/fail-gov-valid-govpurposeid-but-invalid-purpose/0" = "Expected failure, got success"
 "conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
 "conway/fail-govcert-invalid-refund-provided-with-drep-deregistration-cert/0" = "Expected failure, got success"
-"conway/fail-govcert-resigning-a-non-cc-key/0" = "Expected failure, got success"
 "conway/fail-govcert-unregistering-a-nonexistent-drep/0" = "Expected failure, got success"
 "conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected failure, got success"
 "conway/fail-utxos-currenttreasuryvalue-v1/0" = "Expected failure, got success"
@@ -67,7 +66,6 @@
 "conway/fail-utxos-votingprocedures-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-votingprocedures-v2/0" = "Expected failure, got success"
 "conway/pass-deleg-delegate-retire-and-re-register-pool/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 901, must satisfy 44 < epoch <= 62"
-"conway/pass-enact-cc-re-election/0" = 'Expected success, got failure: invalid certificates: invalid cc member hot credential delegation: unknown source entity: AddrKeyhash(Hash<28>("8ed8575d4f9cc0a89bc1616ab75923ae07b19d23e8bd69586f3b76b1"))'
 "conway/pass-gov-fails-for-empty-withdrawals/0" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [5e7d655d8036173ee03b3548d5b7b023f21366eabc4045653d4c3efd]"
 "conway/pass-gov-hardfork-is-the-second-one-has-a-govpurposeid-hardfork-minorfollow/0" = "Expected success, got failure: invalid proposals: hardfork version (10, 2) cannot follow current version (10, 0)"
 "conway/pass-govcert-registering-a-resigned-cc-member-hotkey/0" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7]"

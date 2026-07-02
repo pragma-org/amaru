@@ -66,7 +66,7 @@ pub enum UnresolvedInputPolicy {
 // -------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Error)]
-pub enum ContextHydratationError {
+pub enum ContextHydrationError {
     #[error("failed to hydrate inputs")]
     ResolveInputs(#[source] StoreError),
 

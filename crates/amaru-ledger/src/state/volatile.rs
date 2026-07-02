@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{
+    ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, Proposal, ProposalPointer, StakeCredential,
+    TransactionInput,
+};
 
 mod db;
 pub use db::{RewardsAtTip, VolatileDB};
@@ -56,6 +59,10 @@ pub trait VolatileState {
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;
     fn resolve_proposal(&self, proposal_id: &ComparableProposalId) -> Self::Proposal;
+
+    /// Enumerate the live proposals held in the volatile layers: those added in a fragment and not
+    /// pruned at the pending boundary.
+    fn iter_proposals(&self) -> impl Iterator<Item = (&ComparableProposalId, &(Proposal, ProposalPointer))>;
 }
 
 /// A sequence-like API used by the VolatileDB and VolatileSeries.

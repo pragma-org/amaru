@@ -20,9 +20,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch,
+    GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
 };
 use amaru_observability::trace_span;
@@ -44,6 +44,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
+    pending_committee: BTreeMap<StakeCredential, Epoch>,
     proposals: BTreeSet<ComparableProposalId>,
     proposals_roots: ProposalsRoots,
     state: VolatileFragment,
@@ -56,12 +57,14 @@ pub struct DefaultValidationContext {
 }
 
 impl DefaultValidationContext {
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         pools: BTreeSet<PoolId>,
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
+        pending_committee: BTreeMap<StakeCredential, Epoch>,
         proposals: BTreeSet<ComparableProposalId>,
         proposals_roots: ProposalsRoots,
     ) -> Self {
@@ -71,6 +74,7 @@ impl DefaultValidationContext {
             accounts,
             dreps,
             committee,
+            pending_committee,
             proposals,
             proposals_roots,
             state: VolatileFragment::default(),
@@ -311,11 +315,7 @@ impl DRepsSlice for DefaultValidationContext {
 }
 /// FIXME: State Management
 ///
-/// For committee state writes, Haskell uses `checkAndOverwriteCommitteeMemberState`, which accepts
-/// `isCurrentMember || isPotentialFutureMember`. We are only checking the (partial) current members.
-/// Future members is derived from the pending proposals.
-///
-/// Notably, we are also removing in-block resignations. In reality, they should be marked as resigned,
+/// Notably, we are removing in-block resignations. In reality, they should be marked as resigned,
 /// but still in the current elected members, until their term expires. At that point, they are
 /// removed at the epoch boundary.
 impl CommitteeSlice for DefaultValidationContext {
@@ -347,7 +347,7 @@ impl CommitteeSlice for DefaultValidationContext {
             delegate = format!("{delegate:?}")
         );
         let _guard = _span.enter();
-        if CommitteeSlice::lookup(self, &cc_member).is_none() {
+        if CommitteeSlice::lookup(self, &cc_member).is_none() && !self.pending_committee.contains_key(&cc_member) {
             return Err(DelegateError::UnknownSource(cc_member));
         }
 
@@ -369,7 +369,7 @@ impl CommitteeSlice for DefaultValidationContext {
         }
         let _guard = _span.enter();
 
-        if CommitteeSlice::lookup(self, &cc_member).is_none() {
+        if CommitteeSlice::lookup(self, &cc_member).is_none() && !self.pending_committee.contains_key(&cc_member) {
             return Err(UnregisterError::Unknown(PhantomData, cc_member));
         }
 
@@ -389,6 +389,11 @@ impl ProposalsSlice for DefaultValidationContext {
     }
 
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
+        if let GovernanceAction::UpdateCommittee(_, _, new_members, _) = &proposal.gov_action {
+            new_members.iter().for_each(|(credential, epoch)| {
+                self.pending_committee.insert(credential.clone(), Epoch::from(*epoch));
+            })
+        }
         self.state.proposals.insert(id.into(), Arc::new((proposal, pointer)));
     }
 
@@ -479,6 +484,7 @@ mod tests {
             accounts,
             BTreeMap::new(),
             BTreeMap::new(),
+            BTreeMap::new(),
             BTreeSet::new(),
             ProposalsRoots::default(),
         )
@@ -534,6 +540,7 @@ mod tests {
             BTreeMap::new(),
             BTreeMap::new(),
             committee,
+            BTreeMap::new(),
             BTreeSet::new(),
             ProposalsRoots::default(),
         )

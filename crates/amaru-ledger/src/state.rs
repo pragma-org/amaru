@@ -34,7 +34,7 @@ use thiserror::Error;
 use tracing::{Span, info, trace, warn};
 
 use crate::{
-    context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
+    context::{ContextHydrationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
     epoch_transition::{self, GovernanceActivity},
     governance::ratification::RatificationContext,
     rules::{
@@ -1032,7 +1032,7 @@ pub enum StateError {
     ErrorComputingEpoch(Slot, EraHistoryError),
 
     #[error("failed to hydrate validation context")]
-    ContextHydratation(#[source] ContextHydratationError),
+    ContextHydratation(#[source] ContextHydrationError),
 }
 
 #[derive(Debug, Error)]

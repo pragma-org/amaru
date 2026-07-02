@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem;
+use std::{mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point,
-    PoolId, ProtocolParameters, StakeCredential, TermLimit, TransactionInput,
+    PoolId, Proposal, ProposalPointer, ProtocolParameters, StakeCredential, TermLimit, TransactionInput,
 };
 
 use crate::{
@@ -152,7 +152,7 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<()>;
+    type Proposal = Existence<Arc<(Proposal, ProposalPointer)>>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.
@@ -164,6 +164,25 @@ impl VolatileState for VolatileDB {
         } else {
             self.draining.resolve_proposal(id)
         }
+    }
+
+    /// Enumeration analog of [`Self::resolve_proposal`] for the volatile layers only, honoring the
+    /// same `current -> overlay(prune) -> draining` precedence: current-added are always live;
+    /// draining-added are live unless the overlay prunes them at the pending boundary. Stable rows
+    /// are the caller's responsibility (they skip pruned ones via [`Self::is_proposal_pruned`]).
+    fn iter_proposals(&self) -> impl Iterator<Item = (&ComparableProposalId, &(Proposal, ProposalPointer))> {
+        let current = self.current.iter_proposals();
+        let draining = self.draining.iter_proposals().filter(|(id, _)| !self.overlay.is_proposal_pruned(id));
+        current.chain(draining)
+    }
+}
+
+impl VolatileDB {
+    /// Whether a proposal is pruned by the pending boundary transition (ratified, expired, or
+    /// dropped). The prune lives in the overlay; `resolve_proposal`/`iter_proposals` consult it
+    /// internally, and the pending-committee hydration uses it to skip pruned stable rows.
+    pub fn is_proposal_pruned(&self, id: &ComparableProposalId) -> bool {
+        self.overlay.is_proposal_pruned(id)
     }
 }
 

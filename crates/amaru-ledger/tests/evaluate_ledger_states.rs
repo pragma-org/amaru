@@ -24,10 +24,10 @@ pub mod tests {
 
     use amaru_kernel::{
         Account, Bytes, CertificatePointer, ComparableProposalId, ConstitutionalCommittee,
-        ConstitutionalCommitteeMemberStatus, DRepRegistration, DRepState, Epoch, EraHistory, MemoizedTransactionOutput,
-        NetworkName, PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState,
-        ProtocolParameters, Slot, StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer,
-        WitnessSet, cbor, cbor as minicbor,
+        ConstitutionalCommitteeMemberStatus, DRepRegistration, DRepState, Epoch, EraHistory, GovernanceAction,
+        MemoizedTransactionOutput, NetworkName, PROTOCOL_VERSION_10, Point, PoolId, PoolParams,
+        ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, StrictMaybe, Transaction,
+        TransactionInput, TransactionPointer, WitnessSet, cbor, cbor as minicbor,
     };
     use amaru_ledger::{
         self,
@@ -282,8 +282,19 @@ pub mod tests {
             .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
             .collect();
         let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
-        let proposals =
-            decoded.proposals.into_iter().map(|st| ComparableProposalId::from(st.id)).collect::<BTreeSet<_>>();
+        let (proposals, pending_committee_members) = decoded.proposals.into_iter().fold(
+            (BTreeSet::new(), BTreeMap::new()),
+            |(mut proposals, mut pending_committee_members), st| {
+                if let GovernanceAction::UpdateCommittee(_, _, new_members, _) = st.procedure.gov_action {
+                    new_members.iter().for_each(|(cred, epoch)| {
+                        pending_committee_members.insert(cred.clone(), Epoch::from(*epoch));
+                    });
+                }
+                proposals.insert(ComparableProposalId::from(st.id));
+
+                (proposals, pending_committee_members)
+            },
+        );
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
         let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
 
@@ -293,6 +304,7 @@ pub mod tests {
             accounts,
             dreps,
             committee,
+            pending_committee_members,
             proposals,
             proposals_roots,
         );

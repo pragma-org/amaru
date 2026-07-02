@@ -270,8 +270,11 @@ fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Re
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
     use amaru_kernel::{
-        EraHistory, ProtocolParameters, Transaction, cbor, include_json, utils::serde::FilesystemRefResolver,
+        ComparableProposalId, Epoch, EraHistory, GovernanceAction, ProtocolParameters, Transaction, cbor, include_json,
+        utils::serde::FilesystemRefResolver,
     };
     use test_case::test_case;
 
@@ -326,6 +329,7 @@ mod tests {
     #[test_case(fixture!("fail/ConwayCommitteeIsUnknown/1"); "authorize hot key for a non-committee member")]
     #[test_case(fixture!("pass/committee-resign"); "resign cold key for a current committee member")]
     #[test_case(fixture!("pass/committee-auth-hot"); "authorize hot key for a current committee member")]
+    #[test_case(fixture!("pass/committee-auth-hot-future"); "authorize hot key for a pending committee member from a live UpdateCommittee proposal")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
     #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
     #[test_case(fixture!("fail/BabbageOutputTooSmallUTxO/0"); "output below minimum lovelace")]
@@ -343,13 +347,28 @@ mod tests {
         let protocol_parameters: ProtocolParameters =
             fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
 
+        let (proposals, pending_commitee) = fixture.initial_state.proposals.into_iter().fold(
+            (BTreeSet::new(), BTreeMap::new()),
+            |(mut proposals, mut pending_committee_members), (id, proposal)| {
+                if let GovernanceAction::UpdateCommittee(_, _, new_members, _) = proposal.gov_action {
+                    new_members.iter().for_each(|(cred, epoch)| {
+                        pending_committee_members.insert(cred.clone(), Epoch::from(*epoch));
+                    });
+                }
+                proposals.insert(ComparableProposalId::from(id));
+
+                (proposals, pending_committee_members)
+            },
+        );
+
         let mut ctx = DefaultValidationContext::new(
             fixture.initial_state.utxo,
             Default::default(),
             Default::default(),
             Default::default(),
             fixture.initial_state.committee,
-            Default::default(),
+            pending_commitee,
+            proposals,
             Default::default(),
         );
 

@@ -12,24 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use amaru_kernel::{
-    ComparableProposalId, DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, RewardAccount,
-    StakeCredential, TermLimit, TransactionInput, drep, parse_reward_account,
+    ComparableProposalId, DRep, DRepRegistration, Epoch, GovernanceAction, MemoizedTransactionOutput, PoolId, Proposal,
+    ProposalId, ProposalPointer, RewardAccount, StakeCredential, TermLimit, TransactionInput, drep,
+    parse_reward_account,
 };
 use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, CCMember, ContextHydratationError, DefaultValidationContext, PreparationContext,
+        AccountState, CCMember, ContextHydrationError, DefaultValidationContext, PreparationContext,
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, UnresolvedInputPolicy,
     },
     governance::ratification::ProposalsRoots,
     state::{
         diff_bind::Bind,
-        volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
+        volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileDB, VolatileState},
     },
     store::ReadStore,
 };
@@ -122,15 +126,9 @@ impl<'a> DefaultPreparationContext<'a> {
         self,
         policy: UnresolvedInputPolicy,
         proposal_roots: ProposalsRoots,
-        volatile: &impl VolatileState<
-            Pool = Existence<()>,
-            Account = (Existence<AccountBind>, RewardsAtTip),
-            DRep = Existence<DRepBind>,
-            CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>),
-            Proposal = Existence<()>,
-        >,
+        volatile: &VolatileDB,
         db: &impl ReadStore,
-    ) -> Result<DefaultValidationContext, ContextHydratationError> {
+    ) -> Result<DefaultValidationContext, ContextHydrationError> {
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
@@ -153,7 +151,8 @@ impl<'a> DefaultPreparationContext<'a> {
                     .cloned()
                     .chain(self.drep_delegations.into_iter().filter_map(drep::to_stake_credential)),
             )?,
-            resolve_committee(volatile, db, self.committee.into_iter())?,
+            resolve_committee(volatile, db, self.committee.iter().copied())?,
+            resolve_pending_committee(volatile, db, self.committee.into_iter())?,
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
         ))
@@ -173,12 +172,12 @@ fn resolve_inputs<'a>(
     db: &impl ReadStore,
     policy: UnresolvedInputPolicy,
     mut keys: impl Iterator<Item = &'a TransactionInput>,
-) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, ContextHydratationError> {
+) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, ContextHydrationError> {
     trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_INPUTS).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
-        let utxos = keys.try_fold(BTreeMap::new(), |mut acc, input| -> Result<_, ContextHydratationError> {
+        let utxos = keys.try_fold(BTreeMap::new(), |mut acc, input| -> Result<_, ContextHydrationError> {
             let output = if volatile.has_consumed_input(input) {
                 Ok(None)
             } else {
@@ -187,15 +186,13 @@ fn resolve_inputs<'a>(
                         from_volatile += 1;
                         Ok(Some(output.clone()))
                     }
-                    None => {
-                        Ok(db.utxo(input).map_err(ContextHydratationError::ResolveInputs)?.inspect(|_| from_db += 1))
-                    }
+                    None => Ok(db.utxo(input).map_err(ContextHydrationError::ResolveInputs)?.inspect(|_| from_db += 1)),
                 }
             }?;
 
             match (output, &policy) {
                 (None, UnresolvedInputPolicy::Defer) => Ok(acc),
-                (None, UnresolvedInputPolicy::Reject) => Err(ContextHydratationError::UnknownInput(input.clone())),
+                (None, UnresolvedInputPolicy::Reject) => Err(ContextHydrationError::UnknownInput(input.clone())),
                 (Some(output), _) => {
                     acc.insert(input.clone(), output);
                     Ok(acc)
@@ -222,7 +219,7 @@ fn resolve_pools(
     volatile: &impl VolatileState<Pool = Existence<()>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
-) -> Result<BTreeSet<PoolId>, ContextHydratationError> {
+) -> Result<BTreeSet<PoolId>, ContextHydrationError> {
     trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_POOLS).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -237,7 +234,7 @@ fn resolve_pools(
                 }
 
                 Existence::Unknown => {
-                    if db.pool(&pool_id).map_err(ContextHydratationError::ResolvePools)?.is_some() {
+                    if db.pool(&pool_id).map_err(ContextHydrationError::ResolvePools)?.is_some() {
                         pools.insert(pool_id);
                         from_db += 1;
                     }
@@ -263,7 +260,7 @@ fn resolve_accounts(
     volatile: &impl VolatileState<Account = (Existence<AccountBind>, RewardsAtTip)>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
-) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydratationError> {
+) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydrationError> {
     trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_ACCOUNTS).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -288,7 +285,7 @@ fn resolve_accounts(
                 }
 
                 (Existence::Exists(Bind { value: None, left, right }), rewards_at_tip) => {
-                    if let Some(row) = db.account(&credential).map_err(ContextHydratationError::ResolveAccounts)? {
+                    if let Some(row) = db.account(&credential).map_err(ContextHydrationError::ResolveAccounts)? {
                         from_db += 1;
 
                         let state = AccountState {
@@ -305,7 +302,7 @@ fn resolve_accounts(
                 }
 
                 (Existence::Unknown, rewards_at_tip) => {
-                    if let Some(row) = db.account(&credential).map_err(ContextHydratationError::ResolveAccounts)? {
+                    if let Some(row) = db.account(&credential).map_err(ContextHydrationError::ResolveAccounts)? {
                         from_db += 1;
 
                         let state = AccountState {
@@ -338,7 +335,7 @@ fn resolve_dreps(
     volatile: &impl VolatileState<DRep = Existence<DRepBind>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
-) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydratationError> {
+) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydrationError> {
     trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_DREPS).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -354,7 +351,7 @@ fn resolve_dreps(
                 }
 
                 Existence::Exists(Bind { value: None, .. }) | Existence::Unknown => {
-                    if let Some(row) = db.drep(&credential).map_err(ContextHydratationError::ResolveDReps)? {
+                    if let Some(row) = db.drep(&credential).map_err(ContextHydrationError::ResolveDReps)? {
                         from_db += 1;
 
                         let registration = DRepRegistration {
@@ -394,7 +391,7 @@ fn resolve_committee<'a>(
     volatile: &impl VolatileState<CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>)>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = &'a StakeCredential>,
-) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
+) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydrationError> {
     trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_CC_MEMBERS).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -416,7 +413,7 @@ fn resolve_committee<'a>(
                 }
 
                 (Existence::Exists(Bind { value: None, left, .. }), valid_until) => {
-                    if let Some(row) = db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)? {
+                    if let Some(row) = db.cc_member(credential).map_err(ContextHydrationError::ResolveCommittee)? {
                         from_db += 1;
 
                         let member = CCMember {
@@ -430,7 +427,7 @@ fn resolve_committee<'a>(
                 }
 
                 (Existence::Unknown, valid_until) => {
-                    if let Some(row) = db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)? {
+                    if let Some(row) = db.cc_member(credential).map_err(ContextHydrationError::ResolveCommittee)? {
                         from_db += 1;
 
                         let member = CCMember {
@@ -454,15 +451,70 @@ fn resolve_committee<'a>(
     })
 }
 
-/// The materialized [`ProposalState`] for each existing id, layering the ongoing block over the
-/// volatile DB over the stable store; a `Gone` tombstone (boundary pruning) skips the stale
-/// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
-/// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
+/// Every referenced cold credential that is a *potential future* committee member: those present
+/// in the added set of a live `UpdateCommittee` proposal. Scans the volatile layers first, then
+/// the stable store, and only for the credentials actually referenced by the block.
+/// A block with no committee cert does no work.
+// FIXME: Code smell
+//
+// this re-scans the whole proposals set (a duplicate of what `resolve_proposals` walks for
+// the vote-referenced subset) and couples hydration to the concrete `VolatileDB` to reach
+// `is_proposal_pruned`. The real fix is a purpose-indexed live-proposals query so future-membership
+// doesn't need a bolted-on ambient full scan; see [`VolatileState::iter_proposals`].
+pub fn resolve_pending_committee<'a>(
+    volatile: &VolatileDB,
+    db: &impl ReadStore,
+    keys: impl Iterator<Item = &'a StakeCredential>,
+) -> Result<BTreeMap<StakeCredential, Epoch>, ContextHydrationError> {
+    trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_PENDING_COMMITTEE).in_scope(|| {
+        let required = keys.collect::<BTreeSet<_>>();
+        let mut pending = BTreeMap::new();
+
+        if required.is_empty() {
+            return Ok(pending);
+        }
+
+        for (_, proposal) in volatile.iter_proposals() {
+            collect_required_committee_members(&mut pending, &required, &proposal.0);
+        }
+
+        if pending.len() < required.len() {
+            for (id, row) in db.iter_proposals().map_err(ContextHydrationError::ResolveProposals)? {
+                if !volatile.is_proposal_pruned(&id) {
+                    collect_required_committee_members(&mut pending, &required, &row.proposal);
+                }
+            }
+        }
+
+        Ok(pending)
+    })
+}
+
+/// Fold a proposal's `UpdateCommittee.added` members into `pending`, keeping only credentials in
+/// `required`. No status/expiry filter: presence in the (live) proposals set is the whole test.
+fn collect_required_committee_members(
+    pending: &mut BTreeMap<StakeCredential, Epoch>,
+    required: &BTreeSet<&StakeCredential>,
+    proposal: &Proposal,
+) {
+    if let GovernanceAction::UpdateCommittee(_, _, added, _) = &proposal.gov_action {
+        for (cold, epoch) in added.iter() {
+            if required.contains(cold) {
+                pending.insert(cold.clone(), Epoch::from(*epoch));
+            }
+        }
+    }
+}
+
+/// The set of existing proposal ids among the given `keys`, layering the volatile DB over the
+/// stable store; a `Gone` tombstone (boundary pruning) skips the stale stable entry. A proposal
+/// still in the volatile window was proposed within the last `k` blocks, so its expiry is derived
+/// from its own pointer rather than read from a not-yet-written row.
 pub fn resolve_proposals(
-    volatile: &impl VolatileState<Proposal = Existence<()>>,
+    volatile: &impl VolatileState<Proposal = Existence<Arc<(Proposal, ProposalPointer)>>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ComparableProposalId>,
-) -> Result<BTreeSet<ComparableProposalId>, ContextHydratationError> {
+) -> Result<BTreeSet<ComparableProposalId>, ContextHydrationError> {
     trace_span!(amaru_observability::amaru::ledger::state::HYDRATE_PROPOSALS).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -470,26 +522,24 @@ pub fn resolve_proposals(
         let proposals = keys.try_fold(BTreeSet::new(), |mut proposals, id| {
             match volatile.resolve_proposal(&id) {
                 // pruned at the boundary; skip
-                Existence::Gone => Ok(proposals),
+                Existence::Gone => {}
 
                 // newly proposed in the volatile
-                Existence::Exists(()) => {
+                Existence::Exists(_) => {
                     from_volatile += 1;
                     proposals.insert(id);
-
-                    Ok(proposals)
                 }
 
                 // not in the volatile; resolve from stable
                 Existence::Unknown => {
-                    if db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)?.is_some() {
+                    if db.proposal(&id).map_err(ContextHydrationError::ResolveProposals)?.is_some() {
                         from_db += 1;
                         proposals.insert(id);
                     }
-
-                    Ok(proposals)
                 }
             }
+
+            Ok(proposals)
         })?;
 
         let span = tracing::Span::current();

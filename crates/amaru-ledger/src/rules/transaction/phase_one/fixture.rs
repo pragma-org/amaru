@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Epoch, EraHistoryProxy, MemoizedTransactionOutput, NetworkName, ProtocolParameters, StakeCredential,
-    TransactionInput, TransactionPointer, cbor, json,
+    Epoch, EraHistoryProxy, MemoizedTransactionOutput, NetworkName, Proposal, ProposalId, ProtocolParameters,
+    StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
@@ -54,6 +54,8 @@ pub(super) struct InitialState {
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     #[serde(deserialize_with = "deserialize_committee")]
     pub(super) committee: BTreeMap<StakeCredential, CCMember>,
+    #[serde(default, deserialize_with = "deserialize_proposals")]
+    pub(super) proposals: Vec<(ProposalId, Proposal)>,
     pub(super) governance_activity: GovernanceActivity,
 }
 
@@ -83,6 +85,31 @@ where
             let member = decode(&entry.member)?;
             let hot_credential = entry.hot_credential.as_deref().map(&decode).transpose()?;
             Ok((member, CCMember { hot_credential, valid_until: entry.valid_until }))
+        })
+        .collect()
+}
+
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<Vec<(ProposalId, Proposal)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Entry {
+        id: String,
+        proposal: String,
+    }
+
+    let decode =
+        |hex_str: &str| -> Result<Vec<u8>, D::Error> { hex::decode(hex_str).map_err(serde::de::Error::custom) };
+
+    let entries: Vec<Entry> = serde::Deserialize::deserialize(deserializer)?;
+    entries
+        .into_iter()
+        .map(|entry| {
+            let id: ProposalId = cbor::decode(&decode(&entry.id)?).map_err(serde::de::Error::custom)?;
+            let proposal: Proposal = cbor::decode(&decode(&entry.proposal)?).map_err(serde::de::Error::custom)?;
+            Ok((id, proposal))
         })
         .collect()
 }
