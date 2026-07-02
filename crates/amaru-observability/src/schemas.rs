@@ -151,6 +151,37 @@ define_schemas! {
                     required peer: amaru_kernel::Peer
                 }
             }
+            perf {
+                header {
+                    /// Event recorded once per header, when its processing reaches a terminal state.
+                    /// It covers the four network-health processing points of a header's lifecycle:
+                    /// reception of the header, request of its block, reception of its block and
+                    /// local adoption of the block. `outcome` describes the terminal state (including
+                    /// headers rejected on reception, which carry no durations). The optional
+                    /// durations are the intervals between those points:
+                    /// - `block_fetch_wait_micros`: reception of the header to the request of its block
+                    /// - `block_fetch_micros`: request of the block to its reception
+                    /// - `forward_micros`: reception of the header to the adoption of its block
+                    public LIFECYCLE {
+                        optional peer: amaru_kernel::Peer
+                        optional header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                        optional error: String
+                        optional block_fetch_wait_micros: u64
+                        optional block_fetch_micros: u64
+                        optional forward_micros: u64
+                    }
+                }
+                fork {
+                    /// Event recorded when a fork switch ends. `duration_micros` measures the time
+                    /// from the detection of the fork to its application (or abandonment).
+                    public SWITCH {
+                        required header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                        optional duration_micros: u64
+                    }
+                }
+            }
         }
         ledger {
             tags: cpu

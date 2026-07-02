@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point, Slot};
+use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_ouroboros_traits::{StoreError, overriding_chain_store::OverridingChainStore};
 use amaru_pure_stage::{
     assert_trace_contains,
@@ -25,17 +26,11 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        setup, te_find_best_candidate, te_has_header, te_load_header, te_load_tip, te_set_block_valid,
-        te_unvalidated_ancestor_hashes, test_prep,
+        setup, te_find_best_candidate, te_has_header, te_load_header, te_load_tip, te_record_metrics,
+        te_set_block_valid, te_unvalidated_ancestor_hashes, test_prep,
     },
-    test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
+    test_utils::{assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated},
 };
-
-/// Expected message for a tip that was just received: it carries the trace context
-/// tracking the wait for the corresponding block.
-fn new_best_tip(tip: Tip, parent: Point) -> NewBestTip {
-    NewBestTip { tip, parent, trace_context: Default::default() }
-}
 
 #[test]
 fn test_tip_not_found() {
@@ -101,6 +96,7 @@ fn test_tip_extends_from_origin() {
         best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![tip.hash()])]),
         may_fetch_blocks: false,
+        headers_performance: HeadersPerformance::default().with_lifecycles([tip.hash()]),
         ..prep.state.clone()
     };
 
@@ -111,7 +107,7 @@ fn test_tip_extends_from_origin() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_send("sc-1", "downstream", new_best_tip(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -137,6 +133,7 @@ fn test_tip_extends_from_h1() {
             vec![prep.headers.h0.hash(), prep.headers.h1.hash(), prep.headers.h2.hash()],
         )]),
         may_fetch_blocks: false,
+        headers_performance: HeadersPerformance::default().with_lifecycles([tip.hash()]),
         ..prep.state.clone()
     };
 
@@ -148,7 +145,7 @@ fn test_tip_extends_from_h1() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", new_best_tip(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -171,6 +168,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
         best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![prep.headers.h2.hash(), tip.hash()])]),
         may_fetch_blocks: false,
+        headers_performance: HeadersPerformance::default().with_lifecycles([tip.hash()]).with_fork_switch(tip.hash()),
         ..prep.state.clone()
     };
 
@@ -182,7 +180,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", new_best_tip(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -214,6 +212,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
         ]),
         may_fetch_blocks: false,
+        headers_performance: HeadersPerformance::default().with_lifecycles([tip.hash()]).with_fork_switch(tip.hash()),
         ..prep.state.clone()
     };
 
@@ -225,7 +224,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", new_best_tip(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -253,6 +252,7 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
             (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
             (tip.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
         ]),
+        headers_performance: HeadersPerformance::default().with_lifecycles([tip.hash()]),
         ..prep.state.clone()
     };
 
@@ -291,6 +291,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             (prep.headers.h2.hash(), vec![prep.headers.h1.hash(), prep.headers.h2.hash()]),
         ]),
         may_fetch_blocks: false,
+        headers_performance: HeadersPerformance::default().with_lifecycles([tip.hash()]).with_fork_switch(tip.hash()),
         ..prep.state.clone()
     };
 
@@ -302,7 +303,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", new_best_tip(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
     );
@@ -320,7 +321,10 @@ fn test_upstream_tip_depends_on_invalid_block() {
     prep.set_anchor(prep.headers.h0.hash());
     let tip = prep.headers.h3.tip();
     let parent = prep.headers.h2.point();
-    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
+    // Use the simulation clock as the reception time so the forward duration measured at
+    // abandonment (which reads the same clock) is zero.
+    let received_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let msg = SelectChainMsg::TipFromUpstream { tip, parent, trace_context: Default::default(), received_at };
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
     let mut expected = SelectChain::new(prep.downstream.clone());
@@ -333,6 +337,16 @@ fn test_upstream_tip_depends_on_invalid_block() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
+            te_clock_read("sc-1"),
+            te_record_metrics(
+                "sc-1",
+                ConsensusMetrics::HeaderLifecycle {
+                    outcome: "abandoned".into(),
+                    block_fetch_wait_micros: None,
+                    block_fetch_micros: None,
+                    forward_micros: Some(0),
+                },
+            ),
             te_state("sc-1", &expected),
         ],
     );
@@ -363,6 +377,7 @@ fn test_block_validation_result_valid() {
             te_input("sc-1", &msg),
             te_has_header("sc-1", tip.hash()),
             te_set_block_valid("sc-1", tip.hash(), true),
+            te_clock_read("sc-1"),
             te_state("sc-1", &expected),
         ],
     );
@@ -388,6 +403,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
         best_tip: Some(prep.headers.h1.clone()),
         tips: BTreeMap::from_iter([(prep.headers.h1.hash(), vec![])]),
         may_fetch_blocks: false,
+        headers_performance: HeadersPerformance::default()
+            .with_fork_switch_at(prep.headers.h1.hash(), Duration::from_secs(10)),
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -403,6 +420,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_load_tip("sc-1", prep.headers.h0.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.tip(), prep.headers.h0.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
+            te_clock_read("sc-1"),
             te_state("sc-1", &expected),
         ],
     );
@@ -432,6 +450,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
         best_tip: Some(prep.headers.h3a.clone()),
         tips: BTreeMap::from_iter([(prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()])]),
         may_fetch_blocks: false,
+        headers_performance: HeadersPerformance::default()
+            .with_fork_switch_at(prep.headers.h3a.hash(), Duration::from_secs(10)),
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -447,6 +467,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_load_tip("sc-1", prep.headers.h2a.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.tip(), prep.headers.h2a.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
+            te_clock_read("sc-1"),
             te_state("sc-1", &expected),
         ],
     );
@@ -481,6 +502,7 @@ fn test_block_validation_result_invalid_removes_tips() {
             te_input("sc-1", &msg),
             te_has_header("sc-1", tip.hash()),
             te_set_block_valid("sc-1", tip.hash(), false),
+            te_clock_read("sc-1"),
             te_state("sc-1", &expected),
         ],
     );
@@ -664,6 +686,29 @@ fn test_last_best_tip_invalidated_falls_back_to_origin() {
     );
 
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"]).assert_no_remaining_at([Level::ERROR]);
+}
+
+#[test]
+fn test_blocks_requested_records_request_time() {
+    let mut prep = test_prep();
+    let h1 = prep.headers.h1.hash();
+    let h2 = prep.headers.h2.hash();
+    let h3 = prep.headers.h3.hash();
+    prep.state.headers_performance = HeadersPerformance::default().with_lifecycles([h1, h2, h3]);
+
+    // The fetch_blocks stage reports that the h1 and h2 blocks were requested at this time. This
+    // only records the request point of their lifecycle: no event is emitted until they reach a
+    // terminal state, and all headers remain tracked.
+    let requested_at = Instant::at_offset(Duration::from_secs(0), Duration::ZERO);
+    let msg = SelectChainMsg::BlocksRequested(vec![h1, h2], requested_at);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    let expected = SelectChain {
+        headers_performance: HeadersPerformance::default().with_lifecycles([h1, h2, h3]),
+        ..prep.state.clone()
+    };
+    assert_trace(&running, &[te_state("sc-1", &prep.state), te_input("sc-1", &msg), te_state("sc-1", &expected)]);
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[cfg(test)]
