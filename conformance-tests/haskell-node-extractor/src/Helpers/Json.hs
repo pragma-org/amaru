@@ -14,10 +14,10 @@ import Data.Aeson
     , defaultOptions
     )
 import Data.Aeson.Encode.Pretty
-    ( Config (confCompare)
+    ( Config (..)
+    , Indent (..)
     , defConfig
     , encodePretty'
-    , keyOrder
     )
 import System.Directory
     ( createDirectoryIfMissing
@@ -28,6 +28,8 @@ import System.FilePath
 
 defaultConfig :: Config
 defaultConfig = defConfig
+    {  confIndent = Spaces 2
+    }
 
 snakeCaseFieldLabel :: String -> String
 snakeCaseFieldLabel =
@@ -41,6 +43,5 @@ snakeCaseOptions =
 
 writeJsonOutput :: ToJSON a => FilePath -> Config -> a -> IO ()
 writeJsonOutput outputPath config jsonValue = do
-    putTextLn ("...extracting " <> toText outputPath)
     createDirectoryIfMissing True (takeDirectory outputPath)
     writeFileLBS outputPath (encodePretty' config jsonValue)

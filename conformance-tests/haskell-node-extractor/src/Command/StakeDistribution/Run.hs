@@ -10,15 +10,16 @@ import Command.StakeDistribution.Error
 import Command.StakeDistribution.Parse
     ( Options (..)
     )
-import Data.Aeson.Encode.Pretty
-    ( encodePretty'
-    )
 import Command.ExtractSnapshot.Run
     ( LoadedSnapshot (..)
     , loadSnapshot
     )
 import Data.NetworkName
     ( networkNameToNetwork
+    , networkNameToText
+    )
+import Helpers.Json
+    ( writeJsonOutput
     )
 import Query.StakeDistribution
     ( queryStakeDistribution
@@ -26,13 +27,24 @@ import Query.StakeDistribution
 import Data.StakeDistribution
     ( jsonConfig
     )
-
-import qualified Data.ByteString.Lazy as LBS
+import System.FilePath
+    ( (<.>)
+    , (</>)
+    )
 
 run :: Options -> ExceptT Error IO ()
-run Options{networkName, snapshotPath} = do
+run Options{networkName, outputDir, snapshotPath} = do
     loadedSnapshot <- ExceptT (first SnapshotError <$> runExceptT (loadSnapshot snapshotPath))
+
     let epochNumber = loadedSnapshotEpochNumber loadedSnapshot
+
+    putStrLn $ "Loaded valid snapshot at epoch=" <> show epochNumber
+
+    let outputPath =
+            outputDir
+                </> "stake-distributions"
+                </> toString (networkNameToText networkName)
+                </> (show epochNumber <.> "json")
 
     let stakeDistribution =
             queryStakeDistribution
@@ -40,4 +52,6 @@ run Options{networkName, snapshotPath} = do
                 epochNumber
                 (loadedSnapshotState loadedSnapshot)
 
-    liftIO (LBS.putStr (encodePretty' jsonConfig stakeDistribution))
+    liftIO (writeJsonOutput outputPath jsonConfig stakeDistribution)
+
+    putStrLn $ "Stake distribution extracted to: " <> outputPath

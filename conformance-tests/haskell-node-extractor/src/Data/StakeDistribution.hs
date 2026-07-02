@@ -33,17 +33,20 @@ import Data.StakeDistribution.DRep
 import Data.StakeDistribution.Pool
     ( PoolSummary
     )
+import Helpers.Json
+    ( defaultConfig
+    )
 
 data StakeDistribution = StakeDistribution
     { epoch :: !Word64
     , treasury :: !JsonCoin
     , reserves :: !JsonCoin
     , activeStake :: !JsonCoin
-    , poolsVotingStake :: !JsonCoin
     , drepsVotingStake :: !JsonCoin
+    , poolsVotingStake :: !JsonCoin
     , accounts :: !AccountsSummary
-    , pools :: !(Map JsonPoolId PoolSummary)
     , dreps :: !DRepsSummary
+    , pools :: !(Map JsonPoolId PoolSummary)
     }
     deriving (Generic)
 
@@ -59,26 +62,26 @@ stakeDistributionFields distr = mempty
     <> "treasury" .= treasury distr
     <> "reserves" .= reserves distr
     <> "active_stake" .= activeStake distr
-    <> "pools_voting_stake" .= poolsVotingStake distr
     <> "dreps_voting_stake" .= drepsVotingStake distr
+    <> "pools_voting_stake" .= poolsVotingStake distr
     <> "accounts" .= accounts distr
-    <> "pools" .= pools distr
     <> "dreps" .= dreps distr
+    <> "pools" .= pools distr
 
 jsonConfig :: Config
 jsonConfig =
-    defConfig
+    defaultConfig
         { confCompare =
             keyOrder
                 [ "epoch"
                 , "treasury"
                 , "reserves"
                 , "active_stake"
-                , "pools_voting_stake"
                 , "dreps_voting_stake"
+                , "pools_voting_stake"
                 , "accounts"
-                , "pools"
                 , "dreps"
+                , "pools"
                 ]
                 <> compare
         }

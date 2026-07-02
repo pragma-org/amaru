@@ -60,5 +60,5 @@ commandParser =
                 "stake-distribution"
                 ( info
                     (StakeDistribution <$> StakeDistribution.optionsParser)
-                    (progDesc "Print a stake distribution snapshot as pretty JSON")
+                    (progDesc "Write a stake distribution snapshot as pretty JSON")
                 )

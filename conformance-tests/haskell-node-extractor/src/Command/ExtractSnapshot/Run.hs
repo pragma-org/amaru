@@ -34,6 +34,9 @@ import Command.ExtractSnapshot.Parse
 import Error
     ( AppError (..)
     )
+import Data.Aeson
+    ( ToJSON
+    )
 import Data.Genesis
     ( networkToGenesis
     )
@@ -158,35 +161,48 @@ data LoadedSnapshot = LoadedSnapshot
 run :: Options -> ExceptT Error IO ()
 run Options{networkName, outputDir, snapshotPath} = do
     loadedSnapshot <- ExceptT (first SnapshotError <$> runExceptT (loadSnapshot snapshotPath))
-    let genesis = networkToGenesis networkName
-    let network = networkNameToNetwork networkName
-    let networkDir = outputDir </> toString (networkNameToText networkName)
+
     let epochNumber = loadedSnapshotEpochNumber loadedSnapshot
-    let tipSlot = loadedSnapshotTipSlot loadedSnapshot
-    let pots = queryPots (loadedSnapshotState loadedSnapshot)
-    let potsPath = networkDir </> potsOutputPath epochNumber
-    let nonces = queryNonces (loadedSnapshotPraosState loadedSnapshot)
-    let noncesPath = networkDir </> noncesOutputPath epochNumber
-    let delegateRepresentatives = queryDelegateRepresentatives (loadedSnapshotState loadedSnapshot)
-    let delegateRepresentativesPath = networkDir </> delegateRepresentativesOutputPath epochNumber
-    let rewardsProvenance = queryRewardsProvenance genesis (loadedSnapshotState loadedSnapshot)
-    let rewardsProvenancePath = networkDir </> rewardsProvenanceOutputPath epochNumber
-    let pools = queryPools network (loadedSnapshotState loadedSnapshot)
-    let poolsPath = networkDir </> poolsOutputPath epochNumber
 
     liftIO $ do
         putTextLn
             ( "Processing ledger state(epoch = "
                 <> show epochNumber
                 <> ", slot = "
-                <> show tipSlot
+                <> show (loadedSnapshotTipSlot loadedSnapshot)
                 <> ")"
             )
-        writeJsonOutput potsPath defaultConfig pots
-        writeJsonOutput noncesPath defaultConfig nonces
-        writeJsonOutput delegateRepresentativesPath defaultConfig delegateRepresentatives
-        writeJsonOutput rewardsProvenancePath defaultConfig rewardsProvenance
-        writeJsonOutput poolsPath defaultConfig pools
+
+        writeJson
+            (potsOutputPath epochNumber)
+            (queryPots $ loadedSnapshotState loadedSnapshot)
+
+        writeJson
+            (noncesOutputPath epochNumber)
+            (queryNonces $ loadedSnapshotPraosState loadedSnapshot)
+
+        writeJson
+            (delegateRepresentativesOutputPath epochNumber)
+            (queryDelegateRepresentatives $ loadedSnapshotState loadedSnapshot)
+
+        writeJson
+            (rewardsProvenanceOutputPath epochNumber)
+            (queryRewardsProvenance genesis $ loadedSnapshotState loadedSnapshot)
+
+        writeJson
+            (poolsOutputPath epochNumber)
+            (queryPools network $ loadedSnapshotState loadedSnapshot)
+  where
+    genesis = networkToGenesis networkName
+    network = networkNameToNetwork networkName
+    networkDir = outputDir </> toString (networkNameToText networkName)
+
+    writeJson :: ToJSON a => FilePath -> a -> IO ()
+    writeJson path value = do
+        let pathInNetwork = networkDir </> path
+        putTextLn ("...extracting " <> toText pathInNetwork)
+        writeJsonOutput pathInNetwork defaultConfig value
+
 
 loadSnapshot :: FilePath -> ExceptT AppError IO LoadedSnapshot
 loadSnapshot snapshotPath = do
@@ -272,8 +288,8 @@ extractConwayPraosState snapshotFilePath = \case
         Left (UnsupportedSnapshotEra snapshotFilePath "Babbage")
     ChainDepStateConway praosState ->
         Right praosState
-    ChainDepStateDijkstra _ ->
-        Left (UnsupportedSnapshotEra snapshotFilePath "Dijkstra")
+    ChainDepStateDijkstra praosState ->
+        Right praosState
 
 extractTipSlot :: WithOrigin (AnnTip blk) -> Maybe Word64
 extractTipSlot = \case

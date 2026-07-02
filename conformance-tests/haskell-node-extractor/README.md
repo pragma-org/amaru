@@ -62,7 +62,15 @@ Given a snapshot directory produced by `db-analyser` (or `cargo run create-snaps
 cabal run -v0 exe:haskell-node-extractor -- stake-distribution \
   --preprod \
   --snapshot ../../snapshots/preprod/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912 \
-  | uv run scripts/validate-json-schema --schema ./schemas/stake-distribution
+  --output ./data
+```
+
+This writes the resulting file under `data/stake-distributions/<network>/<epoch>.json`, relative to the current working directory.
+
+You can then validate the generated file with:
+
+```console
+uv run scripts/validate-json-schema --schema stake-distribution < ./data/stake-distributions/preprod/<epoch>.json
 ```
 
 ## Make targets

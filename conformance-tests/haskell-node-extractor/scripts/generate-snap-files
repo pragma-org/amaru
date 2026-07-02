@@ -2,8 +2,9 @@
 
 set -euo pipefail
 
-SRC_DIR="conformance-tests/haskell-node-extractor/data"
-BASE_TESTS_DIR="crates/amaru/tests"
+SELF_DIR=$( dirname -- "${BASH_SOURCE[0]}")
+SRC_DIR="$SELF_DIR/../data"
+BASE_TESTS_DIR="$SELF_DIR/../../../crates/amaru/tests"
 
 # Check if snapshots directory exists
 if [[ ! -d "$SRC_DIR" ]]; then
@@ -13,30 +14,32 @@ fi
 
 # Iterate through network directories
 for SRC_PATH in "$SRC_DIR"/*/*; do
-    echo "Walking $SRC_PATH"
+    SRC_PATH_REL="data${SRC_PATH#*\/data}"
+    echo "Walking $SRC_PATH_REL"
 
     if [[ -d "$SRC_PATH" ]]; then
-	KIND=$(basename $(dirname "$SRC_PATH"))
+        KIND=$(basename $(dirname "$SRC_PATH"))
         NETWORK_NAME=$(basename "$SRC_PATH")
 
-	if [[ "$KIND" != "stake-distributions" ]]; then
-	    echo "unexpected test case folder: $KIND; expected one of: 'stake-distributions' or 'rewards'"
-	    exit 1
-	fi
+        if [[ "$KIND" != "stake-distributions" ]]; then
+            echo "unexpected test case folder: $KIND; expected one of: 'stake-distributions' or 'rewards'"
+            exit 1
+        fi
 
         if [[ "$NETWORK_NAME" != "preview" && "$NETWORK_NAME" != "preprod" && "$NETWORK_NAME" != "mainnet" ]]; then
-	    echo "unexpected network name: $NETWORK_NAME; expected one of: 'preview', 'preprod' or 'mainnet'"
-	    exit 1
-	fi
+            echo "unexpected network name: $NETWORK_NAME; expected one of: 'preview', 'preprod' or 'mainnet'"
+            exit 1
+        fi
 
         # Ensure network-specific test directory exists
-	OUT_DIR="$BASE_TESTS_DIR/$KIND/$NETWORK_NAME"
+        OUT_DIR="$BASE_TESTS_DIR/$KIND/$NETWORK_NAME"
         mkdir -p "$OUT_DIR"
 
         # Reset TEST_CASES for this network
         TEST_CASES=()
 
-	LAST_EPOCH=""
+        MIN_EPOCH=""
+	MAX_EPOCH=""
         # Collect all test cases for this network
         for FILE_PATH in "$SRC_PATH"/*; do
             if [[ -f "$FILE_PATH" ]]; then
@@ -46,29 +49,31 @@ for SRC_PATH in "$SRC_DIR"/*/*; do
                 if [[ "$FILE_NAME" =~ ^([0-9]+)\.json$ ]]; then
                     EPOCH="${BASH_REMATCH[1]}"
 
-		    if [[ -z "$LAST_EPOCH" ]]; then
-		      echo "  from epoch=$EPOCH"
-		    fi
+                    if [[ -z "$MIN_EPOCH" || $EPOCH -lt $MIN_EPOCH ]]; then
+			MIN_EPOCH=$EPOCH
+                    fi
+                    if [[ -z "$MAX_EPOCH" || $EPOCH -gt $MAX_EPOCH ]]; then
+			MAX_EPOCH=$EPOCH
+                    fi
 
-		    LAST_EPOCH=$EPOCH
-
-		    # Generate a corresponding snapfile.
-		    SNAP_FILE="$OUT_DIR"/"$EPOCH".snap
-		    echo "---" > "$SNAP_FILE"
-		    echo "source: $BASE_TESTS_DIR/summary.rs" >> "$SNAP_FILE"
-		    echo "---" >> "$SNAP_FILE"
-		    cat "$FILE_PATH" >> "$SNAP_FILE"
+                    # Generate a corresponding snapfile.
+                    SNAP_FILE="$OUT_DIR"/"summary__epoch_$EPOCH".snap
+                    echo "---" > "$SNAP_FILE"
+                    echo "source: $BASE_TESTS_DIR/summary.rs" >> "$SNAP_FILE"
+                    echo "---" >> "$SNAP_FILE"
+                    cat "$FILE_PATH" >> "$SNAP_FILE"
 
                     TEST_CASES+=("$NETWORK_NAME:$EPOCH")
                 fi
-	    else
-		echo "ignoring $FILE_PATH: not a file"
+            else
+                echo "ignoring $FILE_PATH: not a file"
             fi
         done
 
-	if [[ -n "$LAST_EPOCH" ]]; then
-	  echo "    to epoch=$LAST_EPOCH"
-	fi
+        if [[ -n "$MIN_EPOCH" ]]; then
+          echo "  min epoch=$MIN_EPOCH"
+          echo "  max epoch=$MAX_EPOCH"
+        fi
 
         # Skip if no test cases found
         if [[ ${#TEST_CASES[@]} -eq 0 ]]; then
@@ -81,7 +86,7 @@ for SRC_PATH in "$SRC_DIR"/*/*; do
         unset IFS
 
         # Create/truncate the output file
-	INCL="$OUT_DIR"/generated_test_cases.incl
+        INCL="$OUT_DIR"/generated_test_cases.incl
         > "$INCL"
 
         # Write test cases to file
@@ -94,11 +99,14 @@ for SRC_PATH in "$SRC_DIR"/*/*; do
         # Append the test function content
         cat >> "$INCL" << EOF
 #[ignore]
-pub fn compare_snapshot_$NETWORK_NAME(epoch: u64) {
-    compare_stake_distribution_with_haskell_node(Epoch::from(epoch))
+pub fn compare_${NETWORK_NAME}_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {
+    compare_stake_distribution_with_haskell_node(
+        amaru_kernel::NetworkName::Preview,
+        amaru_kernel::Epoch::from(epoch),
+    )
 }
 EOF
-
-        echo "✅ Generated $KIND test cases for network=$NETWORK_NAME at: $INCL"
+	INCL_ABS="/crates${INCL#*\/crates}"
+        echo "✅ Generated $KIND test cases for network=$NETWORK_NAME at: $INCL_ABS"
     fi
 done

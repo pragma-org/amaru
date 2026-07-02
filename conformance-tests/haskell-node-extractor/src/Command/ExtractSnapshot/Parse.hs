@@ -15,6 +15,8 @@ import Data.NetworkName
     )
 import Options.Applicative
     ( Parser
+    , bashCompleter
+    , completer
     , flag'
     , help
     , long
@@ -35,11 +37,13 @@ optionsParser =
         <*> strOption
             ( long "snapshot"
                 <> metavar "PATH"
+                <> completer (bashCompleter "directory")
                 <> help "Path to the consensus ledger snapshot directory"
             )
         <*> strOption
             ( long "output"
                 <> metavar "DIR"
+                <> completer (bashCompleter "directory")
                 <> help "Directory where extracted JSON files will be written (e.g. ./data)"
             )
 
