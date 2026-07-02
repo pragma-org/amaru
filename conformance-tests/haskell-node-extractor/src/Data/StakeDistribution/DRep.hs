@@ -204,8 +204,8 @@ dRepsSummaryFields :: (KeyValue e kv, Monoid kv) => DRepsSummary -> kv
 dRepsSummaryFields DRepsSummary{abstain, noConfidence, verificationKeys, scripts} = mempty
     <> "abstain" .= abstain
     <> "no_confidence" .= noConfidence
-    <> "verification_key" .= verificationKeys
-    <> "script" .= scripts
+    <> "verification_keys" .= verificationKeys
+    <> "scripts" .= scripts
 
 dRepSummaryFields :: (KeyValue e kv, Monoid kv) => DRepSummary -> kv
 dRepSummaryFields DRepSummary{validUntil, metadata, votingStake} = mempty

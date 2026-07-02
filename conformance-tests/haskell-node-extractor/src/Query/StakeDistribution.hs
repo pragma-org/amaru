@@ -7,7 +7,7 @@ module Query.StakeDistribution
 import Relude
 
 import Cardano.Ledger.Api.State.Query
-    ( StakeSnapshots (ssGoTotal, ssStakeSnapshots)
+    ( StakeSnapshots (ssMarkTotal, ssStakeSnapshots)
     , queryChainAccountState
     , queryDRepDelegations
     , queryDRepStakeDistr
@@ -17,7 +17,7 @@ import Cardano.Ledger.Api.State.Query
     , querySPOStakeDistr
     , queryStakeSnapshots
     , qpsrStakePoolParams
-    , ssGoPool
+    , ssMarkPool
     )
 import Cardano.Ledger.BaseTypes
     ( BlocksMade (BlocksMade)
@@ -26,10 +26,13 @@ import Cardano.Ledger.BaseTypes
     )
 import Cardano.Ledger.Shelley.LedgerState
     ( NewEpochState
+    , applyRUpd
+    , completeRupd
     , esLStateL
     , lsCertStateL
-    , nesBprev
+    , nesBcur
     , nesEsL
+    , nesRu
     )
 import Cardano.Ledger.State
     ( ChainAccountState (..)
@@ -57,6 +60,12 @@ import Data.StakeDistribution.DRep
 import Data.StakeDistribution.Pool
     ( mkPoolSummaries
     )
+import Data.Maybe.Strict
+    ( StrictMaybe
+        ( SJust
+        , SNothing
+        )
+    )
 import Lens.Micro
     ( (^.)
     )
@@ -75,7 +84,7 @@ queryStakeDistribution network epochNumber newEpochState =
         { epoch = epochNumber
         , treasury = JsonCoin treasury
         , reserves = JsonCoin reserves
-        , activeStake = JsonCoin (unNonZero (ssGoTotal stakeSnapshots))
+        , activeStake = JsonCoin (unNonZero (ssMarkTotal stakeSnapshots))
         , poolsVotingStake = JsonCoin (fold votingStakePerPool)
         , drepsVotingStake = JsonCoin (fold dRepStakeDistribution)
         , accounts = mkAccountsSummary accountSummaries
@@ -90,13 +99,13 @@ queryStakeDistribution network epochNumber newEpochState =
         queryStakeSnapshots newEpochState Nothing
 
     BlocksMade blocksPerPool =
-        nesBprev newEpochState
+        nesBcur newEpochState
 
     poolParameters =
         qpsrStakePoolParams (queryPoolState newEpochState Nothing network)
 
     stakePerPool =
-        Map.map ssGoPool (ssStakeSnapshots stakeSnapshots)
+        Map.map ssMarkPool (ssStakeSnapshots stakeSnapshots)
 
     votingStakePerPool =
         querySPOStakeDistr newEpochState Set.empty
@@ -114,7 +123,7 @@ queryStakeDistribution network epochNumber newEpochState =
         Map.mapWithKey (mkAccountSummary instantStake dRepDelegatees) accountsMap
 
     accountsMap =
-        newEpochState ^. nesEsL . esLStateL . lsCertStateL . certDStateL . accountsL . accountsMapL
+        epochStateForAccounts ^. esLStateL . lsCertStateL . certDStateL . accountsL . accountsMapL
 
     instantStake =
         newEpochState ^. instantStakeL . instantStakeCredentialsL
@@ -125,3 +134,17 @@ queryStakeDistribution network epochNumber newEpochState =
             | (drep, delegators) <- Map.toAscList (queryDRepDelegations newEpochState Set.empty)
             , credential <- Set.toAscList delegators
             ]
+
+    epochStateForAccounts =
+        case nesRu newEpochState of
+            SNothing ->
+                newEpochState ^. nesEsL
+            SJust pulsingRewardUpdate ->
+                applyRUpd (completeRewardUpdate pulsingRewardUpdate) (newEpochState ^. nesEsL)
+
+    completeRewardUpdate pulsingRewardUpdate =
+        fst $
+            runIdentity $
+                runReaderT
+                    (completeRupd pulsingRewardUpdate)
+                    (error "completeRupd unexpectedly forced Globals while building a stake distribution")

@@ -69,8 +69,8 @@ import qualified Data.Map.Strict as Map
 
 data AccountSummary = AccountSummary
     { balance :: !JsonCoin
-    , pool :: !(Maybe JsonPoolId)
     , drep :: !(Maybe DRepReference)
+    , pool :: !(Maybe JsonPoolId)
     }
     deriving (Generic)
 
@@ -97,13 +97,13 @@ instance ToJSON AccountsSummary where
 accountSummaryFields :: (KeyValue e kv, Monoid kv) => AccountSummary -> kv
 accountSummaryFields AccountSummary{balance, pool, drep} = mempty
     <> "balance" .= balance
-    <> "pool" .= pool
     <> "drep" .= drep
+    <> "pool" .= pool
 
 accountsSummaryFields :: (KeyValue e kv, Monoid kv) => AccountsSummary -> kv
 accountsSummaryFields AccountsSummary{verificationKeys, scripts} = mempty
-    <> "verification_key" .= verificationKeys
-    <> "script" .= scripts
+    <> "verification_keys" .= verificationKeys
+    <> "scripts" .= scripts
 
 mkAccountSummary
     :: Map.Map (Credential Staking) (CompactForm Coin)
