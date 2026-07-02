@@ -1,6 +1,6 @@
 {
-  "title": "StakeCredentialInvalidPoolDelegation (script credential)",
-  "description": "Same deregister-then-delegate scenario but with a ScriptHash credential instead of AddrKeyhash. The StakeDeregistration removes the script credential, then the StakeDelegation on the same credential fails. This exercises the require_script_witness branch in both certificate handlers.",
+  "title": "StakeCredentialInvalidPoolDelegation",
+  "description": "Script credential delegation after deregistration in the same transaction.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
@@ -15,7 +15,7 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
       }
     ],
-    "pools": [],
+    "pools": ["deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"],
     "accounts": [
       {
         "credential": "8201581cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

@@ -218,6 +218,9 @@ impl AccountsSlice for DefaultValidationContext {
             pool_id = %pool
         );
         let _guard = _span.enter();
+        if !PoolsSlice::exists(self, pool) {
+            return Err(DelegateError::UnknownTarget(pool));
+        }
         self.state.accounts.bind_left(credential, Some((pool, pointer)))?;
         Ok(())
     }
@@ -531,8 +534,16 @@ mod tests {
 
     #[test]
     fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
-        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
         let pool = Hash::new([9; 28]);
+        let mut ctx = DefaultValidationContext::new(
+            BTreeMap::new(),
+            BTreeSet::from([pool]),
+            BTreeMap::from([(cred(1), account(7))]),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            ProposalsRoots::default(),
+        );
         ctx.delegate_pool(cred(1), pool, pointer()).unwrap();
 
         let found = AccountsSlice::lookup(&ctx, &cred(1)).unwrap();
