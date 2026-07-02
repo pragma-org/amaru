@@ -35,6 +35,11 @@ Other guiding principles:
   ```
 -->
 
+## v10.10.20260709 _[unreleased; planned for 2026-07-09]_
+
+### Changed
+
+- **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported ([#1000][])
 
 ## v10.10.20260702 _[unreleased; planned for 2026-07-02]_
 
@@ -45,7 +50,6 @@ Other guiding principles:
 ### Changed
 
 - **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][], [#983][])
-- **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported ([#1000][])
 
 ### Fixed
 
