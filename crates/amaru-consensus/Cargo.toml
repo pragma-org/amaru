@@ -48,8 +48,6 @@ amaru-ouroboros.workspace = true
 amaru-plutus.workspace = true
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
-amaru-stores.workspace = true
-state = "0.6.0"
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true

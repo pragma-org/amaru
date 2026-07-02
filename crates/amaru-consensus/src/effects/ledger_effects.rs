@@ -43,8 +43,6 @@ pub trait LedgerOps: Send + Sync {
         point: &Point,
     ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
-    fn contains_volatile_point(&self, point: &Point) -> BoxFuture<'static, bool>;
-
     fn immutable_tip(&self) -> BoxFuture<'static, Tip>;
 
     fn volatile_tip(&self) -> BoxFuture<'static, Tip>;
@@ -96,10 +94,6 @@ impl LedgerOps for Ledger {
         point: &Point,
     ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
         self.effects.external(SwitchToForkEffect::new(point).with_trace_context(&self.trace_context))
-    }
-
-    fn contains_volatile_point(&self, point: &Point) -> BoxFuture<'static, bool> {
-        self.effects.external(ContainsPointEffect::new(point))
     }
 
     fn immutable_tip(&self) -> BoxFuture<'static, Tip> {
@@ -295,34 +289,6 @@ impl ExternalEffect for SwitchToForkEffect {
 
 impl ExternalEffectAPI for SwitchToForkEffect {
     type Response = anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ContainsPointEffect {
-    point: Point,
-}
-
-impl ContainsPointEffect {
-    pub fn new(point: &Point) -> Self {
-        Self { point: *point }
-    }
-}
-
-impl ExternalEffect for ContainsPointEffect {
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        #[expect(clippy::expect_used)]
-        Self::wrap_sync({
-            let ledger = resources
-                .get::<ResourceBlockValidation>()
-                .expect("ContainsPointEffect requires a ResourceBlockValidation resource")
-                .clone();
-            ledger.contains_point(&self.point)
-        })
-    }
-}
-
-impl ExternalEffectAPI for ContainsPointEffect {
-    type Response = bool;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

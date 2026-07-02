@@ -29,8 +29,6 @@ pub trait CanValidateBlocks: Send + Sync {
 
     fn switch_to_fork(&self, to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
-    fn contains_point(&self, point: &Point) -> bool;
-
     fn tip(&self) -> Point;
 
     /// The chain tip of the volatile in-memory ledger view, if any (`VolatileDB::view_back`).

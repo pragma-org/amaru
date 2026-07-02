@@ -883,15 +883,6 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         })
     }
 
-    // TODO: awkward `contains_volatile_point`
-    //
-    // This is a bit weird; but it seems that what this accessor is used for is to determine
-    // whether a rollback is possible to a given point (without throwing away the entire ledger by
-    // trying to rollback). So this should likely be the API `can_rollback_to` instead.
-    pub fn contains_volatile_point(&self, point: &Point) -> bool {
-        self.volatile.has_point(point)
-    }
-
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
     /// If the `Point` is older than the oldest block in the volatileDB, density is 0
     pub fn chain_density(&self, point: &Point) -> f64 {

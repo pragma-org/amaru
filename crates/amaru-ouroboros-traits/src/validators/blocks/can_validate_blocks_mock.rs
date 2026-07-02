@@ -120,10 +120,6 @@ impl CanValidateBlocks for MockBlockValidator {
         Ok(Ok(Default::default()))
     }
 
-    fn contains_point(&self, point: &Point) -> bool {
-        self.inner.lock().contains.contains(point)
-    }
-
     fn tip(&self) -> Point {
         self.inner.lock().tip
     }

@@ -15,25 +15,28 @@
 use std::sync::{Arc, Mutex};
 
 use amaru_kernel::{Block, Point, Tip, Transaction};
-use amaru_ledger::{rules::block::BlockValidation, state::State};
+use amaru_ledger::{
+    rules::block::BlockValidation,
+    state::State,
+    store::{HistoricalStores, Store},
+};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, ChainStore, TransactionValidationError,
-    can_validate_blocks::BlockValidationError,
+    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ChainStore, FindAncestorOnBestChainResult, ReadChainStore,
+    TransactionValidationError, can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 use anyhow::anyhow;
 
 /// This data type encapsulate the ledger state in order to implement the `CanValidateBlocks` trait.
 /// and be able to validate blocks (including rollback).
-pub struct BlockValidator {
-    state: Arc<Mutex<State<RocksDB, RocksDBHistoricalStores>>>,
+pub struct BlockValidator<S: Store, HS: HistoricalStores> {
+    state: Arc<Mutex<State<S, HS>>>,
     vm_eval_pool: ArenaPool,
     chain_store: Arc<dyn ChainStore>,
 }
 
-impl Clone for BlockValidator {
+impl<S: Store, HS: HistoricalStores> Clone for BlockValidator<S, HS> {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
@@ -43,7 +46,7 @@ impl Clone for BlockValidator {
     }
 }
 
-impl CanValidateTxs for BlockValidator {
+impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateTxs for BlockValidator<S, HS> {
     fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
         let state = self.state.lock().map_err(|error| {
             TransactionValidationError::from(anyhow!("failed to acquire ledger state lock: {error}"))
@@ -54,12 +57,8 @@ impl CanValidateTxs for BlockValidator {
     }
 }
 
-impl BlockValidator {
-    pub fn new(
-        state: State<RocksDB, RocksDBHistoricalStores>,
-        vm_eval_pool: ArenaPool,
-        chain_store: Arc<dyn ChainStore>,
-    ) -> Self {
+impl<S: Store, HS: HistoricalStores + Send> BlockValidator<S, HS> {
+    pub fn new(state: State<S, HS>, vm_eval_pool: ArenaPool, chain_store: Arc<dyn ChainStore>) -> Self {
         Self { state: Arc::new(Mutex::new(state)), vm_eval_pool, chain_store }
     }
 
@@ -71,7 +70,7 @@ impl BlockValidator {
 }
 
 #[async_trait::async_trait]
-impl CanValidateBlocks for BlockValidator {
+impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBlocks for BlockValidator<S, HS> {
     #[expect(clippy::unwrap_used)]
     async fn roll_forward_block(
         &self,
@@ -89,22 +88,44 @@ impl CanValidateBlocks for BlockValidator {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn switch_to_fork(&self, _to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        let mut _state = self.state.lock().unwrap();
-        // match state.switch_to_fork(to, &self.vm_eval_pool) {
-        //     BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
-        //     BlockValidation::Invalid(_, _, details) => {
-        //         Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))))
-        //     }
-        //     BlockValidation::Err(err) => Err(BlockValidationError::new(anyhow!(err))),
-        // }
-        Ok(Ok(Default::default()))
-    }
+    fn switch_to_fork(&self, to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+        match self
+            .chain_store
+            .find_ancestor_on_best_chain(to.hash())
+            .map_err(|error| BlockValidationError::new(anyhow!(error)))?
+        {
+            FindAncestorOnBestChainResult::StartHeaderNotFound => {
+                Err(BlockValidationError::new(anyhow!("header missing for {}", to.hash())))
+            }
+            FindAncestorOnBestChainResult::NotFound => {
+                Err(BlockValidationError::new(anyhow!("no ancestor on best chain chain {}", to.hash())))
+            }
+            FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
+                let mut state = self.state.lock().unwrap();
+                let mut ledger_metrics = LedgerMetrics::default();
+                state.rollback_to(&fork_point).map_err(|error| BlockValidationError::from(anyhow!(error)))?;
+                for point in forward_points.iter() {
+                    let block = self
+                        .chain_store
+                        .load_block(&point.hash())
+                        .map_err(|e| BlockValidationError::new(e.into()))?
+                        .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?
+                        .decode()
+                        .map_err(|e| BlockValidationError::new(e.into()))?;
 
-    #[expect(clippy::unwrap_used)]
-    fn contains_point(&self, point: &Point) -> bool {
-        let state = self.state.lock().unwrap();
-        state.contains_volatile_point(point)
+                    match state.roll_forward(point, block, &self.vm_eval_pool) {
+                        BlockValidation::Valid(metrics) => {
+                            ledger_metrics = metrics;
+                        }
+                        BlockValidation::Invalid(_, _, details) => {
+                            return Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))));
+                        }
+                        BlockValidation::Err(err) => return Err(BlockValidationError::new(anyhow!(err))),
+                    }
+                }
+                Ok(Ok(ledger_metrics))
+            }
+        }
     }
 
     #[expect(clippy::unwrap_used)]

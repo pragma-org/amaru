@@ -33,8 +33,7 @@ use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point, RawBlock,
     cardano::network_block::NetworkBlock, to_cbor,
 };
-use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
+use amaru_ouroboros::{ChainStore, HasStakeDistribution, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use flate2::read::GzDecoder;
@@ -157,6 +156,7 @@ async fn process_block(
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator,
     era_history: &EraHistory,
+    stake_distribution: Arc<dyn HasStakeDistribution>,
     point: Point,
     raw_block: RawBlock,
 ) -> Result<(), Box<dyn std::error::Error>> {

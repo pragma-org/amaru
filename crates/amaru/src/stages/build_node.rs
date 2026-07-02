@@ -165,7 +165,7 @@ fn register_resources(
     stage_graph: &mut impl StageGraph,
     chain_store: Arc<dyn ChainStore>,
     global_parameters: &GlobalParameters,
-    block_validator: BlockValidator,
+    block_validator: BlockValidator<RocksDB, RocksDBHistoricalStores>,
     stake_pools_observer: Arc<dyn HasStakePools>,
     validate_header: HeaderValidator,
     meter_provider: Option<SdkMeterProvider>,
@@ -204,7 +204,7 @@ pub fn make_block_validator(
     config: &LedgerConfig,
     state: State<RocksDB, RocksDBHistoricalStores>,
     chain_store: Arc<dyn ChainStore>,
-) -> anyhow::Result<BlockValidator> {
+) -> anyhow::Result<BlockValidator<RocksDB, RocksDBHistoricalStores>> {
     Ok(BlockValidator::new(
         state,
         ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size),

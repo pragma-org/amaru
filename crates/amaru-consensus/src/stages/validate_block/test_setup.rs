@@ -34,8 +34,8 @@ use super::*;
 pub use crate::stages::test_utils::assert_trace;
 use crate::{
     effects::{
-        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, SwitchToForkEffect,
-        TipEffect, ValidateBlockEffect,
+        RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, SwitchToForkEffect, TipEffect,
+        ValidateBlockEffect,
     },
     stages::{
         block_source::BlockSourceMsg,
@@ -161,7 +161,6 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<ContainsPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateBlockEffect>().boxed(),
