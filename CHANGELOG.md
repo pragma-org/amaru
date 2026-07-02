@@ -41,7 +41,7 @@ Other guiding principles:
 
 - **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported ([#1000][])
 
-## v10.10.20260702 _[unreleased; planned for 2026-07-02]_
+## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
 ### Added
 
@@ -53,17 +53,15 @@ Other guiding principles:
 
 - **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][], [#983][])
 
+- **amaru**: restructure the CLI into noun-based command groups, following the guidelines in [EDR-019](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/019-guidelines-for-writing-cli.md): `node` (`run`, `bootstrap`, `reset`), `snapshot` (`create`), and a hidden `dev` group for debugging tools (`chain`, `ledger`, `traces`). The previous top-level commands (`run`, `daemon`, `bootstrap`, `reset-to-epoch`, `create-snapshots`, `dump-chain-db`, `remove-validation-status`, `fetch-chain-headers`, `migrate-chain-db`, `remove-chain`, `dump-traces-schema`) remain as hidden, backward-compatible aliases. ([#973][])
+- **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
+
 ### Fixed
 
 - **amaru-uplc**: make cost models semantics-aware and cleanup various parts and exposed API for in the UPLC crate ([#988][])
 - **amaru**: remove the `--quiet` flag occurences in CI & scripts; silence can be obtained by setting `AMARU_LOG=off` already ([#981][]).
 
 ## [v10.10.20260625](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260625)
-
-### Changed
-
-- **amaru**: restructure the CLI into noun-based command groups, following the guidelines in [EDR-019](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/019-guidelines-for-writing-cli.md): `node` (`run`, `bootstrap`, `reset`), `snapshot` (`create`), and a hidden `dev` group for debugging tools (`chain`, `ledger`, `traces`). The previous top-level commands (`run`, `daemon`, `bootstrap`, `reset-to-epoch`, `create-snapshots`, `dump-chain-db`, `remove-validation-status`, `fetch-chain-headers`, `migrate-chain-db`, `remove-chain`, `dump-traces-schema`) remain as hidden, backward-compatible aliases. ([#973][])
-- **amaru-kernel**: allow null-length era params, so custom testnets can skip leading eras (encoded as empty eras with identical start/end bounds and a zero epoch size). ([#959][])
 
 ### Fixed
 
