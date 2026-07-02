@@ -23,7 +23,7 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, to_cbor,
+    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
@@ -37,7 +37,6 @@ use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
     epoch_transition::{self, GovernanceActivity},
     governance::ratification::RatificationContext,
-    protocol_version_validation::{MINIMUM_SUPPORTED_PROTOCOL_VERSION, validate_protocol_version},
     rules::{
         self,
         block::{BlockValidation, TransactionInvalid},
@@ -162,7 +161,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     ) -> Result<Self, StoreError> {
         let protocol_parameters = stable.protocol_parameters()?;
 
-        validate_protocol_version(protocol_parameters.protocol_version, MINIMUM_SUPPORTED_PROTOCOL_VERSION)
+        protocol_version::validate(protocol_parameters.protocol_version, protocol_version::MINIMUM_SUPPORTED)
             .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
         let governance_activity = stable.governance_activity()?;

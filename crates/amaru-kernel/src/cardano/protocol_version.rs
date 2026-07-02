@@ -21,6 +21,8 @@ pub const PROTOCOL_VERSION_11: ProtocolVersion = (11, 0);
 
 pub const DEFAULT: ProtocolVersion = PROTOCOL_VERSION_11;
 
+pub const MINIMUM_SUPPORTED: ProtocolVersion = PROTOCOL_VERSION_10;
+
 impl HasMajorVersion for ProtocolVersion {
     fn major(&self) -> u32 {
         self.0 as u32
@@ -29,6 +31,20 @@ impl HasMajorVersion for ProtocolVersion {
 
 pub fn fmt(version: &ProtocolVersion) -> String {
     format!("{}.{}", version.0, version.1)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.0, snapshot_version.1, minimum_version.0, minimum_version.1)]
+pub struct ProtocolVersionTooOld {
+    pub snapshot_version: ProtocolVersion,
+    pub minimum_version: ProtocolVersion,
+}
+
+pub fn validate(version: ProtocolVersion, minimum: ProtocolVersion) -> Result<(), ProtocolVersionTooOld> {
+    if version < minimum {
+        return Err(ProtocolVersionTooOld { snapshot_version: version, minimum_version: minimum });
+    }
+    Ok(())
 }
 
 #[cfg(any(test, feature = "test-utils"))]

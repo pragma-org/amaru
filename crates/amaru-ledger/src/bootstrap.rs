@@ -24,8 +24,9 @@ use amaru_kernel::{
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
     ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount, Set,
-    Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
-    new_stake_address, reward_account_to_stake_credential, size,
+    Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    cbor::{self, lazy::LazyDecoder},
+    new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -33,7 +34,6 @@ use tracing::{info, warn};
 use crate::{
     epoch_transition::GovernanceActivity,
     governance::ratification::ProposalsRoots,
-    protocol_version_validation::{self, MINIMUM_SUPPORTED_PROTOCOL_VERSION},
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{self, Store, StoreError, TransactionalContext, columns::proposals},
 };
@@ -56,8 +56,11 @@ enum InitialSnapshotFormatError {
     #[error("invalid initial snapshot payload: expected a previous-blocks map immediately after the epoch")]
     MissingPreviousBlocksMap,
 
-    #[error("snapshot protocol version {snapshot_version} is too old; minimum supported version is {minimum_version}")]
-    ProtocolVersionTooOld { snapshot_version: String, minimum_version: String },
+    #[error("snapshot protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.0, snapshot_version.1, minimum_version.0, minimum_version.1)]
+    ProtocolVersionTooOld {
+        snapshot_version: amaru_kernel::ProtocolVersion,
+        minimum_version: amaru_kernel::ProtocolVersion,
+    },
 }
 
 fn format_pool_state_decode_error(error: Box<dyn std::error::Error>) -> String {
@@ -194,13 +197,11 @@ pub fn import_initial_snapshot(
     // Current Protocol Params — decode before any write so a stale snapshot fails cleanly.
     let pparams: ProtocolParameters = decoder.decode()?;
 
-    protocol_version_validation::validate_protocol_version(
-        pparams.protocol_version,
-        MINIMUM_SUPPORTED_PROTOCOL_VERSION,
-    )
-    .map_err(|e| InitialSnapshotFormatError::ProtocolVersionTooOld {
-        snapshot_version: e.snapshot_version,
-        minimum_version: e.minimum_version,
+    protocol_version::validate(pparams.protocol_version, protocol_version::MINIMUM_SUPPORTED).map_err(|e| {
+        InitialSnapshotFormatError::ProtocolVersionTooOld {
+            snapshot_version: e.snapshot_version,
+            minimum_version: e.minimum_version,
+        }
     })?;
 
     import_block_issuers(db, point, era_history, block_issuers)?;
