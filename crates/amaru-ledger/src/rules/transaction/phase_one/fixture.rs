@@ -22,7 +22,7 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    context::AccountState,
+    context::{AccountState, DelegateError},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -181,6 +181,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    DelegateeStakePoolNotRegistered,
     StakeCredentialInvalidPoolDelegation,
     StakeCredentialInvalidVoteDelegation,
     ValueNotConservedUTxO,
@@ -224,9 +225,10 @@ impl From<PhaseOneError> for Predicate {
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
-            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(_)) => {
-                Predicate::StakeCredentialInvalidPoolDelegation
-            }
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
+                DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
+                DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,
+            },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(_)) => {
                 Predicate::StakeCredentialInvalidVoteDelegation
             }
