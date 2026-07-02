@@ -29,7 +29,7 @@ use amaru_mithril::{
 use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use num::{CheckedAdd, CheckedSub};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use tracing::info;
 
 mod archive;
@@ -46,6 +46,13 @@ use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
 
 const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
+
+fn serialize_point_to_string<S: Serializer>(point: &Option<Point>, s: S) -> Result<S::Ok, S::Error> {
+    match point {
+        Some(p) => s.serialize_some(&p.to_string()),
+        None => s.serialize_none(),
+    }
+}
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -170,7 +177,7 @@ struct EpochTarget {
     epoch: Epoch,
     slot: Slot,
     hash: HeaderHash,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "header_parent")]
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "serialize_point_to_string")]
     parent_point: Option<Point>,
     #[serde(default)]
     archive_path: Option<String>,
@@ -644,7 +651,7 @@ fn read_secondary_offsets(secondary_path: &Path) -> Result<Vec<u64>, Box<dyn std
 mod tests {
     use std::{fs, path::Path};
 
-    use amaru_kernel::{Epoch, NetworkName, Slot, hash};
+    use amaru_kernel::{Epoch, NetworkName, Point, Slot, hash};
     use tempfile::TempDir;
 
     use super::{
@@ -855,5 +862,26 @@ mod tests {
         write_snapshot_archive(&snapshot_dir, &archive_path).unwrap();
 
         assert!(archive_path.is_file());
+    }
+
+    #[test]
+    fn epoch_target_serializes_parent_point_as_string() {
+        let target = EpochTarget {
+            epoch: Epoch::from(164),
+            slot: Slot::from(69_638_382),
+            hash: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
+            parent_point: Some(
+                Point::try_from("69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2").unwrap(),
+            ),
+            archive_path: Some("/path/to/archive.tar.gz".to_string()),
+            snapshot_path: Some("/path/to/snapshot".to_string()),
+        };
+
+        let json = serde_json::to_value(&target).unwrap();
+
+        assert_eq!(
+            json.get("parent_point").and_then(|v| v.as_str()),
+            Some("69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2")
+        );
     }
 }
