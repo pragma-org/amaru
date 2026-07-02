@@ -23,7 +23,7 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, to_cbor,
+    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
@@ -160,6 +160,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         global_parameters: GlobalParameters,
     ) -> Result<Self, StoreError> {
         let protocol_parameters = stable.protocol_parameters()?;
+
+        protocol_version::validate(protocol_parameters.protocol_version, protocol_version::MINIMUM_SUPPORTED)
+            .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
         let governance_activity = stable.governance_activity()?;
 

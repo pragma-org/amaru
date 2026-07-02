@@ -35,6 +35,11 @@ Other guiding principles:
   ```
 -->
 
+## v10.10.20260709 _[unreleased; planned for 2026-07-09]_
+
+### Changed
+
+- **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported ([#1000][])
 
 ## v10.10.20260702 _[unreleased; planned for 2026-07-02]_
 
@@ -107,3 +112,4 @@ Other guiding principles:
 [#981]: https://github.com/pragma-org/amaru/pull/981
 [#983]: https://github.com/pragma-org/amaru/pull/983
 [#988]: https://github.com/pragma-org/amaru/pull/988
+[#1000]: https://github.com/pragma-org/amaru/pull/1000

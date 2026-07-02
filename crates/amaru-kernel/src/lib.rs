@@ -113,7 +113,7 @@ pub use cardano::{
         PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
     },
     protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
-    protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion},
+    protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
     rational_number::{self, RationalNumber},
     raw_block::RawBlock,
     redeemer::Redeemer,

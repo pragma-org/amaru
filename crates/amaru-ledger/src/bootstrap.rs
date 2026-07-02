@@ -24,8 +24,9 @@ use amaru_kernel::{
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
     ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount, Set,
-    Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter, cbor, cbor::lazy::LazyDecoder,
-    new_stake_address, reward_account_to_stake_credential, size,
+    Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    cbor::{self, lazy::LazyDecoder},
+    new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
 use amaru_progress_bar::ProgressBar;
 use tracing::{info, warn};
@@ -54,6 +55,12 @@ enum InitialSnapshotFormatError {
 
     #[error("invalid initial snapshot payload: expected a previous-blocks map immediately after the epoch")]
     MissingPreviousBlocksMap,
+
+    #[error("snapshot protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.0, snapshot_version.1, minimum_version.0, minimum_version.1)]
+    ProtocolVersionTooOld {
+        snapshot_version: amaru_kernel::ProtocolVersion,
+        minimum_version: amaru_kernel::ProtocolVersion,
+    },
 }
 
 fn format_pool_state_decode_error(error: Box<dyn std::error::Error>) -> String {
@@ -121,7 +128,6 @@ pub fn import_initial_snapshot(
 
         Ok(d.decode()?)
     })?;
-    import_block_issuers(db, point, era_history, block_issuers)?;
 
     let (treasury, reserves): (i64, i64) = decoder.with_decoder(|d| {
         // Epoch State
@@ -159,8 +165,6 @@ pub fn import_initial_snapshot(
 
     let (pools, pools_updates, pools_retirements) =
         decoder.with_decoder(|d| Ok(decode_node_pool_state(d, network)?)).map_err(format_pool_state_decode_error)?;
-    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
-        .map_err(|err| format!("import pool state: {err}"))?;
 
     let accounts =
         decoder.with_decoder(|d| Ok(decode_node_accounts(d)?)).map_err(|err| format!("decode accounts: {err}"))?;
@@ -183,7 +187,6 @@ pub fn import_initial_snapshot(
         d.array()?;
         Ok((d.decode()?, d.decode()?, d.decode()?, d.decode()?))
     })?;
-    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
 
     let proposals: Vec<ProposalState> = decoder.decode()?;
 
@@ -191,8 +194,20 @@ pub fn import_initial_snapshot(
 
     let constitution: Constitution = decoder.decode()?;
 
-    // Current Protocol Params
-    let pparams = decoder.decode()?;
+    // Current Protocol Params — decode before any write so a stale snapshot fails cleanly.
+    let pparams: ProtocolParameters = decoder.decode()?;
+
+    protocol_version::validate(pparams.protocol_version, protocol_version::MINIMUM_SUPPORTED).map_err(|e| {
+        InitialSnapshotFormatError::ProtocolVersionTooOld {
+            snapshot_version: e.snapshot_version,
+            minimum_version: e.minimum_version,
+        }
+    })?;
+
+    import_block_issuers(db, point, era_history, block_issuers)?;
+    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
+        .map_err(|err| format!("import pool state: {err}"))?;
+    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
 
     import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
