@@ -13,7 +13,6 @@ import Cardano.Ledger.Api.State.Query
     , queryDRepStakeDistr
     , queryDRepState
     , queryPoolState
-    , queryRegisteredDRepStakeDistr
     , querySPOStakeDistr
     , queryStakeSnapshots
     , qpsrStakePoolParams
@@ -78,8 +77,9 @@ queryStakeDistribution
     :: Network
     -> Word64
     -> NewEpochState ConwayEra
+    -> NewEpochState ConwayEra
     -> StakeDistribution
-queryStakeDistribution network epochNumber newEpochState =
+queryStakeDistribution network epochNumber targetEpochState nextEpochState =
     StakeDistribution
         { epoch = epochNumber
         , treasury = JsonCoin treasury
@@ -89,35 +89,32 @@ queryStakeDistribution network epochNumber newEpochState =
         , drepsVotingStake = JsonCoin (fold dRepStakeDistribution)
         , accounts = mkAccountsSummary accountSummaries
         , pools = mkPoolSummaries stakePerPool votingStakePerPool blocksPerPool poolParameters
-        , dreps = mkDRepsSummary registeredDRepStates registeredDRepStakeDistribution dRepStakeDistribution
+        , dreps = mkDRepsSummary registeredDRepStates dRepStakeDistribution
         }
   where
     ChainAccountState{casReserves = reserves, casTreasury = treasury} =
-        queryChainAccountState newEpochState
+        queryChainAccountState targetEpochState
 
     stakeSnapshots =
-        queryStakeSnapshots newEpochState Nothing
+        queryStakeSnapshots nextEpochState Nothing
 
     BlocksMade blocksPerPool =
-        nesBcur newEpochState
+        nesBcur targetEpochState
 
     poolParameters =
-        qpsrStakePoolParams (queryPoolState newEpochState Nothing network)
+        qpsrStakePoolParams (queryPoolState targetEpochState Nothing network)
 
     stakePerPool =
         Map.map ssMarkPool (ssStakeSnapshots stakeSnapshots)
 
     votingStakePerPool =
-        querySPOStakeDistr newEpochState Set.empty
+        querySPOStakeDistr nextEpochState Set.empty
 
     registeredDRepStates =
-        queryDRepState newEpochState Set.empty
+        queryDRepState targetEpochState Set.empty
 
     dRepStakeDistribution =
-        queryDRepStakeDistr newEpochState Set.empty
-
-    registeredDRepStakeDistribution =
-        queryRegisteredDRepStakeDistr newEpochState Set.empty
+        queryDRepStakeDistr nextEpochState Set.empty
 
     accountSummaries =
         Map.mapWithKey (mkAccountSummary instantStake dRepDelegatees) accountsMap
@@ -126,21 +123,21 @@ queryStakeDistribution network epochNumber newEpochState =
         epochStateForAccounts ^. esLStateL . lsCertStateL . certDStateL . accountsL . accountsMapL
 
     instantStake =
-        newEpochState ^. instantStakeL . instantStakeCredentialsL
+        targetEpochState ^. instantStakeL . instantStakeCredentialsL
 
     dRepDelegatees =
         Map.fromList
             [ (credential, drep)
-            | (drep, delegators) <- Map.toAscList (queryDRepDelegations newEpochState Set.empty)
+            | (drep, delegators) <- Map.toAscList (queryDRepDelegations targetEpochState Set.empty)
             , credential <- Set.toAscList delegators
             ]
 
     epochStateForAccounts =
-        case nesRu newEpochState of
+        case nesRu targetEpochState of
             SNothing ->
-                newEpochState ^. nesEsL
+                targetEpochState ^. nesEsL
             SJust pulsingRewardUpdate ->
-                applyRUpd (completeRewardUpdate pulsingRewardUpdate) (newEpochState ^. nesEsL)
+                applyRUpd (completeRewardUpdate pulsingRewardUpdate) (targetEpochState ^. nesEsL)
 
     completeRewardUpdate pulsingRewardUpdate =
         fst $

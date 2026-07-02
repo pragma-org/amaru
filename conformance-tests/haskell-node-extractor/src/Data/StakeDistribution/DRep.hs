@@ -34,6 +34,7 @@ import Cardano.Ledger.DRep
         ( drepAnchor
         , drepExpiry
         )
+    , credToDRep
     )
 import Cardano.Ledger.Keys
     ( KeyRole (..)
@@ -155,10 +156,9 @@ instance ToJSON JsonDRepHash where
 
 mkDRepsSummary
     :: Map.Map (Credential DRepRole) DRepState
-    -> Map.Map (Credential DRepRole) Coin
     -> Map.Map DRep Coin
     -> DRepsSummary
-mkDRepsSummary registeredDRepStates registeredDRepStakeDistribution dRepStakeDistribution =
+mkDRepsSummary registeredDRepStates dRepStakeDistribution =
     DRepsSummary
         { abstain = DRepStakeSummary (JsonCoin (Map.findWithDefault mempty DRepAlwaysAbstain dRepStakeDistribution))
         , noConfidence =
@@ -175,7 +175,7 @@ mkDRepsSummary registeredDRepStates registeredDRepStakeDistribution dRepStakeDis
                 DRepSummary
                     { validUntil = unEpochNo (drepExpiry dRepState)
                     , metadata = strictMaybeToMaybe (drepAnchor dRepState) <&> metadataFromAnchor
-                    , votingStake = JsonCoin (Map.findWithDefault mempty credential registeredDRepStakeDistribution)
+                    , votingStake = JsonCoin (Map.findWithDefault mempty (credToDRep credential) dRepStakeDistribution)
                     }
          in case credential of
                 KeyHashObj keyHash ->

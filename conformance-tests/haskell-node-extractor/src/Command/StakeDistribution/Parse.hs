@@ -26,6 +26,7 @@ import Options.Applicative
 data Options = Options
     { networkName :: !NetworkName
     , snapshotPath :: !FilePath
+    , nextSnapshotPath :: !FilePath
     , outputDir :: !FilePath
     }
 
@@ -37,7 +38,13 @@ optionsParser =
             ( long "snapshot"
                 <> metavar "PATH"
                 <> completer (bashCompleter "directory")
-                <> help "Path to the consensus ledger snapshot directory (the epoch is derived from the snapshot)"
+                <> help "Path to the consensus ledger snapshot directory for the target epoch"
+            )
+        <*> strOption
+            ( long "next-snapshot"
+                <> metavar "PATH"
+                <> completer (bashCompleter "directory")
+                <> help "Path to the consensus ledger snapshot directory for the following epoch"
             )
         <*> strOption
             ( long "output"
