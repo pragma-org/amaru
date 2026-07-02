@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
     mem,
     sync::Arc,
 };
@@ -308,7 +309,15 @@ impl DRepsSlice for DefaultValidationContext {
         self.state.dreps.unregister(drep)
     }
 }
-
+/// FIXME: State Management
+///
+/// For committee state writes, Haskell uses `checkAndOverwriteCommitteeMemberState`, which accepts
+/// `isCurrentMember || isPotentialFutureMember`. We are only checking the (partial) current members.
+/// Future members is derived from the pending proposals.
+///
+/// Notably, we are also removing in-block resignations. In reality, they should be marked as resigned,
+/// but still in the current elected members, until their term expires. At that point, they are
+/// removed at the epoch boundary.
 impl CommitteeSlice for DefaultValidationContext {
     /// The block start state (`self.committee`) with this block's hot-key change folded in. No
     /// in-block cert establishes membership, so a binding only ever layers over an existing member.
@@ -338,9 +347,10 @@ impl CommitteeSlice for DefaultValidationContext {
             delegate = format!("{delegate:?}")
         );
         let _guard = _span.enter();
-        if self.state.committee.consumed.contains(&cc_member) {
+        if CommitteeSlice::lookup(self, &cc_member).is_none() {
             return Err(DelegateError::UnknownSource(cc_member));
         }
+
         self.state.committee.produce(cc_member, delegate);
         Ok(())
     }
@@ -358,6 +368,11 @@ impl CommitteeSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
+
+        if CommitteeSlice::lookup(self, &cc_member).is_none() {
+            return Err(UnregisterError::Unknown(PhantomData, cc_member));
+        }
+
         self.state.committee.consume(cc_member);
         Ok(())
     }

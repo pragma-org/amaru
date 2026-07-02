@@ -324,6 +324,8 @@ mod tests {
     #[test_case(fixture!("fail/IncorrectDepositDELEG/0"); "stake registration cert with incorrect deposit")]
     #[test_case(fixture!("fail/ConwayCommitteeIsUnknown/0"); "resign cold key for a non-committee member")]
     #[test_case(fixture!("fail/ConwayCommitteeIsUnknown/1"); "authorize hot key for a non-committee member")]
+    #[test_case(fixture!("pass/committee-resign"); "resign cold key for a current committee member")]
+    #[test_case(fixture!("pass/committee-auth-hot"); "authorize hot key for a current committee member")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
     #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
     #[test_case(fixture!("fail/BabbageOutputTooSmallUTxO/0"); "output below minimum lovelace")]
