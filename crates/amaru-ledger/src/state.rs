@@ -371,12 +371,34 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // FIXME: This should eventually be a '.await', as we always expect to *eventually*
             // have some rewards summary being available. There's no way to continue progressing
             // the ledger if we don't.
-            let computed_rewards = self.volatile.take_computed_rewards();
+            let mut computed_rewards = self.volatile.take_computed_rewards();
+
+            let progress = {
+                #[allow(clippy::unwrap_used)]
+                let db = self.stable.lock().unwrap();
+                db.epoch_transition_progress().map_err(StateError::Storage)?
+            };
+
+            // NOTE: Recomputing missing rewards at the boundary
+            //
+            // The rewards summary is normally computed when the chain crosses the stability
+            // window, and only held in the in-memory volatile overlay. A node restarting with
+            // its stable tip already past the stability window replays no block within the
+            // window, so the summary is missing when the epoch boundary is reached — which used
+            // to kill consensus with 'RewardsSummaryNotReady'. All inputs to the computation
+            // (epoch snapshots and stake distributions) are persisted and frozen for the epoch,
+            // so recomputing here yields the same summary as computing it at the stability
+            // window.
+            if progress.is_none() && computed_rewards.is_none() {
+                warn!(
+                    epoch = u64::from(next_epoch - 1),
+                    "rewards summary missing at epoch boundary (restart past the stability window?); recomputing",
+                );
+                computed_rewards = Some(self.compute_rewards(next_epoch - 1)?.into());
+            }
 
             #[allow(clippy::unwrap_used)]
             let db = self.stable.lock().unwrap();
-
-            let progress = db.epoch_transition_progress().map_err(StateError::Storage)?;
 
             let protocol_parameters = self.protocol_parameters();
 
@@ -1059,6 +1081,368 @@ impl From<governance::Error> for StateError {
         match origin {
             governance::Error::EraHistoryError(slot, err) => StateError::ErrorComputingEpoch(slot, err),
             governance::Error::StoreError(err) => StateError::Storage(err),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{borrow::BorrowMut, collections::BTreeMap};
+
+    use amaru_kernel::{
+        Anchor, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Lovelace,
+        MemoizedTransactionOutput, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
+        PREPROD_GLOBAL_PARAMETERS, ProposalId, StakeCredential, TransactionInput,
+    };
+
+    use super::*;
+    use crate::{
+        governance::ratification::ProposalsRoots,
+        store::{EpochTransitionProgress, ReadStore, columns as scolumns},
+        summary::Pots,
+    };
+
+    /// Regression test — restart across the stability window.
+    ///
+    /// The rewards summary is computed when a block at relative slot >=
+    /// stability window is applied, and held only in the in-memory volatile
+    /// overlay. A node restarting with its stable tip already *past* the
+    /// stability window replays no block within the window: the overlay is
+    /// empty, and the epoch transition triggered by the first block of the
+    /// next epoch used to fail with `RewardsSummaryNotReady`, killing
+    /// consensus ("Consensus died, this should not happen!"). All the inputs
+    /// needed to recompute the summary (epoch snapshots and stake
+    /// distributions) are persisted, so the transition must recompute it
+    /// instead of dying.
+    #[test]
+    fn epoch_transition_recomputes_rewards_after_restart_past_stability_window() {
+        let network = NetworkName::Preprod;
+        let era_history: EraHistory = PREPROD_ERA_HISTORY.clone();
+        let global_parameters: GlobalParameters = PREPROD_GLOBAL_PARAMETERS.clone();
+        let protocol_parameters: ProtocolParameters = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
+
+        let current_epoch = Epoch::from(10_u64);
+        let next_epoch = Epoch::from(11_u64);
+
+        // Stable tip = last slot of the current epoch: strictly past the
+        // stability window, so a restarted node replays no block within the
+        // window before the boundary.
+        let next_epoch_start = era_history.epoch_bounds(next_epoch).expect("epoch bounds").start;
+        let stable_slot = Slot::from(u64::from(next_epoch_start) - 1);
+        assert!(
+            unsafe_slot_in_epoch(&era_history, stable_slot) >= global_parameters.stability_window(),
+            "test pre-condition: stable tip must be past the stability window"
+        );
+        let stable_tip = Point::Specific(stable_slot, Hash::from([0u8; 32]));
+
+        // Same in-memory stake distributions a restart rebuilds from the
+        // persisted snapshots.
+        let snapshots = EmptySnapshots;
+        let stake_distributions =
+            initial_stake_distributions(&snapshots, &era_history).expect("initial stake distributions");
+
+        // Fresh state, EMPTY volatile — the post-restart configuration.
+        let mut state = State::new_with(
+            EmptyStore { tip: stable_tip, epoch: current_epoch },
+            snapshots,
+            current_epoch,
+            network,
+            era_history.clone(),
+            global_parameters,
+            protocol_parameters,
+            GovernanceActivity::default(),
+            stake_distributions,
+        );
+
+        // First block of the next epoch arrives: the transition must succeed
+        // by recomputing the rewards summary from the persisted snapshots...
+        let next_point = Point::Specific(Slot::from(u64::from(next_epoch_start) + 2), Hash::from([1u8; 32]));
+        let result = state.try_epoch_transition(next_point);
+        assert!(
+            result.is_ok(),
+            "epoch transition right after a restart past the stability window must not fail: {result:?}",
+        );
+
+        // ... and actually transition.
+        assert_eq!(state.epoch(), next_epoch);
+    }
+
+    // An empty store: what a freshly-bootstrapped-then-restarted node would
+    // see, reduced to nothing. Doubles as (empty) snapshot and (no-op)
+    // transactional context so the whole test is self-contained (using
+    // `amaru-stores` from unit tests would link a second instance of this
+    // crate and break trait identities).
+    #[derive(Clone)]
+    struct EmptyStore {
+        tip: Point,
+        epoch: Epoch,
+    }
+
+    impl ReadStore for EmptyStore {
+        fn tip(&self) -> crate::store::Result<Point> {
+            Ok(self.tip)
+        }
+
+        fn epoch_transition_progress(&self) -> crate::store::Result<Option<EpochTransitionProgress>> {
+            Ok(None)
+        }
+
+        fn protocol_parameters(&self) -> crate::store::Result<ProtocolParameters> {
+            Ok(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
+        }
+
+        fn pool(&self, _pool: &PoolId) -> crate::store::Result<Option<scolumns::pools::Row>> {
+            Ok(None)
+        }
+
+        fn account(&self, _credential: &StakeCredential) -> crate::store::Result<Option<scolumns::accounts::Row>> {
+            Ok(None)
+        }
+
+        fn drep(&self, _credential: &StakeCredential) -> crate::store::Result<Option<scolumns::dreps::Row>> {
+            Ok(None)
+        }
+
+        fn cc_member(&self, _credential: &StakeCredential) -> crate::store::Result<Option<scolumns::cc_members::Row>> {
+            Ok(None)
+        }
+
+        fn proposal(&self, _id: &ComparableProposalId) -> crate::store::Result<Option<scolumns::proposals::Row>> {
+            Ok(None)
+        }
+
+        fn utxo(&self, _input: &TransactionInput) -> crate::store::Result<Option<MemoizedTransactionOutput>> {
+            Ok(None)
+        }
+
+        fn pots(&self) -> crate::store::Result<Pots> {
+            Ok(Pots { treasury: 0, reserves: 0, fees: 0 })
+        }
+
+        fn constitutional_committee(&self) -> crate::store::Result<ConstitutionalCommitteeStatus> {
+            Ok(ConstitutionalCommitteeStatus::NoConfidence)
+        }
+
+        fn constitution(&self) -> crate::store::Result<Constitution> {
+            Ok(Constitution {
+                anchor: Anchor { url: String::new(), content_hash: Hash::from([0u8; 32]) },
+                guardrail_script: Nullable::Null,
+            })
+        }
+
+        fn proposals_roots(&self) -> crate::store::Result<ProposalsRoots> {
+            Ok(ProposalsRoots::default())
+        }
+
+        fn governance_activity(&self) -> crate::store::Result<GovernanceActivity> {
+            Ok(GovernanceActivity::default())
+        }
+
+        fn iter_utxos(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>> {
+            Ok(std::iter::empty())
+        }
+
+        fn iter_block_issuers(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>> {
+            Ok(std::iter::empty())
+        }
+
+        fn iter_pools(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>> {
+            Ok(std::iter::empty())
+        }
+
+        fn iter_accounts(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>> {
+            Ok(std::iter::empty())
+        }
+
+        fn iter_dreps(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>> {
+            Ok(std::iter::empty())
+        }
+
+        fn iter_proposals(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>> {
+            Ok(std::iter::empty())
+        }
+
+        fn iter_cc_members(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Row)>>
+        {
+            Ok(std::iter::empty())
+        }
+
+        fn iter_votes(
+            &self,
+        ) -> crate::store::Result<impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Row)>> {
+            Ok(std::iter::empty())
+        }
+    }
+
+    impl Snapshot for EmptyStore {
+        fn epoch(&self) -> Epoch {
+            self.epoch
+        }
+    }
+
+    impl<'a> TransactionalContext<'a> for EmptyStore {
+        fn commit(self) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn rollback(self) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn reset_epoch_transition_progress(&self) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn try_epoch_transition(
+            &self,
+            _from: Option<EpochTransitionProgress>,
+            _to: Option<EpochTransitionProgress>,
+        ) -> crate::store::Result<bool> {
+            Ok(true)
+        }
+
+        fn save(
+            &self,
+            _era_history: &EraHistory,
+            _protocol_parameters: &ProtocolParameters,
+            _governance_activity: GovernanceActivity,
+            _point: &Point,
+            _issuer: Option<&scolumns::pools::Key>,
+            _add: crate::store::Columns<
+                impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
+                impl Iterator<Item = scolumns::pools::Value>,
+                impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
+                impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
+                impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Value)>,
+                impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Value)>,
+                impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Value)>,
+            >,
+            _remove: crate::store::Columns<
+                impl Iterator<Item = scolumns::utxo::Key>,
+                impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
+                impl Iterator<Item = scolumns::accounts::Key>,
+                impl Iterator<Item = (scolumns::dreps::Key, CertificatePointer)>,
+                impl Iterator<Item = scolumns::cc_members::Key>,
+                impl Iterator<Item = ()>,
+                impl Iterator<Item = ()>,
+            >,
+            _withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
+        ) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn refund(&self, _credential: &scolumns::accounts::Key, _deposit: Lovelace) -> crate::store::Result<Lovelace> {
+            Ok(0)
+        }
+
+        fn set_protocol_parameters(&self, _protocol_parameters: &ProtocolParameters) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn update_constitutional_committee(
+            &self,
+            _status: &ConstitutionalCommitteeStatus,
+            _added: BTreeMap<StakeCredential, Epoch>,
+            _removed: BTreeSet<StakeCredential>,
+        ) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn set_proposals_roots(&self, _roots: &ProposalsRoots) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn set_constitution(&self, _constitution: &Constitution) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn set_governance_activity(&self, _dormant_epochs: GovernanceActivity) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn remove_proposals<'iter, Id>(&self, _proposals: impl IntoIterator<Item = Id>) -> crate::store::Result<()>
+        where
+            Id: Deref<Target = ProposalId> + 'iter,
+        {
+            Ok(())
+        }
+
+        fn with_pots(
+            &self,
+            _with: impl FnMut(Box<dyn BorrowMut<scolumns::pots::Row> + '_>),
+        ) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn with_pools(&self, _with: impl FnMut(scolumns::pools::Iter<'_, '_>)) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn with_accounts(&self, _with: impl FnMut(scolumns::accounts::Iter<'_, '_>)) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn with_block_issuers(&self, _with: impl FnMut(scolumns::slots::Iter<'_, '_>)) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn with_utxo(&self, _with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn with_dreps(&self, _with: impl FnMut(scolumns::dreps::Iter<'_, '_>)) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn with_proposals(&self, _with: impl FnMut(scolumns::proposals::Iter<'_, '_>)) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn with_cc_members(&self, _with: impl FnMut(scolumns::cc_members::Iter<'_, '_>)) -> crate::store::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Store for EmptyStore {
+        type Transaction<'a> = EmptyStore;
+
+        fn next_snapshot(&self, _epoch: Epoch) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn create_transaction(&self) -> Self::Transaction<'_> {
+            self.clone()
+        }
+    }
+
+    /// Empty snapshots for the three epochs a restarted node finds on disk.
+    struct EmptySnapshots;
+
+    impl HistoricalStores for EmptySnapshots {
+        fn snapshots(&self) -> crate::store::Result<Vec<Epoch>> {
+            Ok(vec![Epoch::from(7_u64), Epoch::from(8_u64), Epoch::from(9_u64)])
+        }
+
+        fn prune(&self, _minimum_epoch: Epoch) -> crate::store::Result<()> {
+            Ok(())
+        }
+
+        fn for_epoch(&self, epoch: Epoch) -> crate::store::Result<impl Snapshot> {
+            Ok(EmptyStore { tip: Point::Origin, epoch })
         }
     }
 }

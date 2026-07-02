@@ -41,6 +41,10 @@ Other guiding principles:
 
 - **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported ([#1000][])
 
+### Fixed
+
+- **amaru-ledger**: recompute the rewards summary at the epoch boundary when it is missing, instead of terminating consensus with `rewards summary not ready`; happened on nodes restarting with a stable tip already past the stability window. ([#1007][])
+
 ## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
 ### Added
@@ -111,3 +115,4 @@ Other guiding principles:
 [#983]: https://github.com/pragma-org/amaru/pull/983
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1007]: https://github.com/pragma-org/amaru/pull/1007
