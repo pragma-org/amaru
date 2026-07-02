@@ -34,7 +34,7 @@ pub mod cardano;
 pub use cardano::{
     account::Account,
     address::{Address, PlutusStakeAddress, is_locked_by_script},
-    anchor::Anchor,
+    anchor::{self, Anchor},
     asset_name::AssetName,
     auxiliary_data::AuxiliaryData,
     ballot::Ballot,

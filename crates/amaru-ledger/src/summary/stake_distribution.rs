@@ -82,6 +82,7 @@ impl StakeDistribution {
         GovernanceSummary { mut dreps, deposits }: GovernanceSummary,
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
+
         let stake_pool_deposit = db.protocol_parameters()?.stake_pool_deposit;
 
         let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
@@ -123,16 +124,16 @@ impl StakeDistribution {
 
         let mut accounts = db
             .iter_accounts()?
-            .map(|(credential, account)| {
+            .map(|(credential, row)| {
                 (
                     credential,
                     AccountState {
-                        balance: account.rewards,
-                        pool: account.pool.and_then(|(pool, since)| {
+                        balance: row.rewards,
+                        pool: row.pool.and_then(|(pool, since)| {
                             let PoolState { registered_at, .. } = pools.get(&pool)?;
                             if &since >= registered_at { Some(pool) } else { None }
                         }),
-                        drep: account.drep.and_then(|(drep, _)| match drep {
+                        drep: row.drep.and_then(|(drep, _)| match drep {
                             DRep::Abstain | DRep::NoConfidence => Some(drep),
                             DRep::Key { .. } | DRep::Script { .. } => dreps.contains_key(&drep).then_some(drep),
                         }),
@@ -147,8 +148,8 @@ impl StakeDistribution {
         // well as the datum and/or script references if any.
         db.iter_utxos()?.for_each(|(_, output)| {
             if let Some(credential) = output.delegate() {
-                let value = output.lovelace();
-                accounts.entry(credential).and_modify(|account| account.balance += value);
+                let balance = output.lovelace();
+                accounts.entry(credential).and_modify(|account| account.balance += balance);
             }
         });
 
@@ -156,83 +157,75 @@ impl StakeDistribution {
         let mut pools_voting_stake: Lovelace = 0;
         let mut dreps_voting_stake: Lovelace = 0;
 
-        let accounts = accounts
-            .into_iter()
-            .filter(|(credential, account)| {
-                let (drep_deposits, pool_deposits) = deposits
-                    .get(credential)
-                    .map(|proposals| {
-                        proposals.iter().fold((0, 0), |(drep_deposits, pool_deposits), proposal| {
-                            (
-                                drep_deposits + proposal.deposit,
-                                // NOTE(POOL_VOTING_STAKE_DISTRIBUTION):
-                                //
-                                // The pool distribution used for computing voting power is
-                                // determined BEFORE refunds or withdrawal are processed.
-                                //
-                                // So unlike the DRep voting stake, which already includes those,
-                                // we mustn't include the deposit as part of the pool voting stake
-                                // for the epoch that immediately follows the expiry.
-                                //
-                                // Note that the refund is eventually credited in the following
-                                // epoch so the deposit is effectively missing from the pools'
-                                // voting stake for an entire epoch.
-                                if epoch <= proposal.valid_until {
-                                    pool_deposits + proposal.deposit
-                                } else {
-                                    pool_deposits
-                                },
-                            )
-                        })
+        for (credential, account) in accounts.iter() {
+            let (drep_deposits, pool_deposits) = deposits
+                .get(credential)
+                .map(|proposals| {
+                    proposals.iter().fold((0, 0), |(drep_deposits, pool_deposits), proposal| {
+                        (
+                            drep_deposits + proposal.deposit,
+                            // NOTE: Pool voting stake distribution
+                            //
+                            // The pool distribution used for computing voting power is
+                            // determined BEFORE refunds or withdrawal are processed.
+                            //
+                            // So unlike the DRep voting stake, which already includes those,
+                            // we mustn't include the deposit as part of the pool voting stake
+                            // for the epoch that immediately follows the expiry.
+                            //
+                            // Note that the refund is eventually credited in the following
+                            // epoch so the deposit is effectively missing from the pools'
+                            // voting stake for an entire epoch.
+                            if epoch <= proposal.valid_until {
+                                pool_deposits + proposal.deposit
+                            } else {
+                                pool_deposits
+                            },
+                        )
                     })
-                    .unwrap_or((0, 0));
+                })
+                .unwrap_or((0, 0));
 
+            // Only accounts delegated to active dreps counts towards the voting stake.
+            if let Some(drep) = &account.drep
+                && let Some(st) = dreps.get_mut(drep)
+            {
                 let refund = refunds.get(credential).copied().unwrap_or_default();
 
-                // Only accounts delegated to active dreps counts towards the voting stake.
-                if let Some(drep) = &account.drep
-                    && let Some(st) = dreps.get_mut(drep)
-                {
-                    // FIXME: DRep voting stake should also include:
+                // FIXME: DRep voting stake should also include:
+                //
+                // - refunds coming from *ratified* proposals, not only expired ones.
+                // - successful withdrawals ratified at the beginning of the ratification
+                //   epoch.
+                //
+                // The problem being that we cannot easily compute those from the current
+                // snapshot, since it requires either:
+                //
+                // - To replay ratification altogether.
+                // - Data from the future (i.e. the next snapshot).
+                dreps_voting_stake += account.balance + drep_deposits + refund;
+                st.voting_stake += account.balance + drep_deposits + refund;
+            }
+
+            // NOTE: Delegation to *active* pools
+            //
+            // Only accounts delegated to active pools counts towards the active stake.
+            if let Some(pool_id) = account.pool {
+                if let Some(pool) = pools.get_mut(&pool_id) {
+                    // NOTE: Pool voting stake distribution
                     //
-                    // - refunds coming from *ratified* proposals, not only expired ones.
-                    // - successful withdrawals ratified at the beginning of the ratification
-                    //   epoch.
-                    //
-                    // The problem being that we cannot easily compute those from the current
-                    // snapshot, since it requires either:
-                    //
-                    // - To replay ratification altogether.
-                    // - Data from the future (i.e. the next snapshot).
-                    dreps_voting_stake += account.balance + drep_deposits + refund;
-                    st.voting_stake += account.balance + drep_deposits + refund;
+                    // Governance deposits do not count towards the pools' stake. They are
+                    // only counted as part of the voting power.
+                    let stake = account.balance;
+                    active_stake += &stake;
+                    pool.stake += &stake;
+
+                    let voting_stake = stake + pool_deposits;
+                    pool.voting_stake += &voting_stake;
+                    pools_voting_stake += &voting_stake;
                 }
-
-                // Only accounts delegated to active pools counts towards the active stake.
-                if let Some(pool_id) = account.pool {
-                    return match pools.get_mut(&pool_id) {
-                        None => false,
-                        Some(pool) => {
-                            // NOTE(POOL_VOTING_STAKE_DISTRIBUTION):
-                            //
-                            // Governance deposits do not count towards the pools' stake. They are
-                            // only counted as part of the voting power.
-                            let stake = account.balance;
-                            active_stake += &stake;
-                            pool.stake += &stake;
-
-                            let voting_stake = stake + pool_deposits;
-                            pool.voting_stake += &voting_stake;
-                            pools_voting_stake += &voting_stake;
-
-                            true
-                        }
-                    };
-                }
-
-                false
-            })
-            .collect::<BTreeMap<_, _>>();
+            }
+        }
 
         let block_issuers = db.iter_block_issuers()?;
         block_issuers.for_each(|(_, issuer)| {
@@ -244,11 +237,11 @@ impl StakeDistribution {
         info!(
             name: "stake_distribution.snapshot",
             accounts = %accounts.len(),
+            dreps = %dreps.len(),
             pools = %pools.len(),
             active_stake = %active_stake,
-            dreps = %dreps.len(),
-            dreps_voting_stake = %dreps_voting_stake,
             pools_voting_stake = %pools_voting_stake,
+            dreps_voting_stake = %dreps_voting_stake,
         );
 
         Ok(StakeDistribution {
@@ -281,7 +274,8 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
         s.serialize_field("treasury", &self.0.treasury)?;
         s.serialize_field("reserves", &self.0.reserves)?;
         s.serialize_field("active_stake", &self.0.active_stake)?;
-        s.serialize_field("voting_stake", &self.0.dreps_voting_stake)?;
+        s.serialize_field("dreps_voting_stake", &self.0.dreps_voting_stake)?;
+        s.serialize_field("pools_voting_stake", &self.0.pools_voting_stake)?;
 
         #[derive(serde::Serialize, Default)]
         struct Accounts<'a> {
@@ -302,20 +296,24 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
 
         #[derive(serde::Serialize, Default)]
         struct DReps<'a> {
-            abstain: Lovelace,
-            no_confidence: Lovelace,
+            abstain: VotingStake,
+            no_confidence: VotingStake,
             scripts: BTreeMap<Hash<28>, &'a DRepState>,
             verification_keys: BTreeMap<Hash<28>, &'a DRepState>,
+        }
+        #[derive(serde::Serialize, Default)]
+        struct VotingStake {
+            voting_stake: Lovelace,
         }
         s.serialize_field(
             "dreps",
             &self.0.dreps.iter().fold(DReps::default(), |mut dreps, (drep, st)| {
                 match drep {
                     DRep::Abstain => {
-                        dreps.abstain = st.voting_stake;
+                        dreps.abstain = VotingStake { voting_stake: st.voting_stake };
                     }
                     DRep::NoConfidence => {
-                        dreps.no_confidence = st.voting_stake;
+                        dreps.no_confidence = VotingStake { voting_stake: st.voting_stake };
                     }
                     DRep::Script(hash) => {
                         dreps.scripts.insert(*hash, st);
@@ -360,7 +358,7 @@ pub mod tests {
             dreps in collection::btree_map(any_drep(), any_drep_state(min_epoch, max_epoch), 1..10),
             accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
-            let dreps_voting_stake = dreps.values().fold(0, |total, st| total + st.stake);
+            let dreps_voting_stake = dreps.values().fold(0, |total, st| total + st.voting_stake);
 
             let active_stake = if Lovelace::MAX - dreps_voting_stake >= active_stake_delta {
                 Lovelace::MAX
@@ -476,7 +474,7 @@ pub mod tests {
         )(
             valid_until in min_epoch..=max_epoch,
             metadata in option::of(any_anchor()),
-            stake in 0_u64..1_000_000_000_000,
+            voting_stake in 0_u64..1_000_000_000_000,
             registered_at in any_certificate_pointer(u64::MAX),
         ) -> DRepState {
             DRepState {

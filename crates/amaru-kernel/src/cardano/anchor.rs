@@ -13,6 +13,22 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::Anchor;
+use serde::ser::SerializeStruct;
+
+pub fn serialize<S: serde::Serializer>(anchor: &Option<Anchor>, serializer: S) -> Result<S::Ok, S::Error> {
+    if let Some(anchor) = anchor {
+        let mut s = serializer.serialize_struct("Anchor", 2)?;
+        // NOTE: keep fields in lexicographic order
+        //
+        // This instance is used for canonical ledger state comparisons.
+        s.serialize_field("content_hash", &anchor.content_hash)?;
+        s.serialize_field("url", &anchor.url)?;
+        s.end()
+    } else {
+        serializer.serialize_none()
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 

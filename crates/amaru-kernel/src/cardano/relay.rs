@@ -27,7 +27,9 @@ pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S
     match relay {
         Relay::SingleHostAddr(port, ipv4, ipv6) => {
             let mut s = serializer.serialize_struct("Relay::SingleHostAddr", 4)?;
-            s.serialize_field("type", "ip_address")?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
             if let Nullable::Some(ipv4) = ipv4 {
                 s.serialize_field("ipv4", &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]))?;
             }
@@ -43,21 +45,28 @@ pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S
             if let Nullable::Some(port) = port {
                 s.serialize_field("port", port)?;
             }
+            s.serialize_field("type", "ip_address")?;
             s.end()
         }
         Relay::SingleHostName(port, hostname) => {
             let mut s = serializer.serialize_struct("Relay::SingleHostName", 3)?;
-            s.serialize_field("type", "hostname")?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
             s.serialize_field("hostname", hostname)?;
             if let Nullable::Some(port) = port {
                 s.serialize_field("port", port)?;
             }
+            s.serialize_field("type", "hostname")?;
             s.end()
         }
         Relay::MultiHostName(hostname) => {
             let mut s = serializer.serialize_struct("Relay::MultiHostName", 2)?;
-            s.serialize_field("type", "hostname")?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
             s.serialize_field("hostname", hostname)?;
+            s.serialize_field("type", "hostname")?;
             s.end()
         }
     }

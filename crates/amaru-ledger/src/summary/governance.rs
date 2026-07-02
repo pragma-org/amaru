@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, Slot, StakeCredential,
-    TransactionPointer, expect_stake_credential,
+    TransactionPointer, anchor, expect_stake_credential,
 };
 
 use crate::{
@@ -33,8 +33,9 @@ pub struct GovernanceSummary {
 #[derive(Debug, serde::Serialize)]
 #[cfg_attr(test, derive(Clone))]
 pub struct DRepState {
-    pub valid_until: Option<Epoch>,
+    #[serde(serialize_with = "anchor::serialize")]
     pub metadata: Option<Anchor>,
+    pub valid_until: Option<Epoch>,
     pub voting_stake: Lovelace,
     #[serde(skip)]
     pub registered_at: CertificatePointer,

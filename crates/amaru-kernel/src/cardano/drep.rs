@@ -24,25 +24,31 @@ pub struct AsJson<'a>(#[serde(serialize_with = "serialize")] pub &'a DRep);
 pub fn serialize<S: serde::Serializer>(drep: &DRep, serializer: S) -> Result<S::Ok, S::Error> {
     match drep {
         DRep::Abstain => {
-            let mut s = serializer.serialize_struct("drep", 1)?;
+            let mut s = serializer.serialize_struct("DRep", 1)?;
             s.serialize_field("type", "abstain")?;
             s
         }
         DRep::NoConfidence => {
-            let mut s = serializer.serialize_struct("drep", 1)?;
+            let mut s = serializer.serialize_struct("DRep", 1)?;
             s.serialize_field("type", "no_confidence")?;
             s
         }
         DRep::Script(hash) => {
-            let mut s = serializer.serialize_struct("drep", 2)?;
-            s.serialize_field("type", "script")?;
+            let mut s = serializer.serialize_struct("DRep", 2)?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
             s.serialize_field("hash", &hex::encode(hash))?;
+            s.serialize_field("type", "script")?;
             s
         }
         DRep::Key(hash) => {
-            let mut s = serializer.serialize_struct("drep", 2)?;
-            s.serialize_field("type", "verification_key")?;
+            let mut s = serializer.serialize_struct("DRep", 2)?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
             s.serialize_field("hash", &hex::encode(hash))?;
+            s.serialize_field("type", "verification_key")?;
             s
         }
     }
