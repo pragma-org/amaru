@@ -1,6 +1,6 @@
 {
   "title": "StakeCredentialInvalidPoolDelegation",
-  "description": "The transaction body carries two certificates: first a StakeDeregistration that removes the seeded credential, then a StakeDelegation on the same credential. The delegation fails because the credential was just unregistered within the same transaction.",
+  "description": "Delegation after deregistration in the same transaction.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
@@ -15,7 +15,7 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
       }
     ],
-    "pools": [],
+    "pools": ["deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"],
     "accounts": [
       {
         "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",

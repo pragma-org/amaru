@@ -1,0 +1,39 @@
+{
+  "title": "DelegateeStakePoolNotRegistered",
+  "description": "StakeVoteDeleg to a pool not in the pools set; Abstain vote delegation succeeds first.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a004c4b40ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [
+      {
+        "credential": "8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "83bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a00493e00ff021a00030d4004d9010281840a8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef81020800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b5858406ae278c61f91d37c1da7d126744ad63bb38a8304f1117849b11e817a95bb8e03cf6f7cd25480bb8ac242be1867eaf9be0d1c02e8f8cfcd395f8e4213743bff0af5",
+  "expected": {
+    "predicate": "DelegateeStakePoolNotRegistered"
+  }
+}
