@@ -42,6 +42,8 @@ Other guiding principles:
 
 - **amaru-ledger**: add more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
 
+- **workflows**: dedicated workflow to create and publish bootstrapping snapshots for all networks. ([#951][])
+
 ### Changed
 
 - **amaru-ledger**: redesigned the `VolatileDB`, providing faster lookups and a design that is easier to reason about. ([#963][], [#983][])
@@ -95,6 +97,7 @@ Other guiding principles:
 [#778]: https://github.com/pragma-org/amaru/issues/778
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#942]: https://github.com/pragma-org/amaru/pull/942
+[#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
 [#954]: https://github.com/pragma-org/amaru/pull/954
 [#959]: https://github.com/pragma-org/amaru/pull/959

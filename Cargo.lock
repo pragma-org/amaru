@@ -280,6 +280,7 @@ name = "amaru-mithril"
 version = "0.1.2"
 dependencies = [
  "amaru-kernel",
+ "anyhow",
  "async-trait",
  "flate2",
  "indicatif",
