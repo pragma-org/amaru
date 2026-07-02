@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
@@ -121,6 +121,13 @@ pub struct FetchBlocks {
     /// Trace context originating from the reception of a new tip. Additional spans created by
     /// this stage are children of that context
     trace_context: Option<TraceContext>,
+    /// Trace contexts sent by the select_chain stage tracking the time between the reception of a header
+    /// and the emission of a request for its block.
+    #[serde(skip, default)]
+    perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
+    /// Spans tracking the time necessary to fetch a block
+    #[serde(skip, default)]
+    perf_block_fetch_spans: BTreeMap<HeaderHash, tracing::Span>,
 }
 
 impl FetchBlocks {
@@ -144,6 +151,8 @@ impl FetchBlocks {
             no_peers_pause: false,
             block_height: BlockHeight::from(0),
             trace_context: Default::default(),
+            perf_block_fetch_spans: Default::default(),
+            perf_header_block_fetch_wait_trace_contexts: Default::default(),
         }
     }
 
@@ -167,7 +176,9 @@ impl FetchBlocks {
         parent: Point,
         eff: Effects<FetchBlocksMsg>,
         parent_context: TraceContext,
+        perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
     ) {
+        self.perf_header_block_fetch_wait_trace_contexts = perf_header_block_fetch_wait_trace_contexts;
         self.block_height = tip.block_height().max(self.block_height);
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
@@ -272,6 +283,7 @@ impl FetchBlocks {
             Ok(MissingBlocksResult::BoundaryNotFound) => {
                 tracing::debug!("no boundary for missing blocks found given the new tip");
                 self.missing = None;
+                self.close_perf_spans();
             }
             Ok(MissingBlocksResult::Found(missing_blocks)) => {
                 self.missing = Some(missing_blocks);
@@ -288,6 +300,7 @@ impl FetchBlocks {
         match missing.from_to() {
             None => {
                 self.missing = None;
+                self.close_perf_spans();
                 tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
                 self.fetch_next_from(eff, tip.point()).await;
             }
@@ -296,6 +309,27 @@ impl FetchBlocks {
                 self.req_id += 1;
                 self.no_peers_pause = false;
                 self.trace_context = Some(parent_context);
+                let range_length = missing.nb_missing_blocks();
+
+                for point in missing.missing_points() {
+                    let span = debug_span!(
+                        root,
+                        consensus::perf::block::FETCH,
+                        point = point,
+                        from = *from,
+                        to = *to,
+                        range_length = range_length
+                    );
+                    self.perf_block_fetch_spans.insert(point.hash(), span);
+
+                    // Now that we are requesting the block for a given header we can close the
+                    // span measuring the wait time between header reception and block fetch
+                    if let Some(mut trace_context) =
+                        self.perf_header_block_fetch_wait_trace_contexts.remove(&point.hash())
+                    {
+                        trace_context.close()
+                    }
+                }
                 eff.send(
                     &self.manager,
                     ManagerMessage::FetchBlocks {
@@ -348,6 +382,13 @@ impl FetchBlocks {
             return;
         }
 
+        // close the performance fetch span
+        if let Some(span) = self.perf_block_fetch_spans.remove(&point.hash()) {
+            drop(span);
+        } else {
+            tracing::warn!("received a block that was not requested: {}", point.hash());
+        }
+
         store
             .store_block(&point.hash(), &network_block.raw_block())
             .or_terminate_with(&eff, async |error| {
@@ -370,6 +411,7 @@ impl FetchBlocks {
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;
             }
+            self.close_perf_spans();
             self.fetch_next_from(eff, point).await;
         }
     }
@@ -399,6 +441,8 @@ impl FetchBlocks {
                 self.timeout = None;
                 self.missing = None;
                 self.no_peers_pause = false;
+                // close the perf spans before returning to the select chain stage
+                self.close_perf_spans();
                 self.fetch_next_from(eff, from).await;
             }
         }
@@ -407,6 +451,11 @@ impl FetchBlocks {
     async fn fetch_next_from(&mut self, eff: Effects<FetchBlocksMsg>, from: Point) {
         let trace_context = self.trace_context.take().unwrap_or_default();
         eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from, trace_context)).await;
+    }
+
+    fn close_perf_spans(&mut self) {
+        self.perf_block_fetch_spans.clear();
+        self.perf_header_block_fetch_wait_trace_contexts.clear();
     }
 }
 
@@ -426,7 +475,12 @@ impl DownloadedBlock {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
-    NewTip { tip: Tip, parent: Point, trace_context: TraceContext },
+    NewTip {
+        tip: Tip,
+        parent: Point,
+        trace_context: TraceContext,
+        perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
+    },
     RecoverStoredBlocks(HeaderHash, TraceContext),
     Block(Peer, NetworkBlock),
     Timeout(u64),
@@ -435,7 +489,12 @@ pub enum FetchBlocksMsg {
 
 impl FetchBlocksMsg {
     pub fn new_tip(tip: Tip, parent: Point) -> Self {
-        Self::NewTip { tip, parent, trace_context: Default::default() }
+        Self::NewTip {
+            tip,
+            parent,
+            trace_context: Default::default(),
+            perf_header_block_fetch_wait_trace_contexts: Default::default(),
+        }
     }
 
     pub fn recover_stored_blocks(best_hash: HeaderHash) -> Self {
@@ -449,7 +508,9 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     })
     .await;
     match msg {
-        FetchBlocksMsg::NewTip { tip, parent, trace_context } => state.new_tip(tip, parent, eff, trace_context).await,
+        FetchBlocksMsg::NewTip { tip, parent, trace_context, perf_header_block_fetch_wait_trace_contexts } => {
+            state.new_tip(tip, parent, eff, trace_context, perf_header_block_fetch_wait_trace_contexts).await
+        }
         FetchBlocksMsg::RecoverStoredBlocks(best_hash, trace_context) => {
             state.trace_context = Some(trace_context);
             state.recover_stored_blocks(eff, best_hash).await

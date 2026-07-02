@@ -123,7 +123,7 @@ pub fn tm_store_header(at_stage: &str) -> TraceMatch<'_> {
 }
 
 pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
-    NewTip { tip, parent, trace_context: Default::default() }
+    NewTip { tip, parent, trace_context: Default::default(), perf_context: Default::default() }
 }
 
 fn register_guards() -> DeserializerGuards {

@@ -174,7 +174,16 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
         guards,
         |network| {
             let fb = network.stage("fb", stage);
-            let fb = network.wire_up(fb, prep.state.clone());
+            // Populate perf_block_fetch_spans for any outstanding missing blocks so the
+            // block handler doesn't warn "received a block that was not requested".
+            // Production code populates these in request_missing_blocks, which is not called during the tests.
+            let mut runtime_state = prep.state.clone();
+            if let Some(missing) = runtime_state.missing.as_ref() {
+                for point in missing.missing_points() {
+                    runtime_state.perf_block_fetch_spans.insert(point.hash(), tracing::Span::none());
+                }
+            }
+            let fb = network.wire_up(fb, runtime_state);
             network.preload(&fb, [msg]).unwrap();
         },
         |resources| {

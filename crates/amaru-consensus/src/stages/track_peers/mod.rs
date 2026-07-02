@@ -32,6 +32,7 @@ use super::peer_selection::PeerSelectionMsg;
 use crate::{
     effects::{Ledger, LedgerOps},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
+    stages::select_chain::PerfHeaderForwardOutcome,
 };
 
 /// Slot of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
@@ -178,11 +179,13 @@ pub struct NewTip {
     pub tip: Tip,
     pub parent: Point,
     pub trace_context: TraceContext,
+    #[serde(skip, default)]
+    pub perf_context: TraceContext,
 }
 
 impl NewTip {
     pub fn new(tip: Tip, parent: Point) -> Self {
-        NewTip { tip, parent, trace_context: Default::default() }
+        NewTip { tip, parent, trace_context: Default::default(), perf_context: Default::default() }
     }
 }
 
@@ -341,6 +344,7 @@ impl TrackPeers {
         mode: RollForwardMode,
         eff: &Effects<TrackPeersMsg>,
         trace_context: TraceContext,
+        perf_context: TraceContext,
     ) {
         if matches!(mode, RollForwardMode::PipelineRequestNext) {
             eff.send(&handler, InitiatorMessage::RequestNext).await;
@@ -356,6 +360,7 @@ impl TrackPeers {
                 tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                 self.upstream.remove(&peer);
                 eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context.clone())).await;
+                perf_context.record("outcome", &PerfHeaderForwardOutcome::InvalidHeader);
                 return;
             }
         };
@@ -364,13 +369,16 @@ impl TrackPeers {
         match self.roll_forward_header(&peer, header, tip, &store).await {
             Ok(Some(tip)) => {
                 tracing::debug!(%peer, tip = %tip.point(), "roll forward with new header");
-                eff.send(&self.downstream, NewTip { tip, parent, trace_context }).await;
+                perf_context.record("header_hash", &current_point.hash());
+                eff.send(&self.downstream, NewTip { tip, parent, trace_context, perf_context }).await;
             }
             Ok(None) => {
+                perf_context.record("outcome", &PerfHeaderForwardOutcome::DuplicateHeader);
                 tracing::debug!(%peer, tip = %current_point, "roll forward, header already stored");
             }
             Err(error) => {
                 tracing::error!(%error, %peer, "chain_sync.store_header.failed");
+                perf_context.record("outcome", &PerfHeaderForwardOutcome::StoreHeaderError);
                 self.upstream.remove(&peer);
                 eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
                 return;
@@ -457,6 +465,8 @@ impl TrackPeers {
         trace_context: TraceContext,
     ) {
         tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
+        let perf_span = debug_span!(root, consensus::perf::header::FORWARD, peer = peer.clone());
+        let perf_context = TraceContext::from(perf_span);
 
         let variant = header_content.variant;
         let probe = decode_header(header_content, &peer);
@@ -466,6 +476,7 @@ impl TrackPeers {
                 tracing::error!(%error, %peer, "chain_sync.decode_header.failed");
                 self.upstream.remove(&peer);
                 eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context.clone())).await;
+                perf_context.record("outcome", &PerfHeaderForwardOutcome::UndecodableHeader);
                 return;
             }
         };
@@ -493,7 +504,7 @@ impl TrackPeers {
             RollForwardMode::PipelineRequestNext
         };
 
-        self.execute_roll_forward(peer, handler, variant, header, tip, mode, eff, trace_context).await;
+        self.execute_roll_forward(peer, handler, variant, header, tip, mode, eff, trace_context, perf_context).await;
     }
 }
 

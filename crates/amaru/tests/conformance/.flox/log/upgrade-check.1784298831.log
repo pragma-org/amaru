@@ -1,0 +1,21 @@
+16:33:51.340 DEBUG flox: FLOX_VERSION=1.13.2
+16:33:51.347 DEBUG flox_config::load: Global config directory overridden path="/Users/etorreborre/.config/flox"
+16:33:51.348 DEBUG flox::utils::events: inherited v2 invocation_id from FLOX_INVOCATION_ID invocation_id=759954b9-228c-4fe6-905f-0b66ab106c7b
+16:33:51.348 DEBUG flox::utils::events: v2 events: disable_metrics is true; not installing client
+16:33:51.348 DEBUG flox: set _FLOX_SUBSYSTEM_VERBOSITY=2
+16:33:51.349 DEBUG flox_config::load: Global config directory overridden path="/Users/etorreborre/.config/flox"
+16:33:51.351 DEBUG flox::commands: Metrics collection disabled
+16:33:51.351 DEBUG flox_core::floxhub: Transformed Flox SaaS url base_url=https://hub.flox.dev/ transformed=https://api.flox.dev/git
+16:33:51.351 DEBUG flox::utils::update_notifications: Skipping update check in development mode
+16:33:51.351 DEBUG flox_core::floxhub: Transformed Flox SaaS url base_url=https://hub.flox.dev/ transformed=https://api.flox.dev/
+16:33:51.351 DEBUG flox_core::floxhub: Determined FloxHub urls hub=Floxhub { base_url: Url { scheme: "https", cannot_be_a_base: false, username: "", password: None, host: Some(Domain("hub.flox.dev")), port: None, path: "/", query: None, fragment: None }, api_url: Url { scheme: "https", cannot_be_a_base: false, username: "", password: None, host: Some(Domain("api.flox.dev")), port: None, path: "/", query: None, fragment: None }, git_url: Url { scheme: "https", cannot_be_a_base: false, username: "", password: None, host: Some(Domain("api.flox.dev")), port: None, path: "/git", query: None, fragment: None }, git_url_overridden: false }
+16:33:51.351 DEBUG flox::utils::init::floxhub_client: using catalog client with url: https://api.flox.dev
+16:33:51.351 DEBUG floxhub_client::client: building HTTP client base_url=https://api.flox.dev extra_headers=1
+16:33:51.358 DEBUG flox::commands: feature flags configured=Features { qa: false, beta: false, auto_activate: true }
+16:33:51.358 DEBUG check-upgrade: flox::utils::metrics: No metrics client setup, skipping record
+16:33:51.358 DEBUG check-upgrade: floxhub_client::client: building HTTP client base_url=https://api.flox.dev extra_headers=2
+16:33:51.359 DEBUG check-upgrade: flox_rust_sdk::models::environment: detected concrete environment type: path
+16:33:51.361 DEBUG check-upgrade: flox_rust_sdk::providers::upgrade_checks: created unlocked upgrade information guard upgrade_information_path="/Users/etorreborre/projects/amaru/amaru-1/crates/amaru/tests/conformance/.flox/cache/upgrade-checks.json"
+16:33:51.362 DEBUG check-upgrade: flox::commands::check_for_upgrades: Recently checked for upgrades. Skipping.
+16:33:51.362 DEBUG flox::commands: removing process tempdir temp_dir="/Users/etorreborre/.cache/flox/process/.tmpPouqSn"
+16:33:51.362 DEBUG flox::utils::metrics: No metrics client setup, skipping flush

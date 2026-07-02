@@ -34,7 +34,12 @@ use crate::stages::{
 /// Expected message for a tip that was just received: it carries the trace context
 /// tracking the wait for the corresponding block.
 fn new_best_tip(tip: Tip, parent: Point) -> NewBestTip {
-    NewBestTip { tip, parent, trace_context: Default::default() }
+    NewBestTip {
+        tip,
+        parent,
+        trace_context: Default::default(),
+        perf_header_block_fetch_wait_trace_contexts: Default::default(),
+    }
 }
 
 #[test]

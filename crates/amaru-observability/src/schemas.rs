@@ -151,6 +151,41 @@ define_schemas! {
                     required peer: amaru_kernel::Peer
                 }
             }
+            perf {
+                header {
+                    /// Span entered when the node receives a new header and exited when the
+                    /// corresponding block has been adopted (which means that the header will be forwarded slightly after)
+                    public FORWARD {
+                        required peer: amaru_kernel::Peer
+                        optional header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                    }
+                    /// Time elapsed from the moment a header is processed by the select_chain stage
+                    /// and the moment its block is requested by the fetch_block protocol.
+                    public BLOCK_FETCH_WAIT {
+                        required tip: amaru_kernel::Tip
+                        required header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                    }
+                }
+                block {
+                    /// Fetch a block (in a block range)
+                    public FETCH {
+                        required point: amaru_kernel::Point
+                        required from: amaru_kernel::Point
+                        required to: amaru_kernel::Point
+                        required range_length: usize
+                    }
+                }
+                fork {
+                    /// Switch to a new fork (from detection to application to the ledger)
+                    public SWITCH {
+                        required tip: amaru_kernel::Tip
+                        required header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                    }
+                }
+            }
         }
         ledger {
             tags: cpu

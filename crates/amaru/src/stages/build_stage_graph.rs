@@ -147,8 +147,8 @@ pub fn build_stage_graph(
         .expect("fetch blocks recovery message must be preloaded");
 
     let fetch_blocks_input = stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |msg| {
-        let select_chain::NewBestTip { tip, parent, trace_context } = msg;
-        FetchBlocksMsg::NewTip { tip, parent, trace_context }
+        let select_chain::NewBestTip { tip, parent, trace_context, perf_header_block_fetch_wait_trace_contexts } = msg;
+        FetchBlocksMsg::NewTip { tip, parent, trace_context, perf_header_block_fetch_wait_trace_contexts }
     });
 
     let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));
@@ -157,8 +157,8 @@ pub fn build_stage_graph(
         .preload(&select_chain, [SelectChainMsg::Initialize(best_hash)])
         .expect("initialization message must be preloaded");
     let select_chain_input = stage_graph.contramap(select_chain, "select_chain_input", |msg| {
-        let track_peers::NewTip { tip, parent, trace_context } = msg;
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context }
+        let track_peers::NewTip { tip, parent, trace_context, perf_context } = msg;
+        SelectChainMsg::TipFromUpstream { tip, parent, trace_context, perf_context }
     });
 
     let track_peers = stage_graph.wire_up(

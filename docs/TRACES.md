@@ -606,6 +606,66 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::perf::block`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `fetch` | `TRACE` | public | Fetch a block (in a block range) | point, from, to, range_length |  |
+
+<details><summary>span: `fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+| `from` | `string` | ✓ |
+| `to` | `string` | ✓ |
+| `range_length` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::perf::fork`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `switch` | `TRACE` | public | Switch to a new fork (from detection to application to the ledger) | tip, header_hash | outcome |
+
+<details><summary>span: `switch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `outcome` | `string` |  |
+
+</details>
+
+## target: `amaru::consensus::perf::header`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `block_fetch_wait` | `TRACE` | public | Time elapsed from the moment a header is processed by the select_chain stage and the moment its block is requested by the fetch_block protocol. | tip, header_hash | outcome |
+| `forward` | `TRACE` | public | Span entered when the node receives a new header and exited when the corresponding block has been adopted (which means that the header will be forwarded slightly after) | peer | header_hash, outcome |
+
+<details><summary>span: `block_fetch_wait`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `outcome` | `string` |  |
+
+</details>
+
+<details><summary>span: `forward`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` |  |
+| `outcome` | `string` |  |
+
+</details>
+
 ## target: `amaru::ledger::account`
 
 | name | level | public | description | required fields | optional fields |

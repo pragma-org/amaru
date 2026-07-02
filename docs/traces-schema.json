@@ -1045,6 +1045,126 @@
       "description": "Snapshot archive already packaged; skipping",
       "public": true
     },
+    "amaru::consensus::perf::block::FETCH": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "range_length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "point",
+        "from",
+        "to",
+        "range_length"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::block",
+      "description": "Fetch a block (in a block range)",
+      "public": true
+    },
+    "amaru::consensus::perf::fork::SWITCH": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Tip"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "header_hash"
+      ],
+      "optional": [
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "name": "switch",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::fork",
+      "description": "Switch to a new fork (from detection to application to the ledger)",
+      "public": true
+    },
+    "amaru::consensus::perf::header::BLOCK_FETCH_WAIT": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Tip"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "header_hash"
+      ],
+      "optional": [
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "name": "block_fetch_wait",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::header",
+      "description": "Time elapsed from the moment a header is processed by the select_chain stage and the moment its block is requested by the fetch_block protocol.",
+      "public": true
+    },
+    "amaru::consensus::perf::header::FORWARD": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer"
+      ],
+      "optional": [
+        "header_hash",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "name": "forward",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::header",
+      "description": "Span entered when the node receives a new header and exited when the corresponding block has been adopted (which means that the header will be forwarded slightly after)",
+      "public": true
+    },
     "amaru::ledger::account::PAY_OR_REFUND": {
       "type": "object",
       "properties": {
