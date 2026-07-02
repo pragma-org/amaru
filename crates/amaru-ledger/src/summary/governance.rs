@@ -33,10 +33,9 @@ pub struct GovernanceSummary {
 #[derive(Debug, serde::Serialize)]
 #[cfg_attr(test, derive(Clone))]
 pub struct DRepState {
-    #[serde(rename(serialize = "mandate"))]
     pub valid_until: Option<Epoch>,
     pub metadata: Option<Anchor>,
-    pub stake: Lovelace,
+    pub voting_stake: Lovelace,
     #[serde(skip)]
     pub registered_at: CertificatePointer,
 }
@@ -107,7 +106,7 @@ impl GovernanceSummary {
                         metadata: anchor,
                         valid_until: Some(valid_until + consecutive_dormant_epochs as u64),
                         // The actual stake is filled later when computing the stake distribution.
-                        stake: 0,
+                        voting_stake: 0,
                     },
                 ))
             })
@@ -116,7 +115,7 @@ impl GovernanceSummary {
         let default_protocol_drep = || DRepState {
             valid_until: None,
             metadata: None,
-            stake: 0,
+            voting_stake: 0,
             registered_at: CertificatePointer {
                 transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
                 certificate_index: 0,

@@ -32,6 +32,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=AMARU_NETWORK");
     println!("cargo:rerun-if-env-changed=BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH");
     println!("cargo:rustc-env=AMARU_NETWORK={}", network);
+    println!("cargo:rustc-env=INSTA_OUTPUT=summary");
 }
 
 fn write_type_aliases_file() -> Result<(), Box<dyn std::error::Error>> {

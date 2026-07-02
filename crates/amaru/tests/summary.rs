@@ -25,6 +25,7 @@ use amaru_ledger::{
     summary::{governance::GovernanceSummary, rewards::RewardsSummary, stake_distribution::StakeDistribution},
 };
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
+use anyhow::anyhow;
 use test_case::test_case;
 
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
@@ -63,35 +64,35 @@ fn load_snapshot(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send
     handle
 }
 
-include!(concat!("stake-distributions/", env!("AMARU_NETWORK"), "/generated-test-cases.incl"));
-
-fn compare_stake_distribution_with_haskell_node(epoch: Epoch) -> Result<(), Box<dyn std::error::Error>> {
-    let network: NetworkName = env!("AMARU_NETWORK")
-        .to_string()
-        .parse()
-        .map_err(|e| anyhow!("failed to parse or find $AMARU_NETWORK env variable").context(e))?;
-
+fn compare_stake_distribution_with_haskell_node(
+    network: NetworkName,
+    epoch: Epoch,
+) -> Result<(), Box<dyn std::error::Error>> {
     let snapshot = load_snapshot(network, epoch);
 
-    let global_parameters = network.as_global_parameters()?;
+    let global_parameters = network.as_global_parameters().ok_or("no global parameters for network={network:?}?!")?;
 
-    let era_history = network.as_era_history()?;
+    let era_history = network.as_era_history().ok_or("no era history for network={network:?}?!")?;
 
     let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history)?;
 
     let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps)?;
 
     insta::with_settings!({
-        snapshot_path => format!("snapshots/{}", network)
+        snapshot_path => format!("stake-distributions/{}", network),
+        omit_expression => true // do not include the default expression
     }, {
         insta::assert_json_snapshot!(
-            format!("stake_distribution_{}", epoch),
+            format!("epoch_{epoch}"),
             stake_distr.for_network(network.into()),
         );
     });
 
     Ok(())
 }
+
+#[cfg(not(rust_analyzer))]
+include!(concat!("stake-distributions/", env!("AMARU_NETWORK"), "/generated_test_cases.incl"));
 
 // TODO: reinstate rewards summary snapshot tests
 //

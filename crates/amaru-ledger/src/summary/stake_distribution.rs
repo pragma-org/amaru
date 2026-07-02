@@ -14,7 +14,9 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{DRep, Epoch, HasLovelace, Lovelace, Network, PoolId, StakeCredential, expect_stake_credential};
+use amaru_kernel::{
+    DRep, Epoch, HasLovelace, Hash, Lovelace, Network, PoolId, StakeCredential, expect_stake_credential,
+};
 use serde::ser::SerializeStruct;
 use tracing::info;
 
@@ -22,10 +24,10 @@ use crate::{
     epoch_transition::PoolsEpochTransitionUpdates,
     store::{Snapshot, StoreError},
     summary::{
-        AccountState, PoolState,
+        AccountState, PoolState, Pots,
         governance::{DRepState, GovernanceSummary},
         safe_ratio,
-        serde::{encode_drep, encode_pool_id, encode_stake_credential, serialize_map},
+        serde::serialize_map,
     },
 };
 
@@ -41,6 +43,12 @@ use crate::{
 pub struct StakeDistribution {
     /// Epoch number for this snapshot (taken at the end of the epoch)
     pub epoch: Epoch,
+
+    /// Treasury value for the matching epoch
+    pub treasury: Lovelace,
+
+    /// Reserves value for the matching epoch
+    pub reserves: Lovelace,
 
     /// Total stake, in Lovelace, delegated to registered pools
     pub active_stake: Lovelace,
@@ -119,7 +127,7 @@ impl StakeDistribution {
                 (
                     credential,
                     AccountState {
-                        lovelace: account.rewards,
+                        balance: account.rewards,
                         pool: account.pool.and_then(|(pool, since)| {
                             let PoolState { registered_at, .. } = pools.get(&pool)?;
                             if &since >= registered_at { Some(pool) } else { None }
@@ -140,7 +148,7 @@ impl StakeDistribution {
         db.iter_utxos()?.for_each(|(_, output)| {
             if let Some(credential) = output.delegate() {
                 let value = output.lovelace();
-                accounts.entry(credential).and_modify(|account| account.lovelace += value);
+                accounts.entry(credential).and_modify(|account| account.balance += value);
             }
         });
 
@@ -196,8 +204,8 @@ impl StakeDistribution {
                     //
                     // - To replay ratification altogether.
                     // - Data from the future (i.e. the next snapshot).
-                    dreps_voting_stake += account.lovelace + drep_deposits + refund;
-                    st.stake += account.lovelace + drep_deposits + refund;
+                    dreps_voting_stake += account.balance + drep_deposits + refund;
+                    st.voting_stake += account.balance + drep_deposits + refund;
                 }
 
                 // Only accounts delegated to active pools counts towards the active stake.
@@ -209,7 +217,7 @@ impl StakeDistribution {
                             //
                             // Governance deposits do not count towards the pools' stake. They are
                             // only counted as part of the voting power.
-                            let stake = account.lovelace;
+                            let stake = account.balance;
                             active_stake += &stake;
                             pool.stake += &stake;
 
@@ -231,6 +239,8 @@ impl StakeDistribution {
             pools.entry(issuer.slot_leader).and_modify(|pool| pool.blocks_count += 1);
         });
 
+        let Pots { reserves, treasury, .. } = db.pots()?;
+
         info!(
             name: "stake_distribution.snapshot",
             accounts = %accounts.len(),
@@ -241,7 +251,17 @@ impl StakeDistribution {
             pools_voting_stake = %pools_voting_stake,
         );
 
-        Ok(StakeDistribution { epoch, active_stake, dreps_voting_stake, pools_voting_stake, accounts, pools, dreps })
+        Ok(StakeDistribution {
+            epoch,
+            treasury,
+            reserves,
+            active_stake,
+            dreps_voting_stake,
+            pools_voting_stake,
+            accounts,
+            pools,
+            dreps,
+        })
     }
 
     pub fn for_network(&self, network: Network) -> StakeDistributionForNetwork<'_> {
@@ -258,11 +278,59 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("StakeDistribution", 6)?;
         s.serialize_field("epoch", &self.0.epoch)?;
+        s.serialize_field("treasury", &self.0.treasury)?;
+        s.serialize_field("reserves", &self.0.reserves)?;
         s.serialize_field("active_stake", &self.0.active_stake)?;
         s.serialize_field("voting_stake", &self.0.dreps_voting_stake)?;
-        serialize_map("accounts", &mut s, &self.0.accounts, |credential| encode_stake_credential(self.1, credential))?;
-        serialize_map("pools", &mut s, &self.0.pools, encode_pool_id)?;
-        serialize_map("dreps", &mut s, &self.0.dreps, encode_drep)?;
+
+        #[derive(serde::Serialize, Default)]
+        struct Accounts<'a> {
+            scripts: BTreeMap<Hash<28>, &'a AccountState>,
+            verification_keys: BTreeMap<Hash<28>, &'a AccountState>,
+        }
+        s.serialize_field(
+            "accounts",
+            &self.0.accounts.iter().fold(Accounts::default(), |mut accounts, (credential, st)| {
+                match credential {
+                    StakeCredential::AddrKeyhash(hash) => accounts.verification_keys.insert(*hash, st),
+                    StakeCredential::ScriptHash(hash) => accounts.scripts.insert(*hash, st),
+                };
+
+                accounts
+            }),
+        )?;
+
+        #[derive(serde::Serialize, Default)]
+        struct DReps<'a> {
+            abstain: Lovelace,
+            no_confidence: Lovelace,
+            scripts: BTreeMap<Hash<28>, &'a DRepState>,
+            verification_keys: BTreeMap<Hash<28>, &'a DRepState>,
+        }
+        s.serialize_field(
+            "dreps",
+            &self.0.dreps.iter().fold(DReps::default(), |mut dreps, (drep, st)| {
+                match drep {
+                    DRep::Abstain => {
+                        dreps.abstain = st.voting_stake;
+                    }
+                    DRep::NoConfidence => {
+                        dreps.no_confidence = st.voting_stake;
+                    }
+                    DRep::Script(hash) => {
+                        dreps.scripts.insert(*hash, st);
+                    }
+                    DRep::Key(hash) => {
+                        dreps.verification_keys.insert(*hash, st);
+                    }
+                };
+
+                dreps
+            }),
+        )?;
+
+        serialize_map("pools", &mut s, &self.0.pools, |id| hex::encode(id))?;
+
         s.end()
     }
 }
@@ -286,6 +354,8 @@ pub mod tests {
             max_epoch: u64,
         )(
             epoch in any::<u64>(),
+            treasury in any::<u64>(),
+            reserves in any::<u64>(),
             active_stake_delta in any::<Lovelace>(),
             dreps in collection::btree_map(any_drep(), any_drep_state(min_epoch, max_epoch), 1..10),
             accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
@@ -300,6 +370,8 @@ pub mod tests {
 
             StakeDistribution {
                 epoch: Epoch::from(epoch),
+                treasury,
+                reserves,
                 active_stake,
                 dreps,
                 dreps_voting_stake,
@@ -313,6 +385,8 @@ pub mod tests {
     prop_compose! {
         pub fn any_stake_distribution_no_dreps()(
             epoch in any::<u64>(),
+            treasury in any::<u64>(),
+            reserves in any::<u64>(),
             pools in collection::btree_map(any_hash28(), any_pool_state(), 1..10),
             accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
@@ -345,6 +419,8 @@ pub mod tests {
 
             StakeDistribution {
                 epoch: Epoch::from(epoch),
+                treasury,
+                reserves,
                 active_stake,
                 pools,
                 pools_voting_stake,
@@ -357,12 +433,12 @@ pub mod tests {
 
     prop_compose! {
         pub fn any_account_state()(
-            lovelace in any::<Lovelace>(),
+            balance in any::<Lovelace>(),
             pool in option::of(any_hash28()),
             drep in option::of(any_drep()),
         ) -> AccountState {
             AccountState {
-                lovelace,
+                balance,
                 pool,
                 drep
             }
@@ -406,7 +482,7 @@ pub mod tests {
             DRepState {
                 valid_until: Some(Epoch::from(valid_until)),
                 metadata,
-                stake,
+                voting_stake,
                 registered_at,
             }
         }

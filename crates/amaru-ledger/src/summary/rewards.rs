@@ -123,9 +123,7 @@ use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
     store::{Snapshot, StoreError},
     summary::{
-        AccountState, PoolState, Pots, SafeRatio, safe_ratio,
-        serde::{encode_pool_id, serialize_map},
-        serialize_safe_ratio,
+        AccountState, PoolState, Pots, SafeRatio, safe_ratio, serde::serialize_map, serialize_safe_ratio,
         stake_distribution::StakeDistribution,
     },
 };
@@ -140,7 +138,7 @@ impl PoolState {
     pub fn owner_stake(&self, accounts: &BTreeMap<StakeCredential, AccountState>) -> Lovelace {
         self.parameters.owners.iter().fold(0, |total, owner| {
             match accounts.get(&StakeCredential::AddrKeyhash(*owner)) {
-                Some(account) if account.pool == Some(self.parameters.id) => total + account.lovelace,
+                Some(account) if account.pool == Some(self.parameters.id) => total + account.balance,
                 _ => total,
             }
         })
@@ -358,7 +356,7 @@ impl serde::Serialize for RewardsSummary {
         s.serialize_field("treasury_tax", &self.treasury_tax)?;
         s.serialize_field("available_rewards", &self.available_rewards)?;
         s.serialize_field("pots", &self.pots)?;
-        serialize_map("pools", &mut s, &self.pools, encode_pool_id)?;
+        serialize_map("pools", &mut s, &self.pools, |id| hex::encode(id))?;
         s.end()
     }
 }
@@ -539,7 +537,7 @@ impl RewardsSummary {
         st: AccountState,
     ) -> Lovelace {
         if let Some(PoolRewards { pot, .. }) = pool_rewards {
-            let member_rewards = pool.member_rewards(&credential, *pot, st.lovelace, total_stake);
+            let member_rewards = pool.member_rewards(&credential, *pot, st.balance, total_stake);
             if member_rewards > 0 {
                 accounts.entry(credential).and_modify(|rewards| *rewards += member_rewards).or_insert(member_rewards);
             }

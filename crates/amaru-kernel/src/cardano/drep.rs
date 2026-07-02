@@ -13,10 +13,41 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::DRep;
-#[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+use serde::ser::SerializeStruct;
 
 use crate::StakeCredential;
+
+#[derive(serde::Serialize)]
+#[serde(transparent)]
+pub struct AsJson<'a>(#[serde(serialize_with = "serialize")] pub &'a DRep);
+
+pub fn serialize<S: serde::Serializer>(drep: &DRep, serializer: S) -> Result<S::Ok, S::Error> {
+    match drep {
+        DRep::Abstain => {
+            let mut s = serializer.serialize_struct("drep", 1)?;
+            s.serialize_field("type", "abstain")?;
+            s
+        }
+        DRep::NoConfidence => {
+            let mut s = serializer.serialize_struct("drep", 1)?;
+            s.serialize_field("type", "no_confidence")?;
+            s
+        }
+        DRep::Script(hash) => {
+            let mut s = serializer.serialize_struct("drep", 2)?;
+            s.serialize_field("type", "script")?;
+            s.serialize_field("hash", &hex::encode(hash))?;
+            s
+        }
+        DRep::Key(hash) => {
+            let mut s = serializer.serialize_struct("drep", 2)?;
+            s.serialize_field("type", "verification_key")?;
+            s.serialize_field("hash", &hex::encode(hash))?;
+            s
+        }
+    }
+    .end()
+}
 
 pub fn to_stake_credential(drep: &DRep) -> Option<StakeCredential> {
     match drep {
@@ -25,6 +56,9 @@ pub fn to_stake_credential(drep: &DRep) -> Option<StakeCredential> {
         DRep::Abstain | DRep::NoConfidence => None,
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
