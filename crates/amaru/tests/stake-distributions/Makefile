@@ -1,4 +1,4 @@
-.PHONY: help xz unxz tar untar download upload check-aws-env check-network-dir
+.PHONY: help xz unxz tar untar list download upload check-aws-env check-network-dir
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 
@@ -66,6 +66,9 @@ check-aws-env:
 	@test -n "$(ENDPOINT)" || { echo "Missing ENDPOINT"; exit 1; }
 	@test -n "$(AWS_ACCESS_KEY_ID)" || { echo "Missing AWS_ACCESS_KEY_ID"; exit 1; }
 	@test -n "$(AWS_SECRET_ACCESS_KEY)" || { echo "Missing AWS_SECRET_ACCESS_KEY"; exit 1; }
+
+list: check-network-dir check-aws-env ## List all objects in the network-specific S3 bucket
+	@aws s3 ls --recursive --human-readable --summarize --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/"
 
 download: check-aws-env ## Download an global archive (WHAT=tar) or individual .xz (WHAT=xz) from an S3 bucket
 	@case "$(WHAT)" in \
