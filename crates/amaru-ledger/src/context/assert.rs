@@ -29,9 +29,9 @@ use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-        PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
-        PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
+        AccountState, AccountsSlice, CCMember, CommitteeError, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+        PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice,
+        PreparePoolsSlice, PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UpdateError,
         UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
@@ -253,15 +253,11 @@ impl CommitteeSlice for AssertValidationContext {
         &mut self,
         _cc_member: StakeCredential,
         _delegate: StakeCredential,
-    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
+    ) -> Result<(), CommitteeError> {
         unimplemented!()
     }
 
-    fn resign(
-        &mut self,
-        _cc_member: StakeCredential,
-        _anchor: Option<Anchor>,
-    ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
+    fn resign(&mut self, _cc_member: StakeCredential, _anchor: Option<Anchor>) -> Result<(), CommitteeError> {
         unimplemented!()
     }
 }

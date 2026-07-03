@@ -279,6 +279,15 @@ pub struct CCMember {
     pub valid_until: Option<Epoch>,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum CommitteeError {
+    #[error("unknown committee member: {0:?}")] // TODO: Use Display
+    Unknown(StakeCredential),
+
+    #[error("committee member has previously resigned: {0:?}")] // TODO: Use Display
+    AlreadyResigned(StakeCredential),
+}
+
 /// An interface for interacting with a subset of the Constitutional Committee members state.
 pub trait CommitteeSlice {
     /// The committee member at this point in the block: the block-start record with the in-block
@@ -289,13 +298,9 @@ pub trait CommitteeSlice {
         &mut self,
         cc_member: StakeCredential,
         delegate: StakeCredential,
-    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>>;
+    ) -> Result<(), CommitteeError>;
 
-    fn resign(
-        &mut self,
-        cc_member: StakeCredential,
-        anchor: Option<Anchor>,
-    ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
+    fn resign(&mut self, cc_member: StakeCredential, anchor: Option<Anchor>) -> Result<(), CommitteeError>;
 }
 
 /// An interface to help constructing the concrete CommitteeSlice ahead of time.

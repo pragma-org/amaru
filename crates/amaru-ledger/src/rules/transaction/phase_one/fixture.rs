@@ -22,7 +22,7 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    context::{CCMember, DelegateError},
+    context::{CCMember, CommitteeError},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -188,10 +188,12 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::IncorrectStakeDeposit { .. }) => {
                 Predicate::IncorrectDepositDELEG
             }
-            PhaseOneError::Certificates(InvalidCertificates::CCMemberUnknown(_)) => Predicate::ConwayCommitteeIsUnknown,
-            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
-                DelegateError::UnknownSource(_),
-            )) => Predicate::ConwayCommitteeIsUnknown,
+            PhaseOneError::Certificates(InvalidCertificates::Committee(CommitteeError::Unknown(_))) => {
+                Predicate::ConwayCommitteeIsUnknown
+            }
+            PhaseOneError::Certificates(InvalidCertificates::Committee(CommitteeError::AlreadyResigned(_))) => {
+                Predicate::ConwayCommitteeHasPreviouslyResigned
+            }
             PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
                 [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,

@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    marker::PhantomData,
     mem,
     sync::Arc,
 };
@@ -29,8 +28,8 @@ use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        AccountState, AccountsSlice, CCMember, CommitteeError, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+        PotsSlice, ProposalsSlice, RegisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
         blanket_known_datums, blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
@@ -340,7 +339,7 @@ impl CommitteeSlice for DefaultValidationContext {
         &mut self,
         cc_member: StakeCredential,
         delegate: StakeCredential,
-    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
+    ) -> Result<(), CommitteeError> {
         let _span = trace_span!(
             amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_COMMITTEE_DELEGATE,
             cc_member = format!("{cc_member:?}"),
@@ -348,18 +347,14 @@ impl CommitteeSlice for DefaultValidationContext {
         );
         let _guard = _span.enter();
         if CommitteeSlice::lookup(self, &cc_member).is_none() && !self.pending_committee.contains_key(&cc_member) {
-            return Err(DelegateError::UnknownSource(cc_member));
+            return Err(CommitteeError::Unknown(cc_member));
         }
 
         self.state.committee.produce(cc_member, delegate);
         Ok(())
     }
 
-    fn resign(
-        &mut self,
-        cc_member: StakeCredential,
-        anchor: Option<Anchor>,
-    ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
+    fn resign(&mut self, cc_member: StakeCredential, anchor: Option<Anchor>) -> Result<(), CommitteeError> {
         let _span = trace_span!(
             amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_COMMITTEE_RESIGN,
             cc_member = format!("{cc_member:?}")
@@ -370,7 +365,7 @@ impl CommitteeSlice for DefaultValidationContext {
         let _guard = _span.enter();
 
         if CommitteeSlice::lookup(self, &cc_member).is_none() && !self.pending_committee.contains_key(&cc_member) {
-            return Err(UnregisterError::Unknown(PhantomData, cc_member));
+            return Err(CommitteeError::Unknown(cc_member));
         }
 
         self.state.committee.consume(cc_member);

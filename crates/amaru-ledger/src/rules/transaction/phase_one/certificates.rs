@@ -21,8 +21,8 @@ use thiserror::Error;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, RegisterError,
-        UnregisterError, UpdateError, WitnessSlice,
+        AccountState, AccountsSlice, CommitteeError, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+        RegisterError, UpdateError, WitnessSlice,
     },
     epoch_transition::GovernanceActivity,
 };
@@ -44,11 +44,8 @@ pub enum InvalidCertificates {
     #[error("invalid drep attempted update: {0}")]
     DRepInvalidUpdate(#[from] UpdateError<StakeCredential>),
 
-    #[error("unknown cc member: {0}")]
-    CCMemberUnknown(#[from] UnregisterError<CCMember, StakeCredential>),
-
-    #[error("invalid cc member hot credential delegation: {0}")]
-    CCMemberInvalidDelegation(#[from] DelegateError<StakeCredential, StakeCredential>),
+    #[error("invalid committee certificate: {0}")]
+    Committee(#[from] CommitteeError),
 
     #[error("impossible slot arithmetic: {0}")]
     ImpossibleSlotArithmetic(#[from] EraHistoryError),
