@@ -50,7 +50,7 @@ optionsParser =
             ( long "output"
                 <> metavar "DIR"
                 <> completer (bashCompleter "directory")
-                <> value "data"
+                <> value ".."
                 <> showDefault
                 <> help "Base directory where the extracted JSON file will be written"
             )

@@ -47,13 +47,12 @@ run Options{networkName, outputDir, snapshotPath, nextSnapshotPath} = do
         ExceptT (pure (Left (SnapshotsNotSequential epochNumber nextEpochNumber)))
 
     putStrLn $ "Loaded valid snapshot at epoch=" <> show epochNumber
-    putStrLn $ "Loaded next snapshot at epoch=" <> show nextEpochNumber
+    putStrLn $ "Loaded next  snapshot at epoch=" <> show nextEpochNumber
 
     let outputPath =
             outputDir
-                </> "stake-distributions"
                 </> toString (networkNameToText networkName)
-                </> (show epochNumber <.> "json")
+                </> ("epoch_" <> show epochNumber <.> "json")
 
     let stakeDistribution =
             queryStakeDistribution

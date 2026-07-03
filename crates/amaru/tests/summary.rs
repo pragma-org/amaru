@@ -140,21 +140,3 @@ fn assert_json_snapshot<T: serde::Serialize>(
 }
 
 include!(concat!(env!("OUT_DIR"), "/stake_distribution_test_cases.rs"));
-
-// TODO: reinstate rewards summary snapshot tests
-//
-// let snapshot_from_the_future = db(network, epoch + 2);
-// let protocol_parameters = snapshot_from_the_future.as_ref().protocol_parameters().unwrap();
-// let rewards_summary =
-//     RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr, global_parameters, &protocol_parameters)
-//         .unwrap()
-//         .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
-//         .unwrap();
-// insta::with_settings!({
-//     snapshot_path => default_snapshots_dir(network)
-// }, {
-//     insta::assert_json_snapshot!(
-//     format!("rewards_summary_{}", epoch),
-//     rewards_summary
-//     );
-// });

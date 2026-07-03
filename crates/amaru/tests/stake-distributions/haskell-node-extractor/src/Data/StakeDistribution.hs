@@ -15,7 +15,6 @@ import Data.Aeson
     )
 import Data.Aeson.Encode.Pretty
     ( Config (..)
-    , defConfig
     , keyOrder
     )
 import Data.Coin
