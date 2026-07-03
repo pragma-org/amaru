@@ -16,12 +16,15 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     fs::{self, File},
-    io::{self, Cursor, Write},
+    io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use amaru_kernel::{Hasher, NetworkName, Point, Slot, cbor, extract_block_header_cbor as _extract_block_header_cbor};
+use amaru_kernel::{
+    HeaderHash, Hasher, NetworkName, Point, Slot, cbor,
+    extract_block_header_cbor as _extract_block_header_cbor,
+};
 pub use amaru_kernel::extract_block_header_cbor;
 use async_trait::async_trait;
 use flate2::{Compression, GzBuilder};
@@ -368,6 +371,126 @@ pub fn chunk_for_slot(slot: Slot) -> u64 {
 
 pub fn from_chunk_for_resume_point(latest_chunk: Option<u64>, resume_point: Point) -> u64 {
     latest_chunk.unwrap_or_else(|| chunk_for_slot(resume_point.slot_or_default()).saturating_sub(1))
+}
+
+/// A block read from the cardano-node immutable store.
+#[derive(Debug)]
+pub struct ImmutableBlock {
+    pub hash: HeaderHash,
+    pub header_cbor: Vec<u8>,
+    pub raw_block: Vec<u8>,
+}
+
+/// Iterator over blocks in sorted immutable chunk order, reading one chunk at a time.
+pub struct ImmutableBlocksIter {
+    chunk_names: std::vec::IntoIter<String>,
+    immutable_dir: PathBuf,
+    current_chunk: std::vec::IntoIter<ImmutableBlock>,
+}
+
+impl Iterator for ImmutableBlocksIter {
+    type Item = Result<ImmutableBlock, Box<dyn std::error::Error>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(block) = self.current_chunk.next() {
+                return Some(Ok(block));
+            }
+            let chunk_name = self.chunk_names.next()?;
+            match read_chunk_blocks(&self.immutable_dir, &chunk_name) {
+                Ok(blocks) => self.current_chunk = blocks.into_iter(),
+                Err(e) => return Some(Err(e)),
+            }
+        }
+    }
+}
+
+/// Iterate over all blocks in the immutable directory in slot order.
+///
+/// Returns an iterator that lazily reads one chunk at a time. Items are either a successfully
+/// parsed [`ImmutableBlock`] or an error.
+pub fn iter_immutable_blocks(immutable_dir: &Path) -> Result<ImmutableBlocksIter, io::Error> {
+    let mut chunk_names: Vec<String> = fs::read_dir(immutable_dir)?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("chunk") {
+                return None;
+            }
+            path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned)
+        })
+        .collect();
+    chunk_names.sort_unstable();
+    Ok(ImmutableBlocksIter {
+        chunk_names: chunk_names.into_iter(),
+        immutable_dir: immutable_dir.to_path_buf(),
+        current_chunk: Vec::new().into_iter(),
+    })
+}
+
+fn read_secondary_offsets(secondary_path: &Path) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
+    const SECONDARY_ENTRY_SIZE: usize = 56;
+
+    let secondary = fs::read(secondary_path)?;
+    if secondary.len() % SECONDARY_ENTRY_SIZE != 0 {
+        return Err(format!(
+            "invalid immutable secondary index size for {}: {} bytes",
+            secondary_path.display(),
+            secondary.len()
+        )
+        .into());
+    }
+
+    let mut offsets = Vec::with_capacity(secondary.len() / SECONDARY_ENTRY_SIZE);
+    for entry in secondary.chunks_exact(SECONDARY_ENTRY_SIZE) {
+        let block_offset = u64::from_be_bytes(entry[0..8].try_into()?);
+        offsets.push(block_offset);
+    }
+
+    Ok(offsets)
+}
+
+fn read_chunk_blocks(
+    immutable_dir: &Path,
+    chunk_name: &str,
+) -> Result<Vec<ImmutableBlock>, Box<dyn std::error::Error>> {
+    let chunk_path = immutable_dir.join(format!("{chunk_name}.chunk"));
+    let secondary_path = immutable_dir.join(format!("{chunk_name}.secondary"));
+
+    let offsets = read_secondary_offsets(&secondary_path)?;
+    if offsets.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut chunk_file = fs::File::open(&chunk_path)?;
+    let chunk_len = chunk_file.metadata()?.len();
+    let mut blocks = Vec::new();
+
+    for (idx, start) in offsets.iter().copied().enumerate() {
+        let end = offsets.get(idx + 1).copied().unwrap_or(chunk_len);
+        if end < start {
+            return Err(format!(
+                "invalid immutable offsets in {} at index {idx}: start={start}, end={end}",
+                secondary_path.display()
+            )
+            .into());
+        }
+        let block_len = end - start;
+        if block_len == 0 {
+            continue;
+        }
+        chunk_file.seek(SeekFrom::Start(start))?;
+        let mut raw_block = vec![0u8; block_len as usize];
+        chunk_file.read_exact(&mut raw_block)?;
+        let Ok(header_cbor_slice) = _extract_block_header_cbor(&raw_block) else {
+            continue;
+        };
+        let hash = Hasher::<256>::hash(header_cbor_slice);
+        let header_cbor = header_cbor_slice.to_vec();
+        blocks.push(ImmutableBlock { hash, header_cbor, raw_block });
+    }
+
+    Ok(blocks)
 }
 
 #[cfg(test)]

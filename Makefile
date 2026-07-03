@@ -88,7 +88,6 @@ publish-bootstrap-snapshots: ## &start Upload and publish the three existing boo
 		exit 1; \
 	fi; \
 	AMARU_NETWORK="$(AMARU_NETWORK)" \
-	AMARU_DIST_DIR="$(AMARU_DIST_DIR)" \
 	AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
 	AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
 	AWS_DEFAULT_REGION="$(AWS_DEFAULT_REGION)" \

@@ -355,6 +355,10 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
             continue;
         }
 
+        if snapshot.url.is_empty() {
+            return Err(BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, snapshot)));
+        }
+
         if snapshot_dir.exists() {
             info!(snapshot = %snapshot_dir.display(), "snapshot directory exists but is not a valid tvar snapshot, removing it");
             fs::remove_dir_all(&snapshot_dir).await?;
