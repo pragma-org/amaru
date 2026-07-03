@@ -18,7 +18,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, AsHash, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
+    Anchor, AsHash, CCMember, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
     ProposalPointer, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Vote,
     Voter, VoterKind,
@@ -29,10 +29,10 @@ use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeError, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice,
-        PreparePoolsSlice, PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        AccountState, AccountsSlice, CommitteeError, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+        PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
+        PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UpdateError, UtxoSlice,
+        ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
 };

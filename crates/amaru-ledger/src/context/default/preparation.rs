@@ -18,17 +18,17 @@ use std::{
 };
 
 use amaru_kernel::{
-    ComparableProposalId, DRep, DRepRegistration, Epoch, GovernanceAction, MemoizedTransactionOutput, PoolId, Proposal,
-    ProposalId, ProposalPointer, RewardAccount, StakeCredential, TermLimit, TransactionInput, drep,
-    parse_reward_account,
+    CCMember, CommitteeAuthorization, ComparableProposalId, DRep, DRepRegistration, Epoch, GovernanceAction,
+    MemoizedTransactionOutput, PoolId, Proposal, ProposalId, ProposalPointer, RewardAccount, StakeCredential,
+    TermLimit, TransactionInput, drep, parse_reward_account,
 };
 use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, CCMember, ContextHydrationError, DefaultValidationContext, PreparationContext,
-        PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
-        PrepareUtxoSlice, UnresolvedInputPolicy,
+        AccountState, ContextHydrationError, DefaultValidationContext, PreparationContext, PrepareAccountsSlice,
+        PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice, PrepareUtxoSlice,
+        UnresolvedInputPolicy,
     },
     governance::ratification::ProposalsRoots,
     state::{
@@ -403,7 +403,7 @@ fn resolve_committee<'a>(
                     from_volatile += 1;
 
                     let member = CCMember {
-                        hot_credential: left.as_borrowed().to_option(None),
+                        authorization: left.as_borrowed().to_option(None).map(CommitteeAuthorization::HotCredential),
                         valid_until: valid_until.unwrap_or_default(),
                     };
 
@@ -417,7 +417,10 @@ fn resolve_committee<'a>(
                         from_db += 1;
 
                         let member = CCMember {
-                            hot_credential: left.as_borrowed().to_option(row.hot_credential.as_ref()),
+                            authorization: left
+                                .as_borrowed()
+                                .to_option(row.hot_credential.as_ref())
+                                .map(CommitteeAuthorization::HotCredential),
                             valid_until: valid_until.unwrap_or(row.valid_until),
                         };
                         cc_members.insert(credential.clone(), member);
@@ -431,7 +434,7 @@ fn resolve_committee<'a>(
                         from_db += 1;
 
                         let member = CCMember {
-                            hot_credential: row.hot_credential,
+                            authorization: row.hot_credential.map(CommitteeAuthorization::HotCredential),
                             valid_until: valid_until.unwrap_or(row.valid_until),
                         };
 

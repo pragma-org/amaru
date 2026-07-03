@@ -15,13 +15,13 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Account, CertificatePointer, ComparableProposalId, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
-    DRep, EraHistory, EraHistoryError, Lovelace, Point, PoolId, ProposalPointer,
+    Account, CCMember, CertificatePointer, CommitteeAuthorization, ComparableProposalId, ConstitutionalCommittee,
+    ConstitutionalCommitteeMemberStatus, DRep, EraHistory, EraHistoryError, Lovelace, Point, PoolId, ProposalPointer,
     ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, StrictMaybe, TransactionPointer,
 };
 
 use crate::{
-    context::{AccountState, CCMember, ProposalState},
+    context::{AccountState, ProposalState},
     governance::ratification::ProposalsRoots,
 };
 
@@ -69,11 +69,8 @@ pub fn committee_members(
     members
         .into_iter()
         .map(|(cold_credential, valid_until)| {
-            let hot_credential = match hot_cold_delegations.get(&cold_credential) {
-                Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot)) => Some(hot.clone()),
-                None | Some(ConstitutionalCommitteeMemberStatus::Resigned(..)) => None,
-            };
-            (cold_credential, CCMember { hot_credential, valid_until: Some(valid_until) })
+            let authorization = hot_cold_delegations.get(&cold_credential).map(CommitteeAuthorization::from);
+            (cold_credential, CCMember { authorization, valid_until: Some(valid_until) })
         })
         .collect()
 }

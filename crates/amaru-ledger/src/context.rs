@@ -19,9 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
+    Anchor, CCMember, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
+    MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
@@ -270,14 +270,6 @@ pub trait PrepareDRepsSlice<'a> {
 
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CCMember {
-    /// The authorized hot credential, if the member has declared one.
-    pub hot_credential: Option<StakeCredential>,
-    /// The term expiry; `None` once the member is inactive (no-confidence).
-    pub valid_until: Option<Epoch>,
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommitteeError {

@@ -15,14 +15,14 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Epoch, EraHistoryProxy, MemoizedTransactionOutput, NetworkName, Proposal, ProposalId, ProtocolParameters,
-    StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    CCMember, CommitteeAuthorization, Epoch, EraHistoryProxy, MemoizedTransactionOutput, NetworkName, Proposal,
+    ProposalId, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
-    context::{CCMember, CommitteeError},
+    context::CommitteeError,
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -84,7 +84,8 @@ where
         .map(|entry| {
             let member = decode(&entry.member)?;
             let hot_credential = entry.hot_credential.as_deref().map(&decode).transpose()?;
-            Ok((member, CCMember { hot_credential, valid_until: entry.valid_until }))
+            let authorization = hot_credential.map(CommitteeAuthorization::HotCredential);
+            Ok((member, CCMember { authorization, valid_until: entry.valid_until }))
         })
         .collect()
 }

@@ -19,18 +19,19 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch,
-    GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    Anchor, Ballot, BallotId, CCMember, CertificatePointer, CommitteeAuthorization, ComparableProposalId, DRep,
+    DRepRegistration, Epoch, GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript,
+    MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript,
+    StakeCredential, TransactionInput, Vote, Voter,
     size::{DATUM, KEY, SCRIPT},
 };
 use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeError, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, ProposalsSlice, RegisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
-        blanket_known_datums, blanket_known_scripts,
+        AccountState, AccountsSlice, CommitteeError, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+        ProposalsSlice, RegisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
+        blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
@@ -314,22 +315,29 @@ impl DRepsSlice for DefaultValidationContext {
 }
 /// FIXME: State Management
 ///
-/// Notably, we are removing in-block resignations. In reality, they should be marked as resigned,
-/// but still in the current elected members, until their term expires. At that point, they are
-/// removed at the epoch boundary.
+/// The in-block view below is resignation-aware: a resignation marks the member resigned but keeps
+/// it in the elected set until its term expires at the epoch boundary. The persisted volatile/store
+/// representation still drops resigned members instead of recording the resignation (see
+/// `into_store_update`); reconciling that is a follow-up.
 impl CommitteeSlice for DefaultValidationContext {
-    /// The block start state (`self.committee`) with this block's hot-key change folded in. No
-    /// in-block cert establishes membership, so a binding only ever layers over an existing member.
+    /// The block start state (`self.committee`) with this block's certificate folded in. No in-block
+    /// cert establishes membership, so a binding only ever layers over an existing member.
     fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember> {
         let base = self.committee.get(cc_member);
 
         match self.state.committee.produced.get(cc_member) {
             Some(hot_credential) => {
                 let base = base?;
-                Some(CCMember { hot_credential: Some(hot_credential.clone()), valid_until: base.valid_until })
+                Some(CCMember {
+                    authorization: Some(CommitteeAuthorization::HotCredential(hot_credential.clone())),
+                    valid_until: base.valid_until,
+                })
             }
-            // resigned in-block; gone
-            None if self.state.committee.consumed.contains(cc_member) => None,
+            // resigned in-block; still an elected member until its term expires at the epoch boundary
+            None if self.state.committee.consumed.contains(cc_member) => Some(CCMember {
+                authorization: Some(CommitteeAuthorization::Resigned(None)),
+                valid_until: base?.valid_until,
+            }),
             // untouched in-block; the block-start state
             None => base.cloned(),
         }
@@ -346,7 +354,11 @@ impl CommitteeSlice for DefaultValidationContext {
             delegate = format!("{delegate:?}")
         );
         let _guard = _span.enter();
-        if CommitteeSlice::lookup(self, &cc_member).is_none() && !self.pending_committee.contains_key(&cc_member) {
+        let member = CommitteeSlice::lookup(self, &cc_member);
+        if member.as_ref().is_some_and(CCMember::has_resigned) {
+            return Err(CommitteeError::AlreadyResigned(cc_member));
+        }
+        if member.is_none() && !self.pending_committee.contains_key(&cc_member) {
             return Err(CommitteeError::Unknown(cc_member));
         }
 
@@ -364,7 +376,11 @@ impl CommitteeSlice for DefaultValidationContext {
         }
         let _guard = _span.enter();
 
-        if CommitteeSlice::lookup(self, &cc_member).is_none() && !self.pending_committee.contains_key(&cc_member) {
+        let member = CommitteeSlice::lookup(self, &cc_member);
+        if member.as_ref().is_some_and(CCMember::has_resigned) {
+            return Err(CommitteeError::AlreadyResigned(cc_member));
+        }
+        if member.is_none() && !self.pending_committee.contains_key(&cc_member) {
             return Err(CommitteeError::Unknown(cc_member));
         }
 
@@ -525,7 +541,10 @@ mod tests {
     }
 
     fn cc_member(hot: Option<u8>) -> CCMember {
-        CCMember { hot_credential: hot.map(cred), valid_until: Some(Epoch::from(10)) }
+        CCMember {
+            authorization: hot.map(|h| CommitteeAuthorization::HotCredential(cred(h))),
+            valid_until: Some(Epoch::from(10)),
+        }
     }
 
     fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
@@ -551,13 +570,14 @@ mod tests {
     fn committee_lookup_folds_in_an_in_block_hot_key_auth() {
         let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
         ctx.delegate_cold_key(cred(1), cred(2)).unwrap();
-        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)).and_then(|m| m.hot_credential), Some(cred(2)));
+        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)).and_then(|m| m.hot_key().cloned()), Some(cred(2)));
     }
 
     #[test]
-    fn committee_lookup_is_none_after_an_in_block_resignation() {
+    fn committee_lookup_marks_an_in_block_resignation_as_resigned() {
         let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
         ctx.resign(cred(1), None).unwrap();
-        assert!(CommitteeSlice::lookup(&ctx, &cred(1)).is_none());
+        let member = CommitteeSlice::lookup(&ctx, &cred(1)).expect("resigned member stays elected");
+        assert!(member.has_resigned());
     }
 }
