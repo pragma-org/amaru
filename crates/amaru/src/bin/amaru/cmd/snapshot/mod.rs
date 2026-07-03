@@ -15,9 +15,13 @@
 use clap::Subcommand;
 
 pub(crate) mod create;
+pub(crate) mod publish;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SnapshotCommand {
     /// Create the three consecutive epoch snapshots needed for bootstrap.
     Create(create::Args),
+
+    /// Upload bootstrap snapshots to S3 and update the embedded manifest with their URLs.
+    Publish(publish::Args),
 }

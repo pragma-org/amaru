@@ -172,13 +172,13 @@ struct EpochTarget {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ManifestEntry {
-    epoch: Epoch,
-    point: String,
+pub(super) struct ManifestEntry {
+    pub(super) epoch: Epoch,
+    pub(super) point: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    parent_point: Option<String>,
+    pub(super) parent_point: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
+    pub(super) url: Option<String>,
 }
 
 impl EpochTarget {
@@ -213,7 +213,7 @@ fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
     repo_root().join(default_snapshots_dir(network))
 }
 
-fn manifest_path(network: NetworkName) -> PathBuf {
+pub(super) fn manifest_path(network: NetworkName) -> PathBuf {
     repo_root().join(bootstrap_config_dir(network)).join("snapshots.json")
 }
 

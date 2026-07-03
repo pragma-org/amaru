@@ -82,18 +82,9 @@ create-snapshots: ## &start Create a three-epoch bootstrap snapshots (set BOOTST
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) create-snapshots $(if $(BOOTSTRAP_TARGET_EPOCH),--epoch $(BOOTSTRAP_TARGET_EPOCH),) $(ARGS)
 
 publish-bootstrap-snapshots: ## &start Upload and publish the three existing bootstrap snapshots starting at $BOOTSTRAP_SNAPSHOT_EPOCH
-	@set -euo pipefail; \
-	if [ -z "$(BOOTSTRAP_SNAPSHOT_EPOCH)" ]; then \
-		echo "BOOTSTRAP_SNAPSHOT_EPOCH must be set" >&2; \
-		exit 1; \
-	fi; \
-	AMARU_NETWORK="$(AMARU_NETWORK)" \
-	AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
-	AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
-	AWS_DEFAULT_REGION="$(AWS_DEFAULT_REGION)" \
-	BUCKET_NAME="$(BUCKET_NAME)" \
-	ENDPOINT="$(ENDPOINT)" \
-	bash ./scripts/publish-bootstrap-snapshots "$(BOOTSTRAP_SNAPSHOT_EPOCH)"
+	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) snapshot publish \
+		$(if $(BOOTSTRAP_SNAPSHOT_EPOCH),--epoch $(BOOTSTRAP_SNAPSHOT_EPOCH),) \
+		$(ARGS)
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
