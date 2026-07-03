@@ -63,32 +63,27 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let start_epoch = match epoch {
         Some(e) => e,
-        None => {
-            entries
-                .iter()
-                .filter(|e| e.url.as_deref().unwrap_or("").is_empty())
-                .map(|e| u64::from(e.epoch))
-                .max()
-                .ok_or("no unpublished epochs found in manifest; run create-snapshots first")?
-        }
+        None => entries
+            .iter()
+            .filter(|e| e.url.as_deref().unwrap_or("").is_empty())
+            .map(|e| u64::from(e.epoch))
+            .max()
+            .ok_or("no unpublished epochs found in manifest; run create-bootstrap-snapshots first")?,
     };
 
     let target_epochs = [start_epoch, start_epoch + 1, start_epoch + 2];
 
     let public_base = match public_url_base {
         Some(base) => base.trim_end_matches('/').to_owned(),
-        None => {
-            entries
-                .iter()
-                .find_map(|e| {
-                    e.url.as_deref().filter(|url| !url.is_empty()).and_then(|url| {
-                        url.rsplit_once('/').map(|(base, _)| base.to_owned())
-                    })
-                })
-                .ok_or(
-                    "cannot infer public URL base: no existing URLs in manifest. Pass --public-url-base explicitly.",
-                )?
-        }
+        None => entries
+            .iter()
+            .find_map(|e| {
+                e.url
+                    .as_deref()
+                    .filter(|url| !url.is_empty())
+                    .and_then(|url| url.rsplit_once('/').map(|(base, _)| base.to_owned()))
+            })
+            .ok_or("cannot infer public URL base: no existing URLs in manifest. Pass --public-url-base explicitly.")?,
     };
 
     info!(%network, start_epoch, public_base, "publishing bootstrap snapshots");
@@ -96,21 +91,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     for target_epoch in target_epochs {
-        let entry = entries
-            .iter()
-            .find(|e| u64::from(e.epoch) == target_epoch)
-            .ok_or_else(|| format!("epoch {target_epoch} not found in manifest; run create-snapshots first"))?;
+        let entry = entries.iter().find(|e| u64::from(e.epoch) == target_epoch).ok_or_else(|| {
+            format!("epoch {target_epoch} not found in manifest; run create-bootstrap-snapshots first")
+        })?;
 
         let archive_name = format!("{}.tar.gz", entry.point);
         let archive_path = snapshot_root.join(&archive_name);
         let object_url = format!("{}/{}", public_base, archive_name);
 
         if !archive_path.is_file() {
-            return Err(format!(
-                "archive {} not found; run create-snapshots first",
-                archive_path.display()
-            )
-            .into());
+            return Err(
+                format!("archive {} not found; run create-bootstrap-snapshots first", archive_path.display()).into()
+            );
         }
 
         if is_reachable(&client, &object_url).await {
@@ -144,12 +136,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn is_reachable(client: &reqwest::Client, url: &str) -> bool {
-    client
-        .head(url)
-        .send()
-        .await
-        .map(|r| r.status().is_success() || r.status().as_u16() == 206)
-        .unwrap_or(false)
+    client.head(url).send().await.map(|r| r.status().is_success() || r.status().as_u16() == 206).unwrap_or(false)
 }
 
 fn upload_to_s3(

@@ -164,11 +164,24 @@ fn format_epoch_list(epochs: &[Epoch]) -> String {
     epochs.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
-fn select_bootstrap_snapshots(
-    snapshots: &[Snapshot],
+fn select_bootstrap_snapshots<'a>(
+    snapshots: &'a [Snapshot],
+    snapshots_dir: &Path,
     target_epoch: Option<Epoch>,
-) -> Result<[&Snapshot; 3], Box<dyn Error>> {
-    let snapshots_by_epoch = snapshots.iter().map(|snapshot| (snapshot.epoch, snapshot)).collect::<BTreeMap<_, _>>();
+) -> Result<[&'a Snapshot; 3], Box<dyn Error>> {
+    // When auto-selecting (no explicit epoch), only consider snapshots that are available:
+    // either published (have a URL) or already present locally on disk.
+    let candidate_snapshots: Vec<&Snapshot> = if target_epoch.is_none() {
+        snapshots
+            .iter()
+            .filter(|s| !s.url.is_empty() || resolve_snapshot_path(snapshots_dir, s).is_some())
+            .collect()
+    } else {
+        snapshots.iter().collect()
+    };
+
+    let snapshots_by_epoch: BTreeMap<Epoch, &Snapshot> =
+        candidate_snapshots.into_iter().map(|s| (s.epoch, s)).collect();
     let latest_epoch = snapshots_by_epoch.keys().next_back().copied().ok_or(BootstrapError::NoBootstrapSnapshots)?;
     let first_epoch = target_epoch
         .map(|target| {
@@ -185,8 +198,7 @@ fn select_bootstrap_snapshots(
             Ok([first_snapshot, second_snapshot, third_snapshot])
         }
         _ => {
-            let available_epochs = snapshots_by_epoch.keys().copied().collect::<Vec<_>>();
-            let available_epochs = format_epoch_list(&available_epochs);
+            let available_epochs = format_epoch_list(&snapshots_by_epoch.keys().copied().collect::<Vec<_>>());
             let required_epochs = format_epoch_list(&required_epochs);
 
             match target_epoch {
@@ -232,7 +244,7 @@ fn default_bootstrap_nonces_from_snapshots(
     snapshots: &[Snapshot],
     global_parameters: &GlobalParameters,
 ) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
-    let [_, second_snapshot, third_snapshot] = select_bootstrap_snapshots(snapshots, None)?;
+    let [_, second_snapshot, third_snapshot] = select_bootstrap_snapshots(snapshots, snapshots_dir, None)?;
     let third_snapshot_path = resolve_snapshot_path(snapshots_dir, third_snapshot).ok_or_else(|| {
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, third_snapshot))
     })?;
@@ -263,8 +275,8 @@ fn bootstrap_parent_points(snapshots: [&Snapshot; 3]) -> Result<Vec<Point>, Box<
 }
 
 pub fn default_bootstrap_parent_points(network: NetworkName) -> Result<Vec<Point>, Box<dyn Error>> {
-    let (_, snapshots) = bootstrap_snapshots(network)?;
-    bootstrap_parent_points(select_bootstrap_snapshots(&snapshots, None)?)
+    let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
+    bootstrap_parent_points(select_bootstrap_snapshots(&snapshots, &snapshots_dir, None)?)
 }
 
 pub async fn fetch_headers_from_points(
@@ -519,7 +531,7 @@ pub async fn bootstrap(
     target_epoch: Option<Epoch>,
 ) -> Result<(), Box<dyn Error>> {
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
-    let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, target_epoch)?;
+    let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, &snapshots_dir, target_epoch)?;
 
     download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir).await?;
 
@@ -1074,7 +1086,8 @@ mod tests {
             },
         ];
 
-        let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, None).unwrap();
+        let [first_snapshot, second_snapshot, third_snapshot] =
+            select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), None).unwrap();
 
         assert_eq!(first_snapshot.epoch, Epoch::from(163_u64));
         assert_eq!(second_snapshot.epoch, Epoch::from(164_u64));
@@ -1117,7 +1130,7 @@ mod tests {
         ];
 
         let [first_snapshot, second_snapshot, third_snapshot] =
-            select_bootstrap_snapshots(&snapshots, Some(Epoch::from(167_u64))).unwrap();
+            select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), Some(Epoch::from(167_u64))).unwrap();
 
         assert_eq!(first_snapshot.epoch, Epoch::from(164_u64));
         assert_eq!(second_snapshot.epoch, Epoch::from(165_u64));
@@ -1143,7 +1156,7 @@ mod tests {
             },
         ];
 
-        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(166_u64))).unwrap_err();
+        let err = select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), Some(Epoch::from(166_u64))).unwrap_err();
         let err = err.to_string();
 
         assert!(err.contains("target epoch 166"));
@@ -1159,7 +1172,7 @@ mod tests {
             url: "https://example.com/1.tar.gz".to_string(),
             parent_point: None,
         }];
-        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(2_u64))).unwrap_err();
+        let err = select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), Some(Epoch::from(2_u64))).unwrap_err();
         assert!(dbg!(err.to_string()).contains("target epoch is too young"));
     }
 

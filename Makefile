@@ -1,8 +1,6 @@
 export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 AWS_DEFAULT_REGION ?= auto
-BOOTSTRAP_TARGET_EPOCH ?=
-BOOTSTRAP_SNAPSHOT_EPOCH ?=
 BUCKET_NAME ?=
 ENDPOINT ?=
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
@@ -57,7 +55,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix
+.PHONY: help bootstrap create-bootstrap-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -78,12 +76,11 @@ help:
 bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
 
-create-snapshots: ## &start Create a three-epoch bootstrap snapshots (set BOOTSTRAP_TARGET_EPOCH to override auto epoch)
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) create-snapshots $(if $(BOOTSTRAP_TARGET_EPOCH),--epoch $(BOOTSTRAP_TARGET_EPOCH),) $(ARGS)
+create-bootstrap-snapshots: ## &start Create a three-epoch bootstrap snapshots (set AMARU_EPOCH=<E+1> to target epoch E, e.g. AMARU_EPOCH=273 for epochs 270-272)
+	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) snapshot create $(ARGS)
 
-publish-bootstrap-snapshots: ## &start Upload and publish the three existing bootstrap snapshots starting at $BOOTSTRAP_SNAPSHOT_EPOCH
+publish-bootstrap-snapshots: ## &start Upload and publish required snapshots files to bootstrap at $AMARU_EPOCH
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) snapshot publish \
-		$(if $(BOOTSTRAP_SNAPSHOT_EPOCH),--epoch $(BOOTSTRAP_SNAPSHOT_EPOCH),) \
 		$(ARGS)
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK

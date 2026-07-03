@@ -21,11 +21,10 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{
-    HeaderHash, Hasher, NetworkName, Point, Slot, cbor,
-    extract_block_header_cbor as _extract_block_header_cbor,
-};
 pub use amaru_kernel::extract_block_header_cbor;
+use amaru_kernel::{
+    Hasher, HeaderHash, NetworkName, Point, Slot, cbor, extract_block_header_cbor as _extract_block_header_cbor,
+};
 use async_trait::async_trait;
 use flate2::{Compression, GzBuilder};
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
