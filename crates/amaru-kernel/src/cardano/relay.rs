@@ -15,8 +15,62 @@
 use std::{fmt::Write, net::Ipv6Addr};
 
 pub use pallas_primitives::conway::Relay;
+use serde::ser::SerializeStruct;
 
 use crate::Nullable;
+
+#[derive(serde::Serialize)]
+#[serde(transparent)]
+pub struct AsJson<'a>(#[serde(serialize_with = "serialize")] pub &'a Relay);
+
+pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S::Ok, S::Error> {
+    match relay {
+        Relay::SingleHostAddr(port, ipv4, ipv6) => {
+            let mut s = serializer.serialize_struct("Relay::SingleHostAddr", 4)?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
+            if let Nullable::Some(ipv4) = ipv4 {
+                s.serialize_field("ipv4", &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]))?;
+            }
+            if let Nullable::Some(ipv6) = ipv6 {
+                let bytes: [u8; 16] = [
+                    ipv6[3], ipv6[2], ipv6[1], ipv6[0], // 1st fragment
+                    ipv6[7], ipv6[6], ipv6[5], ipv6[4], // 2nd fragment
+                    ipv6[11], ipv6[10], ipv6[9], ipv6[8], // 3rd fragment
+                    ipv6[15], ipv6[14], ipv6[13], ipv6[12], // 4th fragment
+                ];
+                s.serialize_field("ipv6", &format!("{}", std::net::Ipv6Addr::from(bytes)))?;
+            }
+            if let Nullable::Some(port) = port {
+                s.serialize_field("port", port)?;
+            }
+            s.serialize_field("type", "ip_address")?;
+            s.end()
+        }
+        Relay::SingleHostName(port, hostname) => {
+            let mut s = serializer.serialize_struct("Relay::SingleHostName", 3)?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
+            s.serialize_field("hostname", hostname)?;
+            if let Nullable::Some(port) = port {
+                s.serialize_field("port", port)?;
+            }
+            s.serialize_field("type", "hostname")?;
+            s.end()
+        }
+        Relay::MultiHostName(hostname) => {
+            let mut s = serializer.serialize_struct("Relay::MultiHostName", 2)?;
+            // NOTE: keep fields in lexicographic order
+            //
+            // This instance is used for canonical ledger state comparisons.
+            s.serialize_field("hostname", hostname)?;
+            s.serialize_field("type", "hostname")?;
+            s.end()
+        }
+    }
+}
 
 pub fn fmt(relays: &[Relay]) -> String {
     let mut out = String::new();

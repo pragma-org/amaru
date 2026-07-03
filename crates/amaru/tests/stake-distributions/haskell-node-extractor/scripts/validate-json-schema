@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+
+# Copyright 2026 PRAGMA
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+try:
+    import jsonschema
+except ModuleNotFoundError:
+    print(
+        "Error: missing Python dependency 'jsonschema'. Run `uv sync` or invoke this script with `uv run`.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+
+EXTRACTOR_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_SCHEMA_DIR = EXTRACTOR_ROOT / "schemas"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Validate JSON read from stdin against a JSON Schema.",
+    )
+    parser.add_argument(
+        "--schema",
+        required=True,
+        help="Schema path, or schema name relative to the extractor's ./schemas directory (with or without .json).",
+    )
+    return parser.parse_args()
+
+
+def resolve_schema_path(schema_arg: str) -> Path:
+    candidates = [
+        Path(schema_arg),
+        EXTRACTOR_ROOT / schema_arg,
+        DEFAULT_SCHEMA_DIR / schema_arg,
+    ]
+
+    if not schema_arg.endswith(".json"):
+        candidates.extend(
+            [
+                EXTRACTOR_ROOT / f"{schema_arg}.json",
+                DEFAULT_SCHEMA_DIR / f"{schema_arg}.json",
+            ]
+        )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+
+    raise FileNotFoundError(f"could not find schema: {schema_arg}")
+
+
+def format_error_path(error) -> str:
+    path = "$"
+    for segment in error.absolute_path:
+        if isinstance(segment, int):
+            path += f"[{segment}]"
+        else:
+            path += f"[{json.dumps(segment)}]"
+    return path
+
+
+def main() -> int:
+    args = parse_args()
+
+    try:
+        schema_path = resolve_schema_path(args.schema)
+        schema = json.loads(schema_path.read_text())
+        value = json.load(sys.stdin)
+    except FileNotFoundError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as err:
+        print(f"Error: invalid JSON - {err}", file=sys.stderr)
+        return 2
+
+    try:
+        validator_class = jsonschema.validators.validator_for(schema)
+        validator_class.check_schema(schema)
+        validator = validator_class(schema)
+    except jsonschema.exceptions.SchemaError as err:
+        print(f"Error: invalid JSON Schema - {err.message}", file=sys.stderr)
+        return 2
+
+    errors = sorted(validator.iter_errors(value), key=lambda error: (list(error.absolute_path), error.message))
+    if errors:
+        for error in errors:
+            print(f"{format_error_path(error)}: {error.message}", file=sys.stderr)
+        return 1
+
+    title = schema.get("title")
+    if isinstance(title, str) and title:
+        print(f"✅ valid {title}")
+    else:
+        print("✅ valid JSON according to schema")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

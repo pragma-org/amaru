@@ -13,8 +13,30 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::PoolMetadata;
+use serde::ser::SerializeStruct;
 
 use crate::Nullable;
+
+#[derive(serde::Serialize)]
+#[serde(transparent)]
+pub struct AsJson<'a>(#[serde(serialize_with = "serialize")] pub &'a PoolMetadata);
+
+pub fn serialize<S: serde::Serializer>(metadata: &PoolMetadata, serializer: S) -> Result<S::Ok, S::Error> {
+    let mut s = serializer.serialize_struct("PoolMetadata", 2)?;
+    // NOTE: keep fields in lexicographic order
+    //
+    // This instance is used for canonical ledger state comparisons.
+    s.serialize_field("content_hash", &metadata.hash)?;
+    s.serialize_field("url", &metadata.url)?;
+    s.end()
+}
+
+pub fn as_option_ref(metadata: &Nullable<PoolMetadata>) -> Option<&PoolMetadata> {
+    match metadata {
+        Nullable::Null | Nullable::Undefined => None,
+        Nullable::Some(metadata) => Some(metadata),
+    }
+}
 
 pub fn fmt(metadata: &Nullable<PoolMetadata>) -> String {
     match metadata {

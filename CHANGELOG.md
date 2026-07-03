@@ -39,7 +39,9 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported ([#1000][])
+- **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported. ([#1000][])
+
+- **amaru**: more robust procedure and tooling to produce stake-distribution epoch snapshots for conformance testing and comparison with the haskell node. ([#985][])
 
 ## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
@@ -109,5 +111,6 @@ Other guiding principles:
 [#975]: https://github.com/pragma-org/amaru/pull/975
 [#981]: https://github.com/pragma-org/amaru/pull/981
 [#983]: https://github.com/pragma-org/amaru/pull/983
+[#985]: https://github.com/pragma-org/amaru/pull/985
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#1000]: https://github.com/pragma-org/amaru/pull/1000

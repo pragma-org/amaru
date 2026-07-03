@@ -1,0 +1,4 @@
+dist-newstyle
+/data
+.venv
+.uv-cache

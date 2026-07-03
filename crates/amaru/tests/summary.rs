@@ -14,18 +14,22 @@
 
 use std::{
     collections::BTreeMap,
+    fs::File,
+    io::Read,
     path::PathBuf,
     sync::{Arc, LazyLock, Mutex},
 };
 
-use amaru::default_snapshots_dir;
 use amaru_kernel::{Epoch, NetworkName};
 use amaru_ledger::{
-    store::{ReadStore, Snapshot},
-    summary::{governance::GovernanceSummary, rewards::RewardsSummary, stake_distribution::StakeDistribution},
+    store::Snapshot,
+    summary::{governance::GovernanceSummary, stake_distribution::StakeDistribution},
 };
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
-use test_case::test_case;
+use anyhow::anyhow;
+use xz::read::XzDecoder;
+
+const DEFAULT_AMARU_MAX_DIFFS: usize = 10;
 
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
@@ -42,7 +46,7 @@ fn default_ledger_dir(network: NetworkName) -> String {
 ///
 /// The following API ensures that this is handled properly, by creating connections only once and
 /// sharing them safely between threads.
-fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
+fn load_snapshot(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     let mut connections = CONNECTIONS.lock().unwrap();
 
     let handle = connections
@@ -63,53 +67,76 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-include!(concat!("snapshots/", env!("AMARU_NETWORK"), "/generated_compare_snapshot_test_cases.incl"));
+fn compare_stake_distribution_with_haskell_node(
+    network: NetworkName,
+    epoch: Epoch,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let snapshot = load_snapshot(network, epoch);
 
-#[expect(clippy::panic)]
-#[expect(clippy::expect_used)]
-#[expect(clippy::unwrap_used)]
-fn compare_snapshot(epoch: Epoch) {
-    let network: NetworkName =
-        env!("AMARU_NETWORK").to_string().parse().expect("$AMARU_NETWORK must be set to a valid network name");
+    let era_history = network.as_era_history().ok_or("no era history for network={network:?}?!")?;
 
-    let snapshot = db(network, epoch);
+    let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history)?;
 
-    let global_parameters = network
-        .as_global_parameters()
-        .unwrap_or_else(|| panic!("missing default GlobalParameters for network: {network}"));
+    let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps)?;
 
-    let era_history =
-        network.as_era_history().unwrap_or_else(|| panic!("missing default EraHistory for network: {network}"));
-
-    let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history).unwrap();
-
-    let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps).unwrap();
-
-    insta::with_settings!({
-        snapshot_path => format!("snapshots/{}", network)
-    }, {
-        insta::assert_json_snapshot!(
-            format!("stake_distribution_{}", epoch),
-            stake_distr.for_network(network.into()),
-        );
-    });
-
-    let snapshot_from_the_future = db(network, epoch + 2);
-
-    let protocol_parameters = snapshot_from_the_future.as_ref().protocol_parameters().unwrap();
-
-    let rewards_summary =
-        RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr, global_parameters, &protocol_parameters)
-            .unwrap()
-            .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
-            .unwrap();
-
-    insta::with_settings!({
-        snapshot_path => default_snapshots_dir(network)
-    }, {
-        insta::assert_json_snapshot!(
-        format!("rewards_summary_{}", epoch),
-        rewards_summary
-        );
-    });
+    assert_json_snapshot(network, epoch, &stake_distr)
 }
+
+fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, Box<dyn std::error::Error>> {
+    let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("stake-distributions")
+        .join(network.to_string())
+        .join(format!("epoch_{epoch}.json"));
+
+    if base_path.is_file() {
+        return Ok(std::fs::read_to_string(base_path)?);
+    }
+
+    let compressed_path = base_path.with_extension("json.xz");
+    if !compressed_path.is_file() {
+        return Err(format!(
+            "missing stake distribution snapshot: expected {} or {}",
+            base_path.display(),
+            compressed_path.display()
+        )
+        .into());
+    }
+
+    let mut decompressed = String::new();
+    XzDecoder::new(File::open(compressed_path)?).read_to_string(&mut decompressed)?;
+    Ok(decompressed)
+}
+
+#[allow(clippy::panic)]
+fn assert_json_snapshot<T: serde::Serialize>(
+    network: NetworkName,
+    epoch: Epoch,
+    actual: &T,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let diffs = diff_json::compare_json(
+        read_expected_snapshot(network, epoch)?.as_str(),
+        serde_json::to_string_pretty(actual)?.as_str(),
+    )?;
+
+    let n: usize = std::env::var("AMARU_MAX_DIFFS")
+        .map(|var| {
+            var.parse::<usize>()
+                .map_err(|e| anyhow!(e).context("invalid value for 'AMARU_MAX_DIFFS', must be a non-negative integer"))
+        })
+        .unwrap_or(Ok(DEFAULT_AMARU_MAX_DIFFS))?
+        .min(diffs.len());
+
+    if !diffs.is_empty() {
+        let formatter = diff_json::DiffFormatter::new();
+        panic!(
+            "{}{}",
+            formatter.format_compact(&diffs[0..n]),
+            if diffs.len() > n { format!("...plus {} more difference(s)", diffs.len() - n) } else { String::new() }
+        );
+    }
+
+    Ok(())
+}
+
+include!(concat!(env!("OUT_DIR"), "/stake_distribution_test_cases.rs"));
