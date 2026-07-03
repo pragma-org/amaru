@@ -115,7 +115,7 @@ pub use cardano::{
     protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
     protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion},
     rational_number::{self, RationalNumber},
-    raw_block::RawBlock,
+    raw_block::{RawBlock, extract_block_header_cbor},
     redeemer::Redeemer,
     redeemer_key::RedeemerKey,
     redeemer_tag::{RedeemerTag, redeemer_tag_to_string},

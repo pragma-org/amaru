@@ -21,7 +21,8 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{Hasher, NetworkName, Point, Slot, cbor};
+use amaru_kernel::{Hasher, NetworkName, Point, Slot, cbor, extract_block_header_cbor as _extract_block_header_cbor};
+pub use amaru_kernel::extract_block_header_cbor;
 use async_trait::async_trait;
 use flate2::{Compression, GzBuilder};
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
@@ -196,24 +197,8 @@ pub struct ParsedHeader {
     pub header_hash: [u8; 32],
 }
 
-fn extract_raw_cbor_value<'a>(dec: &mut cbor::Decoder<'a>, input: &'a [u8]) -> Result<&'a [u8], cbor::decode::Error> {
-    let start = dec.position();
-    dec.skip()?;
-    let end = dec.position();
-    Ok(&input[start..end])
-}
-
-pub fn extract_block_header_cbor(input: &[u8]) -> Result<&[u8], cbor::decode::Error> {
-    let mut dec: cbor::Decoder<'_> = cbor::Decoder::new(input);
-
-    dec.array()?;
-    dec.u8()?;
-    dec.array()?;
-    extract_raw_cbor_value(&mut dec, input)
-}
-
 pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, cbor::decode::Error> {
-    let header_body_cbor = extract_block_header_cbor(input)?;
+    let header_body_cbor = _extract_block_header_cbor(input)?;
 
     let header_hash = *Hasher::<256>::hash(header_body_cbor);
     let mut body = cbor::Decoder::new(header_body_cbor);

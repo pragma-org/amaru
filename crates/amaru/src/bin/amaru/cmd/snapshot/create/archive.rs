@@ -17,8 +17,6 @@ use std::{
     io::{self, Cursor},
     path::{Path, PathBuf},
 };
-
-use amaru_kernel::Epoch;
 use flate2::{Compression, GzBuilder};
 use tar::{Builder, Header};
 
@@ -38,19 +36,6 @@ pub(super) fn existing_snapshot_paths(snapshot_root: &Path, targets: &[EpochTarg
 
 pub(super) fn existing_archive_paths(snapshot_root: &Path, targets: &[EpochTarget]) -> Vec<PathBuf> {
     targets.iter().map(|target| archive_path_for_target(snapshot_root, target)).filter(|path| path.is_file()).collect()
-}
-
-fn metadata_path_for_epoch(metadata_dir: &Path, epoch: Epoch) -> PathBuf {
-    metadata_dir.join(format!("{epoch}.json"))
-}
-
-pub(super) fn write_epoch_metadata(
-    metadata_dir: &Path,
-    target: &EpochTarget,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let path = metadata_path_for_epoch(metadata_dir, target.epoch);
-    fs::write(path, serde_json::to_vec_pretty(target)?)?;
-    Ok(())
 }
 
 pub(super) fn materialize_snapshot(
@@ -79,8 +64,8 @@ pub(super) fn write_snapshot_archive(
     archive_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let tmp_path = archive_path.with_extension("tmp");
-    let bytes = build_snapshot_archive_bytes(snapshot_dir)?;
-    fs::write(&tmp_path, bytes)?;
+    let file = fs::File::create(&tmp_path)?;
+    build_snapshot_archive(snapshot_dir, io::BufWriter::new(file))?;
     fs::rename(tmp_path, archive_path)?;
     Ok(())
 }
@@ -93,14 +78,14 @@ fn temporary_snapshot_path(snapshot_path: &Path) -> Result<PathBuf, Box<dyn std:
     Ok(snapshot_path.with_file_name(format!(".{name}.partial")))
 }
 
-fn build_snapshot_archive_bytes(snapshot_dir: &Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+fn build_snapshot_archive<W: io::Write>(snapshot_dir: &Path, writer: W) -> Result<(), Box<dyn std::error::Error>> {
     let root_name = snapshot_dir
         .file_name()
         .ok_or_else(|| format!("snapshot directory has no final path segment: {}", snapshot_dir.display()))?
         .to_string_lossy()
         .into_owned();
 
-    let encoder = GzBuilder::new().mtime(0).write(Vec::new(), Compression::default());
+    let encoder = GzBuilder::new().mtime(0).write(writer, Compression::default());
     let mut tar = Builder::new(encoder);
 
     append_directory_entry(&mut tar, Path::new(&root_name))?;
@@ -122,60 +107,60 @@ fn build_snapshot_archive_bytes(snapshot_dir: &Path) -> Result<Vec<u8>, Box<dyn 
         }
     }
 
-    let encoder = tar.into_inner()?;
-    Ok(encoder.finish()?)
+    tar.into_inner()?.finish()?.flush()?;
+    Ok(())
+}
+
+fn walk_directory<F>(root: &Path, mut f: F) -> Result<(), io::Error>
+where
+    F: FnMut(&Path, &fs::FileType) -> io::Result<()>,
+{
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                pending.push(path.clone());
+            }
+            f(&path, &file_type)?;
+        }
+    }
+    Ok(())
 }
 
 fn collect_directory_entries(root: &Path) -> Result<Vec<PathBuf>, io::Error> {
     let mut entries = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
-
-    while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                pending.push(path.clone());
-            }
-            entries.push(path);
-        }
-    }
-
+    walk_directory(root, |path, _| {
+        entries.push(path.to_path_buf());
+        Ok(())
+    })?;
     Ok(entries)
 }
 
 fn copy_snapshot_contents(source: &Path, target: &Path) -> Result<(), io::Error> {
-    let mut pending = vec![source.to_path_buf()];
+    walk_directory(source, |path, file_type| {
+        let relative = path
+            .strip_prefix(source)
+            .map_err(|err| io::Error::other(format!("invalid snapshot path prefix: {err}")))?;
+        let target_path = if file_type.is_file() && relative == Path::new("tables") {
+            target.join("tables").join("tvar")
+        } else {
+            target.join(relative)
+        };
 
-    while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            let relative = path
-                .strip_prefix(source)
-                .map_err(|err| io::Error::other(format!("invalid snapshot path prefix: {err}")))?;
-            let file_type = entry.file_type()?;
-            let target_path = if file_type.is_file() && relative == Path::new("tables") {
-                target.join("tables").join("tvar")
-            } else {
-                target.join(relative)
-            };
-
-            if file_type.is_dir() {
-                fs::create_dir_all(&target_path)?;
-                pending.push(path);
-            } else if file_type.is_file() {
-                if let Some(parent) = target_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::copy(&path, &target_path)?;
-            } else {
-                return Err(io::Error::other(format!("unsupported snapshot entry {}", path.display())));
+        if file_type.is_dir() {
+            fs::create_dir_all(&target_path)
+        } else if file_type.is_file() {
+            if let Some(parent) = target_path.parent() {
+                fs::create_dir_all(parent)?;
             }
+            fs::copy(path, &target_path).map(|_| ())
+        } else {
+            Err(io::Error::other(format!("unsupported snapshot entry {}", path.display())))
         }
-    }
-
-    Ok(())
+    })
 }
 
 fn append_directory_entry<W: io::Write>(tar: &mut Builder<W>, archive_path: &Path) -> io::Result<()> {

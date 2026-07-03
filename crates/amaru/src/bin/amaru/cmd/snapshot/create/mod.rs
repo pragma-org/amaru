@@ -39,13 +39,14 @@ mod koios;
 
 use archive::{
     archive_path_for_target, existing_archive_paths, existing_snapshot_paths, materialize_snapshot,
-    snapshot_path_for_target, write_epoch_metadata, write_snapshot_archive,
+    snapshot_path_for_target, write_snapshot_archive,
 };
 use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
 
 const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
+const PACKAGED_BLOCKS_FILE_NAME: &str = "bootstrap.blocks.json";
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -172,10 +173,14 @@ struct EpochTarget {
     hash: HeaderHash,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "header_parent")]
     parent_point: Option<Point>,
-    #[serde(default)]
-    archive_path: Option<String>,
-    #[serde(default)]
-    snapshot_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManifestEntry {
+    epoch: Epoch,
+    point: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent_point: Option<String>,
 }
 
 impl EpochTarget {
@@ -197,8 +202,6 @@ impl EpochTarget {
                 slot: snapshot.point.slot_or_default(),
                 hash: snapshot.point.hash(),
                 parent_point: Some(snapshot.parent_point),
-                archive_path: None,
-                snapshot_path: None,
             })
             .collect())
     }
@@ -226,14 +229,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let client = reqwest::Client::new();
     let dist_dir = dist_dir.unwrap_or_else(|| default_dist_dir(network));
-    let metadata_dir = dist_dir.join("epochs");
     let snapshot_output_dir = snapshot_dir.unwrap_or_else(|| default_snapshot_output_dir(network));
     let work_dir = dist_dir.join("work");
     let cardano_node_db = cardano_node_db.unwrap_or_else(|| work_dir.join("cardano-db"));
     let ledger_snapshot_dir = cardano_node_db.join("ledger");
     let snapshots_str = utils::string::display_collection(&snapshot_points);
 
-    fs::create_dir_all(&metadata_dir)?;
     fs::create_dir_all(&snapshot_output_dir)?;
     fs::create_dir_all(cardano_node_db.join("immutable"))?;
     fs::create_dir_all(&ledger_snapshot_dir)?;
@@ -259,12 +260,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         )?
     };
 
-    for target in &mut targets {
-        target.archive_path =
-            Some(archive_path_for_target(&snapshot_output_dir, target).to_string_lossy().into_owned());
-        target.snapshot_path =
-            Some(snapshot_path_for_target(&snapshot_output_dir, target).to_string_lossy().into_owned());
-    }
     targets.sort_unstable_by_key(|target| target.slot);
 
     // Fail fast: every target except the oldest must carry a parent_point, since
@@ -310,10 +305,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("refusing to overwrite existing snapshot outputs: {existing_outputs}").into());
     }
 
-    for target in &targets {
-        write_epoch_metadata(&metadata_dir, target)?;
-    }
-
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
     let required_chunk = targets.last().map(|t| chunk_for_slot(t.slot)).unwrap_or(0);
     if from_chunk > required_chunk {
@@ -329,15 +320,17 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         snapshot_output_dir: &snapshot_output_dir,
         immutable_dir: &immutable_dir,
         ledger_snapshot_dir: &ledger_snapshot_dir,
-        metadata_dir: &metadata_dir,
         config_dir: &config_dir,
         cardano_node_db: &cardano_node_db,
         db_analyser_binary: &db_analyser_binary,
     };
 
-    targets.into_iter().try_fold(None, |previous_snapshot_slot, target| {
-        process_target(target, previous_snapshot_slot, &context).map(Some)
-    })?;
+    let mut previous_snapshot_slot = None;
+    for target in &targets {
+        previous_snapshot_slot = Some(process_target(target, previous_snapshot_slot, &context)?);
+    }
+
+    write_draft_manifest(&dist_dir, &targets)?;
 
     Ok(())
 }
@@ -346,36 +339,71 @@ struct SnapshotBuildContext<'a> {
     snapshot_output_dir: &'a Path,
     immutable_dir: &'a Path,
     ledger_snapshot_dir: &'a Path,
-    metadata_dir: &'a Path,
     config_dir: &'a Path,
     cardano_node_db: &'a Path,
     db_analyser_binary: &'a str,
 }
 
 fn process_target(
-    mut target: EpochTarget,
+    target: &EpochTarget,
     previous_snapshot_slot: Option<Slot>,
     context: &SnapshotBuildContext<'_>,
 ) -> Result<Slot, Box<dyn std::error::Error>> {
-    let prepared_snapshot_path = snapshot_path_for_target(context.snapshot_output_dir, &target);
-    let prepared_archive_path = archive_path_for_target(context.snapshot_output_dir, &target);
+    let prepared_snapshot_path = snapshot_path_for_target(context.snapshot_output_dir, target);
+    let prepared_archive_path = archive_path_for_target(context.snapshot_output_dir, target);
     let snapshot_dir =
-        resolve_or_create_snapshot_dir(&target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
+        resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
 
     info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), "materializing bootstrap snapshot directory");
     materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
-    write_packaged_headers(&target, context.immutable_dir, &prepared_snapshot_path)?;
+    write_packaged_headers(target, context.immutable_dir, &prepared_snapshot_path)?;
 
     info!(epoch = %target.epoch, slot = %target.slot, archive = %prepared_archive_path.display(), "packaging snapshot archive");
     write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
 
-    target.archive_path = Some(prepared_archive_path.to_string_lossy().into_owned());
-    target.snapshot_path = Some(prepared_snapshot_path.to_string_lossy().into_owned());
-    write_epoch_metadata(context.metadata_dir, &target)?;
-
     info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), archive = %prepared_archive_path.display(), "finished epoch snapshot");
 
     Ok(target.slot)
+}
+
+fn draft_manifest_path(dist_dir: &Path) -> PathBuf {
+    dist_dir.join("snapshots.json")
+}
+
+fn write_draft_manifest(
+    dist_dir: &Path,
+    targets: &[EpochTarget],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = draft_manifest_path(dist_dir);
+
+    let mut entries: Vec<ManifestEntry> = if path.is_file() {
+        serde_json::from_slice(&fs::read(&path)?)?
+    } else {
+        Vec::new()
+    };
+
+    for target in targets {
+        let new_entry = ManifestEntry {
+            epoch: target.epoch,
+            point: format!("{}.{}", target.slot, target.hash),
+            parent_point: target.parent_point.map(|p| p.to_string()),
+        };
+
+        match entries.iter().position(|e| e.epoch == target.epoch) {
+            Some(pos) => entries[pos] = new_entry,
+            None => entries.push(new_entry),
+        }
+    }
+
+    entries.sort_unstable_by_key(|e| e.epoch);
+
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, serde_json::to_vec_pretty(&entries)?)?;
+    fs::rename(tmp_path, &path)?;
+
+    info!(path = %path.display(), entries = entries.len(), "updated local snapshot draft");
+
+    Ok(())
 }
 
 fn resolve_or_create_snapshot_dir(
@@ -415,12 +443,13 @@ fn write_packaged_headers(
     immutable_dir: &Path,
     prepared_snapshot_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let packaged_headers = packaged_headers_for_target(immutable_dir, target.parent_point)?;
-    if packaged_headers.is_empty() {
+    let (headers, blocks) = packaged_headers_for_target(immutable_dir, target.parent_point)?;
+    if headers.is_empty() {
         return Ok(());
     }
 
-    fs::write(prepared_snapshot_path.join(PACKAGED_HEADERS_FILE_NAME), serde_json::to_vec_pretty(&packaged_headers)?)?;
+    fs::write(prepared_snapshot_path.join(PACKAGED_HEADERS_FILE_NAME), serde_json::to_vec_pretty(&headers)?)?;
+    fs::write(prepared_snapshot_path.join(PACKAGED_BLOCKS_FILE_NAME), serde_json::to_vec_pretty(&blocks)?)?;
 
     Ok(())
 }
@@ -491,14 +520,14 @@ pub(super) fn repo_root() -> PathBuf {
     manifest_dir.parent().and_then(Path::parent).unwrap_or(manifest_dir.as_path()).to_path_buf()
 }
 
-// Extract exactly the two header CBORs that immediately follow the target parent point.
-// It walks sorted immutable .chunk files using .secondary block offsets, matches the parent hash, then takes the next two headers.
+// Extract the two header CBORs and full block bytes immediately following the target parent point.
+// It walks sorted immutable .chunk files using .secondary block offsets, matches the parent hash, then takes the next two blocks.
 fn packaged_headers_for_target(
     immutable_dir: &Path,
     parent_point: Option<Point>,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
     let Some(parent_point) = parent_point else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
 
     let parent_hash = hex::encode(parent_point.hash());
@@ -506,24 +535,33 @@ fn packaged_headers_for_target(
     let mut chunk_names = list_immutable_chunk_names(immutable_dir)?;
     chunk_names.sort_unstable();
 
-    let entries = chunk_names
-        .into_iter()
-        .map(|chunk_name| read_chunk_header_entries(immutable_dir, &chunk_name))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+    let mut found_parent = false;
+    let mut headers = Vec::with_capacity(2);
+    let mut blocks = Vec::with_capacity(2);
 
-    let Some(parent_index) = entries.iter().position(|(block_hash, _)| *block_hash == parent_hash) else {
+    'outer: for chunk_name in &chunk_names {
+        for (block_hash, header_cbor, block_hex) in read_chunk_header_entries(immutable_dir, chunk_name)? {
+            if !found_parent {
+                if block_hash == parent_hash {
+                    found_parent = true;
+                }
+            } else {
+                headers.push(header_cbor);
+                blocks.push(block_hex);
+                if headers.len() == 2 {
+                    break 'outer;
+                }
+            }
+        }
+    }
+
+    if !found_parent {
         return Err(format!(
             "parent point {parent_point} not found in immutable blocks under {}",
             immutable_dir.display()
         )
         .into());
-    };
-
-    let headers =
-        entries.into_iter().skip(parent_index + 1).map(|(_, header_cbor)| header_cbor).take(2).collect::<Vec<_>>();
+    }
 
     if headers.len() < 2 {
         return Err(format!(
@@ -533,13 +571,13 @@ fn packaged_headers_for_target(
         .into());
     }
 
-    Ok(headers)
+    Ok((headers, blocks))
 }
 
 fn read_chunk_header_entries(
     immutable_dir: &Path,
     chunk_name: &str,
-) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
     let chunk_path = immutable_dir.join(format!("{chunk_name}.chunk"));
     let secondary_path = immutable_dir.join(format!("{chunk_name}.secondary"));
 
@@ -571,7 +609,7 @@ fn read_chunk_header_entry(
     start: u64,
     chunk_len: u64,
     secondary_path: &Path,
-) -> Result<Option<(String, String)>, Box<dyn std::error::Error>> {
+) -> Result<Option<(String, String, String)>, Box<dyn std::error::Error>> {
     let end = offsets.get(idx + 1).copied().unwrap_or(chunk_len);
     if end < start {
         return Err(format!(
@@ -596,7 +634,7 @@ fn read_chunk_header_entry(
     };
 
     let header_cbor = extract_block_header_cbor(&block)?;
-    Ok(Some((hex::encode(header.header_hash), hex::encode(header_cbor))))
+    Ok(Some((hex::encode(header.header_hash), hex::encode(header_cbor), hex::encode(&block))))
 }
 
 fn list_immutable_chunk_names(immutable_dir: &Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
@@ -732,8 +770,6 @@ mod tests {
             slot: Slot::from(69_206_375),
             hash: hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
             parent_point: None,
-            archive_path: None,
-            snapshot_path: None,
         };
         let snapshot = snapshot_path_for_target(Path::new("snapshots/preprod"), &target);
 
@@ -750,8 +786,6 @@ mod tests {
             slot: Slot::from(69_206_375),
             hash: hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
             parent_point: None,
-            archive_path: None,
-            snapshot_path: None,
         };
         let archive = archive_path_for_target(Path::new("snapshots/preprod"), &target);
 
@@ -776,16 +810,12 @@ mod tests {
             slot: Slot::from(69_206_375),
             hash: hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
             parent_point: None,
-            archive_path: None,
-            snapshot_path: None,
         };
         let missing_target = EpochTarget {
             epoch: Epoch::from(164),
             slot: Slot::from(69_638_382),
             hash: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
             parent_point: None,
-            archive_path: None,
-            snapshot_path: None,
         };
 
         fs::create_dir(snapshot_path_for_target(temp_dir.path(), &existing_target)).unwrap();
@@ -804,16 +834,12 @@ mod tests {
             slot: Slot::from(69_206_375),
             hash: hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
             parent_point: None,
-            archive_path: None,
-            snapshot_path: None,
         };
         let missing_target = EpochTarget {
             epoch: Epoch::from(164),
             slot: Slot::from(69_638_382),
             hash: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
             parent_point: None,
-            archive_path: None,
-            snapshot_path: None,
         };
 
         fs::write(archive_path_for_target(temp_dir.path(), &existing_target), []).unwrap();

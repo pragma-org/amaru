@@ -22,7 +22,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor,
+    RawBlock, extract_block_header_cbor, from_cbor,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -51,7 +51,7 @@ use tracing::{error, info};
 
 use crate::{
     cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
-    default_data_dir, default_snapshots_dir, get_bootstrap_file,
+    default_snapshots_dir, get_bootstrap_file,
 };
 
 /// Configuration for a single ledger state's snapshot to be imported.
@@ -118,6 +118,7 @@ pub enum BootstrapError {
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
 const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
+const PACKAGED_BLOCKS_FILE_NAME: &str = "bootstrap.blocks.json";
 
 fn snapshot_directory_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
     snapshots_dir.join(&snapshot.point)
@@ -144,56 +145,13 @@ fn snapshot_hash(snapshot: &Snapshot) -> Result<HeaderHash, Box<dyn Error>> {
     }
 }
 
-#[derive(Deserialize)]
-struct LocalEpochMetadata {
-    epoch: Epoch,
-    slot: u64,
-    hash: String,
-    #[serde(default, alias = "header_parent")]
-    parent_point: Option<String>,
-}
-
-fn load_local_epoch_snapshots(network: NetworkName) -> Vec<Snapshot> {
-    let metadata_dir = PathBuf::from(default_data_dir(network)).join("epoch-snapshots").join("epochs");
-    if !metadata_dir.is_dir() {
-        return Vec::new();
-    }
-
-    let Ok(entries) = std::fs::read_dir(&metadata_dir) else {
-        return Vec::new();
-    };
-
-    entries
-        .flatten()
-        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
-        .filter_map(|entry| std::fs::read(entry.path()).ok())
-        .filter_map(|bytes| serde_json::from_slice::<LocalEpochMetadata>(&bytes).ok())
-        .map(|meta| Snapshot {
-            epoch: meta.epoch,
-            point: format!("{}.{}", meta.slot, meta.hash),
-            url: String::new(),
-            parent_point: meta.parent_point,
-        })
-        .collect()
-}
-
 fn bootstrap_snapshots(network: NetworkName) -> Result<(PathBuf, Vec<Snapshot>), Box<dyn Error>> {
     let snapshot_file_name = "snapshots.json";
     let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
     let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
         .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
-    let mut snapshots: Vec<Snapshot> = serde_json::from_slice(&snapshots_file)
+    let snapshots: Vec<Snapshot> = serde_json::from_slice(&snapshots_file)
         .map_err(|source| BootstrapError::MalformedSnapshotsFile { path: snapshot_file_name.into(), source })?;
-
-    let local_snapshots = load_local_epoch_snapshots(network);
-    if !local_snapshots.is_empty() {
-        info!(count = local_snapshots.len(), "detected locally-created snapshots from create-snapshots");
-        for local_snapshot in local_snapshots {
-            if !snapshots.iter().any(|s| s.epoch == local_snapshot.epoch) {
-                snapshots.push(local_snapshot);
-            }
-        }
-    }
 
     Ok((snapshots_dir, snapshots))
 }
@@ -588,6 +546,8 @@ pub async fn bootstrap(
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
     let headers = load_packaged_headers_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
     import_headers(&chain_db, headers).await?;
+    let blocks = load_packaged_blocks_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
+    import_blocks(&chain_db, blocks).await?;
 
     Ok(())
 }
@@ -629,6 +589,59 @@ fn load_packaged_headers_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u
 
     Ok(headers)
 }
+
+pub async fn import_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+    for block in blocks {
+        let header_cbor = extract_block_header_cbor(&block)?;
+        let block_header: BlockHeader = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+        let hash = block_header.hash();
+
+        info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting block");
+
+        db.store_block(&hash, &RawBlock::from(block.as_slice()))?;
+    }
+
+    Ok(())
+}
+
+fn load_packaged_blocks_for_bootstrap(
+    second_snapshot_path: &Path,
+    third_snapshot_path: &Path,
+) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    let mut blocks = load_packaged_blocks_from_snapshot(second_snapshot_path)?;
+    blocks.extend(load_packaged_blocks_from_snapshot(third_snapshot_path)?);
+    Ok(blocks)
+}
+
+fn load_packaged_blocks_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    let blocks_file = snapshot_path.join(PACKAGED_BLOCKS_FILE_NAME);
+    if !blocks_file.is_file() {
+        return Err(format!(
+            "missing packaged bootstrap blocks at {}. Re-generate snapshots with `amaru create-snapshots`.",
+            blocks_file.display()
+        )
+        .into());
+    }
+
+    let hex_blocks: Vec<String> = serde_json::from_slice(&std::fs::read(&blocks_file)?)?;
+    if hex_blocks.len() < BOOTSTRAP_HEADERS_PER_POINT {
+        return Err(format!(
+            "packaged bootstrap blocks at {} contain {} blocks; expected at least {}.",
+            blocks_file.display(),
+            hex_blocks.len(),
+            BOOTSTRAP_HEADERS_PER_POINT
+        )
+        .into());
+    }
+
+    let mut blocks = Vec::with_capacity(hex_blocks.len());
+    for hex_block in hex_blocks {
+        blocks.push(hex::decode(hex_block)?);
+    }
+
+    Ok(blocks)
+}
+
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
 where
