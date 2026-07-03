@@ -48,6 +48,9 @@ use crate::{epoch_transition::GovernanceActivity, governance::ratification::Prop
 
 pub mod columns;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 mod epoch_transition;
 pub use epoch_transition::{
     apply_governance_updates, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees,

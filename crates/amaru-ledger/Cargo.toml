@@ -51,6 +51,7 @@ tempfile.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
+amaru-ledger = { path = ".", features = ["test-utils"] }
 amaru-stores.workspace = true
 amaru-tracing-json.workspace = true
 

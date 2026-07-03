@@ -225,6 +225,7 @@ version = "0.1.2"
 dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
+ "amaru-ledger",
  "amaru-metrics",
  "amaru-observability",
  "amaru-ouroboros-traits",
