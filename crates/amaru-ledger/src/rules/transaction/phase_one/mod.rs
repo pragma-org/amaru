@@ -327,6 +327,7 @@ mod tests {
     #[test_case(fixture!("fail/IncorrectDepositDELEG/0"); "stake registration cert with incorrect deposit")]
     #[test_case(fixture!("fail/ConwayCommitteeIsUnknown/0"); "resign cold key for a non-committee member")]
     #[test_case(fixture!("fail/ConwayCommitteeIsUnknown/1"); "authorize hot key for a non-committee member")]
+    #[test_case(fixture!("fail/ConwayCommitteeHasPreviouslyResigned/0"); "authorize hot key after resigning the same cold key in one tx")]
     #[test_case(fixture!("pass/committee-resign"); "resign cold key for a current committee member")]
     #[test_case(fixture!("pass/committee-auth-hot"); "authorize hot key for a current committee member")]
     #[test_case(fixture!("pass/committee-auth-hot-future"); "authorize hot key for a pending committee member from a live UpdateCommittee proposal")]

@@ -140,6 +140,7 @@ pub(super) enum Predicate {
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
     ConflictingMetadataHash,
+    ConwayCommitteeHasPreviouslyResigned,
     ConwayCommitteeIsUnknown,
     IncorrectDepositDELEG,
     InputSetEmptyUTxO,

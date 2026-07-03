@@ -1,0 +1,36 @@
+{
+  "title": "ConwayCommitteeHasPreviouslyResigned/0",
+  "description": "A ResignCommitteeCold then an AuthCommitteeHot for the same cold credential in one tx; the second cert sees a member that has already resigned.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "committee": [
+      {
+        "member": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": 1000
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4004d9010282830f8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f6830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581c111111111111111111111111111111111111111111111111111111110f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406e3f6549ac4510e992f265d9a82fe7b225e08b9ccd2285231129e9ddd16376b53cf2b32a3569e65b9da298867c053220c8f09b1a783d24a8d4c5156e73101f01f5f6",
+  "expected": {
+    "predicate": "ConwayCommitteeHasPreviouslyResigned"
+  }
+}
