@@ -14,19 +14,23 @@
 
 use std::{
     collections::BTreeMap,
+    fs::File,
+    io::Read,
     path::PathBuf,
     sync::{Arc, LazyLock, Mutex},
 };
 
-use amaru::default_snapshots_dir;
 use amaru_kernel::{Epoch, NetworkName};
 use amaru_ledger::{
-    store::{ReadStore, Snapshot},
-    summary::{governance::GovernanceSummary, rewards::RewardsSummary, stake_distribution::StakeDistribution},
+    store::Snapshot,
+    summary::{governance::GovernanceSummary, stake_distribution::StakeDistribution},
 };
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use anyhow::anyhow;
 use test_case::test_case;
+use xz::read::XzDecoder;
+
+const DEFAULT_AMARU_MAX_DIFFS: usize = 10;
 
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
@@ -70,28 +74,58 @@ fn compare_stake_distribution_with_haskell_node(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let snapshot = load_snapshot(network, epoch);
 
-    let global_parameters = network.as_global_parameters().ok_or("no global parameters for network={network:?}?!")?;
-
     let era_history = network.as_era_history().ok_or("no era history for network={network:?}?!")?;
 
     let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history)?;
 
     let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps)?;
 
-    insta::with_settings!({
-        snapshot_path => format!("stake-distributions/{}", network),
-        omit_expression => true // do not include the default expression
-    }, {
-        insta::assert_json_snapshot!(
-            format!("epoch_{epoch}"),
-            stake_distr.for_network(network.into()),
+    assert_compressed_json_snapshot(network, &format!("epoch_{epoch}"), &stake_distr)
+}
+
+fn read_compressed_snapshot(network: NetworkName, snapshot_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("stake-distributions")
+        .join(network.to_string())
+        .join(format!("summary__{snapshot_name}.json.xz"));
+
+    let mut decompressed = String::new();
+    XzDecoder::new(File::open(&path)?).read_to_string(&mut decompressed)?;
+    Ok(decompressed)
+}
+
+#[allow(clippy::panic)]
+fn assert_compressed_json_snapshot<T: serde::Serialize>(
+    network: NetworkName,
+    snapshot_name: &str,
+    actual: &T,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let diffs = diff_json::compare_json(
+        read_compressed_snapshot(network, snapshot_name)?.as_str(),
+        serde_json::to_string_pretty(actual)?.as_str(),
+    )?;
+
+    let n: usize = std::env::var("AMARU_MAX_DIFFS")
+        .map(|var| {
+            var.parse::<usize>()
+                .map_err(|e| anyhow!(e).context("invalid value for 'AMARU_MAX_DIFFS', must be a non-negative integer"))
+        })
+        .unwrap_or(Ok(DEFAULT_AMARU_MAX_DIFFS))?
+        .min(diffs.len());
+
+    if !diffs.is_empty() {
+        let formatter = diff_json::DiffFormatter::new();
+        panic!(
+            "{}{}",
+            formatter.format_compact(&diffs[0..n]),
+            if diffs.len() > n { format!("...plus {} more difference(s)", diffs.len() - n) } else { String::new() }
         );
-    });
+    }
 
     Ok(())
 }
 
-#[cfg(not(rust_analyzer))]
 include!(concat!("stake-distributions/", env!("AMARU_NETWORK"), "/generated_test_cases.incl"));
 
 // TODO: reinstate rewards summary snapshot tests

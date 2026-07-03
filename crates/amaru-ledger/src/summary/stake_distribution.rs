@@ -14,9 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{
-    DRep, Epoch, HasLovelace, Hash, Lovelace, Network, PoolId, StakeCredential, expect_stake_credential,
-};
+use amaru_kernel::{DRep, Epoch, HasLovelace, Hash, Lovelace, PoolId, StakeCredential, expect_stake_credential};
 use serde::ser::SerializeStruct;
 use tracing::info;
 
@@ -210,20 +208,20 @@ impl StakeDistribution {
             // NOTE: Delegation to *active* pools
             //
             // Only accounts delegated to active pools counts towards the active stake.
-            if let Some(pool_id) = account.pool {
-                if let Some(pool) = pools.get_mut(&pool_id) {
-                    // NOTE: Pool voting stake distribution
-                    //
-                    // Governance deposits do not count towards the pools' stake. They are
-                    // only counted as part of the voting power.
-                    let stake = account.balance;
-                    active_stake += &stake;
-                    pool.stake += &stake;
+            if let Some(pool_id) = account.pool
+                && let Some(pool) = pools.get_mut(&pool_id)
+            {
+                // NOTE: Pool voting stake distribution
+                //
+                // Governance deposits do not count towards the pools' stake. They are
+                // only counted as part of the voting power.
+                let stake = account.balance;
+                active_stake += &stake;
+                pool.stake += &stake;
 
-                    let voting_stake = stake + pool_deposits;
-                    pool.voting_stake += &voting_stake;
-                    pools_voting_stake += &voting_stake;
-                }
+                let voting_stake = stake + pool_deposits;
+                pool.voting_stake += &voting_stake;
+                pools_voting_stake += &voting_stake;
             }
         }
 
@@ -256,26 +254,18 @@ impl StakeDistribution {
             dreps,
         })
     }
-
-    pub fn for_network(&self, network: Network) -> StakeDistributionForNetwork<'_> {
-        StakeDistributionForNetwork(self, network)
-    }
 }
 
-/// A temporary struct mainly used for serializing a StakeDistribution. This is needed because we
-/// need the network id in order to serialize stake credentials as stake address and disambiguate
-/// them.
-pub struct StakeDistributionForNetwork<'a>(&'a StakeDistribution, Network);
-
-impl serde::Serialize for StakeDistributionForNetwork<'_> {
+impl serde::Serialize for StakeDistribution {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("StakeDistribution", 6)?;
-        s.serialize_field("epoch", &self.0.epoch)?;
-        s.serialize_field("treasury", &self.0.treasury)?;
-        s.serialize_field("reserves", &self.0.reserves)?;
-        s.serialize_field("active_stake", &self.0.active_stake)?;
-        s.serialize_field("dreps_voting_stake", &self.0.dreps_voting_stake)?;
-        s.serialize_field("pools_voting_stake", &self.0.pools_voting_stake)?;
+        let mut s = serializer.serialize_struct("StakeDistribution", 9)?;
+
+        s.serialize_field("epoch", &self.epoch)?;
+        s.serialize_field("treasury", &self.treasury)?;
+        s.serialize_field("reserves", &self.reserves)?;
+        s.serialize_field("active_stake", &self.active_stake)?;
+        s.serialize_field("dreps_voting_stake", &self.dreps_voting_stake)?;
+        s.serialize_field("pools_voting_stake", &self.pools_voting_stake)?;
 
         #[derive(serde::Serialize, Default)]
         struct Accounts<'a> {
@@ -284,7 +274,7 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
         }
         s.serialize_field(
             "accounts",
-            &self.0.accounts.iter().fold(Accounts::default(), |mut accounts, (credential, st)| {
+            &self.accounts.iter().fold(Accounts::default(), |mut accounts, (credential, st)| {
                 match credential {
                     StakeCredential::AddrKeyhash(hash) => accounts.verification_keys.insert(*hash, st),
                     StakeCredential::ScriptHash(hash) => accounts.scripts.insert(*hash, st),
@@ -307,7 +297,7 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
         }
         s.serialize_field(
             "dreps",
-            &self.0.dreps.iter().fold(DReps::default(), |mut dreps, (drep, st)| {
+            &self.dreps.iter().fold(DReps::default(), |mut dreps, (drep, st)| {
                 match drep {
                     DRep::Abstain => {
                         dreps.abstain = VotingStake { voting_stake: st.voting_stake };
@@ -327,7 +317,7 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
             }),
         )?;
 
-        serialize_map("pools", &mut s, &self.0.pools, |id| hex::encode(id))?;
+        serialize_map("pools", &mut s, &self.pools, |id| hex::encode(id))?;
 
         s.end()
     }

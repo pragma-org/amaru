@@ -38,8 +38,6 @@ for SRC_PATH in "$SRC_DIR"/*/*; do
         # Reset TEST_CASES for this network
         TEST_CASES=()
 
-        MIN_EPOCH=""
-	MAX_EPOCH=""
         # Collect all test cases for this network
         for FILE_PATH in "$SRC_PATH"/*; do
             if [[ -f "$FILE_PATH" ]]; then
@@ -49,19 +47,11 @@ for SRC_PATH in "$SRC_DIR"/*/*; do
                 if [[ "$FILE_NAME" =~ ^([0-9]+)\.json$ ]]; then
                     EPOCH="${BASH_REMATCH[1]}"
 
-                    if [[ -z "$MIN_EPOCH" || $EPOCH -lt $MIN_EPOCH ]]; then
-			MIN_EPOCH=$EPOCH
-                    fi
-                    if [[ -z "$MAX_EPOCH" || $EPOCH -gt $MAX_EPOCH ]]; then
-			MAX_EPOCH=$EPOCH
-                    fi
-
                     # Generate a corresponding snapfile.
-                    SNAP_FILE="$OUT_DIR"/"summary__epoch_$EPOCH".snap
-                    echo "---" > "$SNAP_FILE"
-                    echo "source: $BASE_TESTS_DIR/summary.rs" >> "$SNAP_FILE"
-                    echo "---" >> "$SNAP_FILE"
-                    cat "$FILE_PATH" >> "$SNAP_FILE"
+                    SNAP_FILE="$OUT_DIR"/"summary__epoch_$EPOCH".json
+		    echo "...generating /crates${SNAP_FILE#*\/crates}.xz"
+                    cat "$FILE_PATH" > "$SNAP_FILE"
+                    xz -T0 -9 --force "$SNAP_FILE"
 
                     TEST_CASES+=("$NETWORK_NAME:$EPOCH")
                 fi
@@ -69,11 +59,6 @@ for SRC_PATH in "$SRC_DIR"/*/*; do
                 echo "ignoring $FILE_PATH: not a file"
             fi
         done
-
-        if [[ -n "$MIN_EPOCH" ]]; then
-          echo "  min epoch=$MIN_EPOCH"
-          echo "  max epoch=$MAX_EPOCH"
-        fi
 
         # Skip if no test cases found
         if [[ ${#TEST_CASES[@]} -eq 0 ]]; then
@@ -107,6 +92,6 @@ pub fn compare_${NETWORK_NAME}_stake_distribution_with_haskell_node(epoch: u64) 
 }
 EOF
 	INCL_ABS="/crates${INCL#*\/crates}"
-        echo "✅ Generated $KIND test cases for network=$NETWORK_NAME at: $INCL_ABS"
+        echo -e "\n✅ Generated $KIND test cases for network=$NETWORK_NAME\n   └── $INCL_ABS"
     fi
 done
