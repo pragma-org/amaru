@@ -1,9 +1,0 @@
-#[test_case(1000)]
-#[test_case(999)]
-#[ignore]
-pub fn compare_preview_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {
-    compare_stake_distribution_with_haskell_node(
-        amaru_kernel::NetworkName::Preview,
-        amaru_kernel::Epoch::from(epoch),
-    )
-}

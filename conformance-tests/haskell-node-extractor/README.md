@@ -62,6 +62,7 @@ Given a snapshot directory produced by `db-analyser` (or `cargo run create-snaps
 cabal run -v0 exe:haskell-node-extractor -- stake-distribution \
   --preprod \
   --snapshot ../../snapshots/preprod/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912 \
+  --next-snapshot ../../snapshots/preprod/69321198. \
   --output ./data
 ```
 
@@ -72,6 +73,23 @@ You can then validate the generated file with:
 ```console
 uv run scripts/validate-json-schema --schema stake-distribution < ./data/stake-distributions/preprod/<epoch>.json
 ```
+
+> [!TIP]
+>
+> To produce new cardano-node ledger snapshots easily, you can use ouroboros-consensus' db-analyser as follows:
+>
+> ```console
+> db-analyser \
+>   --in-mem \
+>   --db path/to/cardano-node.db \
+>   --config path/to/cardano-node-config.json \
+>   --analyse-from START_SLOT \
+>   --store-ledger TARGET_SLOT
+> ```
+>
+> The first time, `--analyse-from` has no effect and the command will perform a
+> full reconstruction from genesis. After that, it can pick up from the last
+> snapshot.
 
 ## Make targets
 

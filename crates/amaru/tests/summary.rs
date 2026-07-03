@@ -27,7 +27,6 @@ use amaru_ledger::{
 };
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use anyhow::anyhow;
-use test_case::test_case;
 use xz::read::XzDecoder;
 
 const DEFAULT_AMARU_MAX_DIFFS: usize = 10;
@@ -80,29 +79,43 @@ fn compare_stake_distribution_with_haskell_node(
 
     let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps)?;
 
-    assert_compressed_json_snapshot(network, &format!("epoch_{epoch}"), &stake_distr)
+    assert_json_snapshot(network, epoch, &stake_distr)
 }
 
-fn read_compressed_snapshot(network: NetworkName, snapshot_name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, Box<dyn std::error::Error>> {
+    let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("stake-distributions")
         .join(network.to_string())
-        .join(format!("summary__{snapshot_name}.json.xz"));
+        .join(format!("epoch_{epoch}.json"));
+
+    if base_path.is_file() {
+        return Ok(std::fs::read_to_string(base_path)?);
+    }
+
+    let compressed_path = base_path.with_extension("json.xz");
+    if !compressed_path.is_file() {
+        return Err(format!(
+            "missing stake distribution snapshot: expected {} or {}",
+            base_path.display(),
+            compressed_path.display()
+        )
+        .into());
+    }
 
     let mut decompressed = String::new();
-    XzDecoder::new(File::open(&path)?).read_to_string(&mut decompressed)?;
+    XzDecoder::new(File::open(compressed_path)?).read_to_string(&mut decompressed)?;
     Ok(decompressed)
 }
 
 #[allow(clippy::panic)]
-fn assert_compressed_json_snapshot<T: serde::Serialize>(
+fn assert_json_snapshot<T: serde::Serialize>(
     network: NetworkName,
-    snapshot_name: &str,
+    epoch: Epoch,
     actual: &T,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let diffs = diff_json::compare_json(
-        read_compressed_snapshot(network, snapshot_name)?.as_str(),
+        read_expected_snapshot(network, epoch)?.as_str(),
         serde_json::to_string_pretty(actual)?.as_str(),
     )?;
 
@@ -126,7 +139,7 @@ fn assert_compressed_json_snapshot<T: serde::Serialize>(
     Ok(())
 }
 
-include!(concat!("stake-distributions/", env!("AMARU_NETWORK"), "/generated_test_cases.incl"));
+include!(concat!(env!("OUT_DIR"), "/stake_distribution_test_cases.rs"));
 
 // TODO: reinstate rewards summary snapshot tests
 //
