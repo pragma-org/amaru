@@ -43,7 +43,7 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru-ledger**: recompute the rewards summary at the epoch boundary when it is missing, instead of terminating consensus with `rewards summary not ready`; happened on nodes restarting with a stable tip already past the stability window. ([#1007][])
+- **amaru-ledger**: key the rewards-summary computation on the current tip's position rather than the next block's, so a node restarting with its stable tip already past the stability window (losing the in-memory summary) recomputes it before the epoch transition instead of terminating consensus with `rewards summary not ready`. ([#1007][])
 
 ## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
