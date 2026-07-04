@@ -57,17 +57,23 @@ fn write_stake_distribution_test_cases_file(network: &str) -> Result<(), Box<dyn
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let fixtures_root = manifest_dir.join("tests").join("stake-distributions");
     let network_dir = fixtures_root.join(network);
+    let ledger_dir = default_ledger_dir(&manifest_dir, network);
 
     println!("cargo:rerun-if-changed={}", fixtures_root.display());
     println!("cargo:rerun-if-changed={}", network_dir.display());
 
     let epochs = stake_distribution_epochs(&network_dir)?;
-    let contents = stake_distribution_test_cases_source(network, &epochs)?;
+    let available_epochs = available_ledger_snapshot_epochs(&manifest_dir, &ledger_dir)?;
+    let contents = stake_distribution_test_cases_source(network, &epochs, &available_epochs)?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     write_if_changed(&out_dir.join("stake_distribution_test_cases.rs"), &contents)?;
 
     Ok(())
+}
+
+fn default_ledger_dir(manifest_dir: &Path, network: &str) -> PathBuf {
+    manifest_dir.join("../..").join(format!("ledger.{network}.db"))
 }
 
 fn stake_distribution_epochs(network_dir: &Path) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
@@ -104,7 +110,47 @@ fn stake_distribution_epoch(path: &Path) -> Option<u64> {
     epoch.parse().ok()
 }
 
-fn stake_distribution_test_cases_source(network: &str, epochs: &[u64]) -> Result<String, Box<dyn std::error::Error>> {
+fn available_ledger_snapshot_epochs(
+    manifest_dir: &Path,
+    ledger_dir: &Path,
+) -> Result<BTreeSet<u64>, Box<dyn std::error::Error>> {
+    if !ledger_dir.is_dir() {
+        println!("cargo:rerun-if-changed={}", manifest_dir.join("../..").display());
+        return Ok(BTreeSet::new());
+    }
+
+    println!("cargo:rerun-if-changed={}", ledger_dir.display());
+
+    let mut epochs = BTreeSet::new();
+    for entry in fs::read_dir(ledger_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if !path.is_dir() {
+            continue;
+        }
+
+        if let Some(epoch) = ledger_snapshot_epoch(&path) {
+            epochs.insert(epoch);
+        }
+    }
+
+    Ok(epochs)
+}
+
+fn ledger_snapshot_epoch(path: &Path) -> Option<u64> {
+    path.file_name()?.to_str()?.parse().ok()
+}
+
+fn partition_fixture_epochs(epochs: &[u64], available_epochs: &BTreeSet<u64>) -> (Vec<u64>, Vec<u64>) {
+    epochs.iter().copied().partition(|epoch| available_epochs.contains(epoch))
+}
+
+fn stake_distribution_test_cases_source(
+    network: &str,
+    epochs: &[u64],
+    available_epochs: &BTreeSet<u64>,
+) -> Result<String, Box<dyn std::error::Error>> {
     if epochs.is_empty() {
         return Ok(format!(
             r#"// No stake distribution fixtures found for network={network}.
@@ -117,15 +163,58 @@ const _: fn(
     }
 
     let network_variant = network_name_to_rust_variant(network)?;
+    let (active_epochs, ignored_epochs) = partition_fixture_epochs(epochs, available_epochs);
+    let mut contents = String::new();
+
+    contents.push_str(&format!(
+        "// Generated from {} fixture epoch(s): {} active, {} ignored.\n",
+        epochs.len(),
+        active_epochs.len(),
+        ignored_epochs.len(),
+    ));
+
+    if !active_epochs.is_empty() {
+        contents.push_str(&render_stake_distribution_test_function(
+            network,
+            network_variant,
+            "compare",
+            &active_epochs,
+            false,
+        ));
+    }
+
+    if !ignored_epochs.is_empty() {
+        contents.push_str(&render_stake_distribution_test_function(
+            network,
+            network_variant,
+            "compare_missing_local_snapshot",
+            &ignored_epochs,
+            true,
+        ));
+    }
+
+    Ok(contents)
+}
+
+fn render_stake_distribution_test_function(
+    network: &str,
+    network_variant: &str,
+    prefix: &str,
+    epochs: &[u64],
+    ignored: bool,
+) -> String {
     let mut contents = String::new();
 
     for epoch in epochs {
         contents.push_str(&format!("#[test_case::test_case({epoch})]\n"));
     }
 
+    if ignored {
+        contents.push_str("#[ignore]\n");
+    }
+
     contents.push_str(&format!(
-        r#"#[ignore]
-pub fn compare_{network}_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {{
+        r#"pub fn {prefix}_{network}_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {{
     compare_stake_distribution_with_haskell_node(
         amaru_kernel::NetworkName::{network_variant},
         amaru_kernel::Epoch::from(epoch),
@@ -134,7 +223,7 @@ pub fn compare_{network}_stake_distribution_with_haskell_node(epoch: u64) -> Res
 "#
     ));
 
-    Ok(contents)
+    contents
 }
 
 fn network_name_to_rust_variant(network: &str) -> Result<&'static str, Box<dyn std::error::Error>> {
