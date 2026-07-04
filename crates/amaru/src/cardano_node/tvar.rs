@@ -85,7 +85,7 @@ fn read_state_snapshot(file: &mut std::fs::File) -> Result<Vec<u8>, Box<dyn std:
 fn default_utxo_size(network: NetworkName) -> usize {
     match network {
         NetworkName::Mainnet => 11_000_000,
-        NetworkName::Preview => 1_500_000,
+        NetworkName::Preview => 3_000_000,
         NetworkName::Preprod => 4_000_000,
         NetworkName::Testnet(..) => 1,
     }
