@@ -37,13 +37,37 @@ Other guiding principles:
 
 ## v10.10.20260709 _[unreleased; planned for 2026-07-09]_
 
+### Added
+
+- **amaru-ledger**: keep treasury donations as first-class ledger state, so protocol pots and derived summaries retain the corresponding accounting information. ([#1010][])
+
 ### Changed
 
 - **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported. ([#1000][])
 
 - **amaru**: more robust procedure and tooling to produce stake-distribution epoch snapshots for conformance testing and comparison with the haskell node. ([#985][])
 
-- **amaru**: fix snapshot import of pool with no metadata. ([#1013][])
+- **amaru**: fix snapshot import of pools with no metadata. ([#1013][])
+
+- **amaru**: stake-distribution conformance tests now auto-detect which local epochs are available in `ledger.<network>.db` and run those by default, while leaving uncovered fixtures visible as ignored tests. ([#1010][])
+
+- **amaru-ledger**: load the initial in-memory stake distributions in parallel at startup, to reduce restore time when opening the node from existing snapshots. ([#1010][])
+
+### Fixed
+
+- **amaru**: align the cardano-node reference snapshots in the haskell-node-extractor with the post-rewards epoch state, so treasury, reserves, accounts, and voting stake match what Amaru snapshots at epoch end. ([#1010][])
+
+- **amaru-consensus**: be more conservative when fetching ahead from peers during long low-density periods, to avoid requesting headers whose stake distribution is not ready yet. ([#1010][])
+
+- **amaru-ledger**: make epoch transitions and rewards calculations more resilient around restarts, interrupted transitions, and weak chain-growth periods near epoch boundaries. ([#1010][])
+
+- **amaru-ledger**: preserve delegators across DRep re-registration, while still ignoring stale DRep delegations that pre-date the current registration. ([#1010][])
+
+- **amaru-ledger**: fix epoch-boundary stake-distribution accounting by remembering recently pruned proposals and counting just-ratified treasury withdrawals in DRep voting stake. ([#1010][])
+
+- **amaru-ledger**: stop treating governance proposals as expired one epoch too early when rebuilding the proposal forest for ratification. ([#1010][])
+
+- **amaru-ledger**: fix pool registration shadowing retirements when done in the last k blocks of an epoch. ([#1010][])
 
 ## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
@@ -99,7 +123,6 @@ Other guiding principles:
 
 ## [v10.10.20260611](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260611)
 
-
 [#769]: https://github.com/pragma-org/amaru/issues/769
 [#778]: https://github.com/pragma-org/amaru/issues/778
 [#886]: https://github.com/pragma-org/amaru/pull/886
@@ -116,4 +139,5 @@ Other guiding principles:
 [#985]: https://github.com/pragma-org/amaru/pull/985
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
