@@ -400,7 +400,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // last k blocks for a single epoch. Or carry some kind of type-level guard that
             // the this is called within an acceptable context (i.e. the volatile
             // pre-conditions have been checked).
-            let mut volatile_view = VolatileView::new(next_epoch - 1, protocol_parameters, &self.volatile, &*db);
+            let mut volatile_view = VolatileView::new(&self.volatile, &*db);
 
             let (treasury, effective_rewards) = if progress.is_none() {
                 let effective_rewards = epoch_transition::end_epoch(

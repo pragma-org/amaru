@@ -88,8 +88,7 @@ impl PoolsEpochTransitionUpdates {
     /// Only check if a pool would be retiring, without taking ownership or modifying the original
     /// object.
     pub fn is_retiring(epoch: Epoch, pool: &Pool) -> bool {
-        let (_, retirement, needs_update) = fold_future_params(&pool.future_params, epoch);
-        needs_update && retirement.is_some_and(|retirement_epoch| retirement_epoch <= epoch)
+        fold_future_params(&pool.future_params, epoch).1.is_some()
     }
 
     /// Check whether a pool needs any sort of updates at the beginning of an epoch
@@ -109,62 +108,65 @@ impl PoolsEpochTransitionUpdates {
     /// a. Any re-registration that comes after a retirement cancels that retirement.
     /// b. Any retirement that come after a retirement cancels that previous retirement.
     pub fn tick_pool(&mut self, epoch: Epoch, mut pool: Pool) {
-        let (update, retirement, needs_update) = fold_future_params(&pool.future_params, epoch);
+        let (update, retirement) = fold_future_params(&pool.future_params, epoch);
 
-        if needs_update {
-            // If the most recent retirement is effective as per the current epoch, we simply drop the
-            // entry. Note that, any re-registration happening after that retirement would cancel it,
-            // which is taken care of in the fold above (returning 'None').
-            if let Some(retirement_epoch) = retirement
-                && retirement_epoch <= epoch
-            {
-                return self.retire_pool(epoch, pool);
-            }
+        // If the most recent retirement is effective as per the current epoch, we simply drop the
+        // entry. Note that, any re-registration happening after that retirement would cancel it,
+        // which is taken care of in the fold above (returning 'None').
+        if retirement.is_some() {
+            return self.retire_pool(epoch, pool);
+        }
 
-            let pool_id = pool.id();
+        let pool_id = pool.id();
 
-            if let Some(new_params) = update {
-                // NOTE: hidden exhaustiveness check
-                //
-                // The following statement is destructuring and not using a wildcard spread `..`
-                // *on purpose*. This lets the compiler warns us in case we add new fields to
-                // PoolParams.
-                let PoolParams { id: _, vrf, pledge, cost, margin, reward_account, owners, relays, metadata } =
-                    new_params;
+        let has_updated = if let Some(new_params) = update {
+            // NOTE: hidden exhaustiveness check
+            //
+            // The following statement is destructuring and not using a wildcard spread `..`
+            // *on purpose*. This lets the compiler warns us in case we add new fields to
+            // PoolParams.
+            let PoolParams { id: _, vrf, pledge, cost, margin, reward_account, owners, relays, metadata } = new_params;
 
-                let current_params = &mut pool.current_params;
+            let current_params = &mut pool.current_params;
 
-                // NOTE: /!\ IMPORTANT /!\ DO NOT INLINE
-                //
-                // It is tempting to inline all the identifier in the log event below. But don't.
-                // This would make the mutation conditioned to the trace severity level. We do need
-                // to update the pool parameters irrespective of the severity!
-                let vrf = set(&mut current_params.vrf, vrf, Hash::to_string);
-                let pledge = set(&mut current_params.pledge, pledge, Lovelace::to_string);
-                let cost = set(&mut current_params.cost, cost, Lovelace::to_string);
-                let margin = set(&mut current_params.margin, margin, rational_number::fmt);
-                let reward_account = set(&mut current_params.reward_account, reward_account, RewardAccount::to_string);
-                let owners = set(&mut current_params.owners, owners, |s| hash::fmt(s.deref()));
-                let relays = set(&mut current_params.relays, relays, |r| relay::fmt(r));
-                let metadata = set(&mut current_params.metadata, metadata, pool_metadata::fmt);
+            // NOTE: /!\ IMPORTANT /!\ DO NOT INLINE
+            //
+            // It is tempting to inline all the identifier in the log event below. But don't.
+            // This would make the mutation conditioned to the trace severity level. We do need
+            // to update the pool parameters irrespective of the severity!
+            let vrf = set(&mut current_params.vrf, vrf, Hash::to_string);
+            let pledge = set(&mut current_params.pledge, pledge, Lovelace::to_string);
+            let cost = set(&mut current_params.cost, cost, Lovelace::to_string);
+            let margin = set(&mut current_params.margin, margin, rational_number::fmt);
+            let reward_account = set(&mut current_params.reward_account, reward_account, RewardAccount::to_string);
+            let owners = set(&mut current_params.owners, owners, |s| hash::fmt(s.deref()));
+            let relays = set(&mut current_params.relays, relays, |r| relay::fmt(r));
+            let metadata = set(&mut current_params.metadata, metadata, pool_metadata::fmt);
 
-                debug!(
-                    name: "pool.update",
-                    id = %pool_id,
-                    vrf,
-                    pledge,
-                    cost,
-                    margin,
-                    reward_account,
-                    owners,
-                    relays,
-                    metadata,
-                );
-            }
+            debug!(
+                name: "pool.update",
+                id = %pool_id,
+                vrf,
+                pledge,
+                cost,
+                margin,
+                reward_account,
+                owners,
+                relays,
+                metadata,
+            );
 
-            // Regardless, always prune future params from those that are now-obsolete.
-            pool.future_params.retain(|(_, effective_in)| effective_in > &epoch);
+            true
+        } else {
+            false
+        };
 
+        // Regardless, always prune future params from those that are now-obsolete.
+        let future_params_old_len = pool.future_params.len();
+        pool.future_params.retain(|(_, effective_in)| effective_in > &epoch);
+        let has_pruned_params = pool.future_params.len() < future_params_old_len;
+
+        if has_updated || has_pruned_params {
             self.updated.insert(pool_id, pool);
         }
     }
@@ -216,24 +218,21 @@ impl PoolsEpochTransitionUpdates {
 ///
 /// The function returns any new params becoming active in the 'current_epoch', and the retirement
 /// status of the pool. Note that the pool can both have new parameters AND a retirement scheduled
-/// at a later epoch.
-///
-/// The boolean indicates whether any of the future params are now-obsolete as per the
-/// 'current_epoch'.
+/// at a later epoch; so the return parameters are not necessarily a replacement of the existing
+/// ones.
 pub fn fold_future_params(
     future_params: &[(Option<PoolParams>, Epoch)],
     current_epoch: Epoch,
-) -> (Option<&PoolParams>, Option<Epoch>, bool) {
-    future_params.iter().fold((None, None, false), |(update, retirement, needs_update), (params, epoch)| {
+) -> (Option<&PoolParams>, Option<Epoch>) {
+    future_params.iter().fold((None, None), |(update, _retirement), (params, epoch)| {
         match params {
-            // Pool has a parameter update that should now be applied.
-            Some(params) if epoch <= &current_epoch => (Some(params), None, true),
-            // Pool has a parameter update for another future epoch.
-            Some(..) => (update, retirement, needs_update),
-            // Pool is retiring *now*
-            None if epoch <= &current_epoch => (None, Some(*epoch), true),
-            // Pool is retiring later.
-            None => (update, Some(*epoch), needs_update),
+            // Pool has a parameter update that should now be applied; overwrite any prior update
+            // and cancels any immediate retirement.
+            Some(params) => (Some(params), None),
+            // Pool is retiring *now*, cancels any pool update.
+            None if epoch <= &current_epoch => (None, Some(*epoch)),
+            // Pool is retiring later, though updates may still be present.
+            None => (update, None),
         }
     })
 }
@@ -252,7 +251,7 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Epoch, PoolParams, any_certificate_pointer, any_pool_params};
+    use amaru_kernel::{Epoch, PoolId, PoolParams, any_certificate_pointer, any_pool_params};
     use proptest::{collection::vec, prelude::*};
 
     use super::PoolsEpochTransitionUpdates;
@@ -260,15 +259,18 @@ mod tests {
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
     // epoch's update. So a caller is expected to tick a base Pool between each application.
-    pub fn any_row_seq_updates() -> impl Strategy<Value = Vec<Vec<(Option<PoolParams>, Epoch)>>> {
-        vec(Just(()), 0..10).prop_flat_map(|cols| {
+    pub fn any_row_seq_updates(id: PoolId) -> impl Strategy<Value = Vec<Vec<(Option<PoolParams>, Epoch)>>> {
+        vec(Just(()), 0..10).prop_flat_map(move |cols| {
             cols.iter()
                 .enumerate()
                 .map(|(epoch, _)| {
                     let future_params = || {
                         prop_oneof![
                             (1..3u64).prop_map(move |offset| (None, Epoch::from(epoch as u64) + offset)),
-                            any_pool_params().prop_map(move |params| (Some(params), Epoch::from(epoch as u64 + 1)))
+                            any_pool_params().prop_map(move |params| (
+                                Some(PoolParams { id, ..params }),
+                                Epoch::from(epoch as u64 + 1)
+                            ))
                         ]
                     };
                     vec(future_params(), 0..3)
@@ -280,48 +282,33 @@ mod tests {
     #[derive(Debug)]
     struct Model {
         current: Option<PoolParams>,
-        future: Option<PoolParams>,
-        retiring: Option<Epoch>,
+        future: Vec<(Option<PoolParams>, Epoch)>,
     }
 
     impl Model {
         fn new(initial_params: PoolParams) -> Self {
-            Self { current: Some(initial_params), future: None, retiring: None }
-        }
-
-        // Apply model's changes at the epoch boundary
-        fn begin_epoch(&mut self, epoch: Epoch) {
-            if let Some(retirement) = self.retiring
-                && retirement <= epoch
-            {
-                self.current = None;
-            }
-
-            if let Some(future) = self.future.take() {
-                self.current = Some(future);
-            }
+            Self { current: Some(initial_params), future: Vec::new() }
         }
 
         // Process all updates through our simpler model
         fn tick(&mut self, epoch: Epoch, updates: &[(Option<PoolParams>, Epoch)]) {
-            self.begin_epoch(epoch);
+            self.future =
+                self.future.iter().chain(updates).fold(Vec::new(), |mut future, (update, retirement_epoch)| {
+                    match update {
+                        None => {
+                            if retirement_epoch <= &epoch {
+                                self.current = None;
+                            } else {
+                                future.push((None, *retirement_epoch));
+                            }
+                        }
+                        Some(params) => {
+                            self.current = Some(params.clone());
+                        }
+                    }
 
-            for (update, retirement_epoch) in updates {
-                match update {
-                    None if self.current.is_none() => {}
-                    None => {
-                        self.retiring = Some(*retirement_epoch);
-                    }
-                    Some(params) if self.current.is_none() => {
-                        self.retiring = None;
-                        self.current = Some(params.clone());
-                    }
-                    Some(params) => {
-                        self.retiring = None;
-                        self.future = Some(params.clone());
-                    }
-                }
-            }
+                    future
+                });
         }
     }
 
@@ -329,8 +316,9 @@ mod tests {
         #[test]
         fn prop_tick_pool(
             registered_at in any_certificate_pointer(u64::MAX),
-            initial_params in any_pool_params(),
-            sequence in any_row_seq_updates(),
+            (initial_params, sequence) in any_pool_params().prop_flat_map(|params| {
+                any_row_seq_updates(params.id).prop_map(move |seq| (params.clone(), seq))
+            })
         ) {
             let mut model = Model::new(initial_params.clone());
             let mut pool_opt = Some(Pool::new(registered_at, initial_params));

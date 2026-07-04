@@ -147,15 +147,15 @@ impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
     /// Both states MUST belong to the same epoch. This isn't suitable for combining states across
     /// epoch boundaries.
     pub fn append(&mut self, most_recent: Self) {
-        for (k, v) in most_recent.unregistered {
-            self.unregister(k, v)
-        }
-
         for (k, v) in most_recent.registered {
             self.register(k, v.0.0);
             if let Some(re_registration) = v.0.1 {
                 self.register(k, re_registration);
             }
+        }
+
+        for (k, v) in most_recent.unregistered {
+            self.unregister(k, v)
         }
     }
 
@@ -164,15 +164,15 @@ impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
     where
         V: Clone,
     {
-        for (k, v) in &most_recent.unregistered {
-            self.unregister(*k, *v)
-        }
-
         for (k, v) in &most_recent.registered {
             self.register(*k, v.0.0.clone());
             if let Some(re_registration) = v.0.1.as_ref() {
                 self.register(*k, re_registration.clone());
             }
+        }
+
+        for (k, v) in &most_recent.unregistered {
+            self.unregister(*k, *v)
         }
     }
 }
