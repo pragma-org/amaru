@@ -24,7 +24,8 @@ use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoi
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, StakeCredential, TransactionInput, cbor,
+    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, RatificationStatus, StakeCredential,
+    TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -548,13 +549,13 @@ macro_rules! impl_ReadStore_body {
             fn iter_recently_pruned_proposals(
                 &self,
             ) -> Result<
-                impl Iterator<Item = scolumns::recently_pruned_proposals::Key>,
+                impl Iterator<Item = (scolumns::recently_pruned_proposals::Key, scolumns::recently_pruned_proposals::Value)>,
                 StoreError,
             > {
-                Ok(iter(
+                iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     recently_pruned_proposals::PREFIX,
-                )?.map(|(key, ())| key))
+                )
             }
 
             fn iter_cc_members(
@@ -718,16 +719,17 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
+
     fn set_recently_pruned_proposals<'iter>(
         &self,
-        proposals: impl IntoIterator<Item = &'iter ComparableProposalId>,
+        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
     ) -> Result<(), StoreError> {
         recently_pruned_proposals::replace_all(&self.db, proposals)
     }
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = Id>) -> Result<(), StoreError>
+    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = &'iter Id>) -> Result<(), StoreError>
     where
         Id: Deref<Target = ProposalId> + 'iter,
     {

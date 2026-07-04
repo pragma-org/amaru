@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, mem};
+use std::{collections::BTreeMap, mem};
 
-use amaru_kernel::{ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential, TermLimit};
+use amaru_kernel::{
+    ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
+};
 use amaru_observability::info_span;
 use tracing::{Span, debug};
 
@@ -260,14 +262,17 @@ impl StateOverlay {
 
     /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or
     /// dropped). Like pool reaping, this short-circuits before the stale stable entry.
-    pub fn has_pruned_proposal(&self, proposal: &ComparableProposalId) -> bool {
-        self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains(proposal))
+    pub fn has_pruned_proposal(&self, id: &ComparableProposalId) -> bool {
+        self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains_key(id))
     }
 
     /// The set of all pruned proposals from the epoch boundary (because they expired, were
     /// ratified, or evicted due to another ratification).
-    pub fn pruned_proposals(&self) -> BTreeSet<&ComparableProposalId> {
-        self.governance_updates.as_ref().map(|updates| updates.pruned_proposals.iter().collect()).unwrap_or_default()
+    pub fn pruned_proposals(&self) -> BTreeMap<&ComparableProposalId, RatificationStatus> {
+        self.governance_updates
+            .as_ref()
+            .map(|updates| updates.pruned_proposals.iter().map(|(k, v)| (k, *v)).collect())
+            .unwrap_or_default()
     }
 
     /// The pending governance roots from the boundary transition, if any.

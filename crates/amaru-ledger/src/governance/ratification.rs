@@ -12,14 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    rc::Rc,
-};
+use std::{collections::BTreeMap, rc::Rc};
 
 use amaru_kernel::{
     Ballot, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
-    PoolId, ProtocolParameters, StakeCredential, Vote, Voter,
+    PoolId, ProtocolParameters, RatificationStatus, StakeCredential, Vote, Voter,
 };
 use amaru_observability::info_span;
 use num::Zero;
@@ -64,7 +61,7 @@ pub struct RatificationContext<'distr> {
     pub protocol_parameters: ProtocolParameters,
 
     /// All proposals that have been pruned due to ratification or conflict.
-    pub pruned_proposals: BTreeSet<Rc<ComparableProposalId>>,
+    pub pruned_proposals: BTreeMap<Rc<ComparableProposalId>, RatificationStatus>,
 
     /// Enacted withdrawals during this round of ratification.
     pub withdrawals: BTreeMap<StakeCredential, Lovelace>,
@@ -148,7 +145,7 @@ impl<'distr> RatificationContext<'distr> {
                 treasury,
                 stake_distribution,
                 protocol_parameters,
-                pruned_proposals: BTreeSet::new(),
+                pruned_proposals: BTreeMap::new(),
                 withdrawals: BTreeMap::new(),
                 constitutional_committee,
                 constitutional_committee_update: None,

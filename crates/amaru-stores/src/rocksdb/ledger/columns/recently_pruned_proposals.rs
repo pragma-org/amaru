@@ -14,7 +14,7 @@
 
 pub use amaru_ledger::store::{
     StoreError,
-    columns::proposals::{Key, Value},
+    columns::recently_pruned_proposals::{Key, Value},
 };
 use amaru_observability::debug_span;
 use rocksdb::Transaction;
@@ -33,7 +33,7 @@ pub const COLLECTION_NAME: &str = "recently_pruned_proposals";
 /// Replace all recently pruned proposals with a new set.
 pub fn replace_all<'iter, DB>(
     db: &Transaction<'_, DB>,
-    rows: impl IntoIterator<Item = &'iter Key>,
+    rows: impl IntoIterator<Item = (&'iter Key, Value)>,
 ) -> Result<(), StoreError> {
     debug_span!(
         amaru_observability::amaru::stores::ledger::columns::RECENTLY_PRUNED_PROPOSALS_REPLACE_ALL,
@@ -48,8 +48,8 @@ pub fn replace_all<'iter, DB>(
             }
         })?;
 
-        for key in rows {
-            db.put(as_key(&PREFIX, key), as_value(())).map_err(|err| StoreError::Internal(err.into()))?;
+        for (key, value) in rows {
+            db.put(as_key(&PREFIX, key), as_value(value)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
         Ok(())

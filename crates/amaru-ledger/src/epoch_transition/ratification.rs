@@ -12,14 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    rc::Rc,
-};
+use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
-    AsHash, StakeCredentialKind, cost_models, drep_voting_thresholds, ex_units, ex_units_prices,
+    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, ex_units, ex_units_prices,
     pool_voting_thresholds, protocol_version,
 };
 use amaru_kernel::{
@@ -62,7 +58,7 @@ pub struct GovernanceUpdates {
 
     /// Proposals that have been ratified, have expired or have been pruned due to another
     /// conflicting proposal being dropped.
-    pub pruned_proposals: BTreeSet<ComparableProposalId>,
+    pub pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus>,
 
     /// Payouts done to accounts; either because of a deposit refunds or because of a treasury
     /// withdrawal.
@@ -182,12 +178,12 @@ impl GovernanceUpdates {
             let mut payouts_str = String::new();
             for (id, proposal) in proposals_metadata.into_iter() {
                 let expired = ctx.epoch == proposal.valid_until;
-                let ratified_or_evicted = ctx.pruned_proposals.contains(&id);
+                let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
 
                 debug!(name: "ratification.proposals", proposal_id = %id, expired, ratified_or_evicted);
 
                 if expired || ratified_or_evicted {
-                    ctx.pruned_proposals.insert(id); // For expired proposals
+                    ctx.pruned_proposals.insert(id, RatificationStatus::NotRatified); // For expired proposals
                     let return_account = proposal.return_account;
                     let deposit = proposal.deposit;
                     payouts
@@ -230,10 +226,10 @@ impl GovernanceUpdates {
             // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
             // clean transfer of ownership without clone.
             let mut pruned_proposals_str = String::new();
-            let pruned_proposals: BTreeSet<ComparableProposalId> = ctx
+            let pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus> = ctx
                 .pruned_proposals
                 .into_iter()
-                .map(|id| {
+                .map(|(id, status)| {
                     let id = Rc::unwrap_or_clone(id);
 
                     if pruned_proposals_str.is_empty() {
@@ -242,7 +238,7 @@ impl GovernanceUpdates {
                         pruned_proposals_str += &format!(", {id}");
                     }
 
-                    id
+                    (id, status)
                 })
                 .collect();
 

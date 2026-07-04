@@ -69,7 +69,7 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 }
 
 /// Remove an expired or enacted proposal.
-pub fn remove<'iter, DB, K>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = K>) -> Result<(), StoreError>
+pub fn remove<'iter, DB, K>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = &'iter K>) -> Result<(), StoreError>
 where
     K: Deref<Target = ProposalId> + 'iter,
 {

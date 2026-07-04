@@ -274,8 +274,14 @@ impl ReadStore for MockStore {
 
     fn iter_recently_pruned_proposals(
         &self,
-    ) -> amaru_ledger::store::Result<impl Iterator<Item = amaru_ledger::store::columns::recently_pruned_proposals::Key>>
-    {
+    ) -> amaru_ledger::store::Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::recently_pruned_proposals::Key,
+                amaru_ledger::store::columns::recently_pruned_proposals::Value,
+            ),
+        >,
+    > {
         Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 

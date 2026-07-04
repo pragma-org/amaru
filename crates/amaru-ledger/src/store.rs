@@ -20,7 +20,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::ProposalId;
 use amaru_kernel::{
     CertificatePointer,
     ComparableProposalId,
@@ -41,6 +40,7 @@ use amaru_kernel::{
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
 };
+use amaru_kernel::{ProposalId, RatificationStatus};
 use columns::*;
 use thiserror::Error;
 
@@ -282,7 +282,9 @@ pub trait ReadStore {
     fn iter_proposals(&self) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>>;
 
     /// Get proposals that were *just* pruned at last epoch boundary. The list changes every epoch.
-    fn iter_recently_pruned_proposals(&self) -> Result<impl Iterator<Item = ComparableProposalId>>;
+    fn iter_recently_pruned_proposals(
+        &self,
+    ) -> Result<impl Iterator<Item = (recently_pruned_proposals::Key, recently_pruned_proposals::Value)>>;
 
     /// Iterate over constitutional committee members.
     fn iter_cc_members(&self) -> Result<impl Iterator<Item = (cc_members::Key, cc_members::Row)>>;
@@ -411,12 +413,12 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Record the recently (i.e. last epoch boundary) pruned proposals
     fn set_recently_pruned_proposals<'iter>(
         &self,
-        proposals: impl IntoIterator<Item = &'iter ComparableProposalId>,
+        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
     ) -> Result<()>;
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = Id>) -> Result<()>
+    fn remove_proposals<'iter, Id>(&self, proposals: impl Iterator<Item = &'iter Id>) -> Result<()>
     where
         Id: Deref<Target = ProposalId> + 'iter;
 

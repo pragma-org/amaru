@@ -83,7 +83,7 @@ impl StakeDistribution {
 
         let stake_pool_deposit = db.protocol_parameters()?.stake_pool_deposit;
 
-        let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+        let mut pools_deregistration_refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
         let mut pools = db
             .iter_pools()?
@@ -98,7 +98,7 @@ impl StakeDistribution {
                     // FIXME: Store the deposit with the pool, and ensures the same deposit
                     // it returned back.
                     let reward_account = expect_stake_credential(&row.current_params.reward_account);
-                    refunds
+                    pools_deregistration_refunds
                         .entry(reward_account)
                         .and_modify(|refund| *refund += stake_pool_deposit)
                         .or_insert(stake_pool_deposit);
@@ -163,19 +163,15 @@ impl StakeDistribution {
             if let Some(drep) = &account.drep
                 && let Some(st) = dreps.get_mut(drep)
             {
-                let refund = refunds.get(credential).copied().unwrap_or_default();
-                let proposal_deposits = dreps_deposits.get(credential).copied().unwrap_or_default();
+                let deregistration_refunds = pools_deregistration_refunds.get(credential).copied().unwrap_or_default();
+                let proposal_deposits_and_withdrawals = dreps_deposits.get(credential).copied().unwrap_or_default();
 
-                // FIXME: DRep voting stake should also include:
-                //
-                // - successful withdrawals ratified at the beginning of the ratification epoch.
-                let voting_stake = account.balance + proposal_deposits + refund;
+                // NOTE: 'proposal_deposits' also include just-ratified withdrawals, if any.
+                let voting_stake = account.balance + proposal_deposits_and_withdrawals + deregistration_refunds;
                 dreps_voting_stake += &voting_stake;
                 st.voting_stake += &voting_stake;
             }
 
-            // NOTE: Delegation to *active* pools
-            //
             // Only accounts delegated to active pools counts towards the active stake.
             if let Some(pool_id) = account.pool
                 && let Some(pool) = pools.get_mut(&pool_id)

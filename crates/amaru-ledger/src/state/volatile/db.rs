@@ -938,7 +938,7 @@ mod tests {
         GovernanceUpdates {
             roots: ProposalsRoots::default(),
             protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeSet::new(),
+            pruned_proposals: BTreeMap::new(),
             payouts: BTreeMap::new(),
             is_dormant_epoch: false,
             constitutional_committee: committee,
