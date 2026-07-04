@@ -14,17 +14,16 @@
 
 use std::ops::Deref;
 
-use amaru_kernel::pool_metadata;
+use ::serde::ser::SerializeStruct;
+use amaru_kernel::{
+    CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, pool_metadata, relay,
+};
+use num::{BigUint, rational::Ratio};
+
 pub mod governance;
 pub mod rewards;
 pub mod serde;
 pub mod stake_distribution;
-
-use ::serde::ser::SerializeStruct;
-use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, relay};
-use num::{BigUint, rational::Ratio};
-
-use crate::store::columns::*;
 
 // ---------------------------------------------------------------- AccountState
 
@@ -95,34 +94,6 @@ impl ::serde::Serialize for PoolState {
         s.serialize_field("voting_stake", &self.voting_stake)?;
         s.serialize_field("vrf_key_hash", &hex::encode(self.parameters.vrf))?;
 
-        s.end()
-    }
-}
-
-// ------------------------------------------------------------------------ Pots
-
-#[derive(Debug)]
-pub struct Pots {
-    /// Value, in Lovelace, of the treasury at a given epoch.
-    pub treasury: Lovelace,
-    /// Value, in Lovelace, of the reserves at a given epoch.
-    pub reserves: Lovelace,
-    /// Values, in Lovelace, generated from fees during an epoch.
-    pub fees: Lovelace,
-}
-
-impl From<&pots::Row> for Pots {
-    fn from(pots: &pots::Row) -> Pots {
-        Pots { treasury: pots.treasury, reserves: pots.reserves, fees: pots.fees }
-    }
-}
-
-impl ::serde::Serialize for Pots {
-    fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("Pots", 3)?;
-        s.serialize_field("treasury", &self.treasury)?;
-        s.serialize_field("reserves", &self.reserves)?;
-        s.serialize_field("fees", &self.fees)?;
         s.end()
     }
 }

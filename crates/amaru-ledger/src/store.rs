@@ -44,13 +44,15 @@ use amaru_kernel::{
 use columns::*;
 use thiserror::Error;
 
-use crate::{epoch_transition::GovernanceActivity, governance::ratification::ProposalsRoots, summary::Pots};
+use crate::{
+    epoch_transition::GovernanceActivity, governance::ratification::ProposalsRoots, store::columns::pots::Row as Pots,
+};
 
 pub mod columns;
 
 mod epoch_transition;
 pub use epoch_transition::{
-    apply_governance_updates, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees,
+    apply_governance_updates, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
     update_constitutional_committee, update_or_retire_pools,
 };
 

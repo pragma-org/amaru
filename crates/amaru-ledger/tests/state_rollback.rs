@@ -204,7 +204,7 @@ impl ReadStore for MockStore {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
-    fn pots(&self) -> amaru_ledger::store::Result<amaru_ledger::summary::Pots> {
+    fn pots(&self) -> amaru_ledger::store::Result<amaru_ledger::store::columns::pots::Row> {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 

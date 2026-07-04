@@ -144,6 +144,10 @@ impl PotsSlice for AssertValidationContext {
         let _span = trace_span!(amaru_observability::amaru::ledger::context::ADD_FEES, fee = fee);
         let _guard = _span.enter();
     }
+
+    fn add_donation(&mut self, _donation: Lovelace) {
+        unimplemented!()
+    }
 }
 
 impl UtxoSlice for AssertValidationContext {

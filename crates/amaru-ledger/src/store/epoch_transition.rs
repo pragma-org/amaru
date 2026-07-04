@@ -94,10 +94,13 @@ pub fn pay_rewards<'store>(
 // ---------------------------------------------------------------------------------- Start of epoch
 // -------------------------------------------------------------------------------------------------
 
-pub fn reset_fees<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
+pub fn reset_fees_and_donations<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
     debug_span!(amaru_observability::amaru::ledger::epoch_transition::RESET_FEES).in_scope(|| {
         db.with_pots(|mut row| {
-            row.borrow_mut().fees = 0;
+            let row = row.borrow_mut();
+            row.fees = 0;
+            row.treasury += row.donations;
+            row.donations = 0;
         })
     })
 }

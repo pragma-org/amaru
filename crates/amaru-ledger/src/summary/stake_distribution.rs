@@ -20,9 +20,9 @@ use tracing::info;
 
 use crate::{
     epoch_transition::PoolsEpochTransitionUpdates,
-    store::{Snapshot, StoreError},
+    store::{Snapshot, StoreError, columns::pots::Row as Pots},
     summary::{
-        AccountState, PoolState, Pots,
+        AccountState, PoolState,
         governance::{DRepState, GovernanceSummary},
         safe_ratio,
         serde::serialize_map,

@@ -32,9 +32,8 @@ use amaru_ledger::{
     state::diff_bind::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext, columns as scolumns,
+        TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
     },
-    summary::Pots,
 };
 use amaru_observability::{info_span, trace_record, trace_span};
 use anyhow::anyhow;
@@ -491,7 +490,7 @@ macro_rules! impl_ReadStore_body {
             }
 
             fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get(|key| self.db.get_pinned(key)).map(|row| Pots::from(&row))
+                pots::get(|key| self.db.get_pinned(key))
             }
 
             fn iter_accounts(

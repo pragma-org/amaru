@@ -97,6 +97,10 @@ impl PotsSlice for DefaultValidationContext {
     fn add_fees(&mut self, fees: Lovelace) {
         self.state.fees += fees;
     }
+
+    fn add_donation(&mut self, donation: Lovelace) {
+        self.state.donations += donation;
+    }
 }
 
 impl UtxoSlice for DefaultValidationContext {

@@ -287,7 +287,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 });
 
                 // Persist changes for this block
-                let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, add, remove, withdrawals } =
+                let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, donations, add, remove, withdrawals } =
                     now_stable.into_store_update(immutable_epoch, protocol_parameters);
 
                 self.stable.lock().unwrap()
@@ -308,7 +308,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                         )?;
 
                         batch.with_pots(|mut row| {
-                            row.borrow_mut().fees += fees;
+                            let row = row.borrow_mut();
+                            row.fees += fees;
+                            row.donations += donations;
                         })?;
 
                         batch.reset_epoch_transition_progress()?;

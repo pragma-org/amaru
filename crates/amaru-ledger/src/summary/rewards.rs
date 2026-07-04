@@ -121,9 +121,9 @@ use tracing::info;
 
 use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
-    store::{Snapshot, StoreError},
+    store::{Snapshot, StoreError, columns::pots::Row as Pots},
     summary::{
-        AccountState, PoolState, Pots, SafeRatio, safe_ratio, serde::serialize_map, serialize_safe_ratio,
+        AccountState, PoolState, SafeRatio, safe_ratio, serde::serialize_map, serialize_safe_ratio,
         stake_distribution::StakeDistribution,
     },
 };
@@ -348,14 +348,13 @@ pub struct RewardsSummary {
 
 impl serde::Serialize for RewardsSummary {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("RewardsSummary", 8)?;
+        let mut s = serializer.serialize_struct("RewardsSummary", 7)?;
         s.serialize_field("epoch", &self.epoch)?;
         s.serialize_field("efficiency", &serialize_safe_ratio(&self.efficiency))?;
         s.serialize_field("incentives", &self.incentives)?;
         s.serialize_field("total_rewards", &self.total_rewards)?;
         s.serialize_field("treasury_tax", &self.treasury_tax)?;
         s.serialize_field("available_rewards", &self.available_rewards)?;
-        s.serialize_field("pots", &self.pots)?;
         serialize_map("pools", &mut s, &self.pools, |id| hex::encode(id))?;
         s.end()
     }

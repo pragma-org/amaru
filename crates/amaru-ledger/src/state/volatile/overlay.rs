@@ -30,7 +30,7 @@ use crate::{
     },
     store::{
         EpochTransitionProgress, Store, TransactionalContext, apply_governance_updates, pay_or_refund_accounts,
-        pay_rewards, reset_blocks_count, reset_fees, update_or_retire_pools,
+        pay_rewards, reset_blocks_count, reset_fees_and_donations, update_or_retire_pools,
     },
 };
 
@@ -157,7 +157,7 @@ impl StateOverlay {
                 let updated = if should_begin_epoch {
                     reset_blocks_count(batch)?;
 
-                    reset_fees(batch)?;
+                    reset_fees_and_donations(batch)?;
 
                     if let Some(mut pools_updates) = mem::take(&mut self.pools_updates) {
                         update_or_retire_pools(batch, pools_updates.take_updated(), pools_updates.take_retired())?;

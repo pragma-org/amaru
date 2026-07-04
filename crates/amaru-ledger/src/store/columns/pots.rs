@@ -15,17 +15,12 @@
 /// This modules captures protocol-wide value pots such as treasury and reserves accounts.
 use amaru_kernel::{Lovelace, cbor};
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Row {
     pub treasury: Lovelace,
     pub reserves: Lovelace,
     pub fees: Lovelace,
-}
-
-impl Row {
-    pub fn new(treasury: Lovelace, reserves: Lovelace, fees: Lovelace) -> Self {
-        Self { treasury, reserves, fees }
-    }
+    pub donations: Lovelace,
 }
 
 impl<C> cbor::encode::Encode<C> for Row {
@@ -34,10 +29,11 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
+        e.array(4)?;
         e.encode_with(self.treasury, ctx)?;
         e.encode_with(self.reserves, ctx)?;
         e.encode_with(self.fees, ctx)?;
+        e.encode_with(self.donations, ctx)?;
         Ok(())
     }
 }
@@ -48,7 +44,8 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         let treasury = d.decode_with(ctx)?;
         let reserves = d.decode_with(ctx)?;
         let fees = d.decode_with(ctx)?;
-        Ok(Row::new(treasury, reserves, fees))
+        let donations = d.decode_with(ctx)?;
+        Ok(Self { treasury, reserves, fees, donations })
     }
 }
 
@@ -64,11 +61,13 @@ mod tests {
             treasury in any::<Lovelace>(),
             reserves in any::<Lovelace>(),
             fees in any::<Lovelace>(),
+            donations in any::<Lovelace>(),
         ) -> Row {
             Row {
                 treasury,
                 reserves,
                 fees,
+                donations,
             }
         }
     }
