@@ -278,21 +278,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let immutable_slot = now_stable.anchor.0.slot();
         let immutable_epoch = unsafe_slot_to_epoch(&self.era_history, immutable_slot);
 
-        // TODO: Flush ledger overlay sooner.
-        //
-        // This is flushing the overlay at the last moment; just before we need to apply a
-        // now-stable block from the new epoch. In principle, that block has been sitting in the
-        // volatile db for a while.
-        //
-        // Hence, we know in advanced that the overlay must be applied. In fact, there can be
-        // between 1s and multiple minutes before the next block. So we could get a head start and
-        // start flushing right away; instead of awaiting for the next block to arrive.
-        if self.volatile.is_epoch_transition_stable() {
-            let db = self.stable.lock().unwrap();
-            self.volatile.apply_transition(&*db)?;
-            self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
-        }
-
         trace_span!(amaru_observability::amaru::ledger::state::APPLY_BLOCK, point_slot = u64::from(immutable_slot)).in_scope(
             || {
                 let protocol_parameters = self.protocol_parameters_for(immutable_epoch).unwrap_or_else(|| unreachable! {
@@ -356,6 +341,28 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             if old_protocol_version != new_protocol_version {
                 info!(from = old_protocol_version.0, to = new_protocol_version.0, "protocol.upgrade")
             }
+        }
+
+        // TODO: Flush ledger overlay sooner.
+        //
+        // This is flushing the overlay at the last moment; just before we need to apply a
+        // now-stable block from the new epoch. In principle, that block has been sitting in the
+        // volatile db for a while.
+        //
+        // Hence, we know in advanced that the overlay must be applied. In fact, there can be
+        // between 1s and multiple minutes before the next block. So we could get a head start and
+        // start flushing right away; instead of awaiting for the next block to arrive.
+        //
+        // However, we have to be careful about restarts. There are scenarios where we must
+        // transition and flush immediately, before we even record the next block to disk. So
+        // here is the safest moment to perform this operation. We may additionally attempt to
+        // do it just after flushing a block to the db (should it be the last block of a
+        // previous epoch).
+        if self.volatile.is_epoch_transition_stable() {
+            #[allow(clippy::unwrap_used)]
+            let db = self.stable.lock().unwrap();
+            self.volatile.apply_transition(&*db)?;
+            self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
         }
 
         Ok(())
