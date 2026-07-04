@@ -109,7 +109,3 @@ pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
 pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
     SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
 }
-
-fn serialize_safe_ratio(r: &SafeRatio) -> String {
-    format!("{}/{}", r.numer(), r.denom())
-}
