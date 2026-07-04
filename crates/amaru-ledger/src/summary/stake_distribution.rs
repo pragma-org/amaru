@@ -77,7 +77,7 @@ impl StakeDistribution {
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
         db: &impl Snapshot,
-        GovernanceSummary { mut dreps, deposits }: GovernanceSummary,
+        GovernanceSummary { mut dreps, pools_deposits, dreps_deposits }: GovernanceSummary,
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
 
@@ -159,53 +159,19 @@ impl StakeDistribution {
         let mut dreps_voting_stake: Lovelace = 0;
 
         for (credential, account) in accounts.iter() {
-            let (drep_deposits, pool_deposits) = deposits
-                .get(credential)
-                .map(|proposals| {
-                    proposals.iter().fold((0, 0), |(drep_deposits, pool_deposits), proposal| {
-                        (
-                            drep_deposits + proposal.deposit,
-                            // NOTE: Pool voting stake distribution
-                            //
-                            // The pool distribution used for computing voting power is
-                            // determined BEFORE refunds or withdrawal are processed.
-                            //
-                            // So unlike the DRep voting stake, which already includes those,
-                            // we mustn't include the deposit as part of the pool voting stake
-                            // for the epoch that immediately follows the expiry.
-                            //
-                            // Note that the refund is eventually credited in the following
-                            // epoch so the deposit is effectively missing from the pools'
-                            // voting stake for an entire epoch.
-                            if epoch <= proposal.valid_until {
-                                pool_deposits + proposal.deposit
-                            } else {
-                                pool_deposits
-                            },
-                        )
-                    })
-                })
-                .unwrap_or((0, 0));
-
             // Only accounts delegated to active dreps counts towards the voting stake.
             if let Some(drep) = &account.drep
                 && let Some(st) = dreps.get_mut(drep)
             {
                 let refund = refunds.get(credential).copied().unwrap_or_default();
+                let proposal_deposits = dreps_deposits.get(credential).copied().unwrap_or_default();
 
                 // FIXME: DRep voting stake should also include:
                 //
-                // - refunds coming from *ratified* proposals, not only expired ones.
-                // - successful withdrawals ratified at the beginning of the ratification
-                //   epoch.
-                //
-                // The problem being that we cannot easily compute those from the current
-                // snapshot, since it requires either:
-                //
-                // - To replay ratification altogether.
-                // - Data from the future (i.e. the next snapshot).
-                dreps_voting_stake += account.balance + drep_deposits + refund;
-                st.voting_stake += account.balance + drep_deposits + refund;
+                // - successful withdrawals ratified at the beginning of the ratification epoch.
+                let voting_stake = account.balance + proposal_deposits + refund;
+                dreps_voting_stake += &voting_stake;
+                st.voting_stake += &voting_stake;
             }
 
             // NOTE: Delegation to *active* pools
@@ -214,6 +180,8 @@ impl StakeDistribution {
             if let Some(pool_id) = account.pool
                 && let Some(pool) = pools.get_mut(&pool_id)
             {
+                let proposal_deposits = pools_deposits.get(credential).copied().unwrap_or_default();
+
                 // NOTE: Pool voting stake distribution
                 //
                 // Governance deposits do not count towards the pools' stake. They are
@@ -222,7 +190,7 @@ impl StakeDistribution {
                 active_stake += &stake;
                 pool.stake += &stake;
 
-                let voting_stake = stake + pool_deposits;
+                let voting_stake = stake + proposal_deposits;
                 pool.voting_stake += &voting_stake;
                 pools_voting_stake += &voting_stake;
             }

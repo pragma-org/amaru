@@ -53,7 +53,7 @@ pub mod columns;
 mod epoch_transition;
 pub use epoch_transition::{
     apply_governance_updates, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
-    update_constitutional_committee, update_or_retire_pools,
+    reset_recently_pruned_proposals, update_constitutional_committee, update_or_retire_pools,
 };
 
 #[derive(Debug, Error)]
@@ -281,6 +281,9 @@ pub trait ReadStore {
     /// Get details about all proposals
     fn iter_proposals(&self) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>>;
 
+    /// Get proposals that were *just* pruned at last epoch boundary. The list changes every epoch.
+    fn iter_recently_pruned_proposals(&self) -> Result<impl Iterator<Item = ComparableProposalId>>;
+
     /// Iterate over constitutional committee members.
     fn iter_cc_members(&self) -> Result<impl Iterator<Item = (cc_members::Key, cc_members::Row)>>;
 
@@ -404,6 +407,12 @@ pub trait TransactionalContext<'a>: ReadStore {
 
     /// Track the current governance activity.
     fn set_governance_activity(&self, dormant_epochs: GovernanceActivity) -> Result<()>;
+
+    /// Record the recently (i.e. last epoch boundary) pruned proposals
+    fn set_recently_pruned_proposals<'iter>(
+        &self,
+        proposals: impl IntoIterator<Item = &'iter ComparableProposalId>,
+    ) -> Result<()>;
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.

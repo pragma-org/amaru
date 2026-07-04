@@ -229,6 +229,10 @@ define_schemas! {
                 optional reserves_delta: i64
             }
 
+            /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
+            /// distribution calculations.
+            public RECORD_PRUNED_PROPOSALS {}
+
             /// Pay withdrawals to accounts, or refund deposits
             public PAY_OR_REFUND_ACCOUNTS {
                 /// Total quantity of ADA paid, excluding treasury leftovers
@@ -559,6 +563,13 @@ define_schemas! {
 
                 /// Remove enacted or expired proposals
                 public PROPOSALS_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Inserting recently pruned proposals
+                public RECENTLY_PRUNED_PROPOSALS_REPLACE_ALL {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String

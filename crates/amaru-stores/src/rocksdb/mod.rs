@@ -545,6 +545,18 @@ macro_rules! impl_ReadStore_body {
                 )
             }
 
+            fn iter_recently_pruned_proposals(
+                &self,
+            ) -> Result<
+                impl Iterator<Item = scolumns::recently_pruned_proposals::Key>,
+                StoreError,
+            > {
+                Ok(iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    recently_pruned_proposals::PREFIX,
+                )?.map(|(key, ())| key))
+            }
+
             fn iter_cc_members(
                 &self,
             ) -> Result<
@@ -705,6 +717,12 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             .put(KEY_GOVERNANCE_ACTIVITY, as_value(governance_activity))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
+    }
+    fn set_recently_pruned_proposals<'iter>(
+        &self,
+        proposals: impl IntoIterator<Item = &'iter ComparableProposalId>,
+    ) -> Result<(), StoreError> {
+        recently_pruned_proposals::replace_all(&self.db, proposals)
     }
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that

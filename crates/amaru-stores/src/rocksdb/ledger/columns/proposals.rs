@@ -28,7 +28,7 @@ use rocksdb::{DBPinnableSlice, Transaction};
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "prop"
-pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
+pub const PREFIX: [u8; PREFIX_LEN] = *b"prop";
 
 /// Retrieve a single governance proposal.
 pub fn get<'a>(

@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, Slot, StakeCredential,
-    TransactionPointer, anchor, expect_stake_credential,
+    Anchor, CertificatePointer, ComparableProposalId, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, Slot,
+    StakeCredential, TransactionPointer, anchor, expect_stake_credential,
 };
 
 use crate::{
@@ -27,7 +27,8 @@ use crate::{
 #[derive(Debug)]
 pub struct GovernanceSummary {
     pub dreps: BTreeMap<DRep, DRepState>,
-    pub deposits: BTreeMap<StakeCredential, Vec<ProposalState>>,
+    pub dreps_deposits: BTreeMap<StakeCredential, Lovelace>,
+    pub pools_deposits: BTreeMap<StakeCredential, Lovelace>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -65,28 +66,49 @@ impl GovernanceSummary {
     pub fn new(db: &impl Snapshot, era_history: &EraHistory) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
-        let mut proposals = BTreeSet::new();
-
-        let mut deposits = BTreeMap::new();
-
         let GovernanceActivity { consecutive_dormant_epochs } = db.governance_activity()?;
 
-        db.iter_proposals()?.try_for_each(|(_, row)| -> Result<(), Error> {
-            let epoch = era_history
+        let mut proposals = BTreeSet::new();
+        let mut dreps_deposits: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+        let mut pools_deposits: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+
+        let recently_pruned_proposals: BTreeSet<ComparableProposalId> = db.iter_recently_pruned_proposals()?.collect();
+
+        db.iter_proposals()?.try_for_each(|(proposal_id, row)| -> Result<(), Error> {
+            let proposed_in = era_history
                 .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
                 .map_err(|e| Error::EraHistoryError(row.proposed_in.transaction.slot, e))?;
 
-            proposals.insert((row.proposed_in.transaction, epoch));
+            proposals.insert((row.proposed_in.transaction, proposed_in));
 
             // Proposals are ratified with an epoch of delay always, so deposits count towards
-            // the voting stake of DRep for an extra epoch following the proposal expiry.
+            // the voting stake for an extra epoch following the proposal expiry.
             if current_epoch <= row.valid_until + 1 {
-                let proposal = || ProposalState { deposit: row.proposal.deposit, valid_until: row.valid_until };
+                let stake_credential = expect_stake_credential(&row.proposal.reward_account);
+                let deposit: u64 = row.proposal.deposit;
 
-                deposits
-                    .entry(expect_stake_credential(&row.proposal.reward_account))
-                    .and_modify(|proposals: &mut Vec<ProposalState>| proposals.push(proposal()))
-                    .or_insert_with(|| vec![proposal()]);
+                // NOTE: Pool voting stake distribution after proposal pruning
+                //
+                // The stake distribution used for computing pools voting power is taken before
+                // refunds or withdrawals are processed. Yet the stake distribution calculation
+                // begins after proposals have been ratified/pruned.
+                //
+                // This means that when proposals are pruned (due to ratification, expiry or a
+                // dependency thereof), the stake corresponding to the associated proposal's deposit
+                // or withdrawals momentarily stops contributing towards the pools voting stake; and
+                // magically re-appear in the next epoch.
+                //
+                // Interestingly, this is only true for stake pools, not for DReps. The DReps voting
+                // stake correctly uses the stake distribution after the refunds / withdrawals have
+                // been processed; so this gap is only observed for stake pools.
+                if current_epoch <= row.valid_until && !recently_pruned_proposals.contains(&proposal_id) {
+                    pools_deposits
+                        .entry(stake_credential.clone())
+                        .and_modify(|total| *total += deposit)
+                        .or_insert(deposit);
+                }
+
+                dreps_deposits.entry(stake_credential).and_modify(|total| *total += deposit).or_insert(deposit);
             }
 
             Ok(())
@@ -126,6 +148,6 @@ impl GovernanceSummary {
         dreps.insert(DRep::Abstain, default_protocol_drep());
         dreps.insert(DRep::NoConfidence, default_protocol_drep());
 
-        Ok(GovernanceSummary { dreps, deposits })
+        Ok(GovernanceSummary { dreps, dreps_deposits, pools_deposits })
     }
 }

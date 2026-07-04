@@ -236,7 +236,7 @@ impl<'distr> RatificationContext<'distr> {
 
             Span::current().record(
                 "pruned_relatives",
-                now_obsolete.iter().map(|id| id.to_compact_string()).collect::<Vec<_>>().join(", "),
+                now_obsolete.keys().map(|id| id.to_compact_string()).collect::<Vec<_>>().join(", "),
             );
 
             self.pruned_proposals.append(&mut now_obsolete);

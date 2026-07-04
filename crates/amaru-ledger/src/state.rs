@@ -462,18 +462,18 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn compute_rewards(&mut self, epoch: Epoch) -> Result<RewardsSummary, StateError> {
-        info_span!(amaru_observability::amaru::ledger::state::COMPUTE_REWARDS, current_epoch = u64::from(epoch))
+    fn compute_rewards(&mut self, current_epoch: Epoch) -> Result<RewardsSummary, StateError> {
+        info_span!(amaru_observability::amaru::ledger::state::COMPUTE_REWARDS, current_epoch = u64::from(current_epoch))
             .in_scope(|| {
                 let mut stake_distributions = self.stake_distributions.lock().unwrap();
                 let stake_distribution =
                     stake_distributions.pop_back().ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
 
-                assert_eq!(stake_distribution.epoch, epoch - 3, "unexpected stake distribution for epoch");
+                assert_eq!(stake_distribution.epoch, current_epoch - 3, "unexpected stake distribution for epoch");
 
                 Span::current().record("stake_distribution_epoch", u64::from(stake_distribution.epoch));
 
-                let snapshot = self.snapshots.for_epoch(epoch - 1)?;
+                let snapshot = self.snapshots.for_epoch(current_epoch - 1)?;
 
                 let rewards_summary = RewardsSummary::new(
                     &snapshot,

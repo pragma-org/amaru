@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem;
+use std::{collections::BTreeSet, mem};
 
 use amaru_kernel::{ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential, TermLimit};
 use amaru_observability::info_span;
@@ -30,7 +30,8 @@ use crate::{
     },
     store::{
         EpochTransitionProgress, Store, TransactionalContext, apply_governance_updates, pay_or_refund_accounts,
-        pay_rewards, reset_blocks_count, reset_fees_and_donations, update_or_retire_pools,
+        pay_rewards, reset_blocks_count, reset_fees_and_donations, reset_recently_pruned_proposals,
+        update_or_retire_pools,
     },
 };
 
@@ -125,6 +126,7 @@ impl StateOverlay {
                 if should_end_epoch {
                     if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
                         pay_rewards(batch, effective_rewards)?;
+                        reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
                     } else {
                         return Err(StateError::NoEffectiveRewards);
                     }
@@ -258,8 +260,14 @@ impl StateOverlay {
 
     /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or
     /// dropped). Like pool reaping, this short-circuits before the stale stable entry.
-    pub fn is_proposal_pruned(&self, id: &ComparableProposalId) -> bool {
-        self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains(id))
+    pub fn has_pruned_proposal(&self, proposal: &ComparableProposalId) -> bool {
+        self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains(proposal))
+    }
+
+    /// The set of all pruned proposals from the epoch boundary (because they expired, were
+    /// ratified, or evicted due to another ratification).
+    pub fn pruned_proposals(&self) -> BTreeSet<&ComparableProposalId> {
+        self.governance_updates.as_ref().map(|updates| updates.pruned_proposals.iter().collect()).unwrap_or_default()
     }
 
     /// The pending governance roots from the boundary transition, if any.

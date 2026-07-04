@@ -159,7 +159,7 @@ impl VolatileState for VolatileDB {
     fn resolve_proposal(&self, id: &ComparableProposalId) -> Self::Proposal {
         if let Existence::Exists(proposal) = self.current.resolve_proposal(id) {
             Existence::Exists(proposal)
-        } else if self.overlay.is_proposal_pruned(id) {
+        } else if self.overlay.has_pruned_proposal(id) {
             Existence::Gone
         } else {
             self.draining.resolve_proposal(id)
