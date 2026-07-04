@@ -131,9 +131,12 @@ impl StakeDistribution {
                             let PoolState { registered_at, .. } = pools.get(&pool)?;
                             if &since >= registered_at { Some(pool) } else { None }
                         }),
-                        drep: row.drep.and_then(|(drep, _)| match drep {
+                        drep: row.drep.and_then(|(drep, since)| match drep {
                             DRep::Abstain | DRep::NoConfidence => Some(drep),
-                            DRep::Key { .. } | DRep::Script { .. } => dreps.contains_key(&drep).then_some(drep),
+                            DRep::Key { .. } | DRep::Script { .. } => {
+                                let DRepState { registered_at, .. } = dreps.get(&drep)?;
+                                if &since >= registered_at { Some(drep) } else { None }
+                            }
                         }),
                     },
                 )
