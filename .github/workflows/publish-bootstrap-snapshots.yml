@@ -72,6 +72,7 @@ jobs:
           echo ENVIRONMENT
           env | sort
           echo '-----------'
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           if [ -n "$INPUT_EPOCH" ]; then
             if ! [[ "$INPUT_EPOCH" =~ ^[0-9]+$ ]] || [ "$INPUT_EPOCH" -eq 0 ]; then
               echo "::error::epoch must be a positive integer (non-zero), got '$INPUT_EPOCH'" >&2
