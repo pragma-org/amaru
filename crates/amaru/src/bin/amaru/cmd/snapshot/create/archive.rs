@@ -18,7 +18,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use flate2::{Compression, GzBuilder};
 use tar::{Builder, Header};
 
 use super::EpochTarget;
@@ -28,7 +27,7 @@ pub(super) fn snapshot_path_for_target(snapshot_root: &Path, target: &EpochTarge
 }
 
 pub(super) fn archive_path_for_target(snapshot_root: &Path, target: &EpochTarget) -> PathBuf {
-    snapshot_root.join(format!("{}.{}.tar.gz", target.slot, target.hash))
+    snapshot_root.join(format!("{}.{}.tar.zst", target.slot, target.hash))
 }
 
 pub(super) fn materialize_snapshot(
@@ -78,7 +77,7 @@ fn build_snapshot_archive<W: io::Write>(snapshot_dir: &Path, writer: W) -> Resul
         .to_string_lossy()
         .into_owned();
 
-    let encoder = GzBuilder::new().mtime(0).write(writer, Compression::default());
+    let encoder = zstd::Encoder::new(writer, 0)?;
     let mut tar = Builder::new(encoder);
 
     append_directory_entry(&mut tar, Path::new(&root_name))?;

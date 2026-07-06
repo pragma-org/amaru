@@ -35,6 +35,7 @@ use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
 use flate2::read::GzDecoder;
+use zstd::Decoder as ZstdDecoder;
 use futures_util::TryStreamExt;
 use num::CheckedSub;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
@@ -484,7 +485,7 @@ fn extract_snapshot_archive(
     std::fs::create_dir_all(extract_path)?;
 
     let archive_file = std::fs::File::open(archive_path)?;
-    let mut archive = Archive::new(GzDecoder::new(archive_file));
+    let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
     archive.unpack(extract_path)?;
 
     let extracted_dir = find_extracted_snapshot_dir(extract_path)?
