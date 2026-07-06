@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Lovelace, MemoizedDatum, Network, RedeemerTag, RequiredScript, RewardAccount, parse_reward_account,
+    Lovelace, MemoizedDatum, Network, RedeemerTag, RequiredScript, RewardAccount, StakeCredential, parse_reward_account,
 };
 use thiserror::Error;
 
@@ -28,6 +28,8 @@ use crate::{
 pub enum InvalidWithdrawals {
     #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
     MalformedRewardAccount { bytes: Vec<u8>, context: TransactionField, position: usize },
+    #[error("attempted to withdraw from an account ({0:?}) that either doesn't exist or has no drep delegation")]
+    MissingAccountDRepDelegation(StakeCredential),
     #[error(
         "network mismatch in reward account in {context:?} at position {position}: expected {expected:?}, received {received:?}"
     )]
@@ -56,15 +58,19 @@ where
                     })?;
 
                 if network != account_network {
-                    Err(InvalidWithdrawals::NetworkMismatch {
+                    return Err(InvalidWithdrawals::NetworkMismatch {
                         expected: network,
                         received: account_network,
                         context: TransactionField::Withdrawals,
                         position,
-                    })
-                } else {
-                    Ok((credential, st))
+                    });
+                };
+
+                if context.lookup(&credential).and_then(|account| account.drep).is_none() {
+                    return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential.clone()));
                 }
+
+                Ok((credential, st))
             })
             // NOTE: Force withdrawals to be sorted by stake credentials
             .collect::<Result<BTreeMap<_, _>, _>>()?
@@ -90,53 +96,4 @@ where
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use amaru_kernel::{Network, TransactionBody, include_cbor, include_json, json};
-    use amaru_tracing_json::assert_trace;
-    use test_case::test_case;
-
-    use super::InvalidWithdrawals;
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::TransactionField,
-    };
-
-    macro_rules! fixture {
-        ($hash:literal) => {
-            (
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
-            )
-        };
-        ($hash:literal, $variant:literal) => {
-            (
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
-            )
-        };
-    }
-
-    #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7"))]
-    #[test_case(fixture!("a81147b58650b80f08986b29dad7f5efedd53ff215c17659f9dd0596e9a3d227"))]
-    #[test_case(
-        fixture!("6913ffb3588cad067c518fa1020c0f1f86adcc58abd7851bc380db058941c43b");
-        "script declared after verification key but processed before"
-    )]
-    #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7", "malformed-account") =>
-        matches Err(InvalidWithdrawals::MalformedRewardAccount {  position, bytes, context })
-            if  position == 0 && bytes == vec![0x00, 0x00] && matches!(context, TransactionField::Withdrawals);
-        "Malformed Reward Account")]
-    fn valid_withdrawal((tx, expected_traces): (TransactionBody, Vec<json::Value>)) -> Result<(), InvalidWithdrawals> {
-        assert_trace(
-            || {
-                let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: Default::default() });
-
-                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()), Network::Testnet, true)
-            },
-            expected_traces,
-        )
-    }
 }

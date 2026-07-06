@@ -177,6 +177,7 @@ pub(super) enum Predicate {
     BadInputsUTxO,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
+    ConwayWdrlNotDelegatedToDRep,
     FeeTooSmallUTxO,
     IncorrectDepositDELEG,
     InputSetEmptyUTxO,
@@ -216,6 +217,9 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::MissingVKeyWitnessesUTXOW
             }
             PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
+            PhaseOneError::Withdrawals(InvalidWithdrawals::MissingAccountDRepDelegation(_)) => {
+                Predicate::ConwayWdrlNotDelegatedToDRep
+            }
             PhaseOneError::Metadata(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(_)) => {
                 Predicate::MissingTxBodyMetadataHash
             }
