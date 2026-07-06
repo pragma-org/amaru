@@ -157,7 +157,6 @@ impl ExternalEffectAPI for ValidateTxEffect {
 pub struct ValidateBlockEffect {
     peer: Peer,
     point: Point,
-    #[serde(skip, default)]
     trace_context: TraceContext,
 }
 
@@ -206,7 +205,6 @@ impl ExternalEffectAPI for ValidateBlockEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateHeaderEffect {
     header: BlockHeader,
-    #[serde(skip, default)]
     trace_context: TraceContext,
 }
 
@@ -243,7 +241,6 @@ impl ExternalEffectAPI for ValidateHeaderEffect {
 pub struct RollbackBlockEffect {
     peer: Peer,
     point: Point,
-    #[serde(skip, default)]
     trace_context: TraceContext,
 }
 

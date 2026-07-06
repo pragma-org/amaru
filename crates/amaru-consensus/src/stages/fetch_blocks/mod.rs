@@ -15,9 +15,9 @@
 use std::time::Duration;
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
+    cardano::network_block::NetworkBlock, BlockHeader, BlockHeight, HeaderHash, IsHeader, Peer, Point, Tip, ORIGIN_HASH,
 };
-use amaru_observability::{TraceContext, debug_span};
+use amaru_observability::{debug_span, TraceContext};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
@@ -26,7 +26,7 @@ use tracing::Instrument;
 use crate::stages::{
     block_source::BlockSourceMsg,
     peer_selection::PeerSelectionMsg,
-    select_chain::{SelectChainMsg, load_parent_point},
+    select_chain::{load_parent_point, SelectChainMsg},
 };
 
 // TODO make configurable
@@ -114,7 +114,6 @@ pub struct FetchBlocks {
     block_height: BlockHeight,
     /// Trace context originating from the reception of a new tip. Additional spans created by
     /// this stage are children of that context
-    #[serde(skip, default)]
     trace_context: Option<TraceContext>,
 }
 
@@ -394,7 +393,6 @@ pub struct DownloadedBlock {
     pub tip: Tip,
     pub parent: Point,
     pub max_block_height: BlockHeight,
-    #[serde(skip, default)]
     pub trace_context: TraceContext,
 }
 
@@ -406,13 +404,8 @@ impl DownloadedBlock {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
-    NewTip {
-        tip: Tip,
-        parent: Point,
-        #[serde(skip, default)]
-        trace_context: TraceContext,
-    },
-    RecoverStoredBlocks(HeaderHash, #[serde(skip, default)] TraceContext),
+    NewTip { tip: Tip, parent: Point, trace_context: TraceContext },
+    RecoverStoredBlocks(HeaderHash, TraceContext),
     Block(Peer, NetworkBlock),
     Timeout(u64),
 }

@@ -79,7 +79,6 @@ pub struct ValidateBlockMsg {
     tip: Tip,
     parent: Point,
     max_block_height: BlockHeight,
-    #[serde(skip, default)]
     trace_context: TraceContext,
 }
 

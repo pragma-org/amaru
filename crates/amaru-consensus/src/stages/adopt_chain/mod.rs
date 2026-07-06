@@ -118,7 +118,6 @@ impl AdoptChain {
 pub struct AdoptChainMsg {
     tip: Tip,
     max_block_height: BlockHeight,
-    #[serde(skip, default)]
     trace_context: TraceContext,
 }
 

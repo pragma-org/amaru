@@ -480,7 +480,6 @@ impl ExternalEffectAPI for LoadHeaderEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LoadTipEffect {
     hash: HeaderHash,
-    #[serde(skip, default)]
     trace_context: TraceContext,
 }
 

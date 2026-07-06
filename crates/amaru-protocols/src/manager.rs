@@ -73,7 +73,7 @@ pub enum ManagerMessage {
     /// Fetch all blocks on the given chain fragment
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64 },
     /// Advertise this new tip to all downstream peers.
-    NewTip(Tip, #[serde(skip, default)] TraceContext),
+    NewTip(Tip, TraceContext),
     /// INTERNAL message sent by the connect handler stage after attempting a connection.
     ConnectionResult(Peer, Result<ConnectionId, ConnectError>),
     /// INTERNAL message sent from the connection stage only!

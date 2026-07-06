@@ -227,7 +227,7 @@ pub enum PeerSelectionMsg {
     ///
     /// This peer will be removed and banned for some time period; static peers are banned
     /// shorter than non-static peers.
-    Adversarial(Peer, #[serde(skip, default)] TraceContext),
+    Adversarial(Peer, TraceContext),
     /// Manually add a peer, mostly for testing.
     AddPeer(Peer),
     /// The cooldown period for a peer has ended, and the peer can be re-added.

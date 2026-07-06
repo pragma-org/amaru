@@ -153,10 +153,12 @@ fn test_new_tip_blocks_to_fetch() {
         schedule_id,
     );
     state_with_timeout.block_height = BlockHeight::from(3);
+    state_with_timeout.trace_context = Some(Default::default());
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
         state.missing = None;
         state.timeout = None;
+        state.trace_context = None;
         state
     };
     assert_trace(

@@ -177,7 +177,6 @@ pub enum TrackPeersMsg {
 pub struct NewTip {
     pub tip: Tip,
     pub parent: Point,
-    #[serde(skip, default)]
     pub trace_context: TraceContext,
 }
 
@@ -442,8 +441,8 @@ impl TrackPeers {
                         eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
                     }
                 }
-                .instrument(span)
-                .await
+                    .instrument(span)
+                    .await
             }
         }
     }
@@ -476,7 +475,7 @@ impl TrackPeers {
         if min_ledger_slot > self.ledger_applied_slot
             && let now = eff.clock().await
             && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
-                || self.ledger_applied_slot == Slot::from(0))
+            || self.ledger_applied_slot == Slot::from(0))
         {
             self.ledger_last_checked_at = now;
             self.ledger_applied_slot = ledger_applied_slot(eff).await;

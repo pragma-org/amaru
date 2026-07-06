@@ -113,7 +113,7 @@ pub enum ConnectionMessage {
     Disconnect,
     Handshake(HandshakeResult),
     FetchBlocks { from: Point, through: Point, id: u64, cr: StageRef<Blocks> },
-    NewTip(Tip, #[serde(skip, default)] TraceContext),
+    NewTip(Tip, TraceContext),
     // LATER: make full duplex, etc.
 }
 

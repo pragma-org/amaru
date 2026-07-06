@@ -118,7 +118,7 @@ pub enum SelectChainMsg {
     BlockValidationResult(Tip, bool),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
-    FetchNextFrom(Point, #[serde(skip, default)] TraceContext),
+    FetchNextFrom(Point, TraceContext),
 }
 
 impl SelectChainMsg {
@@ -352,7 +352,6 @@ impl SelectChain {
 pub struct NewBestTip {
     pub tip: Tip,
     pub parent: Point,
-    #[serde(skip, default)]
     pub trace_context: TraceContext,
 }
 

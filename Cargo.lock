@@ -412,6 +412,8 @@ dependencies = [
  "amaru-observability-macros",
  "inventory",
  "opentelemetry",
+ "serde",
+ "serde_json",
  "tracing",
  "tracing-opentelemetry",
 ]
