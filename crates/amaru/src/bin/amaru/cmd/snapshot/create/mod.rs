@@ -41,7 +41,6 @@ use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
 
-const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
 const PACKAGED_BLOCKS_FILE_NAME: &str = "bootstrap.blocks.json";
 
 #[derive(Debug, Parser)]
@@ -266,7 +265,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     // Fail fast: every target except the oldest must carry a parent_point, since
     // bootstrap packages headers for the 2nd and 3rd snapshots from it. Without
-    // this, create-snapshots succeeds but bootstrap later fails for want of the
+    // this, create-bootstrap-snapshots succeeds but bootstrap later fails for want of the
     // packaged bootstrap.headers.json.
     if let Some(target) = targets.iter().skip(1).find(|target| target.parent_point.is_none()) {
         return Err(format!(
@@ -358,7 +357,7 @@ fn process_target(
 
     info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), "materializing bootstrap snapshot directory");
     materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
-    write_packaged_headers(target, context.immutable_dir, &prepared_snapshot_path)?;
+    write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
 
     info!(epoch = %target.epoch, slot = %target.slot, archive = %prepared_archive_path.display(), "packaging snapshot archive");
     write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
@@ -368,17 +367,11 @@ fn process_target(
     Ok(target.slot)
 }
 
-fn write_manifest(
-    network: NetworkName,
-    targets: &[EpochTarget],
-) -> Result<(), Box<dyn std::error::Error>> {
+fn write_manifest(network: NetworkName, targets: &[EpochTarget]) -> Result<(), Box<dyn std::error::Error>> {
     let path = manifest_path(network);
 
-    let mut entries: Vec<ManifestEntry> = if path.is_file() {
-        serde_json::from_slice(&fs::read(&path)?)?
-    } else {
-        Vec::new()
-    };
+    let mut entries: Vec<ManifestEntry> =
+        if path.is_file() { serde_json::from_slice(&fs::read(&path)?)? } else { Vec::new() };
 
     for target in targets {
         let new_entry = ManifestEntry {
@@ -437,17 +430,16 @@ fn resolve_or_create_snapshot_dir(
         .ok_or_else(|| format!("db-analyser did not create snapshot directory for slot {}", target.slot).into())
 }
 
-fn write_packaged_headers(
+fn write_packaged_blocks(
     target: &EpochTarget,
     immutable_dir: &Path,
     prepared_snapshot_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (headers, blocks) = packaged_headers_for_target(immutable_dir, target.parent_point)?;
-    if headers.is_empty() {
+    let blocks = packaged_blocks_for_target(immutable_dir, target.parent_point)?;
+    if blocks.is_empty() {
         return Ok(());
     }
 
-    fs::write(prepared_snapshot_path.join(PACKAGED_HEADERS_FILE_NAME), serde_json::to_vec_pretty(&headers)?)?;
     fs::write(prepared_snapshot_path.join(PACKAGED_BLOCKS_FILE_NAME), serde_json::to_vec_pretty(&blocks)?)?;
 
     Ok(())
@@ -491,7 +483,7 @@ fn remove_path_if_exists(path: &Path, kind: &'static str) -> Result<(), Box<dyn 
         return Ok(());
     }
 
-    info!(path = %path.display(), kind, "removing existing create-snapshots output");
+    info!(path = %path.display(), kind, "removing existing create-bootstrap-snapshots output");
 
     if fs::symlink_metadata(path)?.is_dir() {
         fs::remove_dir_all(path)?;
@@ -519,17 +511,16 @@ pub(super) fn repo_root() -> PathBuf {
     manifest_dir.parent().and_then(Path::parent).unwrap_or(manifest_dir.as_path()).to_path_buf()
 }
 
-fn packaged_headers_for_target(
+fn packaged_blocks_for_target(
     immutable_dir: &Path,
     parent_point: Option<Point>,
-) -> Result<(Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let Some(parent_point) = parent_point else {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok(Vec::new());
     };
 
     let parent_hash = parent_point.hash();
     let mut found_parent = false;
-    let mut headers = Vec::with_capacity(2);
     let mut blocks = Vec::with_capacity(2);
 
     for block in iter_immutable_blocks(immutable_dir)? {
@@ -539,9 +530,8 @@ fn packaged_headers_for_target(
                 found_parent = true;
             }
         } else {
-            headers.push(hex::encode(&block.header_cbor));
             blocks.push(hex::encode(&block.raw_block));
-            if headers.len() == 2 {
+            if blocks.len() == 2 {
                 break;
             }
         }
@@ -555,15 +545,15 @@ fn packaged_headers_for_target(
         .into());
     }
 
-    if headers.len() < 2 {
+    if blocks.len() < 2 {
         return Err(format!(
-            "could not package 2 bootstrap headers after parent point {parent_point} (found {} blocks)",
-            headers.len()
+            "could not package 2 bootstrap blocks after parent point {parent_point} (found {} blocks)",
+            blocks.len()
         )
         .into());
     }
 
-    Ok((headers, blocks))
+    Ok(blocks)
 }
 
 #[cfg(test)]

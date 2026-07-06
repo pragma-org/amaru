@@ -117,7 +117,6 @@ pub enum BootstrapError {
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
-const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
 const PACKAGED_BLOCKS_FILE_NAME: &str = "bootstrap.blocks.json";
 
 fn snapshot_directory_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
@@ -172,10 +171,7 @@ fn select_bootstrap_snapshots<'a>(
     // When auto-selecting (no explicit epoch), only consider snapshots that are available:
     // either published (have a URL) or already present locally on disk.
     let candidate_snapshots: Vec<&Snapshot> = if target_epoch.is_none() {
-        snapshots
-            .iter()
-            .filter(|s| !s.url.is_empty() || resolve_snapshot_path(snapshots_dir, s).is_some())
-            .collect()
+        snapshots.iter().filter(|s| !s.url.is_empty() || resolve_snapshot_path(snapshots_dir, s).is_some()).collect()
     } else {
         snapshots.iter().collect()
     };
@@ -531,7 +527,8 @@ pub async fn bootstrap(
     target_epoch: Option<Epoch>,
 ) -> Result<(), Box<dyn Error>> {
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
-    let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, &snapshots_dir, target_epoch)?;
+    let [first_snapshot, second_snapshot, third_snapshot] =
+        select_bootstrap_snapshots(&snapshots, &snapshots_dir, target_epoch)?;
 
     download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir).await?;
 
@@ -560,60 +557,22 @@ pub async fn bootstrap(
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
-    let headers = load_packaged_headers_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
-    import_headers(&chain_db, headers).await?;
     let blocks = load_packaged_blocks_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
-    import_blocks(&chain_db, blocks).await?;
+    import_packaged_blocks(&chain_db, blocks).await?;
 
     Ok(())
 }
 
-fn load_packaged_headers_for_bootstrap(
-    second_snapshot_path: &Path,
-    third_snapshot_path: &Path,
-) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-    let mut headers = load_packaged_headers_from_snapshot(second_snapshot_path)?;
-    headers.extend(load_packaged_headers_from_snapshot(third_snapshot_path)?);
-    Ok(headers)
-}
-
-fn load_packaged_headers_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-    let headers_file = snapshot_path.join(PACKAGED_HEADERS_FILE_NAME);
-    if !headers_file.is_file() {
-        return Err(format!(
-            "missing packaged bootstrap headers at {}. Re-generate snapshots with `amaru create-snapshots`.",
-            headers_file.display()
-        )
-        .into());
-    }
-
-    let hex_headers: Vec<String> = serde_json::from_slice(&std::fs::read(&headers_file)?)?;
-    if hex_headers.len() < BOOTSTRAP_HEADERS_PER_POINT {
-        return Err(format!(
-            "packaged bootstrap headers at {} contain {} headers; expected at least {}.",
-            headers_file.display(),
-            hex_headers.len(),
-            BOOTSTRAP_HEADERS_PER_POINT
-        )
-        .into());
-    }
-
-    let mut headers = Vec::with_capacity(hex_headers.len());
-    for hex_header in hex_headers {
-        headers.push(hex::decode(hex_header)?);
-    }
-
-    Ok(headers)
-}
-
-pub async fn import_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for block in blocks {
         let header_cbor = extract_block_header_cbor(&block)?;
-        let block_header: BlockHeader = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+        let block_header: BlockHeader =
+            from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
         let hash = block_header.hash();
 
-        info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting block");
+        info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting block and header");
 
+        db.store_header(&block_header)?;
         db.store_block(&hash, &RawBlock::from(block.as_slice()))?;
     }
 
@@ -633,7 +592,7 @@ fn load_packaged_blocks_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u8
     let blocks_file = snapshot_path.join(PACKAGED_BLOCKS_FILE_NAME);
     if !blocks_file.is_file() {
         return Err(format!(
-            "missing packaged bootstrap blocks at {}. Re-generate snapshots with `amaru create-snapshots`.",
+            "missing packaged bootstrap blocks at {}. Re-generate snapshots with `amaru create-bootstrap-snapshots`.",
             blocks_file.display()
         )
         .into());
@@ -657,7 +616,6 @@ fn load_packaged_blocks_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u8
 
     Ok(blocks)
 }
-
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
 where
@@ -1156,7 +1114,8 @@ mod tests {
             },
         ];
 
-        let err = select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), Some(Epoch::from(166_u64))).unwrap_err();
+        let err =
+            select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), Some(Epoch::from(166_u64))).unwrap_err();
         let err = err.to_string();
 
         assert!(err.contains("target epoch 166"));
@@ -1172,7 +1131,8 @@ mod tests {
             url: "https://example.com/1.tar.gz".to_string(),
             parent_point: None,
         }];
-        let err = select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), Some(Epoch::from(2_u64))).unwrap_err();
+        let err =
+            select_bootstrap_snapshots(&snapshots, Path::new("/nonexistent"), Some(Epoch::from(2_u64))).unwrap_err();
         assert!(dbg!(err.to_string()).contains("target epoch is too young"));
     }
 
