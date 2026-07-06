@@ -74,6 +74,7 @@ Other guiding principles:
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
 - **amaru**: no more separate `amaru-ledger` binary; associated commands have been moved into the main `amaru` binary under `amaru dev ledger`. ([#1064](https://github.com/pragma-org/amaru/pull/1064))
 
+- **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][])
 
 ### Fixed
 
@@ -198,6 +199,7 @@ Other guiding principles:
 [#820]: https://github.com/pragma-org/amaru/pull/820
 [#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
+[#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
@@ -223,6 +225,7 @@ Other guiding principles:
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
+[#1011]: https://github.com/pragma-org/amaru/pull/1011
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
