@@ -28,7 +28,7 @@ use clap::{ArgAction, Parser};
 use num::{CheckedAdd, CheckedSub};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tracing::info;
+use tracing::{info, warn};
 
 mod archive;
 mod config;
@@ -308,7 +308,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         previous_snapshot_slot = Some(process_target(target, previous_snapshot_slot, &context)?);
     }
 
-    write_manifest(network, &snapshot_output_dir, &targets)?;;
+    write_manifest(network, &snapshot_output_dir, &targets)?;
 
     Ok(())
 }
@@ -409,13 +409,31 @@ fn resolve_or_create_snapshot_dir(
         "creating ledger snapshot with db-analyser"
     );
 
-    run_db_analyser(
+    if let Err(err) = run_db_analyser(
         context.db_analyser_binary,
         context.config_dir,
         context.cardano_node_db,
         target.slot,
         analyse_from,
-    )?;
+    ) {
+        if analyse_from.is_some() {
+            warn!(
+                epoch = %target.epoch,
+                slot = %target.slot,
+                error = %err,
+                "db-analyser failed with stored resume snapshot; retrying from scratch"
+            );
+            run_db_analyser(
+                context.db_analyser_binary,
+                context.config_dir,
+                context.cardano_node_db,
+                target.slot,
+                None,
+            )?;
+        } else {
+            return Err(err);
+        }
+    }
 
     exact_snapshot_dir(ledger_snapshot_dir, target.slot)
         .ok_or_else(|| format!("db-analyser did not create snapshot directory for slot {}", target.slot).into())
