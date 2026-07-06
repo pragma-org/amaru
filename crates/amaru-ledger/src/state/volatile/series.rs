@@ -54,6 +54,7 @@ use crate::state::{
 /// recompute.
 const DEFAULT_FORCED_RECOMPUTE_IN: usize = 1080;
 
+#[derive(Debug)]
 pub struct VolatileSeries {
     forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
@@ -162,21 +163,6 @@ impl VolatileSequence for VolatileSeries {
         self.aggregate.compose(&item.fragment);
         self.sequence.push_back(item);
     }
-
-    fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
-        let ix = self.sequence.binary_search_by_key(point, |anchored| anchored.point()).map_err(|_| point)?;
-
-        self.sequence.truncate(ix + 1);
-        self.recompute_aggregate();
-
-        Ok(())
-    }
-
-    fn clear(&mut self) {
-        self.sequence.clear();
-        self.aggregate = Default::default();
-        self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
-    }
 }
 
 impl VolatileSeries {
@@ -197,6 +183,18 @@ impl VolatileSeries {
 
             self.aggregate = aggregate;
         });
+    }
+
+    pub fn rollback_to(&mut self, point: &Point) -> Result<VecDeque<AnchoredVolatileFragment>, String> {
+        let ix = self.sequence.binary_search_by_key(point, |anchored| anchored.point()).map_err(|e| e.to_string())?;
+        let recovery = self.sequence.split_off(ix + 1);
+        self.recompute_aggregate();
+        Ok(recovery)
+    }
+
+    pub fn recover(&mut self, recovery: VecDeque<AnchoredVolatileFragment>) {
+        self.sequence.extend(recovery);
+        self.recompute_aggregate();
     }
 }
 

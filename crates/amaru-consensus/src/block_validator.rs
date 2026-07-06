@@ -61,7 +61,12 @@ impl<S: Store, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     pub fn new(state: State<S, HS>, vm_eval_pool: ArenaPool, chain_store: Arc<dyn ChainStore>) -> Self {
         Self { state: Arc::new(Mutex::new(state)), vm_eval_pool, chain_store }
     }
+}
 
+impl<S: Store, HS: HistoricalStores> BlockValidator<S, HS>
+where
+    HS: Send,
+{
     #[expect(clippy::unwrap_used)]
     pub fn get_tip(&self) -> Point {
         let state = self.state.lock().unwrap();
@@ -103,7 +108,8 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBloc
             FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
                 let mut state = self.state.lock().unwrap();
                 let mut ledger_metrics = LedgerMetrics::default();
-                state.rollback_to(&fork_point).map_err(|error| BlockValidationError::from(anyhow!(error)))?;
+                let state_recovery =
+                    state.rollback_to(&fork_point).map_err(|error| BlockValidationError::from(anyhow!(error)))?;
                 for point in forward_points.iter() {
                     let block = self
                         .chain_store
@@ -118,6 +124,7 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBloc
                             ledger_metrics = metrics;
                         }
                         BlockValidation::Invalid(_, _, details) => {
+                            state.recover(state_recovery);
                             return Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))));
                         }
                         BlockValidation::Err(err) => return Err(BlockValidationError::new(anyhow!(err))),

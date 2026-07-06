@@ -99,8 +99,6 @@ impl Default for Config {
             listen_address: "0.0.0.0:3000".to_string(),
             migrate_chain_db: false,
             submit_api_address: None,
-            ledger_vm_alloc_arena_count: 3,
-            ledger_vm_alloc_arena_size: 20_971_520,
             defer_req_next_poll_ms: 200,
             peer_removal_cooldown_secs: DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
             block_source_max_tip_distance: 2_500,
@@ -147,8 +145,8 @@ impl Default for LedgerConfig {
             era_history: PREPROD_ERA_HISTORY.clone(),
             global_parameters: PREPROD_GLOBAL_PARAMETERS.clone(),
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
-            ledger_vm_alloc_arena_count: 1,
-            ledger_vm_alloc_arena_size: 1_024_000,
+            ledger_vm_alloc_arena_count: 3,
+            ledger_vm_alloc_arena_size: 20_971_520,
         }
     }
 }

@@ -106,6 +106,44 @@ fn rollback_after_volatile_front_is_rejected() {
     assert_eq!(*state.tip(), point(100, 1), "tip is unchanged after a rejected rollback");
 }
 
+#[test]
+fn recover_restores_a_partial_volatile_rollback() {
+    let mut state = make_state();
+    let point1 = point(100, 1);
+    let point2 = point(200, 2);
+
+    forward_to(&mut state, point1, 1);
+    forward_to(&mut state, point2, 2);
+    assert_eq!(*state.tip(), point2);
+
+    // Rolling back within the volatile window discards `point2`
+    let recovery = state.rollback_to(&point1).unwrap();
+    assert_eq!(*state.tip(), point1);
+
+    // And recovering puts it back, restoring the tip.
+    state.recover(recovery);
+    assert_eq!(*state.tip(), point2, "tip is restored after recovering a partial rollback");
+}
+
+#[test]
+fn recover_restores_a_whole_volatile_db_rollback() {
+    let mut state = make_state();
+    let point1 = point(100, 1);
+    let point2 = point(200, 2);
+
+    forward_to(&mut state, point1, 1);
+    forward_to(&mut state, point2, 2);
+    assert_eq!(*state.tip(), point2);
+
+    // Rolling back to the immutable tip clears the whole volatile DB
+    let recovery = state.rollback_to(&Point::Origin).unwrap();
+    assert_eq!(*state.tip(), Point::Origin);
+
+    // And recovering restores the entire volatile DB, including the tip.
+    state.recover(recovery);
+    assert_eq!(*state.tip(), point2, "tip is restored after recovering a whole volatileDB rollback");
+}
+
 // HELPERS
 
 /// Create an initial ledger state

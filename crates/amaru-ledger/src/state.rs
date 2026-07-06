@@ -44,7 +44,8 @@ use crate::{
         block::{BlockValidation, TransactionInvalid},
     },
     state::volatile::{
-        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
+        AnchoredVolatileFragment, StateRecovery, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence,
+        VolatileView,
     },
     store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -821,6 +822,18 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         })
     }
 
+    /// Restore the volatile db to its state prior to a rollback.
+    pub fn recover(&mut self, state_recovery: StateRecovery) {
+        match state_recovery {
+            StateRecovery::RecoverWholeVolatileDB { volatile } => {
+                self.volatile = *volatile;
+            }
+            StateRecovery::RecoverVolatileDBPart { recovery } => {
+                self.volatile.recover(*recovery);
+            }
+        }
+    }
+
     fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
         let slot = point.slot_or_default();
 
@@ -858,7 +871,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         }
     }
 
-    pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
+    pub fn rollback_to(&mut self, to: &Point) -> Result<StateRecovery, BackwardError> {
         info_span!(ledger::state::ROLL_BACKWARD, rollback_point = to).in_scope(|| {
             let immutable_tip = self.immutable_tip();
             let volatile_tip = self.volatile_tip().map(|t| t.point()).unwrap_or(immutable_tip);
@@ -868,18 +881,23 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // All rollback points within the volatile part are handled by `VolatileDB`, but there is one more
             // legal rollback target, which is the `immutable_tip()`, in which case the VolatileDB is cleared.
             if *to == immutable_tip {
-                self.volatile.clear();
+                // Snapshot the whole VolatileDB fragment but leave the metadata initialized
+                // for the upcoming roll forwards.
+                Ok(StateRecovery::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.take()) })
             } else if *to < immutable_tip {
-                return Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip));
+                Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip))
             } else if *to > volatile_tip {
-                return Err(BackwardError::in_the_future(*to, volatile_tip, immutable_tip));
+                Err(BackwardError::in_the_future(*to, volatile_tip, immutable_tip))
             } else {
-                self.volatile
+                // Rollback to the fork point and keep the recovery instance in case
+                // a subsequent roll forward fails to apply and we need to recover the previous
+                // ledger state.
+                let recovery = self
+                    .volatile
                     .rollback_to(to)
-                    .map_err(|rollback_point| BackwardError::unknown(*rollback_point, volatile_tip, immutable_tip))?;
+                    .map_err(|_| BackwardError::unknown(*to, volatile_tip, immutable_tip))?;
+                Ok(StateRecovery::RecoverVolatileDBPart { recovery: Box::new(recovery) })
             }
-
-            Ok(())
         })
     }
 

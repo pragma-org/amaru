@@ -23,7 +23,6 @@ test-utils = ["proptest", "amaru-kernel/test-utils"]
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
-async-trait.workspace = true
 hex.workspace = true
 num.workspace = true
 proptest = { workspace = true, optional = true }
@@ -47,7 +46,6 @@ amaru-deps.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
-once_cell.workspace = true
 proptest.workspace = true
 test-case.workspace = true
 toml.workspace = true
