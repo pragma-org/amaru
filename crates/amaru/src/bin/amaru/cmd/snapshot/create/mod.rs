@@ -15,6 +15,7 @@
 use std::{
     fmt::{self, Display},
     fs,
+    io,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -26,6 +27,7 @@ use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use num::{CheckedAdd, CheckedSub};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tracing::info;
 
 mod archive;
@@ -168,6 +170,8 @@ pub(super) struct ManifestEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) parent_point: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) url: Option<String>,
 }
 
@@ -304,7 +308,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         previous_snapshot_slot = Some(process_target(target, previous_snapshot_slot, &context)?);
     }
 
-    write_manifest(network, &targets)?;
+    write_manifest(network, &snapshot_output_dir, &targets)?;;
 
     Ok(())
 }
@@ -346,17 +350,25 @@ fn process_target(
     Ok(target.slot)
 }
 
-fn write_manifest(network: NetworkName, targets: &[EpochTarget]) -> Result<(), Box<dyn std::error::Error>> {
+fn write_manifest(
+    network: NetworkName,
+    snapshot_output_dir: &Path,
+    targets: &[EpochTarget],
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = manifest_path(network);
 
     let mut entries: Vec<ManifestEntry> =
         if path.is_file() { serde_json::from_slice(&fs::read(&path)?)? } else { Vec::new() };
 
     for target in targets {
+        let archive_path = archive_path_for_target(snapshot_output_dir, target);
+        let sha256 = if archive_path.is_file() { Some(sha256_file(&archive_path)?) } else { None };
+
         let new_entry = ManifestEntry {
             epoch: target.epoch,
             point: format!("{}.{}", target.slot, target.hash),
             parent_point: target.parent_point.map(|p| p.to_string()),
+            sha256,
             url: None,
         };
 
@@ -460,6 +472,11 @@ fn bootstrap_target_epochs(epoch: Epoch) -> Result<[Epoch; 3], Box<dyn std::erro
 pub(super) fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.parent().and_then(Path::parent).unwrap_or(manifest_dir.as_path()).to_path_buf()
+}
+
+fn sha256_file(path: &Path) -> Result<String, io::Error> {
+    let bytes = fs::read(path)?;
+    Ok(hex::encode(Sha256::digest(&bytes)))
 }
 
 fn packaged_blocks_for_target(
