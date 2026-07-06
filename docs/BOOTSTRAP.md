@@ -11,10 +11,10 @@ Amaru bootstrap expects a window of three consecutive epoch snapshots. The runti
 
 ### Running the command
 
-Generate a bootstrap set by passing the target starting epoch for Amaru to `create-snapshots`. For example, to start in epoch 166:
+Generate a bootstrap set by passing the target starting epoch for Amaru to `create-bootstrap-snapshots`. For example, to start in epoch 166:
 
 ```shell
-cargo run create-snapshots --network preprod --epoch 166
+cargo run create-bootstrap-snapshots --network preprod --epoch 166
 ```
 
 This creates the snapshots for epochs `163`, `164`, and `165` on `preprod`:
@@ -43,7 +43,7 @@ Each materialized snapshot directory contains:
 ├── tables/
 │   └── tvar                 # Binary ledger-state tables file produced by db-analyser
 │                            # (db-analyser writes this as a flat 'tables' file;
-│                            # create-snapshots relocates it to tables/tvar on materialization)
+│                            # create-bootstrap-snapshots relocates it to tables/tvar on materialization)
 ```
 
 ## Publish a Snapshot Set
@@ -67,7 +67,7 @@ Once the archives already exist locally, publish them with the first epoch in th
 ```shell
 make \
 	AMARU_NETWORK=preprod \
-	BOOTSTRAP_SNAPSHOT_EPOCH=163 \
+	AMARU_EPOCH=163 \
 	BUCKET_NAME=... \
 	ENDPOINT=https://<s3-compatible-endpoint> \
 	publish-bootstrap-snapshots

@@ -34,8 +34,7 @@ mod db_analyser;
 mod koios;
 
 use archive::{
-    archive_path_for_target, existing_archive_paths, existing_snapshot_paths, materialize_snapshot,
-    snapshot_path_for_target, write_snapshot_archive,
+    archive_path_for_target, materialize_snapshot, snapshot_path_for_target, write_snapshot_archive,
 };
 use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
@@ -83,14 +82,6 @@ pub struct Args {
         env = amaru::env_vars::SNAPSHOTS_DIR,
     )]
     snapshot_dir: Option<PathBuf>,
-
-    /// Forcefully erase requested generated snapshot outputs and regenerate them.
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        default_value_t = false,
-    )]
-    force: bool,
 
     /// Directory containing the cardano-node config.json and genesis files.
     ///
@@ -222,7 +213,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         epoch,
         dist_dir,
         snapshot_dir,
-        force,
         cardano_node_config_dir,
         cardano_node_db,
         snapshot: snapshot_points,
@@ -282,29 +272,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         cardano_node_db = %cardano_node_db.display(),
         network = %network,
         dist_dir = %dist_dir.display(),
-        force,
         epoch = epoch
             .map(|e| Box::new(e.to_string()) as Box<dyn tracing::Value>)
             .unwrap_or_else(|| Box::new(tracing::field::Empty)),
         snapshots = snapshots_str,
         "running",
     );
-
-    if force {
-        remove_target_outputs(&snapshot_output_dir, &targets)?;
-    }
-
-    let existing_snapshots = existing_snapshot_paths(&snapshot_output_dir, &targets);
-    let existing_archives = existing_archive_paths(&snapshot_output_dir, &targets);
-    if !existing_snapshots.is_empty() || !existing_archives.is_empty() {
-        let existing_outputs = existing_snapshots
-            .into_iter()
-            .chain(existing_archives)
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(format!("refusing to overwrite existing snapshot outputs: {existing_outputs}").into());
-    }
 
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
     let required_chunk = targets.last().map(|t| chunk_for_slot(t.slot)).unwrap_or(0);
@@ -352,6 +325,12 @@ fn process_target(
 ) -> Result<Slot, Box<dyn std::error::Error>> {
     let prepared_snapshot_path = snapshot_path_for_target(context.snapshot_output_dir, target);
     let prepared_archive_path = archive_path_for_target(context.snapshot_output_dir, target);
+
+    if prepared_archive_path.is_file() {
+        info!(epoch = %target.epoch, slot = %target.slot, archive = %prepared_archive_path.display(), "snapshot archive already exists, skipping");
+        return Ok(target.slot);
+    }
+
     let snapshot_dir =
         resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
 
@@ -466,34 +445,6 @@ fn infer_start_epoch(current_epoch: Epoch) -> Result<Epoch, Box<dyn std::error::
         .ok_or_else(|| format!("cannot infer bootstrap start epoch from current epoch {current_epoch}").into())
 }
 
-fn remove_target_outputs(
-    snapshot_output_dir: &Path,
-    targets: &[EpochTarget],
-) -> Result<(), Box<dyn std::error::Error>> {
-    for target in targets {
-        remove_path_if_exists(&snapshot_path_for_target(snapshot_output_dir, target), "prepared snapshot directory")?;
-        remove_path_if_exists(&archive_path_for_target(snapshot_output_dir, target), "prepared snapshot archive")?;
-    }
-
-    Ok(())
-}
-
-fn remove_path_if_exists(path: &Path, kind: &'static str) -> Result<(), Box<dyn std::error::Error>> {
-    if !path.try_exists()? {
-        return Ok(());
-    }
-
-    info!(path = %path.display(), kind, "removing existing create-bootstrap-snapshots output");
-
-    if fs::symlink_metadata(path)?.is_dir() {
-        fs::remove_dir_all(path)?;
-    } else {
-        fs::remove_file(path)?;
-    }
-
-    Ok(())
-}
-
 fn bootstrap_target_epochs(epoch: Epoch) -> Result<[Epoch; 3], Box<dyn std::error::Error>> {
     Ok([
         epoch,
@@ -558,13 +509,12 @@ fn packaged_blocks_for_target(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::fs;
 
     use amaru_kernel::{Epoch, Slot};
     use tempfile::TempDir;
 
     use super::{
-        EpochTarget,
         archive::materialize_snapshot,
         bootstrap_target_epochs,
         db_analyser::{

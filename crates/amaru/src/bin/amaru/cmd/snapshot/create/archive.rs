@@ -31,14 +31,6 @@ pub(super) fn archive_path_for_target(snapshot_root: &Path, target: &EpochTarget
     snapshot_root.join(format!("{}.{}.tar.gz", target.slot, target.hash))
 }
 
-pub(super) fn existing_snapshot_paths(snapshot_root: &Path, targets: &[EpochTarget]) -> Vec<PathBuf> {
-    targets.iter().map(|target| snapshot_path_for_target(snapshot_root, target)).filter(|path| path.exists()).collect()
-}
-
-pub(super) fn existing_archive_paths(snapshot_root: &Path, targets: &[EpochTarget]) -> Vec<PathBuf> {
-    targets.iter().map(|target| archive_path_for_target(snapshot_root, target)).filter(|path| path.is_file()).collect()
-}
-
 pub(super) fn materialize_snapshot(
     snapshot_dir: &Path,
     snapshot_path: &Path,
