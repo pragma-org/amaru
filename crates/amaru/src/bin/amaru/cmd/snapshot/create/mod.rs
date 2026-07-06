@@ -335,12 +335,16 @@ fn process_target(
         return Ok(target.slot);
     }
 
-    let snapshot_dir =
-        resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
+    if !prepared_snapshot_path.exists() {
+        let snapshot_dir =
+            resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
 
-    info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), "materializing bootstrap snapshot directory");
-    materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
-    write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
+        info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), "materializing bootstrap snapshot directory");
+        materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
+        write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
+    } else {
+        info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), "snapshot directory already exists, skipping materialization");
+    }
 
     info!(epoch = %target.epoch, slot = %target.slot, archive = %prepared_archive_path.display(), "packaging snapshot archive");
     write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
