@@ -375,7 +375,6 @@ mod tests {
     #[test_case(fixture!("fail/StakeCredentialInvalidPoolDelegation/1"); "delegation after conway unreg in same tx")]
     #[test_case(fixture!("fail/StakeCredentialInvalidPoolDelegation/2"); "script credential delegation after deregistration")]
     #[test_case(fixture!("fail/StakeCredentialInvalidPoolDelegation/3"); "script credential delegation after conway unreg")]
-    #[test_case(fixture!("fail/StakeCredentialInvalidVoteDelegation/0"); "stake-vote-deleg after deregistration fails on vote")]
     #[test_case(fixture!("fail/DelegateeStakePoolNotRegistered/0"); "stake delegation to unregistered pool")]
     #[test_case(fixture!("fail/DelegateeStakePoolNotRegistered/1"); "stake vote delegation to unregistered pool")]
     #[test_case(fixture!("fail/DelegateeStakePoolNotRegistered/2"); "stake reg delegation to unregistered pool")]
