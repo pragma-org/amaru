@@ -112,9 +112,9 @@ impl ProposalsForest {
         proposals.drain(..).try_fold::<_, _, Result<_, ProposalsInsertError<_>>>(&mut self, |forest, (id, row)| {
             // There shouldn't be any expired proposals left at this point.
             assert!(
-                row.valid_until + 1 >= current_epoch,
-                "proposal {id:?} is expired (ratification epoch = {current_epoch}) but was \
-                        drained into the forest: {row:?}",
+                row.valid_until >= current_epoch,
+                "proposal {id:?} is valid until epoch={}, but was found when ratifying data for epoch={current_epoch}: {row:?}",
+                row.valid_until,
             );
 
             forest.insert(era_history, id, row.proposed_in, row.governance_action)?;

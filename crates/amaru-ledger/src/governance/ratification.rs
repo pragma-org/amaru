@@ -136,11 +136,6 @@ impl<'distr> RatificationContext<'distr> {
             span.record("votes", votes_count);
 
             Ok(RatificationContext {
-                // Ratification happens with one epoch of delay, and at the next epoch transition. So,
-                // if we ratify votes that happened in epoch `e`, the ratification is done during the
-                // transition from `e + 1` to `e + 2`; but it is done "as if" it was happening at the
-                // beginning of epoch `e + 1`. So, the epoch we consider for DRep mandates and proposal
-                // expiry is the one from after the snapshot.
                 epoch,
                 treasury,
                 stake_distribution,

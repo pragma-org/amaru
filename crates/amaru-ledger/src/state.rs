@@ -414,6 +414,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             };
 
             let ratification_context = RatificationContext::new(
+                // Ratification happens with one epoch of delay, and at the next epoch transition. So,
+                // if we ratify votes that happened in epoch `e`, the ratification is done during the
+                // transition from `e + 1` to `e + 2`;
+                //
+                // Here, we have `next_epoch = e + 2`. And so, we have to pull the data and stake
+                // distribution from at `next_epoch - 2`.
                 self.snapshots.for_epoch(next_epoch - 2)?,
                 self.stake_distribution(next_epoch - 2)?,
                 protocol_parameters.clone(),
