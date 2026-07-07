@@ -27,6 +27,7 @@ async-trait.workspace = true
 hex.workspace = true
 num.workspace = true
 proptest = { workspace = true, optional = true }
+rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

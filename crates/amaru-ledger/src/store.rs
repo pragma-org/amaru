@@ -327,7 +327,7 @@ pub trait HistoricalStores {
     }
 
     /// Access a `Snapshot` for a specific `Epoch`
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot>;
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send>;
 }
 
 // TransactionalContext

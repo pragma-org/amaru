@@ -816,32 +816,39 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 //
 // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
 // the ongoing epoch, not yet finished (and so, not available as snapshot).
-pub fn initial_stake_distributions(
-    snapshots: &impl HistoricalStores,
+pub fn initial_stake_distributions<HS>(
+    snapshots: &HS,
     era_history: &EraHistory,
-) -> Result<VecDeque<StakeDistribution>, StoreError> {
-    let mut stake_distributions = VecDeque::new();
+) -> Result<VecDeque<StakeDistribution>, StoreError>
+where
+    HS: HistoricalStores + Send + Sync,
+{
+    use rayon::prelude::*;
 
     let latest_epoch = snapshots.most_recent_snapshot();
     let epoch_for_leader_schedule = latest_epoch.checked_sub(Epoch::ONE);
     let epoch_for_rewards = latest_epoch.checked_sub(Epoch::TWO);
 
-    for (ix, epoch) in [epoch_for_rewards, epoch_for_leader_schedule, Some(latest_epoch)].into_iter().enumerate() {
-        if let Some(epoch) = epoch {
-            let snapshot = snapshots.for_epoch(epoch)?;
-            stake_distributions.push_front(
-                compute_stake_distribution(&snapshot, era_history).map_err(|err| StoreError::Internal(err.into()))?,
-            );
-        } else {
-            warn!(
-                "ignoring initial stake distribution for epoch 'e - {}', where e = {}; not available",
-                2 - ix,
-                latest_epoch
-            );
-        }
-    }
-
-    Ok(stake_distributions)
+    [Some(latest_epoch), epoch_for_leader_schedule, epoch_for_rewards]
+        .into_iter()
+        .enumerate()
+        .filter_map(|(ix, epoch)| {
+            if let Some(epoch) = epoch {
+                Some(snapshots.for_epoch(epoch))
+            } else {
+                warn!(
+                    "ignoring initial stake distribution for epoch 'e - {}', where e = {}; not available",
+                    2 - ix,
+                    latest_epoch
+                );
+                None
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_par_iter()
+        .map(|snapshot| compute_stake_distribution(&snapshot, era_history))
+        .collect::<Result<VecDeque<_>, _>>()
+        .map_err(|err| StoreError::Internal(err.into()))
 }
 
 pub fn compute_stake_distribution(
