@@ -184,6 +184,7 @@ pub(super) enum Predicate {
     DelegateeStakePoolNotRegistered,
     StakeCredentialInvalidPoolDelegation,
     StakeCredentialInvalidVoteDelegation,
+    StakeKeyRegistered,
     ValueNotConservedUTxO,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -231,6 +232,9 @@ impl From<PhaseOneError> for Predicate {
             },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(_)) => {
                 Predicate::StakeCredentialInvalidVoteDelegation
+            }
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
+                Predicate::StakeKeyRegistered
             }
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)

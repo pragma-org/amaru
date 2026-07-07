@@ -1,0 +1,39 @@
+{
+  "title": "StakeKeyRegistered",
+  "description": "StakeVoteRegDeleg cert on a credential that is already registered.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a004c4b40ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [
+      {
+        "credential": "8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a002ab980ff021a00030d4004d9010281850d8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd81021a001e84800800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840d246c4f0c83203d80f6fe3cbe57042803fc06ff827107baf8fff77e5439333547baa842259d30e5ead70790c18fdae514397d7fb421bb9482d6e200310793306f5f6",
+  "expected": {
+    "predicate": "StakeKeyRegistered"
+  }
+}
