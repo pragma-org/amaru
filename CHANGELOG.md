@@ -41,7 +41,7 @@ Other guiding principles:
 
 - **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
 - **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
-- **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
+- **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#896][], [#975][], [#1017][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
 
 ### Fixed
@@ -133,6 +133,7 @@ Other guiding principles:
 [#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#892]: https://github.com/pragma-org/amaru/issues/892
+[#896]: https://github.com/pragma-org/amaru/issues/896
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
@@ -148,5 +149,10 @@ Other guiding principles:
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
+<<<<<<< HEAD
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
+||||||| parent of 6353e53ff (chore(changelog): entry for issue #896)
+=======
+[#1017]: https://github.com/pragma-org/amaru/pull/1017
+>>>>>>> 6353e53ff (chore(changelog): entry for issue #896)
