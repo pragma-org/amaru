@@ -37,6 +37,11 @@ Other guiding principles:
 
 ## v10.10.20260709 _[unreleased; planned for 2026-07-09]_
 
+### Added
+
+- **amaru-ledger**: added more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
+- **amaru-ledger**: introduced the `ValueNotConservedUTxO` predicate. ([#892][], [#831][])
+
 ### Changed
 
 - **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported. ([#1000][])
@@ -46,9 +51,6 @@ Other guiding principles:
 ## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
 ### Added
-
-- **amaru-ledger**: added more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
-- **amaru-ledger**: introduced the `ValueNotConservedUTxO` predicate. ([#892][], [#831][])
 
 - **workflows**: dedicated workflow to create and publish bootstrapping snapshots for all networks. ([#951][])
 
