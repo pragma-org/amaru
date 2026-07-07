@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
     mem,
     sync::Arc,
 };
@@ -202,6 +203,9 @@ impl AccountsSlice for DefaultValidationContext {
             credential = format!("{credential:?}")
         );
         let _guard = _span.enter();
+        if AccountsSlice::lookup(self, &credential).is_some() {
+            return Err(RegisterError::AlreadyRegistered(PhantomData, credential));
+        }
         self.state.accounts.register(credential, state.deposit, state.pool, state.drep)?;
         Ok(())
     }
