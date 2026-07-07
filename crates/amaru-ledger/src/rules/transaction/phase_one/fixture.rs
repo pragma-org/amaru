@@ -185,6 +185,7 @@ pub(super) enum Predicate {
     OutsideForecast,
     OutsideValidityIntervalUTxO,
     DelegateeStakePoolNotRegistered,
+    DRepAlreadyRegistered,
     StakeCredentialInvalidPoolDelegation,
     StakeCredentialInvalidVoteDelegation,
     StakeKeyRegistered,
@@ -242,6 +243,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
+            }
+            PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
+                Predicate::DRepAlreadyRegistered
             }
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)

@@ -294,6 +294,9 @@ impl DRepsSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
+        if DRepsSlice::lookup(self, &drep).is_some() {
+            return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
+        }
         self.state.dreps.register(drep, Arc::new(registration), anchor, None)?;
         Ok(())
     }
