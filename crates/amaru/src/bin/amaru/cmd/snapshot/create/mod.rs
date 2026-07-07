@@ -391,8 +391,14 @@ fn write_manifest(
 
     entries.sort_unstable_by_key(|e| e.epoch);
 
+    let contents = serde_json::to_vec_pretty(&entries)?;
+
+    if fs::read(&path).ok().as_deref() == Some(&contents) {
+        return Ok(());
+    }
+
     let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, serde_json::to_vec_pretty(&entries)?)?;
+    fs::write(&tmp_path, &contents)?;
     fs::rename(tmp_path, &path)?;
 
     info!(path = %path.display(), entries = entries.len(), "updated snapshot manifest");

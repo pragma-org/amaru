@@ -22,7 +22,8 @@ use std::{
 
 pub use amaru_kernel::extract_block_header_cbor;
 use amaru_kernel::{
-    GlobalParameters, Hasher, HeaderHash, NetworkName, Point, cbor, extract_block_header_cbor as _extract_block_header_cbor,
+    GlobalParameters, Hasher, HeaderHash, NetworkName, Point, cbor,
+    extract_block_header_cbor as _extract_block_header_cbor,
 };
 use amaru_progress_bar::ProgressBar;
 use async_trait::async_trait;
