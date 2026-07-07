@@ -34,7 +34,7 @@ pub enum InvalidWithdrawals {
         "attempted to withdraw a different amount than the full account balance: balance {balance} withdrawal: {withdrawal}"
     )]
     IncompleteWithdrawal { balance: u64, withdrawal: u64 },
-    #[error("attempted to withdraw from an account ({0:?}) that either doesn't exist or has no drep delegation")]
+    #[error("attempted to withdraw from an account ({0:?}) that has no drep delegation")]
     MissingAccountDRepDelegation(StakeCredential),
     #[error(
         "network mismatch in reward account in {context:?} at position {position}: expected {expected:?}, received {received:?}"
@@ -75,7 +75,7 @@ where
                 let account =
                     context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential.clone()))?;
 
-                if account.drep.is_none() {
+                if matches!(credential, StakeCredential::AddrKeyhash(_)) && account.drep.is_none() {
                     return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential.clone()));
                 }
 
