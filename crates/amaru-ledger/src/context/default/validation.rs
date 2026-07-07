@@ -248,6 +248,11 @@ impl AccountsSlice for DefaultValidationContext {
             _span.record("drep", format!("{d:?}"));
         }
         let _guard = _span.enter();
+        if let Some(drep_credential) = &drep_stake_credential
+            && DRepsSlice::lookup(self, drep_credential).is_none()
+        {
+            return Err(DelegateError::UnknownTarget(drep));
+        }
         self.state.accounts.bind_right(credential, Some((drep, pointer)))?;
         Ok(())
     }

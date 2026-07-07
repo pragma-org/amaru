@@ -184,6 +184,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
     DRepAlreadyRegistered,
     StakeCredentialInvalidPoolDelegation,
@@ -238,9 +239,10 @@ impl From<PhaseOneError> for Predicate {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,
             },
-            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(_)) => {
-                Predicate::StakeCredentialInvalidVoteDelegation
-            }
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(ref e)) => match e {
+                DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidVoteDelegation,
+                DelegateError::UnknownTarget(_) => Predicate::DelegateeDRepNotRegistered,
+            },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
             }

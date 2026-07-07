@@ -21,7 +21,6 @@
 "conway/fail-certs-withdrawing-from-an-unregistered-reward-account/0" = "Expected failure, got success"
 "conway/fail-certs-withdrawing-the-wrong-amount/0" = "Expected failure, got success"
 "conway/fail-deleg-delegate-unregistered-stake-credentials/0" = "Expected failure, got success"
-"conway/fail-deleg-delegate-vote-of-registered-stake-credentials-to-unregistered-drep/0" = "Expected failure, got success"
 "conway/fail-deleg-delegate-vote-of-unregistered-stake-credentials/0" = "Expected failure, got success"
 "conway/fail-deleg-with-non-zero-reward-balance/0" = "Expected failure, got success"
 "conway/fail-gov-committee-member-can-not-vote-on-noconfidence-action/0" = "Expected failure, got success"
