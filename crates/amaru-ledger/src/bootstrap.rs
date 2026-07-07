@@ -1229,6 +1229,10 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateMetadata {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut NetworkName) -> Result<Self, cbor::decode::Error> {
         match d.datatype()? {
+            cbor::data::Type::Null => {
+                d.skip()?;
+                Ok(Self(StrictMaybe::Nothing))
+            }
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
                 let mut probe = d.probe();
                 let len = probe.array()?;

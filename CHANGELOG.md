@@ -43,6 +43,8 @@ Other guiding principles:
 
 - **amaru**: more robust procedure and tooling to produce stake-distribution epoch snapshots for conformance testing and comparison with the haskell node. ([#985][])
 
+- **amaru**: fix snapshot import of pool with no metadata. ([#1013][])
+
 ## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
 ### Added
@@ -114,3 +116,4 @@ Other guiding principles:
 [#985]: https://github.com/pragma-org/amaru/pull/985
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1013]: https://github.com/pragma-org/amaru/pull/1013
