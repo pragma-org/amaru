@@ -99,13 +99,6 @@ Other guiding principles:
 - **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 - **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
-- **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
-- **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
-- **amaru**: add a demo showcasing `amaru` as a relay node supporting both chainsync (to synchronize downstream nodes) and txsubmission (to diffuse transactions upstream). ([#1029][])
-
-### Removed
-
-- **amaru**: no more `--force` flag on `snapshot create`. ([#1039][])
 
 ### Fixed
 
@@ -201,6 +194,7 @@ Other guiding principles:
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
+[#895]: https://github.com/pragma-org/amaru/issues/895
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902

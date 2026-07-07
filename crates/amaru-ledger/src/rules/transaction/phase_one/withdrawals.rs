@@ -28,6 +28,12 @@ use crate::{
 pub enum InvalidWithdrawals {
     #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
     MalformedRewardAccount { bytes: Vec<u8>, context: TransactionField, position: usize },
+    #[error("attempted to withdraw from an account ({0:?}) that is not registered")]
+    AccountNotRegistered(StakeCredential),
+    #[error(
+        "attempted to withdraw a different amount than the full account balance: balance {balance} withdrawal: {withdrawal}"
+    )]
+    IncompleteWithdrawal { balance: u64, withdrawal: u64 },
     #[error("attempted to withdraw from an account ({0:?}) that either doesn't exist or has no drep delegation")]
     MissingAccountDRepDelegation(StakeCredential),
     #[error(
@@ -49,7 +55,7 @@ where
         withdrawals
             .into_iter()
             .enumerate()
-            .map(|(position, (bytes, st))| {
+            .map(|(position, (bytes, amount))| {
                 let (credential, account_network) =
                     parse_reward_account(&bytes).ok_or_else(|| InvalidWithdrawals::MalformedRewardAccount {
                         bytes: bytes.to_vec(),
@@ -66,11 +72,21 @@ where
                     });
                 };
 
-                if context.lookup(&credential).and_then(|account| account.drep).is_none() {
+                let account =
+                    context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential.clone()))?;
+
+                if account.drep.is_none() {
                     return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential.clone()));
                 }
 
-                Ok((credential, st))
+                if amount != account.rewards {
+                    return Err(InvalidWithdrawals::IncompleteWithdrawal {
+                        balance: account.rewards,
+                        withdrawal: amount,
+                    });
+                }
+
+                Ok((credential, amount))
             })
             // NOTE: Force withdrawals to be sorted by stake credentials
             .collect::<Result<BTreeMap<_, _>, _>>()?
