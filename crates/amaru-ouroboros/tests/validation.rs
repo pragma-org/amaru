@@ -14,8 +14,8 @@
 
 use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
-use amaru_kernel::{ConsensusParameters, Header, NetworkName, Nonce, cbor};
-use amaru_ouroboros::{kes, praos};
+use amaru_kernel::{ConsensusParameters, Header, NetworkName, Nonce, PoolId, cbor};
+use amaru_ouroboros::{issuer_to_pool_id, kes, praos};
 use amaru_ouroboros_traits::has_stake_distribution::mock_ledger_state::MockLedgerState;
 use ctor::ctor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
@@ -234,12 +234,28 @@ fn validation_conforms_to_test_vectors() {
             .get_header()
             .map(|minted_header| {
                 let expected = &test.1.mutation;
-                let ledger_state = Arc::new(mock_ledger_state(context));
+                let mock = mock_ledger_state(context);
+                let issuer = pallas_crypto::key::ed25519::PublicKey::from(<[u8; pallas_crypto::key::ed25519::PublicKey::SIZE]>::try_from(&minted_header.header_body.issuer_vkey[..]).expect("issuer vkey"));
+                let pool: PoolId = issuer_to_pool_id(&issuer);
                 let epoch_nonce = context.nonce;
                 let raw_header_body = minted_header.header_body.raw_cbor();
                 let header = Header::from(minted_header);
                 let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
-                let assertions = praos::header::assert_all(consensus_parameters, &header, raw_header_body, ledger_state, &epoch_nonce)
+                // Use preprod era for these test vectors (as done for consensus params in the helper)
+                let era_history = NetworkName::Preprod.as_era_history().expect("era");
+                // Compute the target epoch the same way get_pool will, and populate the mock data there.
+                let slot = amaru_kernel::Slot::from(header.header_body.slot);
+                let target = era_history.slot_to_epoch_unchecked_horizon(slot).ok().and_then(|e| {
+                    let v = u64::from(e);
+                    if v >= 2 { Some(amaru_kernel::Epoch::from(v - 2)) } else { None }
+                });
+                let mut summaries = mock.to_pool_summaries(pool);
+                if let Some(te) = target
+                    && let Some(pools) = summaries.by_epoch.remove(&amaru_kernel::Epoch::from(0u64))
+                {
+                    summaries.by_epoch.insert(te, pools);
+                }
+                let assertions = praos::header::assert_all(consensus_parameters, &header, raw_header_body, &summaries, era_history, &epoch_nonce)
                     .unwrap()
                     .into_par_iter()
                     .map(|assert| assert())

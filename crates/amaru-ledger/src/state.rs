@@ -15,7 +15,7 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
@@ -27,7 +27,7 @@ use amaru_kernel::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{info_span, trace_span};
-use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
+use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
@@ -222,10 +222,23 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
     }
 
-    /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
-    /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
-        StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
+    /// Project the small pool summaries needed for header validation (and leader schedule)
+    /// from the held stake distributions. Only the `.pools` data is included.
+    pub fn pool_summaries(&self) -> PoolSummaries {
+        #[expect(clippy::unwrap_used)]
+        let guard = self.stake_distributions.lock().unwrap();
+        let mut by_epoch = BTreeMap::new();
+        for distr in guard.iter() {
+            let mut pools: BTreeMap<PoolId, PoolSummary> = BTreeMap::new();
+            for (pid, pst) in &distr.pools {
+                pools.insert(
+                    *pid,
+                    PoolSummary { vrf: pst.parameters.vrf, stake: pst.stake, active_stake: distr.active_stake },
+                );
+            }
+            by_epoch.insert(distr.epoch, pools);
+        }
+        PoolSummaries { by_epoch }
     }
 
     pub fn network(&self) -> NetworkName {
@@ -869,47 +882,6 @@ impl<'a> Deref for StakeDistributionView<'a> {
         // Safe, because Self can only be created after checking that the index was present. Plus,
         // we hold the guard, so that data cannot change.
         &self.guard[self.position]
-    }
-}
-
-// HasStakeDistribution
-// ----------------------------------------------------------------------------
-
-// The 'LedgerState' trait materializes the interface required of the consensus layer in order to
-// validate block headers. It allows to keep the ledger implementation rather abstract to the
-// consensus in order to decouple both components.
-pub struct StakeDistributionObserver {
-    view: Arc<Mutex<VecDeque<StakeDistribution>>>,
-    era_history: Arc<EraHistory>,
-}
-
-impl HasStakeDistribution for StakeDistributionObserver {
-    #[expect(clippy::unwrap_used)]
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        let epoch = self
-            .era_history
-            // NOTE: This function is called by the consensus when validating block headers. So in
-            // theory, the slot is either within the current epoch or the next since blocks must
-            // form a chain. Either the previous block is well within the current epoch, or it was
-            // the last block of the previous epoch.
-            //
-            // Either way, we do know at this point how to forecast this slot.
-            .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(GetPoolError::SlotToEpochConversionFailure)?
-            .checked_sub(Epoch::TWO);
-
-        let view = self.view.lock().unwrap();
-
-        let stake_distribution = view
-            .iter()
-            .find(|s| Some(s.epoch) == epoch)
-            .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
-
-        Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
-            vrf: st.parameters.vrf,
-            stake: st.stake,
-            active_stake: stake_distribution.active_stake,
-        }))
     }
 }
 

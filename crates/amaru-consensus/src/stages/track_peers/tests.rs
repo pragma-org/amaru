@@ -490,6 +490,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
     let mut state = prep.state.clone();
     state.insert_peer(peer.clone(), parent.tip(), header.tip());
 
+    // Use empty store so evolve_nonce fails (unknown parent), exercising the real validate_header fn failure path.
     let (running, _guards, mut logs) = setup_with_validation(
         &prep.rt_handle(),
         state.clone(),
@@ -498,7 +499,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
         Arc::new(FailingHeaderValidation),
     );
 
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "booyah!"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,

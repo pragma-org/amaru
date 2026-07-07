@@ -14,11 +14,11 @@
 
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
-use amaru_kernel::{BlockHeader, EraHistory, IgnoreEq, Peer, Point, Tip, Transaction};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, IgnoreEq, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
-    TransactionValidationError,
+    PoolSummaries, TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
@@ -131,6 +131,8 @@ pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 pub type ResourceEraHistory = EraHistory;
+pub type ResourceConsensusParameters = Arc<ConsensusParameters>;
+pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
@@ -229,11 +231,41 @@ impl ExternalEffect for ValidateHeaderEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let _guard = self.ctx.0.attach();
-            let validator = resources
-                .get::<ResourceHeaderValidation>()
-                .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
-                .clone();
-            validator.validate_header(&self.header)
+
+            // Test seam: if a CanValidateHeaders (e.g. Mock or Failing) was registered, honor it.
+            // This preserves existing test injection for header validation outcomes.
+            // Otherwise fall through to the core function using the new resources.
+            let outcome: Result<(), HeaderValidationError> =
+                if let Ok(validator) = resources.get::<ResourceHeaderValidation>() {
+                    validator.validate_header(&self.header)
+                } else {
+                    let consensus_parameters = resources
+                        .get::<ResourceConsensusParameters>()
+                        .expect("ValidateHeaderEffect requires a ResourceConsensusParameters resource")
+                        .clone();
+                    let store = resources
+                        .get::<ResourceHeaderStore>()
+                        .expect("ValidateHeaderEffect requires a ResourceHeaderStore resource")
+                        .clone();
+                    let pool_summaries = resources
+                        .get::<ResourcePoolSummaries>()
+                        .expect("ValidateHeaderEffect requires a ResourcePoolSummaries resource")
+                        .clone();
+                    let era_history = resources
+                        .get::<ResourceEraHistory>()
+                        .expect("ValidateHeaderEffect requires a ResourceEraHistory resource")
+                        .clone();
+
+                    crate::validate_header::validate_header(
+                        &self.header,
+                        consensus_parameters,
+                        store,
+                        pool_summaries,
+                        Arc::new(era_history),
+                    )
+                    .map_err(|e| HeaderValidationError::new(anyhow::anyhow!(e)))
+                };
+            outcome
         })
     }
 }

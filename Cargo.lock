@@ -374,6 +374,7 @@ dependencies = [
  "amaru-metrics",
  "anyhow",
  "async-trait",
+ "num",
  "parking_lot",
  "rand 0.9.2",
  "serde",

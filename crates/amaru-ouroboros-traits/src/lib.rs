@@ -13,7 +13,7 @@
 // limitations under the License.
 
 pub mod has_stake_distribution;
-pub use has_stake_distribution::{HasStakeDistribution, PoolSummary};
+pub use has_stake_distribution::{PoolSummaries, PoolSummary};
 
 pub mod has_stake_pools;
 pub use has_stake_pools::HasStakePools;

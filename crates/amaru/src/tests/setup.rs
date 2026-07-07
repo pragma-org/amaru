@@ -15,13 +15,18 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
-    effects::{ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation},
+    effects::{
+        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
+        ResourceHeaderValidation, ResourcePoolSummaries, ResourceTxValidation,
+    },
     headers_tree::data_generation::Action,
 };
-use amaru_kernel::{BlockHeight, GlobalParameters, IsHeader, NonEmptyVec, Tip, Transaction};
+use amaru_kernel::{
+    BlockHeight, ConsensusParameters, GlobalParameters, IsHeader, NetworkName, NonEmptyVec, Tip, Transaction,
+};
 use amaru_ouroboros::{
     ConnectionsResource, DiagnosticChainStore, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs,
-    ResourceMempool,
+    PoolSummaries, ResourceMempool,
 };
 use amaru_protocols::{
     manager::ManagerMessage,
@@ -198,6 +203,16 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     stage_graph.resources().put::<ResourceHasStakePools>(block_validation);
     stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
     stage_graph.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
+
+    // Resources for ValidateHeaderEffect (which now calls the free validate fn directly).
+    if let Some(era) = NetworkName::Preprod.as_era_history() {
+        #[allow(clippy::expect_used)]
+        let global = NetworkName::Preprod.as_global_parameters().cloned().expect("global parameters for preprod");
+        let cp = Arc::new(ConsensusParameters::new(global, era, Default::default()));
+        stage_graph.resources().put::<ResourceConsensusParameters>(cp);
+        stage_graph.resources().put::<ResourceEraHistory>(era.clone());
+        stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
+    }
     stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());
     Ok(())

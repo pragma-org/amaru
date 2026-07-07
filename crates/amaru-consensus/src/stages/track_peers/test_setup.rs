@@ -14,11 +14,11 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, EraHistory, HeaderHash, Tip, make_header};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, HeaderHash, NetworkName, Tip, make_header};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    CanValidateHeaders, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders, WriteChainStore,
-    in_memory_chain_store::InMemoryChainStore,
+    CanValidateHeaders, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders, PoolSummaries,
+    WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
@@ -37,8 +37,8 @@ use tokio::runtime::{Builder, Handle, Runtime};
 use super::*;
 use crate::{
     effects::{
-        ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect,
-        VolatileTipEffect,
+        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
+        ResourceHeaderValidation, ResourcePoolSummaries, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
     },
     stages::{
         peer_selection::PeerSelectionMsg,
@@ -205,6 +205,16 @@ fn setup_base(
             let block_validation = Arc::new(MockCanValidateBlocks);
             resources.put::<ResourceBlockValidation>(block_validation.clone());
             resources.put::<ResourceHasStakePools>(block_validation);
+
+            // Provide resources required by the new ValidateHeaderEffect implementation.
+            // The actual ValidateHeaderEffect is overridden below for controlled success/failure.
+            let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
+            // Minimal global + consensus params (validation itself is overridden in most cases).
+            let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
+            let cp = Arc::new(ConsensusParameters::new(global, &era_history, Default::default()));
+            resources.put::<ResourceConsensusParameters>(cp);
+            resources.put::<ResourceEraHistory>(era_history.clone());
+            resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
         },
         overrides,
     )
