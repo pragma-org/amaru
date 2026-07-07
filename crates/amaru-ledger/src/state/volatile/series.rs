@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, mem};
+use std::{collections::{BTreeMap, VecDeque}, mem};
 
 use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
 use amaru_observability::debug_span;
 
 use crate::state::{
     AnchoredVolatileFragment, VolatileFragment,
+    diff_bind::Resettable,
     volatile::{
         AccountBind, Existence, VolatileSequence, VolatileState,
         fragment::{CommitteeMemberBind, DRepBind},
@@ -60,6 +61,13 @@ pub struct VolatileSeries {
     forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
     aggregate: VolatileFragment,
+
+    /// Per-credential count of still in window account registrations and deregistrations. This is
+    /// the one bit of state that the folded `accounts` cannot recover on its own: it allows us to
+    /// remove a registration/deregistration marker from the aggregate when the fragment that carried it
+    /// is flushed to the stable DB, ensuring we read the correct account state.
+    account_registered: BTreeMap<StakeCredential, u32>,
+    account_unregistered: BTreeMap<StakeCredential, u32>,
 }
 
 impl Default for VolatileSeries {
@@ -68,6 +76,8 @@ impl Default for VolatileSeries {
             forced_recompute_in: DEFAULT_FORCED_RECOMPUTE_IN,
             sequence: Default::default(),
             aggregate: Default::default(),
+            account_registered: Default::default(),
+            account_unregistered: Default::default(),
         }
     }
 }
@@ -155,6 +165,7 @@ impl VolatileSequence for VolatileSeries {
             self.recompute_aggregate()
         } else {
             self.aggregate.incremental_cleanup(&popped.fragment);
+            self.retire_flushed_registrations(&popped.fragment);
         }
         Some(popped)
     }
@@ -162,6 +173,12 @@ impl VolatileSequence for VolatileSeries {
     fn push_back(&mut self, item: Self::Item) {
         self.forced_recompute_in = self.forced_recompute_in.saturating_sub(1);
         self.aggregate.compose(&item.fragment);
+        for credential in item.fragment.accounts.registered.keys() {
+            *self.account_registered.entry(credential.clone()).or_default() += 1;
+        }
+        for credential in &item.fragment.accounts.unregistered {
+            *self.account_unregistered.entry(credential.clone()).or_default() += 1;
+        }
         self.sequence.push_back(item);
     }
 }
@@ -177,12 +194,22 @@ impl VolatileSeries {
 
         debug_span!(ledger::volatile::AGGREGATE).in_scope(|| {
             let mut aggregate = VolatileFragment::default();
+            let mut account_registered = BTreeMap::new();
+            let mut account_unregistered = BTreeMap::new();
 
             for anchored in &self.sequence {
                 aggregate.compose(&anchored.fragment);
+                for credential in anchored.fragment.accounts.registered.keys() {
+                    *account_registered.entry(credential.clone()).or_default() += 1;
+                }
+                for credential in &anchored.fragment.accounts.unregistered {
+                    *account_unregistered.entry(credential.clone()).or_default() += 1;
+                }
             }
 
             self.aggregate = aggregate;
+            self.account_registered = account_registered;
+            self.account_unregistered = account_unregistered;
         });
     }
 
@@ -208,7 +235,49 @@ impl VolatileSeries {
             sequence: mem::take(&mut self.sequence),
             aggregate: mem::take(&mut self.aggregate),
             forced_recompute_in: self.forced_recompute_in,
+            account_registered: mem::take(&mut self.account_registered),
+            account_unregistered: mem::take(&mut self.account_unregistered),
         }
+    }
+
+    /// Retire the account registration/deregistration markers contributed by a now-flushed fragment.
+    ///
+    /// A flushed fragment's state is in the stable store, so any marker it left in
+    /// the aggregate that no later in-window fragment re-asserts must be dropped. Otherwise, the
+    /// aggregate keeps claiming a registration (or deregistration) for state that has
+    /// already aged out of the window. `incremental_cleanup` cannot do this from the folded
+    /// aggregate alone, so we track it with the per-credential counts maintained on push/pop.
+    ///
+    /// The delegation binds left behind don't lead to incorrect state, and are cleaned up
+    /// when we recompute the aggregate.
+    fn retire_flushed_registrations(&mut self, popped: &VolatileFragment) {
+        for credential in popped.accounts.registered.keys() {
+            if Self::decrement(&mut self.account_registered, credential)
+                && let Some(bind) = self.aggregate.accounts.registered.get_mut(credential)
+            {
+                bind.value = None;
+                if matches!(bind.left, Resettable::Unchanged) && matches!(bind.right, Resettable::Unchanged) {
+                    self.aggregate.accounts.registered.remove(credential);
+                }
+            }
+        }
+
+        for credential in &popped.accounts.unregistered {
+            if Self::decrement(&mut self.account_unregistered, credential) {
+                self.aggregate.accounts.unregistered.remove(credential);
+            }
+        }
+    }
+
+    fn decrement(counts: &mut BTreeMap<StakeCredential, u32>, credential: &StakeCredential) -> bool {
+        if let Some(count) = counts.get_mut(credential) {
+            *count -= 1;
+            if *count == 0 {
+                counts.remove(credential);
+                return true;
+            }
+        }
+        false
     }
 }
 
