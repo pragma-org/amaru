@@ -68,6 +68,12 @@ fn is_trace_no_emit() -> bool {
 /// This macro generates validator macros for each schema that ensure
 /// fields have correct names and types at compile time.
 ///
+/// A `tags: <name>, ...` declaration assigns functional tags to schemas, each recorded
+/// automatically on every span as a boolean `amaru.tag.<name>` attribute. Tags can be
+/// declared at the module level (inherited by all schemas beneath) or inside a schema
+/// (overriding the module default). Spans can then be selected with an `EnvFilter`
+/// directive, e.g. `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'`.
+///
 /// Generated macros are exported with `#[macro_export]` for use across crates.
 /// For local/test schemas that won't be exported, use `define_local_schemas!` instead.
 #[proc_macro]
@@ -105,15 +111,15 @@ pub fn define_local_schemas(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// fn apply_block(point_slot: u64, error: Option<&str>) {
-///     let _span = debug_span!(ledger::state::block::APPLY, point_slot = point_slot);
+///     let _span = debug_span!(ledger::block::APPLY, point_slot = point_slot);
 ///     let _guard = _span.enter();
 ///
 ///     if let Some(error) = error {
 ///         // Record to span only
-///         trace_record!(ledger::state::block::APPLY, error = error);
+///         trace_record!(ledger::block::APPLY, error = error);
 ///
 ///         // Record to span and emit INFO log event
-///         trace_record!(INFO, ledger::state::block::APPLY, error = error);
+///         trace_record!(INFO, ledger::block::APPLY, error = error);
 ///     }
 /// }
 /// ```
@@ -138,7 +144,7 @@ pub fn trace_record(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// debug_span!(operations::database::OPENING_CHAIN_DB, path = "...")
-/// debug_span!(DEBUG, ledger::state::block::APPLY, point_slot = 1024)
+/// debug_span!(DEBUG, ledger::block::APPLY, point_slot = 1024)
 /// debug_span!(INFO, consensus::VALIDATE_HEADER)
 /// ```
 #[proc_macro]

@@ -150,7 +150,7 @@ impl GovernanceUpdates {
             .collect();
 
         info_span!(
-            ledger::state::epoch_transition::NEW_GOVERNANCE_UPDATES,
+            ledger::epoch_transition::NEW_GOVERNANCE_UPDATES,
             proposals_count = proposals.len() as u64
         )
         .in_scope(|| {

@@ -105,7 +105,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
     let parent_context = msg.trace_context.clone();
     let span = debug_span!(
             parent_context: msg.trace_context,
-            consensus::state::block::VALIDATE,
+            consensus::block::VALIDATE,
             tip = tip,
             header_hash = tip.hash());
     let stage_context = (&span).into();
@@ -167,12 +167,12 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                 eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
                 eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }).await;
                 eff.send(&state.adopt_chain, AdoptChainMsg::new(msg.tip, state.max_block_height).with_trace_context(&parent_context)).await;
-                debug_record!(consensus::state::block::VALIDATE, valid = true);
+                debug_record!(consensus::block::VALIDATE, valid = true);
                 state.current = msg.tip.point();
             }
             Err(error) => {
                 tracing::warn!(error = %error, point = %msg.tip.point(), "invalid block");
-                debug_record!(consensus::state::block::VALIDATE, valid = false);
+                debug_record!(consensus::block::VALIDATE, valid = false);
                 eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
                 eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() }).await;
             }

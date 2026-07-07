@@ -184,7 +184,7 @@ fn private_emit_guard_tokens() -> proc_macro2::TokenStream {
 /// # Example
 ///
 /// ```text
-/// trace_record!(ledger::state::block::APPLY, error = "invalid witness");
+/// trace_record!(ledger::block::APPLY, error = "invalid witness");
 /// ```
 ///
 /// Expand the `trace_record!` macro.
@@ -211,15 +211,15 @@ fn private_emit_guard_tokens() -> proc_macro2::TokenStream {
 ///
 /// ```text
 /// fn apply_block(point_slot: u64, error: Option<&str>) {
-///     let _span = debug_span!(ledger::state::block::APPLY, point_slot = point_slot);
+///     let _span = debug_span!(ledger::block::APPLY, point_slot = point_slot);
 ///     let _guard = _span.enter();
 ///
 ///     if let Some(error) = error {
 ///         // Record additional context (no log event)
-///         trace_record!(ledger::state::block::APPLY, error = error);
+///         trace_record!(ledger::block::APPLY, error = error);
 ///
 ///         // Record and emit a debug log event
-///         trace_record!(DEBUG, ledger::state::block::APPLY, error = error);
+///         trace_record!(DEBUG, ledger::block::APPLY, error = error);
 ///     }
 /// }
 /// ```
@@ -388,7 +388,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// debug_span!(operations::database::OPENING_CHAIN_DB, path = "...")
-/// debug_span!(DEBUG, ledger::state::block::APPLY, block_size = 1024)
+/// debug_span!(DEBUG, ledger::block::APPLY, block_size = 1024)
 /// debug_span!(INFO, consensus::VALIDATE)
 /// debug_span!(parent_context: &ctx, consensus::VALIDATE)
 /// ```

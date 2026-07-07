@@ -31,20 +31,10 @@ use crate::stages::{
     test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated},
 };
 
-/// Map with the trace context that the stage keeps for a tip that was just received.
-fn tip_trace_contexts(tip: Tip) -> BTreeMap<HeaderHash, TraceContext> {
-    BTreeMap::from_iter([(tip.hash(), Default::default())])
-}
-
 /// Expected message for a tip that was just received: it carries the trace context
 /// tracking the wait for the corresponding block.
 fn new_best_tip(tip: Tip, parent: Point) -> NewBestTip {
-    NewBestTip {
-        tip,
-        parent,
-        trace_context: Default::default(),
-        perf_header_block_fetch_wait_trace_contexts: tip_trace_contexts(tip),
-    }
+    NewBestTip { tip, parent, trace_context: Default::default() }
 }
 
 #[test]
@@ -111,7 +101,6 @@ fn test_tip_extends_from_origin() {
         best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![tip.hash()])]),
         may_fetch_blocks: false,
-        perf_header_forward_trace_contexts: tip_trace_contexts(tip),
         ..prep.state.clone()
     };
 
@@ -148,7 +137,6 @@ fn test_tip_extends_from_h1() {
             vec![prep.headers.h0.hash(), prep.headers.h1.hash(), prep.headers.h2.hash()],
         )]),
         may_fetch_blocks: false,
-        perf_header_forward_trace_contexts: tip_trace_contexts(tip),
         ..prep.state.clone()
     };
 
@@ -183,7 +171,6 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
         best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![prep.headers.h2.hash(), tip.hash()])]),
         may_fetch_blocks: false,
-        perf_header_forward_trace_contexts: tip_trace_contexts(tip),
         ..prep.state.clone()
     };
 
@@ -227,7 +214,6 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
         ]),
         may_fetch_blocks: false,
-        perf_header_forward_trace_contexts: tip_trace_contexts(tip),
         ..prep.state.clone()
     };
 
@@ -305,7 +291,6 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             (prep.headers.h2.hash(), vec![prep.headers.h1.hash(), prep.headers.h2.hash()]),
         ]),
         may_fetch_blocks: false,
-        perf_header_forward_trace_contexts: tip_trace_contexts(tip),
         ..prep.state.clone()
     };
 

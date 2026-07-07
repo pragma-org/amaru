@@ -57,41 +57,37 @@ define_local_schemas! {
             }
         }
         consensus {
-            state {
-                roll_forward {
-                    /// Roll forward processing for testing
-                    public PROCESS {
-                        required peer: String
-                    }
+            roll_forward {
+                /// Roll forward processing for testing
+                public PROCESS {
+                    required peer: String
                 }
-                header {
-                    /// Evolve nonce for testing
-                    public EVOLVE_NONCE {
-                        required hash: String
-                    }
+            }
+            header {
+                /// Evolve nonce for testing
+                public EVOLVE_NONCE {
+                    required hash: String
                 }
-                chain_sync {
-                    /// Roll forward for testing
-                    public ROLL_FORWARD {
-                        required peer: String
-                    }
+            }
+            chain_sync {
+                /// Roll forward for testing
+                public ROLL_FORWARD {
+                    required peer: String
                 }
             }
         }
         ledger {
-            state {
-                block {
-                    /// Apply block for testing
-                    public APPLY {
-                        required point_slot: u64
-                    }
-                    /// Create validation context for testing
-                    public CREATE_VALIDATION_CONTEXT {
-                        required block_body_hash: String
-                        required block_number: u64
-                        required block_body_size: u64
-                        optional total_inputs: u64
-                    }
+            block {
+                /// Apply block for testing
+                public APPLY {
+                    required point_slot: u64
+                }
+                /// Create validation context for testing
+                public CREATE_VALIDATION_CONTEXT {
+                    required block_body_hash: String
+                    required block_number: u64
+                    required block_body_size: u64
+                    optional total_inputs: u64
                 }
             }
         }
@@ -100,6 +96,20 @@ define_local_schemas! {
                 /// Span classification for testing
                 public REGISTERED_SPAN {
                     required tip: String
+                }
+            }
+        }
+        categorized {
+            work {
+                tags: cpu, io
+                /// Tagged span for testing
+                public COMPUTE {
+                    required label: String
+                }
+                /// Tagged span overriding the module tags for testing
+                public STORE {
+                    tags: setup
+                    required label: String
                 }
             }
         }
@@ -191,18 +201,18 @@ where
 }
 
 fn evolve_nonce(hash: String) {
-    let _span = trace_span!(crate::amaru::consensus::state::header::EVOLVE_NONCE, hash = &hash);
+    let _span = trace_span!(crate::amaru::consensus::header::EVOLVE_NONCE, hash = &hash);
     let _guard = _span.enter();
 }
 
 fn apply_block(point_slot: u64) {
-    let _span = trace_span!(crate::amaru::ledger::state::block::APPLY, point_slot = point_slot);
+    let _span = trace_span!(crate::amaru::ledger::block::APPLY, point_slot = point_slot);
     let _guard = _span.enter();
 }
 
 fn process_block(block_body_hash: String, block_number: u64, block_body_size: u64) {
     let _span = trace_span!(
-        crate::amaru::ledger::state::block::CREATE_VALIDATION_CONTEXT,
+        crate::amaru::ledger::block::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
         block_number = block_number,
         block_body_size = block_body_size
@@ -212,7 +222,7 @@ fn process_block(block_body_hash: String, block_number: u64, block_body_size: u6
 
 fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size: u64) {
     let _span = trace_span!(
-        crate::amaru::ledger::state::block::CREATE_VALIDATION_CONTEXT,
+        crate::amaru::ledger::block::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
         block_number = block_number,
         block_body_size = block_body_size
@@ -222,7 +232,7 @@ fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size
 }
 
 fn inner_record(_total_inputs: u64) {
-    trace_record!(crate::amaru::ledger::state::block::CREATE_VALIDATION_CONTEXT, total_inputs = _total_inputs);
+    trace_record!(crate::amaru::ledger::block::CREATE_VALIDATION_CONTEXT, total_inputs = _total_inputs);
 }
 
 fn distinct_formatting(display_value: DistinctFormatting, debug_value: DistinctFormatting) {
@@ -235,14 +245,14 @@ fn distinct_formatting(display_value: DistinctFormatting, debug_value: DistinctF
 }
 
 fn roll_forward(peer: String) {
-    let _span = trace_span!(crate::amaru::consensus::state::roll_forward::PROCESS, peer = &peer);
+    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer = &peer);
     let _guard = _span.enter();
 }
 
 fn root_roll_forward(peer: String) {
     let _outer = tracing::debug_span!("outer");
     let _outer_guard = _outer.enter();
-    let _span = trace_span!(root, crate::amaru::consensus::state::roll_forward::PROCESS, peer = &peer);
+    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer = &peer);
     let _guard = _span.enter();
 }
 
@@ -276,10 +286,72 @@ mod test {
         assert_eq!(spans.len(), 2);
 
         assert_eq!(spans[0].target, "amaru::consensus");
-        assert_eq!(spans[0].name, "state.header.evolve_nonce");
+        assert_eq!(spans[0].name, "header.evolve_nonce");
 
         assert_eq!(spans[1].target, "amaru::ledger");
-        assert_eq!(spans[1].name, "state.block.apply");
+        assert_eq!(spans[1].name, "block.apply");
+    }
+
+    #[test]
+    fn test_tags_recorded_as_span_attributes() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let values = Arc::new(Mutex::new(BTreeMap::new()));
+        let subscriber = Registry::default()
+            .with(CapturingLayer { captured_spans: captured.clone() })
+            .with(ValueCapturingLayer { captured: values.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            let _span = trace_span!(crate::amaru::categorized::work::COMPUTE, label = &"compute".to_string());
+        });
+
+        let spans = captured.lock().unwrap();
+        assert!(spans[0].fields.contains(&"amaru.tag.cpu".into()));
+        assert!(spans[0].fields.contains(&"amaru.tag.io".into()));
+
+        let values = values.lock().unwrap();
+        assert_eq!(values.get("label").map(String::as_str), Some("compute"));
+        assert_eq!(values.get("amaru.tag.cpu").map(String::as_str), Some("true"));
+        assert_eq!(values.get("amaru.tag.io").map(String::as_str), Some("true"));
+    }
+
+    #[test]
+    fn test_schema_tags_override_module_tags() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let values = Arc::new(Mutex::new(BTreeMap::new()));
+        let subscriber = Registry::default()
+            .with(CapturingLayer { captured_spans: captured.clone() })
+            .with(ValueCapturingLayer { captured: values.clone() });
+
+        tracing::subscriber::with_default(subscriber, || {
+            let _span = trace_span!(crate::amaru::categorized::work::STORE, label = &"store".to_string());
+        });
+
+        let spans = captured.lock().unwrap();
+        assert!(spans[0].fields.contains(&"amaru.tag.setup".into()));
+        assert!(!spans[0].fields.contains(&"amaru.tag.cpu".into()));
+
+        let values = values.lock().unwrap();
+        assert_eq!(values.get("amaru.tag.setup").map(String::as_str), Some("true"));
+    }
+
+    #[test]
+    fn test_env_filter_selects_spans_by_tag() {
+        use tracing_subscriber::{EnvFilter, Layer as _};
+
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = Registry::default().with(
+            CapturingLayer { captured_spans: captured.clone() }
+                .with_filter(EnvFilter::new("[{amaru.tag.cpu=true}]=trace")),
+        );
+
+        tracing::subscriber::with_default(subscriber, || {
+            let _tagged = trace_span!(crate::amaru::categorized::work::COMPUTE, label = &"compute".to_string());
+            apply_block(42);
+        });
+
+        let spans = captured.lock().unwrap();
+        assert_eq!(spans.len(), 1, "only the cpu-tagged span should be selected: {:?}", *spans);
+        assert_eq!(spans[0].name, "work.compute");
     }
 
     #[test]
@@ -372,7 +444,7 @@ mod test {
         assert!(!fields.contains(&"schema".into()));
         assert!(!fields.contains(&"name".into()));
         assert_eq!(spans[0].target, "amaru::consensus");
-        assert_eq!(spans[0].name, "state.roll_forward.process");
+        assert_eq!(spans[0].name, "roll_forward.process");
 
         let recorded = values.lock().unwrap();
         assert_eq!(recorded.get("otel.name"), None);
@@ -390,7 +462,7 @@ mod test {
         });
 
         let spans = captured.lock().unwrap();
-        let roll_forward = spans.iter().find(|span| span.name == "state.roll_forward.process").unwrap();
+        let roll_forward = spans.iter().find(|span| span.name == "roll_forward.process").unwrap();
         assert_eq!(roll_forward.parent, None);
     }
 

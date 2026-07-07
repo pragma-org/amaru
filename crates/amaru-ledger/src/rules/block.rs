@@ -194,7 +194,7 @@ pub fn execute<C, S: From<C>>(
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
-    let _span = trace_span!(ledger::state::block::VALIDATE,);
+    let _span = trace_span!(ledger::block::VALIDATE,);
     let _guard = _span.enter();
 
     let slot = Slot::from(block.header.header_body.slot);

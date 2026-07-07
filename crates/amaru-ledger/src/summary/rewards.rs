@@ -127,7 +127,7 @@ use crate::{
     },
 };
 
-const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
+const EVENT_TARGET: &str = "amaru::ledger::rewards";
 
 impl PoolState {
     pub fn relative_stake(&self, total_stake: Lovelace) -> SafeRatio {

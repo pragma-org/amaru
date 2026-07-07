@@ -54,7 +54,7 @@ pub fn build_stage_graph(
     best_hash: HeaderHash,
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
-    let span = debug_span!(consensus::setup::node::INITIALIZE);
+    let span = debug_span!(consensus::node::INITIALIZE);
     let trace_context = (&span).into();
     let manager = stage_graph.stage("manager", manager::stage);
     let peer_selection = stage_graph.stage("peer_selection", peer_selection::stage);

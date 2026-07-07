@@ -80,7 +80,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
             ResponderMessage::NewTip(tip, trace_context) => {
                 let span = debug_span!(
                     parent_context: trace_context,
-                    consensus::state::header::FORWARD,
+                    consensus::header::FORWARD,
                     tip = tip,
                     header_hash = tip.hash(),
                     peer = self.peer.clone()

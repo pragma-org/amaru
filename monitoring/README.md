@@ -26,10 +26,10 @@ Any event (trace, span or metric) can be filtered by target and severity using t
 
 ### By target
 
-A `target` is a `::`-separated path of identifiers such as `amaru::ledger::state`. One can filter by providing either a full target, or a sub-path prefix. For example, the target `amaru::ledger` will match the following:
+A `target` is a `::`-separated path of identifiers such as `amaru::ledger::block`. One can filter by providing either a full target, or a sub-path prefix. For example, the target `amaru::ledger` will match the following:
 
-- `amaru::ledger::state`
-- `amaru::ledger::state::forward`
+- `amaru::ledger::block`
+- `amaru::ledger::epoch_transition`
 - `amaru::ledger::store`
 
 But it will not match any of the following:
@@ -37,18 +37,37 @@ But it will not match any of the following:
 - `amaru::sync`
 - `amaru::consensus`
 
-e.g. `AMARU_LOG="amaru::ledger::state::forward=info"` will filter out `target` **amaru::ledger::state::forward** with level bellow `info`.
+e.g. `AMARU_LOG="amaru::ledger::epoch_transition=info"` will filter out `target` **amaru::ledger::epoch_transition** with level bellow `info`.
 
 For a comprehensive list of available targets, spans, and traces, see [TRACES.md](../docs/TRACES.md).
 
 ### By severity
 
-It is also possible to filter events by severity: `error`, `warn`, `info`, `debug`, `trace`, `off`. Severity can be specified either globally (in which case it applies to all events) or for a specific target by specifying the severity after the target using `=`. For example, `amaru::ledger::state=error` will filter out any events below the error severity for the `amaru::ledger::state` target.
+It is also possible to filter events by severity: `error`, `warn`, `info`, `debug`, `trace`, `off`. Severity can be specified either globally (in which case it applies to all events) or for a specific target by specifying the severity after the target using `=`. For example, `amaru::ledger::block=error` will filter out any events below the error severity for the `amaru::ledger::block` target.
 
 ### By span
 
 A `span` name can be used as a filter too. Note that any `span` or `event` inside this `span` will be considered, including those not matching the initial `target` (e.g. `pallas` events could match).
 For example `amaru[find_intersection]=trace` will filter all `spans` and `events` with the name `find_intersection` plus all children of this event.
+
+### By tag
+
+Spans can carry functional tags, declared with `tags: <name>, ...` in the schema definitions (see `crates/amaru-observability/src/schemas.rs`). Each tag is recorded on the span as a boolean `amaru.tag.<name>` attribute. The tags currently in use are `cpu`, `setup`, `bootstrap`, and `io`.
+
+To select the spans carrying a given tag, match on the attribute value:
+
+```bash
+AMARU_LOG='[{amaru.tag.cpu=true}]=trace'
+```
+
+Directives can be combined to match several tags:
+
+- `[{amaru.tag.cpu=true}]=trace,[{amaru.tag.io=true}]=trace` selects spans with the `cpu` **or** the `io` tag;
+- `[{amaru.tag.cpu=true,amaru.tag.io=true}]=trace` selects spans with **both** tags.
+
+Like span filters, tag filters are scoped: any `span` or `event` created inside a matching span is also considered.
+
+Note that the value match (`=true`) is required: a field-presence directive such as `[{amaru.tag.cpu}]` only restricts *events*, and matches all spans regardless of their tags.
 
 ### Combining filters
 

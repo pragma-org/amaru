@@ -5,7 +5,7 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
-## target: `amaru::ledger::state::accounts`
+## target: `amaru::ledger::accounts`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::block`
+## target: `amaru::ledger::block`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::committee`
+## target: `amaru::ledger::committee`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::context`
+## target: `amaru::ledger::context`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -125,7 +125,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::dreps`
+## target: `amaru::ledger::dreps`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -140,11 +140,11 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::epoch`
+## target: `amaru::ledger::epoch`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `compute_rewards` | `TRACE` | public | Compute rewards for epoch | for_epoch | using_stake_distribution_from |
+| `compute_rewards` | `TRACE` | public | Compute rewards for epoch | for_epoch | using_stake_distribution_epoch_from |
 | `compute_stake_distribution` | `TRACE` | public | Compute stake distribution for epoch | epoch |  |
 
 <details><summary>span: `compute_rewards`</summary>
@@ -152,7 +152,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `for_epoch` | `integer` | ✓ |
-| `using_stake_distribution_from` | `integer` |  |
+| `using_stake_distribution_epoch_from` | `integer` |  |
 
 </details>
 
@@ -164,7 +164,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::epoch_transition`
+## target: `amaru::ledger::epoch_transition`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -250,7 +250,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::governance`
+## target: `amaru::ledger::governance`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -306,7 +306,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::inputs`
+## target: `amaru::ledger::inputs`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -321,7 +321,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::ledger_state`
+## target: `amaru::ledger::ledger_state`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -337,7 +337,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::pools`
+## target: `amaru::ledger::pools`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -352,7 +352,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::proposals`
+## target: `amaru::ledger::proposals`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -367,7 +367,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::transaction`
+## target: `amaru::ledger::transaction`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -381,7 +381,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::validation`
+## target: `amaru::ledger::validation`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
@@ -494,7 +494,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::state::volatile`
+## target: `amaru::ledger::volatile`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |

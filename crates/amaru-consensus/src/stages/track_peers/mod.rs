@@ -414,7 +414,7 @@ impl TrackPeers {
             RollForward(header_content, tip) => {
                 tracing::debug!(%peer, highest = %tip.point(), "roll forward");
                 let peer_clone = peer.clone();
-                let span = debug_span!(root, consensus::state::roll_forward::PROCESS, tip = tip, peer = peer_clone,);
+                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip = tip, peer = peer_clone,);
                 let trace_context = (&span).into();
                 self.roll_forward(peer, handler, &eff, header_content, tip, trace_context).instrument(span).await;
             }
@@ -423,7 +423,7 @@ impl TrackPeers {
                 let peer_clone = peer.clone();
                 let span = debug_span!(
                         root,
-                        consensus::state::rollback::PROCESS,
+                        consensus::rollback::PROCESS,
                         current = %current,
                         peer = %peer_clone,
                         tip = %tip,
@@ -441,8 +441,8 @@ impl TrackPeers {
                         eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
                     }
                 }
-                    .instrument(span)
-                    .await
+                .instrument(span)
+                .await
             }
         }
     }
@@ -469,13 +469,13 @@ impl TrackPeers {
                 return;
             }
         };
-        debug_record!(consensus::state::roll_forward::PROCESS, header_hash = header.hash());
+        debug_record!(consensus::roll_forward::PROCESS, header_hash = header.hash());
 
         let min_ledger_slot = Slot::new(header.slot().as_u64().saturating_sub(self.max_forecast.as_u64()));
         if min_ledger_slot > self.ledger_applied_slot
             && let now = eff.clock().await
             && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
-            || self.ledger_applied_slot == Slot::from(0))
+                || self.ledger_applied_slot == Slot::from(0))
         {
             self.ledger_last_checked_at = now;
             self.ledger_applied_slot = ledger_applied_slot(eff).await;
@@ -498,7 +498,7 @@ impl TrackPeers {
 }
 
 pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<BlockHeader, ConsensusError> {
-    let span = debug_span!(consensus::state::header::DECODE, peer = peer.to_string(),);
+    let span = debug_span!(consensus::header::DECODE, peer = peer.to_string(),);
     let _guard = span.enter();
     // need to list all the variants supported by the current Amaru implementation
     if !matches!(raw_header.variant, EraName::Conway) {

@@ -283,7 +283,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         let immutable_slot = now_stable.anchor.0.slot();
         let immutable_epoch = unsafe_slot_to_epoch(&self.era_history, immutable_slot);
 
-        trace_span!(ledger::state::block::APPLY, point_slot = u64::from(immutable_slot)).in_scope(
+        trace_span!(ledger::block::APPLY, point_slot = u64::from(immutable_slot)).in_scope(
             || {
                 let protocol_parameters = self.protocol_parameters_for(immutable_epoch).unwrap_or_else(|| unreachable! {
                     "invariant violation: asking protocol parameters for an unreachable epoch; immutable epoch = {}; volatile epoch = {}",
@@ -353,7 +353,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
     fn epoch_transition(&mut self, next_epoch: Epoch) -> Result<(), StateError> {
         info_span!(
-            ledger::state::epoch_transition::EPOCH_TRANSITION,
+            ledger::epoch_transition::EPOCH_TRANSITION,
             from = u64::from(next_epoch - 1),
             into = u64::from(next_epoch)
         )
@@ -484,7 +484,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
     #[expect(clippy::unwrap_used)]
     fn compute_rewards(&mut self, for_epoch: Epoch) -> Result<RewardsSummary, StateError> {
-        let span = info_span!(ledger::state::epoch::COMPUTE_REWARDS, for_epoch = u64::from(for_epoch));
+        let span = info_span!(ledger::epoch::COMPUTE_REWARDS, for_epoch = u64::from(for_epoch));
 
         // NOTE: Explicit span guard handling
         //
@@ -532,7 +532,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         &mut self,
         state: AnchoredVolatileFragment,
     ) -> Result<Option<AnchoredVolatileFragment>, StateError> {
-        trace_span!(ledger::state::ledger_state::PUSH).in_scope(|| {
+        trace_span!(ledger::ledger_state::PUSH).in_scope(|| {
             let security_param = self.global_parameters.consensus_security_param;
 
             // Yield any now-stable state change
@@ -610,7 +610,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
     #[allow(clippy::unwrap_used)]
     fn create_block_validation_context(&self, block: &Block) -> Result<DefaultValidationContext, StateError> {
         trace_span!(
-            ledger::state::block::CREATE_VALIDATION_CONTEXT,
+            ledger::block::CREATE_VALIDATION_CONTEXT,
             block_body_hash = block.header.header_body.block_body_hash,
             block_number = block.header.header_body.block_number,
             block_body_size = block.header.header_body.block_body_size
@@ -647,23 +647,18 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         transaction: &Transaction,
     ) -> Result<DefaultValidationContext, StateError> {
         let transaction_id = transaction.tx_id();
-        trace_span!(ledger::state::transaction::CREATE_VALIDATION_CONTEXT, transaction_id = transaction_id).in_scope(
-            || {
-                let mut ctx = DefaultPreparationContext::new();
-                rules::prepare_transaction(&mut ctx, &transaction.body);
-                let db = &*self.stable.lock().unwrap();
-                ctx.into_validation_context(
-                    UnresolvedInputPolicy::Reject,
-                    self.volatile
-                        .proposals_roots()
-                        .cloned()
-                        .unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
-                    &self.volatile,
-                    db,
-                )
-                .map_err(StateError::ContextHydratation)
-            },
-        )
+        trace_span!(ledger::transaction::CREATE_VALIDATION_CONTEXT, transaction_id = transaction_id).in_scope(|| {
+            let mut ctx = DefaultPreparationContext::new();
+            rules::prepare_transaction(&mut ctx, &transaction.body);
+            let db = &*self.stable.lock().unwrap();
+            ctx.into_validation_context(
+                UnresolvedInputPolicy::Reject,
+                self.volatile.proposals_roots().cloned().unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
+                &self.volatile,
+                db,
+            )
+            .map_err(StateError::ContextHydratation)
+        })
     }
 
     /// Create a validation context from the current ledger state for the transaction, and
@@ -743,7 +738,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         block: Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
-        trace_span!(ledger::state::ledger_state::ROLL_FORWARD).in_scope(|| {
+        trace_span!(ledger::ledger_state::ROLL_FORWARD).in_scope(|| {
             let block_height = block.header.header_body.block_number;
 
             trace_block_transactions(point, block_height, &block);
@@ -826,7 +821,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
     }
 
     pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
-        info_span!(ledger::state::ledger_state::ROLL_BACKWARD, rollback_point = to.to_string()).in_scope(|| {
+        info_span!(ledger::ledger_state::ROLL_BACKWARD, rollback_point = to.to_string()).in_scope(|| {
             let immutable_tip = self.immutable_tip();
             let volatile_tip = self.volatile_tip().map(|t| t.point()).unwrap_or(immutable_tip);
 
@@ -912,7 +907,7 @@ pub fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
 ) -> Result<StakeDistribution, StateError> {
-    info_span!(ledger::state::epoch::COMPUTE_STAKE_DISTRIBUTION, epoch = u64::from(snapshot.epoch()),).in_scope(|| {
+    info_span!(ledger::epoch::COMPUTE_STAKE_DISTRIBUTION, epoch = u64::from(snapshot.epoch()),).in_scope(|| {
         StakeDistribution::new(snapshot, GovernanceSummary::new(snapshot, era_history)?).map_err(StateError::Storage)
     })
 }

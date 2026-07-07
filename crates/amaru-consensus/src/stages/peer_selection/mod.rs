@@ -369,7 +369,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         }
         PeerSelectionMsg::Adversarial(peer, trace_context) => {
             tracing::debug!(%peer, "peer_selection.adversarial");
-            let span = debug_span!(parent_context: trace_context, consensus::state::peer::BAN, peer = peer.clone());
+            let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer = peer.clone());
             state.ban_peer(peer, &eff).instrument(span).await;
         }
         PeerSelectionMsg::CooldownEnded(peer) => {

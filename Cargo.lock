@@ -245,6 +245,8 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
  "uuid",
  "wasm-bindgen",
  "web-sys",

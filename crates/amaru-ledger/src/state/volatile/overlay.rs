@@ -133,8 +133,8 @@ impl StateOverlay {
     /// transition was applied, so the caller can refresh its cached copy. Returns `None` when there
     /// was no governance update to apply, in which case the cached values are left untouched.
     pub fn apply(&mut self, db: &impl Store) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
-        let updated = info_span!(ledger::state::epoch_transition::APPLYING_OVERLAY, epoch = u64::from(self.epoch))
-            .in_scope(|| {
+        let updated =
+            info_span!(ledger::epoch_transition::APPLYING_OVERLAY, epoch = u64::from(self.epoch)).in_scope(|| {
                 use EpochTransitionProgress::*;
 
                 // ---------------------------------------------------------------------------- End of epoch

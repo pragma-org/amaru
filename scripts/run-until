@@ -44,7 +44,7 @@ function watchTargetEpoch() {
       (try fromjson catch empty)
       | select(.level == "INFO")
       | select(.fields.message == "exit")
-      | select(.span.name == "state.epoch_transition.epoch_transition")
+      | select(.span.name == "epoch_transition.epoch_transition")
       | select((.span.into // .into) != null)
       | "epoch\t" + ((.span.into // .into) | tostring)
     end

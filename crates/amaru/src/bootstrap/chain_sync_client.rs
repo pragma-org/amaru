@@ -43,7 +43,7 @@ impl ChainSyncClient {
             Ok(from_network_point(&intersection))
         }
         .instrument(debug_span!(
-            amaru::consensus::bootstrap::chain::FIND_INTERSECTION,
+            amaru::consensus::chain::FIND_INTERSECTION,
             peer = &self.peer.name,
             intersection_slot = u64::from(self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default())
         ))

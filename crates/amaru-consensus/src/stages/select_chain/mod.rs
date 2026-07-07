@@ -145,7 +145,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
         SelectChainMsg::TipFromUpstream { tip, parent, trace_context } => {
             let span = debug_span!(
                 parent_context: &trace_context,
-                consensus::state::chain::SELECT_FROM_TIP,
+                consensus::chain::SELECT_FROM_TIP,
                 tip = tip,
                 header_hash = tip.hash(),
             );
@@ -154,7 +154,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
         }
         SelectChainMsg::BlockValidationResult(point, valid) => {
             let span = debug_span!(
-                consensus::state::chain::SELECT_FROM_BLOCK_VALIDATION,
+                consensus::chain::SELECT_FROM_BLOCK_VALIDATION,
                 point = point,
                 valid = valid,
                 header_hash = point.hash(),
@@ -163,7 +163,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             state.handle_block_validation_result(point, valid, eff, trace_context).instrument(span).await;
         }
         SelectChainMsg::FetchNextFrom(point, trace_context) => {
-            let span = debug_span!(parent_context: trace_context, consensus::state::chain::FETCH_NEXT, point = point, header_hash = point.hash(),);
+            let span = debug_span!(parent_context: trace_context, consensus::chain::FETCH_NEXT, point = point, header_hash = point.hash(),);
             let trace_context = (&span).into();
             state.handle_fetch_next_from(point, eff, trace_context).instrument(span).await;
         }

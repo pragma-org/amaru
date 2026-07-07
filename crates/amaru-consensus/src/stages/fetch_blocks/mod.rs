@@ -15,9 +15,9 @@
 use std::time::Duration;
 
 use amaru_kernel::{
-    cardano::network_block::NetworkBlock, BlockHeader, BlockHeight, HeaderHash, IsHeader, Peer, Point, Tip, ORIGIN_HASH,
+    BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
 };
-use amaru_observability::{debug_span, TraceContext};
+use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
@@ -26,7 +26,7 @@ use tracing::Instrument;
 use crate::stages::{
     block_source::BlockSourceMsg,
     peer_selection::PeerSelectionMsg,
-    select_chain::{load_parent_point, SelectChainMsg},
+    select_chain::{SelectChainMsg, load_parent_point},
 };
 
 // TODO make configurable
@@ -172,7 +172,7 @@ impl FetchBlocks {
 
         let span = debug_span!(
             parent_context: parent_context.clone(),
-            consensus::state::blocks::FETCH,
+            consensus::blocks::FETCH,
             tip = tip,
             header_hash = tip.hash(),
         );
@@ -184,7 +184,7 @@ impl FetchBlocks {
     /// Startup-only recovery: resubmit downloaded blocks whose validity was not
     /// persisted before shutdown, then fetch from the first missing block.
     pub async fn recover_stored_blocks(&mut self, eff: Effects<FetchBlocksMsg>, best_hash: HeaderHash) {
-        let span = debug_span!(consensus::setup::blocks::RECOVER_STORED, best_hash = best_hash,);
+        let span = debug_span!(consensus::blocks::RECOVER_STORED, best_hash = best_hash,);
         let trace_context = (&span).into();
         assert!(
             self.missing.is_none(),
@@ -320,8 +320,7 @@ impl FetchBlocks {
         // check that body belongs to header
         if header.header().header_body.block_body_hash != block.body_hash() {
             let trace_context =
-                debug_span!(consensus::state::block::MISMATCHED_HASH, peer = peer.clone(), header_hash = point.hash())
-                    .into();
+                debug_span!(consensus::block::MISMATCHED_HASH, peer = peer.clone(), header_hash = point.hash()).into();
             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
             tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;

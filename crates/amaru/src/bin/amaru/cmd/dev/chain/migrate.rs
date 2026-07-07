@@ -57,7 +57,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let config = RocksDbConfig::new(chain_dir.clone());
     let config_dir = config.dir.display().to_string();
 
-    Ok(info_span!(consensus::setup::chain_db::OPEN, path = config_dir).in_scope(|| {
+    Ok(info_span!(consensus::chain_db::OPEN, path = config_dir).in_scope(|| {
         let (basedir, db) = open_db(&config)?;
         let store = RocksDBStore { db, basedir };
         match check_db_version(&store) {
@@ -66,7 +66,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 Ok(())
             }
             Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
-                info_span!(consensus::setup::chain_db::MIGRATE, from = stored, to = current)
+                info_span!(consensus::chain_db::MIGRATE, from = stored, to = current)
                     .in_scope(|| migrate_db(&store))?;
                 Ok(())
             }

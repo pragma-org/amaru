@@ -23,7 +23,7 @@ used=$(find crates -name "*.rs" \
     | sort -u)
 
 # Schema keys are fully qualified with a leading `amaru::`, but call sites
-# typically use crate-relative paths (e.g. `ledger::state::block::APPLY`).
+# typically use crate-relative paths (e.g. `ledger::block::APPLY`).
 # Match against the suffix so both forms count as used.
 while IFS= read -r path; do
     suffix=${path#amaru::}

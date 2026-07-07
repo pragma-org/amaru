@@ -4,7 +4,7 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
-    "amaru::ledger::state::accounts::HYDRATE": {
+    "amaru::ledger::accounts::HYDRATE": {
       "type": "object",
       "properties": {
         "from_volatile": {
@@ -22,11 +22,11 @@
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::accounts",
+      "target": "amaru::ledger::accounts",
       "description": "Resolve accounts from the volatile db or the stable one",
       "public": true
     },
-    "amaru::ledger::state::block::APPLY": {
+    "amaru::ledger::block::APPLY": {
       "type": "object",
       "properties": {
         "point_slot": {
@@ -40,11 +40,11 @@
       "additionalProperties": false,
       "name": "apply",
       "level": "TRACE",
-      "target": "amaru::ledger::state::block",
+      "target": "amaru::ledger::block",
       "description": "Apply a block to stable state",
       "public": true
     },
-    "amaru::ledger::state::block::CREATE_VALIDATION_CONTEXT": {
+    "amaru::ledger::block::CREATE_VALIDATION_CONTEXT": {
       "type": "object",
       "properties": {
         "block_body_hash": {
@@ -72,11 +72,11 @@
       "additionalProperties": false,
       "name": "create_validation_context",
       "level": "TRACE",
-      "target": "amaru::ledger::state::block",
+      "target": "amaru::ledger::block",
       "description": "Create validation context for a block",
       "public": true
     },
-    "amaru::ledger::state::block::PREPARE": {
+    "amaru::ledger::block::PREPARE": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -84,11 +84,11 @@
       "additionalProperties": false,
       "name": "prepare",
       "level": "TRACE",
-      "target": "amaru::ledger::state::block",
+      "target": "amaru::ledger::block",
       "description": "Prepare block for validation",
       "public": true
     },
-    "amaru::ledger::state::block::VALIDATE": {
+    "amaru::ledger::block::VALIDATE": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -96,11 +96,11 @@
       "additionalProperties": false,
       "name": "validate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::block",
+      "target": "amaru::ledger::block",
       "description": "Validate block against rules",
       "public": true
     },
-    "amaru::ledger::state::committee::HYDRATE": {
+    "amaru::ledger::committee::HYDRATE": {
       "type": "object",
       "properties": {
         "from_volatile": {
@@ -118,11 +118,11 @@
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::committee",
+      "target": "amaru::ledger::committee",
       "description": "Resolve committee members from the volatile db or the stable one",
       "public": true
     },
-    "amaru::ledger::state::context::ADD_FEES": {
+    "amaru::ledger::context::ADD_FEES": {
       "type": "object",
       "properties": {
         "fee": {
@@ -136,11 +136,11 @@
       "additionalProperties": false,
       "name": "add_fees",
       "level": "TRACE",
-      "target": "amaru::ledger::state::context",
+      "target": "amaru::ledger::context",
       "description": "Add transaction fees to pots",
       "public": true
     },
-    "amaru::ledger::state::context::REQUIRE_BOOTSTRAP_WITNESS": {
+    "amaru::ledger::context::REQUIRE_BOOTSTRAP_WITNESS": {
       "type": "object",
       "properties": {
         "bootstrap_witness_hash": {
@@ -154,11 +154,11 @@
       "additionalProperties": false,
       "name": "require_bootstrap_witness",
       "level": "TRACE",
-      "target": "amaru::ledger::state::context",
+      "target": "amaru::ledger::context",
       "description": "Require a bootstrap witness",
       "public": true
     },
-    "amaru::ledger::state::context::REQUIRE_SCRIPT_WITNESS": {
+    "amaru::ledger::context::REQUIRE_SCRIPT_WITNESS": {
       "type": "object",
       "properties": {
         "hash": {
@@ -172,11 +172,11 @@
       "additionalProperties": false,
       "name": "require_script_witness",
       "level": "TRACE",
-      "target": "amaru::ledger::state::context",
+      "target": "amaru::ledger::context",
       "description": "Require a script witness",
       "public": true
     },
-    "amaru::ledger::state::context::REQUIRE_VKEY_WITNESS": {
+    "amaru::ledger::context::REQUIRE_VKEY_WITNESS": {
       "type": "object",
       "properties": {
         "hash": {
@@ -190,11 +190,11 @@
       "additionalProperties": false,
       "name": "require_vkey_witness",
       "level": "TRACE",
-      "target": "amaru::ledger::state::context",
+      "target": "amaru::ledger::context",
       "description": "Require a verification key witness",
       "public": true
     },
-    "amaru::ledger::state::context::VOTE": {
+    "amaru::ledger::context::VOTE": {
       "type": "object",
       "properties": {
         "voter_type": {
@@ -219,11 +219,11 @@
       "additionalProperties": false,
       "name": "vote",
       "level": "TRACE",
-      "target": "amaru::ledger::state::context",
+      "target": "amaru::ledger::context",
       "description": "Record a governance vote",
       "public": true
     },
-    "amaru::ledger::state::context::WITHDRAW_FROM": {
+    "amaru::ledger::context::WITHDRAW_FROM": {
       "type": "object",
       "properties": {
         "credential_type": {
@@ -243,11 +243,11 @@
       "additionalProperties": false,
       "name": "withdraw_from",
       "level": "TRACE",
-      "target": "amaru::ledger::state::context",
+      "target": "amaru::ledger::context",
       "description": "Withdraw from stake credential",
       "public": true
     },
-    "amaru::ledger::state::dreps::HYDRATE": {
+    "amaru::ledger::dreps::HYDRATE": {
       "type": "object",
       "properties": {
         "from_volatile": {
@@ -265,17 +265,17 @@
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::dreps",
+      "target": "amaru::ledger::dreps",
       "description": "Resolve dreps from the volatile db or the stable one",
       "public": true
     },
-    "amaru::ledger::state::epoch::COMPUTE_REWARDS": {
+    "amaru::ledger::epoch::COMPUTE_REWARDS": {
       "type": "object",
       "properties": {
         "for_epoch": {
           "type": "integer"
         },
-        "using_stake_distribution_from": {
+        "using_stake_distribution_epoch_from": {
           "type": "integer"
         }
       },
@@ -283,16 +283,16 @@
         "for_epoch"
       ],
       "optional": [
-        "using_stake_distribution_from"
+        "using_stake_distribution_epoch_from"
       ],
       "additionalProperties": false,
       "name": "compute_rewards",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch",
+      "target": "amaru::ledger::epoch",
       "description": "Compute rewards for epoch",
       "public": true
     },
-    "amaru::ledger::state::epoch::COMPUTE_STAKE_DISTRIBUTION": {
+    "amaru::ledger::epoch::COMPUTE_STAKE_DISTRIBUTION": {
       "type": "object",
       "properties": {
         "epoch": {
@@ -306,11 +306,11 @@
       "additionalProperties": false,
       "name": "compute_stake_distribution",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch",
+      "target": "amaru::ledger::epoch",
       "description": "Compute stake distribution for epoch",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::APPLYING_OVERLAY": {
+    "amaru::ledger::epoch_transition::APPLYING_OVERLAY": {
       "type": "object",
       "properties": {
         "epoch": {
@@ -337,11 +337,11 @@
       "additionalProperties": false,
       "name": "applying_overlay",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Flushing the epoch transition overlay to disk",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::APPLY_GOVERNANCE_UPDATES": {
+    "amaru::ledger::epoch_transition::APPLY_GOVERNANCE_UPDATES": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -349,11 +349,11 @@
       "additionalProperties": false,
       "name": "apply_governance_updates",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Enact all governance updates and flush their outcome to disk",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::BEGIN_EPOCH": {
+    "amaru::ledger::epoch_transition::BEGIN_EPOCH": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -361,11 +361,11 @@
       "additionalProperties": false,
       "name": "begin_epoch",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Perform start-of-epoch epoch boundary computations",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::END_EPOCH": {
+    "amaru::ledger::epoch_transition::END_EPOCH": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -373,11 +373,11 @@
       "additionalProperties": false,
       "name": "end_epoch",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Perform end-of-epoch epoch boundary computations",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::EPOCH_TRANSITION": {
+    "amaru::ledger::epoch_transition::EPOCH_TRANSITION": {
       "type": "object",
       "properties": {
         "from": {
@@ -404,11 +404,11 @@
       "additionalProperties": false,
       "name": "epoch_transition",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Epoch transition processing",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::NEW_GOVERNANCE_UPDATES": {
+    "amaru::ledger::epoch_transition::NEW_GOVERNANCE_UPDATES": {
       "type": "object",
       "properties": {
         "proposals_count": {
@@ -422,11 +422,11 @@
       "additionalProperties": false,
       "name": "new_governance_updates",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Create governance updates (i.e. ratify proposals) at an epoch boundary.",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::NEW_POOLS_UPDATES": {
+    "amaru::ledger::epoch_transition::NEW_POOLS_UPDATES": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -434,11 +434,11 @@
       "additionalProperties": false,
       "name": "new_pools_updates",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Create pools updates",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::PAY_OR_REFUND_ACCOUNTS": {
+    "amaru::ledger::epoch_transition::PAY_OR_REFUND_ACCOUNTS": {
       "type": "object",
       "properties": {
         "total_paid_or_refunded": {
@@ -456,11 +456,11 @@
       "additionalProperties": false,
       "name": "pay_or_refund_accounts",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Pay withdrawals to accounts, or refund deposits",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::PAY_REWARDS": {
+    "amaru::ledger::epoch_transition::PAY_REWARDS": {
       "type": "object",
       "properties": {
         "accounts_paid": {
@@ -486,11 +486,11 @@
       "additionalProperties": false,
       "name": "pay_rewards",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Pay rewards to all accounts before the epoch end",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::RECORD_PRUNED_PROPOSALS": {
+    "amaru::ledger::epoch_transition::RECORD_PRUNED_PROPOSALS": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -498,11 +498,11 @@
       "additionalProperties": false,
       "name": "record_pruned_proposals",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations.",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::RESET_BLOCKS_COUNT": {
+    "amaru::ledger::epoch_transition::RESET_BLOCKS_COUNT": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -510,11 +510,11 @@
       "additionalProperties": false,
       "name": "reset_blocks_count",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Reset blocks count to zero",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::RESET_FEES": {
+    "amaru::ledger::epoch_transition::RESET_FEES": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -522,11 +522,11 @@
       "additionalProperties": false,
       "name": "reset_fees",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Reset fees to zero",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::UPDATE_CONSTITUTIONAL_COMMITTEE": {
+    "amaru::ledger::epoch_transition::UPDATE_CONSTITUTIONAL_COMMITTEE": {
       "type": "object",
       "properties": {
         "no_confidence": {
@@ -540,11 +540,11 @@
       "additionalProperties": false,
       "name": "update_constitutional_committee",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Add or remove CC members; or switch to a no-confidence state",
       "public": true
     },
-    "amaru::ledger::state::epoch_transition::UPDATE_OR_RETIRE_POOLS": {
+    "amaru::ledger::epoch_transition::UPDATE_OR_RETIRE_POOLS": {
       "type": "object",
       "properties": {
         "pools_updated": {
@@ -562,11 +562,11 @@
       "additionalProperties": false,
       "name": "update_or_retire_pools",
       "level": "TRACE",
-      "target": "amaru::ledger::state::epoch_transition",
+      "target": "amaru::ledger::epoch_transition",
       "description": "Updating pools metadata or retiring pools at an epoch boundary.",
       "public": true
     },
-    "amaru::ledger::state::governance::ENACTING": {
+    "amaru::ledger::governance::ENACTING": {
       "type": "object",
       "properties": {
         "proposal_id": {
@@ -589,11 +589,11 @@
       "additionalProperties": false,
       "name": "enacting",
       "level": "TRACE",
-      "target": "amaru::ledger::state::governance",
+      "target": "amaru::ledger::governance",
       "description": "Computing enactment of a ratified proposal",
       "public": true
     },
-    "amaru::ledger::state::governance::NEW_RATIFICATION_CONTEXT": {
+    "amaru::ledger::governance::NEW_RATIFICATION_CONTEXT": {
       "type": "object",
       "properties": {
         "ratifying_epoch": {
@@ -616,11 +616,11 @@
       "additionalProperties": false,
       "name": "new_ratification_context",
       "level": "TRACE",
-      "target": "amaru::ledger::state::governance",
+      "target": "amaru::ledger::governance",
       "description": "Create ratification context",
       "public": true
     },
-    "amaru::ledger::state::governance::RATIFYING": {
+    "amaru::ledger::governance::RATIFYING": {
       "type": "object",
       "properties": {
         "proposal_id": {
@@ -663,11 +663,11 @@
       "additionalProperties": false,
       "name": "ratifying",
       "level": "TRACE",
-      "target": "amaru::ledger::state::governance",
+      "target": "amaru::ledger::governance",
       "description": "Ratify a proposal while traversing the governance forest",
       "public": true
     },
-    "amaru::ledger::state::governance::RATIFY_PROPOSALS": {
+    "amaru::ledger::governance::RATIFY_PROPOSALS": {
       "type": "object",
       "properties": {
         "epoch": {
@@ -698,11 +698,11 @@
       "additionalProperties": false,
       "name": "ratify_proposals",
       "level": "TRACE",
-      "target": "amaru::ledger::state::governance",
+      "target": "amaru::ledger::governance",
       "description": "Ratify proposals at epoch boundary",
       "public": true
     },
-    "amaru::ledger::state::inputs::HYDRATE": {
+    "amaru::ledger::inputs::HYDRATE": {
       "type": "object",
       "properties": {
         "from_volatile": {
@@ -720,11 +720,11 @@
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::inputs",
+      "target": "amaru::ledger::inputs",
       "description": "Resolve transaction inputs from the volatile db or the stable one",
       "public": true
     },
-    "amaru::ledger::state::ledger_state::PUSH": {
+    "amaru::ledger::ledger_state::PUSH": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -732,11 +732,11 @@
       "additionalProperties": false,
       "name": "push",
       "level": "TRACE",
-      "target": "amaru::ledger::state::ledger_state",
+      "target": "amaru::ledger::ledger_state",
       "description": "Forward ledger state with new volatile state",
       "public": true
     },
-    "amaru::ledger::state::ledger_state::ROLL_BACKWARD": {
+    "amaru::ledger::ledger_state::ROLL_BACKWARD": {
       "type": "object",
       "properties": {
         "rollback_point": {
@@ -750,11 +750,11 @@
       "additionalProperties": false,
       "name": "roll_backward",
       "level": "TRACE",
-      "target": "amaru::ledger::state::ledger_state",
+      "target": "amaru::ledger::ledger_state",
       "description": "Roll backward to a specific point",
       "public": true
     },
-    "amaru::ledger::state::ledger_state::ROLL_FORWARD": {
+    "amaru::ledger::ledger_state::ROLL_FORWARD": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -762,11 +762,11 @@
       "additionalProperties": false,
       "name": "roll_forward",
       "level": "TRACE",
-      "target": "amaru::ledger::state::ledger_state",
+      "target": "amaru::ledger::ledger_state",
       "description": "Roll forward with a new block",
       "public": true
     },
-    "amaru::ledger::state::pools::HYDRATE": {
+    "amaru::ledger::pools::HYDRATE": {
       "type": "object",
       "properties": {
         "from_volatile": {
@@ -784,11 +784,11 @@
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::pools",
+      "target": "amaru::ledger::pools",
       "description": "Resolve pools from the volatile db or the stable one",
       "public": true
     },
-    "amaru::ledger::state::proposals::HYDRATE": {
+    "amaru::ledger::proposals::HYDRATE": {
       "type": "object",
       "properties": {
         "from_volatile": {
@@ -806,11 +806,11 @@
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::proposals",
+      "target": "amaru::ledger::proposals",
       "description": "Resolve proposals from the volatile db or the stable one",
       "public": true
     },
-    "amaru::ledger::state::transaction::CREATE_VALIDATION_CONTEXT": {
+    "amaru::ledger::transaction::CREATE_VALIDATION_CONTEXT": {
       "type": "object",
       "properties": {
         "transaction_id": {
@@ -825,11 +825,11 @@
       "additionalProperties": false,
       "name": "create_validation_context",
       "level": "TRACE",
-      "target": "amaru::ledger::state::transaction",
+      "target": "amaru::ledger::transaction",
       "description": "Create validation context for a transaction",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_COMMITTEE_DELEGATE": {
+    "amaru::ledger::validation::CERTIFICATE_COMMITTEE_DELEGATE": {
       "type": "object",
       "properties": {
         "cc_member": {
@@ -847,11 +847,11 @@
       "additionalProperties": false,
       "name": "certificate_committee_delegate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Delegate cold key to committee",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_COMMITTEE_RESIGN": {
+    "amaru::ledger::validation::CERTIFICATE_COMMITTEE_RESIGN": {
       "type": "object",
       "properties": {
         "cc_member": {
@@ -870,11 +870,11 @@
       "additionalProperties": false,
       "name": "certificate_committee_resign",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Resign from committee",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_DREP_REGISTRATION": {
+    "amaru::ledger::validation::CERTIFICATE_DREP_REGISTRATION": {
       "type": "object",
       "properties": {
         "drep": {
@@ -897,11 +897,11 @@
       "additionalProperties": false,
       "name": "certificate_drep_registration",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Register a DRep",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_DREP_RETIREMENT": {
+    "amaru::ledger::validation::CERTIFICATE_DREP_RETIREMENT": {
       "type": "object",
       "properties": {
         "drep": {
@@ -919,11 +919,11 @@
       "additionalProperties": false,
       "name": "certificate_drep_retirement",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Unregister a DRep",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_DREP_UPDATE": {
+    "amaru::ledger::validation::CERTIFICATE_DREP_UPDATE": {
       "type": "object",
       "properties": {
         "drep": {
@@ -942,11 +942,11 @@
       "additionalProperties": false,
       "name": "certificate_drep_update",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Update DRep anchor",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_POOL_REGISTRATION": {
+    "amaru::ledger::validation::CERTIFICATE_POOL_REGISTRATION": {
       "type": "object",
       "properties": {
         "pool_id": {
@@ -961,11 +961,11 @@
       "additionalProperties": false,
       "name": "certificate_pool_registration",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Register a pool",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_POOL_RETIREMENT": {
+    "amaru::ledger::validation::CERTIFICATE_POOL_RETIREMENT": {
       "type": "object",
       "properties": {
         "pool_id": {
@@ -984,11 +984,11 @@
       "additionalProperties": false,
       "name": "certificate_pool_retirement",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Retire a pool",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_STAKE_DELEGATION": {
+    "amaru::ledger::validation::CERTIFICATE_STAKE_DELEGATION": {
       "type": "object",
       "properties": {
         "credential": {
@@ -1007,11 +1007,11 @@
       "additionalProperties": false,
       "name": "certificate_stake_delegation",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Delegate stake to a pool",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_STAKE_DEREGISTRATION": {
+    "amaru::ledger::validation::CERTIFICATE_STAKE_DEREGISTRATION": {
       "type": "object",
       "properties": {
         "credential": {
@@ -1025,11 +1025,11 @@
       "additionalProperties": false,
       "name": "certificate_stake_deregistration",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Unregister a stake credential",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_STAKE_REGISTRATION": {
+    "amaru::ledger::validation::CERTIFICATE_STAKE_REGISTRATION": {
       "type": "object",
       "properties": {
         "credential": {
@@ -1043,11 +1043,11 @@
       "additionalProperties": false,
       "name": "certificate_stake_registration",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Register a stake credential",
       "public": true
     },
-    "amaru::ledger::state::validation::CERTIFICATE_VOTE_DELEGATION": {
+    "amaru::ledger::validation::CERTIFICATE_VOTE_DELEGATION": {
       "type": "object",
       "properties": {
         "credential": {
@@ -1066,11 +1066,11 @@
       "additionalProperties": false,
       "name": "certificate_vote_delegation",
       "level": "TRACE",
-      "target": "amaru::ledger::state::validation",
+      "target": "amaru::ledger::validation",
       "description": "Delegate vote to DRep",
       "public": true
     },
-    "amaru::ledger::state::volatile::AGGREGATE": {
+    "amaru::ledger::volatile::AGGREGATE": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -1078,7 +1078,7 @@
       "additionalProperties": false,
       "name": "aggregate",
       "level": "TRACE",
-      "target": "amaru::ledger::state::volatile",
+      "target": "amaru::ledger::volatile",
       "description": "Recompute the volatile aggregate",
       "public": true
     },

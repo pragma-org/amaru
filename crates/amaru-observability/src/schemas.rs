@@ -24,419 +24,422 @@ use amaru_observability_macros::define_schemas;
 define_schemas! {
     amaru {
         consensus {
-            setup {
-                chain_db {
-                    /// Open the database
-                    OPEN {
-                        required path: String
-                    }
-                    /// Migrate the database if necessary
-                    MIGRATE {
-                        required from: u16
-                        required to: u16
-                    }
+            chain_db {
+                tags: setup
+                /// Open the database
+                OPEN {
+                    required path: String
                 }
-                blocks {
-                    /// Validate downloaded blocks that are not yet validated
-                    RECOVER_STORED {
-                        required best_hash: amaru_kernel::HeaderHash
-                    }
-                }
-                node {
-                    /// Initialize the node
-                    INITIALIZE {}
+                /// Migrate the database if necessary
+                MIGRATE {
+                    required from: u16
+                    required to: u16
                 }
             }
-            bootstrap {
-                chain {
-                    /// Find chain intersection point with peer
-                    FIND_INTERSECTION {
-                        required peer: String
-                        required intersection_slot: u64
-                    }
+            blocks {
+                /// Validate downloaded blocks that are not yet validated
+                RECOVER_STORED {
+                    tags: setup
+                    required best_hash: amaru_kernel::HeaderHash
+                }
+                /// Fetch a range of blocks starting from the specified tip
+                FETCH {
+                    tags: cpu
+                    required tip: amaru_kernel::Tip
+                    required header_hash: amaru_kernel::HeaderHash
                 }
             }
-            state {
-                roll_forward {
-                    /// Received a new tip to roll forward
-                    PROCESS {
-                        required tip: amaru_kernel::Tip
-                        required peer: amaru_kernel::Peer
-                        optional header_hash: amaru_kernel::HeaderHash
-                    }
+            node {
+                tags: setup
+                /// Initialize the node
+                INITIALIZE {}
+            }
+            chain {
+                /// Find chain intersection point with peer
+                FIND_INTERSECTION {
+                    tags: bootstrap
+                    required peer: String
+                    required intersection_slot: u64
                 }
-                rollback {
-                    /// Received a header to rollback
-                    PROCESS {
-                        required current: amaru_kernel::Point
-                        required tip: amaru_kernel::Tip
-                        required peer: amaru_kernel::Peer
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
+                /// Received a new tip from an upstream peer
+                SELECT_FROM_TIP {
+                    tags: cpu
+                    required tip: amaru_kernel::Tip
+                    required header_hash: amaru_kernel::HeaderHash
                 }
-                header {
-                    /// Decode header from raw bytes
-                    DECODE {
-                        required peer: String
-                    }
-                    /// Validate the whole header
-                    VALIDATE {
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
-                    /// Evolve the nonce based on header
-                    EVOLVE_NONCE {
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
-                    /// Check header cryptographic properties
-                    CHECK {
-                        required issuer_key: amaru_kernel::Bytes
-                    }
-                    /// Forward to a downstream peer
-                    FORWARD {
-                        required tip: amaru_kernel::Tip
-                        required header_hash: amaru_kernel::HeaderHash
-                        required peer: amaru_kernel::Peer
-                    }
+                /// Received a block validation result
+                SELECT_FROM_BLOCK_VALIDATION {
+                    tags: cpu
+                    required point: amaru_kernel::Tip
+                    required valid: bool
+                    required header_hash: amaru_kernel::HeaderHash
                 }
-                block {
-                    /// Validate a block by applying it to the current ledger
-                    VALIDATE {
-                        required tip: amaru_kernel::Tip
-                        required header_hash: amaru_kernel::HeaderHash
-                        optional valid: bool
-                    }
-                    /// Adopt a block as the next block in the best chain
-                    ADOPT {
-                        required tip: amaru_kernel::Tip
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
-                    /// Mismatched body hash after download, the peer is adversarial
-                    MISMATCHED_HASH {
-                        required peer: amaru_kernel::Peer
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
+                /// Some blocks have been fetched for the current chain, decide what to do next
+                FETCH_NEXT {
+                    tags: cpu
+                    required point: amaru_kernel::Point
+                    required header_hash: amaru_kernel::HeaderHash
                 }
-                blocks {
-                    /// Fetch a range of blocks starting from the specified tip
-                    FETCH {
-                        required tip: amaru_kernel::Tip
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
+            }
+            roll_forward {
+                tags: cpu
+                /// Received a new tip to roll forward
+                PROCESS {
+                    required tip: amaru_kernel::Tip
+                    required peer: amaru_kernel::Peer
+                    optional header_hash: amaru_kernel::HeaderHash
                 }
-                chain {
-                    /// Received a new tip from an upstream peer
-                    SELECT_FROM_TIP {
-                        required tip: amaru_kernel::Tip
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
-                    /// Received a block validation result
-                    SELECT_FROM_BLOCK_VALIDATION {
-                        required point: amaru_kernel::Tip
-                        required valid: bool
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
-                    /// Some blocks have been fetched for the current chain, decide what to do next
-                    FETCH_NEXT {
-                        required point: amaru_kernel::Point
-                        required header_hash: amaru_kernel::HeaderHash
-                    }
+            }
+            rollback {
+                tags: cpu
+                /// Received a header to rollback
+                PROCESS {
+                    required current: amaru_kernel::Point
+                    required tip: amaru_kernel::Tip
+                    required peer: amaru_kernel::Peer
+                    required header_hash: amaru_kernel::HeaderHash
                 }
-                peer {
-                    /// A peer behaves like an adversary, ban it
-                    BAN {
-                        required peer: amaru_kernel::Peer
-                    }
+            }
+            header {
+                tags: cpu
+                /// Decode header from raw bytes
+                DECODE {
+                    required peer: String
+                }
+                /// Validate the whole header
+                VALIDATE {
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+                /// Evolve the nonce based on header
+                EVOLVE_NONCE {
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+                /// Check header cryptographic properties
+                CHECK {
+                    required issuer_key: amaru_kernel::Bytes
+                }
+                /// Forward to a downstream peer
+                FORWARD {
+                    required tip: amaru_kernel::Tip
+                    required header_hash: amaru_kernel::HeaderHash
+                    required peer: amaru_kernel::Peer
+                }
+            }
+            block {
+                tags: cpu
+                /// Validate a block by applying it to the current ledger
+                VALIDATE {
+                    required tip: amaru_kernel::Tip
+                    required header_hash: amaru_kernel::HeaderHash
+                    optional valid: bool
+                }
+                /// Adopt a block as the next block in the best chain
+                ADOPT {
+                    required tip: amaru_kernel::Tip
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+                /// Mismatched body hash after download, the peer is adversarial
+                MISMATCHED_HASH {
+                    required peer: amaru_kernel::Peer
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+            }
+            peer {
+                tags: cpu
+                /// A peer behaves like an adversary, ban it
+                BAN {
+                    required peer: amaru_kernel::Peer
                 }
             }
         }
         ledger {
-            state {
-                block {
-                    /// Apply a block to stable state
-                    public APPLY {
-                        required point_slot: u64
-                    }
-                    /// Create validation context for a block
-                    public CREATE_VALIDATION_CONTEXT {
-                        required block_body_hash: amaru_kernel::HeaderHash
-                        required block_number: u64
-                        required block_body_size: u64
-                        optional total_inputs: u64
-                    }
-                    /// Prepare block for validation
-                    public PREPARE {}
+            tags: cpu
+            block {
+                /// Apply a block to stable state
+                public APPLY {
+                    required point_slot: u64
+                }
+                /// Create validation context for a block
+                public CREATE_VALIDATION_CONTEXT {
+                    required block_body_hash: amaru_kernel::HeaderHash
+                    required block_number: u64
+                    required block_body_size: u64
+                    optional total_inputs: u64
+                }
+                /// Prepare block for validation
+                public PREPARE {}
 
-                    /// Validate block against rules
-                    public VALIDATE {}
+                /// Validate block against rules
+                public VALIDATE {}
+            }
+            transaction {
+                /// Create validation context for a transaction
+                public CREATE_VALIDATION_CONTEXT {
+                    required transaction_id: amaru_kernel::TransactionId
                 }
-                transaction {
-                    /// Create validation context for a transaction
-                    public CREATE_VALIDATION_CONTEXT {
-                        required transaction_id: amaru_kernel::TransactionId
-                    }
+            }
+            inputs {
+                /// Resolve transaction inputs from the volatile db or the stable one
+                public HYDRATE {
+                    optional from_volatile: u64
+                    optional from_db: u64
                 }
-                inputs {
-                    /// Resolve transaction inputs from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+            }
+            pools {
+                /// Resolve pools from the volatile db or the stable one
+                public HYDRATE {
+                    optional from_volatile: u64
+                    optional from_db: u64
                 }
-                pools {
-                    /// Resolve pools from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+            }
+            accounts {
+                /// Resolve accounts from the volatile db or the stable one
+                public HYDRATE {
+                    optional from_volatile: u64
+                    optional from_db: u64
                 }
-                accounts {
-                    /// Resolve accounts from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+            }
+            dreps {
+                /// Resolve dreps from the volatile db or the stable one
+                public HYDRATE {
+                    optional from_volatile: u64
+                    optional from_db: u64
                 }
-                dreps {
-                    /// Resolve dreps from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+            }
+            committee {
+                /// Resolve committee members from the volatile db or the stable one
+                public HYDRATE {
+                    optional from_volatile: u64
+                    optional from_db: u64
                 }
-                committee {
-                    /// Resolve committee members from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+            }
+            proposals {
+                /// Resolve proposals from the volatile db or the stable one
+                public HYDRATE {
+                    optional from_volatile: u64
+                    optional from_db: u64
                 }
-                proposals {
-                    /// Resolve proposals from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+            }
+            epoch {
+                /// Compute stake distribution for epoch
+                public COMPUTE_STAKE_DISTRIBUTION {
+                    required epoch: u64
                 }
-                epoch {
-                    /// Compute stake distribution for epoch
-                    public COMPUTE_STAKE_DISTRIBUTION {
-                        required epoch: u64
-                    }
-                    /// Compute rewards for epoch
-                    public COMPUTE_REWARDS {
-                        required for_epoch: u64
-                        optional using_stake_distribution_from: u64
-                    }
+                /// Compute rewards for epoch
+                public COMPUTE_REWARDS {
+                    required for_epoch: u64
+                    optional using_stake_distribution_epoch_from: u64
                 }
-                epoch_transition {
-                    /// Epoch transition processing
-                    public EPOCH_TRANSITION {
-                        required from: u64
-                        required into: u64
-                        optional skipped: bool
-                        optional resuming_from: String
-                    }
-                    /// Perform end-of-epoch epoch boundary computations
-                    public END_EPOCH {}
-                    /// Perform start-of-epoch epoch boundary computations
-                    public BEGIN_EPOCH {}
-                    /// Flushing the epoch transition overlay to disk
-                    public APPLYING_OVERLAY {
-                        /// Epoch for which this overlay is being flush; This is the *currently active*
-                        /// epoch.
-                        required epoch: u64
-                        /// Whether to end the epoch; in case Amaru is restarting mid-update.
-                        optional should_end_epoch: bool,
-                        /// Whether to take an on-disk snapshot; in case Amaru is restarting mid-update.
-                        optional should_snapshot: bool,
-                        /// Whether to begin the epoch; in case Amaru is restarting mid-update.
-                        optional should_begin_epoch: bool,
-                    }
-                    /// Create pools updates
-                    public NEW_POOLS_UPDATES {}
-                    /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
-                    public NEW_GOVERNANCE_UPDATES {
-                        /// Total number of proposals in scope. This also includes proposals that have
-                        /// *just* been submitted.
-                        required proposals_count: u64
-                    }
-                    /// Reset fees to zero
-                    public RESET_FEES {}
-                    /// Reset blocks count to zero
-                    public RESET_BLOCKS_COUNT {}
-                    /// Pay rewards to all accounts before the epoch end
-                    public PAY_REWARDS {
-                        /// Total number of accounts that received non-zero rewards
-                        optional accounts_paid: u64
-                        /// Total rewards effectively paid to ALL accounts; does not include unassignable rewards
-                        optional rewards_paid: u64
-                        /// Treasury increase; corresponding to both the treasury tax and the unpaid rewards
-                        optional treasury_delta: u64
-                        /// Reserves depletion from incentives; always negative.
-                        optional reserves_delta: i64
-                    }
-                    /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
-                    /// distribution calculations.
-                    public RECORD_PRUNED_PROPOSALS {}
-                    /// Pay withdrawals to accounts, or refund deposits
-                    public PAY_OR_REFUND_ACCOUNTS {
-                        /// Total quantity of ADA paid, excluding treasury leftovers
-                        optional total_paid_or_refunded: u64
-                        /// Total amounts that couldn't be paid to accounts, going back to treasury instead.
-                        optional treasury_leftovers: u64
-                    }
-                    /// Updating pools metadata or retiring pools at an epoch boundary.
-                    public UPDATE_OR_RETIRE_POOLS {
-                        /// Total number of pools updating metadata
-                        required pools_updated: u64
-                        /// Total number of pools retired
-                        required pools_retired: u64
-                    }
-                    /// Enact all governance updates and flush their outcome to disk
-                    public APPLY_GOVERNANCE_UPDATES {}
-                    /// Add or remove CC members; or switch to a no-confidence state
-                    public UPDATE_CONSTITUTIONAL_COMMITTEE {
-                        /// Whether or not updates switches the committee to a "no-confidence" state
-                        required no_confidence: bool
-                    }
+            }
+            epoch_transition {
+                /// Epoch transition processing
+                public EPOCH_TRANSITION {
+                    required from: u64
+                    required into: u64
+                    optional skipped: bool
+                    optional resuming_from: String
                 }
-                context {
-                    /// Add transaction fees to pots
-                    public ADD_FEES {
-                        required fee: amaru_kernel::Lovelace
-                    }
-                    /// Withdraw from stake credential
-                    public WITHDRAW_FROM {
-                        required credential_type: amaru_kernel::StakeCredentialKind
-                        required credential_hash: amaru_kernel::Hash<28>
-                    }
-                    /// Record a governance vote
-                    public VOTE {
-                        required voter_type: amaru_kernel::VoterKind
-                        required credential_type: amaru_kernel::StakeCredentialKind
-                        required credential_hash: amaru_kernel::Hash<28>
-                    }
-                    /// Require a verification key witness
-                    public REQUIRE_VKEY_WITNESS {
-                        required hash: String
-                    }
-                    /// Require a script witness
-                    public REQUIRE_SCRIPT_WITNESS {
-                        required hash: String
-                    }
-                    /// Require a bootstrap witness
-                    public REQUIRE_BOOTSTRAP_WITNESS {
-                        required bootstrap_witness_hash: String
-                    }
+                /// Perform end-of-epoch epoch boundary computations
+                public END_EPOCH {}
+                /// Perform start-of-epoch epoch boundary computations
+                public BEGIN_EPOCH {}
+                /// Flushing the epoch transition overlay to disk
+                public APPLYING_OVERLAY {
+                    /// Epoch for which this overlay is being flush; This is the *currently active*
+                    /// epoch.
+                    required epoch: u64
+                    /// Whether to end the epoch; in case Amaru is restarting mid-update.
+                    optional should_end_epoch: bool,
+                    /// Whether to take an on-disk snapshot; in case Amaru is restarting mid-update.
+                    optional should_snapshot: bool,
+                    /// Whether to begin the epoch; in case Amaru is restarting mid-update.
+                    optional should_begin_epoch: bool,
                 }
-                validation {
-                    /// Register a stake credential
-                    public CERTIFICATE_STAKE_REGISTRATION {
-                        required credential: String
-                    }
-                    /// Delegate stake to a pool
-                    public CERTIFICATE_STAKE_DELEGATION {
-                        required credential: String
-                        required pool_id: amaru_kernel::PoolId
-                    }
-                    /// Unregister a stake credential
-                    public CERTIFICATE_STAKE_DEREGISTRATION {
-                        required credential: String
-                    }
-                    /// Register a DRep
-                    public CERTIFICATE_DREP_REGISTRATION {
-                        required drep: String
-                        required deposit: u64
-                        optional anchor_url: String
-                    }
-                    /// Update DRep anchor
-                    public CERTIFICATE_DREP_UPDATE {
-                        required drep: String
-                        optional anchor_url: String
-                    }
-                    /// Unregister a DRep
-                    public CERTIFICATE_DREP_RETIREMENT {
-                        required drep: String
-                        required refund: u64
-                    }
-                    /// Delegate vote to DRep
-                    public CERTIFICATE_VOTE_DELEGATION {
-                        required credential: String
-                        optional drep: String
-                    }
-                    /// Register a pool
-                    public CERTIFICATE_POOL_REGISTRATION {
-                        required pool_id: amaru_kernel::PoolId
-                    }
-                    /// Retire a pool
-                    public CERTIFICATE_POOL_RETIREMENT {
-                        required pool_id: amaru_kernel::PoolId
-                        required epoch: u64
-                    }
-                    /// Delegate cold key to committee
-                    public CERTIFICATE_COMMITTEE_DELEGATE {
-                        required cc_member: String
-                        required delegate: String
-                    }
-                    /// Resign from committee
-                    public CERTIFICATE_COMMITTEE_RESIGN {
-                        required cc_member: String
-                        optional anchor_url: String
-                    }
+                /// Create pools updates
+                public NEW_POOLS_UPDATES {}
+                /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
+                public NEW_GOVERNANCE_UPDATES {
+                    /// Total number of proposals in scope. This also includes proposals that have
+                    /// *just* been submitted.
+                    required proposals_count: u64
                 }
-                governance {
-                    /// Create ratification context
-                    public NEW_RATIFICATION_CONTEXT {
-                        /// Epoch to ratify; distinct from the actual epoch this calculation is happening.
-                        required ratifying_epoch: u64
-                        /// Value of the treasury considered for this ratification round.
-                        optional treasury: u64
-                        /// Total number of votes to ratify.
-                        optional votes: u64
-                    }
-                    /// Ratify proposals at epoch boundary
-                    public RATIFY_PROPOSALS {
-                        required epoch: u64
-                        optional roots_protocol_parameters: String
-                        optional roots_hard_fork: String
-                        optional roots_constitutional_committee: String
-                        optional roots_constitution: String
-                    }
-                    /// Ratify a proposal while traversing the governance forest
-                    public RATIFYING {
-                        required proposal_id: String
-                        required proposal_kind: String
-                        optional approved_by_constitutional_committee: bool
-                        optional committee_approval_threshold: String
-                        optional approved_by_pools: bool
-                        optional pools_approval_threshold: String
-                        optional approved_by_dreps: bool
-                        optional dreps_approval_threshold: String
-                    }
-                    /// Computing enactment of a ratified proposal
-                    public ENACTING {
-                        required proposal_id: String
-                        required proposal_kind: String
-                        optional pruned_relatives: String
-                    }
+                /// Reset fees to zero
+                public RESET_FEES {}
+                /// Reset blocks count to zero
+                public RESET_BLOCKS_COUNT {}
+                /// Pay rewards to all accounts before the epoch end
+                public PAY_REWARDS {
+                    /// Total number of accounts that received non-zero rewards
+                    optional accounts_paid: u64
+                    /// Total rewards effectively paid to ALL accounts; does not include unassignable rewards
+                    optional rewards_paid: u64
+                    /// Treasury increase; corresponding to both the treasury tax and the unpaid rewards
+                    optional treasury_delta: u64
+                    /// Reserves depletion from incentives; always negative.
+                    optional reserves_delta: i64
                 }
-                ledger_state {
-                    /// Roll forward with a new block
-                    public ROLL_FORWARD {}
-                    /// Forward ledger state with new volatile state
-                    public PUSH {}
-                    /// Roll backward to a specific point
-                    public ROLL_BACKWARD {
-                        required rollback_point: String
-                    }
+                /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
+                /// distribution calculations.
+                public RECORD_PRUNED_PROPOSALS {}
+                /// Pay withdrawals to accounts, or refund deposits
+                public PAY_OR_REFUND_ACCOUNTS {
+                    /// Total quantity of ADA paid, excluding treasury leftovers
+                    optional total_paid_or_refunded: u64
+                    /// Total amounts that couldn't be paid to accounts, going back to treasury instead.
+                    optional treasury_leftovers: u64
                 }
-                volatile {
-                    /// Recompute the volatile aggregate
-                    public AGGREGATE {}
+                /// Updating pools metadata or retiring pools at an epoch boundary.
+                public UPDATE_OR_RETIRE_POOLS {
+                    /// Total number of pools updating metadata
+                    required pools_updated: u64
+                    /// Total number of pools retired
+                    required pools_retired: u64
                 }
+                /// Enact all governance updates and flush their outcome to disk
+                public APPLY_GOVERNANCE_UPDATES {}
+                /// Add or remove CC members; or switch to a no-confidence state
+                public UPDATE_CONSTITUTIONAL_COMMITTEE {
+                    /// Whether or not updates switches the committee to a "no-confidence" state
+                    required no_confidence: bool
+                }
+            }
+            context {
+                /// Add transaction fees to pots
+                public ADD_FEES {
+                    required fee: amaru_kernel::Lovelace
+                }
+                /// Withdraw from stake credential
+                public WITHDRAW_FROM {
+                    required credential_type: amaru_kernel::StakeCredentialKind
+                    required credential_hash: amaru_kernel::Hash<28>
+                }
+                /// Record a governance vote
+                public VOTE {
+                    required voter_type: amaru_kernel::VoterKind
+                    required credential_type: amaru_kernel::StakeCredentialKind
+                    required credential_hash: amaru_kernel::Hash<28>
+                }
+                /// Require a verification key witness
+                public REQUIRE_VKEY_WITNESS {
+                    required hash: String
+                }
+                /// Require a script witness
+                public REQUIRE_SCRIPT_WITNESS {
+                    required hash: String
+                }
+                /// Require a bootstrap witness
+                public REQUIRE_BOOTSTRAP_WITNESS {
+                    required bootstrap_witness_hash: String
+                }
+            }
+            validation {
+                /// Register a stake credential
+                public CERTIFICATE_STAKE_REGISTRATION {
+                    required credential: String
+                }
+                /// Delegate stake to a pool
+                public CERTIFICATE_STAKE_DELEGATION {
+                    required credential: String
+                    required pool_id: amaru_kernel::PoolId
+                }
+                /// Unregister a stake credential
+                public CERTIFICATE_STAKE_DEREGISTRATION {
+                    required credential: String
+                }
+                /// Register a DRep
+                public CERTIFICATE_DREP_REGISTRATION {
+                    required drep: String
+                    required deposit: u64
+                    optional anchor_url: String
+                }
+                /// Update DRep anchor
+                public CERTIFICATE_DREP_UPDATE {
+                    required drep: String
+                    optional anchor_url: String
+                }
+                /// Unregister a DRep
+                public CERTIFICATE_DREP_RETIREMENT {
+                    required drep: String
+                    required refund: u64
+                }
+                /// Delegate vote to DRep
+                public CERTIFICATE_VOTE_DELEGATION {
+                    required credential: String
+                    optional drep: String
+                }
+                /// Register a pool
+                public CERTIFICATE_POOL_REGISTRATION {
+                    required pool_id: amaru_kernel::PoolId
+                }
+                /// Retire a pool
+                public CERTIFICATE_POOL_RETIREMENT {
+                    required pool_id: amaru_kernel::PoolId
+                    required epoch: u64
+                }
+                /// Delegate cold key to committee
+                public CERTIFICATE_COMMITTEE_DELEGATE {
+                    required cc_member: String
+                    required delegate: String
+                }
+                /// Resign from committee
+                public CERTIFICATE_COMMITTEE_RESIGN {
+                    required cc_member: String
+                    optional anchor_url: String
+                }
+            }
+            governance {
+                /// Create ratification context
+                public NEW_RATIFICATION_CONTEXT {
+                    /// Epoch to ratify; distinct from the actual epoch this calculation is happening.
+                    required ratifying_epoch: u64
+                    /// Value of the treasury considered for this ratification round.
+                    optional treasury: u64
+                    /// Total number of votes to ratify.
+                    optional votes: u64
+                }
+                /// Ratify proposals at epoch boundary
+                public RATIFY_PROPOSALS {
+                    required epoch: u64
+                    optional roots_protocol_parameters: String
+                    optional roots_hard_fork: String
+                    optional roots_constitutional_committee: String
+                    optional roots_constitution: String
+                }
+                /// Ratify a proposal while traversing the governance forest
+                public RATIFYING {
+                    required proposal_id: String
+                    required proposal_kind: String
+                    optional approved_by_constitutional_committee: bool
+                    optional committee_approval_threshold: String
+                    optional approved_by_pools: bool
+                    optional pools_approval_threshold: String
+                    optional approved_by_dreps: bool
+                    optional dreps_approval_threshold: String
+                }
+                /// Computing enactment of a ratified proposal
+                public ENACTING {
+                    required proposal_id: String
+                    required proposal_kind: String
+                    optional pruned_relatives: String
+                }
+            }
+            ledger_state {
+                /// Roll forward with a new block
+                public ROLL_FORWARD {}
+                /// Forward ledger state with new volatile state
+                public PUSH {}
+                /// Roll backward to a specific point
+                public ROLL_BACKWARD {
+                    required rollback_point: String
+                }
+            }
+            volatile {
+                /// Recompute the volatile aggregate
+                public AGGREGATE {}
             }
         }
         stores {
+            tags: db
             ledger {
                 epoch {
                     /// Create ledger snapshot for epoch
@@ -640,13 +643,13 @@ define_schemas! {
                     }
                 }
                 snapshots {
-                  /// Validate sufficient snapshots exist
-                  public VALIDATE {
-                      optional snapshot_count: u64
-                      optional continuous_ranges: u64
-                      required db_system_name: String
-                      required db_operation_name: String
-                  }
+                    /// Validate sufficient snapshots exist
+                    public VALIDATE {
+                        optional snapshot_count: u64
+                        optional continuous_ranges: u64
+                        required db_system_name: String
+                        required db_operation_name: String
+                    }
                 }
                 transaction {
                     /// Commit a write transaction
@@ -937,25 +940,24 @@ define_schemas! {
             }
         }
         network {
-            io {
-                connection {
-                    /// Accept loop for incoming connections
-                    ACCEPT_LOOP {}
-                    /// Listen on address
-                    LISTEN {}
-                    /// Accept a connection
-                    ACCEPT {}
-                    /// Connect to addresses
-                    CONNECT {}
-                    /// Connect to multiple addresses
-                    CONNECT_ADDRS {}
-                    /// Send data over connection
-                    SEND {}
-                    /// Receive data from connection
-                    RECV {}
-                    /// Close connection
-                    CLOSE {}
-                }
+            connection {
+                tags: io
+                /// Accept loop for incoming connections
+                ACCEPT_LOOP {}
+                /// Listen on address
+                LISTEN {}
+                /// Accept a connection
+                ACCEPT {}
+                /// Connect to addresses
+                CONNECT {}
+                /// Connect to multiple addresses
+                CONNECT_ADDRS {}
+                /// Send data over connection
+                SEND {}
+                /// Receive data from connection
+                RECV {}
+                /// Close connection
+                CLOSE {}
             }
         }
     }
