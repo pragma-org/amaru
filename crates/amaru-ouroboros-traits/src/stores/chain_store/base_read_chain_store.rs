@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, HeaderHash, ORIGIN_HASH, Point, RawBlock, Tip};
+use amaru_kernel::{BlockHeader, HeaderHash, ORIGIN_HASH, Point, PoolId, RawBlock, Tip};
 
 use crate::{Nonces, StoreError};
 
@@ -42,6 +42,15 @@ pub trait BaseReadChainStore: Send + Sync {
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
+
+    /// Latest opcert sequence number of this header's issuer, as specified in one of the ancestors
+    /// of that header. A parentless header yields `None`.
+    fn get_latest_opcert_sequence_number(
+        &self,
+        pool_id: &PoolId,
+        header: &BlockHeader,
+    ) -> Result<Option<u64>, StoreError>;
+
     fn has_header(&self, hash: &HeaderHash) -> bool;
 
     /// Retrieve the tip of a block header given its hash.
@@ -91,6 +100,14 @@ impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
 
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         self.as_ref().get_nonces(header)
+    }
+
+    fn get_latest_opcert_sequence_number(
+        &self,
+        pool_id: &PoolId,
+        header: &BlockHeader,
+    ) -> Result<Option<u64>, StoreError> {
+        self.as_ref().get_latest_opcert_sequence_number(pool_id, header)
     }
 
     fn has_header(&self, hash: &HeaderHash) -> bool {

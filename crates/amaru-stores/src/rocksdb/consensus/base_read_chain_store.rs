@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, ORIGIN_HASH, Point, RawBlock, Tip, from_cbor, size::HEADER};
+use std::collections::BTreeMap;
+
+use amaru_kernel::{
+    BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, Tip, from_cbor, size,
+    size::HEADER,
+};
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
-use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
+use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
-    DbOps, RocksDBStore,
+    DbOps, OPCERT_PREFIX, RocksDBStore,
     util::{
         ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
         HEADER_PREFIX, NONCES_PREFIX,
@@ -149,10 +154,104 @@ where
             .and_then(from_cbor)
     }
 
+    /// Return the latest opcert sequence number for the given pool id, and header we wish to validate.
+    fn get_latest_opcert_sequence_number(
+        &self,
+        pool_id: &PoolId,
+        header: &BlockHeader,
+    ) -> Result<Option<u64>, StoreError> {
+        let Some(parent) = header.parent() else {
+            return Ok(None); // no previous header referencing an opcert sequence number
+        };
+        let Some(as_of_slot) = self.load_header(&parent).map(|h| h.slot()) else {
+            return Ok(None);
+        };
+        let anchor_slot = self.load_header(&self.get_anchor_hash()).map(|h| h.slot()).unwrap_or(Slot::from(0));
+
+        let prefix = [&OPCERT_PREFIX[..], &pool_id[..]].concat();
+
+        // 1. Collect candidate entries in the volatile zone: slot in (anchor_slot, as_of_slot]
+        let mut candidates: BTreeMap<HeaderHash, u64> = BTreeMap::new();
+
+        // `floor` is the minimum slot of the candidates we have seen, which is used to limit the search in the next step.
+        let mut floor = as_of_slot;
+        if as_of_slot > anchor_slot {
+            let start = [&prefix[..], &(u64::from(anchor_slot) + 1).to_be_bytes()[..]].concat();
+            let mut opts = ReadOptions::default();
+            opts.set_iterate_range(PrefixRange(prefix.as_slice()));
+            for item in self.db.iterator_opt(IteratorMode::From(&start, Direction::Forward), opts) {
+                let (key, value) = item.map_err(|e| StoreError::ReadError { error: e.to_string() })?;
+                let (slot, hash) = decode_opcert_key(&key)?;
+                if slot > as_of_slot {
+                    break;
+                }
+                floor = floor.min(slot);
+                if let Some(sequence_number) = from_cbor(&value) {
+                    candidates.insert(hash, sequence_number);
+                }
+            }
+        }
+
+        // 2. Resolve candidates against the actual lineage of `as_of`
+        if !candidates.is_empty() {
+            let mut current = parent;
+            loop {
+                if let Some(sequence_number) = candidates.get(&current) {
+                    return Ok(Some(*sequence_number));
+                }
+                let Some(header) = self.load_header(&current) else { break };
+                if header.slot() <= floor {
+                    break;
+                }
+                match header.parent() {
+                    Some(parent) => current = parent,
+                    None => break,
+                }
+            }
+        }
+
+        // 3. Immutable fallback: get the newest entry at slot <= min(anchor, as_of)
+        // that sits on the best chain.
+        // Note: the case where as_of < anchor would only exist if we try to revalidate an old header
+        // when ingesting old blocks for example.
+        let bound = anchor_slot.min(as_of_slot);
+        let seek = [&prefix[..], &u64::from(bound).to_be_bytes()[..], &[0xff; 32][..]].concat();
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(prefix.as_slice()));
+        for item in self.db.iterator_opt(IteratorMode::From(&seek, Direction::Reverse), opts) {
+            let (key, value) = item.map_err(|e| StoreError::ReadError { error: e.to_string() })?;
+            let (slot, hash) = decode_opcert_key(&key)?;
+            if self.load_from_best_chain(&Point::Specific(slot, hash)).is_some() {
+                return Ok(from_cbor(&value));
+            }
+        }
+        Ok(None)
+    }
+
     fn has_header(&self, hash: &HeaderHash) -> bool {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
     }
+}
+
+/// Decode a slot || header_hash key used to store the opcert sequence numbers
+pub(crate) fn decode_opcert_key(key: &[u8]) -> Result<(Slot, HeaderHash), StoreError> {
+    let slot_start = CONSENSUS_PREFIX_LEN + size::POOL_COLD_KEY;
+    let hash_start = slot_start + 8;
+    let slot_bytes: [u8; 8] = key
+        .get(slot_start..hash_start)
+        .and_then(|s| s.try_into().ok())
+        .ok_or_else(|| StoreError::ReadError { error: "malformed opcert key".into() })?;
+    let hash = key
+        .get(hash_start..)
+        .filter(|h| h.len() == HEADER)
+        .ok_or_else(|| StoreError::ReadError { error: "malformed opcert key".into() })?;
+    Ok((Slot::from(u64::from_be_bytes(slot_bytes)), Hash::from(hash)))
+}
+
+pub(crate) fn opcert_key(header: &BlockHeader) -> Vec<u8> {
+    let slot = u64::from(header.slot()).to_be_bytes();
+    [&OPCERT_PREFIX[..], &header.pool_id()[..], &slot[..], &header.hash()[..]].concat()
 }
 
 /// Return the next slot to look for when iterating over the best chain starting from the given point.

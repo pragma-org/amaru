@@ -21,15 +21,17 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, RawBlock, Slot, Tip,
-    any_header_hash, any_header_with_parent, any_headers_chain, from_cbor, make_header,
+    BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId, RawBlock,
+    Slot, Tip, any_header_hash, any_header_with_parent, any_headers_chain,
+    cardano::block_header::{any_pool_id, make_block_header_with_op_cert_seq},
+    from_cbor, make_header, make_header_with_op_cert_seq,
     size::HEADER,
     utils::tests::{random_bytes, run_strategy},
 };
 use amaru_ouroboros_traits::{
     BaseReadChainStore, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
     FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
-    SampleAncestorPointsResult, StoreError, in_memory_chain_store::InMemoryChainStore,
+    OpcertCounters, SampleAncestorPointsResult, StoreError, in_memory_chain_store::InMemoryChainStore,
 };
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
 
@@ -921,13 +923,15 @@ fn read_snapshot_exposes_direct_read_operations() {
             move |_store, snapshot| {
                 let mut children = snapshot.get_children(&headers.h1.hash());
                 children.sort();
+                let mut expected_children = vec![headers.h2.hash(), headers.h2a.hash()];
+                expected_children.sort();
 
                 assert_eq!(snapshot.load_header(&headers.h2.hash()), Some(headers.h2.clone()));
                 assert_eq!(
                     snapshot.load_header_with_validity(&headers.h2.hash()),
                     Some((headers.h2.clone(), Some(true)))
                 );
-                assert_eq!(children, vec![headers.h2.hash(), headers.h2a.hash()]);
+                assert_eq!(children, expected_children);
                 assert_eq!(snapshot.get_anchor_hash(), headers.h0.hash());
                 assert_eq!(snapshot.get_best_chain_hash(), headers.h3.hash());
                 assert_eq!(snapshot.get_nonces(&headers.h2.hash()), Some(nonces.clone()));
@@ -1143,11 +1147,11 @@ fn read_snapshot_supports_child_tips_all() {
         },
         {
             move |store, _snapshot| {
-                assert_eq!(
-                    store.child_tips(&headers.h0.hash(), ChildTipsMode::All),
-                    vec![headers.h3.tip(), headers.h3a.tip()],
-                    "\nheaders\n{headers}"
-                );
+                let mut tips = store.child_tips(&headers.h0.hash(), ChildTipsMode::All);
+                tips.sort();
+                let mut expected = vec![headers.h3.tip(), headers.h3a.tip()];
+                expected.sort();
+                assert_eq!(tips, expected, "\nheaders\n{headers}");
             }
         },
     );
@@ -1180,6 +1184,114 @@ fn read_snapshot_supports_child_tips_skip_invalid() {
             }
         },
     );
+}
+
+#[test]
+fn opcert_sequence_number_is_none_for_an_unknown_pool() {
+    with_db(|db| {
+        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        db.store_header(&header1).unwrap();
+        db.roll_forward_chain(&header1.point()).unwrap();
+        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.store_header(&header2).unwrap();
+
+        let unknown_pool_id = run_strategy(any_pool_id());
+        assert_eq!(db.get_latest_opcert_sequence_number(&unknown_pool_id, &header2).unwrap(), None);
+    })
+}
+
+#[test]
+fn storing_a_header_records_its_opcert_sequence_number() {
+    with_db(|db| {
+        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header3 = make_block_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
+        db.store_header(&header1).unwrap();
+        db.roll_forward_chain(&header1.point()).unwrap();
+        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.store_header(&header1).unwrap();
+        db.store_header(&header2).unwrap();
+        db.store_header(&header3).unwrap();
+        let pool_id = header1.pool_id();
+
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &header1).unwrap(), None, "no parent for header1");
+        assert_eq!(
+            db.get_latest_opcert_sequence_number(&pool_id, &header2).unwrap(),
+            Some(3),
+            "the opcert sequence number of its parent"
+        );
+        assert_eq!(
+            db.get_latest_opcert_sequence_number(&pool_id, &header3).unwrap(),
+            Some(4),
+            "the opcert sequence number of its parent"
+        );
+    })
+}
+
+#[test]
+fn pools_can_be_initialized_with_opcert_sequence_numbers() {
+    with_db(|db| {
+        // mirror bootstrap + first-start initialization (build_node.rs)
+        let tip = BlockHeader::from(make_header(1, 100, None));
+        db.store_header(&tip).unwrap();
+        db.set_anchor_hash(&tip.hash()).unwrap();
+        db.roll_forward_chain(&tip.point()).unwrap();
+
+        let pool_id: PoolId = run_strategy(any_pool_id());
+        db.put_opcert_seed(&OpcertCounters::from(BTreeMap::from([(pool_id, 5)])), &tip.point()).unwrap();
+
+        let next = BlockHeader::from(make_header(2, 110, Some(tip.hash())));
+        db.store_header(&next).unwrap();
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &next).unwrap(), Some(5));
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &tip).unwrap(), None);
+    })
+}
+
+#[test]
+fn a_header_entry_supersedes_an_older_seed_entry() {
+    with_db(|db| {
+        let seed_header = BlockHeader::from(make_header(1, 100, None));
+        let header = BlockHeader::from(make_header_with_op_cert_seq(2, 200, Some(seed_header.hash()), 6));
+        let next = BlockHeader::from(make_header(3, 300, Some(header.hash())));
+        let pool_id = header.pool_id();
+        let seed = OpcertCounters::from(BTreeMap::from([(pool_id, 5)]));
+        db.store_header(&seed_header).unwrap();
+        db.roll_forward_chain(&seed_header.point()).unwrap();
+        db.set_anchor_hash(&seed_header.hash()).unwrap();
+        db.put_opcert_seed(&seed, &seed_header.point()).unwrap();
+        db.store_header(&header).unwrap();
+        db.store_header(&next).unwrap();
+
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &header).unwrap(), Some(5));
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &next).unwrap(), Some(6));
+    })
+}
+
+#[test]
+fn opcert_lookup_follows_forks() {
+    with_db(|db| {
+        // root 1 -> fork_a 5 -> next_a
+        //        -> fork_b 2 -> next_b
+        let root = BlockHeader::from(make_header_with_op_cert_seq(1, 10, None, 1));
+        let fork_a = BlockHeader::from(make_header_with_op_cert_seq(2, 20, Some(root.hash()), 5));
+        let fork_b = BlockHeader::from(make_header_with_op_cert_seq(2, 25, Some(root.hash()), 2));
+        let next_a = BlockHeader::from(make_header(3, 30, Some(fork_a.hash())));
+        let next_b = BlockHeader::from(make_header(3, 35, Some(fork_b.hash())));
+        db.store_header(&root).unwrap();
+        db.roll_forward_chain(&root.point()).unwrap();
+        db.set_anchor_hash(&root.hash()).unwrap();
+        for h in [&fork_a, &fork_b, &next_a, &next_b] {
+            db.store_header(h).unwrap();
+        }
+        let pool_id = root.pool_id();
+
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &root).unwrap(), None);
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &fork_a).unwrap(), Some(1));
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &fork_b).unwrap(), Some(1));
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &next_a).unwrap(), Some(5));
+        assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &next_b).unwrap(), Some(2));
+    })
 }
 
 // MIGRATIONS
@@ -1495,12 +1607,12 @@ fn init_dir(path: &Path) -> PathBuf {
 fn with_db(f: impl Fn(Arc<dyn FullChainStore>)) {
     // try first with in-memory store
     let in_memory_store: Arc<dyn FullChainStore> = Arc::new(InMemoryChainStore::new());
-    f(in_memory_store);
+    run_against("in-memory", &f, in_memory_store);
 
     // then with rocksdb store
     let tempdir = tempfile::tempdir().unwrap();
     let rw_store: Arc<dyn FullChainStore> = Arc::new(initialise_test_rw_store(tempdir.path()));
-    f(rw_store);
+    run_against("rocksdb", &f, rw_store);
 }
 
 fn with_read_db(
@@ -1527,6 +1639,17 @@ fn with_db_path(f: impl Fn((Arc<dyn ChainStore>, &Path))) {
     let tempdir = tempfile::tempdir().unwrap();
     let rw_store: Arc<dyn ChainStore> = Arc::new(initialise_test_rw_store(tempdir.path()));
     f((rw_store, tempdir.path()));
+}
+
+fn run_against(label: &str, f: impl Fn(Arc<dyn FullChainStore>), store: Arc<dyn FullChainStore>) {
+    if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(store))) {
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or("<non-string panic>");
+        panic!("\n[{label} store]\n\n{message}");
+    }
 }
 
 fn sort_entries(mut v: Vec<(HeaderHash, Vec<HeaderHash>)>) -> Vec<(HeaderHash, Vec<HeaderHash>)> {

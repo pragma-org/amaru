@@ -43,12 +43,18 @@ pub fn validate_header(
     era_history: Arc<EraHistory>,
 ) -> Result<(), ValidateHeaderError> {
     let _span = debug_span!(consensus::header::VALIDATE, header_hash = &header.hash()).entered();
+    let _guard = _span.enter();
 
     let epoch_nonce = debug_span!(consensus::header::EVOLVE_NONCE, header_hash = header.hash())
         .in_scope(|| PraosChainStore::new(consensus_parameters.clone(), store.clone()).evolve_nonce(header))?
         .active;
 
     debug_span!(consensus::header::CHECK, issuer_key = &header.header_body().issuer_vkey).in_scope(|| {
+        let pool_id = header.pool_id();
+        let issuer = header.issuer().map_err(|_| ConsensusError::IssuerFromPublicKeyError)?;
+        let last_opcert_sequence_number =
+            self.store.get_latest_opcert_sequence_number(&pool_id, header).map_err(ConsensusError::StoreError)?;
+
         praos::header::assert_all(
             consensus_parameters,
             header.header(),
@@ -57,10 +63,10 @@ pub fn validate_header(
             &era_history,
             &epoch_nonce,
         )
-        .and_then(|assertions| {
-            use rayon::prelude::*;
-            assertions.into_par_iter().try_for_each(|assert| assert())
-        })
+            .and_then(|assertions| {
+                use rayon::prelude::*;
+                assertions.into_par_iter().try_for_each(|assert| assert())
+            })
     })?;
 
     Ok(())

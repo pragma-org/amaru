@@ -34,6 +34,7 @@ pub(crate) const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"chain";
 pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"child";
 pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"heade";
 pub(crate) const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"nonce";
+pub(crate) const OPCERT_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ocert";
 
 /// Open a Chain DB for reading and writing.
 /// The DB _must_ exist otherwise the function will return an error.
