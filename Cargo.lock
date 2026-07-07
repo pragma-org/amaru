@@ -283,6 +283,7 @@ version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-progress-bar",
+ "anyhow",
  "async-trait",
  "flate2",
  "mithril-client",

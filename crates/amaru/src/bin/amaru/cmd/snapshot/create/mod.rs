@@ -283,7 +283,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
-    let required_chunk = targets.last().map(|t| chunk_for_slot(t.slot)).unwrap_or(0);
+    let required_chunk = targets.last().and_then(|t| chunk_for_slot(network, t.slot.into()).ok()).unwrap_or(0);
 
     let progress_factory: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync> =
         Arc::new(|size: usize, template: &str| {

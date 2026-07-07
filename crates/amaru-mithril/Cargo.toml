@@ -17,6 +17,7 @@ categories.workspace = true
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+anyhow.workspace = true
 async-trait.workspace = true
 flate2.workspace = true
 mithril-client.workspace = true
