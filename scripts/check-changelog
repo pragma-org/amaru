@@ -462,9 +462,10 @@ def write_report(report_file: Path | None, content: str) -> None:
 def validate_references(lines: list[str], failures: list[Failure]) -> None:
     refs = changelog_references(lines)
     labels = [label for label, _line in refs]
-    if labels != sorted(labels):
+    sorted_labels = sorted(labels, key=lambda label: int(label[1:]))
+    if labels != sorted_labels:
         line = refs[0][1] if refs else None
-        message = "Reference links at the bottom of CHANGELOG.md must be sorted lexicographically."
+        message = "Reference links at the bottom of CHANGELOG.md must be sorted numerically."
         record_failure(failures, message, line=line, title="Reference order")
     if refs:
         first_ref_line = refs[0][1]

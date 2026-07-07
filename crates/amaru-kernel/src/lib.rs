@@ -34,7 +34,7 @@ pub mod cardano;
 pub use cardano::{
     account::Account,
     address::{Address, PlutusStakeAddress, is_locked_by_script},
-    anchor::Anchor,
+    anchor::{self, Anchor},
     asset_name::AssetName,
     auxiliary_data::AuxiliaryData,
     ballot::Ballot,
@@ -113,7 +113,7 @@ pub use cardano::{
         PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
     },
     protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
-    protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion},
+    protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
     rational_number::{self, RationalNumber},
     raw_block::{RawBlock, extract_block_header_cbor},
     redeemer::Redeemer,

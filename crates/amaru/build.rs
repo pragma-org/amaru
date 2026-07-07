@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env, fs,
     path::{Path, PathBuf},
 };
@@ -26,11 +26,11 @@ fn main() {
     built::write_built_file().expect("Failed to acquire build-time information");
     write_type_aliases_file().expect("Failed to generate embedded type aliases for dump_schemas");
 
-    // Set the AMARU_NETWORK environment variable based on the value from the environment or default to "preprod"
-    // This is necessary for the tests to run correctly, as they rely on this variable to be set at build time
     let network = env::var("AMARU_NETWORK").unwrap_or_else(|_| "preprod".into());
     println!("cargo:rerun-if-env-changed=AMARU_NETWORK");
     println!("cargo:rerun-if-env-changed=BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH");
+    write_stake_distribution_test_cases_file(&network)
+        .expect("Failed to generate embedded stake distribution test cases for summary tests");
     println!("cargo:rustc-env=AMARU_NETWORK={}", network);
 }
 
@@ -49,8 +49,101 @@ fn write_type_aliases_file() -> Result<(), Box<dyn std::error::Error>> {
         aliases.iter().map(|(alias, target)| format!("    ({alias:?}, {target:?}),")).collect::<Vec<_>>().join("\n")
     );
 
-    fs::write(output, contents)?;
+    write_if_changed(&output, &contents)?;
     Ok(())
+}
+
+fn write_stake_distribution_test_cases_file(network: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let fixtures_root = manifest_dir.join("tests").join("stake-distributions");
+    let network_dir = fixtures_root.join(network);
+
+    println!("cargo:rerun-if-changed={}", fixtures_root.display());
+    println!("cargo:rerun-if-changed={}", network_dir.display());
+
+    let epochs = stake_distribution_epochs(&network_dir)?;
+    let contents = stake_distribution_test_cases_source(network, &epochs)?;
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+
+    write_if_changed(&out_dir.join("stake_distribution_test_cases.rs"), &contents)?;
+
+    Ok(())
+}
+
+fn stake_distribution_epochs(network_dir: &Path) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
+    if !network_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut epochs = BTreeSet::new();
+
+    for entry in fs::read_dir(network_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+
+        if let Some(epoch) = stake_distribution_epoch(&path) {
+            println!("cargo:rerun-if-changed={}", path.display());
+            epochs.insert(epoch);
+        }
+    }
+
+    let mut epochs = epochs.into_iter().collect::<Vec<_>>();
+    epochs.reverse();
+    Ok(epochs)
+}
+
+fn stake_distribution_epoch(path: &Path) -> Option<u64> {
+    let file_name = path.file_name()?.to_str()?;
+    let epoch = file_name.strip_prefix("epoch_")?;
+    let epoch = epoch.strip_suffix(".json").or_else(|| epoch.strip_suffix(".json.xz"))?;
+
+    epoch.parse().ok()
+}
+
+fn stake_distribution_test_cases_source(network: &str, epochs: &[u64]) -> Result<String, Box<dyn std::error::Error>> {
+    if epochs.is_empty() {
+        return Ok(format!(
+            r#"// No stake distribution fixtures found for network={network}.
+const _: fn(
+    amaru_kernel::NetworkName,
+    amaru_kernel::Epoch,
+) -> Result<(), Box<dyn std::error::Error>> = compare_stake_distribution_with_haskell_node;
+"#
+        ));
+    }
+
+    let network_variant = network_name_to_rust_variant(network)?;
+    let mut contents = String::new();
+
+    for epoch in epochs {
+        contents.push_str(&format!("#[test_case::test_case({epoch})]\n"));
+    }
+
+    contents.push_str(&format!(
+        r#"#[ignore]
+pub fn compare_{network}_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {{
+    compare_stake_distribution_with_haskell_node(
+        amaru_kernel::NetworkName::{network_variant},
+        amaru_kernel::Epoch::from(epoch),
+    )
+}}
+"#
+    ));
+
+    Ok(contents)
+}
+
+fn network_name_to_rust_variant(network: &str) -> Result<&'static str, Box<dyn std::error::Error>> {
+    match network {
+        "preview" => Ok("Preview"),
+        "preprod" => Ok("Preprod"),
+        "mainnet" => Ok("Mainnet"),
+        _ => Err(format!("unexpected network name: {network}; expected one of: preview, preprod or mainnet").into()),
+    }
 }
 
 fn collect_workspace_type_aliases(
@@ -59,7 +152,8 @@ fn collect_workspace_type_aliases(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entries = fs::read_dir(crates_dir)?;
 
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry?;
         let entry_path = entry.path();
 
         if !entry_path.is_dir() {
@@ -80,7 +174,8 @@ fn collect_type_aliases(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entries = fs::read_dir(path)?;
 
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry?;
         let entry_path = entry.path();
 
         if entry_path.is_dir() {
@@ -138,6 +233,15 @@ fn normalize_type_string(ty: &str) -> String {
     ty.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+fn write_if_changed(path: &Path, contents: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if fs::read_to_string(path).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+
+    fs::write(path, contents)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +268,12 @@ mod tests {
     #[test]
     fn test_crate_ident_normalizes_hyphens() {
         assert_eq!(crate_ident(Path::new("amaru-kernel")), Some("amaru_kernel".to_string()));
+    }
+
+    #[test]
+    fn test_stake_distribution_epoch_supports_json_and_json_xz() {
+        assert_eq!(stake_distribution_epoch(Path::new("epoch_999.json")), Some(999));
+        assert_eq!(stake_distribution_epoch(Path::new("epoch_1000.json.xz")), Some(1000));
+        assert_eq!(stake_distribution_epoch(Path::new("generated_test_cases.incl")), None);
     }
 }

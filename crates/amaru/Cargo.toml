@@ -99,12 +99,13 @@ mithril = ["dep:amaru-mithril"]
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 assert_cmd.workspace = true
-insta = { workspace = true, features = ["json"] }
-test-case.workspace = true
-rocksdb.workspace = true
 quote.workspace = true
+rocksdb.workspace = true
 syn.workspace = true
 tempfile.workspace = true
+test-case.workspace = true
+xz.workspace = true
+diff_json.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-iter-borrow.workspace = true

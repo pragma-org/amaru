@@ -12,26 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Deref;
+
+use amaru_kernel::pool_metadata;
 pub mod governance;
 pub mod rewards;
 pub mod serde;
 pub mod stake_distribution;
 
 use ::serde::ser::SerializeStruct;
-use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber};
+use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, relay};
 use num::{BigUint, rational::Ratio};
 
-use crate::{
-    store::columns::*,
-    summary::serde::{encode_drep, encode_pool_id},
-};
+use crate::store::columns::*;
 
 // ---------------------------------------------------------------- AccountState
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[cfg_attr(test, derive(Clone))]
 pub struct AccountState {
-    pub lovelace: Lovelace,
+    pub balance: Lovelace,
     pub pool: Option<PoolId>,
     pub drep: Option<DRep>,
 }
@@ -39,9 +39,9 @@ pub struct AccountState {
 impl ::serde::Serialize for AccountState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("AccountState", 3)?;
-        s.serialize_field("lovelace", &self.lovelace)?;
-        s.serialize_field("pool", &self.pool.as_ref().map(encode_pool_id))?;
-        s.serialize_field("drep", &self.drep.as_ref().map(encode_drep))?;
+        s.serialize_field("balance", &self.balance)?;
+        s.serialize_field("drep", &self.drep.as_ref().map(drep::AsJson))?;
+        s.serialize_field("pool", &self.pool.as_ref().map(hex::encode))?;
         s.end()
     }
 }
@@ -78,11 +78,23 @@ pub struct PoolState {
 
 impl ::serde::Serialize for PoolState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("PoolState", 4)?;
+        let mut s = serializer.serialize_struct("PoolState", 10)?;
+
         s.serialize_field("blocks_count", &self.blocks_count)?;
+        s.serialize_field("cost", &self.parameters.cost)?;
+        s.serialize_field("margin", &[self.parameters.margin.numerator, self.parameters.margin.denominator])?;
+        s.serialize_field(
+            "metadata",
+            &pool_metadata::as_option_ref(&self.parameters.metadata).map(pool_metadata::AsJson),
+        )?;
+        s.serialize_field("owners", &self.parameters.owners.iter().map(hex::encode).collect::<Vec<_>>())?;
+        s.serialize_field("pledge", &self.parameters.pledge)?;
+        s.serialize_field("relays", &self.parameters.relays.iter().map(relay::AsJson).collect::<Vec<_>>())?;
+        s.serialize_field("reward_address", &hex::encode(self.parameters.reward_account.deref()))?;
         s.serialize_field("stake", &self.stake)?;
         s.serialize_field("voting_stake", &self.voting_stake)?;
-        s.serialize_field("parameters", &self.parameters)?;
+        s.serialize_field("vrf_key_hash", &hex::encode(self.parameters.vrf))?;
+
         s.end()
     }
 }

@@ -149,12 +149,14 @@ pub fn tally(
         if st.is_active(epoch) {
             match drep {
                 DRep::Abstain => (yes, denominator),
-                DRep::NoConfidence if proposal.is_no_confidence() => (yes + st.stake, denominator + st.stake),
-                DRep::NoConfidence => (yes, denominator + st.stake),
+                DRep::NoConfidence if proposal.is_no_confidence() => {
+                    (yes + st.voting_stake, denominator + st.voting_stake)
+                }
+                DRep::NoConfidence => (yes, denominator + st.voting_stake),
                 DRep::Key(..) | DRep::Script(..) => match votes.get(drep) {
-                    None => (yes, denominator + st.stake),
-                    Some(Vote::Yes) => (yes + st.stake, denominator + st.stake),
-                    Some(Vote::No) => (yes, denominator + st.stake),
+                    None => (yes, denominator + st.voting_stake),
+                    Some(Vote::Yes) => (yes + st.voting_stake, denominator + st.voting_stake),
+                    Some(Vote::No) => (yes, denominator + st.voting_stake),
                     Some(Vote::Abstain) => (yes, denominator),
                 },
             }
