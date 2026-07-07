@@ -19,7 +19,6 @@ categories.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 async-trait.workspace = true
 flate2.workspace = true
-indicatif.workspace = true
 mithril-client.workspace = true
 tar.workspace = true
 tokio = { workspace = true, features = ["sync"] }
@@ -27,6 +26,7 @@ tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
+amaru-progress-bar = { workspace = true, features = ["terminal"] }
 
 [package.metadata.docs.rs]
 all-features = true

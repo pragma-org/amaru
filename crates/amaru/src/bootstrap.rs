@@ -34,13 +34,12 @@ use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
-use sha2::{Digest, Sha256};
-use zstd::Decoder as ZstdDecoder;
 use futures_util::TryStreamExt;
 use num::CheckedSub;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
 use tar::Archive;
 use tokio::{
     fs::{self, File},
@@ -49,6 +48,7 @@ use tokio::{
 };
 use tokio_util::io::StreamReader;
 use tracing::{error, info};
+use zstd::Decoder as ZstdDecoder;
 
 use crate::{
     cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
@@ -66,8 +66,9 @@ struct Snapshot {
     /// TODO: make it a genuine `Point` type.
     point: String,
 
-    /// The URL to retrieve snapshot from.
-    url: String,
+    /// The URL to retrieve snapshot from (optional for locally-created snapshots).
+    #[serde(default)]
+    url: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sha256: Option<String>,
@@ -178,7 +179,7 @@ fn select_bootstrap_snapshots<'a>(
     // When auto-selecting (no explicit epoch), only consider snapshots that are available:
     // either published (have a URL) or already present locally on disk.
     let candidate_snapshots: Vec<&Snapshot> = if target_epoch.is_none() {
-        snapshots.iter().filter(|s| !s.url.is_empty() || resolve_snapshot_path(snapshots_dir, s).is_some()).collect()
+        snapshots.iter().filter(|s| s.url.is_some() || resolve_snapshot_path(snapshots_dir, s).is_some()).collect()
     } else {
         snapshots.iter().collect()
     };
@@ -370,7 +371,7 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
             continue;
         }
 
-        if snapshot.url.is_empty() {
+        if snapshot.url.is_none() {
             return Err(BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, snapshot)));
         }
 
@@ -386,48 +387,50 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
 
         info!(epoch = %snapshot.epoch, point = %snapshot.point, "downloading snapshot");
 
-        if snapshot.url.ends_with(".cbor.gz") {
-            let (tmp_path, mut file) = create_partial_file(&snapshot_file).await?;
-            download_gzip_to_file(&mut file, response_from_snapshot(&client, snapshot).await?).await?;
+        if let Some(url) = &snapshot.url {
+            if url.ends_with(".cbor.gz") {
+                let (tmp_path, mut file) = create_partial_file(&snapshot_file).await?;
+                download_gzip_to_file(&mut file, response_from_snapshot(&client, snapshot).await?).await?;
+                file.sync_all().await?;
+                drop(file);
+                fs::rename(&tmp_path, &snapshot_file).await?;
+                info!(snapshot = %snapshot_file.display(), "downloaded snapshot");
+                continue;
+            }
+
+            let archive_path = snapshots_dir.join(format!("{}.download.partial", snapshot.point));
+            let extract_path = snapshots_dir.join(format!(".{}.extract.partial", snapshot.point));
+
+            let response = response_from_snapshot(&client, snapshot).await?;
+
+            let mut file = File::create(&archive_path).await?;
+            download_to_file(&mut file, response).await?;
             file.sync_all().await?;
             drop(file);
-            fs::rename(&tmp_path, &snapshot_file).await?;
-            info!(snapshot = %snapshot_file.display(), "downloaded snapshot");
-            continue;
-        }
 
-        let archive_path = snapshots_dir.join(format!("{}.download.partial", snapshot.point));
-        let extract_path = snapshots_dir.join(format!(".{}.extract.partial", snapshot.point));
-
-        let response = response_from_snapshot(&client, snapshot).await?;
-
-        let mut file = File::create(&archive_path).await?;
-        download_to_file(&mut file, response).await?;
-        file.sync_all().await?;
-        drop(file);
-
-        if let Some(expected) = snapshot.sha256.as_deref() {
-            let bytes = std::fs::read(&archive_path)?;
-            let actual = hex::encode(Sha256::digest(&bytes));
-            if actual != expected {
-                let _ = std::fs::remove_file(&archive_path);
-                return Err(BootstrapError::ChecksumMismatch {
-                    url: snapshot.url.clone(),
-                    expected: expected.to_owned(),
-                    actual,
-                });
+            if let Some(expected) = snapshot.sha256.as_deref() {
+                let bytes = std::fs::read(&archive_path)?;
+                let actual = hex::encode(Sha256::digest(&bytes));
+                if actual != expected {
+                    let _ = std::fs::remove_file(&archive_path);
+                    return Err(BootstrapError::ChecksumMismatch {
+                        url: snapshot.url.clone().unwrap_or_default(),
+                        expected: expected.to_owned(),
+                        actual,
+                    });
+                }
             }
+
+            info!(snapshot = %snapshot_dir.display(), "extracting archive");
+
+            if let Err(err) = extract_snapshot_archive(&archive_path, &extract_path, &snapshot_dir) {
+                let _ = fs::remove_file(&archive_path).await;
+                let _ = fs::remove_dir_all(&extract_path).await;
+                return Err(err);
+            }
+
+            fs::remove_file(&archive_path).await?;
         }
-
-        info!(snapshot = %snapshot_dir.display(), "extracting archive");
-
-        if let Err(err) = extract_snapshot_archive(&archive_path, &extract_path, &snapshot_dir) {
-            let _ = fs::remove_file(&archive_path).await;
-            let _ = fs::remove_dir_all(&extract_path).await;
-            return Err(err);
-        }
-
-        fs::remove_file(&archive_path).await?;
 
         info!(snapshot = %snapshot_dir.display(), "downloaded snapshot");
     }
@@ -439,14 +442,14 @@ async fn response_from_snapshot(
     client: &reqwest::Client,
     snapshot: &Snapshot,
 ) -> Result<reqwest::Response, BootstrapError> {
-    let response = client
-        .get(&snapshot.url)
-        .send()
-        .await
-        .map_err(|err| BootstrapError::DownloadError(snapshot.url.clone(), err))?;
+    let url = snapshot
+        .url
+        .as_ref()
+        .ok_or_else(|| BootstrapError::MissingSnapshotDirectory(PathBuf::from(&snapshot.point)))?;
+    let response = client.get(url).send().await.map_err(|err| BootstrapError::DownloadError(url.clone(), err))?;
 
     if !response.status().is_success() {
-        return Err(BootstrapError::DownloadInvalidStatusCode(snapshot.url.clone(), response.status()));
+        return Err(BootstrapError::DownloadInvalidStatusCode(url.clone(), response.status()));
     }
 
     Ok(response)
@@ -924,7 +927,10 @@ fn make_era_history(dir: &Path, point: &Point, network: NetworkName) -> Result<E
 
 #[cfg(test)]
 mod tests {
-    use std::{path::{Path, PathBuf}, time::Duration};
+    use std::{
+        path::{Path, PathBuf},
+        time::Duration,
+    };
 
     use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Point, Slot};
     use tempfile::tempdir;
@@ -991,7 +997,7 @@ mod tests {
         let snapshot = Snapshot {
             epoch: Epoch::from(163_u64),
             point: "69206375.hash".to_string(),
-            url: "https://example.com/69206375.hash.tar.gz".to_string(),
+            url: Some("https://example.com/69206375.hash.tar.gz".to_string()),
             parent_point: None,
             sha256: None,
         };
@@ -1010,7 +1016,7 @@ mod tests {
         let snapshot = Snapshot {
             epoch: Epoch::from(163_u64),
             point: "69206375.hash".to_string(),
-            url: "https://example.com/69206375.hash.tar.gz".to_string(),
+            url: Some("https://example.com/69206375.hash.tar.gz".to_string()),
             parent_point: None,
             sha256: None,
         };
@@ -1029,7 +1035,7 @@ mod tests {
         let snapshot = Snapshot {
             epoch: Epoch::from(163_u64),
             point: "69206375.hash".to_string(),
-            url: "https://example.com/69206375.hash.cbor.gz".to_string(),
+            url: Some("https://example.com/69206375.hash.cbor.gz".to_string()),
             parent_point: None,
             sha256: None,
         };
@@ -1046,7 +1052,7 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(165_u64),
                 point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
+                url: Some("https://example.com/165.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
@@ -1055,14 +1061,14 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(163_u64),
                 point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
+                url: Some("https://example.com/163.tar.gz".to_string()),
                 parent_point: None,
                 sha256: None,
             },
             Snapshot {
                 epoch: Epoch::from(164_u64),
                 point: "69638382.hash2".to_string(),
-                url: "https://example.com/164.tar.gz".to_string(),
+                url: Some("https://example.com/164.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
@@ -1084,14 +1090,14 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(163_u64),
                 point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
+                url: Some("https://example.com/163.tar.gz".to_string()),
                 parent_point: None,
                 sha256: None,
             },
             Snapshot {
                 epoch: Epoch::from(164_u64),
                 point: "69638382.hash2".to_string(),
-                url: "https://example.com/164.tar.gz".to_string(),
+                url: Some("https://example.com/164.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
@@ -1100,7 +1106,7 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(165_u64),
                 point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
+                url: Some("https://example.com/165.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
@@ -1109,7 +1115,7 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(166_u64),
                 point: "70502379.hash4".to_string(),
-                url: "https://example.com/166.tar.gz".to_string(),
+                url: Some("https://example.com/166.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "70502331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364d".to_string(),
@@ -1131,14 +1137,14 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(163_u64),
                 point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
+                url: Some("https://example.com/163.tar.gz".to_string()),
                 parent_point: None,
                 sha256: None,
             },
             Snapshot {
                 epoch: Epoch::from(165_u64),
                 point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
+                url: Some("https://example.com/165.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
@@ -1160,7 +1166,7 @@ mod tests {
         let snapshots = vec![Snapshot {
             epoch: Epoch::from(1_u64),
             point: "69206375.hash1".to_string(),
-            url: "https://example.com/1.tar.gz".to_string(),
+            url: Some("https://example.com/1.tar.gz".to_string()),
             parent_point: None,
             sha256: None,
         }];
@@ -1175,14 +1181,14 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(163_u64),
                 point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
+                url: Some("https://example.com/163.tar.gz".to_string()),
                 parent_point: None,
                 sha256: None,
             },
             Snapshot {
                 epoch: Epoch::from(164_u64),
                 point: "69638382.hash2".to_string(),
-                url: "https://example.com/164.tar.gz".to_string(),
+                url: Some("https://example.com/164.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
@@ -1191,7 +1197,7 @@ mod tests {
             Snapshot {
                 epoch: Epoch::from(165_u64),
                 point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
+                url: Some("https://example.com/165.tar.gz".to_string()),
                 sha256: None,
                 parent_point: Some(
                     "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),

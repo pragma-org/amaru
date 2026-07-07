@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 
 use amaru::{default_data_dir, default_ledger_dir};
 use amaru_kernel::{NetworkName, Point, cbor};
@@ -21,6 +21,7 @@ use amaru_mithril::{
     latest_archive, list_existing_archives, package_blocks, parse_header_slot_and_hash, resume_point_for_archives,
 };
 use amaru_network::point::to_network_point;
+use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use clap::Parser;
 use pallas_hardano::storage::immutable::read_blocks_from_point;
 use tracing::{info, warn};
@@ -83,7 +84,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         "Downloading mithril immutable chunks"
     );
 
-    download_from_mithril(network, target_dir, from_chunk).await?;
+    download_from_mithril(
+        network,
+        target_dir,
+        from_chunk,
+        Arc::new(|size: usize, template: &str| {
+            Box::new(TerminalProgressBar::new(size as u64, template)) as Box<dyn ProgressBar + Send + Sync>
+        }),
+    )
+    .await?;
 
     info!("Packaging blocks into .tar.gz files");
 

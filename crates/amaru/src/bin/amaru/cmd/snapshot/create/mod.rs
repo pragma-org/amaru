@@ -14,15 +14,16 @@
 
 use std::{
     fmt::{self, Display},
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 use amaru::{bootstrap_config_dir, default_snapshots_dir};
 use amaru_kernel::{Epoch, HeaderHash, NetworkName, Point, Slot, utils};
 use amaru_mithril::{chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks};
+use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use num::{CheckedAdd, CheckedSub};
@@ -35,9 +36,7 @@ mod config;
 mod db_analyser;
 mod koios;
 
-use archive::{
-    archive_path_for_target, materialize_snapshot, snapshot_path_for_target, write_snapshot_archive,
-};
+use archive::{archive_path_for_target, materialize_snapshot, snapshot_path_for_target, write_snapshot_archive};
 use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
@@ -285,11 +284,17 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
     let required_chunk = targets.last().map(|t| chunk_for_slot(t.slot)).unwrap_or(0);
+
+    let progress_factory: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync> =
+        Arc::new(|size: usize, template: &str| {
+            Box::new(TerminalProgressBar::new(size as u64, template)) as Box<dyn ProgressBar + Send + Sync>
+        });
+
     if from_chunk > required_chunk {
         info!(from_chunk, required_chunk, target_dir = %cardano_node_db.display(), "local cardano-db already covers all target slots; skipping Mithril download");
     } else {
         info!(from_chunk, target_dir = %cardano_node_db.display(), "synchronizing cardano-db from Mithril");
-        download_from_mithril(network, cardano_node_db.clone(), from_chunk).await?;
+        download_from_mithril(network, cardano_node_db.clone(), from_chunk, progress_factory.clone()).await?;
     }
 
     let db_analyser_binary = ensure_db_analyser_binary()?;
@@ -301,6 +306,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         config_dir: &config_dir,
         cardano_node_db: &cardano_node_db,
         db_analyser_binary: &db_analyser_binary,
+        with_progress: &progress_factory,
     };
 
     let mut previous_snapshot_slot = None;
@@ -320,6 +326,7 @@ struct SnapshotBuildContext<'a> {
     config_dir: &'a Path,
     cardano_node_db: &'a Path,
     db_analyser_binary: &'a str,
+    with_progress: &'a Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 }
 
 fn process_target(
@@ -419,6 +426,7 @@ fn resolve_or_create_snapshot_dir(
         context.cardano_node_db,
         target.slot,
         analyse_from,
+        context.with_progress,
     ) {
         if analyse_from.is_some() {
             warn!(
@@ -427,15 +435,18 @@ fn resolve_or_create_snapshot_dir(
                 error = %err,
                 "db-analyser failed with stored resume snapshot; retrying from scratch"
             );
-            run_db_analyser(
+            if let Err(err) = run_db_analyser(
                 context.db_analyser_binary,
                 context.config_dir,
                 context.cardano_node_db,
                 target.slot,
                 None,
-            )?;
+                context.with_progress,
+            ) {
+                return Err(wipe_immutable_dir_and_wrap(err, context.cardano_node_db));
+            }
         } else {
-            return Err(err);
+            return Err(wipe_immutable_dir_and_wrap(err, context.cardano_node_db));
         }
     }
 
@@ -477,6 +488,22 @@ fn infer_start_epoch(current_epoch: Epoch) -> Result<Epoch, Box<dyn std::error::
     current_epoch
         .checked_sub(Epoch::THREE)
         .ok_or_else(|| format!("cannot infer bootstrap start epoch from current epoch {current_epoch}").into())
+}
+
+fn wipe_immutable_dir_and_wrap(err: Box<dyn std::error::Error>, cardano_node_db: &Path) -> Box<dyn std::error::Error> {
+    let immutable_dir = cardano_node_db.join("immutable");
+    match fs::remove_dir_all(&immutable_dir) {
+        Ok(()) => warn!(
+            dir = %immutable_dir.display(),
+            "wiped immutable directory after db-analyser failure; re-run to download fresh chunks from Mithril"
+        ),
+        Err(e) => warn!(
+            dir = %immutable_dir.display(),
+            error = %e,
+            "failed to wipe immutable directory after db-analyser failure; you may need to delete it manually before re-running"
+        ),
+    }
+    format!("{err}; immutable chunks may be corrupt — re-run to download fresh chunks from Mithril").into()
 }
 
 fn bootstrap_target_epochs(epoch: Epoch) -> Result<[Epoch; 3], Box<dyn std::error::Error>> {
