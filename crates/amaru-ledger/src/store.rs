@@ -141,8 +141,6 @@ pub enum EpochTransitionProgress {
     EpochEnded,
     #[n(1)]
     SnapshotTaken,
-    #[n(2)]
-    EpochStarted,
 }
 
 impl fmt::Display for EpochTransitionProgress {
@@ -153,7 +151,6 @@ impl fmt::Display for EpochTransitionProgress {
             match self {
                 Self::EpochEnded => "Epoch Ended",
                 Self::SnapshotTaken => "Snapshot Taken",
-                Self::EpochStarted => "Epoch Started",
             }
         )
     }

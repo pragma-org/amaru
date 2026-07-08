@@ -484,7 +484,7 @@ pub mod tests {
         let context = store.create_transaction();
 
         let from = None;
-        let to = Some(EpochTransitionProgress::EpochStarted);
+        let to = Some(EpochTransitionProgress::SnapshotTaken);
 
         let success = context.try_epoch_transition(from, to)?;
         assert!(success, "Expected epoch transition to succeed when previous state matches");

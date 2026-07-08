@@ -205,8 +205,9 @@ impl PoolsEpochTransitionUpdates {
         assert_eq!(
             last,
             Some(&(None, epoch)),
-            "invariant violation: most recent retirement is not last certificate: {:?}",
-            last,
+            "invariant violation: most recent retirement (epoch={epoch}) is not the last certificate;\npool={}\ncertificates={:#?}",
+            pool.id(),
+            pool.future_params,
         );
     }
 }

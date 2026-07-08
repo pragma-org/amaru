@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, mem};
+use std::{cell::RefCell, collections::BTreeMap, mem};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
@@ -31,9 +31,9 @@ use crate::{
         volatile::{CommitteeMemberBind, Existence},
     },
     store::{
-        EpochTransitionProgress, Store, TransactionalContext, apply_governance_updates, pay_or_refund_accounts,
-        pay_rewards, reset_blocks_count, reset_fees_and_donations, reset_recently_pruned_proposals,
-        update_or_retire_pools,
+        EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
+        pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
+        reset_recently_pruned_proposals, update_or_retire_pools,
     },
 };
 
@@ -48,6 +48,9 @@ use crate::{
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
+
+    /// The most recent snapshot taken, kept in memory to avoid repeated I/O.
+    most_recent_snapshot: RefCell<Option<Epoch>>,
 
     /// The computed rewards summary to be applied on the next epoch boundary. This is computed
     /// once in the epoch, and held until the end where it is reset.
@@ -73,7 +76,25 @@ pub struct StateOverlay {
 impl StateOverlay {
     /// Construct a new default/empty overlay for the given epoch.
     pub fn new(epoch: Epoch) -> Self {
-        Self { epoch, rewards: RewardsState::NotReady, pools_updates: None, governance_updates: None }
+        Self {
+            epoch,
+            most_recent_snapshot: RefCell::new(None),
+            rewards: RewardsState::NotReady,
+            pools_updates: None,
+            governance_updates: None,
+        }
+    }
+
+    /// Get the most recent taken, by peaking at the files on disk or looking an in-memory cached
+    /// value if available.
+    pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
+        if let Some(epoch) = *self.most_recent_snapshot.borrow() {
+            epoch
+        } else {
+            let epoch = snapshots.most_recent_snapshot();
+            self.most_recent_snapshot.replace(Some(epoch));
+            epoch
+        }
     }
 
     /// Rollback an existing overlay, throwing away the epoch transition calculations.
@@ -147,6 +168,7 @@ impl StateOverlay {
 
                 if should_snapshot {
                     db.next_snapshot(self.epoch - 1)?;
+                    self.most_recent_snapshot.replace(Some(self.epoch - 1));
                 }
 
                 Ok(())
@@ -154,7 +176,7 @@ impl StateOverlay {
 
             // -------------------------------------------------------------------------- Start of epoch
             db.with_transaction::<_, StateError>(|batch| {
-                let should_begin_epoch = batch.try_epoch_transition(Some(SnapshotTaken), Some(EpochStarted))?;
+                let should_begin_epoch = batch.try_epoch_transition(Some(SnapshotTaken), None)?;
 
                 Span::current().record("should_begin_epoch", should_begin_epoch);
 

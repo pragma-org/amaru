@@ -412,7 +412,6 @@ impl RewardsSummary {
 
         info!(
             target: EVENT_TARGET,
-            epoch = %stake_distribution.epoch,
             %efficiency,
             %incentives,
             %treasury_tax,

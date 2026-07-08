@@ -173,15 +173,10 @@ impl RocksDB {
     pub fn snapshots(dir: &Path) -> Result<Vec<Epoch>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
 
-        for entry in fs::read_dir(dir).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?.by_ref()
-        {
-            let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?;
-            if let Ok(epoch) = entry.file_name().to_str().unwrap_or_default().parse::<Epoch>() {
-                snapshots.push(epoch);
-            } else if entry.file_name() != DIR_LIVE_DB {
-                warn!(filename = entry.file_name().to_str().unwrap_or_default(), "new.unexpected_file");
-            }
-        }
+        with_snapshots(dir, |_, epoch| {
+            snapshots.push(epoch);
+            Ok(())
+        })?;
 
         snapshots.sort();
 
@@ -331,14 +326,16 @@ impl RocksDBHistoricalStores {
 
 impl HistoricalStores for RocksDBHistoricalStores {
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
+        let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
+
         info_span!(
             amaru::stores::ledger::PRUNE,
             functional_minimum = u64::from(functional_minimum),
+            desired_minimum = u64::from(desired_minimum),
             db_system_name = "rocksdb".to_string(),
             db_operation_name = "delete".to_string()
         )
         .in_scope(|| {
-            let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
             with_snapshots(&self.config.dir, |path, epoch| {
                 if epoch < desired_minimum {
                     fs::remove_dir_all(&path)
@@ -351,17 +348,9 @@ impl HistoricalStores for RocksDBHistoricalStores {
     }
 
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        let mut snapshots: Vec<Epoch> = Vec::new();
-
-        with_snapshots(&self.config.dir, |_, epoch| {
-            snapshots.push(epoch);
-            Ok(())
-        })?;
-
-        snapshots.sort();
-
-        Ok(snapshots)
+        RocksDB::snapshots(&self.config.dir)
     }
+
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.config, epoch)
     }
