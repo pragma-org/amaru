@@ -30,20 +30,10 @@ The target gives a rough categorization and allows selecting traces pertaining t
 precise granularity to be decided case by case).
 
 The name uniquely identifies the source location within a given target **(see discussion below)** and is composed from
-multiple components separated by dots.
+multiple components separated by dots. For example
 
-1. a category for describing the type of work being done:
-
-    - `setup` for starting up a component or subsystem
-    - `check` for validating inputs, peer behaviour, authorization, integrity, etc.
-    - `state` for computing or updating internal state
-    - `db` for structured storage operations
-    - `io` for all other file / storage / network operations
-    - `cli` for all operations related to the command-line interface or terminal user interface
-    - `perf` for dedicated performance measurements
-
-2. a function, logical unit, data item, or similar
-3. an operation (if applicable) described as a verb
+1. a function, logical unit, data item, or similar
+2. an operation (if applicable) described as a verb
 
 > **IMPORTANT NOTICE ON `tracing` LEVELS**
 >
@@ -68,31 +58,37 @@ the `INFO` levels!**
 OpenTelemetry. It prescribes the use of a schema to specify spans attributes and their types with namespacing to avoid
 collisions.
 
-The current EDR restricts the definition of the schema to five levels of nesting, where the first two levels are used to
-define the target of a span and the next 3 levels to define the name of the span.
+In the current EDR the first two levels are used to define the target of a span and the next levels to define the name of the span.
 
 Here are two examples. During consensus, we receive an upstream message informing the node of a new block header and we
 need to evolve the nonce associated with the current header. In that case the fully qualified name of the span in the
 schema is:
 
 ```rust
-amaru::consensus::state::header::evolve_nonce
+amaru::consensus::header::evolve_nonce
 ```
 
-In this example, the target is `amaru::consensus` and the name is `state.header.evolve_nonce`.
+In this example, the target is `amaru::consensus` and the name is `header.evolve_nonce`.
 Similarly for the ledger, we can find a schema entry like:
 
 ```rust
-amaru::ledger::state::validation_context::create
+amaru::ledger::validation_context::create
 ```
 
-In this case, the target is `amaru::ledger` and the name is `state.validation_context.create`.
+In this case, the target is `amaru::ledger` and the name is `validation_context.create`.
 
 We also mandate that the span names are unique, even across targets, to avoid having two spans called
-`state.block.validate` both in `amaru::consensus` and in `amaru::ledger`.
+`block.validate` both in `amaru::consensus` and in `amaru::ledger`.
 
-Note: we might increase the number of levels in the schema in the future, to allow for more precise target names.
-For example with `amaru::ledger::script`.
+In addition to the target and name of a span, the schema can define a number of tags, that translate to boolean span
+attributes. This can be used to classify spans across target and span names. For example:
+
+    - `setup` for starting up a component or subsystem
+    - `check` for validating inputs, peer behaviour, authorization, integrity, etc.
+    - `cpu` for computing or updating internal state
+    - `db` for structured storage operations
+    - `io` for all other file / storage / network operations
+    - `cli` for all operations related to the command-line interface or terminal user interface
 
 ### Blockchain
 

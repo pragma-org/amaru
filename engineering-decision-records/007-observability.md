@@ -59,33 +59,29 @@ Schemas are defined using the `define_schemas!` macro in a central location (`am
 They are organized hierarchically with five levels of nesting:
 
 - The first two levels define the target of a span, for example `amaru::consensus` or `amaru::ledger`.
-- The next three levels define the name of the span, for example `state.header.evolve_nonce` or `state.block.apply` (
+- The next three levels define the name of the span, for example `header.evolve_nonce` or `block.apply` (
   see [EDR-026](./026-tracing-span-design.md) for more details).
 
 ```rust
 define_schemas! {
     amaru {
         consensus {
-            state {
-                header {
-                    EVOLVE_NONCE {
-                        required hash: String
-                    }
-                    VALIDATE {
-                        required issuer_key: String
-                    }
-                }            
-            }     
+            header {
+                EVOLVE_NONCE {
+                    required hash: String
+                }
+                VALIDATE {
+                    required issuer_key: String
+                }
+            }            
         }
-        ledger {
-            state {
-                block {
-                    APPLY {
-                        required point_slot: u64
-                        optional error: String
-                    }              
-                }   
-            }
+        ledger {           
+            block {
+                APPLY {
+                    required point_slot: u64
+                    optional error: String
+                }              
+            }               
         }
     }
 }
@@ -95,6 +91,18 @@ Each schema declares:
 
 - **Required fields**: Must be supplied when creating the span, with matching types
 - **Optional fields**: Supplementary context that can be recorded later
+
+##### Tags
+
+In addition to fields, a `tags: <name>, ...` entry assigns functional tags to schemas, classifying spans by the kind of
+work they perform (`setup`, `cpu`, `db`, `io`, etc., see [EDR-026](./026-tracing-span-design.md) for the list of tags).
+
+Tags can be declared at the module level, in which case they are inherited by all the schemas nested below that module,
+or inside a specific schema, in which case they override the module-level declaration. Each tag is automatically
+recorded on the corresponding spans as a boolean attribute named `amaru.tag.<name>`. 
+
+Since tags are regular span attributes, they can be used to select spans regardless of their target and name with 
+an `EnvFilter` directive: for example `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'` enables all the spans tagged with `cpu`.
 
 #### Explicit Span Construction
 
@@ -121,7 +129,7 @@ For async work, the same schema-validated span can be attached directly to the f
 
 ```rust
 async move {
-apply_block(block).await
+    apply_block(block).await
 }
 .instrument(debug_span!(ledger::state::block::APPLY, point_slot = point_slot))
 .await;
