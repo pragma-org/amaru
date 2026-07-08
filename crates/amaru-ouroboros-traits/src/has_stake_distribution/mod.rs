@@ -29,7 +29,7 @@ pub struct PoolSummary {
     pub stake: Lovelace,
 }
 
-#[derive(Debug, Error, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Error, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GetPoolError {
     #[error("slot to epoch conversion failed {0}.")]
     SlotToEpochConversionFailure(#[from] EraHistoryError),

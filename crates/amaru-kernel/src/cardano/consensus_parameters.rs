@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, str::FromStr};
+use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{EraHistory, GlobalParameters, PoolId, Slot, maths::FixedDecimal};
+use crate::{EraHistory, GlobalParameters, Slot, maths::FixedDecimal};
 
 /// This data type encapsulates the parameters needed by the consensus layer to operate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -26,23 +26,17 @@ pub struct ConsensusParameters {
     max_kes_evolution: u64,
     active_slot_coeff: SerializedFixedDecimal,
     era_history: EraHistory,
-    ocert_counters: BTreeMap<PoolId, u64>,
 }
 
 impl ConsensusParameters {
     /// Create new consensus parameters from the given global parameters.
-    pub fn new(
-        global_parameters: GlobalParameters,
-        era_history: &EraHistory,
-        ocert_counters: BTreeMap<PoolId, u64>,
-    ) -> Self {
+    pub fn new(global_parameters: GlobalParameters, era_history: &EraHistory) -> Self {
         Self::create(
             global_parameters.randomness_stabilization_window(),
             global_parameters.slots_per_kes_period,
             global_parameters.max_kes_evolution as u64,
             1f64 / global_parameters.active_slot_coeff_inverse as f64,
             era_history,
-            ocert_counters,
         )
     }
 
@@ -53,7 +47,6 @@ impl ConsensusParameters {
         max_kes_evolution: u64,
         active_slot_coeff: f64,
         era_history: &EraHistory,
-        ocert_counters: BTreeMap<PoolId, u64>,
     ) -> ConsensusParameters {
         let active_slot_coeff = &FixedDecimal::from((active_slot_coeff * 100.0) as u64) / &FixedDecimal::from(100u64);
         Self {
@@ -62,7 +55,6 @@ impl ConsensusParameters {
             max_kes_evolution,
             active_slot_coeff: SerializedFixedDecimal(active_slot_coeff),
             era_history: era_history.clone(),
-            ocert_counters,
         }
     }
 
@@ -80,10 +72,6 @@ impl ConsensusParameters {
 
     pub fn max_kes_evolutions(&self) -> u64 {
         self.max_kes_evolution
-    }
-
-    pub fn latest_opcert_sequence_number(&self, pool_id: &PoolId) -> Option<u64> {
-        self.ocert_counters.get(pool_id).copied()
     }
 
     pub fn active_slot_coeff(&self) -> FixedDecimal {

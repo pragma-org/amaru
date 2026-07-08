@@ -208,7 +208,7 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     let era = NetworkName::Preprod.as_era_history().unwrap();
     #[expect(clippy::expect_used)]
     let global = NetworkName::Preprod.as_global_parameters().cloned().expect("global parameters for preprod");
-    let cp = Arc::new(ConsensusParameters::new(global, era, Default::default()));
+    let cp = Arc::new(ConsensusParameters::new(global, era));
     stage_graph.resources().put::<ResourceConsensusParameters>(cp);
     stage_graph.resources().put::<ResourceEraHistory>(era.clone());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));

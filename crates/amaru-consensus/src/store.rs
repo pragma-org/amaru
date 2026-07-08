@@ -190,8 +190,7 @@ mod test {
         global_parameters: &GlobalParameters,
     ) -> Option<Nonces> {
         let store = Arc::new(InMemoryChainStore::default());
-        let consensus_parameters =
-            Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
+        let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history));
 
         // Have at least the last header of the last epoch available.
         store.store_header(last_header_last_epoch).expect("database failure");

@@ -15,8 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq,
-    BlockHeader, BlockHeight, EraHistory, HeaderHash, IsHeader, Point, Tip,
+    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip,
     cardano::block_header::make_block_header_with_op_cert_seq, make_header,
 };
 use amaru_ouroboros_traits::{

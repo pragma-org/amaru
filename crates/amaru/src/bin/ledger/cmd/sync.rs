@@ -24,7 +24,7 @@ use std::{
 use amaru::{default_chain_dir, default_data_dir, default_ledger_dir};
 use amaru_consensus::store::PraosChainStore;
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point, RawBlock,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, IsHeader, NetworkName, Point, RawBlock,
     cardano::network_block::NetworkBlock, to_cbor,
 };
 use amaru_ledger::block_validator::BlockValidator;
@@ -107,7 +107,7 @@ fn create_praos_chain_store(
     chain_store: Arc<dyn ChainStore>,
     era_history: &EraHistory,
 ) -> PraosChainStore {
-    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters, era_history, Default::default()));
+    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters, era_history));
     PraosChainStore::new(consensus_parameters, chain_store)
 }
 
@@ -147,6 +147,8 @@ async fn load_blocks(
 /// Particularly all on disk side-effects are performed
 /// Blocks are assumed valid; no validation error should happen
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     praos_chain_store: &PraosChainStore,
@@ -163,9 +165,9 @@ async fn process_block(
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
     let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
 
-    let summaries: PoolSummaries = block_validator.state.lock().unwrap().pool_summaries();
     let pool_id = block_header.pool_id();
-    let issuer = block_header.issuer().expect("cannot get issuer from header");
+    let summaries: PoolSummaries = block_validator.state.lock().unwrap().pool_summaries();
+    let pool_summary = summaries.get_pool(block_header.slot(), &pool_id, era_history).unwrap().expect("a pool summary");
     let last_opcert_sequence_number = chain_store
         .get_latest_opcert_sequence_number(&pool_id, &block_header)
         .expect("cannot get last opcert sequence number");
@@ -175,11 +177,11 @@ async fn process_block(
         consensus_parameters,
         block_header.header(),
         to_cbor(&block_header.header_body()).as_slice(),
-        &summaries,
-        era_history,
+        last_opcert_sequence_number,
+        &pool_summary,
         &epoch_nonce.active,
     )
-        .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
+    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
 
     // Verify block content
     block_validator
@@ -203,8 +205,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .as_global_parameters()
         .ok_or_else(|| anyhow!("missing default GlobalParameters for network: {network}"))?;
 
-    let consensus_parameters =
-        Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
+    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history));
 
     let block_validator = new_block_validator(network, ledger_dir)?;
     let tip = block_validator.get_tip();
@@ -240,7 +241,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 point,
                 raw_block,
             )
-                .await?;
+            .await?;
 
             processed += 1;
 

@@ -31,14 +31,14 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::{
     BaseReadChainStore, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
     FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
-    OpcertCounters, SampleAncestorPointsResult, StoreError, in_memory_chain_store::InMemoryChainStore,
+    OpcertCounters, SampleAncestorPointsResult, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
 
 use super::*;
 use crate::rocksdb::{
     RocksDbConfig,
-    consensus::{migration::migrate_db_path, util::CHAIN_DB_VERSION},
+    consensus::{base_read_chain_store::opcert_key, migration::migrate_db_path, util::CHAIN_DB_VERSION},
 };
 
 #[test]

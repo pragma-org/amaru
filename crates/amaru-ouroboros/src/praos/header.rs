@@ -20,14 +20,14 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConsensusParameters, EraHistory, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, PoolId, Slot, VrfCert,
+    ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, Slot, VrfCert,
     maths::{ExpOrdering, FixedDecimal},
 };
-use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::GetPoolError};
+use amaru_ouroboros_traits::{PoolSummary, has_stake_distribution::GetPoolError};
 use ed25519_dalek as ed25519;
 use thiserror::Error;
 
-use crate::{issuer_to_pool_id, kes, vrf};
+use crate::{kes, vrf};
 
 /// The certified natural max value represents 2^256 in praos consensus
 ///
@@ -58,10 +58,8 @@ pub enum AssertHeaderError {
     TryFromSliceError,
     #[error("cannot convert bytes into valid Ed25519 public key")]
     InvalidEd25519PublicKey,
-    #[error("Unknown pool: {}", hex::encode(&pool[0..7]))]
-    UnknownPool { pool: PoolId },
     #[error("{0}")]
-    PoolError(#[from] GetPoolError),
+    PoolError(GetPoolError),
 }
 
 impl From<TryFromSliceError> for AssertHeaderError {
@@ -80,7 +78,6 @@ impl PartialEq for AssertHeaderError {
             (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
             (Self::InvalidEd25519PublicKey, Self::InvalidEd25519PublicKey) => true,
             (Self::TryFromSliceError, Self::TryFromSliceError) => true,
-            (Self::UnknownPool { pool: l_pool }, Self::UnknownPool { pool: r_pool }) => l_pool == r_pool,
             _ => false,
         }
     }
@@ -93,8 +90,8 @@ pub fn assert_all<'a>(
     consensus_parameters: Arc<ConsensusParameters>,
     header: &'a Header,
     raw_header_body: &'a [u8],
-    pool_summaries: &'a PoolSummaries,
-    era_history: &'a EraHistory,
+    last_opcert_sequence_number: Option<u64>,
+    pool_summary: &'a PoolSummary,
     epoch_nonce: &'a Nonce,
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
@@ -102,28 +99,22 @@ pub fn assert_all<'a>(
     let issuer = ed25519::VerifyingKey::try_from(&header.header_body.issuer_vkey[..])
         .map_err(|_| AssertHeaderError::InvalidEd25519PublicKey)?;
 
-    let pool: PoolId = issuer_to_pool_id(&issuer);
-
     // TODO: Pallas should hold sized slices
     let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.header_body.vrf_vkey[..].try_into()?;
 
-    let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) =
-        pool_summaries
-            .get_pool(absolute_slot, &pool, era_history)?
-            .map(|pool| {
-                let leader_relative_stake = if pool.active_stake == 0 {
-                    FixedDecimal::ZERO
-                } else {
-                    &FixedDecimal::from(pool.stake) / &FixedDecimal::from(pool.active_stake)
-                };
-                (pool.vrf, leader_relative_stake)
-            })
-            .ok_or(AssertHeaderError::UnknownPool { pool })?;
+    let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) = {
+        let leader_relative_stake = if pool_summary.active_stake == 0 {
+            FixedDecimal::ZERO
+        } else {
+            &FixedDecimal::from(pool_summary.stake) / &FixedDecimal::from(pool_summary.active_stake)
+        };
+        (pool_summary.vrf, leader_relative_stake)
+    };
 
     let active_slot_coeff = consensus_parameters.active_slot_coeff();
     let slot_to_kes_period = consensus_parameters.slot_to_kes_period(absolute_slot);
     let max_kes_evolutions = consensus_parameters.max_kes_evolutions();
-    let latest_opcert_sequence_number = consensus_parameters.latest_opcert_sequence_number(&pool);
+
     Ok(vec![
         Box::new(move || {
             AssertKnownLeaderVrfError::new(registered_vrf_key, &vrf::PublicKey::from(declared_vrf_key))?;
@@ -151,7 +142,7 @@ pub fn assert_all<'a>(
             AssertOperationalCertificateError::new(
                 &header.header_body.operational_cert,
                 &issuer,
-                latest_opcert_sequence_number,
+                last_opcert_sequence_number,
             )?;
             Ok(())
         }),
@@ -415,22 +406,14 @@ impl AssertOperationalCertificateError {
 
         let declared_sequence_number = certificate.operational_cert_sequence_number;
 
-        // Check the sequence number of the operational certificate. It should either be the same
-        // as the latest known sequence number for the issuer or one greater.
-        match latest_sequence_number {
-            Some(latest_sequence_number) => {
-                if declared_sequence_number < latest_sequence_number {
-                    return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
-                }
-
-                if (declared_sequence_number - latest_sequence_number) > 1 {
-                    return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
-                }
-            }
-            None => {
-                // FIXME: Double-check whether we mustn't fail in this case or if it is acceptable
-                // to have no opcert available?
-            }
+        // A registered pool with no recorded opcert behaves as if its counter were 0, so its
+        // first certificate may carry sequence number 0 or 1.
+        let latest_sequence_number = latest_sequence_number.unwrap_or(0);
+        if declared_sequence_number < latest_sequence_number {
+            return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
+        }
+        if declared_sequence_number - latest_sequence_number > 1 {
+            return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
         }
 
         // The opcert message is a concatenation of the KES vkey, the sequence number, and the kes period
@@ -451,15 +434,7 @@ mod tests {
 
     #[test]
     fn test_assert_header_error_serialization_roundtrip() {
-        let errors = vec![
-            AssertHeaderError::TryFromSliceError,
-            AssertHeaderError::UnknownPool {
-                pool: PoolId::new([
-                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
-                    28,
-                ]),
-            },
-        ];
+        let errors = vec![AssertHeaderError::TryFromSliceError];
 
         for error in errors {
             // Test JSON serialization
