@@ -31,7 +31,8 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::{
     BaseReadChainStore, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
     FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
-    OpcertCounters, SampleAncestorPointsResult, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+    OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore,
+    in_memory_chain_store::InMemoryChainStore,
 };
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
 
@@ -1239,7 +1240,7 @@ fn pools_can_be_initialized_with_opcert_sequence_numbers() {
         db.roll_forward_chain(&tip.point()).unwrap();
 
         let pool_id: PoolId = run_strategy(any_pool_id());
-        db.put_opcert_seed(&OpcertCounters::from(BTreeMap::from([(pool_id, 5)])), &tip.point()).unwrap();
+        db.put_opcert_seed(&OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)])), &tip.point()).unwrap();
 
         let next = BlockHeader::from(make_header(2, 110, Some(tip.hash())));
         db.store_header(&next).unwrap();
@@ -1255,7 +1256,7 @@ fn a_header_entry_supersedes_an_older_seed_entry() {
         let header = BlockHeader::from(make_header_with_op_cert_seq(2, 200, Some(seed_header.hash()), 6));
         let next = BlockHeader::from(make_header(3, 300, Some(header.hash())));
         let pool_id = header.pool_id();
-        let seed = OpcertCounters::from(BTreeMap::from([(pool_id, 5)]));
+        let seed = OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)]));
         db.store_header(&seed_header).unwrap();
         db.roll_forward_chain(&seed_header.point()).unwrap();
         db.set_anchor_hash(&seed_header.hash()).unwrap();
@@ -1591,7 +1592,7 @@ fn make_linear_headers(len: usize) -> Vec<BlockHeader> {
     headers
 }
 
-fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a BlockHeader>) {
+fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item=&'a BlockHeader>) {
     for header in headers {
         store.store_header(header).unwrap();
         store.roll_forward_chain(&header.point()).unwrap();

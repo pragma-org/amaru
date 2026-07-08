@@ -20,7 +20,7 @@ use std::{
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
 
 use crate::{
-    DiagnosticChainStore, FullChainStore, Nonces, OpcertCounters, StoreError,
+    DiagnosticChainStore, FullChainStore, Nonces, OpcertSequenceNumbers, StoreError,
     stores::chain_store::{BaseReadChainStore, ReadChainStore, WriteChainStore},
 };
 
@@ -211,7 +211,7 @@ impl WriteChainStore for InMemoryChainStore {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn put_opcert_seed(&self, counters: &OpcertCounters, at: &Point) -> Result<(), StoreError> {
+    fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         for (pool_id, counter) in counters.iter() {
             inner

@@ -17,16 +17,7 @@ use std::collections::BTreeMap;
 use amaru_kernel::{PoolId, cbor, cbor as minicbor};
 
 #[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    cbor::Encode,
-    cbor::Decode,
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode,
 )]
 #[cbor(transparent)]
 pub struct OpcertSequenceNumbers {
@@ -43,7 +34,7 @@ impl OpcertSequenceNumbers {
         self.sequence_numbers.insert(pool_id, counter);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(&PoolId, &u64)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (&PoolId, &u64)> + '_ {
         self.sequence_numbers.iter()
     }
 }

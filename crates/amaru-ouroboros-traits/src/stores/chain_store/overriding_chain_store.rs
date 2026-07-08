@@ -17,7 +17,9 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, HeaderHash, Point, PoolId, RawBlock};
 use parking_lot::Mutex;
 
-use crate::{BaseReadChainStore, ChainStore, Nonces, OpcertCounters, ReadChainStore, StoreError, WriteChainStore};
+use crate::{
+    BaseReadChainStore, ChainStore, Nonces, OpcertSequenceNumbers, ReadChainStore, StoreError, WriteChainStore,
+};
 
 /// A chain store that wraps a `dyn ChainStore` and allows overriding any method
 /// with a supplied function. When an override is installed, it receives a reference
@@ -59,7 +61,8 @@ struct Overrides {
     set_block_valid: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, bool) -> Result<(), StoreError> + Send>>,
     remove_block_valid: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
     put_nonces: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, &Nonces) -> Result<(), StoreError> + Send>>,
-    put_opcert_seed: Option<Box<dyn FnMut(&dyn ChainStore, &OpcertCounters, &Point) -> Result<(), StoreError> + Send>>,
+    put_opcert_seed:
+        Option<Box<dyn FnMut(&dyn ChainStore, &OpcertSequenceNumbers, &Point) -> Result<(), StoreError> + Send>>,
     switch_to_fork: Option<Box<dyn FnMut(&dyn ChainStore, &Point, &[Point]) -> Result<(), StoreError> + Send>>,
     roll_forward_chain: Option<Box<dyn FnMut(&dyn ChainStore, &Point) -> Result<(), StoreError> + Send>>,
 }
@@ -229,7 +232,7 @@ impl OverridingChainStoreBuilder {
 
     pub fn with_put_opcert_seed<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn ChainStore, &OpcertCounters, &Point) -> Result<(), StoreError> + Send + 'static,
+        F: FnMut(&dyn ChainStore, &OpcertSequenceNumbers, &Point) -> Result<(), StoreError> + Send + 'static,
     {
         self.overrides.put_opcert_seed = Some(Box::new(f));
         self
@@ -523,7 +526,7 @@ impl WriteChainStore for OverridingChainStore {
         }
     }
 
-    fn put_opcert_seed(&self, counters: &OpcertCounters, at: &Point) -> Result<(), StoreError> {
+    fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.put_opcert_seed {
             Some(f) => f(self.inner.as_ref(), counters, at),

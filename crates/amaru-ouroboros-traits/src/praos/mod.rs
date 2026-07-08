@@ -13,9 +13,9 @@
 // limitations under the License.
 
 mod nonces;
-mod opcert_counters;
+mod opcert_sequence_numbers;
 mod praos_trait;
 
 pub use nonces::*;
-pub use opcert_counters::*;
+pub use opcert_sequence_numbers::*;
 pub use praos_trait::*;

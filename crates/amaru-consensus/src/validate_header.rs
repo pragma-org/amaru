@@ -72,11 +72,11 @@ pub fn validate_header(
             &pool_summary,
             &epoch_nonce,
         )
-        .and_then(|assertions| {
-            use rayon::prelude::*;
-            assertions.into_par_iter().try_for_each(|assert| assert())
-        })
-        .map_err(ValidateHeaderError::Assert)
+            .and_then(|assertions| {
+                use rayon::prelude::*;
+                assertions.into_par_iter().try_for_each(|assert| assert())
+            })
+            .map_err(ValidateHeaderError::Assert)
     })?;
 
     Ok(())

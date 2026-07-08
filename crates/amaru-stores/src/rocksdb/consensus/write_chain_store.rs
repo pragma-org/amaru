@@ -14,7 +14,7 @@
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
 use amaru_observability::debug_span;
-use amaru_ouroboros_traits::{Nonces, OpcertCounters, StoreError, WriteChainStore};
+use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
@@ -74,7 +74,7 @@ impl WriteChainStore for RocksDBStore {
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    fn put_opcert_seed(&self, counters: &OpcertCounters, at: &Point) -> Result<(), StoreError> {
+    fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError> {
         let slot = u64::from(at.slot_or_default()).to_be_bytes();
         let hash = at.hash();
         self.with_batch(|batch| {
