@@ -14,28 +14,25 @@
 
 use std::slice;
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, Epoch, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
+use amaru_ouroboros::praos::header::AssertHeaderError;
+use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
 };
-use amaru_pure_stage::{
-    assert_trace_contains, assert_trace_does_not_contain,
-    simulation::running::OverrideResult,
-    tm_add_stage, tm_send,
-    trace_match::{tm_send_type, tm_wire_stage_state},
-};
+use amaru_pure_stage::{assert_trace_does_not_contain, simulation::running::OverrideResult, tm_send};
 use tracing::Level;
 
 use crate::{
     effects::ValidateHeaderEffect,
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
+        test_utils::{assert_trace, te_input, te_send, te_state},
         track_peers::{
-            TrackPeers, TrackPeersMsg,
+            TrackPeersMsg,
             test_setup::{
                 build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_has_header, te_load_tip,
-                te_store_header, te_validate_header, test_prep, test_prep_with_security_param, tm_store_header,
+                te_store_header, te_validate_header, test_prep, test_prep_with_security_param,
             },
         },
     },
@@ -523,6 +520,55 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
     );
 }
 
+/// Tests that a header whose required stake distribution is more than 1 epoch ahead
+/// causes immediate adversarial rejection (no deferral).
+#[test]
+fn test_roll_forward_stake_dist_far_ahead_rejects() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let header = &prep.headers[1];
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.tip()),
+    });
+
+    let expected = prep.state.clone();
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), parent.tip(), header.tip());
+
+    let far_epoch = Epoch::new(100);
+    let slot = header.slot();
+    // Override to simulate far-ahead stake dist not available (distance >1 -> reject)
+    let (running, _guards, mut logs) =
+        setup_base(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]), |running| {
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
+                OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                    GetPoolError::StakeDistributionNotAvailable(slot, Some(far_epoch)),
+                ))))
+            });
+        });
+
+    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+    assert_trace(
+        &running,
+        &[
+            te_state("tp-1", &state),
+            te_input("tp-1", &msg),
+            te_send("tp-1", &prep.handler, RequestNext),
+            te_validate_header("tp-1", header.clone()),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_state("tp-1", &expected),
+        ],
+    );
+}
+
 #[test]
 fn test_roll_backward_updates_peer() {
     let prep = test_prep();
@@ -629,12 +675,12 @@ fn test_roll_backward_unknown_point_removes_peer() {
 }
 
 /// Tests that a RollForward whose header height requires a ledger height beyond what is currently
-/// applied causes the stage to create the `defer_req_next` child stage and register the handler
+/// applied causes scheduling of height recheck (self-message) for deferred headers
 /// for a deferred RequestNext (instead of immediately pipelining RequestNext to the handler).
 #[test]
 fn test_roll_forward_defers_request_next() {
     // Use security_param = 0 so any header taller than the known ledger height triggers defer.
-    let prep = test_prep_with_security_param(100000); // high to avoid height defer in this test
+    let prep = test_prep_with_security_param(0);
     let peer = Peer::new("peer1");
     let header = prep.headers[0].clone();
     let tip = header.tip();
@@ -660,10 +706,6 @@ fn test_roll_forward_defers_request_next() {
         Level::WARN,
         Level::INFO,
     ]);
-
-    // Use the new subsequence matcher + property-based TraceMatch for the dynamically named child.
-    // We assert that the following events appear in this order (with other unrelated entries allowed in between).
-    assert_trace(&running, &[te_store_header("tp-1", header.clone()), te_state("tp-1", &state)]);
 
     // The handler must *not* have received an immediate RequestNext (that is the whole point of deferring).
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);

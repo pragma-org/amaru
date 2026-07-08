@@ -25,7 +25,7 @@ use amaru_protocols::{
     store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
 };
 use amaru_pure_stage::{
-    DeserializerGuards, Effect, StageGraph, StageRef, TraceMatch,
+    DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
@@ -108,15 +108,6 @@ pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
 
 pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
-}
-
-pub fn tm_store_header(at_stage: &str) -> TraceMatch<'_> {
-    TraceMatch::Property(
-        Box::new(
-            move |e| matches!(e, TraceEntry::Suspend(Effect::External { at_stage: at, effect }) if at.as_str() == at_stage && effect.is::<StoreHeaderEffect>()),
-        ),
-        format!("store_header at {}", at_stage),
-    )
 }
 
 fn register_guards() -> DeserializerGuards {

@@ -50,9 +50,6 @@ pub struct Config {
     // since the arena is leaking memory on purpose.
     pub ledger_vm_alloc_arena_size: usize,
 
-    /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
-    pub defer_req_next_poll_ms: u64,
-
     /// After a misbehaving upstream peer is removed, do not allow it to be re-added for this many seconds.
     pub peer_removal_cooldown_secs: u64,
 
@@ -105,7 +102,6 @@ impl Default for Config {
             submit_api_address: None,
             ledger_vm_alloc_arena_count: 1,
             ledger_vm_alloc_arena_size: 1_024_000,
-            defer_req_next_poll_ms: 200,
             peer_removal_cooldown_secs: DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
             block_source_max_tip_distance: 2_500,
             trace_buffer_min_entries: 0,
