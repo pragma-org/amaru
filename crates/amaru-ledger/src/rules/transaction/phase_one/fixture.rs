@@ -30,6 +30,7 @@ use crate::{
             InvalidCertificates, InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness,
             InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
+            proposals::InvalidProposals,
         },
     },
 };
@@ -185,6 +186,7 @@ pub(super) enum Predicate {
     StakeCredentialInvalidPoolDelegation,
     StakeCredentialInvalidVoteDelegation,
     StakeKeyRegistered,
+    TreasuryWithdrawalReturnAccountsDoNotExist,
     ValueNotConservedUTxO,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -235,6 +237,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
+            }
+            PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
+                Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
             }
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
