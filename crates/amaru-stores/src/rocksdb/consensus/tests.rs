@@ -1424,12 +1424,38 @@ fn can_convert_v1_sample_db_to_v2() {
     let result = migrate_db_path(target).expect("Migration should succeed");
 
     let db = RocksDBStore::open(&config).expect("DB should successfully be opened as it's been migrated");
-    assert_eq!((1, 3), result);
+    assert_eq!((1, CHAIN_DB_VERSION), result);
     let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore>::load_from_best_chain(
         &db,
         &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
     );
     assert!(header.is_some(), "Sample data should be preserved");
+}
+
+#[test]
+fn migrate_to_v4_backfills_opcert_entries_from_stored_headers() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+
+    let header1 = BlockHeader::from(make_header_with_op_cert_seq(1, 10, None, 1));
+    let header2 = BlockHeader::from(make_header_with_op_cert_seq(2, 20, Some(header1.hash()), 2));
+    store.store_header(&header1).unwrap();
+    store.store_header(&header2).unwrap();
+
+    // shape the DB like a v3 store: no opcert entries, version 3
+    for header in [&header1, &header2] {
+        store.db.delete(opcert_key(header)).unwrap();
+    }
+    set_version(&store, 3).unwrap();
+    assert_eq!(store.load_opcert_sequence_numbers().count(), 0);
+
+    migrate_db(&store).unwrap();
+
+    assert_eq!(get_version(&store).unwrap(), CHAIN_DB_VERSION);
+    let entries: Vec<_> = store.load_opcert_sequence_numbers().collect();
+    assert_eq!(entries.len(), 2);
+    assert!(entries.contains(&(header1.pool_id(), Slot::from(10), header1.hash(), 1)));
+    assert!(entries.contains(&(header2.pool_id(), Slot::from(20), header2.hash(), 2)));
 }
 
 #[test]
