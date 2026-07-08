@@ -13,9 +13,7 @@
 // limitations under the License.
 
 pub mod blocks;
-pub mod headers;
 pub mod txs;
 
 pub use blocks::*;
-pub use headers::*;
 pub use txs::*;

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourceHeaderValidation, ResourcePoolSummaries, ResourceTxValidation,
+        ResourcePoolSummaries, ResourceTxValidation,
     },
     headers_tree::data_generation::Action,
 };
@@ -25,8 +25,8 @@ use amaru_kernel::{
     BlockHeight, ConsensusParameters, GlobalParameters, IsHeader, NetworkName, NonEmptyVec, Tip, Transaction,
 };
 use amaru_ouroboros::{
-    ConnectionsResource, DiagnosticChainStore, MockCanValidateBlocks, MockCanValidateHeaders, MockCanValidateTxs,
-    PoolSummaries, ResourceMempool,
+    ConnectionsResource, DiagnosticChainStore, MockCanValidateBlocks, MockCanValidateTxs, PoolSummaries,
+    ResourceMempool,
 };
 use amaru_protocols::{
     manager::ManagerMessage,
@@ -201,7 +201,6 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     stage_graph.resources().put::<Arc<dyn DiagnosticChainStore>>(node_config.chain_store.clone());
     stage_graph.resources().put::<ResourceBlockValidation>(block_validation.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validation);
-    stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
     stage_graph.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
 
     // Resources for ValidateHeaderEffect (which now calls the free validate fn directly).

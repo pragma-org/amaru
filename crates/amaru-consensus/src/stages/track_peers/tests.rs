@@ -12,30 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{slice, sync::Arc};
+use std::slice;
 
 use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
 };
 use amaru_pure_stage::{
-    assert_trace_contains, assert_trace_does_not_contain, tm_add_stage, tm_send,
+    assert_trace_contains, assert_trace_does_not_contain,
+    simulation::running::OverrideResult,
+    tm_add_stage, tm_send,
     trace_match::{tm_send_type, tm_wire_stage_state},
 };
 use tracing::Level;
 
-use crate::stages::{
-    peer_selection::PeerSelectionMsg,
-    test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
-    track_peers::{
-        DeferReqNextMsg, TrackPeers, TrackPeersMsg,
-        defer_req_next::DeferReqNext,
-        test_setup::{
-            FailingHeaderValidation, build_store, make_block_header, setup, setup_with_ledger_tip,
-            setup_with_validation, te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
-            test_prep_with_security_param, tm_store_header,
+use crate::{
+    effects::ValidateHeaderEffect,
+    stages::{
+        peer_selection::PeerSelectionMsg,
+        test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
+        track_peers::{
+            DeferReqNextMsg, TrackPeers, TrackPeersMsg,
+            defer_req_next::DeferReqNext,
+            test_setup::{
+                build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_has_header, te_load_tip,
+                te_store_header, te_validate_header, test_prep, test_prep_with_security_param, tm_store_header,
+            },
         },
     },
+    store::NoncesError,
+    validate_header::ValidateHeaderError,
 };
 
 #[test]
@@ -491,13 +497,14 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
     state.insert_peer(peer.clone(), parent.tip(), header.tip());
 
     // Use empty store so evolve_nonce fails (unknown parent), exercising the real validate_header fn failure path.
-    let (running, _guards, mut logs) = setup_with_validation(
-        &prep.rt_handle(),
-        state.clone(),
-        msg.clone(),
-        build_store(&[]),
-        Arc::new(FailingHeaderValidation),
-    );
+    let (running, _guards, mut logs) =
+        setup_base(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]), |running| {
+            let header = header.hash();
+            let parent = parent.hash();
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
+                OverrideResult::handled(Err(ValidateHeaderError::Nonces(NoncesError::UnknownParent { header, parent })))
+            });
+        });
 
     logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed"]).assert_no_remaining_at([
         Level::INFO,

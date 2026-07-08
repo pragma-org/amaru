@@ -279,7 +279,7 @@ impl TrackPeers {
         ledger
             .validate_header(header, Span::current().context())
             .await
-            .map_err(|e| ConsensusError::InvalidHeader(header.point(), e))?;
+            .map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
         Ok(per_peer.current.point())
     }
 

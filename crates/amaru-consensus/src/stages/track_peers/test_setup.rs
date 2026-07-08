@@ -17,8 +17,7 @@ use std::sync::Arc;
 use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, HeaderHash, NetworkName, Tip, make_header};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    CanValidateHeaders, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders, PoolSummaries,
-    WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+    MockCanValidateBlocks, PoolSummaries, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
@@ -30,7 +29,6 @@ use amaru_pure_stage::{
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
-use anyhow::anyhow;
 use opentelemetry::Context;
 use tokio::runtime::{Builder, Handle, Runtime};
 
@@ -38,7 +36,7 @@ use super::*;
 use crate::{
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourceHeaderValidation, ResourcePoolSummaries, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
+        ResourcePoolSummaries, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
     },
     stages::{
         peer_selection::PeerSelectionMsg,
@@ -153,17 +151,9 @@ pub fn setup(
     msg: TrackPeersMsg,
     store: Arc<InMemoryChainStore>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_with_validation(rt, state, msg, store, Arc::new(MockCanValidateHeaders))
-}
-
-pub fn setup_with_validation(
-    rt: &Handle,
-    state: TrackPeers,
-    msg: TrackPeersMsg,
-    store: Arc<InMemoryChainStore>,
-    validation: Arc<dyn CanValidateHeaders + Send + Sync>,
-) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base(rt, state, msg, store, validation, |_| {})
+    setup_base(rt, state, msg, store, |running| {
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+    })
 }
 
 /// Setup variant that forces a specific ledger-applied tip (used to test the defer path).
@@ -174,7 +164,8 @@ pub fn setup_with_ledger_tip(
     store: Arc<InMemoryChainStore>,
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base(rt, state, msg, store, Arc::new(MockCanValidateHeaders), |running| {
+    setup_base(rt, state, msg, store, |running| {
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
         // Force the ledger height returned by VolatileTipEffect / TipEffect so we can control defer decisions.
         running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
             move |_| OverrideResult::handled(ledger_tip)
@@ -183,12 +174,11 @@ pub fn setup_with_ledger_tip(
     })
 }
 
-fn setup_base(
+pub(crate) fn setup_base(
     rt: &Handle,
     state: TrackPeers,
     msg: TrackPeersMsg,
     store: Arc<InMemoryChainStore>,
-    validation: Arc<dyn CanValidateHeaders + Send + Sync>,
     overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     run_simulation(
@@ -201,29 +191,16 @@ fn setup_base(
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());
-            resources.put::<ResourceHeaderValidation>(validation);
             let block_validation = Arc::new(MockCanValidateBlocks);
             resources.put::<ResourceBlockValidation>(block_validation.clone());
             resources.put::<ResourceHasStakePools>(block_validation);
-
-            // Provide resources required by the new ValidateHeaderEffect implementation.
-            // The actual ValidateHeaderEffect is overridden below for controlled success/failure.
             let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
-            // Minimal global + consensus params (validation itself is overridden in most cases).
             let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
             let cp = Arc::new(ConsensusParameters::new(global, &era_history, Default::default()));
             resources.put::<ResourceConsensusParameters>(cp);
-            resources.put::<ResourceEraHistory>(era_history.clone());
+            resources.put::<ResourceEraHistory>(era_history);
             resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
         },
         overrides,
     )
-}
-
-pub struct FailingHeaderValidation;
-
-impl CanValidateHeaders for FailingHeaderValidation {
-    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        Err(HeaderValidationError::new(anyhow!("header validation failed: booyah!")))
-    }
 }

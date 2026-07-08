@@ -179,6 +179,7 @@ pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
     let mut tb = running.trace_buffer().lock();
     let trace = tb
         .iter_entries()
+        // .map(|(_, e)| e) // left here for ease of debugging: comment next line instead of this to see effect responses
         .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
         .collect::<Vec<_>>();
     tb.clear();

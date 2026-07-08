@@ -15,18 +15,21 @@
 use std::{fmt, fmt::Display};
 
 use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
-use amaru_ouroboros_traits::{HeaderValidationError, StoreError};
+use amaru_ouroboros_traits::StoreError;
 use serde::ser::SerializeStruct;
 use thiserror::Error;
 
+use crate::validate_header::ValidateHeaderError;
+
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[allow(clippy::result_large_err)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
     #[error("Failed to fetch block at {0}")]
     FetchBlockFailed(Point),
     #[error("Failed to validate header at {0}: {1}")]
-    InvalidHeader(Point, HeaderValidationError),
+    InvalidHeader(Point, Box<ValidateHeaderError>),
     #[error("Failed to store header at {0}: {1}")]
     StoreHeaderFailed(HeaderHash, StoreError),
     #[error("Failed to remove header at {0}: {1}")]
