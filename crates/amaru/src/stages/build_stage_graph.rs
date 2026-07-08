@@ -30,7 +30,7 @@ use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage, PeerSelectionNotify},
 };
-use amaru_pure_stage::{StageGraph, StageRef};
+use amaru_pure_stage::{Sender, StageGraph, StageRef};
 
 use crate::stages::config::Config;
 
@@ -150,11 +150,10 @@ pub fn build_stage_graph(
     let select_chain_input = stage_graph
         .contramap(select_chain, "select_chain_input", |(tip, parent)| SelectChainMsg::TipFromUpstream(tip, parent));
 
-    let track_peers = stage_graph.wire_up(
-        track_peers,
-        TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, k, config.defer_req_next_poll_ms),
-    );
-    let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
+    let track_peers_wired = stage_graph
+        .wire_up(track_peers, TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, k));
+    let track_peers_stake_dist_sender = stage_graph.input(&track_peers_wired);
+    let track_peers_input = stage_graph.contramap(track_peers_wired, "track_peers_input", TrackPeersMsg::FromUpstream);
 
     // Keep branch's peer_selection initialization preload (core to the peer_selection work)
     #[expect(clippy::expect_used)]
@@ -176,7 +175,7 @@ pub fn build_stage_graph(
             ),
         )
         .without_state();
-    NodeStages { manager_stage, mempool_stage }
+    NodeStages { manager_stage, mempool_stage, track_peers_stake_dist_sender }
 }
 
 /// This data types encapsulates stage references that we need to export in order to
@@ -185,6 +184,9 @@ pub fn build_stage_graph(
 pub struct NodeStages {
     pub manager_stage: StageRef<ManagerMessage>,
     pub mempool_stage: StageRef<MempoolMsg>,
+    /// Sender to notify track_peers when a new stake distribution becomes available in the ledger.
+    /// Created via stage_graph.input().
+    pub track_peers_stake_dist_sender: Sender<TrackPeersMsg>,
 }
 
 impl NodeStages {
@@ -194,5 +196,9 @@ impl NodeStages {
 
     pub fn mempool_stage(&self) -> StageRef<MempoolMsg> {
         self.mempool_stage.clone()
+    }
+
+    pub fn track_peers_stake_dist_sender(&self) -> Sender<TrackPeersMsg> {
+        self.track_peers_stake_dist_sender.clone()
     }
 }

@@ -14,9 +14,12 @@
 
 use std::sync::Arc;
 
-use amaru_consensus::effects::{
-    ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
-    ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
+use amaru_consensus::{
+    effects::{
+        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
+        ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
+    },
+    stages::track_peers::TrackPeersMsg,
 };
 use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
@@ -121,11 +124,34 @@ pub fn build_node(
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
     let best_hash = find_best_candidate(chain_store.as_ref())?;
 
-    // Make resources for header validation (consensus parameters, era, and initial pool summaries).
-    // Header validation logic is now a free function invoked from within ValidateHeaderEffect.
+    // Build the stage graph first to obtain a Sender<TrackPeersMsg> via stage_graph.input().
+    // This sender is required to notify track_peers from outside pure-stage (e.g. ledger's
+    // on_stake_dist_updated hook).
+    let node_stages = build_stage_graph(config, era_history, global_parameters, ledger_tip, best_hash, stage_builder);
+    let track_peers_sender = node_stages.track_peers_stake_dist_sender();
+
+    let pool_summaries = ledger.get_pool_summaries()?;
+    let resources = stage_builder.resources().clone();
+    ledger.set_on_stake_dist_updated(Arc::new(move |summ| {
+        resources.put::<ResourcePoolSummaries>(Arc::new(summ.clone()));
+        let track_peers_sender = track_peers_sender.clone();
+        let send = async move {
+            if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated).await.is_err() {
+                tracing::warn!("failed to send TrackPeersMsg::StakeDistUpdated");
+            }
+        };
+        #[expect(clippy::expect_used)]
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(send);
+        } else {
+            let rt =
+                tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
+            rt.block_on(send);
+        }
+    }));
+
     let consensus_parameters =
         Arc::new(ConsensusParameters::new(global_parameters.clone(), &era_history.clone(), Default::default()));
-    let pool_summaries = ledger.get_pool_summaries()?;
 
     // Register resources
     register_resources(
@@ -139,9 +165,6 @@ pub fn build_node(
         meter_provider,
         config.mempool.clone(),
     );
-
-    // Build the stage graph and return a reference to the stages that can be connected from outside this function
-    let node_stages = build_stage_graph(config, era_history, global_parameters, ledger_tip, best_hash, stage_builder);
 
     // Open a port to listen for downstream peers
     stage_builder

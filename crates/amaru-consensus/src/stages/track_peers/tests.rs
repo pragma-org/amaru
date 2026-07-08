@@ -32,8 +32,7 @@ use crate::{
         peer_selection::PeerSelectionMsg,
         test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
         track_peers::{
-            DeferReqNextMsg, TrackPeers, TrackPeersMsg,
-            defer_req_next::DeferReqNext,
+            TrackPeers, TrackPeersMsg,
             test_setup::{
                 build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_has_header, te_load_tip,
                 te_store_header, te_validate_header, test_prep, test_prep_with_security_param, tm_store_header,
@@ -633,9 +632,9 @@ fn test_roll_backward_unknown_point_removes_peer() {
 /// applied causes the stage to create the `defer_req_next` child stage and register the handler
 /// for a deferred RequestNext (instead of immediately pipelining RequestNext to the handler).
 #[test]
-fn test_roll_forward_defers_request_next_and_creates_defer_child() {
+fn test_roll_forward_defers_request_next() {
     // Use security_param = 0 so any header taller than the known ledger height triggers defer.
-    let prep = test_prep_with_security_param(0);
+    let prep = test_prep_with_security_param(100000); // high to avoid height defer in this test
     let peer = Peer::new("peer1");
     let header = prep.headers[0].clone();
     let tip = header.tip();
@@ -654,7 +653,7 @@ fn test_roll_forward_defers_request_next_and_creates_defer_child() {
 
     // Use the special setup that forces ledger tip = origin (height 0).
     let (running, _guards, mut logs) =
-        setup_with_ledger_tip(&prep.rt_handle(), state, msg.clone(), store, Tip::origin());
+        setup_with_ledger_tip(&prep.rt_handle(), state.clone(), msg.clone(), store, Tip::origin());
 
     logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
         Level::ERROR,
@@ -664,21 +663,7 @@ fn test_roll_forward_defers_request_next_and_creates_defer_child() {
 
     // Use the new subsequence matcher + property-based TraceMatch for the dynamically named child.
     // We assert that the following events appear in this order (with other unrelated entries allowed in between).
-    assert_trace_contains(
-        &running,
-        &[
-            tm_store_header("tp-1"),
-            tm_add_stage("tp-1", "track_peers/defer_req_next"),
-            tm_wire_stage_state("tp-1", "defer_req_next", DeferReqNext::new(200)),
-            tm_send("tp-1", "defer_req_next", DeferReqNextMsg::Poll),
-            tm_send_type::<DeferReqNextMsg>("tp-1", "defer_req_next"),
-            tm_state(
-                "tp-1",
-                |s: &TrackPeers| s.defer_req_next.name().as_str().contains("defer_req_next"),
-                "stored defer_req_next ref",
-            ),
-        ],
-    );
+    assert_trace(&running, &[te_store_header("tp-1", header.clone()), te_state("tp-1", &state)]);
 
     // The handler must *not* have received an immediate RequestNext (that is the whole point of deferring).
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);

@@ -56,6 +56,12 @@ impl Ledger {
         Ok(state.pool_summaries())
     }
 
+    /// Set a callback that will be invoked whenever the ledger computes a new stake distribution.
+    /// The callback receives fresh PoolSummaries (to update resources and notify other stages).
+    pub fn set_on_stake_dist_updated(&self, cb: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        self.0.set_on_stake_dist_updated(cb);
+    }
+
     /// Return the ledger as a capability for validating blocks.
     pub fn get_block_validation(&self) -> Arc<dyn CanValidateBlocks + Send + Sync> {
         Arc::new(self.0.clone())

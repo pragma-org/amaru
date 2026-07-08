@@ -113,6 +113,10 @@ where
     /// Which network are we connected to. This is mostly helpful for distinguishing between
     /// behavious that are network specifics (e.g. address discriminant).
     network: NetworkName,
+
+    /// Optional callback invoked whenever a new stake distribution snapshot is added.
+    /// Used to update resources and notify stages (e.g. track_peers) about fresh PoolSummaries.
+    on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
@@ -219,7 +223,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             era_history: Arc::new(era_history),
 
             network,
+
+            on_stake_dist_updated: None,
         }
+    }
+
+    /// Set a callback to be invoked when a new stake distribution snapshot becomes available.
+    /// The callback receives the projected PoolSummaries.
+    pub fn set_on_stake_dist_updated(&mut self, cb: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        self.on_stake_dist_updated = Some(cb);
     }
 
     /// Project the small pool summaries needed for header validation (and leader schedule)
@@ -458,15 +470,18 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // tasks while rewards are being computed; they only need to be available at the epoch
         // boundary.
         if self.volatile.rewards_not_ready() && is_stake_distribution_stable {
-            let computed = self.compute_rewards(next_epoch)?.into();
-            self.volatile.set_computed_rewards(computed);
+            let (computed, pushed_new) = self.compute_rewards(next_epoch)?;
+            self.volatile.set_computed_rewards(computed.into());
+            if pushed_new && let Some(cb) = &self.on_stake_dist_updated {
+                cb(self.pool_summaries());
+            }
         }
 
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn compute_rewards(&mut self, epoch: Epoch) -> Result<RewardsSummary, StateError> {
+    fn compute_rewards(&mut self, epoch: Epoch) -> Result<(RewardsSummary, bool), StateError> {
         info_span!(amaru_observability::amaru::ledger::state::COMPUTE_REWARDS, current_epoch = u64::from(epoch))
             .in_scope(|| {
                 let mut stake_distributions = self.stake_distributions.lock().unwrap();
@@ -487,11 +502,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 )
                 .map_err(StateError::Storage)?;
 
+                let mut pushed_new = false;
                 if stake_distributions.front().map(|distr| distr.epoch < snapshot.epoch()).unwrap_or(true) {
                     stake_distributions.push_front(compute_stake_distribution(&snapshot, &self.era_history)?);
+                    pushed_new = true;
                 }
 
-                Ok(rewards_summary)
+                Ok((rewards_summary, pushed_new))
             })
     }
 

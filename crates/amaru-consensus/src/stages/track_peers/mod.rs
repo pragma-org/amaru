@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod defer_req_next;
-
 use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
+    BlockHeader, BlockHeight, Epoch, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip,
+    from_cbor_no_leftovers,
 };
 use amaru_observability::trace_span;
+use amaru_ouroboros::praos::header::AssertHeaderError;
+use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     store_effects::Store,
 };
 use amaru_pure_stage::{Effects, Instant, StageRef};
-pub use defer_req_next::DeferReqNextMsg;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -33,6 +33,7 @@ use super::peer_selection::PeerSelectionMsg;
 use crate::{
     effects::{Ledger, LedgerOps},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
+    validate_header::ValidateHeaderError,
 };
 
 /// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
@@ -156,11 +157,11 @@ pub struct TrackPeers {
     peer_selection: StageRef<PeerSelectionMsg>,
     downstream: StageRef<(Tip, Point)>,
     consensus_security_parameter: u64,
-    /// Lazily populated via [`Effects::stage`](amaru_pure_stage::Effects::stage) on first deferred `RequestNext`.
-    defer_req_next: StageRef<DeferReqNextMsg>,
-    defer_req_next_poll_ms: u64,
     ledger_applied_block_height: BlockHeight,
     ledger_last_checked_at: Instant,
+    /// Headers whose validation was deferred (due to ledger height or missing stake distribution).
+    /// Includes the handler to (re)send RequestNext when ready.
+    deferred: Vec<DeferredHeader>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -169,9 +170,27 @@ struct PerPeer {
     highest: Tip,
 }
 
+/// A header validation that was deferred because either the ledger height was insufficient
+/// or the required stake distribution was not yet available.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct DeferredHeader {
+    peer: Peer,
+    handler: StageRef<chainsync::InitiatorMessage>,
+    header: Option<BlockHeader>,
+    tip: Tip,
+    /// If Some, wait until ledger applied height >= this.
+    min_ledger_height: Option<BlockHeight>,
+    /// If Some, wait until PoolSummaries has a distribution for (at least) this epoch.
+    required_stake_epoch: Option<Epoch>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TrackPeersMsg {
     FromUpstream(ChainSyncInitiatorMsg),
+    /// A new stake distribution is available; recheck any headers deferred for stake dist.
+    StakeDistUpdated,
+    /// Self-scheduled message to check if ledger height has advanced enough for deferred headers.
+    RecheckLedgerHeight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,6 +206,12 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
         TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
             state.handle_from_upstream(peer, handler, msg, eff).await;
         }
+        TrackPeersMsg::StakeDistUpdated => {
+            state.recheck_deferred(&eff).await;
+        }
+        TrackPeersMsg::RecheckLedgerHeight => {
+            state.recheck_deferred(&eff).await;
+        }
     }
     state
 }
@@ -197,7 +222,6 @@ impl TrackPeers {
         peer_selection: StageRef<PeerSelectionMsg>,
         downstream: StageRef<(Tip, Point)>,
         consensus_security_parameter: u64,
-        defer_req_next_poll_ms: u64,
     ) -> Self {
         Self {
             era_history,
@@ -205,22 +229,10 @@ impl TrackPeers {
             peer_selection,
             downstream,
             consensus_security_parameter,
-            defer_req_next: StageRef::blackhole(),
-            defer_req_next_poll_ms,
+            deferred: Vec::new(),
             ledger_applied_block_height: BlockHeight::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::from_secs(0)),
         }
-    }
-
-    async fn ensure_defer_req_next_stage(&mut self, eff: &Effects<TrackPeersMsg>) {
-        if !self.defer_req_next.is_blackhole() {
-            return;
-        }
-        let defer_b = eff.stage("track_peers/defer_req_next", defer_req_next::stage).await;
-        let state = defer_req_next::DeferReqNext::new(self.defer_req_next_poll_ms);
-        let wired = eff.wire_up(defer_b, state).await;
-        self.defer_req_next = wired;
-        eff.send(&self.defer_req_next, DeferReqNextMsg::Poll).await;
     }
 
     /// Insert or replace a peer's current and highest tip. For use in tests.
@@ -342,6 +354,9 @@ impl TrackPeers {
         let parent = match result {
             Ok(parent) => parent,
             Err(error) => {
+                if self.try_defer_for_stake(&peer, &handler, &header, &tip, &error, &eff).await {
+                    return;
+                }
                 tracing::error!(%error, %peer, "chain_sync.validate_header.failed");
                 self.upstream.remove(&peer);
                 eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer)).await;
@@ -367,9 +382,77 @@ impl TrackPeers {
         };
 
         if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
-            self.ensure_defer_req_next_stage(&eff).await;
-            eff.send(&self.defer_req_next, DeferReqNextMsg::Register { handler, min_ledger_height }).await;
+            // Schedule self-message to recheck height (replaces defer_req_next).
+            // Only schedule if no outstanding deferred for this peer yet.
+            let has_outstanding = self.deferred.iter().any(|d| d.peer == peer);
+            if !has_outstanding {
+                eff.schedule_after(TrackPeersMsg::RecheckLedgerHeight, Duration::from_millis(200)).await;
+            }
+            self.deferred.push(DeferredHeader {
+                peer: peer.clone(),
+                handler: handler.clone(),
+                header: None, // height defer is for pending RequestNext, not holding header
+                tip,
+                min_ledger_height: Some(min_ledger_height),
+                required_stake_epoch: None,
+            });
         }
+    }
+
+    /// Try to defer this header validation due to missing stake distribution.
+    /// Returns true if deferred (and not adversarial).
+    /// Rejects (returns false to let caller do adversarial) if the missing dist is >1 epoch ahead.
+    async fn try_defer_for_stake(
+        &mut self,
+        peer: &Peer,
+        handler: &StageRef<chainsync::InitiatorMessage>,
+        header: &BlockHeader,
+        tip: &Tip,
+        error: &ConsensusError,
+        eff: &Effects<TrackPeersMsg>,
+    ) -> bool {
+        let vhe = match error {
+            ConsensusError::InvalidHeader(_, b) => &**b,
+            _ => return false,
+        };
+        let target =
+            match vhe {
+                ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                    GetPoolError::StakeDistributionNotAvailable(_, Some(e)),
+                )) => *e,
+                ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                    GetPoolError::StakeDistributionNotAvailable(_, None),
+                )) => {
+                    // too old; reject
+                    return false;
+                }
+                _ => return false,
+            };
+        // Compute how far ahead using current applied tip's slot's stake epoch
+        let curr_slot = Ledger::new(eff.clone()).volatile_tip().await.point().slot_or_default();
+        let curr_stake_epoch = match self.era_history.slot_to_epoch_unchecked_horizon(curr_slot) {
+            Ok(e) => e.saturating_sub(2),
+            Err(_) => Epoch::new(0),
+        };
+        let dist = if target > curr_stake_epoch { target - curr_stake_epoch } else { Epoch::new(0) };
+        if dist > Epoch::new(1) {
+            // too far ahead, reject
+            return false;
+        }
+        // defer
+        let has_outstanding = self.deferred.iter().any(|d| d.peer == *peer);
+        if !has_outstanding {
+            // for stake, no schedule, StakeDistUpdated will wake
+        }
+        self.deferred.push(DeferredHeader {
+            peer: peer.clone(),
+            handler: handler.clone(),
+            header: Some(header.clone()),
+            tip: *tip,
+            min_ledger_height: None,
+            required_stake_epoch: Some(target),
+        });
+        true
     }
 
     async fn handle_from_upstream(
@@ -451,6 +534,40 @@ impl TrackPeers {
                 }
             }
         }
+    }
+
+    async fn recheck_deferred(&mut self, eff: &Effects<TrackPeersMsg>) {
+        let curr_height = ledger_applied_block_height(eff).await;
+        let mut remaining = Vec::new();
+        for d in std::mem::take(&mut self.deferred) {
+            let height_ready = d.min_ledger_height.map_or(true, |h| curr_height >= h);
+            let try_now = height_ready || d.required_stake_epoch.is_some();
+            // for stake, the notify means we can try; for held header with stake, we can re-validate by calling execute
+            if try_now {
+                if let Some(h) = d.header {
+                    // re-process stake deferred header (assume conway for variant)
+                    self.execute_roll_forward(
+                        d.peer,
+                        d.handler,
+                        EraName::Conway,
+                        h,
+                        d.tip,
+                        RollForwardMode::PipelineRequestNext,
+                        eff.clone(),
+                    )
+                    .await;
+                } else {
+                    eff.send(&d.handler, chainsync::InitiatorMessage::RequestNext).await;
+                }
+            } else {
+                let has_h = d.min_ledger_height.is_some();
+                if has_h {
+                    eff.schedule_after(TrackPeersMsg::RecheckLedgerHeight, Duration::from_millis(200)).await;
+                }
+                remaining.push(d);
+            }
+        }
+        self.deferred = remaining;
     }
 }
 

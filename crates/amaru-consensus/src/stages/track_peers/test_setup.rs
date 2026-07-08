@@ -41,7 +41,6 @@ use crate::{
     stages::{
         peer_selection::PeerSelectionMsg,
         test_utils::{Logs, run_simulation},
-        track_peers::defer_req_next::DeferReqNext,
     },
 };
 
@@ -81,7 +80,6 @@ pub fn test_prep_with_security_param(security_param: u64) -> TestPrep {
         StageRef::named_for_tests("peer_selection"),
         StageRef::named_for_tests("downstream"),
         security_param,
-        200,
     );
     let rt = Builder::new_current_thread().build().unwrap();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
@@ -133,8 +131,6 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<DeferReqNext>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<DeferReqNextMsg>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),

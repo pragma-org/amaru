@@ -21,7 +21,7 @@ use std::{
 use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, HasStakePools, TransactionValidationError,
+    CanValidateBlocks, CanValidateTxs, HasStakePools, PoolSummaries, TransactionValidationError,
     can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
@@ -87,6 +87,14 @@ impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
         let state = self.state.lock().unwrap();
         state.tip().into_owned()
     }
+
+    /// Set callback invoked when a new stake distribution is computed/available.
+    /// The provided PoolSummaries should be used to update resources for header validation.
+    #[expect(clippy::unwrap_used)]
+    pub fn set_on_stake_dist_updated(&self, cb: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        let mut state = self.state.lock().unwrap();
+        state.set_on_stake_dist_updated(cb);
+    }
 }
 
 #[async_trait::async_trait]
@@ -133,6 +141,12 @@ where
     fn volatile_tip(&self) -> Option<Tip> {
         let state = self.state.lock().unwrap();
         state.volatile_tip()
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn current_pool_summaries(&self) -> amaru_ouroboros_traits::PoolSummaries {
+        let state = self.state.lock().unwrap();
+        state.pool_summaries()
     }
 }
 
