@@ -2,6 +2,23 @@
 
 set -e
 
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+echo "Running changelog checks..."
+
+if "$REPO_ROOT/scripts/check-changelog" 2>&1; then
+    echo ""
+else
+    echo "Discovered a changelog issue"
+    echo ""
+    echo "Please fix the changelog issues before committing."
+    echo "You can run './scripts/check-changelog' to see the full output."
+    echo ""
+    echo "To bypass this check (not recommended), use:"
+    echo "  git commit --no-verify"
+    exit 1
+fi
+
 echo "Running clippy..."
 
 if cargo clippy-amaru 2>&1; then

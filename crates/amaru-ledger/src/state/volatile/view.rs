@@ -19,8 +19,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Epoch, PoolId, PoolParams, Proposal, ProposalPointer, ProtocolParameters,
-    StakeCredential,
+    CertificatePointer, ComparableProposalId, Epoch, PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential,
 };
 
 use crate::{
@@ -58,18 +57,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     /// Obtain a view of the database, which acts as a proxy 'ReadStore' augmented with the latest
     /// volatile updates, if any. This is used in context where one needs the true latest view of
     /// the ledger; for example at the epoch boundary.
-    pub fn new(
-        // TODO: Derive epoch instead of taking extra arg
-        //
-        // Currently passing this argument for simplicity, but that's a door open to
-        // inconsistencies. In principle we should be able to derive the epoch from either the
-        // stable db or self; since there can be only epoch in the context where this function is
-        // called. It's even an invariant violation if not...
-        epoch: Epoch,
-        protocol_parameters: &ProtocolParameters,
-        volatile: &'volatile VolatileDB,
-        stable: &'db DB,
-    ) -> VolatileView<'volatile, 'db, DB> {
+    pub fn new(volatile: &'volatile VolatileDB, stable: &'db DB) -> VolatileView<'volatile, 'db, DB> {
         let mut pools = DiffEpochReg::default();
         let mut proposals = BTreeMap::new();
         let mut accounts = DiffBind::default();
@@ -90,8 +78,8 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         };
 
         Self {
-            epoch,
-            proposal_lifetime: protocol_parameters.gov_action_lifetime,
+            epoch: volatile.epoch(),
+            proposal_lifetime: volatile.protocol_parameters().gov_action_lifetime,
             db: stable,
             accounts: Some(accounts),
             pools: Some(pools),

@@ -20,7 +20,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::ProposalId;
 use amaru_kernel::{
     CertificatePointer,
     ComparableProposalId,
@@ -41,17 +40,20 @@ use amaru_kernel::{
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
 };
+use amaru_kernel::{ProposalId, RatificationStatus};
 use columns::*;
 use thiserror::Error;
 
-use crate::{epoch_transition::GovernanceActivity, governance::ratification::ProposalsRoots, summary::Pots};
+use crate::{
+    epoch_transition::GovernanceActivity, governance::ratification::ProposalsRoots, store::columns::pots::Row as Pots,
+};
 
 pub mod columns;
 
 mod epoch_transition;
 pub use epoch_transition::{
-    apply_governance_updates, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees,
-    update_constitutional_committee, update_or_retire_pools,
+    apply_governance_updates, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
+    reset_recently_pruned_proposals, update_constitutional_committee, update_or_retire_pools,
 };
 
 #[derive(Debug, Error)]
@@ -93,7 +95,7 @@ pub enum StoreError {
     #[error(
         "{}",
         if .0.is_locked() {
-            "Failed to connect to the ledger store because it is is locked. Another Amaru \
+            "Failed to connect to the ledger store because it is locked. Another Amaru \
             process may still be using it, or a stale LOCK file may remain after an \
             unclean shutdown. Stop any process using the ledger database before retrying; \
             only remove the LOCK file after confirming no process is using it."
@@ -139,8 +141,6 @@ pub enum EpochTransitionProgress {
     EpochEnded,
     #[n(1)]
     SnapshotTaken,
-    #[n(2)]
-    EpochStarted,
 }
 
 impl fmt::Display for EpochTransitionProgress {
@@ -151,7 +151,6 @@ impl fmt::Display for EpochTransitionProgress {
             match self {
                 Self::EpochEnded => "Epoch Ended",
                 Self::SnapshotTaken => "Snapshot Taken",
-                Self::EpochStarted => "Epoch Started",
             }
         )
     }
@@ -279,6 +278,11 @@ pub trait ReadStore {
     /// Get details about all proposals
     fn iter_proposals(&self) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>>;
 
+    /// Get proposals that were *just* pruned at last epoch boundary. The list changes every epoch.
+    fn iter_recently_pruned_proposals(
+        &self,
+    ) -> Result<impl Iterator<Item = (recently_pruned_proposals::Key, recently_pruned_proposals::Value)>>;
+
     /// Iterate over constitutional committee members.
     fn iter_cc_members(&self) -> Result<impl Iterator<Item = (cc_members::Key, cc_members::Row)>>;
 
@@ -320,7 +324,7 @@ pub trait HistoricalStores {
     }
 
     /// Access a `Snapshot` for a specific `Epoch`
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot>;
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send>;
 }
 
 // TransactionalContext
@@ -403,9 +407,15 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Track the current governance activity.
     fn set_governance_activity(&self, dormant_epochs: GovernanceActivity) -> Result<()>;
 
+    /// Record the recently (i.e. last epoch boundary) pruned proposals
+    fn set_recently_pruned_proposals<'iter>(
+        &self,
+        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
+    ) -> Result<()>;
+
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = Id>) -> Result<()>
+    fn remove_proposals<'iter, Id>(&self, proposals: impl Iterator<Item = &'iter Id>) -> Result<()>
     where
         Id: Deref<Target = ProposalId> + 'iter;
 
@@ -512,7 +522,7 @@ mod tests {
     fn better_context_on_open_locked() {
         let error = StoreError::Open(OpenErrorKind::locked(PathBuf::from("db/live"), anyhow!("lock held")));
         let message = format!("{error:#}");
-        assert!(message.contains("Failed to connect to the ledger store because it is is locked"));
+        assert!(message.contains("Failed to connect to the ledger store because it is locked"));
         assert!(!message.contains("Did you bootstrap your node?"));
     }
 
@@ -520,7 +530,7 @@ mod tests {
     fn suggest_bootstrap_on_open_error() {
         let error = StoreError::Open(OpenErrorKind::io_with_file(PathBuf::from("db/live"), io::Error::other("foo")));
         let message = format!("{error:#}");
-        assert!(!message.contains("Failed to connect to the ledger store because it is is locked"));
+        assert!(!message.contains("Failed to connect to the ledger store because it is locked"));
         assert!(message.contains("Did you bootstrap your node?"));
     }
 }

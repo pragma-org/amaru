@@ -121,11 +121,8 @@ use tracing::info;
 
 use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
-    store::{Snapshot, StoreError},
-    summary::{
-        AccountState, PoolState, Pots, SafeRatio, safe_ratio, serde::serialize_map, serialize_safe_ratio,
-        stake_distribution::StakeDistribution,
-    },
+    store::{Snapshot, StoreError, columns::pots::Row as Pots},
+    summary::{AccountState, PoolState, SafeRatio, safe_ratio, stake_distribution::StakeDistribution},
 };
 
 const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
@@ -310,20 +307,10 @@ pub struct RewardsSummary {
     /// following epoch.
     epoch: Epoch,
 
-    /// The ratio of total blocks produced in the epoch, over the expected number of blocks
-    /// (determined by protocol parameters).
-    efficiency: SafeRatio,
-
     /// The amount of Ada taken out of the reserves as incentivies at this particular epoch
     /// (a.k.a ΔR1).
     /// It is so-to-speak, the monetary inflation of the network that fuels the incentives.
     incentives: Lovelace,
-
-    /// Total amount of rewards available before the treasury tax.
-    /// In particular, we have:
-    ///
-    ///   total_rewards = treasury_tax + available_rewards
-    total_rewards: Lovelace,
 
     /// Portion of the rewards going to the treasury (irrespective of unallocated pool rewards).
     treasury_tax: Lovelace,
@@ -338,27 +325,8 @@ pub struct RewardsSummary {
     /// Various protocol money pots pertaining to the epoch at the beginning of the rewards calculation.
     pots: Pots,
 
-    /// Per-pool rewards determined from their (apparent) performances, available rewards and
-    /// relative stake.
-    pools: BTreeMap<PoolId, PoolRewards>,
-
     /// Per-account rewards, determined from their relative stake and their delegatee.
     accounts: BTreeMap<StakeCredential, Lovelace>,
-}
-
-impl serde::Serialize for RewardsSummary {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("RewardsSummary", 8)?;
-        s.serialize_field("epoch", &self.epoch)?;
-        s.serialize_field("efficiency", &serialize_safe_ratio(&self.efficiency))?;
-        s.serialize_field("incentives", &self.incentives)?;
-        s.serialize_field("total_rewards", &self.total_rewards)?;
-        s.serialize_field("treasury_tax", &self.treasury_tax)?;
-        s.serialize_field("available_rewards", &self.available_rewards)?;
-        s.serialize_field("pots", &self.pots)?;
-        serialize_map("pools", &mut s, &self.pools, |id| hex::encode(id))?;
-        s.end()
-    }
 }
 
 impl RewardsSummary {
@@ -444,7 +412,6 @@ impl RewardsSummary {
 
         info!(
             target: EVENT_TARGET,
-            epoch = %stake_distribution.epoch,
             %efficiency,
             %incentives,
             %treasury_tax,
@@ -459,14 +426,11 @@ impl RewardsSummary {
 
         Ok(RewardsSummary {
             epoch: stake_distribution.epoch,
-            efficiency,
             incentives,
-            total_rewards,
             treasury_tax,
             available_rewards,
             effective_rewards,
             pots,
-            pools,
             accounts,
         })
     }

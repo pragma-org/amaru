@@ -445,13 +445,22 @@
         },
         "into": {
           "type": "integer"
+        },
+        "skipped": {
+          "type": "boolean"
+        },
+        "resuming_from": {
+          "type": "string"
         }
       },
       "required": [
         "from",
         "into"
       ],
-      "optional": [],
+      "optional": [
+        "skipped",
+        "resuming_from"
+      ],
       "additionalProperties": false,
       "name": "epoch_transition",
       "level": "TRACE",
@@ -539,6 +548,18 @@
       "level": "TRACE",
       "target": "amaru::ledger::epoch_transition",
       "description": "Pay rewards to all accounts before the epoch end",
+      "public": true
+    },
+    "amaru::ledger::epoch_transition::RECORD_PRUNED_PROPOSALS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "record_pruned_proposals",
+      "level": "TRACE",
+      "target": "amaru::ledger::epoch_transition",
+      "description": "Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations.",
       "public": true
     },
     "amaru::ledger::epoch_transition::RESET_BLOCKS_COUNT": {
@@ -774,18 +795,18 @@
     "amaru::ledger::state::COMPUTE_REWARDS": {
       "type": "object",
       "properties": {
-        "current_epoch": {
+        "for_epoch": {
           "type": "integer"
         },
-        "stake_distribution_epoch": {
+        "using_stake_distribution_from": {
           "type": "integer"
         }
       },
       "required": [
-        "current_epoch"
+        "for_epoch"
       ],
       "optional": [
-        "stake_distribution_epoch"
+        "using_stake_distribution_from"
       ],
       "additionalProperties": false,
       "name": "compute_rewards",
@@ -1476,6 +1497,9 @@
         "functional_minimum": {
           "type": "integer"
         },
+        "desired_minimum": {
+          "type": "integer"
+        },
         "db_system_name": {
           "type": "string"
         },
@@ -1485,6 +1509,7 @@
       },
       "required": [
         "functional_minimum",
+        "desired_minimum",
         "db_system_name",
         "db_operation_name"
       ],
@@ -2083,6 +2108,32 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::columns",
       "description": "Remove enacted or expired proposals",
+      "public": true
+    },
+    "amaru::stores::ledger::columns::RECENTLY_PRUNED_PROPOSALS_REPLACE_ALL": {
+      "type": "object",
+      "properties": {
+        "db_system_name": {
+          "type": "string"
+        },
+        "db_operation_name": {
+          "type": "string"
+        },
+        "db_collection_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "db_system_name",
+        "db_operation_name",
+        "db_collection_name"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recently_pruned_proposals_replace_all",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::columns",
+      "description": "Inserting recently pruned proposals",
       "public": true
     },
     "amaru::stores::ledger::columns::SLOTS_GET": {

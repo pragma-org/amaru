@@ -159,8 +159,8 @@ define_schemas! {
 
             /// Compute rewards for epoch
             public COMPUTE_REWARDS {
-                required current_epoch: u64
-                optional stake_distribution_epoch: u64
+                required for_epoch: u64
+                optional using_stake_distribution_from: u64
             }
 
             /// Forward ledger state with new volatile state
@@ -180,6 +180,8 @@ define_schemas! {
             public EPOCH_TRANSITION {
                 required from: u64
                 required into: u64
+                optional skipped: bool,
+                optional resuming_from: String,
             }
 
             /// Perform end-of-epoch epoch boundary computations
@@ -228,6 +230,10 @@ define_schemas! {
                 /// Reserves depletion from incentives; always negative.
                 optional reserves_delta: i64
             }
+
+            /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
+            /// distribution calculations.
+            public RECORD_PRUNED_PROPOSALS {}
 
             /// Pay withdrawals to accounts, or refund deposits
             public PAY_OR_REFUND_ACCOUNTS {
@@ -411,6 +417,7 @@ define_schemas! {
             /// Prune old snapshots
             public PRUNE {
                 required functional_minimum: u64
+                required desired_minimum: u64
                 required db_system_name: String
                 required db_operation_name: String
             }
@@ -559,6 +566,13 @@ define_schemas! {
 
                 /// Remove enacted or expired proposals
                 public PROPOSALS_REMOVE {
+                    required db_system_name: String
+                    required db_operation_name: String
+                    required db_collection_name: String
+                }
+
+                /// Inserting recently pruned proposals
+                public RECENTLY_PRUNED_PROPOSALS_REPLACE_ALL {
                     required db_system_name: String
                     required db_operation_name: String
                     required db_collection_name: String

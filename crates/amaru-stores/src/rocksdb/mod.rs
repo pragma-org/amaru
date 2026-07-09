@@ -24,7 +24,8 @@ use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoi
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, StakeCredential, TransactionInput, cbor,
+    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, RatificationStatus, StakeCredential,
+    TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -32,9 +33,8 @@ use amaru_ledger::{
     state::diff_bind::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext, columns as scolumns,
+        TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
     },
-    summary::Pots,
 };
 use amaru_observability::{info_span, trace_record, trace_span};
 use anyhow::anyhow;
@@ -173,15 +173,10 @@ impl RocksDB {
     pub fn snapshots(dir: &Path) -> Result<Vec<Epoch>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
 
-        for entry in fs::read_dir(dir).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?.by_ref()
-        {
-            let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dir, err)))?;
-            if let Ok(epoch) = entry.file_name().to_str().unwrap_or_default().parse::<Epoch>() {
-                snapshots.push(epoch);
-            } else if entry.file_name() != DIR_LIVE_DB {
-                warn!(filename = entry.file_name().to_str().unwrap_or_default(), "new.unexpected_file");
-            }
-        }
+        with_snapshots(dir, |_, epoch| {
+            snapshots.push(epoch);
+            Ok(())
+        })?;
 
         snapshots.sort();
 
@@ -331,14 +326,16 @@ impl RocksDBHistoricalStores {
 
 impl HistoricalStores for RocksDBHistoricalStores {
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
+        let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
+
         info_span!(
             amaru::stores::ledger::PRUNE,
             functional_minimum = u64::from(functional_minimum),
+            desired_minimum = u64::from(desired_minimum),
             db_system_name = "rocksdb".to_string(),
             db_operation_name = "delete".to_string()
         )
         .in_scope(|| {
-            let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
             with_snapshots(&self.config.dir, |path, epoch| {
                 if epoch < desired_minimum {
                     fs::remove_dir_all(&path)
@@ -351,17 +348,9 @@ impl HistoricalStores for RocksDBHistoricalStores {
     }
 
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        let mut snapshots: Vec<Epoch> = Vec::new();
-
-        with_snapshots(&self.config.dir, |_, epoch| {
-            snapshots.push(epoch);
-            Ok(())
-        })?;
-
-        snapshots.sort();
-
-        Ok(snapshots)
+        RocksDB::snapshots(&self.config.dir)
     }
+
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.config, epoch)
     }
@@ -491,7 +480,7 @@ macro_rules! impl_ReadStore_body {
             }
 
             fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get(|key| self.db.get_pinned(key)).map(|row| Pots::from(&row))
+                pots::get(|key| self.db.get_pinned(key))
             }
 
             fn iter_accounts(
@@ -543,6 +532,18 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     proposals::PREFIX,
+                )
+            }
+
+            fn iter_recently_pruned_proposals(
+                &self,
+            ) -> Result<
+                impl Iterator<Item = (scolumns::recently_pruned_proposals::Key, scolumns::recently_pruned_proposals::Value)>,
+                StoreError,
+            > {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    recently_pruned_proposals::PREFIX,
                 )
             }
 
@@ -708,9 +709,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(())
     }
 
+    fn set_recently_pruned_proposals<'iter>(
+        &self,
+        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
+    ) -> Result<(), StoreError> {
+        recently_pruned_proposals::replace_all(&self.db, proposals)
+    }
+
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = Id>) -> Result<(), StoreError>
+    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = &'iter Id>) -> Result<(), StoreError>
     where
         Id: Deref<Target = ProposalId> + 'iter,
     {

@@ -149,6 +149,7 @@ impl<S: fmt::Debug> From<diff_bind::BindError<S>> for UpdateError<S> {
 /// An interface for interacting with the protocol pots.
 pub trait PotsSlice {
     fn add_fees(&mut self, fees: Lovelace);
+    fn add_donation(&mut self, donation: Lovelace);
 }
 
 // UTxO
