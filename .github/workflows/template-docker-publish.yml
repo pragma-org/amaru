@@ -1,4 +1,4 @@
-name: Docker Publish
+name: Template Docker Publish
 
 on:
   workflow_call:
