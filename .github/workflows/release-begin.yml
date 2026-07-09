@@ -452,7 +452,7 @@ jobs:
   docker-nightly:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [build-metadata, rust-build]
-    uses: ./.github/workflows/docker-publish.yml
+    uses: ./.github/workflows/template-docker-publish.yml
     with:
       artifact_source: workflow-artifact
       artifact_version: ${{ needs.build-metadata.outputs.version }}

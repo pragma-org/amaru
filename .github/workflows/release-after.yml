@@ -177,7 +177,7 @@ jobs:
 
   docker-release:
     needs: release-metadata
-    uses: ./.github/workflows/docker-publish.yml
+    uses: ./.github/workflows/template-docker-publish.yml
     with:
       artifact_source: release-asset
       artifact_version: ${{ needs.release-metadata.outputs.version }}
