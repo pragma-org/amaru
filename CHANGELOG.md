@@ -35,6 +35,12 @@ Other guiding principles:
   ```
 -->
 
+## v10.10.20260716 _[unreleased; planned for 2026-07-16]_
+
+### Changed
+
+- **amaru**: bootstrap snapshots now are compressed with zstandard, are checksumed and contain all required blocks matchinh known block headers. ([#1012][])
+
 ## v10.10.20260709 _[unreleased; planned for 2026-07-09]_
 
 ### Added
@@ -140,4 +146,5 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
+[#1012]: https://github.com/pragma-org/amaru/pull/1012
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
