@@ -317,15 +317,7 @@ mod tests {
                 utxo
             });
 
-        let mut context = DefaultValidationContext::new(
-            utxo,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        );
+        let mut context = DefaultValidationContext::default().with_utxo(utxo);
 
         let protocol_parameters = network.as_protocol_parameters().expect("missing network defaults");
         let protocol_parameters = ProtocolParameters {

@@ -24,9 +24,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
-    utils::string::display_collection,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, Lovelace, NetworkName,
+    Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version,
+    to_cbor, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, info, info_span, trace, warn};
@@ -47,7 +47,8 @@ use crate::{
         block::{BlockValidation, TransactionInvalid},
     },
     state::volatile::{
-        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
+        AnchoredVolatileFragment, Existence, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence,
+        VolatileState, VolatileView,
     },
     store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -458,9 +459,37 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 ratification_context,
             )?;
 
+            // NOTE: treasury as of the *new* epoch
+            //
+            // The treasury only changes at the boundary, and the whole change is knowable here. It
+            // mirrors exactly what `StateOverlay::apply` writes when the boundary is later flushed.
+            //
+            // We stash it on the overlay so the validation context can resolve the new epoch's
+            // treasury during the straddle window, without recomputing per-account work on the hot
+            // path. Account existence is resolved on the volatile-over-stable view (the same view
+            // the boundary already works against), not a raw stable read.
+            let closing_epoch_donations = db.pots()?.donations
+                + self.volatile.iter().map(|anchored| anchored.fragment.donations).sum::<Lovelace>();
+
+            let mut refund_leftovers: Lovelace = 0;
+            for (credential, amount) in pools_updates.refunds().chain(governance_updates.deposit_refunds.iter()) {
+                let account_is_gone = match self.volatile.resolve_account(credential).0 {
+                    Existence::Exists(..) => false,
+                    Existence::Gone => true,
+                    Existence::Unknown => db.account(credential)?.is_none(),
+                };
+                if account_is_gone {
+                    refund_leftovers += amount;
+                }
+            }
+
+            let treasury_delta = effective_rewards.as_ref().map(|rewards| rewards.delta_treasury()).unwrap_or(0)
+                + closing_epoch_donations
+                + refund_leftovers;
+
             drop(db); // Dropping the *mutable reference*, not the *actual database* :)
 
-            self.volatile.transition(effective_rewards, pools_updates, governance_updates);
+            self.volatile.transition(effective_rewards, pools_updates, governance_updates, treasury_delta);
 
             Ok(())
         })

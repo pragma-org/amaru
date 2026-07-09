@@ -15,7 +15,7 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId, ProposalId, StakeCredential,
+    CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId, Pots, ProposalId, StakeCredential,
     TransactionInput,
 };
 
@@ -102,6 +102,11 @@ pub trait VolatileState {
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;
     fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal;
+
+    // ---------------------------------------------------------------------------------------- Pots
+    fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
+        pots.treasury
+    }
 }
 
 /// A sequence-like API used by the VolatileDB and VolatileSeries.

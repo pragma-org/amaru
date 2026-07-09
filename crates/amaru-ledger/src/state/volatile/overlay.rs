@@ -76,6 +76,12 @@ pub struct StateOverlay {
     /// The result of an epoch boundary ratification, stashed temporarily until it is stable enough
     /// to persist in the stable storage. Held behind an `Arc` for the same reason as `pools_updates`.
     governance_updates: Option<Arc<GovernanceUpdates>>,
+
+    /// The net change applied to the stable treasury when this overlay is flushed, computed once at
+    /// the boundary. Held so the validation context can resolve the *new* epoch's treasury during
+    /// the straddle window (before the boundary is flushed to disk), without recomputing per-account
+    /// work on the hot path. 0 when no boundary is pending.
+    treasury_delta: Lovelace,
 }
 
 impl StateOverlay {
@@ -87,6 +93,7 @@ impl StateOverlay {
             rewards: RewardsState::NotReady,
             pools_updates: None,
             governance_updates: None,
+            treasury_delta: 0,
         }
     }
 
@@ -107,6 +114,7 @@ impl StateOverlay {
             rewards: self.rewards.clone(),
             pools_updates: self.pools_updates.clone(),
             governance_updates: self.governance_updates.clone(),
+            treasury_delta: self.treasury_delta,
         }
     }
 
@@ -127,6 +135,7 @@ impl StateOverlay {
         self.rewards = mem::take(&mut self.rewards).rollback();
         self.pools_updates = None;
         self.governance_updates = None;
+        self.treasury_delta = 0;
 
         let to = self.epoch - 1;
         debug!(ledger::epoch_transition::ROLLBACK, from = %self.epoch, %to);
@@ -139,6 +148,7 @@ impl StateOverlay {
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
+        treasury_delta: Lovelace,
     ) {
         let to = self.epoch + 1;
         debug!(ledger::epoch_transition::RECORD, from = %self.epoch, %to);
@@ -147,6 +157,7 @@ impl StateOverlay {
             effective_rewards.map(|r| RewardsState::Effective(Arc::new(r))).unwrap_or(RewardsState::NotReady);
         self.pools_updates = Some(Arc::new(pools_updates));
         self.governance_updates = Some(Arc::new(governance_updates));
+        self.treasury_delta = treasury_delta;
     }
 
     /// Flush an overlay to disk.
@@ -271,6 +282,10 @@ impl StateOverlay {
             })
         })?;
 
+        // The stashed delta has now been folded into the stable treasury by the store operations
+        // above (rewards tax, donations, deposit-refund leftovers), so the straddle window is over.
+        self.treasury_delta = 0;
+
         assert!(matches!(self.rewards, RewardsState::NotReady), "rewards leftovers after flushing overlay?");
         assert!(self.governance_updates.is_none(), "governance updates leftovers after flushing overlay?");
         assert!(self.pools_updates.is_none(), "pools updates leftovers after flushing overlay?");
@@ -368,6 +383,12 @@ impl StateOverlay {
         reward + refund + governance_payout
     }
 
+    /// The net treasury change pending at the not-yet-flushed epoch boundary. `0` outside the
+    /// straddle window.
+    pub fn treasury_delta(&self) -> Lovelace {
+        self.treasury_delta
+    }
+
     /// A read-only handle on the rewards state.
     pub fn rewards(&self) -> &RewardsState {
         &self.rewards
@@ -392,6 +413,7 @@ mod test {
             rewards: RewardsState::Effective(Arc::new(effective_rewards())),
             pools_updates: Some(Arc::new(PoolsEpochTransitionUpdates::default())),
             governance_updates: Some(Arc::new(GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()))),
+            treasury_delta: 0,
         };
 
         overlay.rollback();

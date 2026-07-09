@@ -74,6 +74,7 @@ pub mod pool_metadata;
 pub mod pool_params;
 pub mod pool_voting_thresholds;
 pub mod positive_coin;
+pub mod pots;
 pub mod proposal;
 pub mod proposal_id;
 pub mod proposal_pointer;

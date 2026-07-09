@@ -179,18 +179,6 @@ pub(crate) mod tests {
         ])
     }
 
-    fn conway_block_context() -> DefaultValidationContext {
-        DefaultValidationContext::new(
-            conway_block_utxo(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        )
-    }
-
     static ARENA_POOL: LazyLock<ArenaPool> = LazyLock::new(|| ArenaPool::new(10, 1_024_000));
 
     #[test]
@@ -207,7 +195,7 @@ pub(crate) mod tests {
         let block = parse_block(&CONWAY_BLOCK).unwrap();
 
         let results = block::execute(
-            &mut conway_block_context(),
+            &mut DefaultValidationContext::default(),
             &ARENA_POOL,
             NetworkName::Preprod,
             &pp,

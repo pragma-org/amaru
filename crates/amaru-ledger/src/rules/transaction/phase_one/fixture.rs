@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Lovelace, MemoizedTransactionOutput,
-    NetworkName, PoolId, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    NetworkName, PoolId, Pots, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
@@ -59,7 +59,10 @@ pub(super) struct InitialState {
     pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
     pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
+    #[serde(default)]
     pub(super) governance_activity: GovernanceActivity,
+    #[serde(default)]
+    pub(super) pots: Pots,
 }
 
 fn deserialize_cbor_hex<'de, T, D>(deserializer: D) -> Result<T, D::Error>
@@ -181,6 +184,7 @@ pub(super) enum Predicate {
     FeeTooSmallUTxO,
     IncorrectDepositDELEG,
     IncorrectTotalCollateralField,
+    ConwayTreasuryValueMismatch,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
@@ -244,6 +248,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
             PhaseOneError::InvalidNetwork { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
+            PhaseOneError::TreasuryValueMismatch { .. } => Predicate::ConwayTreasuryValueMismatch,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
                 Predicate::OutsideValidityIntervalUTxO
             }

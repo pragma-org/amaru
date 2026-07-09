@@ -95,6 +95,9 @@ pub enum ContextHydratationError {
 
     #[error("failed to hydrate proposals")]
     ResolveProposals(#[source] StoreError),
+
+    #[error("failed to hydrate pots")]
+    ResolvePots(#[source] StoreError),
 }
 
 // Errors (validation)
@@ -156,6 +159,8 @@ impl<S: fmt::Debug> From<volatile::BindError<S>> for UpdateError<S> {
 
 /// An interface for interacting with the protocol pots.
 pub trait PotsSlice {
+    /// The treasury value as of the start of the current epoch; constant within an epoch.
+    fn treasury(&self) -> Lovelace;
     fn add_fees(&mut self, fees: Lovelace);
     fn add_donation(&mut self, donation: Lovelace);
 }
