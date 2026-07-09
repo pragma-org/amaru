@@ -150,7 +150,7 @@ pub fn print_best_chain(db: &impl DiagnosticChainStore) {
 }
 
 #[expect(clippy::print_stdout)]
-pub fn print_iterator<K: Display, V: Display>(title: &str, iterator: impl Iterator<Item=(K, V)>) {
+pub fn print_iterator<K: Display, V: Display>(title: &str, iterator: impl Iterator<Item = (K, V)>) {
     println!("\n{}", title.to_ascii_uppercase());
     let mut count = 0;
     for (k, v) in iterator {
