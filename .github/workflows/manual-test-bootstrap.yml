@@ -1,0 +1,99 @@
+name: Test Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Network to test bootstrap for"
+        required: false
+        type: choice
+        options:
+          - preprod
+          - preview
+          - mainnet
+        default: preprod
+      start_epoch:
+        description: "First epoch to test (required)"
+        required: true
+        type: string
+      end_epoch:
+        description: "Last epoch to test (defaults to last finished epoch)"
+        required: false
+        type: string
+        default: ""
+      force:
+        description: "Re-run epochs already recorded in bootstrap.json"
+        required: false
+        type: boolean
+        default: false
+      cardano_node_version:
+        description: "cardano-node release tag to download db-analyser from"
+        required: false
+        type: string
+        default: "11.0.1"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  AMARU_NETWORK: ${{ inputs.network }}
+
+jobs:
+  test-bootstrap:
+    name: Test Bootstrap (${{ inputs.network }})
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Download db-analyser
+        run: |
+          curl -fsSL \
+            "https://github.com/IntersectMBO/cardano-node/releases/download/${{ inputs.cardano_node_version }}/cardano-node-${{ inputs.cardano_node_version }}-linux.tar.gz" \
+            | tar -xz --wildcards --strip-components=2 -C /usr/local/bin '*/db-analyser' || true
+
+      - name: Run test-bootstrap
+        run: |
+          args=""
+          if [ "${{ inputs.force }}" = "true" ]; then args="$args --force"; fi
+          args="$args ${{ inputs.start_epoch }}"
+          if [ -n "${{ inputs.end_epoch }}" ]; then args="$args ${{ inputs.end_epoch }}"; fi
+          ./scripts/test-bootstrap $args
+        env:
+          AMARU_NETWORK: ${{ inputs.network }}
+          BUILD_PROFILE: release
+
+      - name: Write job summary
+        if: always()
+        run: |
+          output_file="data/${{ inputs.network }}/bootstrap.json"
+          if [ ! -f "$output_file" ]; then
+            echo "No bootstrap.json found." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "## Bootstrap Test Results (${{ inputs.network }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Epoch | Snapshot Create | Bootstrap | Timestamp |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------:|:---------------:|:---------:|-----------|" >> "$GITHUB_STEP_SUMMARY"
+
+          jq -r '.[] | [
+            .epoch,
+            (if .create_snapshots.success then "✅" else "❌" end),
+            (if .bootstrap.success then "✅" else "❌" end),
+            .timestamp,
+            (.create_snapshots.error // "" | gsub("\n"; " ")),
+            (.bootstrap.error // "" | gsub("\n"; " "))
+          ] | @tsv' "$output_file" | while IFS=$'\t' read -r epoch create boot ts cerr berr; do
+            echo "| $epoch | $create | $boot | $ts |" >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$cerr" ]; then
+              echo "<details><summary>Epoch $epoch — snapshot error</summary><pre>$cerr</pre></details>" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ -n "$berr" ]; then
+              echo "<details><summary>Epoch $epoch — bootstrap error</summary><pre>$berr</pre></details>" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
