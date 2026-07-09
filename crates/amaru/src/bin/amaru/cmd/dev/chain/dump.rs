@@ -55,6 +55,9 @@ pub struct Args {
     nonces: bool,
 
     #[arg(long)]
+    opcert_sequence_numbers: bool,
+
+    #[arg(long)]
     blocks: bool,
 
     #[arg(long)]
@@ -101,6 +104,14 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     if args.nonces {
         print_iterator("nonces\n", db.load_nonces().map(|(hash, nonces)| (hash, hex::encode(to_cbor(&nonces)))));
     }
+    if args.opcert_sequence_numbers {
+        print_iterator(
+            "opcert_sequence_numbers\n",
+            db.load_opcert_sequence_numbers().map(|(pool_id, slot, hash, sequence_number)| {
+                (pool_id, format!("{sequence_number} at slot {slot} ({hash})"))
+            }),
+        );
+    }
     if args.blocks {
         print_iterator("blocks\n", db.load_blocks().map(|(hash, block)| (hash, hex::encode(block.to_vec()))));
     }
@@ -139,7 +150,7 @@ pub fn print_best_chain(db: &impl DiagnosticChainStore) {
 }
 
 #[expect(clippy::print_stdout)]
-pub fn print_iterator<K: Display, V: Display>(title: &str, iterator: impl Iterator<Item = (K, V)>) {
+pub fn print_iterator<K: Display, V: Display>(title: &str, iterator: impl Iterator<Item=(K, V)>) {
     println!("\n{}", title.to_ascii_uppercase());
     let mut count = 0;
     for (k, v) in iterator {
