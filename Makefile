@@ -205,10 +205,6 @@ ledger-conformance-known-failures: ## &test Update the set of 'known conformance
 	cargo test -p amaru-ledger --test evaluate_ledger_states -- --test-threads=1; \
 	mv "$$AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH" "./crates/amaru-ledger/tests/data/rules-conformance.failures.toml"
 
-generate-test-snapshots: ## &test Generate test snapshots for test-e2e
-	@npm --prefix conformance-tests run generate-all -- "$(AMARU_NETWORK)"
-	@./scripts/generate-snapshot-test-cases
-
 regenerate-cbor-fixtures: ## &test Regenerate cuddle/antigen CBOR fixtures (requires GHC + cabal)
 	@./scripts/regenerate-cbor-fixtures
 
