@@ -52,6 +52,8 @@ Other guiding principles:
 ### Added
 
 - **amaru-ledger**: keep treasury donations as first-class ledger state, so protocol pots and derived summaries retain the corresponding accounting information. ([#1010][])
+- **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
+- **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 
 ### Changed
 
@@ -86,8 +88,6 @@ Other guiding principles:
 ### Added
 
 - **amaru-ledger**: add more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
-- **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
-- **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 
 - **workflows**: dedicated workflow to create and publish bootstrapping snapshots for all networks. ([#951][])
 

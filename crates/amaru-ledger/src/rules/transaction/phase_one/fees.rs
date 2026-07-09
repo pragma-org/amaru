@@ -16,11 +16,11 @@ use amaru_kernel::{
     ExUnitPrices, ExUnits, HasExUnits, HasLovelace, Lovelace, MemoizedTransactionOutput, ProtocolParameters,
     RationalNumber, TransactionInput, WitnessSet,
 };
-use num::{ToPrimitive, Zero};
+use num::{BigUint, Zero};
 
 use crate::{
     context::{PotsSlice, UtxoSlice},
-    summary::{SafeRatio, into_safe_ratio, safe_ratio},
+    summary::{SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -105,7 +105,7 @@ fn compute_min_fee(tx_size: u64, witness_set: &WitnessSet, ref_scripts_size: u64
 fn plutus_exec_fee(units: ExUnits, prices: &ExUnitPrices) -> Lovelace {
     let mem = safe_ratio(units.mem, 1) * into_safe_ratio(&prices.mem_price);
     let steps = safe_ratio(units.steps, 1) * into_safe_ratio(&prices.step_price);
-    ratio_to_lovelace((mem + steps).ceil())
+    floor_to_lovelace((mem + steps).ceil())
 }
 
 /// Tiered reference-script fee.
@@ -116,32 +116,24 @@ fn plutus_exec_fee(units: ExUnits, prices: &ExUnitPrices) -> Lovelace {
 ///
 /// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L111>
 fn tier_ref_script_fee(size: u64, stride: u64, base_rate: &RationalNumber, multiplier: &RationalNumber) -> Lovelace {
-    if stride == 0 {
-        return 0;
-    }
-
     let multiplier = into_safe_ratio(multiplier);
+
+    assert!(stride > 0 && multiplier > SafeRatio::zero(), "stride and multiplier must be greater than 0");
+
+    let stride = BigUint::from(stride);
+
     let mut rate = into_safe_ratio(base_rate);
-    let mut acc = SafeRatio::zero();
-    let mut remaining = size;
-
-    while remaining > 0 {
-        let chunk = remaining.min(stride);
-        acc += &rate * safe_ratio(chunk, 1);
-        remaining -= chunk;
+    let mut fee = SafeRatio::zero();
+    let mut size = BigUint::from(size);
+    while size >= stride {
+        fee += &rate * &stride;
         rate *= &multiplier;
+        size -= &stride;
     }
 
-    ratio_to_lovelace(acc.floor())
-}
+    fee += rate * size;
 
-/// Narrow an integer-valued ratio (already floored or ceiled) into a [`Lovelace`]. The minimum
-/// fee is bounded by the total ADA supply, so it always fits in a `u64`.
-fn ratio_to_lovelace(value: SafeRatio) -> Lovelace {
-    match value.to_integer().to_u64() {
-        Some(lovelace) => lovelace,
-        None => unreachable!("value cannot be represented as Lovelace"),
-    }
+    floor_to_lovelace(fee)
 }
 
 #[cfg(test)]
@@ -225,6 +217,15 @@ mod tests {
     #[test_case(250, 100, 10, 1, 2, 1 => 5_000; "tier: spans 3 tiers (100*10 + 100*20 + 50*40)")]
     #[test_case(5, 5, 1, 3, 1, 1 => 1; "tier: final floor (floor(5/3) = 1)")]
     #[test_case(10, 5, 1, 3, 1, 1 => 3; "tier: rational accumulates across tiers (floor(5/3 + 5/3) = 3, not 2+2)")]
+    #[test_case(0, 25_600, 15, 1, 15, 10 => 0; "haskell golden size=0")]
+    #[test_case(25_600, 25_600, 15, 1, 15, 10 => 384_000; "haskell golden size=25_600")]
+    #[test_case(51_200, 25_600, 15, 1, 15, 10 => 960_000; "haskell golden size=51_200")]
+    #[test_case(76_800, 25_600, 15, 1, 15, 10 => 1_824_000; "haskell golden size=76_800")]
+    #[test_case(102_400, 25_600, 15, 1, 15, 10 => 3_120_000; "haskell golden size=102_400")]
+    #[test_case(128_000, 25_600, 15, 1, 15, 10 => 5_064_000; "haskell golden size=128_000")]
+    #[test_case(153_600, 25_600, 15, 1, 15, 10 => 7_980_000; "haskell golden size=153_600")]
+    #[test_case(179_200, 25_600, 15, 1, 15, 10 => 12_354_000; "haskell golden size=179_200")]
+    #[test_case(204_800, 25_600, 15, 1, 15, 10 => 18_915_000; "haskell golden size=204_800")]
     fn tier_ref_script_fee(size: u64, stride: u64, base_n: u64, base_d: u64, mult_n: u64, mult_d: u64) -> u64 {
         super::tier_ref_script_fee(
             size,

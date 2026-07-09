@@ -109,3 +109,8 @@ pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
 pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
     SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
 }
+
+pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
+    Lovelace::try_from(n.floor().to_integer())
+        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
+}
