@@ -901,19 +901,7 @@ where
 
     [Some(latest_epoch), epoch_for_leader_schedule, epoch_for_rewards]
         .into_iter()
-        .enumerate()
-        .filter_map(|(ix, epoch)| {
-            if let Some(epoch) = epoch {
-                Some(snapshots.for_epoch(epoch))
-            } else {
-                warn!(
-                    "ignoring initial stake distribution for epoch 'e - {}', where e = {}; not available",
-                    2 - ix,
-                    latest_epoch
-                );
-                None
-            }
-        })
+        .filter_map(|epoch| epoch.map(|e| snapshots.for_epoch(e)))
         .collect::<Result<Vec<_>, _>>()?
         .into_par_iter()
         .map(|snapshot| compute_stake_distribution(&snapshot, era_history))
