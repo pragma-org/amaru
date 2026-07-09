@@ -63,12 +63,20 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let start_epoch = match epoch {
         Some(e) => e,
-        None => entries
-            .iter()
-            .filter(|e| e.url.as_deref().unwrap_or("").is_empty())
-            .map(|e| u64::from(e.epoch))
-            .max()
-            .ok_or("no unpublished epochs found in manifest; run create-bootstrap-snapshots first")?,
+        None => {
+            let unpublished: std::collections::BTreeSet<u64> = entries
+                .iter()
+                .filter(|e| e.url.as_deref().unwrap_or("").is_empty())
+                .map(|e| u64::from(e.epoch))
+                .collect();
+
+            unpublished
+                .iter()
+                .copied()
+                .filter(|&e| unpublished.contains(&(e + 1)) && unpublished.contains(&(e + 2)))
+                .max()
+                .ok_or("no complete unpublished 3-epoch window found in manifest; run `amaru snapshot create` first")?
+        }
     };
 
     let target_epochs = [start_epoch, start_epoch + 1, start_epoch + 2];
@@ -91,9 +99,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     for target_epoch in target_epochs {
-        let entry = entries.iter().find(|e| u64::from(e.epoch) == target_epoch).ok_or_else(|| {
-            format!("epoch {target_epoch} not found in manifest; run create-bootstrap-snapshots first")
-        })?;
+        let entry = entries
+            .iter()
+            .find(|e| u64::from(e.epoch) == target_epoch)
+            .ok_or_else(|| format!("epoch {target_epoch} not found in manifest; run `amaru snapshot create` first"))?;
 
         let archive_name = format!("{}.tar.zst", entry.point);
         let archive_path = snapshot_root.join(&archive_name);
@@ -101,7 +110,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
         if !archive_path.is_file() {
             return Err(
-                format!("archive {} not found; run create-bootstrap-snapshots first", archive_path.display()).into()
+                format!("archive {} not found; run `amaru snapshot create` first", archive_path.display()).into()
             );
         }
 

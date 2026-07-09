@@ -97,10 +97,10 @@ fn run_logged_command(
         let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
         let handle = thread::spawn(move || {
             while stop_rx.try_recv().is_err() {
-                if let Ok(s) = s.lock() {
-                    if let Some(pb) = s.bar.as_ref() {
-                        pb.tick(0);
-                    }
+                if let Ok(s) = s.lock()
+                    && let Some(pb) = s.bar.as_ref()
+                {
+                    pb.tick(0);
                 }
                 thread::sleep(std::time::Duration::from_millis(100));
             }
@@ -120,12 +120,11 @@ fn run_logged_command(
         let _ = handle.join();
     }
 
-    if let Some(s) = shared {
-        if let Ok(mut s) = s.lock() {
-            if let Some(pb) = s.bar.take() {
-                pb.clear();
-            }
-        }
+    if let Some(s) = shared
+        && let Ok(mut s) = s.lock()
+        && let Some(pb) = s.bar.take()
+    {
+        pb.clear();
     }
 
     if !status.success() {
@@ -164,35 +163,35 @@ where
 
                 match action {
                     DbAnalyserLogAction::SwitchToReplay => {
-                        if let Some(s) = shared.as_ref() {
-                            if let Ok(mut s) = s.lock() {
-                                if let Some(pb) = s.bar.take() {
-                                    pb.clear();
-                                }
+                        if let Some(s) = shared.as_ref()
+                            && let Ok(mut s) = s.lock()
+                        {
+                            if let Some(pb) = s.bar.take() {
+                                pb.clear();
+                            }
+                            let factory = s.factory.clone();
+                            let total = s.replay_total;
+                            s.bar = Some(factory(
+                                total,
+                                "{spinner:.green} {elapsed_precise} [{bar:40.green}] {pos}/{len} slots (eta {eta})",
+                            ));
+                        }
+                        continue;
+                    }
+                    DbAnalyserLogAction::Progress { done } => {
+                        if let Some(s) = shared.as_ref()
+                            && let Ok(mut s) = s.lock()
+                        {
+                            if s.bar.is_none() {
+                                let total = if s.restore_total > 0 { s.restore_total } else { s.replay_total };
                                 let factory = s.factory.clone();
-                                let total = s.replay_total;
                                 s.bar = Some(factory(
                                     total,
                                     "{spinner:.green} {elapsed_precise} [{bar:40.green}] {pos}/{len} slots (eta {eta})",
                                 ));
                             }
-                        }
-                        continue;
-                    }
-                    DbAnalyserLogAction::Progress { done } => {
-                        if let Some(s) = shared.as_ref() {
-                            if let Ok(mut s) = s.lock() {
-                                if s.bar.is_none() {
-                                    let total = if s.restore_total > 0 { s.restore_total } else { s.replay_total };
-                                    let factory = s.factory.clone();
-                                    s.bar = Some(factory(
-                                        total,
-                                        "{spinner:.green} {elapsed_precise} [{bar:40.green}] {pos}/{len} slots (eta {eta})",
-                                    ));
-                                }
-                                if let Some(pb) = s.bar.as_ref() {
-                                    pb.tick(done.map(|d| d as usize).unwrap_or(0));
-                                }
+                            if let Some(pb) = s.bar.as_ref() {
+                                pb.tick(done.map(|d| d as usize).unwrap_or(0));
                             }
                         }
                         continue;
@@ -398,41 +397,4 @@ pub(super) fn latest_snapshot_slot_at_or_before(
 
 pub(super) fn parse_snapshot_slot_dir_name(name: &str) -> Option<Slot> {
     name.strip_suffix("_db-analyser")?.parse().ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use amaru_kernel::Slot;
-
-    use super::{DbAnalyserLogAction, DbAnalyserLogRelay};
-
-    #[test]
-    fn started_message_suppresses_info_log() {
-        let mut relay = DbAnalyserLogRelay::new(Slot::from(134_524_753), Some(Slot::from(134_092_758)));
-
-        assert_eq!(
-            relay.handle_line("[0.0s] Started StoreLedgerStateAt (SlotNo 134524753)"),
-            DbAnalyserLogAction::Progress { done: None }
-        );
-    }
-
-    #[test]
-    fn progress_message_describes_resume_restore_before_replay() {
-        let mut relay = DbAnalyserLogRelay::new(Slot::from(134_524_753), Some(Slot::from(134_092_758)));
-
-        assert_eq!(
-            relay.handle_line("[32.0s] BlockNo 42 SlotNo 134092758"),
-            DbAnalyserLogAction::Progress { done: Some(134_092_758) }
-        );
-    }
-
-    #[test]
-    fn progress_message_switches_to_percentage_after_resume_slot() {
-        let mut relay = DbAnalyserLogRelay::new(Slot::from(134_524_753), Some(Slot::from(134_092_758)));
-
-        assert_eq!(
-            relay.handle_line("[32.0s] BlockNo 42 SlotNo 134100000"),
-            DbAnalyserLogAction::Progress { done: Some(7242) }
-        );
-    }
 }

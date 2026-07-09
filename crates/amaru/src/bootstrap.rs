@@ -409,8 +409,24 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
             drop(file);
 
             if let Some(expected) = snapshot.sha256.as_deref() {
-                let bytes = std::fs::read(&archive_path)?;
-                let actual = hex::encode(Sha256::digest(&bytes));
+                let path_for_hash = archive_path.clone();
+                let actual = tokio::task::spawn_blocking(move || -> Result<String, io::Error> {
+                    use std::io::Read;
+                    let mut hasher = Sha256::new();
+                    let mut file = std::fs::File::open(&path_for_hash)?;
+                    let mut buf = vec![0u8; 64 * 1024];
+                    loop {
+                        let n = file.read(&mut buf)?;
+                        if n == 0 {
+                            break;
+                        }
+                        hasher.update(&buf[..n]);
+                    }
+                    Ok(hex::encode(hasher.finalize()))
+                })
+                .await
+                .map_err(io::Error::other)??;
+
                 if actual != expected {
                     let _ = std::fs::remove_file(&archive_path);
                     return Err(BootstrapError::ChecksumMismatch {

@@ -188,8 +188,8 @@ fn legacy_reset_to_epoch_alias_works() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn legacy_create_snapshots_alias_works() -> Result<(), Box<dyn Error>> {
-    let help = amaru_help(&["create-bootstrap-snapshots"])?;
-    assert!(help.contains("--network"), "legacy 'create-bootstrap-snapshots' should accept --network");
+    let help = amaru_help(&["create-snapshots"])?;
+    assert!(help.contains("--network"), "legacy 'create-snapshots' should accept --network");
     Ok(())
 }
 
