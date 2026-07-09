@@ -188,11 +188,12 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `applying_overlay` | `TRACE` | public | Flushing the epoch transition overlay to disk | epoch | should_end_epoch, should_snapshot, should_begin_epoch |
 | `begin_epoch` | `TRACE` | public | Perform start-of-epoch epoch boundary computations |  |  |
 | `end_epoch` | `TRACE` | public | Perform end-of-epoch epoch boundary computations |  |  |
-| `epoch_transition` | `TRACE` | public | Epoch transition processing | from, into |  |
+| `epoch_transition` | `TRACE` | public | Epoch transition processing | from, into | skipped, resuming_from |
 | `new_governance_updates` | `TRACE` | public | Create governance updates (i.e. ratify proposals) at an epoch boundary. | proposals_count |  |
 | `new_pools_updates` | `TRACE` | public | Create pools updates |  |  |
 | `pay_or_refund_accounts` | `TRACE` | public | Pay withdrawals to accounts, or refund deposits | total_paid_or_refunded, treasury_leftovers |  |
 | `pay_rewards` | `TRACE` | public | Pay rewards to all accounts before the epoch end | accounts_paid, rewards_paid, treasury_delta, reserves_delta |  |
+| `record_pruned_proposals` | `TRACE` | public | Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations. |  |  |
 | `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
 | `reset_fees` | `TRACE` | public | Reset fees to zero |  |  |
 | `update_constitutional_committee` | `TRACE` | public | Add or remove CC members; or switch to a no-confidence state | no_confidence |  |
@@ -215,6 +216,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `from` | `integer` | ✓ |
 | `into` | `integer` | ✓ |
+| `skipped` | `boolean` |  |
+| `resuming_from` | `string` |  |
 
 </details>
 
@@ -325,7 +328,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `aggregate` | `TRACE` | public | Recompute the volatile aggregate used for fast lookups |  |  |
 | `apply_block` | `TRACE` | public | Apply a block to stable state | point_slot |  |
-| `compute_rewards` | `TRACE` | public | Compute rewards for epoch | current_epoch | stake_distribution_epoch |
+| `compute_rewards` | `TRACE` | public | Compute rewards for epoch | for_epoch | using_stake_distribution_from |
 | `compute_stake_distribution` | `TRACE` | public | Compute stake distribution for epoch | epoch |  |
 | `create_block_validation_context` | `TRACE` | public | Create validation context for a block | block_body_hash, block_number, block_body_size |  |
 | `create_transaction_validation_context` | `TRACE` | public | Create validation context for a block | transaction_id |  |
@@ -353,8 +356,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `current_epoch` | `integer` | ✓ |
-| `stake_distribution_epoch` | `integer` |  |
+| `for_epoch` | `integer` | ✓ |
+| `using_stake_distribution_from` | `integer` |  |
 
 </details>
 
@@ -644,7 +647,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `prune` | `TRACE` | public | Prune old snapshots | functional_minimum, db_system_name, db_operation_name |  |
+| `prune` | `TRACE` | public | Prune old snapshots | functional_minimum, desired_minimum, db_system_name, db_operation_name |  |
 | `snapshot` | `TRACE` | public | Create ledger snapshot for epoch | epoch, db_system_name, db_operation_name |  |
 | `try_epoch_transition` | `TRACE` | public | Epoch transition tracking | from, to, db_system_name, db_operation_name |  |
 
@@ -653,6 +656,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `functional_minimum` | `integer` | ✓ |
+| `desired_minimum` | `integer` | ✓ |
 | `db_system_name` | `string` | ✓ |
 | `db_operation_name` | `string` | ✓ |
 
@@ -703,6 +707,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `proposals_add` | `TRACE` | public | Insert governance proposals | db_system_name, db_operation_name, db_collection_name |  |
 | `proposals_get` | `TRACE` | public | Point-read a governance proposal | db_system_name, db_operation_name, db_collection_name |  |
 | `proposals_remove` | `TRACE` | public | Remove enacted or expired proposals | db_system_name, db_operation_name, db_collection_name |  |
+| `recently_pruned_proposals_replace_all` | `TRACE` | public | Inserting recently pruned proposals | db_system_name, db_operation_name, db_collection_name |  |
 | `slots_get` | `TRACE` | public | Point-read a slot/block-issuer entry | db_system_name, db_operation_name, db_collection_name |  |
 | `slots_put` | `TRACE` | public | Write a slot/block-issuer entry | db_system_name, db_operation_name, db_collection_name |  |
 | `utxo_add` | `TRACE` | public | Batch-insert UTxO entries | db_system_name, db_operation_name, db_collection_name |  |
@@ -904,6 +909,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 </details>
 
 <details><summary>span: `proposals_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_system_name` | `string` | ✓ |
+| `db_operation_name` | `string` | ✓ |
+| `db_collection_name` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `recently_pruned_proposals_replace_all`</summary>
 
 | field | type | required |
 | --- | --- | --- |
