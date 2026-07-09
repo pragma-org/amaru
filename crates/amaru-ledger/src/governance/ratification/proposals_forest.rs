@@ -21,8 +21,8 @@ use std::{
 
 use amaru_kernel::{
     ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, Nullable, ProposalId,
-    ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, display_protocol_parameters_update,
-    expect_stake_credential,
+    ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus,
+    display_protocol_parameters_update, expect_stake_credential,
 };
 use tracing::debug;
 
@@ -112,9 +112,9 @@ impl ProposalsForest {
         proposals.drain(..).try_fold::<_, _, Result<_, ProposalsInsertError<_>>>(&mut self, |forest, (id, row)| {
             // There shouldn't be any expired proposals left at this point.
             assert!(
-                row.valid_until + 1 >= current_epoch,
-                "proposal {id:?} is expired (ratification epoch = {current_epoch}) but was \
-                        drained into the forest: {row:?}",
+                row.valid_until >= current_epoch,
+                "proposal {id:?} is valid until epoch={}, but was found when ratifying data for epoch={current_epoch}: {row:?}",
+                row.valid_until,
             );
 
             forest.insert(era_history, id, row.proposed_in, row.governance_action)?;
@@ -256,9 +256,9 @@ impl ProposalsForest {
         id: Rc<ComparableProposalId>,
         proposal: &ProposalEnum,
         compass: &mut ProposalsForestCompass,
-    ) -> Result<BTreeSet<Rc<ComparableProposalId>>, ProposalsEnactError<ComparableProposalId>> {
+    ) -> Result<BTreeMap<Rc<ComparableProposalId>, RatificationStatus>, ProposalsEnactError<ComparableProposalId>> {
         // Promote to new root & remember delaying cases
-        let (id, mut pruned) = match proposal {
+        let (id, pruned) = match proposal {
             ProposalEnum::HardFork(..) => {
                 self.is_interrupted = true;
                 self.hard_fork.enact(id)
@@ -290,13 +290,16 @@ impl ProposalsForest {
             }
         }?;
 
-        pruned.insert(id);
+        let mut pruned: BTreeMap<Rc<ComparableProposalId>, RatificationStatus> =
+            pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
+
+        pruned.insert(id, RatificationStatus::Ratified);
 
         // Clean up the lookup table.
-        self.proposals.retain(|pid, _| !pruned.contains(pid.as_ref()));
+        self.proposals.retain(|pid, _| !pruned.contains_key(pid.as_ref()));
 
         // Clean up sequence, while preserving its order.
-        self.sequence.retain(|sid| !pruned.contains(sid.as_ref()));
+        self.sequence.retain(|sid| !pruned.contains_key(sid.as_ref()));
 
         // Force replacement of the compass; since any previous one is now obsolete.
         *compass = self.new_compass();
@@ -1060,7 +1063,7 @@ mod tests {
                 while let Some((id, _)) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
                     yielded_another = true;
                     prop_assert!(
-                        !pruned.contains(&id),
+                        !pruned.contains_key(&id),
                         "compass yielded a pruned proposal!",
                     );
                 }

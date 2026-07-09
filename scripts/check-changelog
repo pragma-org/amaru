@@ -149,9 +149,32 @@ def next_thursday(today: date) -> date:
     return today + timedelta(days=days)
 
 
+def upcoming_thursday(today: date) -> date:
+    return today + timedelta(days=(3 - today.weekday()) % 7)
+
+
 def release_version(version_major_minor: tuple[str, str], release_day: date) -> str:
     major, minor = version_major_minor
     return f"v{major}.{minor}.{release_day.strftime('%Y%m%d')}"
+
+
+def expected_release_day(
+    today: date,
+    version_major_minor: tuple[str, str],
+    blocks: list[ReleaseBlock],
+) -> date:
+    release_day = upcoming_thursday(today)
+
+    if today.weekday() != 3:
+        return release_day
+
+    current_version = release_version(version_major_minor, release_day)
+    current_block = find_release(blocks, current_version)
+
+    if current_block is not None and current_block.released:
+        return next_thursday(today)
+
+    return release_day
 
 
 def parse_amaru_version(manifest_path: Path) -> tuple[str, str]:
@@ -489,7 +512,7 @@ def validate_release_order(
     if blocks[0].version != expected_version:
         message = (
             f"Latest changelog entry must be {expected_version}; found {blocks[0].version}. "
-            f"Add or update the top release header for the next Thursday release."
+            f"Add or update the top release header for the upcoming release."
         )
         record_failure(failures, message, line=blocks[0].line_number, title="Wrong top release")
 
@@ -669,11 +692,11 @@ def validate_changelog_contents(
     server_url = context.server_url
 
     today = date.today()
-    expected_day = next_thursday(today)
-    expected_version = release_version(parse_amaru_version(manifest_path), expected_day)
-
     lines = changelog_path.read_text().splitlines()
     blocks = parse_release_headers(lines)
+    version_major_minor = parse_amaru_version(manifest_path)
+    expected_day = expected_release_day(today, version_major_minor, blocks)
+    expected_version = release_version(version_major_minor, expected_day)
 
     failures: list[Failure] = []
     validate_references(lines, failures)

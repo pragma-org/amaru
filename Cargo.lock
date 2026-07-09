@@ -242,6 +242,7 @@ dependencies = [
  "num",
  "once_cell",
  "proptest",
+ "rayon",
  "serde",
  "tempfile",
  "test-case",

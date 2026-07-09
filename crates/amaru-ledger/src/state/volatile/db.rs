@@ -15,8 +15,9 @@
 use std::mem;
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point,
-    PoolId, ProtocolParameters, StakeCredential, TermLimit, TransactionInput,
+    ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProtocolParameters, StakeCredential, TermLimit,
+    TransactionInput,
 };
 
 use crate::{
@@ -31,7 +32,7 @@ use crate::{
             overlay::StateOverlay,
         },
     },
-    store::Store,
+    store::{HistoricalStores, Store},
 };
 
 pub struct VolatileDB {
@@ -159,7 +160,7 @@ impl VolatileState for VolatileDB {
     fn resolve_proposal(&self, id: &ComparableProposalId) -> Self::Proposal {
         if let Existence::Exists(proposal) = self.current.resolve_proposal(id) {
             Existence::Exists(proposal)
-        } else if self.overlay.is_proposal_pruned(id) {
+        } else if self.overlay.has_pruned_proposal(id) {
             Existence::Gone
         } else {
             self.draining.resolve_proposal(id)
@@ -193,6 +194,10 @@ impl VolatileSequence for VolatileDB {
 
     fn iter(&self) -> impl Iterator<Item = &Self::Item> {
         self.draining.iter().chain(self.current.iter())
+    }
+
+    fn into_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.draining.into_iter().chain(self.current.into_iter())
     }
 
     fn pop_front(&mut self) -> Option<Self::Item> {
@@ -288,6 +293,12 @@ impl VolatileDB {
         self.overlay.epoch()
     }
 
+    /// Get the most recent taken, by peaking at the files on disk or looking an in-memory cached
+    /// value if available.
+    pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
+        self.overlay.most_recent_snapshot(snapshots)
+    }
+
     /// The protocol parameters carried by an in-flight epoch transition, if any.
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
@@ -354,8 +365,28 @@ impl VolatileDB {
     }
 
     /// Stash the freshly computed rewards summary, to be applied at the next epoch boundary.
-    pub fn set_computed_rewards(&mut self, rewards: Rewards<Computed>) {
-        *self.overlay.rewards_mut() = RewardsState::Computed(rewards);
+    pub fn set_computed_rewards(&mut self, rewards: impl Into<Rewards<Computed>>) {
+        *self.overlay.rewards_mut() = RewardsState::Computed(rewards.into());
+    }
+
+    /// Ensure that the 'draining' sequence is empty before we cross an epoch boundary. Note that
+    /// this is a bandaid on the fact that the Haskell node (and thus Amaru) does not honour the
+    /// Chain Growth property; so we can have situations where an epoch may contain less than `k`
+    /// blocks overall which isn't enough time for the volatile db to fully drain the draining
+    /// sequence. Yet, it must be empty and on-disk for the transition to happen.
+    ///
+    /// This means that momentarily, we are unable to rollback as far as we should. While this may
+    /// seem like a big thing, it is *probably* less serious: if we end up in a situation where we
+    /// have less than `k` blocks in an epoch, it probably means that there has been a problem with
+    /// the chain and the network partitioned for some time, with one partition initially having
+    /// less than the majority and eventually switched to it. That means, we have *already rolled
+    /// back* over a long-range.
+    pub fn epoch_tail(&mut self) -> Option<(usize, impl Iterator<Item = AnchoredVolatileFragment> + use<>)> {
+        if !self.draining.is_empty() {
+            Some((self.draining.len(), std::mem::take(&mut self.draining).into_iter()))
+        } else {
+            None
+        }
     }
 
     pub fn transition(
@@ -387,8 +418,13 @@ impl VolatileDB {
     }
 
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
-    pub fn is_epoch_transition_stable(&self) -> bool {
-        self.draining.is_empty() && !self.overlay.is_empty()
+    pub fn is_epoch_transition_stable(&self, era_history: &EraHistory, global_parameters: &GlobalParameters) -> bool {
+        !self.overlay.is_empty()
+            && self.draining.view_front().is_none_or(|_| {
+                let absolute_slot = self.current.view_back().map(|fragment| fragment.slot()).unwrap_or_default();
+                let relative_slot = era_history.slot_in_epoch(absolute_slot, absolute_slot).unwrap_or_default();
+                relative_slot >= global_parameters.stability_window()
+            })
     }
 
     /// Flush the pending epoch transition to the stable store. Returns the freshly-enacted
@@ -938,7 +974,7 @@ mod tests {
         GovernanceUpdates {
             roots: ProposalsRoots::default(),
             protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeSet::new(),
+            pruned_proposals: BTreeMap::new(),
             payouts: BTreeMap::new(),
             is_dormant_epoch: false,
             constitutional_committee: committee,

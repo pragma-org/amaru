@@ -47,6 +47,7 @@ pub mod ex_units_prices;
 pub mod governance_action;
 pub mod hash;
 pub mod language_view;
+pub mod ratification_status;
 pub mod script_integrity_data;
 // TODO: BlockHeader vs Header
 //

@@ -415,7 +415,44 @@ impl TrackPeers {
                     }
                 };
 
-                let min_ledger_height = header.block_height() - self.consensus_security_parameter;
+                // FIXME: Handle missing stake distributions by deferring request next instead of this
+                //
+                // Here, we have to artificially lower the forecast window we want because of a
+                // period on the network (November 2025) where the chain coped with a long fork
+                // (thousands of blocks) that actually violated a few of the chain growth
+                // properties.
+                //
+                // For example on Preview, the epoch 1123 has only seen 251 blocks; which is far
+                // less than `k=432` blocks on Preview. So we had a scenario where a window of more
+                // than `3*k/f` slots have seen less than `k` blocks. This happened because of a bug
+                // which partitioned the chain into two; until the initially-loosing-chain was
+                // adopted by majority (by fixing the bug and having the majority of the stake
+                // endorsing that fork).
+                //
+                // The consequences of this makes the following check too optimistic when using `k`;
+                // because we end up trying to validate headers that are too far and for which we
+                // don't yet have a stake distribution ready in the ledger.
+                //
+                // The temporary fix for now is to simply avoid looking too far ahead, while we're
+                // working on the proper fix which would consist in handling the missing stake
+                // distributions from the ledger as an event that *can* happen, and that should
+                // simply cause the header validation to be postponed (to until the stake
+                // distribution is available).
+                //
+                // How much is too far ahead? On Preview (where the problem is the most visible),
+                // the stake distribution required for 1124 will be calculated after about ~80
+                // blocks in the epoch 1123. So that means, we cannot go more than 171 blocks. So we
+                // use `k / 3 = 144` which is well below, and still a function of `k`, so that on
+                // Mainnet or PreProd, we can still fetch a fair amount of blocks ahead of us and
+                // not impact synchronization too much.
+                //
+                // /!\ IMPORTANT /!\
+                // To fix this properly, we not only need to handle the error from here; but we also
+                // need to ensure that the ledger produces stake distributions at least once per
+                // epoch. Currently, in the extreme scenario where no blocks would be produced for
+                // the last 2/3rd of an epoch, the ledger would not have produced a stake
+                // distribution and arrive at an epoch boundary with a big problem.
+                let min_ledger_height = header.block_height() - self.consensus_security_parameter / 3;
                 if min_ledger_height > self.ledger_applied_block_height
                     && let now = eff.clock().await
                     && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)

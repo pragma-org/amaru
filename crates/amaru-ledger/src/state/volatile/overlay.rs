@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem;
+use std::{cell::RefCell, collections::BTreeMap, mem};
 
-use amaru_kernel::{ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, StakeCredential, TermLimit};
+use amaru_kernel::{
+    ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
+};
 use amaru_observability::info_span;
 use tracing::{Span, debug};
 
@@ -29,8 +31,9 @@ use crate::{
         volatile::{CommitteeMemberBind, Existence},
     },
     store::{
-        EpochTransitionProgress, Store, TransactionalContext, apply_governance_updates, pay_or_refund_accounts,
-        pay_rewards, reset_blocks_count, reset_fees, update_or_retire_pools,
+        EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
+        pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
+        reset_recently_pruned_proposals, update_or_retire_pools,
     },
 };
 
@@ -45,6 +48,9 @@ use crate::{
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
+
+    /// The most recent snapshot taken, kept in memory to avoid repeated I/O.
+    most_recent_snapshot: RefCell<Option<Epoch>>,
 
     /// The computed rewards summary to be applied on the next epoch boundary. This is computed
     /// once in the epoch, and held until the end where it is reset.
@@ -70,7 +76,25 @@ pub struct StateOverlay {
 impl StateOverlay {
     /// Construct a new default/empty overlay for the given epoch.
     pub fn new(epoch: Epoch) -> Self {
-        Self { epoch, rewards: RewardsState::NotReady, pools_updates: None, governance_updates: None }
+        Self {
+            epoch,
+            most_recent_snapshot: RefCell::new(None),
+            rewards: RewardsState::NotReady,
+            pools_updates: None,
+            governance_updates: None,
+        }
+    }
+
+    /// Get the most recent taken, by peaking at the files on disk or looking an in-memory cached
+    /// value if available.
+    pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
+        if let Some(epoch) = *self.most_recent_snapshot.borrow() {
+            epoch
+        } else {
+            let epoch = snapshots.most_recent_snapshot();
+            self.most_recent_snapshot.replace(Some(epoch));
+            epoch
+        }
     }
 
     /// Rollback an existing overlay, throwing away the epoch transition calculations.
@@ -125,6 +149,7 @@ impl StateOverlay {
                 if should_end_epoch {
                     if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
                         pay_rewards(batch, effective_rewards)?;
+                        reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
                     } else {
                         return Err(StateError::NoEffectiveRewards);
                     }
@@ -143,6 +168,7 @@ impl StateOverlay {
 
                 if should_snapshot {
                     db.next_snapshot(self.epoch - 1)?;
+                    self.most_recent_snapshot.replace(Some(self.epoch - 1));
                 }
 
                 Ok(())
@@ -150,14 +176,14 @@ impl StateOverlay {
 
             // -------------------------------------------------------------------------- Start of epoch
             db.with_transaction::<_, StateError>(|batch| {
-                let should_begin_epoch = batch.try_epoch_transition(Some(SnapshotTaken), Some(EpochStarted))?;
+                let should_begin_epoch = batch.try_epoch_transition(Some(SnapshotTaken), None)?;
 
                 Span::current().record("should_begin_epoch", should_begin_epoch);
 
                 let updated = if should_begin_epoch {
                     reset_blocks_count(batch)?;
 
-                    reset_fees(batch)?;
+                    reset_fees_and_donations(batch)?;
 
                     if let Some(mut pools_updates) = mem::take(&mut self.pools_updates) {
                         update_or_retire_pools(batch, pools_updates.take_updated(), pools_updates.take_retired())?;
@@ -258,8 +284,17 @@ impl StateOverlay {
 
     /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or
     /// dropped). Like pool reaping, this short-circuits before the stale stable entry.
-    pub fn is_proposal_pruned(&self, id: &ComparableProposalId) -> bool {
-        self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains(id))
+    pub fn has_pruned_proposal(&self, id: &ComparableProposalId) -> bool {
+        self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains_key(id))
+    }
+
+    /// The set of all pruned proposals from the epoch boundary (because they expired, were
+    /// ratified, or evicted due to another ratification).
+    pub fn pruned_proposals(&self) -> BTreeMap<&ComparableProposalId, RatificationStatus> {
+        self.governance_updates
+            .as_ref()
+            .map(|updates| updates.pruned_proposals.iter().map(|(k, v)| (k, *v)).collect())
+            .unwrap_or_default()
     }
 
     /// The pending governance roots from the boundary transition, if any.

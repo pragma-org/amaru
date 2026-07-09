@@ -241,6 +241,10 @@ where
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {
+        if let Some(donation) = transaction_body.donation {
+            context.add_donation(u64::from(donation));
+        }
+
         transaction_body.inputs.to_vec()
     } else {
         transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()

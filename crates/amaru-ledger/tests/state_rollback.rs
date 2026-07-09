@@ -204,7 +204,7 @@ impl ReadStore for MockStore {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
-    fn pots(&self) -> amaru_ledger::store::Result<amaru_ledger::summary::Pots> {
+    fn pots(&self) -> amaru_ledger::store::Result<amaru_ledger::store::columns::pots::Row> {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
@@ -268,6 +268,19 @@ impl ReadStore for MockStore {
         &self,
     ) -> amaru_ledger::store::Result<
         impl Iterator<Item = (amaru_ledger::store::columns::proposals::Key, amaru_ledger::store::columns::proposals::Row)>,
+    > {
+        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
+    }
+
+    fn iter_recently_pruned_proposals(
+        &self,
+    ) -> amaru_ledger::store::Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::recently_pruned_proposals::Key,
+                amaru_ledger::store::columns::recently_pruned_proposals::Value,
+            ),
+        >,
     > {
         Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
