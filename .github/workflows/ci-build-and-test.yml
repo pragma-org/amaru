@@ -1,4 +1,4 @@
-name: Continuous Integration
+name: CI Build and Test
 
 on:
   workflow_dispatch:

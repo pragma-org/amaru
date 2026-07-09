@@ -1,4 +1,4 @@
-name: template-ledger-epoch-snapshots
+name: Template Ledger Epoch Snapshots
 
 on:
   workflow_call:
