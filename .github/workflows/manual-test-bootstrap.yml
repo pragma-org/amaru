@@ -46,37 +46,63 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         run: rustup show
 
-      - name: Download db-analyser
+      - name: Install db-analyser
+        env:
+          CARDANO_NODE_VERSION: ${{ inputs.cardano_node_version }}
         run: |
-          curl -fsSL \
-            "https://github.com/IntersectMBO/cardano-node/releases/download/${{ inputs.cardano_node_version }}/cardano-node-${{ inputs.cardano_node_version }}-linux.tar.gz" \
-            | tar -xz --wildcards --strip-components=2 -C /usr/local/bin '*/db-analyser' || true
+          set -euo pipefail
+          case "$(uname -s)" in
+            Linux)  os=linux  ;;
+            Darwin) os=macos  ;;
+            *) echo "::error::unsupported operating system: $(uname -s)" >&2; exit 1 ;;
+          esac
+          case "$(uname -m)" in
+            x86_64 | amd64)    arch=amd64 ;;
+            arm64  | aarch64)  arch=arm64 ;;
+            *) echo "::error::unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          asset="cardano-node-${CARDANO_NODE_VERSION}-${os}-${arch}.tar.gz"
+          base_url="https://github.com/IntersectMBO/cardano-node/releases/download/${CARDANO_NODE_VERSION}"
+          tmp="$(mktemp -d)"
+          curl -fsSL -o "$tmp/$asset" "$base_url/$asset"
+          curl -fsSL -o "$tmp/sums.txt" "$base_url/cardano-node-${CARDANO_NODE_VERSION}-sha256sums.txt"
+          (cd "$tmp" && grep " $asset\$" sums.txt | (sha256sum -c - 2>/dev/null || shasum -a 256 -c -))
+          tar -xzf "$tmp/$asset" -C "$tmp" --strip-components 1
+          rm "$tmp/$asset" "$tmp/sums.txt"
+          echo "$tmp/bin" >> "$GITHUB_PATH"
 
       - name: Run test-bootstrap
-        run: |
-          args=""
-          if [ "${{ inputs.force }}" = "true" ]; then args="$args --force"; fi
-          args="$args ${{ inputs.start_epoch }}"
-          if [ -n "${{ inputs.end_epoch }}" ]; then args="$args ${{ inputs.end_epoch }}"; fi
-          ./scripts/test-bootstrap $args
         env:
           AMARU_NETWORK: ${{ inputs.network }}
           BUILD_PROFILE: release
+          INPUT_FORCE: ${{ inputs.force }}
+          INPUT_START_EPOCH: ${{ inputs.start_epoch }}
+          INPUT_END_EPOCH: ${{ inputs.end_epoch }}
+        run: |
+          args=""
+          if [ "$INPUT_FORCE" = "true" ]; then args="$args --force"; fi
+          args="$args $INPUT_START_EPOCH"
+          if [ -n "$INPUT_END_EPOCH" ]; then args="$args $INPUT_END_EPOCH"; fi
+          ./scripts/test-bootstrap $args
 
       - name: Write job summary
         if: always()
+        env:
+          AMARU_NETWORK: ${{ inputs.network }}
         run: |
-          output_file="data/${{ inputs.network }}/bootstrap.json"
+          output_file="data/${AMARU_NETWORK}/bootstrap.json"
           if [ ! -f "$output_file" ]; then
             echo "No bootstrap.json found." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          echo "## Bootstrap Test Results (${{ inputs.network }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Bootstrap Test Results (${AMARU_NETWORK})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Epoch | Snapshot Create | Bootstrap | Timestamp |" >> "$GITHUB_STEP_SUMMARY"
           echo "|------:|:---------------:|:---------:|-----------|" >> "$GITHUB_STEP_SUMMARY"

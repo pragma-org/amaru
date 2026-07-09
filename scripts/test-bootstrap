@@ -58,8 +58,8 @@ run_with_spinner() {
     i=$((i + 1))
     sleep 0.1
   done
-  wait "$pid"
-  local exit_code=$?
+  local exit_code=0
+  wait "$pid" || exit_code=$?
   local elapsed=$(( $(date +%s) - start ))
   printf '\r%s (%ds)\n' "$msg" "$elapsed" >&2
   return $exit_code
