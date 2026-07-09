@@ -123,8 +123,8 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "zstd",
  "xz",
+ "zstd",
 ]
 
 [[package]]

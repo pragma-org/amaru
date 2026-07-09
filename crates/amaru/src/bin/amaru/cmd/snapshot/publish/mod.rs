@@ -95,7 +95,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             format!("epoch {target_epoch} not found in manifest; run create-bootstrap-snapshots first")
         })?;
 
-        let archive_name = format!("{}.tar.gz", entry.point);
+        let archive_name = format!("{}.tar.zst", entry.point);
         let archive_path = snapshot_root.join(&archive_name);
         let object_url = format!("{}/{}", public_base, archive_name);
 
