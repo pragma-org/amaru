@@ -698,6 +698,65 @@ mod tests {
     }
 
     #[test]
+    fn recover_in_epoch_survives_a_fork_that_crosses_the_epoch_boundary() {
+        // A single-epoch window right before an epoch boundary: current [10, 20, 30], no
+        // draining.
+        //
+        // The rollback is therefore in-epoch, yet the fork replayed on top of it will cross
+        // the boundary.
+        let mut db = VolatileDB::default();
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        let block3 = AnchoredVolatileFragment::fixture(30, 3);
+        let point2 = block2.point();
+        db.push_back(block1);
+        db.push_back(block2);
+        db.push_back(block3);
+
+        let current_before = db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let epoch_before = db.epoch();
+        let reward_credit_before = db.resolve_account(&cred(1)).1;
+
+        // Roll back within the epoch. `draining` is empty, so this is a `RecoverInEpoch`.
+        let recovery = db.rollback_to(&point2).expect("in-epoch rollback should succeed");
+
+        // Replay a fork that crosses the boundary: one more closing-epoch block, then a transition
+        // installing a boundary reward credit, then an opening-epoch block.
+        let block4 = AnchoredVolatileFragment::fixture(25, 4);
+        db.push_back(block4);
+        db.transition(
+            Some(effective_reward(cred(1), 7_000_000)),
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(None),
+        );
+        let block5 = AnchoredVolatileFragment::fixture(35, 5);
+        db.push_back(block5);
+        assert_eq!(db.epoch(), epoch_before + 1, "he replay crossed into the next epoch");
+        assert!(!db.draining.is_empty(), "the transition moved the fork point into `draining`");
+        assert_eq!(
+            db.resolve_account(&cred(1)).1,
+            RewardsAtTip::Add(7_000_000),
+            "the fork installed a boundary reward credit before recovery"
+        );
+
+        // Recovering must undo the replay entirely, including the transition it triggered.
+        db.recover(recovery);
+
+        assert_eq!(
+            db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            current_before,
+            "recover must restore the pre-rollback `current`, discarding the boundary-crossing replay"
+        );
+        assert!(db.draining.is_empty(), "recover must clear the `draining` created by the replay");
+        assert_eq!(db.epoch(), epoch_before, "recover must restore the pre-rollback epoch anchor");
+        assert_eq!(
+            db.resolve_account(&cred(1)).1,
+            reward_credit_before,
+            "recover must undo the overlay transition installed by the replay"
+        );
+    }
+
+    #[test]
     fn recover_survives_a_fork_that_crosses_the_epoch_boundary() {
         // Pre-rollback: draining [10, 20] (closing epoch), current [30, 40] (opening epoch).
         let mut db = VolatileDB::default();
