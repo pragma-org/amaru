@@ -5,15 +5,10 @@
 
 set -euo pipefail
 
-AMARU_BIN="${AMARU_BIN:-./target/debug/amaru}"
-
-if [[ ! -x "$AMARU_BIN" ]]; then
-    echo "Building amaru binary..." >&2
-    cargo build -p amaru --bin amaru 2>&1 >&2
-fi
+BUILD_PROFILE="${BUILD_PROFILE:-test}"
 
 # Get all schema paths from the compiled registry (both public and private)
-all_paths=$("$AMARU_BIN" dump-traces-schema 2>&1 | jq -r '.definitions | keys[]' | sort)
+all_paths=$(cargo run --quiet --profile $BUILD_PROFILE dump-traces-schema 2>&1 | jq -r '.definitions | keys[]' | sort)
 
 total=$(echo "$all_paths" | wc -l | tr -d ' ')
 unused=0

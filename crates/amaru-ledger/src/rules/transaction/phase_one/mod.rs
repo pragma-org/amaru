@@ -152,15 +152,24 @@ where
         mem::take(&mut transaction_body.certificates),
     )?;
 
+    let ref_scripts_size = inputs::execute(
+        context,
+        transaction_body.inputs.deref(),
+        transaction_body.reference_inputs.as_deref(),
+        protocol_parameters,
+    )?;
+
     fees::execute(
         context,
         is_valid,
         transaction_body.fee,
+        tx_size,
+        transaction_witness_set,
+        ref_scripts_size,
+        protocol_parameters,
         transaction_body.collateral.as_deref(),
         transaction_body.collateral_return.as_ref(),
     )?;
-
-    inputs::execute(context, transaction_body.inputs.deref(), transaction_body.reference_inputs.as_deref())?;
 
     if transaction_witness_set.redeemer.is_some() {
         collateral::execute(
@@ -324,6 +333,20 @@ mod tests {
     #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/2"); "slot equals end with no lower bound")]
     #[test_case(fixture!("pass/validity-interval-start-only"); "slot above start with no upper bound")]
     #[test_case(fixture!("pass/reference-input"); "tx with resolvable reference input")]
+    #[test_case(fixture!("pass/reference-script-input"); "reference input carrying a script, within per-tx limit")]
+    #[test_case(fixture!("pass/reference-script-size-at-limit"); "reference scripts size exactly at per-tx limit")]
+    #[test_case(fixture!("fail/ConwayTxRefScriptsSizeTooBig/0"); "single reference script over per-tx limit")]
+    #[test_case(fixture!("fail/ConwayTxRefScriptsSizeTooBig/1"); "summed reference scripts over per-tx limit")]
+    #[test_case(fixture!("fail/ConwayTxRefScriptsSizeTooBig/2"); "script on a spent input over per-tx limit")]
+    #[test_case(fixture!("pass/min-fee-at-minimum"); "declared fee exactly at the minimum")]
+    #[test_case(fixture!("fail/FeeTooSmallUTxO/0"); "declared fee one below the minimum")]
+    #[test_case(fixture!("pass/min-fee-with-ref-script"); "fee at minimum including tiered ref-script cost")]
+    #[test_case(fixture!("fail/FeeTooSmallUTxO/1"); "fee short of the tiered ref-script cost")]
+    #[test_case(fixture!("pass/min-fee-with-plutus-script"); "plutus spend, fee at minimum including ex-units cost")]
+    #[test_case(fixture!("fail/FeeTooSmallUTxO/2"); "plutus spend, fee short of the ex-units cost")]
+    #[test_case(fixture!("pass/invalid-tx-collateral"); "invalid transaction collects fee from collateral")]
+    #[test_case(fixture!("fail/InsufficientCollateral/0"); "plutus spend, collateral return exceeds collateral input")]
+    #[test_case(fixture!("fail/BadInputsUTxO/2"); "unknown collateral input on an invalid transaction")]
     #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
     #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
@@ -332,7 +355,10 @@ mod tests {
     #[test_case(fixture!("fail/WrongNetworkInTxOutput/0"); "output address on wrong network")]
     #[test_case(fixture!("pass/script-integrity-hash/0"); "interesting script integrity hash on preprod")]
     fn conformance(fixture: Fixture) {
-        let tx_size = fixture.transaction.len() as u64;
+        // Fixtures encode a standalone conway transaction (a 4-element array including the is_valid byte)
+        // but the ledger expects a transaction to be the 3-element array (without the is_valid byte), so we subtract one byte to
+        // match the size used for fee calculation. See the matching note in evaluate_ledger_states.rs.
+        let tx_size = (fixture.transaction.len() - 1) as u64;
 
         let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
 

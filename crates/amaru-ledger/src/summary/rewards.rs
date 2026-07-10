@@ -122,14 +122,16 @@ use tracing::info;
 use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
     store::{Snapshot, StoreError, columns::pots::Row as Pots},
-    summary::{AccountState, PoolState, SafeRatio, safe_ratio, stake_distribution::StakeDistribution},
+    summary::{
+        AccountState, PoolState, SafeRatio, floor_to_lovelace, safe_ratio, stake_distribution::StakeDistribution,
+    },
 };
 
 const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 
 impl PoolState {
-    pub fn relative_stake(&self, total_stake: Lovelace) -> LovelaceRatio {
-        lovelace_ratio(self.stake, total_stake)
+    pub fn relative_stake(&self, total_stake: Lovelace) -> SafeRatio {
+        safe_ratio(self.stake, total_stake)
     }
 
     pub fn owner_stake(&self, accounts: &BTreeMap<StakeCredential, AccountState>) -> Lovelace {
@@ -169,7 +171,7 @@ impl PoolState {
 
         let z0 = safe_ratio(1, protocol_parameters.optimal_stake_pools_count as u64);
 
-        let relative_pledge = lovelace_ratio(self.parameters.pledge, total_stake);
+        let relative_pledge = safe_ratio(self.parameters.pledge, total_stake);
         let relative_stake = self.relative_stake(total_stake);
 
         let r = SafeRatio::from_integer(BigUint::from(available_rewards));
@@ -229,7 +231,7 @@ impl PoolState {
             let relative_stake = self.relative_stake(total_stake);
 
             let owner_stake_ratio =
-                if total_stake.is_zero() { LovelaceRatio::zero() } else { lovelace_ratio(owner_stake, total_stake) };
+                if total_stake.is_zero() { SafeRatio::zero() } else { safe_ratio(owner_stake, total_stake) };
 
             // m + (1 - m) × s / σ
             let margin_factor: SafeRatio =
@@ -272,7 +274,7 @@ impl PoolState {
             if pool_rewards <= cost {
                 0
             } else {
-                let member_relative_stake = lovelace_ratio(member_stake, total_stake);
+                let member_relative_stake = safe_ratio(member_stake, total_stake);
 
                 // ⌊ (1 - m) × (R_pool - c) × t / σ ⌋
                 floor_to_lovelace(
@@ -558,17 +560,4 @@ impl From<RewardsSummary> for Rewards<Computed> {
     fn from(summary: RewardsSummary) -> Self {
         Rewards::<Computed>::new(summary.delta_reserves(), summary.delta_treasury(), summary.accounts)
     }
-}
-
-// -------------------------------------------------------------------- Internal
-
-type LovelaceRatio = SafeRatio;
-
-fn floor_to_lovelace(n: LovelaceRatio) -> Lovelace {
-    Lovelace::try_from(n.floor().to_integer())
-        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
-}
-
-fn lovelace_ratio(numerator: Lovelace, denominator: Lovelace) -> LovelaceRatio {
-    LovelaceRatio::new(BigUint::from(numerator), BigUint::from(denominator))
 }
