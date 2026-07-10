@@ -17,7 +17,7 @@ mod defer_req_next;
 use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Tip, from_cbor_no_leftovers,
+    BlockHeader, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Slot, SlotDelta, Tip, from_cbor_no_leftovers,
 };
 use amaru_observability::trace_span;
 use amaru_protocols::{
@@ -35,10 +35,10 @@ use crate::{
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
 };
 
-/// Block height of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
-pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + Sync>(eff: &Effects<T>) -> BlockHeight {
+/// Slot of the furthest ledger-applied state: volatile tip if present, otherwise stable tip.
+pub(super) async fn ledger_applied_slot<T: amaru_pure_stage::SendData + Sync>(eff: &Effects<T>) -> Slot {
     let ledger = Ledger::new(eff.clone());
-    ledger.volatile_tip().await.block_height()
+    ledger.volatile_tip().await.slot()
 }
 
 /// This is the state of the [`stage`] that tracks peers from whom we are receiving headers.
@@ -55,7 +55,7 @@ pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + 
 ///
 /// # Construction
 /// - Created via [`TrackPeers::new`] with an `EraHistory`, `StageRef`s for peer_selection and
-///   downstream, the `consensus_security_parameter` (k-like value), and `defer_req_next_poll_ms`.
+///   downstream, the maximum tolerated slot forecast, and `defer_req_next_poll_ms`.
 /// - The `defer_req_next` child ref starts as `StageRef::blackhole()` and is materialized lazily
 ///   (see below).
 ///
@@ -80,11 +80,11 @@ pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + 
 ///
 ///   - `RollForward(header_content, tip)`: TRACE log. Decodes via `decode_header` (only Conway
 ///     supported; errors → ERROR + remove + `peer_selection` ← `Adversarial` + return).
-///     Computes `min_ledger_height = header.block_height() - consensus_security_parameter`.
-///     Conditionally refreshes cached `ledger_applied_block_height` (via helper +
+///     Computes `min_ledger_slot = header.slot() - max_forecast`.
+///     Conditionally refreshes cached `ledger_applied_slot` (via helper +
 ///     `eff.clock()`, rate-limited to 5s or initial, mod.rs:316-322; uses `VolatileTipEffect`).
 ///     Chooses `RollForwardMode`:
-///     - If ledger height < min → DEBUG "track_peers.defer_request_next" + `DeferTrailingRequestNext`.
+///     - If ledger slot < min → DEBUG "track_peers.defer_request_next" + `DeferTrailingRequestNext`.
 ///     - Else → `PipelineRequestNext`.
 ///       Then calls `execute_roll_forward`.
 ///
@@ -104,7 +104,7 @@ pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + 
 ///   returns `Some(new_tip)` only on actual store) (mod.rs:184-202). On store success → send
 ///   `(tip, parent_point)` to `downstream`. On store error → remove + `Adversarial`.
 /// - *Only* for `DeferTrailingRequestNext` (and only after success): `ensure_defer_req_next_stage` +
-///   `Register { handler, min_ledger_height }` to the child (mod.rs:267-270).
+///   `Register { handler, min_ledger_slot }` to the child (mod.rs:267-270).
 ///
 /// # The Defer Child Stage ("defer_req_next")
 ///
@@ -112,16 +112,16 @@ pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + 
 /// - `eff.stage("track_peers/defer_req_next", defer_req_next::stage)` + `wire_up` + store the ref +
 ///   initial `Poll`.
 /// - Protocol (`DeferReqNextMsg`):
-///   - `Register { handler, min_ledger_height }`: appends to `pending` vec (no immediate dispatch).
-///   - `Poll`: `dispatch_ready` (queries `ledger_applied_block_height` via shared helper, sends
-///     `InitiatorMessage::RequestNext` to every handler where current ledger >= min_h, retains
+///   - `Register { handler, min_ledger_slot }`: appends to `pending` vec (no immediate dispatch).
+///   - `Poll`: `dispatch_ready` (queries `ledger_applied_slot` via shared helper, sends
+///     `InitiatorMessage::RequestNext` to every handler where current ledger >= min_slot, retains
 ///     others) then `eff.schedule_after(Poll, Duration::from_millis(poll_interval_ms.max(1)))`.
 ///     Self-perpetuating polling loop once started.
-/// - State: `DeferReqNext { poll_interval_ms, pending: Vec<(StageRef, BlockHeight)> }`.
+/// - State: `DeferReqNext { poll_interval_ms, pending: Vec<(StageRef, Slot)> }`.
 ///   Created with the configured poll ms (default 200 in tests).
 /// - Used exclusively to throttle `RequestNext` until the ledger has applied far enough
-///   (security parameter purpose). The child is never terminated. (Tests: `test_roll_forward_defers_*`
-///   using `setup_with_ledger_tip` + security_param=0 + `tm_add_stage`/`tm_wire_stage_state`/
+///   for the configured slot forecast. The child is never terminated. (Tests: `test_roll_forward_defers_*`
+///   using `setup_with_ledger_tip` + max_forecast=0 + `tm_add_stage`/`tm_wire_stage_state`/
 ///   `assert_trace_does_not_contain` for immediate `RequestNext`.)
 ///
 /// # External Effects, Scheduling, and Other Behaviours
@@ -142,7 +142,7 @@ pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + 
 /// # State Transitions
 /// - `upstream` inserts on successful `IntersectFound` or test helper; mutates `current`/`highest`
 ///   on successful roll forward/backward; removes on any error or `IntersectNotFound`.
-/// - Cached `ledger_applied_block_height` / `ledger_last_checked_at` updated opportunistically.
+/// - Cached `ledger_applied_slot` / `ledger_last_checked_at` updated opportunistically.
 /// - `defer_req_next` transitions from blackhole → wired ref exactly once (on first defer decision).
 ///
 /// The stage is exercised exclusively via simulation harness in `test_setup.rs` (resource
@@ -155,11 +155,11 @@ pub struct TrackPeers {
     upstream: BTreeMap<Peer, PerPeer>,
     peer_selection: StageRef<PeerSelectionMsg>,
     downstream: StageRef<(Tip, Point)>,
-    consensus_security_parameter: u64,
+    max_forecast: SlotDelta,
     /// Lazily populated via [`Effects::stage`](amaru_pure_stage::Effects::stage) on first deferred `RequestNext`.
     defer_req_next: StageRef<DeferReqNextMsg>,
     defer_req_next_poll_ms: u64,
-    ledger_applied_block_height: BlockHeight,
+    ledger_applied_slot: Slot,
     ledger_last_checked_at: Instant,
 }
 
@@ -179,7 +179,7 @@ enum RollForwardMode {
     /// Send [`InitiatorMessage::RequestNext`](amaru_protocols::chainsync::InitiatorMessage::RequestNext) before validating (pipelined fetch).
     PipelineRequestNext,
     /// Skip the leading `RequestNext`; after a successful roll-forward, register a deferred `RequestNext`.
-    DeferTrailingRequestNext { min_ledger_height: BlockHeight },
+    DeferTrailingRequestNext { min_ledger_slot: Slot },
 }
 
 pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {
@@ -196,7 +196,7 @@ impl TrackPeers {
         era_history: EraHistory,
         peer_selection: StageRef<PeerSelectionMsg>,
         downstream: StageRef<(Tip, Point)>,
-        consensus_security_parameter: u64,
+        max_forecast: SlotDelta,
         defer_req_next_poll_ms: u64,
     ) -> Self {
         Self {
@@ -204,10 +204,10 @@ impl TrackPeers {
             upstream: BTreeMap::new(),
             peer_selection,
             downstream,
-            consensus_security_parameter,
+            max_forecast,
             defer_req_next: StageRef::blackhole(),
             defer_req_next_poll_ms,
-            ledger_applied_block_height: BlockHeight::from(0),
+            ledger_applied_slot: Slot::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::from_secs(0)),
         }
     }
@@ -366,9 +366,9 @@ impl TrackPeers {
             }
         };
 
-        if let RollForwardMode::DeferTrailingRequestNext { min_ledger_height } = mode {
+        if let RollForwardMode::DeferTrailingRequestNext { min_ledger_slot } = mode {
             self.ensure_defer_req_next_stage(&eff).await;
-            eff.send(&self.defer_req_next, DeferReqNextMsg::Register { handler, min_ledger_height }).await;
+            eff.send(&self.defer_req_next, DeferReqNextMsg::Register { handler, min_ledger_slot }).await;
         }
     }
 
@@ -415,61 +415,24 @@ impl TrackPeers {
                     }
                 };
 
-                // FIXME: Handle missing stake distributions by deferring request next instead of this
-                //
-                // Here, we have to artificially lower the forecast window we want because of a
-                // period on the network (November 2025) where the chain coped with a long fork
-                // (thousands of blocks) that actually violated a few of the chain growth
-                // properties.
-                //
-                // For example on Preview, the epoch 1123 has only seen 251 blocks; which is far
-                // less than `k=432` blocks on Preview. So we had a scenario where a window of more
-                // than `3*k/f` slots have seen less than `k` blocks. This happened because of a bug
-                // which partitioned the chain into two; until the initially-loosing-chain was
-                // adopted by majority (by fixing the bug and having the majority of the stake
-                // endorsing that fork).
-                //
-                // The consequences of this makes the following check too optimistic when using `k`;
-                // because we end up trying to validate headers that are too far and for which we
-                // don't yet have a stake distribution ready in the ledger.
-                //
-                // The temporary fix for now is to simply avoid looking too far ahead, while we're
-                // working on the proper fix which would consist in handling the missing stake
-                // distributions from the ledger as an event that *can* happen, and that should
-                // simply cause the header validation to be postponed (to until the stake
-                // distribution is available).
-                //
-                // How much is too far ahead? On Preview (where the problem is the most visible),
-                // the stake distribution required for 1124 will be calculated after about ~80
-                // blocks in the epoch 1123. So that means, we cannot go more than 171 blocks. So we
-                // use `k / 3 = 144` which is well below, and still a function of `k`, so that on
-                // Mainnet or PreProd, we can still fetch a fair amount of blocks ahead of us and
-                // not impact synchronization too much.
-                //
-                // /!\ IMPORTANT /!\
-                // To fix this properly, we not only need to handle the error from here; but we also
-                // need to ensure that the ledger produces stake distributions at least once per
-                // epoch. Currently, in the extreme scenario where no blocks would be produced for
-                // the last 2/3rd of an epoch, the ledger would not have produced a stake
-                // distribution and arrive at an epoch boundary with a big problem.
-                let min_ledger_height = header.block_height() - self.consensus_security_parameter / 3;
-                if min_ledger_height > self.ledger_applied_block_height
+                let min_ledger_slot = Slot::new(header.slot().as_u64().saturating_sub(self.max_forecast.as_u64()));
+                if min_ledger_slot > self.ledger_applied_slot
                     && let now = eff.clock().await
                     && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)
-                        || self.ledger_applied_block_height == BlockHeight::from(0))
+                        || self.ledger_applied_slot == Slot::from(0))
                 {
                     self.ledger_last_checked_at = now;
-                    self.ledger_applied_block_height = ledger_applied_block_height(&eff).await;
+                    self.ledger_applied_slot = ledger_applied_slot(&eff).await;
                 }
-                let mode = if self.ledger_applied_block_height < min_ledger_height {
+                let mode = if self.ledger_applied_slot < min_ledger_slot {
                     tracing::debug!(
                         %peer,
-                        header_height = %header.block_height(),
-                        ledger_height = %self.ledger_applied_block_height,
-                        limit = %min_ledger_height,
+                        header_slot = %header.slot(),
+                        ledger_slot = %self.ledger_applied_slot,
+                        limit = %min_ledger_slot,
                         "track_peers.defer_request_next",
                     );
-                    RollForwardMode::DeferTrailingRequestNext { min_ledger_height }
+                    RollForwardMode::DeferTrailingRequestNext { min_ledger_slot }
                 } else {
                     RollForwardMode::PipelineRequestNext
                 };

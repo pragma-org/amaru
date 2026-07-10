@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.10.20260716 _[unreleased; planned for 2026-07-16]_
 
+### Fixed
+
+- **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
+
 ## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
 ### Added
@@ -144,3 +148,4 @@ Other guiding principles:
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
+[#1027]: https://github.com/pragma-org/amaru/pull/1027

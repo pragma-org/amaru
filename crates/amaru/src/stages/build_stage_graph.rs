@@ -24,7 +24,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
+use amaru_kernel::{EraHistory, GlobalParameters, HeaderHash, Peer, Slot, Tip};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
@@ -94,6 +94,10 @@ pub fn build_stage_graph(
     let block_source_sender = block_source_stage.sender();
 
     let k = global_parameters.consensus_security_param;
+    // `track_peers` can safely look ahead by at most 4*k/f slots: one stability window for the
+    // previous epoch stake distribution to become due, plus one more window to observe a block
+    // that advances the ledger clock far enough to compute it.
+    let max_forecast = Slot::new(global_parameters.randomness_stabilization_window());
 
     // Wire mempool (from main) — kept for its own use even if not passed to adopt_chain in this resolution
     let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
@@ -152,7 +156,13 @@ pub fn build_stage_graph(
 
     let track_peers = stage_graph.wire_up(
         track_peers,
-        TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, k, config.defer_req_next_poll_ms),
+        TrackPeers::new(
+            era_history.clone(),
+            peer_selection_ref,
+            select_chain_input,
+            max_forecast,
+            config.defer_req_next_poll_ms,
+        ),
     );
     let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
 
