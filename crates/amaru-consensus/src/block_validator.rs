@@ -106,38 +106,25 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBloc
                 Err(BlockValidationError::new(anyhow!("no ancestor on best chain chain {}", to.hash())))
             }
             FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
-                let mut state = self.state.lock().unwrap();
-                let mut ledger_metrics = LedgerMetrics::default();
-                let state_recovery =
-                    state.rollback_to(&fork_point).map_err(|error| BlockValidationError::from(anyhow!(error)))?;
-
-                // Replaying the fork must not flush anything to the stable store while a rollback is
-                // still possible; that holds precisely when the new chain is at most one block longer
-                // than the one it replaces, so every replayed block but the committing one stays
-                // volatile and `recover` can always undo a failed switch.
-                state.assert_replay_stays_volatile(forward_points.len());
-
-                for point in forward_points.iter() {
+                let forward_blocks = forward_points.iter().map(|point| {
                     let block = self
                         .chain_store
                         .load_block(&point.hash())
-                        .map_err(|e| BlockValidationError::new(e.into()))?
-                        .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?
+                        .map_err(|e| anyhow!(e))?
+                        .ok_or_else(|| anyhow!("block not found"))?
                         .decode()
-                        .map_err(|e| BlockValidationError::new(e.into()))?;
+                        .map_err(|e| anyhow!(e))?;
+                    Ok((*point, block))
+                });
 
-                    match state.roll_forward(point, block, &self.vm_eval_pool) {
-                        BlockValidation::Valid(metrics) => {
-                            ledger_metrics = metrics;
-                        }
-                        BlockValidation::Invalid(_, _, details) => {
-                            state.recover(state_recovery);
-                            return Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))));
-                        }
-                        BlockValidation::Err(err) => return Err(BlockValidationError::new(anyhow!(err))),
+                let mut state = self.state.lock().unwrap();
+                match state.switch_to_fork(&fork_point, forward_blocks, &self.vm_eval_pool) {
+                    BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
+                    BlockValidation::Invalid(_, _, details) => {
+                        Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))))
                     }
+                    BlockValidation::Err(err) => Err(BlockValidationError::new(anyhow!(err))),
                 }
-                Ok(Ok(ledger_metrics))
             }
         }
     }
