@@ -177,11 +177,6 @@ jobs:
 
       - uses: ./.github/actions/cache
 
-      - name: Build Amaru
-        shell: bash
-        run: |
-          cargo test --profile $BUILD_PROFILE --no-run -p amaru
-
       - name: Bootstrap DBs
         uses: ./.github/actions/bootstrap-db
         with:

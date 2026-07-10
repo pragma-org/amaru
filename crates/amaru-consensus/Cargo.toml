@@ -46,6 +46,9 @@ amaru-ouroboros.workspace = true
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [dev-dependencies]
 hex.workspace = true
 pallas-primitives.workspace = true
@@ -74,3 +77,6 @@ required-features = ["test-utils"]
 name = "stage_msgs"
 harness = false
 required-features = ["test-utils"]
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]

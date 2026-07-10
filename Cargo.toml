@@ -11,7 +11,7 @@ categories = ["cryptography::cryptocurrencies"]
 rust-version = "1.97" # Find versions here: https://rust-lang.github.io/rustup-components-history
 
 [workspace]
-members = ["crates/*", "crates/amaru-observability/macros/", "crates/vendor/*"]
+members = ["crates/*", "crates/amaru-deps", "crates/amaru-observability/macros/", "crates/vendor/*"]
 exclude = ["crates/vendor"]
 default-members = ["crates/*"]
 resolver = "2"
@@ -111,6 +111,7 @@ zeroize = "1.8.2"
 
 # Internal dependencies
 amaru = { path = "crates/amaru" }
+amaru-deps = { path = "crates/amaru-deps", version = "10.10.0" }
 amaru-consensus = { path = "crates/amaru-consensus", version = "0.1.2" }
 amaru-fixture-builder = { path = "crates/amaru-fixture-builder", version = "0.1.2" }
 amaru-iter-borrow = { path = "crates/amaru-iter-borrow", version = "0.1.2" }

@@ -33,6 +33,9 @@ amaru-ouroboros-traits = { "workspace" = true, features = ["test-utils"] }
 amaru-ouroboros.workspace = true
 amaru-pure-stage.workspace = true
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [dev-dependencies]
 amaru-mempool.workspace = true
 amaru-network.workspace = true
@@ -42,3 +45,6 @@ proptest.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]

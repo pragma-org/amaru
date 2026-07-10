@@ -28,6 +28,11 @@ name = "amaru-ledger"
 path = "src/bin/ledger/main.rs"
 doc = false
 
+[features]
+default = ["mithril"]
+mithril = ["dep:amaru-mithril"]
+test-utils = ["amaru-consensus/test-utils"]
+
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
@@ -72,7 +77,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-consensus = { workspace = true, features = ["test-utils"] }
+amaru-consensus.workspace = true
 amaru-kernel = { workspace = true, features = ["tracing", "clap"] }
 amaru-ledger.workspace = true
 amaru-mempool.workspace = true
@@ -87,12 +92,11 @@ amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
 amaru-stores.workspace = true
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"
-
-[features]
-default = ["mithril"]
-mithril = ["dep:amaru-mithril"]
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -106,19 +110,23 @@ xz.workspace = true
 diff_json.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
+amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-iter-borrow.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
+amaru-ledger = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
-amaru-kernel.workspace = true
 quote.workspace = true
 syn.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["-D", "warnings"]
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]
 
 [package.metadata.deb]
 name = "amaru"
