@@ -24,6 +24,8 @@ use minicbor::{Decode, Decoder, Encode};
 #[repr(transparent)]
 pub struct Slot(u64);
 
+pub type SlotDelta = Slot;
+
 impl fmt::Display for Slot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

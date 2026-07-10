@@ -17,21 +17,21 @@
 
 use std::time::Duration;
 
-use amaru_kernel::BlockHeight;
+use amaru_kernel::Slot;
 use amaru_protocols::chainsync::InitiatorMessage;
 use amaru_pure_stage::{Effects, StageRef};
 
-use super::ledger_applied_block_height;
+use super::ledger_applied_slot;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DeferReqNextMsg {
-    Register { handler: StageRef<InitiatorMessage>, min_ledger_height: BlockHeight },
+    Register { handler: StageRef<InitiatorMessage>, min_ledger_slot: Slot },
     Poll,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeferReqNext {
     pub poll_interval_ms: u64,
-    pub pending: Vec<(StageRef<InitiatorMessage>, BlockHeight)>,
+    pub pending: Vec<(StageRef<InitiatorMessage>, Slot)>,
 }
 
 impl DeferReqNext {
@@ -43,8 +43,8 @@ impl DeferReqNext {
 pub async fn stage(mut state: DeferReqNext, msg: DeferReqNextMsg, eff: Effects<DeferReqNextMsg>) -> DeferReqNext {
     use DeferReqNextMsg::*;
     match msg {
-        Register { handler, min_ledger_height } => {
-            state.pending.push((handler, min_ledger_height));
+        Register { handler, min_ledger_slot } => {
+            state.pending.push((handler, min_ledger_slot));
         }
         Poll => {
             dispatch_ready(&mut state, &eff).await;
@@ -56,13 +56,13 @@ pub async fn stage(mut state: DeferReqNext, msg: DeferReqNextMsg, eff: Effects<D
 }
 
 async fn dispatch_ready(state: &mut DeferReqNext, eff: &Effects<DeferReqNextMsg>) {
-    let ledger_height = ledger_applied_block_height(eff).await;
+    let ledger_slot = ledger_applied_slot(eff).await;
     let mut remaining = Vec::new();
-    for (handler, min_h) in std::mem::take(&mut state.pending) {
-        if ledger_height >= min_h {
+    for (handler, min_slot) in std::mem::take(&mut state.pending) {
+        if ledger_slot >= min_slot {
             eff.send(&handler, InitiatorMessage::RequestNext).await;
         } else {
-            remaining.push((handler, min_h));
+            remaining.push((handler, min_slot));
         }
     }
     state.pending = remaining;

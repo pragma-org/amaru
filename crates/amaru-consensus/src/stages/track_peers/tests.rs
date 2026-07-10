@@ -14,7 +14,7 @@
 
 use std::{slice, sync::Arc};
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, EraName, HeaderHash, IsHeader, Peer, Point, SlotDelta, Tip};
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
 };
@@ -33,7 +33,7 @@ use crate::stages::{
         test_setup::{
             FailingHeaderValidation, build_store, make_block_header, setup, setup_with_ledger_tip,
             setup_with_validation, te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
-            test_prep_with_security_param, tm_store_header,
+            test_prep_with_max_forecast, tm_store_header,
         },
     },
 };
@@ -626,8 +626,8 @@ fn test_roll_backward_unknown_point_removes_peer() {
 /// for a deferred RequestNext (instead of immediately pipelining RequestNext to the handler).
 #[test]
 fn test_roll_forward_defers_request_next_and_creates_defer_child() {
-    // Use security_param = 0 so any header taller than the known ledger height triggers defer.
-    let prep = test_prep_with_security_param(0);
+    // Use max_forecast = 0 so any header beyond the known ledger slot triggers defer.
+    let prep = test_prep_with_max_forecast(SlotDelta::from(0));
     let peer = Peer::new("peer1");
     let header = prep.headers[0].clone();
     let tip = header.tip();

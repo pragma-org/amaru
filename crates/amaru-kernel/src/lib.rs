@@ -133,7 +133,7 @@ pub use cardano::{
     script_context::ScriptContext,
     script_info::{ScriptInfo, ScriptPurpose},
     script_integrity_data::{ScriptIntegrityData, compute_script_integrity_hash},
-    slot::{Slot, SlotArithmeticError},
+    slot::{Slot, SlotArithmeticError, SlotDelta},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
     term_limit::TermLimit,
