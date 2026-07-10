@@ -834,6 +834,32 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         }
     }
 
+    /// Assert, before replaying a fork, that the replay cannot flush anything to the stable store
+    /// while a rollback is still possible.
+    ///
+    /// Called with the number of blocks about to be replayed, right after the rollback. Replaying
+    /// evicts a block to the stable store only once the volatile window is full (see
+    /// [`Self::push_fragment`]); with `blocks` blocks to apply, the earliest such eviction can only
+    /// land on the *last* block as long as `volatile.len() + blocks - 1 <= k`. That is exactly the
+    /// case where the new chain is at most one block longer than the one it replaces. The committing
+    /// block may then legitimately become stable, but every earlier block stays fully volatile — so
+    /// if a later block turns out to be invalid, [`Self::recover`] can always undo the switch without
+    /// having to un-persist immutable data.
+    pub fn assert_replay_stays_volatile(&self, blocks: usize) {
+        let capacity = self.global_parameters.consensus_security_param;
+        let non_committing = self.volatile.len() as u64 + blocks.saturating_sub(1) as u64;
+        assert!(
+            non_committing <= capacity,
+            "fork-switch replay would flush a still-rollback-able block to the stable store: after \
+             rollback the volatile holds {} block(s) and replaying {} would push {} past the \
+             security parameter k={} before reaching the committing block",
+            self.volatile.len(),
+            blocks,
+            non_committing,
+            capacity,
+        );
+    }
+
     fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
         let slot = point.slot_or_default();
 

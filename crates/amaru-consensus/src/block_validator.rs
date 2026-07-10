@@ -110,6 +110,13 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBloc
                 let mut ledger_metrics = LedgerMetrics::default();
                 let state_recovery =
                     state.rollback_to(&fork_point).map_err(|error| BlockValidationError::from(anyhow!(error)))?;
+
+                // Replaying the fork must not flush anything to the stable store while a rollback is
+                // still possible; that holds precisely when the new chain is at most one block longer
+                // than the one it replaces, so every replayed block but the committing one stays
+                // volatile and `recover` can always undo a failed switch.
+                state.assert_replay_stays_volatile(forward_points.len());
+
                 for point in forward_points.iter() {
                     let block = self
                         .chain_store
