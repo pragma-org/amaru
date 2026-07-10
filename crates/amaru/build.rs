@@ -59,7 +59,7 @@ fn write_stake_distribution_test_cases_file(network: &str) -> Result<(), Box<dyn
     let network_dir = fixtures_root.join(network);
     let ledger_dir = default_ledger_dir(&manifest_dir, network);
 
-    println!("cargo:rerun-if-changed={}", network_dir.display());
+    emit_rerun_if_exists(&network_dir);
 
     let epochs = stake_distribution_epochs(&network_dir)?;
     let available_epochs = available_ledger_snapshot_epochs(&ledger_dir)?;
@@ -109,7 +109,7 @@ fn stake_distribution_epoch(path: &Path) -> Option<u64> {
 }
 
 fn available_ledger_snapshot_epochs(ledger_dir: &Path) -> Result<BTreeSet<u64>, Box<dyn std::error::Error>> {
-    println!("cargo:rerun-if-changed={}", ledger_dir.display());
+    emit_rerun_if_exists(ledger_dir);
 
     if !ledger_dir.is_dir() {
         return Ok(BTreeSet::new());
@@ -134,6 +134,12 @@ fn available_ledger_snapshot_epochs(ledger_dir: &Path) -> Result<BTreeSet<u64>, 
 
 fn ledger_snapshot_epoch(path: &Path) -> Option<u64> {
     path.file_name()?.to_str()?.parse().ok()
+}
+
+fn emit_rerun_if_exists(path: &Path) {
+    if path.exists() {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 }
 
 fn partition_fixture_epochs(epochs: &[u64], available_epochs: &BTreeSet<u64>) -> (Vec<u64>, Vec<u64>) {
