@@ -44,8 +44,8 @@ use crate::{
         block::{BlockValidation, TransactionInvalid},
     },
     state::volatile::{
-        AnchoredVolatileFragment, StateRecovery, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence,
-        VolatileView,
+        AnchoredVolatileFragment, StateRecovery, StateRecoveryKind, StoreUpdate, VolatileDB, VolatileFragment,
+        VolatileSequence, VolatileView,
     },
     store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -906,11 +906,17 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
     /// Restore the volatile db to its state prior to a rollback.
     pub fn recover(&mut self, state_recovery: StateRecovery) {
-        match state_recovery {
-            StateRecovery::RecoverWholeVolatileDB { volatile } => {
+        let immutable_tip = self.immutable_tip();
+        assert_eq!(
+            immutable_tip, state_recovery.immutable_tip,
+            "cannot recover: immutable tip moved from {} to {} during the replay",
+            state_recovery.immutable_tip, immutable_tip,
+        );
+        match state_recovery.kind {
+            StateRecoveryKind::RecoverWholeVolatileDB { volatile } => {
                 self.volatile = *volatile;
             }
-            StateRecovery::RecoverVolatileDBPart { recovery } => {
+            StateRecoveryKind::RecoverVolatileDBPart { recovery } => {
                 self.volatile.recover(*recovery);
             }
         }
@@ -953,7 +959,10 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             if *to == immutable_tip {
                 // Snapshot the whole VolatileDB fragment but leave the metadata initialized
                 // for the upcoming roll forwards.
-                Ok(StateRecovery::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.take()) })
+                Ok(StateRecovery {
+                    immutable_tip,
+                    kind: StateRecoveryKind::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.take()) },
+                })
             } else if *to < immutable_tip {
                 Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip))
             } else if *to > volatile_tip {
@@ -966,7 +975,10 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                     .volatile
                     .rollback_to(to)
                     .map_err(|_| BackwardError::unknown(*to, volatile_tip, immutable_tip))?;
-                Ok(StateRecovery::RecoverVolatileDBPart { recovery: Box::new(recovery) })
+                Ok(StateRecovery {
+                    immutable_tip,
+                    kind: StateRecoveryKind::RecoverVolatileDBPart { recovery: Box::new(recovery) },
+                })
             }
         })
     }

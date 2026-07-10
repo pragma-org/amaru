@@ -156,7 +156,7 @@ pub struct Rewards<STEP: KnownRewardState> {
     /// boundary. For `Effective` this is the set of such account keys (their amounts stay in
     /// `accounts` and are summed back into the treasury); for `Computed` it is `()`. Rolling an
     /// `Effective` back to a `Computed` is therefore just dropping this set, and the reverse is
-    /// re-attaching it — neither touches `accounts`.
+    /// re-attaching it. Neither touches `accounts`.
     unclaimed: STEP::UnclaimedRewards,
 }
 

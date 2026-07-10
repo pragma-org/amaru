@@ -81,8 +81,17 @@ pub trait VolatileSequence {
 /// Captures what a rollback discards, so a failed fork switch can be undone.
 /// If the fork point is inside the volatile window, we keep only the fragments above that point (moved, not copied)
 /// plus a snapshot of the volatile overlay.
+///
+/// The immutable tip observed at rollback time is retained so recovery can assert it has not moved:
+/// restoring the pre-rollback volatile is only sound while no replayed block has reached the stable store.
 #[derive(Debug)]
-pub enum StateRecovery {
+pub struct StateRecovery {
+    pub(crate) immutable_tip: Point,
+    pub(crate) kind: StateRecoveryKind,
+}
+
+#[derive(Debug)]
+pub(crate) enum StateRecoveryKind {
     /// A rollback to the immutable tip cleared the whole window; the entire pre-rollback volatile
     /// is moved out (via [`VolatileDB::take`]) and restored wholesale.
     RecoverWholeVolatileDB { volatile: Box<VolatileDB> },
