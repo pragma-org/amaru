@@ -111,6 +111,13 @@ impl RewardsState {
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
         match std::mem::replace(self, Self::NotReady) {
             Self::NotReady | Self::Effective(_) => None,
+            // NOTE: non-expensive clone of rewards
+            //
+            // The `Rewards<T>` object wraps maps inside `Arc` internally, making `snapshot` relatively
+            // cheap here. Most of the time, there should be only a single reference to that `Arc`, but in
+            // case where we are attempting to switch to a new fork, there will be two: the one now being
+            // taken due to an epoch transition, and the one we stashed away to restore the state in case
+            // the new candidate chain is invalid and we have to switch back.
             Self::Computed(computed) => Some(Arc::try_unwrap(computed).unwrap_or_else(|rewards| rewards.snapshot())),
         }
     }
