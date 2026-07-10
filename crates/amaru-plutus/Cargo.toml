@@ -24,6 +24,9 @@ pallas-codec.workspace = true
 amaru-kernel.workspace = true
 amaru-uplc.workspace = true
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [dev-dependencies]
 serde.workspace = true
 test-case.workspace = true
@@ -32,3 +35,6 @@ proptest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]

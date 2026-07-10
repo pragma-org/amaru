@@ -30,12 +30,15 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru.workspace = true
+amaru = { workspace = true, features = ["test-utils"] }
 amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros.workspace = true
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
+
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -46,3 +49,6 @@ amaru-tracing-json.workspace = true
 [[bin]]
 name = "simulator"
 path = "src/bin/amaru-sim/main.rs"
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]

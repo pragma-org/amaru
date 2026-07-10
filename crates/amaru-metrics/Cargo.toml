@@ -19,5 +19,12 @@ categories.workspace = true
 [dependencies]
 # External Dependencies
 serde = { workspace = true, features = ["derive", "alloc"] }
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]
+
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [target.'cfg(not(target_arch="wasm32"))'.dependencies]
 opentelemetry.workspace = true
