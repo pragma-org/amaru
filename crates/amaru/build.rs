@@ -22,16 +22,16 @@ use quote::ToTokens;
 use syn::Item;
 
 #[expect(clippy::expect_used)]
+#[expect(clippy::panic)]
 fn main() {
     built::write_built_file().expect("Failed to acquire build-time information");
     write_type_aliases_file().expect("Failed to generate embedded type aliases for dump_schemas");
-
-    let network = env::var("AMARU_NETWORK").unwrap_or_else(|_| "preprod".into());
-    println!("cargo:rerun-if-env-changed=AMARU_NETWORK");
     println!("cargo:rerun-if-env-changed=BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH");
-    write_stake_distribution_test_cases_file(&network)
-        .expect("Failed to generate embedded stake distribution test cases for summary tests");
-    println!("cargo:rustc-env=AMARU_NETWORK={}", network);
+    for network in ["mainnet", "preprod", "preview"] {
+        write_stake_distribution_test_cases_file(network).unwrap_or_else(|e| {
+            panic!("Failed to generate embedded stake distribution test cases for network={network}: {e}")
+        });
+    }
 }
 
 fn write_type_aliases_file() -> Result<(), Box<dyn std::error::Error>> {
@@ -66,7 +66,7 @@ fn write_stake_distribution_test_cases_file(network: &str) -> Result<(), Box<dyn
     let contents = stake_distribution_test_cases_source(network, &epochs, &available_epochs)?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    write_if_changed(&out_dir.join("stake_distribution_test_cases.rs"), &contents)?;
+    write_if_changed(&out_dir.join(format!("stake_distribution_{network}_test_cases.rs")), &contents)?;
 
     Ok(())
 }
