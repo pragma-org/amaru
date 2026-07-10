@@ -72,7 +72,7 @@ jobs:
             magic: 2
             target_epoch: 1020
             tests-may-fail: true
-        cardano_node_version: [10.5.3]
+        cardano_node_version: [11.0.1]
     env:
       AMARU_NETWORK: ${{ matrix.network.name }}
       AMARU_UPSTREAM_PEERS: 1
@@ -82,7 +82,7 @@ jobs:
       AWS_DEFAULT_REGION: auto
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
-      CARDANO_CLI_VERSION: 10.11.0.0
+      CARDANO_CLI_VERSION: 11.0.0.0
       DEFAULT_TIMEOUT: ${{ inputs.default_timeout }}
       TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
