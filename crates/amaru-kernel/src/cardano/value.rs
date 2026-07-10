@@ -93,7 +93,7 @@ impl Display for Balance {
                     value
                 ))
                 .collect::<Vec<String>>()
-                .join(",")
+                .join(", ")
         )
     }
 }

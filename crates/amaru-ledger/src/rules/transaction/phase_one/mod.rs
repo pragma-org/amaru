@@ -258,7 +258,7 @@ where
         transaction_body.script_data_hash,
     )?;
 
-    if let Some(donation) = transaction_body.donation {
+    if is_valid && let Some(donation) = transaction_body.donation {
         context.produce_lovelace(donation.into());
     }
     // NOTE: Value preservation
