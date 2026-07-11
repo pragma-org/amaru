@@ -27,8 +27,8 @@ use crate::{
     rules::{
         WithPosition,
         transaction::phase_one::{
-            InvalidCertificates, InvalidFees, InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness,
-            InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
+            InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
+            InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
         },
     },
@@ -50,12 +50,13 @@ pub(super) struct Fixture {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct InitialState {
-    #[serde(deserialize_with = "deserialize_utxo")]
+    #[serde(deserialize_with = "deserialize_utxo", default)]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    #[serde(default)]
     pub(super) pools: BTreeSet<PoolId>,
-    #[serde(deserialize_with = "deserialize_accounts")]
+    #[serde(deserialize_with = "deserialize_accounts", default)]
     pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
-    #[serde(deserialize_with = "deserialize_dreps")]
+    #[serde(deserialize_with = "deserialize_dreps", default)]
     pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
     pub(super) governance_activity: GovernanceActivity,
 }
@@ -220,8 +221,6 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
             PhaseOneError::Inputs(InvalidInputs::RefScriptSizeTooBig { .. }) => Predicate::ConwayTxRefScriptsSizeTooBig,
             PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
-            PhaseOneError::Fees(InvalidFees::UnknownCollateralInput { .. }) => Predicate::BadInputsUTxO,
-            PhaseOneError::Fees(InvalidFees::CollateralReturnUnderflow { .. }) => Predicate::InsufficientCollateral,
             PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
@@ -249,6 +248,11 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
                 Predicate::DRepAlreadyRegistered
             }
+            PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
+            PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {
+                Predicate::InsufficientCollateral
+            }
+            PhaseOneError::Collateral(InvalidCollateral::ValueNotConserved(..)) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)

@@ -15,7 +15,7 @@
 use amaru_kernel::{
     AddrAttrProperty, Address, AddressPayload, AsIndex, HasNetwork, HasScriptHash, Hash, Lovelace, MemoizedDatum,
     MemoizedScript, MemoizedTransactionOutput, Network, PlutusVersion, ProtocolParameters, ProtocolVersion,
-    TransactionInput, cbor, from_cbor, size::SCRIPT, utils::string::display_collection,
+    TransactionInput, Value, cbor, from_cbor, size::SCRIPT, utils::string::display_collection,
 };
 use amaru_uplc::arena::Arena;
 use thiserror::Error;
@@ -67,7 +67,7 @@ pub fn execute<C>(
     network: Network,
     outputs: Vec<MemoizedTransactionOutput>,
     supplemental_datum_policy: SupplementalDatumPolicy,
-    construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
+    construct_utxo: impl Fn(&mut C, u64, &Value) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
     C: WitnessSlice + UtxoSlice + BalanceSlice,
@@ -97,8 +97,7 @@ where
                 .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
         }
 
-        if let Some(input) = construct_utxo(position as u64) {
-            context.produce_value(output.value.as_ref());
+        if let Some(input) = construct_utxo(context, position as u64, output.value.as_ref()) {
             context.produce(input, output);
         }
     }
@@ -268,7 +267,7 @@ mod tests {
             Network::Testnet,
             tx.outputs,
             SupplementalDatumPolicy::Allow,
-            |_| None,
+            |_, _, _| None,
         );
         (result, context.allowed_supplemental_datums())
     }
@@ -288,7 +287,7 @@ mod tests {
             Network::Testnet,
             outputs,
             SupplementalDatumPolicy::Disallow,
-            |_| None,
+            |_, _, _| None,
         );
         (result, context.allowed_supplemental_datums())
     }

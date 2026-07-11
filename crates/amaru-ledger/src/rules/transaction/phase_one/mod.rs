@@ -145,21 +145,20 @@ where
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
-    if transaction_witness_set.redeemer.is_some() {
-        // TODO: The 'collateral' rule group shouldn't exist
-        //
-        // This is a mix of witness and fees; and instead of duplicating the collateral traversing
-        // logic in both, we should augment fees and witness handling to also account for
-        // collaterals.
-        collateral::execute(
-            context,
-            transaction_body.collateral.as_deref(),
-            transaction_body.collateral_return.as_ref(),
-            transaction_body.total_collateral,
-            transaction_body.fee,
-            protocol_parameters,
-        )?;
-    }
+    // TODO: The 'collateral' rule group shouldn't exist
+    //
+    // This is a mix of witness and fees; and instead of duplicating the collateral traversing
+    // logic in both, we should augment fees and witness handling to also account for
+    // collaterals.
+    collateral::execute(
+        context,
+        transaction_body.collateral.as_deref(),
+        transaction_body.collateral_return.as_ref(),
+        transaction_body.total_collateral,
+        transaction_body.fee,
+        protocol_parameters,
+        transaction_witness_set.redeemer.is_some(),
+    )?;
 
     let ref_scripts_size = inputs::execute(
         context,
@@ -170,14 +169,11 @@ where
 
     fees::execute(
         context,
-        is_valid,
         transaction_body.fee,
         tx_size,
         transaction_witness_set,
         ref_scripts_size,
         protocol_parameters,
-        transaction_body.collateral.as_deref(),
-        transaction_body.collateral_return.as_ref(),
     )?;
 
     mint::execute(context, transaction_body.mint.as_ref());
@@ -188,7 +184,7 @@ where
         network,
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
         SupplementalDatumPolicy::Disallow,
-        |_index| {
+        |_context, _index, _value| {
             if is_valid {
                 return None;
             }
@@ -209,7 +205,9 @@ where
         network,
         mem::take(&mut transaction_body.outputs),
         SupplementalDatumPolicy::Allow,
-        |index| {
+        |context, index, value| {
+            context.produce_value(value);
+
             if !is_valid {
                 return None;
             }

@@ -18,7 +18,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{UtxoSlice, WitnessSlice};
+use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
 enum CollateralWitness {
     VKey(Hash<28>),
@@ -58,13 +58,12 @@ pub fn execute<C>(
     tx_collateral: Option<u64>,
     fee: u64,
     protocol_parameters: &ProtocolParameters,
+    has_redeemers: bool,
 ) -> Result<(), InvalidCollateral>
 where
-    C: UtxoSlice + WitnessSlice,
+    C: UtxoSlice + WitnessSlice + BalanceSlice,
 {
-    let collaterals = collaterals.filter(|c| !c.is_empty()).ok_or(InvalidCollateral::NoCollateral)?;
-
-    let mut balance = Balance::empty();
+    let collaterals = collaterals.unwrap_or(&[]);
 
     let allowed = protocol_parameters.max_collateral_inputs as usize;
     let provided = collaterals.len();
@@ -72,9 +71,15 @@ where
         return Err(InvalidCollateral::TooManyInputs { provided, allowed });
     }
 
+    let mut balance = Balance::empty();
+
     for collateral in collaterals.iter() {
         let collateral_input =
             context.lookup(collateral).ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
+
+        if !has_redeemers {
+            continue;
+        }
 
         if is_locked_by_script(&collateral_input.address) {
             return Err(InvalidCollateral::LockedAtScriptAddress(collateral.clone()));
@@ -82,8 +87,8 @@ where
 
         let witness = match &collateral_input.address {
             Address::Shelley(addr) => match addr.owner() {
-                StakeCredential::AddrKeyhash(hash) => CollateralWitness::VKey(hash),
-                StakeCredential::ScriptHash(_) => unreachable!("already rejected by is_locked_by_script"),
+                StakeCredential::AddrKeyhash(hash) => Some(CollateralWitness::VKey(hash)),
+                StakeCredential::ScriptHash(_) => None,
             },
             Address::Byron(byron_address) => {
                 let payload = byron_address.decode().map_err(|e| {
@@ -93,24 +98,28 @@ where
                             input: collateral.clone(),
                             error: Box::new(error),
                         },
+                        // FIXME: Not unreachable at all?
                         _ => unreachable!("byron_address.decode() only returns InvalidByronCbor"),
                     }
                 })?;
 
                 #[allow(clippy::wildcard_enum_match_arm)]
                 match payload.addrtype {
-                    AddrType::PubKey => CollateralWitness::Bootstrap(payload.root),
+                    AddrType::PubKey => Some(CollateralWitness::Bootstrap(payload.root)),
+                    // FIXME: Not unreachable at all?
                     _ => unreachable!("non-PubKey Byron address in collateral input"),
                 }
             }
+            // FIXME: Not unreachable at all?
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         };
 
         balance += collateral_input.value.as_ref();
 
         match witness {
-            CollateralWitness::VKey(hash) => context.require_vkey_witness(hash),
-            CollateralWitness::Bootstrap(root) => context.require_bootstrap_witness(root),
+            Some(CollateralWitness::VKey(hash)) => context.require_vkey_witness(hash),
+            Some(CollateralWitness::Bootstrap(root)) => context.require_bootstrap_witness(root),
+            None => (),
         }
     }
 
@@ -118,28 +127,34 @@ where
         balance -= collateral_return.value.as_ref();
     }
 
-    // In order for a collateral balance to be valid it must:
-    //    - have no multiassets and
-    //    - have a nonnegative coin value
-    if balance.coin() < 0 || balance.has_assets() {
-        return Err(InvalidCollateral::ValueNotConserved(balance));
-    }
+    if has_redeemers {
+        if provided == 0 {
+            return Err(InvalidCollateral::NoCollateral);
+        }
 
-    let required = fee * protocol_parameters.collateral_percentage as u64;
-    if balance.coin() as i128 * 100 < required as i128 {
-        return Err(InvalidCollateral::InsufficientBalance {
-            provided: balance.coin(),
-            required: required.div_ceil(100),
-        });
-    }
+        // In order for a collateral balance to be valid it must:
+        //    - have no multiassets and
+        //    - have a nonnegative coin value
+        if balance.coin() < 0 || balance.has_assets() {
+            return Err(InvalidCollateral::ValueNotConserved(balance));
+        }
 
-    if let Some(expected_balance) = tx_collateral
-        && expected_balance != balance.coin() as u64
-    {
-        return Err(InvalidCollateral::IncorrectTotalCollateral {
-            provided: balance.coin(),
-            expected: expected_balance,
-        });
+        let required = fee * protocol_parameters.collateral_percentage as u64;
+        if balance.coin() as i128 * 100 < required as i128 {
+            return Err(InvalidCollateral::InsufficientBalance {
+                provided: balance.coin(),
+                required: required.div_ceil(100),
+            });
+        }
+
+        if let Some(expected_balance) = tx_collateral
+            && expected_balance != balance.coin() as u64
+        {
+            return Err(InvalidCollateral::IncorrectTotalCollateral {
+                provided: balance.coin(),
+                expected: expected_balance,
+            });
+        }
     }
 
     Ok(())
@@ -241,6 +256,7 @@ mod tests {
             tx.total_collateral,
             tx.fee,
             &pp,
+            true,
         )
     }
 }

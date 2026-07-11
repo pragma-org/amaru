@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    ExUnitPrices, ExUnits, HasExUnits, HasLovelace, Lovelace, MemoizedTransactionOutput, ProtocolParameters,
-    RationalNumber, TransactionInput, WitnessSet,
-};
+use amaru_kernel::{ExUnitPrices, ExUnits, HasExUnits, Lovelace, ProtocolParameters, RationalNumber, WitnessSet};
 use num::{BigUint, Zero};
 
 use crate::{
@@ -25,14 +22,6 @@ use crate::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
-    #[error("unknown collateral input at position {position}")]
-    UnknownCollateralInput { position: usize },
-
-    #[error(
-        "collateral return value {total_collateral_return} is greater than total collateral input {total_collateral_input}"
-    )]
-    CollateralReturnUnderflow { total_collateral_input: Lovelace, total_collateral_return: Lovelace },
-
     #[error("declared fee {provided} below minimum {minimum}")]
     FeeTooSmall { provided: Lovelace, minimum: Lovelace },
 }
@@ -45,43 +34,25 @@ pub enum InvalidFees {
 /// [`crate::rules::transaction::phase_one::inputs::execute`].
 ///
 /// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L89>
-#[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
     context: &mut C,
-    is_valid: bool,
     fees: Lovelace,
     tx_size: u64,
     witness_set: &WitnessSet,
     ref_scripts_size: u64,
     pp: &ProtocolParameters,
-    collateral: Option<&[TransactionInput]>,
-    collateral_return: Option<&MemoizedTransactionOutput>,
 ) -> Result<(), InvalidFees>
 where
     C: UtxoSlice + PotsSlice + BalanceSlice,
 {
     let minimum = compute_min_fee(tx_size, witness_set, ref_scripts_size, pp);
+
     if fees < minimum {
         return Err(InvalidFees::FeeTooSmall { provided: fees, minimum });
     }
 
-    let collateral_sum = collateral.unwrap_or(&[]).iter().enumerate().try_fold(0, |total, (position, input)| {
-        let output = context.lookup(input).ok_or(InvalidFees::UnknownCollateralInput { position })?;
-        Ok(total + output.lovelace())
-    })?;
-
-    let collateral_return = collateral_return.map(|o| o.lovelace()).unwrap_or_default();
-
-    let effective_collateral =
-        collateral_sum.checked_sub(collateral_return).ok_or(InvalidFees::CollateralReturnUnderflow {
-            total_collateral_input: collateral_sum,
-            total_collateral_return: collateral_return,
-        })?;
-
-    let actual_fees = if is_valid { fees } else { effective_collateral };
-
-    context.add_fees(actual_fees);
-    context.produce_lovelace(actual_fees);
+    context.add_fees(fees);
+    context.produce_lovelace(fees);
 
     Ok(())
 }
@@ -137,10 +108,7 @@ fn tier_ref_script_fee(size: u64, stride: u64, base_rate: &RationalNumber, multi
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, WitnessSet, include_cbor,
-        include_json, json,
-    };
+    use amaru_kernel::{PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, WitnessSet, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 
@@ -162,34 +130,18 @@ mod tests {
     }
 
     macro_rules! fixture {
-        ($hash:literal, $is_valid:expr) => {
+        ($hash:literal) => {
             (
                 fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
-                $is_valid,
-            )
-        };
-        ($hash:literal, $variant:literal, $is_valid:expr) => {
-            (
-                fixture_context!($hash, $variant),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
-                $is_valid,
+                amaru_kernel::include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                amaru_kernel::include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
             )
         };
     }
 
-    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", true); "Valid transaction")]
-    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-transaction", false); "Invalid transaction")]
-    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "collateral-underflow", false) =>
-        matches Err(InvalidFees::CollateralReturnUnderflow { total_collateral_input, total_collateral_return }) if total_collateral_input == 5000000 && total_collateral_return == 10000000;
-        "Collateral overflow")]
-    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-collateral", false) =>
-        matches Err(InvalidFees::UnknownCollateralInput { position }) if position == 0;
-        "Unresolved collateral")]
+    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f"); "Valid transaction")]
     fn fees(
-        (ctx, tx, expected_traces, is_valid): (AssertPreparationContext, TransactionBody, Vec<json::Value>, bool),
+        (ctx, tx, expected_traces): (AssertPreparationContext, TransactionBody, Vec<json::Value>),
     ) -> Result<(), InvalidFees> {
         let pp = zero_min_fee_pp();
         let witness_set = WitnessSet::default();
@@ -198,14 +150,11 @@ mod tests {
                 let mut validation_context = AssertValidationContext::from(ctx.clone());
                 super::execute(
                     &mut validation_context,
-                    is_valid,
                     tx.fee,
                     /* tx_size */ 0,
                     &witness_set,
                     /* ref_scripts_size */ 0,
                     &pp,
-                    tx.collateral.as_deref(),
-                    tx.collateral_return.as_ref(),
                 )
             },
             expected_traces,
