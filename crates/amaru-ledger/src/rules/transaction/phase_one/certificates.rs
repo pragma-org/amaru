@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use amaru_kernel::{
     Certificate, CertificatePointer, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, Hash, Lovelace,
     MemoizedDatum, Network, NonEmptySet, PoolId, PoolParams, ProtocolParameters, RedeemerTag, RequiredScript,
@@ -78,7 +80,6 @@ pub enum InvalidCertificates {
     DRepNotRegistered(StakeCredential),
 }
 
-#[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
     context: &mut C,
     network: Network,
@@ -87,7 +88,6 @@ pub(crate) fn execute<C>(
     governance_activity: GovernanceActivity,
     transaction: TransactionPointer,
     certificates: Option<NonEmptySet<Certificate>>,
-    is_valid: bool,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
@@ -102,14 +102,33 @@ where
                 governance_activity,
                 CertificatePointer { transaction, certificate_index },
                 certificate,
-                is_valid,
             )
         },
     )
 }
 
+/// A simplified version of `execute` which does not validate anything, but count deposits and
+/// refunds.
+pub(crate) fn count_lovelace<C>(
+    context: &mut C,
+    protocol_parameters: &ProtocolParameters,
+    certificates: Option<NonEmptySet<Certificate>>,
+) where
+    C: PoolsSlice + AccountsSlice + DRepsSlice + BalanceSlice,
+{
+    let mut pools = BTreeSet::new();
+    let mut accounts = BTreeMap::new();
+    let mut dreps = BTreeMap::new();
+
+    let mut delta: i64 = 0;
+    for certificate in certificates.map(|xs| xs.to_vec()).unwrap_or_default().into_iter() {
+        delta += count_lovelace_one(context, protocol_parameters, &mut pools, &mut accounts, &mut dreps, certificate);
+    }
+
+    if delta > 0 { context.produce_lovelace(delta as u64) } else { context.consume_lovelace(delta as u64) }
+}
+
 // FIXME: Perform all necessary rules validations down here.
-#[expect(clippy::too_many_arguments)]
 fn execute_one<C>(
     context: &mut C,
     network: Network,
@@ -118,7 +137,6 @@ fn execute_one<C>(
     governance_activity: GovernanceActivity,
     pointer: CertificatePointer,
     certificate: Certificate,
-    is_valid: bool,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
@@ -156,6 +174,7 @@ where
 
             let reward_account_network =
                 parse_reward_account(&reward_account).ok_or(InvalidCertificates::PoolMalformedRewardAccount)?.1;
+
             if reward_account_network != network {
                 return Err(InvalidCertificates::PoolWrongNetwork {
                     expected: network,
@@ -170,16 +189,15 @@ where
                 });
             }
 
+            // TODO: Have `register` return this information
             let is_new_pool = !context.exists(id);
 
             let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
 
-            if is_valid {
-                PoolsSlice::register(context, params, pointer);
+            PoolsSlice::register(context, params, pointer);
 
-                if is_new_pool {
-                    context.produce_lovelace(protocol_parameters.stake_pool_deposit);
-                }
+            if is_new_pool {
+                context.produce_lovelace(protocol_parameters.stake_pool_deposit);
             }
 
             Ok(())
@@ -203,27 +221,25 @@ where
                 });
             }
 
-            if is_valid {
-                PoolsSlice::retire(context, id, Epoch::from(epoch));
-            }
+            PoolsSlice::retire(context, id, Epoch::from(epoch));
 
             Ok(())
         }
 
         Certificate::StakeRegistration(credential) => {
-            if is_valid {
-                AccountsSlice::register(
-                    context,
-                    credential,
-                    AccountState {
-                        deposit: protocol_parameters.stake_credential_deposit,
-                        pool: None,
-                        drep: None,
-                        rewards: 0,
-                    },
-                )?;
-                context.produce_lovelace(protocol_parameters.stake_credential_deposit);
-            }
+            AccountsSlice::register(
+                context,
+                credential,
+                AccountState {
+                    deposit: protocol_parameters.stake_credential_deposit,
+                    pool: None,
+                    drep: None,
+                    rewards: 0,
+                },
+            )?;
+
+            context.produce_lovelace(protocol_parameters.stake_credential_deposit);
+
             Ok(())
         }
 
@@ -245,14 +261,9 @@ where
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: deposit, expected });
             }
 
-            if is_valid {
-                AccountsSlice::register(
-                    context,
-                    credential,
-                    AccountState { deposit, pool: None, drep: None, rewards: 0 },
-                )?;
-                context.produce_lovelace(deposit);
-            }
+            AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None, rewards: 0 })?;
+            context.produce_lovelace(deposit);
+
             Ok(())
         }
 
@@ -268,10 +279,9 @@ where
                 None => return Err(InvalidCertificates::StakeCredentialNotRegistered(credential)),
             };
 
-            if is_valid {
-                AccountsSlice::unregister(context, credential);
-                context.consume_lovelace(deposit);
-            }
+            AccountsSlice::unregister(context, credential);
+            context.consume_lovelace(deposit);
+
             Ok(())
         }
 
@@ -289,10 +299,9 @@ where
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: deposit });
             }
 
-            if is_valid {
-                AccountsSlice::unregister(context, credential);
-                context.consume_lovelace(refund);
-            }
+            AccountsSlice::unregister(context, credential);
+            context.consume_lovelace(refund);
+
             Ok(())
         }
 
@@ -302,9 +311,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
-            if is_valid {
-                context.delegate_pool(credential, pool, pointer)?;
-            }
+            context.delegate_pool(credential, pool, pointer)?;
 
             Ok(())
         }
@@ -324,15 +331,15 @@ where
                 + protocol_parameters.drep_expiry
                 - governance_activity.consecutive_dormant_epochs as u64;
 
-            if is_valid {
-                DRepsSlice::register(
-                    context,
-                    drep,
-                    DRepRegistration { deposit, registered_at: pointer, valid_until },
-                    Option::from(anchor),
-                )?;
-                context.produce_lovelace(deposit);
-            }
+            DRepsSlice::register(
+                context,
+                drep,
+                DRepRegistration { deposit, registered_at: pointer, valid_until },
+                Option::from(anchor),
+            )?;
+
+            context.produce_lovelace(deposit);
+
             Ok(())
         }
 
@@ -341,18 +348,19 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
+
             let deposit = match DRepsSlice::lookup(context, &drep) {
                 Some(registration) => registration.deposit,
                 None => return Err(InvalidCertificates::DRepNotRegistered(drep)),
             };
+
             if refund != deposit {
                 return Err(InvalidCertificates::IncorrectDRepDeposit { provided: refund, expected: deposit });
             }
 
-            if is_valid {
-                DRepsSlice::unregister(context, drep, refund, pointer);
-                context.consume_lovelace(refund);
-            }
+            DRepsSlice::unregister(context, drep, refund, pointer);
+            context.consume_lovelace(refund);
+
             Ok(())
         }
 
@@ -362,9 +370,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
-            if is_valid {
-                DRepsSlice::update(context, drep, Option::from(anchor))?;
-            }
+            DRepsSlice::update(context, drep, Option::from(anchor))?;
 
             Ok(())
         }
@@ -375,9 +381,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
-            if is_valid {
-                AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
-            }
+            AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
 
             Ok(())
         }
@@ -402,113 +406,121 @@ where
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                drep_deleg,
-                is_valid,
-            )?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                pool_deleg,
-                is_valid,
-            )
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                reg,
-                is_valid,
-            )?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                pool_deleg,
-                is_valid,
-            )
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                reg,
-                is_valid,
-            )?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                pool_deleg,
-                is_valid,
-            )?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                drep_deleg,
-                is_valid,
-            )
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                reg,
-                is_valid,
-            )?;
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(
-                context,
-                network,
-                protocol_parameters,
-                era_history,
-                governance_activity,
-                pointer,
-                drep_deleg,
-                is_valid,
-            )
+            execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
         }
+    }
+}
+
+// NOTE: The 'deposit' value inside certificates is not used here;
+//
+// since it will not be validated, we must use instead the value from the protocol
+// parameters.
+fn count_lovelace_one<C>(
+    context: &mut C,
+    protocol_parameters: &ProtocolParameters,
+    local_pools_slice: &mut BTreeSet<PoolId>,
+    local_accounts_slice: &mut BTreeMap<StakeCredential, Lovelace>,
+    local_dreps_slice: &mut BTreeMap<StakeCredential, Lovelace>,
+    certificate: Certificate,
+) -> i64
+where
+    C: PoolsSlice + AccountsSlice + DRepsSlice + BalanceSlice,
+{
+    use Certificate::*;
+
+    match certificate {
+        PoolRegistration { operator: id, .. } => {
+            // TODO: Have tests covering local state changes in certificate accounting
+            //
+            // See note below.
+            if !local_pools_slice.contains(&id) && !context.exists(id) {
+                local_pools_slice.insert(id);
+                protocol_parameters.stake_pool_deposit as i64
+            } else {
+                0
+            }
+        }
+
+        Reg(credential, ..)
+        | StakeRegistration(credential, ..)
+        | StakeRegDeleg(credential, ..)
+        | StakeVoteRegDeleg(credential, ..)
+        | VoteRegDeleg(credential, ..) => {
+            let deposit = protocol_parameters.stake_credential_deposit;
+            local_accounts_slice.insert(credential, deposit);
+            deposit as i64
+        }
+
+        StakeDeregistration(credential) | UnReg(credential, ..) => {
+            // TODO: Have tests covering local state changes in certificate accounting
+            //
+            // This is a subtle but, when counting lovelace for withdrawals, we don't modify the
+            // state directly, and so, we must manually account for deposits and refunds
+            // interactions within the transaction itself.
+            //
+            // Suppose for example that we have an account A registered with a deposit D1; and a
+            // transaction containing a de-registration for A, and a re-registration with deposit
+            // D2, and a de-registration again.
+            //
+            // In this scenario, we must count a refund for D1, and then for D2 which may be two
+            // different values. So we use these local slices to remember the local changes. Note
+            // that this is fully local to the transaction since we only use this accounting for
+            // collaterals.
+            let deposit = local_accounts_slice
+                .remove(&credential)
+                .or_else(|| AccountsSlice::lookup(context, &credential).map(|registration| registration.deposit))
+                .unwrap_or_default() as i64;
+            -deposit
+        }
+
+        RegDRepCert(credential, ..) => {
+            let deposit = protocol_parameters.drep_deposit;
+            local_dreps_slice.insert(credential, deposit);
+            deposit as i64
+        }
+
+        UnRegDRepCert(credential, ..) => {
+            // TODO: Have tests covering local stte changes in certificate accounting
+            //
+            // See note above.
+            let deposit = local_dreps_slice
+                .remove(&credential)
+                .or_else(|| DRepsSlice::lookup(context, &credential).map(|registration| registration.deposit))
+                .unwrap_or_default() as i64;
+            -deposit
+        }
+
+        PoolRetirement(..)
+        | StakeDelegation(..)
+        | UpdateDRepCert(..)
+        | VoteDeleg(..)
+        | AuthCommitteeHot(..)
+        | ResignCommitteeCold(..)
+        | StakeVoteDeleg(..) => 0,
     }
 }

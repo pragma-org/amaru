@@ -27,10 +27,12 @@ use crate::{
 pub enum InvalidFees {
     #[error("unknown collateral input at position {position}")]
     UnknownCollateralInput { position: usize },
+
     #[error(
-        "collateral return value {{total_collateral_return}} is greater than total collateral input {{total_collateral_input}}"
+        "collateral return value {total_collateral_return} is greater than total collateral input {total_collateral_input}"
     )]
-    CollateralReturnOverflow { total_collateral_input: u64, total_collateral_return: u64 },
+    CollateralReturnUnderflow { total_collateral_input: Lovelace, total_collateral_return: Lovelace },
+
     #[error("declared fee {provided} below minimum {minimum}")]
     FeeTooSmall { provided: Lovelace, minimum: Lovelace },
 }
@@ -63,27 +65,23 @@ where
         return Err(InvalidFees::FeeTooSmall { provided: fees, minimum });
     }
 
-    if is_valid {
-        context.add_fees(fees);
-        context.produce_lovelace(fees);
-        return Ok(());
-    }
-
-    let total_collateral = collateral.unwrap_or(&[]).iter().enumerate().try_fold(0, |total, (position, input)| {
+    let collateral_sum = collateral.unwrap_or(&[]).iter().enumerate().try_fold(0, |total, (position, input)| {
         let output = context.lookup(input).ok_or(InvalidFees::UnknownCollateralInput { position })?;
-
         Ok(total + output.lovelace())
     })?;
 
     let collateral_return = collateral_return.map(|o| o.lovelace()).unwrap_or_default();
 
-    if total_collateral < collateral_return {
-        return Err(InvalidFees::CollateralReturnOverflow {
-            total_collateral_input: total_collateral,
+    let effective_collateral =
+        collateral_sum.checked_sub(collateral_return).ok_or(InvalidFees::CollateralReturnUnderflow {
+            total_collateral_input: collateral_sum,
             total_collateral_return: collateral_return,
-        });
-    }
-    context.add_fees(total_collateral - collateral_return);
+        })?;
+
+    let actual_fees = if is_valid { fees } else { effective_collateral };
+
+    context.add_fees(actual_fees);
+    context.produce_lovelace(actual_fees);
 
     Ok(())
 }
@@ -185,7 +183,7 @@ mod tests {
     #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", true); "Valid transaction")]
     #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-transaction", false); "Invalid transaction")]
     #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "collateral-underflow", false) =>
-        matches Err(InvalidFees::CollateralReturnOverflow { total_collateral_input, total_collateral_return }) if total_collateral_input == 5000000 && total_collateral_return == 10000000;
+        matches Err(InvalidFees::CollateralReturnUnderflow { total_collateral_input, total_collateral_return }) if total_collateral_input == 5000000 && total_collateral_return == 10000000;
         "Collateral overflow")]
     #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-collateral", false) =>
         matches Err(InvalidFees::UnknownCollateralInput { position }) if position == 0;

@@ -221,7 +221,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::RefScriptSizeTooBig { .. }) => Predicate::ConwayTxRefScriptsSizeTooBig,
             PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
             PhaseOneError::Fees(InvalidFees::UnknownCollateralInput { .. }) => Predicate::BadInputsUTxO,
-            PhaseOneError::Fees(InvalidFees::CollateralReturnOverflow { .. }) => Predicate::InsufficientCollateral,
+            PhaseOneError::Fees(InvalidFees::CollateralReturnUnderflow { .. }) => Predicate::InsufficientCollateral,
             PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {

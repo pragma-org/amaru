@@ -145,16 +145,21 @@ where
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
-    certificates::execute(
-        context,
-        network,
-        protocol_parameters,
-        era_history,
-        governance_activity,
-        pointer,
-        mem::take(&mut transaction_body.certificates),
-        is_valid,
-    )?;
+    if transaction_witness_set.redeemer.is_some() {
+        // TODO: The 'collateral' rule group shouldn't exist
+        //
+        // This is a mix of witness and fees; and instead of duplicating the collateral traversing
+        // logic in both, we should augment fees and witness handling to also account for
+        // collaterals.
+        collateral::execute(
+            context,
+            transaction_body.collateral.as_deref(),
+            transaction_body.collateral_return.as_ref(),
+            transaction_body.total_collateral,
+            transaction_body.fee,
+            protocol_parameters,
+        )?;
+    }
 
     let ref_scripts_size = inputs::execute(
         context,
@@ -174,17 +179,6 @@ where
         transaction_body.collateral.as_deref(),
         transaction_body.collateral_return.as_ref(),
     )?;
-
-    if transaction_witness_set.redeemer.is_some() {
-        collateral::execute(
-            context,
-            transaction_body.collateral.as_deref(),
-            transaction_body.collateral_return.as_ref(),
-            transaction_body.total_collateral,
-            transaction_body.fee,
-            protocol_parameters,
-        )?;
-    }
 
     mint::execute(context, transaction_body.mint.as_ref());
 
@@ -231,17 +225,44 @@ where
         is_valid,
     )?;
 
-    proposals::execute(
-        context,
-        network,
-        protocol_parameters,
-        era_history,
-        (transaction_id, pointer),
-        mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-        is_valid,
-    )?;
+    // NOTE: Following validations (and state changes) are entirely skipped on invalid transactions
+    //
+    // For invalid transactions, we only count the deposits and refunds necessary for value
+    // preservation which happens also in the case of invalid transactions.
+    if is_valid {
+        certificates::execute(
+            context,
+            network,
+            protocol_parameters,
+            era_history,
+            governance_activity,
+            pointer,
+            mem::take(&mut transaction_body.certificates),
+        )?;
 
-    voting_procedures::execute(context, mem::take(&mut transaction_body.votes), is_valid);
+        proposals::execute(
+            context,
+            network,
+            protocol_parameters,
+            era_history,
+            (transaction_id, pointer),
+            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+        )?;
+
+        voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
+    } else {
+        certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates));
+        proposals::count_lovelace(
+            context,
+            protocol_parameters,
+            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+        );
+    }
+
+    if let Some(donation) = transaction_body.donation.map(u64::from) {
+        context.produce_lovelace(donation);
+        context.add_donation(donation);
+    }
 
     vkey_witness::execute(
         context,
@@ -258,25 +279,13 @@ where
         transaction_body.script_data_hash,
     )?;
 
-    if is_valid && let Some(donation) = transaction_body.donation {
-        context.produce_lovelace(donation.into());
-    }
-    // NOTE: Value preservation
-    //
-    // In the case of a valid transaction, the balance must be zero.
-    // However, when the transaction is invalid, this check is skipped. That is because
-    // the `CollateralReturnOverflow` logic enforces value preservation for collateral return.
     let transaction_balance = context.balance();
-    if is_valid && !transaction_balance.is_zero() {
+    if !transaction_balance.is_zero() {
         return Err(PhaseOneError::ValueNotPreserved(transaction_balance));
     }
 
     // At last, consume inputs
     let consumed_inputs = if is_valid {
-        if let Some(donation) = transaction_body.donation {
-            context.add_donation(u64::from(donation));
-        }
-
         transaction_body.inputs.to_vec()
     } else {
         transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
