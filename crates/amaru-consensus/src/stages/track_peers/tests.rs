@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::slice;
+use std::{slice, time::Duration};
 
 use amaru_kernel::{BlockHeight, Epoch, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
 use amaru_ouroboros::praos::header::AssertHeaderError;
@@ -20,19 +20,23 @@ use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
 };
-use amaru_pure_stage::{assert_trace_does_not_contain, simulation::running::OverrideResult, tm_send};
+use amaru_pure_stage::{
+    assert_trace_contains, assert_trace_does_not_contain, assert_trace_match, simulation::running::OverrideResult,
+    tm_send, trace_match::tm_clock,
+};
 use tracing::Level;
 
 use crate::{
     effects::ValidateHeaderEffect,
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{assert_trace, te_input, te_send, te_state},
+        test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
         track_peers::{
-            TrackPeersMsg,
+            TrackPeers, TrackPeersMsg,
             test_setup::{
                 build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_has_header, te_load_tip,
-                te_store_header, te_validate_header, test_prep, test_prep_with_security_param,
+                te_store_header, te_validate_header, test_prep, test_prep_with_security_param, tm_store_header,
+                tm_volatile_tip,
             },
         },
     },
@@ -556,15 +560,16 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
         Level::WARN,
         Level::ERROR,
     ]);
-    assert_trace(
+    assert_trace_match(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_validate_header("tp-1", header.clone()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
-            te_state("tp-1", &expected),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_validate_header("tp-1", header.clone()).into(),
+            tm_volatile_tip("tp-1"),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_state("tp-1", &expected).into(),
         ],
     );
 }
@@ -706,6 +711,15 @@ fn test_roll_forward_defers_request_next() {
         Level::WARN,
         Level::INFO,
     ]);
+
+    assert_trace_contains(
+        &running,
+        &[
+            tm_store_header("tp-1"),
+            tm_state::<TrackPeers>("tp-1", |state| state.deferred.len() == 1, ""),
+            tm_clock(Duration::from_millis(200)),
+        ],
+    );
 
     // The handler must *not* have received an immediate RequestNext (that is the whole point of deferring).
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);

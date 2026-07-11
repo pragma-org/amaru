@@ -40,7 +40,7 @@ use crate::{
     },
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{Logs, run_simulation},
+        test_utils::{Logs, TraceMatch, run_simulation, tm_external_effect},
     },
 };
 
@@ -108,6 +108,14 @@ pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
 
 pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
+}
+
+pub fn tm_store_header(at_stage: &str) -> TraceMatch<'_> {
+    tm_external_effect::<StoreHeaderEffect>(at_stage)
+}
+
+pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
+    tm_external_effect::<VolatileTipEffect>(at_stage)
 }
 
 fn register_guards() -> DeserializerGuards {

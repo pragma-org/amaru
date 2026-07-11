@@ -151,9 +151,12 @@ pub fn tm_state<'a, T: SendData>(
     property: &'a str,
 ) -> TraceMatch<'a> {
     TraceMatch::Property(
-        Box::new(
-            move |e| matches!(e, TraceEntry::State { stage, state } if stage.as_str() == at_stage && state.cast_ref::<T>().is_ok_and(&prop)),
-        ),
+        Box::new(move |e| {
+            let TraceEntry::State { stage, state } = e else {
+                return false;
+            };
+            stage.as_str() == at_stage && state.cast_ref::<T>().is_ok_and(&prop)
+        }),
         format!("state at {} of type {} with {}", at_stage, type_name::<T>(), property),
     )
 }
@@ -246,3 +249,5 @@ where
 
 // Re-export TraceMatch (the type) so stage test_setup modules can use it without reaching into amaru_pure_stage.
 pub use amaru_pure_stage::TraceMatch;
+// Re-export the external effect matchers for convenient use in stage tests.
+pub use amaru_pure_stage::{tm_external_effect, tm_external_effect_match};
