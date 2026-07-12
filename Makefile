@@ -122,7 +122,7 @@ serve-traces-doc: generate-traces-doc ## &build Regenerate traces docs and serve
 	@python3 -m http.server $(TRACES_PORT) --directory docs
 
 validate-trace-schemas: ## &test Validate generated trace schemas against docs/traces-schema.json
-	@cargo run --quiet --bin amaru -- dump-traces-schema 2> /tmp/schemas-current.json
+	@cargo run --quiet --profile $(BUILD_PROFILE) --bin amaru -- dump-traces-schema 2> /tmp/schemas-current.json
 	@./scripts/unused-schemas
 	@set -eu; \
 	jq -S 'walk(if type == "object" then del(.private) else . end)' docs/traces-schema.json > /tmp/expected.json; \
@@ -204,10 +204,6 @@ ledger-conformance-known-failures: ## &test Update the set of 'known conformance
 	@export AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH=$$(mktemp); \
 	cargo test -p amaru-ledger --test evaluate_ledger_states -- --test-threads=1; \
 	mv "$$AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH" "./crates/amaru-ledger/tests/data/rules-conformance.failures.toml"
-
-generate-test-snapshots: ## &test Generate test snapshots for test-e2e
-	@npm --prefix conformance-tests run generate-all -- "$(AMARU_NETWORK)"
-	@./scripts/generate-snapshot-test-cases
 
 regenerate-cbor-fixtures: ## &test Regenerate cuddle/antigen CBOR fixtures (requires GHC + cabal)
 	@./scripts/regenerate-cbor-fixtures

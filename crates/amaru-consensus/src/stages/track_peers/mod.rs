@@ -56,8 +56,7 @@ pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + 
 ///
 /// # Construction
 /// - Created via [`TrackPeers::new`] with an `EraHistory`, `StageRef`s for peer_selection and
-///   downstream, and the `consensus_security_parameter` (k-like value).
-///   (height deferral uses self-scheduled messages; no child stage)
+///   downstream, the maximum tolerated slot forecast, and `defer_req_next_poll_ms`.
 ///
 /// # Message Handling (TrackPeersMsg)
 ///
@@ -80,8 +79,8 @@ pub(super) async fn ledger_applied_block_height<T: amaru_pure_stage::SendData + 
 ///
 ///   - `RollForward(header_content, tip)`: TRACE log. Decodes via `decode_header` (only Conway
 ///     supported; errors → ERROR + remove + `peer_selection` ← `Adversarial` + return).
-///     Computes `min_ledger_height = header.block_height() - consensus_security_parameter`.
-///     Conditionally refreshes cached `ledger_applied_block_height` (via helper +
+///     Computes `min_ledger_slot = header.slot() - max_forecast`.
+///     Conditionally refreshes cached `ledger_applied_slot` (via helper +
 ///     `eff.clock()`, rate-limited to 5s or initial, mod.rs:316-322; uses `VolatileTipEffect`).
 ///     Chooses whether to defer next based on height vs applied, may skip early RequestNext, calls execute.
 ///
@@ -119,7 +118,7 @@ pub struct TrackPeers {
     upstream: BTreeMap<Peer, PerPeer>,
     peer_selection: StageRef<PeerSelectionMsg>,
     downstream: StageRef<(Tip, Point)>,
-    consensus_security_parameter: u64,
+    max_peer_lead: u64,
     ledger_applied_block_height: BlockHeight,
     ledger_last_checked_at: Instant,
     /// Headers whose validation was deferred (due to ledger height or missing stake distribution).
@@ -192,14 +191,14 @@ impl TrackPeers {
         era_history: EraHistory,
         peer_selection: StageRef<PeerSelectionMsg>,
         downstream: StageRef<(Tip, Point)>,
-        consensus_security_parameter: u64,
+        max_peer_lead: u64,
     ) -> Self {
         Self {
             era_history,
             upstream: BTreeMap::new(),
             peer_selection,
             downstream,
-            consensus_security_parameter,
+            max_peer_lead,
             deferred: Vec::new(),
             ledger_applied_block_height: BlockHeight::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::from_secs(0)),
@@ -537,7 +536,7 @@ impl TrackPeers {
                     }
                 };
 
-                let min_ledger_height = header.block_height() - self.consensus_security_parameter;
+                let min_ledger_height = header.block_height() - self.max_peer_lead;
                 if min_ledger_height > self.ledger_applied_block_height
                     && let now = eff.clock().await
                     && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_secs(5)

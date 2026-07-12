@@ -100,6 +100,7 @@ pub struct VolatileFragment {
     pub proposals: BTreeMap<ComparableProposalId, Arc<(Proposal, ProposalPointer)>>,
     pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
+    pub donations: Lovelace,
 }
 
 impl VolatileFragment {
@@ -198,6 +199,7 @@ impl VolatileFragment {
             withdrawals,
             proposals,
             fees,
+            donations,
             accounts: _,
             committee: _,
             dreps: _,
@@ -218,6 +220,7 @@ impl VolatileFragment {
         }
 
         self.fees -= *fees;
+        self.donations -= *donations;
     }
 
     /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.
@@ -230,6 +233,7 @@ impl VolatileFragment {
             withdrawals,
             proposals,
             fees,
+            donations,
             accounts,
             dreps,
             dreps_deregistrations,
@@ -246,6 +250,7 @@ impl VolatileFragment {
         self.dreps_deregistrations.extend(dreps_deregistrations.iter().map(|(k, v)| (k.clone(), *v)));
         self.committee.extend(committee);
         self.fees += *fees;
+        self.donations += *donations;
     }
 }
 
@@ -312,6 +317,7 @@ impl AnchoredVolatileFragment {
                     proposals,
                     votes,
                     fees,
+                    donations,
                 },
             anchor: (tip, issuer),
         } = self;
@@ -320,6 +326,7 @@ impl AnchoredVolatileFragment {
             point: tip.point(),
             issuer,
             fees,
+            donations,
             withdrawals: withdrawals.into_iter(),
             add: store::Columns {
                 utxo: utxo.produced.into_iter().map(|(input, output)| (input, Arc::unwrap_or_clone(output))),
@@ -365,6 +372,7 @@ pub struct StoreUpdate<W, A, R> {
     pub point: Point,
     pub issuer: PoolId,
     pub fees: Lovelace,
+    pub donations: Lovelace,
     pub withdrawals: W,
     pub add: A,
     pub remove: R,

@@ -1,4 +1,4 @@
-name: Nightly Sync
+name: Nightly Synchronization
 
 on:
   schedule:
@@ -27,8 +27,8 @@ jobs:
       AWS_DEFAULT_REGION: auto
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network }}.tar.zstd"
-      OGMIOS_VERSION: v6.14.0
-      CARDANO_NODE_VERSION: 10.5.3
+      OGMIOS_VERSION: v7.0.0
+      CARDANO_NODE_VERSION: 11.0.1
 
     steps:
       - name: 📥 Download R2 Object

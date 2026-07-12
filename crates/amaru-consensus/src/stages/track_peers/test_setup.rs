@@ -73,16 +73,16 @@ impl TestPrep {
 
 /// Creates basic state, runtime, handler, conn_id, and three properly linked headers for tests.
 pub fn test_prep() -> TestPrep {
-    test_prep_with_security_param(10_000_000)
+    test_prep_with_max_peer_lead(10_000_000)
 }
 
-/// Creates a `TestPrep` with a configurable consensus security parameter (for testing defer logic).
-pub fn test_prep_with_security_param(security_param: u64) -> TestPrep {
+/// Creates a `TestPrep` with a configurable slot forecast limit (for testing defer logic).
+pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
     let state = TrackPeers::new(
         EraHistory::default(),
         StageRef::named_for_tests("peer_selection"),
         StageRef::named_for_tests("downstream"),
-        security_param,
+        max_peer_lead,
     );
     let rt = Builder::new_current_thread().build().unwrap();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");

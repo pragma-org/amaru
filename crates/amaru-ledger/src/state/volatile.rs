@@ -69,6 +69,7 @@ pub trait VolatileSequence {
     fn has_point(&self, point: &Point) -> bool;
 
     fn iter(&self) -> impl Iterator<Item = &Self::Item>;
+    fn into_iter(self) -> impl Iterator<Item = Self::Item>;
 
     fn pop_front(&mut self) -> Option<Self::Item>;
     fn push_back(&mut self, item: Self::Item);

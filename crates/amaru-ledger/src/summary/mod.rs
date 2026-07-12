@@ -14,17 +14,16 @@
 
 use std::ops::Deref;
 
-use amaru_kernel::pool_metadata;
+use ::serde::ser::SerializeStruct;
+use amaru_kernel::{
+    CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, pool_metadata, relay,
+};
+use num::{BigUint, rational::Ratio};
+
 pub mod governance;
 pub mod rewards;
 pub mod serde;
 pub mod stake_distribution;
-
-use ::serde::ser::SerializeStruct;
-use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, relay};
-use num::{BigUint, rational::Ratio};
-
-use crate::store::columns::*;
 
 // ---------------------------------------------------------------- AccountState
 
@@ -80,9 +79,12 @@ impl ::serde::Serialize for PoolState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("PoolState", 10)?;
 
+        // Force reduction of the numerator and denominator
+        let r = Ratio::new(self.parameters.margin.numerator, self.parameters.margin.denominator);
+
         s.serialize_field("blocks_count", &self.blocks_count)?;
         s.serialize_field("cost", &self.parameters.cost)?;
-        s.serialize_field("margin", &[self.parameters.margin.numerator, self.parameters.margin.denominator])?;
+        s.serialize_field("margin", &[r.numer(), r.denom()])?;
         s.serialize_field(
             "metadata",
             &pool_metadata::as_option_ref(&self.parameters.metadata).map(pool_metadata::AsJson),
@@ -99,34 +101,6 @@ impl ::serde::Serialize for PoolState {
     }
 }
 
-// ------------------------------------------------------------------------ Pots
-
-#[derive(Debug)]
-pub struct Pots {
-    /// Value, in Lovelace, of the treasury at a given epoch.
-    pub treasury: Lovelace,
-    /// Value, in Lovelace, of the reserves at a given epoch.
-    pub reserves: Lovelace,
-    /// Values, in Lovelace, generated from fees during an epoch.
-    pub fees: Lovelace,
-}
-
-impl From<&pots::Row> for Pots {
-    fn from(pots: &pots::Row) -> Pots {
-        Pots { treasury: pots.treasury, reserves: pots.reserves, fees: pots.fees }
-    }
-}
-
-impl ::serde::Serialize for Pots {
-    fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("Pots", 3)?;
-        s.serialize_field("treasury", &self.treasury)?;
-        s.serialize_field("reserves", &self.reserves)?;
-        s.serialize_field("fees", &self.fees)?;
-        s.end()
-    }
-}
-
 // ------------------------------------------------------------------- SafeRatio
 
 pub type SafeRatio = Ratio<BigUint>;
@@ -139,6 +113,7 @@ pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
     SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
 }
 
-fn serialize_safe_ratio(r: &SafeRatio) -> String {
-    format!("{}/{}", r.numer(), r.denom())
+pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
+    Lovelace::try_from(n.floor().to_integer())
+        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
 }

@@ -121,18 +121,17 @@ use tracing::info;
 
 use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
-    store::{Snapshot, StoreError},
+    store::{Snapshot, StoreError, columns::pots::Row as Pots},
     summary::{
-        AccountState, PoolState, Pots, SafeRatio, safe_ratio, serde::serialize_map, serialize_safe_ratio,
-        stake_distribution::StakeDistribution,
+        AccountState, PoolState, SafeRatio, floor_to_lovelace, safe_ratio, stake_distribution::StakeDistribution,
     },
 };
 
 const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 
 impl PoolState {
-    pub fn relative_stake(&self, total_stake: Lovelace) -> LovelaceRatio {
-        lovelace_ratio(self.stake, total_stake)
+    pub fn relative_stake(&self, total_stake: Lovelace) -> SafeRatio {
+        safe_ratio(self.stake, total_stake)
     }
 
     pub fn owner_stake(&self, accounts: &BTreeMap<StakeCredential, AccountState>) -> Lovelace {
@@ -172,7 +171,7 @@ impl PoolState {
 
         let z0 = safe_ratio(1, protocol_parameters.optimal_stake_pools_count as u64);
 
-        let relative_pledge = lovelace_ratio(self.parameters.pledge, total_stake);
+        let relative_pledge = safe_ratio(self.parameters.pledge, total_stake);
         let relative_stake = self.relative_stake(total_stake);
 
         let r = SafeRatio::from_integer(BigUint::from(available_rewards));
@@ -232,7 +231,7 @@ impl PoolState {
             let relative_stake = self.relative_stake(total_stake);
 
             let owner_stake_ratio =
-                if total_stake.is_zero() { LovelaceRatio::zero() } else { lovelace_ratio(owner_stake, total_stake) };
+                if total_stake.is_zero() { SafeRatio::zero() } else { safe_ratio(owner_stake, total_stake) };
 
             // m + (1 - m) × s / σ
             let margin_factor: SafeRatio =
@@ -275,7 +274,7 @@ impl PoolState {
             if pool_rewards <= cost {
                 0
             } else {
-                let member_relative_stake = lovelace_ratio(member_stake, total_stake);
+                let member_relative_stake = safe_ratio(member_stake, total_stake);
 
                 // ⌊ (1 - m) × (R_pool - c) × t / σ ⌋
                 floor_to_lovelace(
@@ -310,20 +309,10 @@ pub struct RewardsSummary {
     /// following epoch.
     epoch: Epoch,
 
-    /// The ratio of total blocks produced in the epoch, over the expected number of blocks
-    /// (determined by protocol parameters).
-    efficiency: SafeRatio,
-
     /// The amount of Ada taken out of the reserves as incentivies at this particular epoch
     /// (a.k.a ΔR1).
     /// It is so-to-speak, the monetary inflation of the network that fuels the incentives.
     incentives: Lovelace,
-
-    /// Total amount of rewards available before the treasury tax.
-    /// In particular, we have:
-    ///
-    ///   total_rewards = treasury_tax + available_rewards
-    total_rewards: Lovelace,
 
     /// Portion of the rewards going to the treasury (irrespective of unallocated pool rewards).
     treasury_tax: Lovelace,
@@ -338,27 +327,8 @@ pub struct RewardsSummary {
     /// Various protocol money pots pertaining to the epoch at the beginning of the rewards calculation.
     pots: Pots,
 
-    /// Per-pool rewards determined from their (apparent) performances, available rewards and
-    /// relative stake.
-    pools: BTreeMap<PoolId, PoolRewards>,
-
     /// Per-account rewards, determined from their relative stake and their delegatee.
     accounts: BTreeMap<StakeCredential, Lovelace>,
-}
-
-impl serde::Serialize for RewardsSummary {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("RewardsSummary", 8)?;
-        s.serialize_field("epoch", &self.epoch)?;
-        s.serialize_field("efficiency", &serialize_safe_ratio(&self.efficiency))?;
-        s.serialize_field("incentives", &self.incentives)?;
-        s.serialize_field("total_rewards", &self.total_rewards)?;
-        s.serialize_field("treasury_tax", &self.treasury_tax)?;
-        s.serialize_field("available_rewards", &self.available_rewards)?;
-        s.serialize_field("pots", &self.pots)?;
-        serialize_map("pools", &mut s, &self.pools, |id| hex::encode(id))?;
-        s.end()
-    }
 }
 
 impl RewardsSummary {
@@ -444,7 +414,6 @@ impl RewardsSummary {
 
         info!(
             target: EVENT_TARGET,
-            epoch = %stake_distribution.epoch,
             %efficiency,
             %incentives,
             %treasury_tax,
@@ -459,14 +428,11 @@ impl RewardsSummary {
 
         Ok(RewardsSummary {
             epoch: stake_distribution.epoch,
-            efficiency,
             incentives,
-            total_rewards,
             treasury_tax,
             available_rewards,
             effective_rewards,
             pots,
-            pools,
             accounts,
         })
     }
@@ -594,17 +560,4 @@ impl From<RewardsSummary> for Rewards<Computed> {
     fn from(summary: RewardsSummary) -> Self {
         Rewards::<Computed>::new(summary.delta_reserves(), summary.delta_treasury(), summary.accounts)
     }
-}
-
-// -------------------------------------------------------------------- Internal
-
-type LovelaceRatio = SafeRatio;
-
-fn floor_to_lovelace(n: LovelaceRatio) -> Lovelace {
-    Lovelace::try_from(n.floor().to_integer())
-        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
-}
-
-fn lovelace_ratio(numerator: Lovelace, denominator: Lovelace) -> LovelaceRatio {
-    LovelaceRatio::new(BigUint::from(numerator), BigUint::from(denominator))
 }

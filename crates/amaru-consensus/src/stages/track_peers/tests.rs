@@ -43,7 +43,7 @@ use crate::{
             test_setup::{
                 build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_clock_suspend,
                 te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
-                test_prep_with_security_param, tm_store_header, tm_volatile_tip,
+                test_prep_with_max_peer_lead, tm_store_header, tm_volatile_tip,
             },
         },
     },
@@ -775,7 +775,7 @@ fn test_roll_backward_unknown_point_removes_peer() {
 #[test]
 fn test_roll_forward_defers_request_next() {
     // Use security_param = 0 so any header taller than the known ledger height triggers defer.
-    let prep = test_prep_with_security_param(0);
+    let prep = test_prep_with_max_peer_lead(0);
     let peer = Peer::new("peer1");
     let header = prep.headers[0].clone();
     let tip = header.tip();
@@ -817,7 +817,7 @@ fn test_roll_forward_defers_request_next() {
 
 #[test]
 fn test_pipelined_headers_after_height_defer() {
-    let prep = test_prep_with_security_param(0);
+    let prep = test_prep_with_max_peer_lead(0);
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
     let h1 = prep.headers[1].clone();

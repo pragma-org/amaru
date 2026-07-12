@@ -1,4 +1,4 @@
-name: Continuous Integration
+name: CI Build and Test
 
 on:
   workflow_dispatch:
@@ -102,6 +102,8 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     env:
       CARGO_TERM_COLOR: always
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v6
         with:
@@ -145,6 +147,9 @@ jobs:
     name: Bench
     needs: [build-linux-x86_64]
     runs-on: ubuntu-24.04
+    env:
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache
@@ -156,6 +161,10 @@ jobs:
     name: Test trace schemas & documentation
     needs: [build-linux-x86_64]
     runs-on: ubuntu-24.04
+    env:
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+      BUILD_PROFILE: test
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache

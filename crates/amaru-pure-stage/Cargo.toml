@@ -36,8 +36,11 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 typetag.workspace = true
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [package.metadata.cargo-machete]
-ignored = ["getrandom"]
+ignored = ["getrandom", "amaru-deps"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "time", "rt-multi-thread"] }

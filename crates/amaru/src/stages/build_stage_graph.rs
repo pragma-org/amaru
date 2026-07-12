@@ -94,6 +94,10 @@ pub fn build_stage_graph(
     let block_source_sender = block_source_stage.sender();
 
     let k = global_parameters.consensus_security_param;
+    // `track_peers` can safely look ahead by at most 4*k/f slots: one stability window for the
+    // previous epoch stake distribution to become due, plus one more window to observe a block
+    // that advances the ledger clock far enough to compute it.
+    let max_forecast = global_parameters.randomness_stabilization_window();
 
     // Wire mempool (from main) — kept for its own use even if not passed to adopt_chain in this resolution
     let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
@@ -150,8 +154,10 @@ pub fn build_stage_graph(
     let select_chain_input = stage_graph
         .contramap(select_chain, "select_chain_input", |(tip, parent)| SelectChainMsg::TipFromUpstream(tip, parent));
 
-    let track_peers_wired = stage_graph
-        .wire_up(track_peers, TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, k));
+    let track_peers_wired = stage_graph.wire_up(
+        track_peers,
+        TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, max_forecast),
+    );
     let track_peers_stake_dist_sender = stage_graph.input(&track_peers_wired);
     let track_peers_input = stage_graph.contramap(track_peers_wired, "track_peers_input", TrackPeersMsg::FromUpstream);
 

@@ -20,6 +20,7 @@ pub mod dreps;
 pub mod pools;
 pub mod pots;
 pub mod proposals;
+pub mod recently_pruned_proposals;
 pub mod slots;
 pub mod utxo;
 pub mod votes;

@@ -141,6 +141,10 @@ impl VolatileSequence for VolatileSeries {
         self.sequence.iter()
     }
 
+    fn into_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.sequence.into_iter()
+    }
+
     fn pop_front(&mut self) -> Option<Self::Item> {
         let popped = self.sequence.pop_front()?;
         if self.forced_recompute_in == 0 {

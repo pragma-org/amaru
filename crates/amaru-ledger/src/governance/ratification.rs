@@ -12,14 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    rc::Rc,
-};
+use std::{collections::BTreeMap, rc::Rc};
 
 use amaru_kernel::{
     Ballot, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
-    PoolId, ProtocolParameters, StakeCredential, Vote, Voter,
+    PoolId, ProtocolParameters, RatificationStatus, StakeCredential, Vote, Voter,
 };
 use amaru_observability::info_span;
 use num::Zero;
@@ -64,7 +61,7 @@ pub struct RatificationContext<'distr> {
     pub protocol_parameters: ProtocolParameters,
 
     /// All proposals that have been pruned due to ratification or conflict.
-    pub pruned_proposals: BTreeSet<Rc<ComparableProposalId>>,
+    pub pruned_proposals: BTreeMap<Rc<ComparableProposalId>, RatificationStatus>,
 
     /// Enacted withdrawals during this round of ratification.
     pub withdrawals: BTreeMap<StakeCredential, Lovelace>,
@@ -139,16 +136,11 @@ impl<'distr> RatificationContext<'distr> {
             span.record("votes", votes_count);
 
             Ok(RatificationContext {
-                // Ratification happens with one epoch of delay, and at the next epoch transition. So,
-                // if we ratify votes that happened in epoch `e`, the ratification is done during the
-                // transition from `e + 1` to `e + 2`; but it is done "as if" it was happening at the
-                // beginning of epoch `e + 1`. So, the epoch we consider for DRep mandates and proposal
-                // expiry is the one from after the snapshot.
                 epoch,
                 treasury,
                 stake_distribution,
                 protocol_parameters,
-                pruned_proposals: BTreeSet::new(),
+                pruned_proposals: BTreeMap::new(),
                 withdrawals: BTreeMap::new(),
                 constitutional_committee,
                 constitutional_committee_update: None,
@@ -236,7 +228,7 @@ impl<'distr> RatificationContext<'distr> {
 
             Span::current().record(
                 "pruned_relatives",
-                now_obsolete.iter().map(|id| id.to_compact_string()).collect::<Vec<_>>().join(", "),
+                now_obsolete.keys().map(|id| id.to_compact_string()).collect::<Vec<_>>().join(", "),
             );
 
             self.pruned_proposals.append(&mut now_obsolete);

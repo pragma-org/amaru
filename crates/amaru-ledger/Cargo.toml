@@ -27,6 +27,7 @@ async-trait.workspace = true
 hex.workspace = true
 num.workspace = true
 proptest = { workspace = true, optional = true }
+rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -40,6 +41,9 @@ amaru-ouroboros-traits.workspace = true
 amaru-plutus.workspace = true
 amaru-progress-bar.workspace = true
 amaru-uplc.workspace = true
+
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -63,3 +67,6 @@ num = { workspace = true, default-features = false, features = [
   "alloc",
   "libm",
 ] }
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]

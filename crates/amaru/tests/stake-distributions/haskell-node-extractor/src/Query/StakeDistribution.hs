@@ -1,4 +1,6 @@
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Query.StakeDistribution
     ( queryStakeDistribution
@@ -24,7 +26,7 @@ import Cardano.Ledger.BaseTypes
     , NonZero (unNonZero)
     )
 import Cardano.Ledger.Shelley.LedgerState
-    ( NewEpochState
+    ( NewEpochState (..)
     , applyRUpd
     , completeRupd
     , esLStateL
@@ -41,6 +43,7 @@ import Cardano.Ledger.State
         ( accountsMapL
         )
     , EraCertState (certDStateL)
+    , EraGov
     , EraStake (instantStakeCredentialsL)
     )
 import Data.Coin
@@ -79,7 +82,7 @@ queryStakeDistribution
     -> NewEpochState ConwayEra
     -> NewEpochState ConwayEra
     -> StakeDistribution
-queryStakeDistribution network epochNumber targetEpochState nextEpochState =
+queryStakeDistribution network epochNumber (withRewards -> targetEpochState) nextEpochState =
     StakeDistribution
         { epoch = epochNumber
         , treasury = JsonCoin treasury
@@ -117,28 +120,28 @@ queryStakeDistribution network epochNumber targetEpochState nextEpochState =
         queryDRepStakeDistr nextEpochState Set.empty
 
     accountSummaries =
-        Map.mapWithKey (mkAccountSummary instantStake dRepDelegatees) accountsMap
+        Map.mapWithKey
+            (mkAccountSummary instantStake dRepDelegatees)
+            (targetEpochState ^. nesEsL . esLStateL . lsCertStateL . certDStateL . accountsL . accountsMapL)
+      where
+        instantStake =
+            targetEpochState ^. instantStakeL . instantStakeCredentialsL
 
-    accountsMap =
-        epochStateForAccounts ^. esLStateL . lsCertStateL . certDStateL . accountsL . accountsMapL
+        dRepDelegatees =
+            Map.fromList
+                [ (credential, drep)
+                | (drep, delegators) <- Map.toAscList (queryDRepDelegations targetEpochState Set.empty)
+                , credential <- Set.toAscList delegators
+                ]
 
-    instantStake =
-        targetEpochState ^. instantStakeL . instantStakeCredentialsL
-
-    dRepDelegatees =
-        Map.fromList
-            [ (credential, drep)
-            | (drep, delegators) <- Map.toAscList (queryDRepDelegations targetEpochState Set.empty)
-            , credential <- Set.toAscList delegators
-            ]
-
-    epochStateForAccounts =
-        case nesRu targetEpochState of
-            SNothing ->
-                targetEpochState ^. nesEsL
-            SJust pulsingRewardUpdate ->
-                applyRUpd (completeRewardUpdate pulsingRewardUpdate) (targetEpochState ^. nesEsL)
-
+withRewards :: (EraGov era, EraCertState era) => NewEpochState era -> NewEpochState era
+withRewards st =
+    case nesRu st of
+        SNothing ->
+            st
+        SJust pulsingRewardUpdate ->
+            st { nesEs = applyRUpd (completeRewardUpdate pulsingRewardUpdate) (st ^. nesEsL) }
+  where
     completeRewardUpdate pulsingRewardUpdate =
         fst $
             runIdentity $

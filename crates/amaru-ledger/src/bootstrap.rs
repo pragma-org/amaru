@@ -35,7 +35,10 @@ use crate::{
     epoch_transition::GovernanceActivity,
     governance::ratification::ProposalsRoots,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
-    store::{self, Store, StoreError, TransactionalContext, columns::proposals},
+    store::{
+        self, Store, StoreError, TransactionalContext,
+        columns::{pots::Row as Pots, proposals},
+    },
 };
 
 const BATCH_SIZE: usize = 1000;
@@ -230,7 +233,7 @@ pub fn import_initial_snapshot(
     decoder.skip()?;
 
     // Epoch State / Ledger State / UTxO State / utxosDonation
-    decoder.skip()?;
+    let donations = decoder.with_decoder(|d| Ok(d.u64()?))?;
 
     // Epoch State / Snapshots
     decoder.with_decoder(|d| {
@@ -283,9 +286,12 @@ pub fn import_initial_snapshot(
 
     import_pots(
         db,
-        (treasury + delta_treasury) as u64 + unclaimed_rewards,
-        (reserves - delta_reserves) as u64,
-        (fees - delta_fees) as u64,
+        Pots {
+            treasury: (treasury + delta_treasury) as u64 + unclaimed_rewards,
+            reserves: (reserves - delta_reserves) as u64,
+            fees: (fees - delta_fees) as u64,
+            donations,
+        },
     )?;
 
     // NOTE(INITIAL_BOOTSTRAP):
@@ -581,16 +587,14 @@ fn import_stake_pools(
     Ok(transaction.commit()?)
 }
 
-fn import_pots(db: &impl Store, treasury: u64, reserves: u64, fees: u64) -> Result<(), Box<dyn std::error::Error>> {
+fn import_pots(db: &impl Store, pots: Pots) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_pots(|mut row| {
-        let pots = row.borrow_mut();
-        pots.treasury = treasury;
-        pots.reserves = reserves;
-        pots.fees = fees;
+        *row.borrow_mut() = pots;
     })?;
     transaction.commit()?;
-    info!(treasury, reserves, fees, "pots");
+    let Pots { treasury, reserves, fees, donations } = pots;
+    info!(treasury, reserves, fees, donations, "pots");
     Ok(())
 }
 
@@ -1229,6 +1233,10 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateMetadata {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut NetworkName) -> Result<Self, cbor::decode::Error> {
         match d.datatype()? {
+            cbor::data::Type::Null => {
+                d.skip()?;
+                Ok(Self(StrictMaybe::Nothing))
+            }
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
                 let mut probe = d.probe();
                 let len = probe.array()?;
