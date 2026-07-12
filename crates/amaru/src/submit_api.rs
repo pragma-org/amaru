@@ -129,7 +129,7 @@ mod tests {
         effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation},
         stages::mempool::MempoolStageState,
     };
-    use amaru_kernel::{PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, RawBlock, Transaction, to_cbor};
+    use amaru_kernel::{RawBlock, Transaction, to_cbor};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{
@@ -150,7 +150,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::start;
-    use crate::tests::test_data::create_transaction;
+    use crate::{stages::config::Config, tests::test_data::create_transaction};
 
     #[tokio::test]
     async fn test_successful_submission() -> anyhow::Result<()> {
@@ -333,16 +333,22 @@ mod tests {
         validator: ResourceTxValidation,
     ) -> (Sender<MempoolMsg>, TokioRunning) {
         use amaru_consensus::stages::mempool;
-        let mut stage_graph = TokioBuilder::default();
+
+        let config = Config::default();
+        let mut stage_graph = TokioBuilder::default().with_global_epoch_offset(config.compute_global_clock_offset());
+
         let mempool_stage = stage_graph.stage("mempool", mempool::stage);
         let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default());
-        stage_graph.resources().put::<ResourceParameters>(PREPROD_GLOBAL_PARAMETERS.clone());
-        stage_graph.resources().put::<ResourceEraHistory>(PREPROD_ERA_HISTORY.clone());
+
+        stage_graph.resources().put::<ResourceParameters>(config.global_parameters.clone());
+        stage_graph.resources().put::<ResourceEraHistory>(config.era_history.clone());
         stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockCanValidateBlocks));
         stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
         stage_graph.resources().put::<ResourceTxValidation>(validator);
+
         let sender = stage_graph.input(mempool_stage.without_state());
         let running = stage_graph.run(Handle::current());
+
         (sender, running)
     }
 

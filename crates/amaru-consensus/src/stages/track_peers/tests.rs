@@ -34,9 +34,9 @@ use crate::{
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
-                build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_has_header, te_load_tip,
-                te_store_header, te_validate_header, test_prep, test_prep_with_security_param, tm_store_header,
-                tm_volatile_tip,
+                build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_clock_suspend,
+                te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
+                test_prep_with_security_param, tm_store_header, tm_volatile_tip,
             },
         },
     },
@@ -226,14 +226,13 @@ fn test_roll_forward_unknown_peer_removes_peer() {
     });
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
-            te_state("tp-1", &state),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_state("tp-1", &state).into(),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Unknown peer"])
@@ -267,6 +266,7 @@ fn test_roll_forward_known_peer_header_already_stored() {
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
+            te_clock_suspend("tp-1"),
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
             te_state("tp-1", &expected),
@@ -305,6 +305,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
+            te_clock_suspend("tp-1"),
             te_validate_header("tp-1", header.clone()),
             te_has_header("tp-1", header.hash()),
             te_store_header("tp-1", header.clone()),
@@ -401,14 +402,14 @@ fn test_roll_forward_invalid_parent_removes_peer() {
     state.insert_peer(peer.clone(), parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
-            te_state("tp-1", &expected),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_state("tp-1", &expected).into(),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header parent"])
@@ -433,14 +434,14 @@ fn test_roll_forward_invalid_height_removes_peer() {
     state.insert_peer(peer.clone(), parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
-            te_state("tp-1", &expected),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_state("tp-1", &expected).into(),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header height"])
@@ -465,14 +466,14 @@ fn test_roll_forward_invalid_point_removes_peer() {
     state.insert_peer(peer.clone(), parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace(
+    assert_trace_contains(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
-            te_state("tp-1", &expected),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_state("tp-1", &expected).into(),
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header point"])
@@ -517,11 +518,93 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
+            te_clock_suspend("tp-1"),
             te_validate_header("tp-1", header.clone()),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
+}
+
+/// New test for header slot too far in future ( >2s according to clock ).
+#[test]
+fn test_roll_forward_header_slot_too_far_future_adversarial() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    // With global offset + initial clock 10s, effective curr ~1654041610; use larger for >2s future
+    let header_slot = 10_000_000_000;
+    let header = make_block_header(2, header_slot, Some(parent.hash()));
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.tip()),
+    });
+
+    let expected = prep.state.clone();
+    let mut state = prep.state.clone();
+    // make mono pass: current slot < header slot
+    let curr_point = Point::Specific(1u64.into(), parent.hash());
+    let curr_tip = Tip::new(curr_point, BlockHeight::from(1));
+    state.insert_peer(peer.clone(), curr_tip, header.tip());
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+
+    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_state("tp-1", &expected).into(),
+        ],
+    );
+}
+
+/// New test for header slot near future (<=2s) -> defers validation.
+#[test]
+fn test_roll_forward_header_slot_near_future_defers() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    // +1 s future from the effective ~1610 -> near, defer
+    let header_slot = 1_654_041_611;
+    let header = make_block_header(2, header_slot, Some(parent.hash()));
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.tip()),
+    });
+
+    let mut state = prep.state.clone();
+    let curr_point = Point::Specific(1u64.into(), parent.hash());
+    let curr_tip = Tip::new(curr_point, BlockHeight::from(1));
+    state.insert_peer(peer.clone(), curr_tip, header.tip());
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+
+    // no error log for near, defers instead of adversarial
+    logs.assert_no_remaining_at([Level::ERROR]);
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_clock_suspend("tp-1").into(),
+            // no adv send; defer happened (schedule + clockskew in deferred)
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer))]);
 }
 
 /// Tests that a header whose required stake distribution is more than 1 epoch ahead
@@ -566,6 +649,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_clock_suspend("tp-1").into(),
             te_validate_header("tp-1", header.clone()).into(),
             tm_volatile_tip("tp-1"),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
@@ -717,7 +801,7 @@ fn test_roll_forward_defers_request_next() {
         &[
             tm_store_header("tp-1"),
             tm_state::<TrackPeers>("tp-1", |state| state.deferred.len() == 1, ""),
-            tm_clock(Duration::from_millis(200)),
+            tm_clock(Duration::from_secs(1654041610) + Duration::from_millis(200)),
         ],
     );
 

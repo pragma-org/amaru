@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    fmt::Display,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use amaru_kernel::{
     EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
@@ -20,6 +26,7 @@ use amaru_kernel::{
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::ChainStore;
 use amaru_protocols::tx_submission::ResponderParams;
+use amaru_pure_stage::Instant;
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::Context;
 
@@ -81,6 +88,25 @@ impl Config {
     /// Parse the optional submit API address into a `SocketAddr`.
     pub fn submit_api_address(&self) -> anyhow::Result<Option<SocketAddr>> {
         self.submit_api_address.as_deref().map(|addr| addr.parse().context("invalid submit API address")).transpose()
+    }
+
+    /// The global clock offset for real-time node execution (i.e. not in a simulation test)
+    /// needs to be the difference between the `GlobalParameters::start_time` and the pure-stage EPOCH
+    #[expect(clippy::expect_used)]
+    pub fn compute_global_clock_offset(&self) -> Duration {
+        let system_time = SystemTime::now();
+        // calling `.duration_since_global_epoch()` ensures that EPOCH is initialized
+        // and constructing the Instant with `Duration::ZERO` returns `now-EPOCH`
+        let duration_since_epoch =
+            Instant::from_tokio(tokio::time::Instant::now(), Duration::ZERO).duration_since_global_epoch();
+        let system_start = SystemTime::UNIX_EPOCH
+            .checked_add(Duration::from_millis(self.global_parameters.system_start))
+            .expect("System start time must be valid POSIX time");
+        system_time
+            .duration_since(system_start)
+            .expect("Process start must be after Ouroboros system start time")
+            .checked_sub(duration_since_epoch)
+            .expect("Process EPOCH must be after the UNIX_EPOCH")
     }
 }
 

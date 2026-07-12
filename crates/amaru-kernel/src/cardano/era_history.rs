@@ -659,6 +659,11 @@ impl EraHistory {
         #[expect(clippy::expect_used)]
         self.eras.last().expect("EraHistory cannot be empty").params.era_name
     }
+
+    pub fn current_era_summary(&self) -> &EraSummary {
+        #[expect(clippy::expect_used)]
+        self.eras.last().expect("EraHistory cannot be empty")
+    }
 }
 
 /// Compute the time in milliseconds between the start of the system and the given slot.

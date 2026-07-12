@@ -14,7 +14,7 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
+use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point, Slot};
 use amaru_ouroboros_traits::StoreError;
 use serde::ser::SerializeStruct;
 use thiserror::Error;
@@ -66,6 +66,8 @@ pub enum ConsensusError {
     InvalidHeaderPoint(Box<InvalidHeaderPoint>),
     #[error("Invalid header variant {0}")]
     InvalidHeaderVariant(EraName),
+    #[error("header slot {0} is in the near future (permissible clock skew)")]
+    HeaderSlotInNearFuture(Slot),
     #[error("Failed to roll forward chain from {0}: {1}")]
     RollForwardChainFailed(amaru_kernel::Hash<32>, StoreError),
     #[error("Failed to rollback chain at {0}: {1}")]

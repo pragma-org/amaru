@@ -41,8 +41,7 @@ use tokio::{
 };
 
 use crate::{
-    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,
-    StageRef,
+    BoxFuture, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph, StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     drop_guard::DropGuard,
     effect::{CallExtra, CallTimeout, CanSupervise, StageEffect, StageResponse, TransitionFactory},
@@ -68,6 +67,7 @@ struct TokioInner {
     senders: Mutex<BTreeMap<Name, StageOrAdapter<mpsc::Sender<Box<dyn SendData>>>>>,
     handles: Mutex<Vec<JoinHandle<()>>>,
     clock: Arc<dyn Clock + Send + Sync>,
+    global_epoch_offset: Duration,
     resources: Resources,
     schedule_ids: ScheduleIds,
     mailbox_size: usize,
@@ -81,6 +81,7 @@ impl TokioInner {
             senders: Default::default(),
             handles: Default::default(),
             clock: Arc::new(TokioClock),
+            global_epoch_offset: Duration::ZERO,
             resources: Resources::default(),
             schedule_ids: ScheduleIds::default(),
             mailbox_size: 10,
@@ -92,8 +93,8 @@ impl TokioInner {
 
 struct TokioClock;
 impl Clock for TokioClock {
-    fn now(&self) -> Instant {
-        Instant::now()
+    fn now(&self, global_epoch_offset: Duration) -> Instant {
+        Instant::from_tokio(tokio::time::Instant::now(), global_epoch_offset)
     }
     fn advance_to(&self, _instant: Instant) {}
 }
@@ -155,32 +156,31 @@ impl TokioBuilder {
     }
 
     pub fn with_epoch_clock(mut self) -> Self {
-        self.inner.clock = Arc::new(EpochClock::new());
+        self.inner.clock = Arc::new(EpochClock::new(self.inner.global_epoch_offset));
+        self
+    }
+
+    pub fn with_global_epoch_offset(mut self, offset: Duration) -> Self {
+        self.inner.global_epoch_offset = offset;
         self
     }
 }
 
 struct EpochClock {
-    offset: Mutex<Option<Duration>>,
+    global_epoch_offset: Duration,
 }
 
 impl EpochClock {
-    fn new() -> Self {
-        Self { offset: Mutex::new(None) }
+    fn new(global_epoch_offset: Duration) -> Self {
+        Self { global_epoch_offset }
     }
 }
 
 impl Clock for EpochClock {
-    fn now(&self) -> Instant {
-        let mut offset = self.offset.lock();
-        if let Some(offset) = *offset {
-            Instant::now() - offset
-        } else {
-            let now = Instant::now();
-            let since_epoch = now.saturating_since(*EPOCH);
-            *offset = Some(since_epoch);
-            now - since_epoch
-        }
+    fn now(&self, _offset: Duration) -> Instant {
+        // For epoch-relative clock, we use the configured global offset.
+        // (The original logic made "0" at first measurement; here we rely on global params.)
+        Instant::from_tokio(tokio::time::Instant::now(), self.global_epoch_offset)
     }
 
     fn advance_to(&self, _instant: Instant) {}
@@ -206,11 +206,12 @@ impl StageGraph for TokioBuilder {
 
         let me = StageRef::new(name.clone());
         let clock = self.inner.clock.clone();
+        let global_epoch_offset = self.inner.global_epoch_offset;
         let resources = self.inner.resources.clone();
         let schedule_ids = self.inner.schedule_ids.clone();
         let trace_buffer = self.inner.trace_buffer.clone();
         let ff = Box::new(move |effect| {
-            let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
+            let eff = Effects::new(me, effect, clock, global_epoch_offset, resources, schedule_ids, trace_buffer);
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg.cast::<Msg>().expect("internal message type error");
@@ -485,10 +486,10 @@ fn interpreter(
                         _ => StageResponse::CallResponse(Box::new(CallTimeout)),
                     }
                 }
-                StageEffect::Clock => StageResponse::ClockResponse(now()),
+                StageEffect::Clock => StageResponse::ClockResponse(inner.clock.now(inner.global_epoch_offset)),
                 StageEffect::Wait(duration) => {
                     tokio::time::sleep(duration).await;
-                    StageResponse::WaitResponse(now())
+                    StageResponse::WaitResponse(inner.clock.now(inner.global_epoch_offset))
                 }
                 StageEffect::External(effect) => {
                     tracing::debug!("stage `{name}` external effect: {:?}", effect);
@@ -561,10 +562,6 @@ fn interpreter(
             *effect.lock() = Some(Right(resp));
         }
     }
-}
-
-fn now() -> Instant {
-    Instant::from_tokio(tokio::time::Instant::now())
 }
 
 /// Handle to the running stages.

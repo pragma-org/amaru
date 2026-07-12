@@ -51,7 +51,9 @@ use crate::stages::{
 /// Build a node given the provided configuration and run it using Tokio.
 pub fn build_and_run_node(config: Config, meter_provider: Option<SdkMeterProvider>) -> anyhow::Result<NodeRunning> {
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
-    let mut stage_builder = TokioBuilder::default().with_trace_buffer(trace_buffer);
+    let mut stage_builder = TokioBuilder::default()
+        .with_trace_buffer(trace_buffer)
+        .with_global_epoch_offset(config.compute_global_clock_offset());
 
     let node_stages = build_node(&config, &config.global_parameters, meter_provider, &mut stage_builder)?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());

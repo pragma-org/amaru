@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{any::type_name, collections::BTreeSet, fmt, io, sync::Arc};
+use std::{any::type_name, collections::BTreeSet, fmt, io, sync::Arc, time::Duration};
 
+use amaru_kernel::PREPROD_ERA_HISTORY;
 use amaru_pure_stage::{
-    DeserializerGuards, Effect, Name, Resources, SendData, StageGraph, TerminationReason,
+    DeserializerGuards, Effect, Instant, Name, Resources, SendData, StageGraph, TerminationReason,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
@@ -233,7 +234,12 @@ where
         .set_default();
     logs.set_guard(sub);
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
+    // need to place the simulation within the current era
+    let start_in_era = PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1);
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(TraceBuffer::new_shared(100, 1000000))
+        .with_global_epoch_offset(start_in_era)
+        .with_initial_clock(Instant::at_offset(Duration::from_secs(10)));
 
     setup_resources(network.resources());
 

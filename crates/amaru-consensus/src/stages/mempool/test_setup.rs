@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use amaru_kernel::{
     Hash, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, TransactionBody, TransactionInput, WitnessSet,
     size::TRANSACTION_BODY,
@@ -73,8 +75,12 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
 
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000));
+    // need to place the simulation within the current era
     let era_history = &*PREPROD_ERA_HISTORY;
+    let start_in_era = era_history.current_era_summary().start.time + Duration::from_hours(1);
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000))
+        .with_global_epoch_offset(start_in_era);
     let global_parameters = &PREPROD_GLOBAL_PARAMETERS;
 
     network.resources().put::<ResourceParameters>(global_parameters.clone());

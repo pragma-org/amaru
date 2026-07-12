@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, Tip};
+use std::time::Duration;
+
+use amaru_kernel::{BlockHeight, PREPROD_ERA_HISTORY, Tip};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
@@ -64,7 +66,11 @@ pub fn setup(prep: &TestPrep, msgs: &[BlockSourceMsg]) -> (SimulationRunning, De
 
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(200, 1000000));
+    // need to place the simulation within the current era
+    let start_in_era = PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1);
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(TraceBuffer::new_shared(200, 1000000))
+        .with_global_epoch_offset(start_in_era);
     let bs = network.stage("bs", stage);
     let bs = network.wire_up(bs, prep.state.clone());
     network.preload(&bs, msgs.iter().cloned()).expect("preload");

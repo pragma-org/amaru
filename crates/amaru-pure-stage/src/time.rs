@@ -28,8 +28,9 @@ use crate::drop_guard::DropGuard;
 
 /// A simulation clock that is driven explicitly by the simulation.
 pub trait Clock {
-    /// Get the current time.
-    fn now(&self) -> Instant;
+    /// Get the current time, associating the returned `Instant` with the given global epoch offset
+    /// (from e.g. `GlobalParameters::system_start`).
+    fn now(&self, global_epoch_offset: Duration) -> Instant;
 
     /// Advance the clock to the given time.
     ///
@@ -38,8 +39,8 @@ pub trait Clock {
 }
 
 impl Clock for AtomicU64 {
-    fn now(&self) -> Instant {
-        *EPOCH + Duration::from_nanos(self.load(Ordering::Relaxed))
+    fn now(&self, global_epoch_offset: Duration) -> Instant {
+        Instant { inner: EPOCH.inner + Duration::from_nanos(self.load(Ordering::Relaxed)), global_epoch_offset }
     }
 
     fn advance_to(&self, instant: Instant) {
@@ -52,8 +53,10 @@ impl Clock for AtomicU64 {
 }
 
 impl Clock for Mutex<Instant> {
-    fn now(&self) -> Instant {
-        *self.lock()
+    fn now(&self, global_epoch_offset: Duration) -> Instant {
+        let mut inst = *self.lock();
+        inst.global_epoch_offset = global_epoch_offset;
+        inst
     }
 
     fn advance_to(&self, instant: Instant) {
@@ -65,7 +68,12 @@ impl Clock for Mutex<Instant> {
 ///
 /// Note that this is an opaque type that serialises and prints as a duration since the [`EPOCH`].
 #[derive(Clone, Copy, Eq, PartialOrd, Ord)]
-pub struct Instant(tokio::time::Instant);
+pub struct Instant {
+    pub(crate) inner: tokio::time::Instant,
+    /// Offset of the simulation EPOCH relative to a global reference (e.g. Cardano system_start).
+    /// This is baked into Instants created for a particular simulation configuration.
+    pub(crate) global_epoch_offset: Duration,
+}
 
 thread_local! {
     static TOLERANCE: RefCell<Duration> = const { RefCell::new(Duration::from_nanos(0)) };
@@ -75,11 +83,11 @@ impl PartialEq for Instant {
     fn eq(&self, other: &Self) -> bool {
         let tolerance = TOLERANCE.with(|tolerance| *tolerance.borrow());
         if tolerance.is_zero() {
-            self.0 == other.0
+            self.inner == other.inner
         } else if self > other {
-            self.0 - other.0 <= tolerance
+            self.inner - other.inner <= tolerance
         } else {
-            other.0 - self.0 <= tolerance
+            other.inner - self.inner <= tolerance
         }
     }
 }
@@ -125,16 +133,16 @@ impl Instant {
         TOLERANCE.with_borrow_mut(|t| DropGuard::new(std::mem::replace(t, tolerance), restore as fn(Duration)))
     }
 
-    pub(crate) fn from_tokio(instant: tokio::time::Instant) -> Self {
-        Self(instant)
+    pub fn from_tokio(instant: tokio::time::Instant, global_epoch_offset: Duration) -> Self {
+        Instant { inner: instant, global_epoch_offset }
     }
 
     pub(crate) fn to_tokio(self) -> tokio::time::Instant {
-        self.0
+        self.inner
     }
 
     pub(crate) fn now() -> Self {
-        Self(tokio::time::Instant::now())
+        Instant { inner: tokio::time::Instant::now(), global_epoch_offset: Duration::ZERO }
     }
 
     pub fn pretty(self, now: Self) -> String {
@@ -148,15 +156,40 @@ impl Instant {
     }
 
     pub fn saturating_since(&self, other: Self) -> Duration {
-        self.0.duration_since(other.0)
+        let since = self.inner.duration_since(other.inner);
+        if self.global_epoch_offset == other.global_epoch_offset {
+            since
+        } else if self.global_epoch_offset > other.global_epoch_offset {
+            since + (self.global_epoch_offset - other.global_epoch_offset)
+        } else {
+            since.saturating_sub(other.global_epoch_offset - self.global_epoch_offset)
+        }
     }
 
     pub fn checked_since(&self, other: Self) -> Option<Duration> {
-        self.0.checked_duration_since(other.0)
+        let since = self.inner.checked_duration_since(other.inner)?;
+        if self.global_epoch_offset == other.global_epoch_offset {
+            Some(since)
+        } else if self.global_epoch_offset > other.global_epoch_offset {
+            since.checked_add(self.global_epoch_offset.checked_sub(other.global_epoch_offset)?)
+        } else {
+            since.checked_sub(other.global_epoch_offset.checked_sub(self.global_epoch_offset)?)
+        }
     }
 
     pub fn at_offset(offset: Duration) -> Self {
-        *EPOCH + offset
+        Instant { inner: EPOCH.inner + offset, global_epoch_offset: Duration::ZERO }
+    }
+
+    /// Returns the duration since the configured global epoch (see
+    /// [`SimulationBuilder::with_global_epoch_offset`]).
+    ///
+    /// This is `sim_elapsed + global_offset`, providing a useful input for `EraHistory` slot/time
+    /// conversions.
+    pub fn duration_since_global_epoch(&self) -> Duration {
+        // sim elapsed relative to this Instant's EPOCH (which has zero offset) + the baked offset
+        let sim_elapsed = self.saturating_since(*EPOCH);
+        sim_elapsed + self.global_epoch_offset
     }
 }
 
@@ -165,9 +198,13 @@ impl std::ops::Add<Duration> for Instant {
 
     #[expect(clippy::expect_used)]
     fn add(self, duration: Duration) -> Self {
-        Instant(
-            self.0.checked_add(duration).expect("simulation is not supposed to run for more than 290 billion years"),
-        )
+        Instant {
+            inner: self
+                .inner
+                .checked_add(duration)
+                .expect("simulation is not supposed to run for more than 290 billion years"),
+            global_epoch_offset: self.global_epoch_offset,
+        }
     }
 }
 
@@ -176,16 +213,21 @@ impl std::ops::Sub<Duration> for Instant {
 
     #[expect(clippy::expect_used)]
     fn sub(self, duration: Duration) -> Self {
-        Instant(
-            self.0.checked_sub(duration).expect("simulation is not supposed to run for more than 290 billion years"),
-        )
+        Instant {
+            inner: self
+                .inner
+                .checked_sub(duration)
+                .expect("simulation is not supposed to run for more than 290 billion years"),
+            global_epoch_offset: self.global_epoch_offset,
+        }
     }
 }
 
 /// The concrete value of the epoch is completely opaque and irrelevant, we only persist
 /// durations. The only guarantee needed is that the epoch stays constant for the duration of
 /// the simulation.
-pub static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+pub static EPOCH: LazyLock<Instant> =
+    LazyLock::new(|| Instant { inner: tokio::time::Instant::now(), global_epoch_offset: Duration::ZERO });
 
 #[test]
 fn instant() {

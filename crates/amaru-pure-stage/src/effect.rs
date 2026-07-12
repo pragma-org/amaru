@@ -51,6 +51,7 @@ pub struct Effects<M> {
     me: StageRef<M>,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
+    global_epoch_offset: Duration,
     resources: Resources,
     schedule_ids: ScheduleIds,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -63,6 +64,7 @@ impl<M> Clone for Effects<M> {
             effect: self.effect.clone(),
             schedule_ids: self.schedule_ids.clone(),
             clock: self.clock.clone(),
+            global_epoch_offset: self.global_epoch_offset,
             resources: self.resources.clone(),
             trace_buffer: self.trace_buffer.clone(),
         }
@@ -80,11 +82,12 @@ impl<M: SendData> Effects<M> {
         me: StageRef<M>,
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
+        global_epoch_offset: Duration,
         resources: Resources,
         schedule_ids: ScheduleIds,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
     ) -> Self {
-        Self { me, effect, schedule_ids, clock, resources, trace_buffer }
+        Self { me, effect, clock, global_epoch_offset, resources, schedule_ids, trace_buffer }
     }
 
     /// Obtain a reference to the current stage.
@@ -113,6 +116,7 @@ impl<M: SendData> Effects<M> {
             me,
             effect: self.effect.clone(),
             clock: self.clock.clone(),
+            global_epoch_offset: self.global_epoch_offset,
             resources: self.resources.clone(),
             schedule_ids: self.schedule_ids.clone(),
             trace_buffer: self.trace_buffer.clone(),
@@ -254,7 +258,7 @@ impl<M> Effects<M> {
     where
         M: SendData,
     {
-        let now = self.clock.now();
+        let now = self.clock.now(self.global_epoch_offset);
         let when = now + delay;
         self.schedule_at(msg, when)
     }
@@ -321,13 +325,14 @@ impl<M> Effects<M> {
         .await;
 
         let clock = self.clock.clone();
+        let global_epoch_offset = self.global_epoch_offset;
         let resources = self.resources.clone();
         let me = StageRef::new(name.clone());
         let trace_buffer = self.trace_buffer.clone();
         let schedule_ids = self.schedule_ids.clone();
 
         let transition = move |effect: EffectBox| {
-            let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
+            let eff = Effects::new(me, effect, clock, global_epoch_offset, resources, schedule_ids, trace_buffer);
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg.cast_deserialize::<Msg>().expect("internal message type error");

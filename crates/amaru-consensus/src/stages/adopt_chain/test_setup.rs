@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, HeaderHash, NonEmptyVec, Point, Tip,
+    BlockHeader, BlockHeight, EraHistory, HeaderHash, NonEmptyVec, PREPROD_ERA_HISTORY, Point, Tip,
     cardano::network_block::make_encoded_block, make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
@@ -182,7 +182,11 @@ pub fn setup(prep: &TestPrep, msg: AdoptChainMsg) -> (SimulationRunning, Deseria
 
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
+    // need to place the simulation within the current era
+    let start_in_era = PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1);
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(TraceBuffer::new_shared(100, 1000000))
+        .with_global_epoch_offset(start_in_era);
     network.resources().put::<ResourceHeaderStore>(prep.store.clone());
 
     let ac = network.stage("ac", stage);
