@@ -20,7 +20,7 @@ use amaru_kernel::{
 use thiserror::Error;
 
 use crate::{
-    context::{AccountsSlice, WitnessSlice},
+    context::{AccountsSlice, BalanceSlice, WitnessSlice},
     rules::TransactionField,
 };
 
@@ -38,9 +38,10 @@ pub(crate) fn execute<C>(
     context: &mut C,
     withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
     network: Network,
+    is_valid: bool,
 ) -> Result<(), InvalidWithdrawals>
 where
-    C: WitnessSlice + AccountsSlice,
+    C: WitnessSlice + AccountsSlice + BalanceSlice,
 {
     if let Some(withdrawals) = withdrawals {
         withdrawals
@@ -69,7 +70,7 @@ where
             .collect::<Result<BTreeMap<_, _>, _>>()?
             .into_iter()
             .enumerate()
-            .for_each(|(position, (credential, _))| {
+            .for_each(|(position, (credential, amount))| {
                 match credential {
                     amaru_kernel::StakeCredential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
                         hash,
@@ -80,7 +81,11 @@ where
                     amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 };
 
-                context.withdraw_from(credential);
+                context.consume_lovelace(amount);
+
+                if is_valid {
+                    context.withdraw_from(credential);
+                }
             });
     }
 
@@ -129,7 +134,7 @@ mod test {
             || {
                 let mut context = AssertValidationContext::from(AssertPreparationContext { utxo: Default::default() });
 
-                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()), Network::Testnet)
+                super::execute(&mut context, tx.withdrawals.map(|xs| xs.to_vec()), Network::Testnet, true)
             },
             expected_traces,
         )

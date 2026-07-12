@@ -16,7 +16,7 @@ use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
     AuxiliaryData, EraHistory, HasTransactionId, Network, NetworkId, NetworkName, ProtocolParameters, TransactionBody,
-    TransactionInput, TransactionPointer, WitnessSet,
+    TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance,
 };
 use thiserror::Error;
 
@@ -106,6 +106,9 @@ pub enum PhaseOneError {
 
     #[error("invalid transaction validity interval: {0}")]
     ValidityInterval(#[from] InvalidValidityInterval),
+
+    #[error("value not preserved: balance = {0}")]
+    ValueNotPreserved(Balance),
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -142,14 +145,19 @@ where
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
-    certificates::execute(
+    // TODO: The 'collateral' rule group shouldn't exist
+    //
+    // This is a mix of witness and fees; and instead of duplicating the collateral traversing
+    // logic in both, we should augment fees and witness handling to also account for
+    // collaterals.
+    collateral::execute(
         context,
-        network,
+        transaction_body.collateral.as_deref(),
+        transaction_body.collateral_return.as_ref(),
+        transaction_body.total_collateral,
+        transaction_body.fee,
         protocol_parameters,
-        era_history,
-        governance_activity,
-        pointer,
-        mem::take(&mut transaction_body.certificates),
+        transaction_witness_set.redeemer.is_some(),
     )?;
 
     let ref_scripts_size = inputs::execute(
@@ -161,26 +169,12 @@ where
 
     fees::execute(
         context,
-        is_valid,
         transaction_body.fee,
         tx_size,
         transaction_witness_set,
         ref_scripts_size,
         protocol_parameters,
-        transaction_body.collateral.as_deref(),
-        transaction_body.collateral_return.as_ref(),
     )?;
-
-    if transaction_witness_set.redeemer.is_some() {
-        collateral::execute(
-            context,
-            transaction_body.collateral.as_deref(),
-            transaction_body.collateral_return.as_ref(),
-            transaction_body.total_collateral,
-            transaction_body.fee,
-            protocol_parameters,
-        )?;
-    }
 
     mint::execute(context, transaction_body.mint.as_ref());
 
@@ -190,7 +184,7 @@ where
         network,
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
         SupplementalDatumPolicy::Disallow,
-        |_index| {
+        |_context, _index, _value| {
             if is_valid {
                 return None;
             }
@@ -211,7 +205,9 @@ where
         network,
         mem::take(&mut transaction_body.outputs),
         SupplementalDatumPolicy::Allow,
-        |index| {
+        |context, index, value| {
+            context.produce_value(value);
+
             if !is_valid {
                 return None;
             }
@@ -220,18 +216,51 @@ where
         },
     )?;
 
-    withdrawals::execute(context, mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()), network)?;
-
-    proposals::execute(
+    withdrawals::execute(
         context,
+        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
         network,
-        protocol_parameters,
-        era_history,
-        (transaction_id, pointer),
-        mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+        is_valid,
     )?;
 
-    voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
+    // NOTE: Following validations (and state changes) are entirely skipped on invalid transactions
+    //
+    // For invalid transactions, we only count the deposits and refunds necessary for value
+    // preservation which happens also in the case of invalid transactions.
+    if is_valid {
+        certificates::execute(
+            context,
+            network,
+            protocol_parameters,
+            era_history,
+            governance_activity,
+            pointer,
+            mem::take(&mut transaction_body.certificates),
+        )?;
+
+        proposals::execute(
+            context,
+            network,
+            protocol_parameters,
+            era_history,
+            (transaction_id, pointer),
+            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+        )?;
+
+        voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
+    } else {
+        certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates));
+        proposals::count_lovelace(
+            context,
+            protocol_parameters,
+            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+        );
+    }
+
+    if let Some(donation) = transaction_body.donation.map(u64::from) {
+        context.produce_lovelace(donation);
+        context.add_donation(donation);
+    }
 
     vkey_witness::execute(
         context,
@@ -248,12 +277,13 @@ where
         transaction_body.script_data_hash,
     )?;
 
+    let transaction_balance = context.balance();
+    if !transaction_balance.is_zero() {
+        return Err(PhaseOneError::ValueNotPreserved(transaction_balance));
+    }
+
     // At last, consume inputs
     let consumed_inputs = if is_valid {
-        if let Some(donation) = transaction_body.donation {
-            context.add_donation(u64::from(donation));
-        }
-
         transaction_body.inputs.to_vec()
     } else {
         transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
@@ -348,12 +378,45 @@ mod tests {
     #[test_case(fixture!("fail/InsufficientCollateral/0"); "plutus spend, collateral return exceeds collateral input")]
     #[test_case(fixture!("fail/BadInputsUTxO/2"); "unknown collateral input on an invalid transaction")]
     #[test_case(fixture!("pass/stake-registration"); "stake credential registration cert")]
+    #[test_case(fixture!("fail/StakeCredentialInvalidPoolDelegation/0"); "delegation after deregistration in same tx")]
+    #[test_case(fixture!("fail/StakeCredentialInvalidPoolDelegation/1"); "delegation after conway unreg in same tx")]
+    #[test_case(fixture!("fail/StakeCredentialInvalidPoolDelegation/2"); "script credential delegation after deregistration")]
+    #[test_case(fixture!("fail/StakeCredentialInvalidPoolDelegation/3"); "script credential delegation after conway unreg")]
+    #[test_case(fixture!("fail/DelegateeStakePoolNotRegistered/0"); "stake delegation to unregistered pool")]
+    #[test_case(fixture!("fail/DelegateeStakePoolNotRegistered/1"); "stake vote delegation to unregistered pool")]
+    #[test_case(fixture!("fail/DelegateeStakePoolNotRegistered/2"); "stake reg delegation to unregistered pool")]
+    #[test_case(fixture!("fail/DelegateeStakePoolNotRegistered/3"); "stake vote reg delegation to unregistered pool")]
+    #[test_case(fixture!("fail/StakeKeyRegistered/0"); "reg cert on already registered credential")]
+    #[test_case(fixture!("fail/StakeKeyRegistered/1"); "stake reg delegation on already registered credential")]
+    #[test_case(fixture!("fail/StakeKeyRegistered/2"); "vote reg delegation on already registered credential")]
+    #[test_case(fixture!("fail/StakeKeyRegistered/3"); "stake vote reg delegation on already registered credential")]
+    #[test_case(fixture!("fail/DRepAlreadyRegistered/0"); "drep registration on already registered key-hash credential")]
+    #[test_case(fixture!("fail/DRepAlreadyRegistered/1"); "drep registration on already registered script-hash credential")]
+    #[test_case(fixture!("pass/certificate/drep-registration"); "drep registration on unregistered key-hash credential")]
+    #[test_case(fixture!("pass/certificate/drep-registration-script"); "drep registration on unregistered script-hash credential")]
+    #[test_case(fixture!("fail/DelegateeDRepNotRegistered/0"); "vote delegation to unregistered drep")]
+    #[test_case(fixture!("fail/DelegateeDRepNotRegistered/1"); "stake vote delegation to unregistered drep")]
+    #[test_case(fixture!("fail/DelegateeDRepNotRegistered/2"); "vote reg delegation to unregistered drep")]
+    #[test_case(fixture!("fail/DelegateeDRepNotRegistered/3"); "stake vote reg delegation to unregistered drep")]
+    #[test_case(fixture!("pass/certificate/vote-deleg-registered-drep"); "vote delegation to registered drep")]
+    #[test_case(fixture!("pass/certificate/stake-vote-deleg-registered-drep"); "stake vote delegation to registered drep")]
+    #[test_case(fixture!("pass/certificate/vote-reg-deleg-registered-drep"); "vote reg delegation to registered drep")]
+    #[test_case(fixture!("pass/certificate/stake-vote-reg-deleg-registered-drep"); "stake vote reg delegation to registered drep")]
+    #[test_case(fixture!("pass/certificate/stake-delegation"); "registered credential delegates to pool")]
+    #[test_case(fixture!("pass/certificate/stake-dereg-rereg-deleg"); "deregister re-register then delegate succeeds")]
+    #[test_case(fixture!("pass/certificate/stake-vote-deleg"); "stake and vote delegation to registered pool")]
+    #[test_case(fixture!("pass/certificate/stake-reg-deleg"); "registration and delegation to registered pool")]
+    #[test_case(fixture!("pass/certificate/stake-vote-reg-deleg"); "registration with stake and vote delegation to registered pool")]
     #[test_case(fixture!("pass/mint"); "native-script mint of one asset unit")]
     #[test_case(fixture!("pass/auxiliary-data-raw-hash"); "auxiliary data hashed from raw bytes (non-roundtripping encoding)")]
     #[test_case(fixture!("fail/BabbageOutputTooSmallUTxO/0"); "output below minimum lovelace")]
     #[test_case(fixture!("fail/OutputTooBigUTxO/0"); "output value larger than maxValueSize")]
     #[test_case(fixture!("fail/WrongNetworkInTxOutput/0"); "output address on wrong network")]
     #[test_case(fixture!("pass/script-integrity-hash/0"); "interesting script integrity hash on preprod")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/0"); "input lovelace exceeds outputs plus fee")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/1"); "input native asset left unaccounted by outputs")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/2"); "stake deregistration refund unaccounted by outputs")]
+    #[test_case(fixture!("fail/ValueNotConservedUTxO/3"); "drep deregistration refund unaccounted by outputs")]
     fn conformance(fixture: Fixture) {
         // Fixtures encode a standalone conway transaction (a 4-element array including the is_valid byte)
         // but the ledger expects a transaction to be the 3-element array (without the is_valid byte), so we subtract one byte to
@@ -370,9 +433,9 @@ mod tests {
 
         let mut ctx = DefaultValidationContext::new(
             fixture.initial_state.utxo,
-            Default::default(),
-            Default::default(),
-            Default::default(),
+            fixture.initial_state.pools,
+            fixture.initial_state.accounts,
+            fixture.initial_state.dreps,
             Default::default(),
             Default::default(),
             Default::default(),

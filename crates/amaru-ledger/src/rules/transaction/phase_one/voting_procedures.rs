@@ -82,7 +82,6 @@ mod tests {
             || {
                 let mut validation_context =
                     AssertValidationContext::from(AssertPreparationContext { utxo: BTreeMap::new() });
-
                 super::execute(&mut validation_context, voting_procedures)
             },
             expected_traces,

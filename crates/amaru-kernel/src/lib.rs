@@ -147,7 +147,7 @@ pub use cardano::{
     tx_info::{TxInfo, TxInfoTranslationError},
     utxos::Utxos,
     validity_interval::ValidityInterval,
-    value::{CurrencySymbol, PlutusMint, Value},
+    value::{CurrencySymbol, Mint, PlutusMint, Value},
     vkey_witness::{InvalidEd25519Signature, VKeyWitness, verify_ed25519_signature},
     vote::Vote,
     voter::Voter,
