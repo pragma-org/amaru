@@ -234,11 +234,9 @@ where
         .set_default();
     logs.set_guard(sub);
 
-    // need to place the simulation within the current era
-    let start_in_era = PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1);
     let mut network = SimulationBuilder::default()
         .with_trace_buffer(TraceBuffer::new_shared(100, 1000000))
-        .with_global_epoch_offset(start_in_era)
+        .with_global_epoch_offset(start_in_era())
         .with_initial_clock(Instant::at_offset(Duration::from_secs(10)));
 
     setup_resources(network.resources());
@@ -251,6 +249,11 @@ where
     running.run_until_blocked_incl_effects(rt);
 
     (running, guards, logs.logs())
+}
+
+pub fn start_in_era() -> Duration {
+    // need to place the simulation within the current era
+    PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1)
 }
 
 // Re-export TraceMatch (the type) so stage test_setup modules can use it without reaching into amaru_pure_stage.

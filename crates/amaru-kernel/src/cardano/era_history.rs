@@ -493,6 +493,21 @@ impl EraHistory {
         Err(EraHistoryError::InvalidEraHistory)
     }
 
+    /// Convert a duration since system_start into a slot containing that time.
+    pub fn relative_time_to_slot(&self, relative_time: Duration) -> Result<Slot, EraHistoryError> {
+        for era in &self.eras {
+            if era.start.time > relative_time {
+                return Err(EraHistoryError::InvalidEraHistory);
+            }
+
+            if era.end.as_ref().is_none_or(|end| relative_time < end.time) {
+                return relative_time_to_slot(relative_time, era);
+            }
+        }
+
+        Err(EraHistoryError::InvalidEraHistory)
+    }
+
     pub fn slot_to_relative_time(&self, slot: Slot, tip: Slot) -> Result<Duration, EraHistoryError> {
         for era in &self.eras {
             if era.start.slot > slot {

@@ -151,6 +151,9 @@ pub fn build_node(
             rt.block_on(send);
         }
     }));
+    // TODO: The runtime spawn/block_on hack above is required by the current Tokio integration
+    // and ledger being driven from the main thread. It will be cleaned up when the ledger state
+    // is handled in its own non-Tokio thread.
 
     let consensus_parameters =
         Arc::new(ConsensusParameters::new(global_parameters.clone(), &era_history.clone(), Default::default()));

@@ -14,7 +14,9 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, HeaderHash, NetworkName, Tip, make_header};
+use amaru_kernel::{
+    BlockHeader, ConsensusParameters, EraHistory, HeaderHash, NetworkName, PREPROD_ERA_HISTORY, Tip, make_header,
+};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
     MockCanValidateBlocks, PoolSummaries, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
@@ -40,7 +42,7 @@ use crate::{
     },
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{Logs, TraceMatch, run_simulation, tm_external_effect},
+        test_utils::{Logs, TraceMatch, run_simulation, start_in_era, tm_external_effect},
     },
 };
 
@@ -60,6 +62,7 @@ pub struct TestPrep {
     pub conn_id: ConnectionId,
     /// Three linked headers: [h1, h2, h3] with h1 parent None, h2 parent h1, h3 parent h2.
     pub headers: [BlockHeader; 3],
+    pub start_at_slot: u64,
 }
 
 impl TestPrep {
@@ -87,7 +90,9 @@ pub fn test_prep_with_security_param(security_param: u64) -> TestPrep {
     let h1 = make_block_header(1, 1, None);
     let h2 = make_block_header(2, 2, Some(h1.hash()));
     let h3 = make_block_header(3, 3, Some(h2.hash()));
-    TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3] }
+
+    let start_at_slot = PREPROD_ERA_HISTORY.relative_time_to_slot(start_in_era()).unwrap().as_u64();
+    TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3], start_at_slot }
 }
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -150,7 +155,7 @@ pub fn setup(
     msg: TrackPeersMsg,
     store: Arc<InMemoryChainStore>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base(rt, state, msg, store, |running| {
+    setup_base(rt, state, [msg], store, |running| {
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
     })
 }
@@ -163,7 +168,7 @@ pub fn setup_with_ledger_tip(
     store: Arc<InMemoryChainStore>,
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base(rt, state, msg, store, |running| {
+    setup_base(rt, state, [msg], store, |running| {
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
         // Force the ledger height returned by VolatileTipEffect / TipEffect so we can control defer decisions.
         running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
@@ -173,10 +178,10 @@ pub fn setup_with_ledger_tip(
     })
 }
 
-pub(crate) fn setup_base(
+pub fn setup_base(
     rt: &Handle,
     state: TrackPeers,
-    msg: TrackPeersMsg,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
     store: Arc<InMemoryChainStore>,
     overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
@@ -186,7 +191,7 @@ pub(crate) fn setup_base(
         |network| {
             let tp = network.stage("tp", stage);
             let tp = network.wire_up(tp, state);
-            network.preload(&tp, [msg]).unwrap();
+            network.preload(&tp, msg).unwrap();
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());

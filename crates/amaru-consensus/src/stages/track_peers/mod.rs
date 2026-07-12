@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    time::{Duration, UNIX_EPOCH},
-};
+use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, Epoch, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Slot, Tip,
@@ -219,7 +216,7 @@ impl TrackPeers {
     ///
     /// The received `tip` is the highest advertised tip for the peer as part of the RollForward message.
     async fn validate_header(
-        &self,
+        &mut self,
         peer: &Peer,
         variant: EraName,
         header: &BlockHeader,
@@ -261,20 +258,29 @@ impl TrackPeers {
             })));
         }
 
+        let pre_current = per_peer.current;
+        let current_point = header.point();
+
+        // Accept the header for chain-linking / parent checks even if we will defer full
+        // validation (stake dist not available or near-future slot). This ensures that
+        // subsequent pipelined headers (caused by RequestNext sent before the defer decision
+        // was reached) can pass their parent checks and also be deferred/queued. They will
+        // be re-validated in sequence on wake (StakeDistUpdated or recheck).
+        // The actual store + downstream notify still happens only on successful re-validate.
+        if let Some(per_peer) = self.upstream.get_mut(peer) {
+            per_peer.current = header.tip();
+            per_peer.highest = tip;
+        }
+
         // Clock skew using current time from clock (converted to slot via era params / slot length),
         // instead of per_peer.current.
         let elapsed = current_time.duration_since_global_epoch();
-        // FIXME bullshit
-        let curr_slot =
-            self.era_history.posix_time_to_slot(UNIX_EPOCH + elapsed, UNIX_EPOCH).unwrap_or_else(|_| Slot::from(0));
-        let curr_s = curr_slot.as_u64();
-        let hdr_s = header.slot().as_u64();
-        if hdr_s > curr_s {
-            let delta = Duration::from_secs(hdr_s - curr_s);
-            if delta > Duration::from_secs(2) {
+        let curr_slot = self.era_history.relative_time_to_slot(elapsed).unwrap_or_else(|_| Slot::from(0));
+        if header.slot() > curr_slot {
+            if header.slot() - curr_slot > 2 {
                 return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                     actual: header.point(),
-                    parent: per_peer.current.point(),
+                    parent: pre_current.point(),
                     highest,
                 })));
             }
@@ -285,7 +291,7 @@ impl TrackPeers {
             .validate_header(header, Span::current().context())
             .await
             .map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
-        Ok(per_peer.current.point())
+        Ok(current_point)
     }
 
     async fn roll_forward(

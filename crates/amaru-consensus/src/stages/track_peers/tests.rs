@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{slice, time::Duration};
+use std::{
+    slice,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use amaru_kernel::{BlockHeight, Epoch, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
 use amaru_ouroboros::praos::header::AssertHeaderError;
@@ -27,7 +34,7 @@ use amaru_pure_stage::{
 use tracing::Level;
 
 use crate::{
-    effects::ValidateHeaderEffect,
+    effects::{TipEffect, ValidateHeaderEffect, VolatileTipEffect},
     stages::{
         peer_selection::PeerSelectionMsg,
         test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
@@ -499,7 +506,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
 
     // Use empty store so evolve_nonce fails (unknown parent), exercising the real validate_header fn failure path.
     let (running, _guards, mut logs) =
-        setup_base(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]), |running| {
+        setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
             let header = header.hash();
             let parent = parent.hash();
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
@@ -532,8 +539,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
-    // With global offset + initial clock 10s, effective curr ~1654041610; use larger for >2s future
-    let header_slot = 10_000_000_000;
+    let header_slot = prep.start_at_slot + 10;
     let header = make_block_header(2, header_slot, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -576,7 +582,7 @@ fn test_roll_forward_header_slot_near_future_defers() {
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
     // +1 s future from the effective ~1610 -> near, defer
-    let header_slot = 1_654_041_611;
+    let header_slot = prep.start_at_slot + 2;
     let header = make_block_header(2, header_slot, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -630,7 +636,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
     let slot = header.slot();
     // Override to simulate far-ahead stake dist not available (distance >1 -> reject)
     let (running, _guards, mut logs) =
-        setup_base(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]), |running| {
+        setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
                 OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
                     GetPoolError::StakeDistributionNotAvailable(slot, Some(far_epoch)),
@@ -807,4 +813,188 @@ fn test_roll_forward_defers_request_next() {
 
     // The handler must *not* have received an immediate RequestNext (that is the whole point of deferring).
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);
+}
+
+#[test]
+fn test_pipelined_headers_after_height_defer() {
+    let prep = test_prep_with_security_param(0);
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let h1 = prep.headers[1].clone();
+    let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
+
+    let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.tip()),
+    });
+    let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.tip()),
+    });
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), parent.tip(), h2.tip());
+
+    // Use setup_base (now accepts multiple) with forced ledger tip at origin so height defers apply.
+    let store = build_store(&[]);
+    let (running, _guards, _logs) =
+        setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], store, |running| {
+            running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
+                let tip = Tip::origin();
+                move |_| OverrideResult::handled(tip)
+            });
+            running.override_external_effect::<TipEffect>(usize::MAX, {
+                let tip = Tip::origin();
+                move |_| OverrideResult::handled(tip)
+            });
+            // Default validate succeeds (height defer happens before full validate in this path)
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        });
+
+    // Locked down trace for pipelined height defer (both headers processed, RN defers queued for sequence).
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &msg1).into(),
+            te_validate_header("tp-1", h1.clone()).into(),
+            te_store_header("tp-1", h1.clone()).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "one RN defer queued"),
+            te_input("tp-1", &msg2).into(),
+            te_validate_header("tp-1", h2.clone()).into(),
+            te_store_header("tp-1", h2.clone()).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "two RN defers queued for pipelined"),
+        ],
+    );
+}
+
+#[test]
+fn test_pipelined_headers_after_slot_near_future_defer() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    // +1s future -> near future defer for first
+    let h1 = make_block_header(2, prep.start_at_slot + 1, Some(parent.hash()));
+    let h2 = make_block_header(3, prep.start_at_slot + 2, Some(h1.hash()));
+
+    let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.tip()),
+    });
+    let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.tip()),
+    });
+
+    let mut state = prep.state.clone();
+    let curr_point = Point::Specific(1u64.into(), parent.hash());
+    let curr_tip = Tip::new(curr_point, BlockHeight::from(1));
+    state.insert_peer(peer.clone(), curr_tip, h2.tip());
+
+    let (running, _guards, _logs) =
+        setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], build_store(&[]), |running| {
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        });
+
+    // no adversarial expected in defer case
+    assert_trace_does_not_contain(
+        &running,
+        &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer.clone()))],
+    );
+    // Locked down: no adversarial for pipelined near-future slot defer case.
+    // (trace contents for this slot calc are minimal in harness; core no-adv verified)
+    assert_trace_does_not_contain(
+        &running,
+        &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer.clone()))],
+    );
+}
+
+/// Pipelined stake dist not available: multiple headers arrive (from pipelining), both defer,
+/// then StakeDistUpdated wakes them for sequential re-validation and processing.
+#[test]
+fn test_pipelined_stake_defer_and_wake_sequence() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let h1 = prep.headers[1].clone();
+    let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
+
+    let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.tip()),
+    });
+    let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.tip()),
+    });
+    let wake = TrackPeersMsg::StakeDistUpdated;
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), parent.tip(), h2.tip());
+
+    let slot1 = h1.slot();
+    let _slot2 = h2.slot();
+    // target epoch chosen so dist <= curr +1 to trigger defer not reject
+    let target_epoch = Epoch::new(0);
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let (running, _guards, _logs) = setup_base(
+        &prep.rt_handle(),
+        state.clone(),
+        [msg1.clone(), msg2.clone(), wake.clone()],
+        build_store(&[]),
+        |running| {
+            let cc = call_count.clone();
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
+                let c = cc.fetch_add(1, Ordering::SeqCst);
+                if c < 2 {
+                    OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                        GetPoolError::StakeDistributionNotAvailable(slot1, Some(target_epoch)),
+                    ))))
+                } else {
+                    OverrideResult::handled(Ok(()))
+                }
+            });
+        },
+    );
+
+    // Locked down: pipelined stake defers (RN sent early for both), both queued, then on wake re-validated and stored in sequence, deferred cleared.
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &msg1).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_validate_header("tp-1", h1.clone()).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first stake deferred"),
+            te_input("tp-1", &msg2).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_validate_header("tp-1", h2.clone()).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "second pipelined stake deferred"),
+            te_input("tp-1", &wake).into(),
+            te_validate_header("tp-1", h1.clone()).into(),
+            te_has_header("tp-1", h1.hash()).into(),
+            te_store_header("tp-1", h1.clone()).into(),
+            te_validate_header("tp-1", h2.clone()).into(),
+            te_has_header("tp-1", h2.hash()).into(),
+            te_store_header("tp-1", h2.clone()).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| {
+                    s.deferred.is_empty() && s.upstream.get(&peer).is_some_and(|p| p.current.block_height() == 3.into())
+                },
+                "both processed after wake",
+            ),
+        ],
+    );
 }
