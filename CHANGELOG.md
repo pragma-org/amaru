@@ -43,12 +43,13 @@ Other guiding principles:
 - **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 - **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
+- **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
 
 ### Fixed
 
 - **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
 - **amaru-ledger**: reduce rationale number before serializing them to JSON in epoch summary. ([#1024][])
-- **amaru-ledger**: store the stake pool deposit for a refund. ([#1031][])
+- **amaru-ledger**: store the stake pool deposit for refunds instead of defaulting protocol parameters. ([#1031][])
 
 ## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
@@ -135,6 +136,7 @@ Other guiding principles:
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#892]: https://github.com/pragma-org/amaru/issues/892
 [#896]: https://github.com/pragma-org/amaru/issues/896
+[#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#942]: https://github.com/pragma-org/amaru/pull/942
@@ -156,3 +158,4 @@ Other guiding principles:
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
+[#1033]: https://github.com/pragma-org/amaru/pull/1033
