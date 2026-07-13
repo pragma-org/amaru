@@ -81,6 +81,7 @@ Other guiding principles:
 - **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
 - **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 - **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
+- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
 - **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
 - **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
@@ -212,6 +213,7 @@ Other guiding principles:
 [#1029]: https://github.com/pragma-org/amaru/pull/1029
 [#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
+[#1032]: https://github.com/pragma-org/amaru/pull/1032
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1034]: https://github.com/pragma-org/amaru/pull/1034
 [#1036]: https://github.com/pragma-org/amaru/pull/1036
