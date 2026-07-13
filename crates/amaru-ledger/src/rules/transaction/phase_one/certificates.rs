@@ -76,6 +76,9 @@ pub enum InvalidCertificates {
     #[error("stake credential not registered: {0:?}")]
     StakeCredentialNotRegistered(StakeCredential),
 
+    #[error("cannot unregister a stake credential that has rewards: {credential:?} has a balance of {rewards}")]
+    StakeCredentialHasRewards { credential: StakeCredential, rewards: Lovelace },
+
     #[error("drep not registered: {0:?}")]
     DRepNotRegistered(StakeCredential),
 }
@@ -272,15 +275,19 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            // The refund is the deposit originally paid at registration, recorded in the account
-            // state. It may differ from the current protocol parameter if it changed since.
-            let deposit = match AccountsSlice::lookup(context, &credential) {
-                Some(account) => account.deposit,
-                None => return Err(InvalidCertificates::StakeCredentialNotRegistered(credential)),
-            };
+
+            let account = AccountsSlice::lookup(context, &credential)
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+
+            if account.rewards != 0 {
+                return Err(InvalidCertificates::StakeCredentialHasRewards {
+                    credential: credential.clone(),
+                    rewards: account.rewards,
+                });
+            }
 
             AccountsSlice::unregister(context, credential);
-            context.consume_lovelace(deposit);
+            context.consume_lovelace(account.deposit);
 
             Ok(())
         }
@@ -290,13 +297,19 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            let deposit = match AccountsSlice::lookup(context, &credential) {
-                Some(account) => account.deposit,
-                None => return Err(InvalidCertificates::StakeCredentialNotRegistered(credential)),
-            };
 
-            if refund != deposit {
-                return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: deposit });
+            let account = AccountsSlice::lookup(context, &credential)
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+
+            if refund != account.deposit {
+                return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: account.deposit });
+            }
+
+            if account.rewards != 0 {
+                return Err(InvalidCertificates::StakeCredentialHasRewards {
+                    credential: credential.clone(),
+                    rewards: account.rewards,
+                });
             }
 
             AccountsSlice::unregister(context, credential);
