@@ -20,7 +20,8 @@ pub mod tests {
     use amaru_kernel::{
         Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput, any_certificate_pointer, any_hash28, any_pool_params, any_proposal_id, any_stake_credential,
+        TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
+        any_stake_credential,
     };
     use amaru_ledger::{
         epoch_transition::GovernanceActivity,
@@ -111,9 +112,10 @@ pub mod tests {
         // pools
         let pool_params = any_pool_params().new_tree(runner).unwrap().current();
         let registered_at = any_certificate_pointer(u64::MAX).new_tree(runner).unwrap().current();
+        let deposit = any_lovelace().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 
-        let pools_iter = std::iter::once((pool_params.clone(), registered_at, pool_epoch));
+        let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit, pool_epoch));
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();

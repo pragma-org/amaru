@@ -48,6 +48,7 @@ Other guiding principles:
 
 - **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
 - **amaru-ledger**: reduce rationale number before serializing them to JSON in epoch summary. ([#1024][])
+- **amaru-ledger**: store the stake pool deposit for a refund. ([#1031][])
 
 ## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
@@ -154,3 +155,4 @@ Other guiding principles:
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
+[#1031]: https://github.com/pragma-org/amaru/pull/1031

@@ -183,7 +183,7 @@ pub trait PrepareUtxoSlice<'a> {
 pub trait PoolsSlice {
     fn exists(&self, pool: PoolId) -> bool;
 
-    fn register(&mut self, params: PoolParams, pointer: CertificatePointer);
+    fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
 
     // FIXME: Should yield an error when pool doesn't exists.
     fn retire(&mut self, pool: PoolId, epoch: Epoch);

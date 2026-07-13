@@ -194,7 +194,7 @@ where
 
             let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
 
-            PoolsSlice::register(context, params, pointer);
+            PoolsSlice::register(context, params, pointer, protocol_parameters.stake_pool_deposit);
 
             if is_new_pool {
                 context.produce_lovelace(protocol_parameters.stake_pool_deposit);

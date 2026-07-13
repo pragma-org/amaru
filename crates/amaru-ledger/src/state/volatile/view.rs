@@ -19,7 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Epoch, PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential,
+    CertificatePointer, ComparableProposalId, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer,
+    StakeCredential,
 };
 
 use crate::{
@@ -48,7 +49,7 @@ pub struct VolatileView<'volatile, 'store, DB: ReadStore> {
     epoch: Epoch,
     proposal_lifetime: u64,
     db: &'store DB,
-    pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer)>>,
+    pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>>,
     proposals: BTreeMap<&'volatile ComparableProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
     accounts: Option<AccountVolatileView<'volatile>>,
 }

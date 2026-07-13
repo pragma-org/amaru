@@ -54,7 +54,7 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
     );
     let _guard = _span.enter();
 
-    for (params, registered_at, epoch) in rows {
+    for (params, registered_at, deposit, epoch) in rows {
         let pool = params.id;
 
         // Pool parameters are stored in an epoch-aware fashion.
@@ -68,7 +68,7 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
         // TODO: We might want to define a MERGE OPERATOR to speed this up if
         // necessary.
         let params = match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
-            None => as_value(Row::new(registered_at, params)),
+            None => as_value(Row::new(registered_at, deposit, params)),
             Some(existing_params) => Row::extend(existing_params, (Some(params), epoch)),
         };
 
