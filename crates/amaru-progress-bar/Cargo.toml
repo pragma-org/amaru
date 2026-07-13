@@ -18,6 +18,12 @@ categories.workspace = true
 [dependencies]
 indicatif = { workspace = true, optional = true }
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [features]
 default = []
 terminal = ["indicatif"]
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]

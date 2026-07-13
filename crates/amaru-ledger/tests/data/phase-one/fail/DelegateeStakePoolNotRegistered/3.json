@@ -1,0 +1,33 @@
+{
+  "title": "DelegateeStakePoolNotRegistered",
+  "description": "StakeVoteRegDeleg to a pool not in the pools set; Reg succeeds, then pool delegation fails before vote delegation.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a004c4b40ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a002ab980ff021a00030d4004d9010281850d8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef81021a001e84800800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840fb5a87843bc49125db0de79a9aba2473fc0602bcaacb34b374b827ff34a80b93ebfa5cdc0f4724022fd398e1ec0a10cabbd2551818cc2cc0a9c87ae28338900ef5f6",
+  "expected": {
+    "predicate": "DelegateeStakePoolNotRegistered"
+  }
+}

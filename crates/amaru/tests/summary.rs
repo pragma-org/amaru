@@ -139,4 +139,6 @@ fn assert_json_snapshot<T: serde::Serialize>(
     Ok(())
 }
 
-include!(concat!(env!("OUT_DIR"), "/stake_distribution_test_cases.rs"));
+include!(concat!(env!("OUT_DIR"), "/stake_distribution_mainnet_test_cases.rs"));
+include!(concat!(env!("OUT_DIR"), "/stake_distribution_preprod_test_cases.rs"));
+include!(concat!(env!("OUT_DIR"), "/stake_distribution_preview_test_cases.rs"));

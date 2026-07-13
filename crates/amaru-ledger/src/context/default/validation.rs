@@ -14,23 +14,25 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
     mem,
     sync::Arc,
 };
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Vote, Voter,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 use amaru_observability::trace_span;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
-        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
-        blanket_known_datums, blanket_known_scripts,
+        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+        PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
+        WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
@@ -52,6 +54,7 @@ pub struct DefaultValidationContext {
     required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<DATUM>>,
     required_bootstrap_roots: BTreeSet<Hash<28>>,
+    balance: Balance,
 }
 
 impl DefaultValidationContext {
@@ -79,6 +82,7 @@ impl DefaultValidationContext {
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_roots: BTreeSet::default(),
+            balance: Balance::default(),
         }
     }
 }
@@ -122,7 +126,7 @@ impl PoolsSlice for DefaultValidationContext {
     /// Whether the given pool exists in the resolved ledger state (including pools registered
     /// earlier within the same block).
     fn exists(&self, pool: PoolId) -> bool {
-        self.pools.contains(&pool)
+        self.pools.contains(&pool) || self.state.pools.registered.contains_key(&pool)
     }
 
     /// FIXME: In ProtocolVersion 11, we must also check for uniqueness of the VRF key when registering pools
@@ -199,6 +203,9 @@ impl AccountsSlice for DefaultValidationContext {
             credential = format!("{credential:?}")
         );
         let _guard = _span.enter();
+        if AccountsSlice::lookup(self, &credential).is_some() {
+            return Err(RegisterError::AlreadyRegistered(PhantomData, credential));
+        }
         self.state.accounts.register(credential, state.deposit, state.pool, state.drep)?;
         Ok(())
     }
@@ -215,6 +222,9 @@ impl AccountsSlice for DefaultValidationContext {
             pool_id = %pool
         );
         let _guard = _span.enter();
+        if !PoolsSlice::exists(self, pool) {
+            return Err(DelegateError::UnknownTarget(pool));
+        }
         self.state.accounts.bind_left(credential, Some((pool, pointer)))?;
         Ok(())
     }
@@ -238,6 +248,11 @@ impl AccountsSlice for DefaultValidationContext {
             _span.record("drep", format!("{d:?}"));
         }
         let _guard = _span.enter();
+        if let Some(drep_credential) = &drep_stake_credential
+            && DRepsSlice::lookup(self, drep_credential).is_none()
+        {
+            return Err(DelegateError::UnknownTarget(drep));
+        }
         self.state.accounts.bind_right(credential, Some((drep, pointer)))?;
         Ok(())
     }
@@ -284,6 +299,9 @@ impl DRepsSlice for DefaultValidationContext {
             _span.record("anchor_url", &a.url);
         }
         let _guard = _span.enter();
+        if DRepsSlice::lookup(self, &drep).is_some() {
+            return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
+        }
         self.state.dreps.register(drep, Arc::new(registration), anchor, None)?;
         Ok(())
     }
@@ -440,6 +458,32 @@ impl WitnessSlice for DefaultValidationContext {
     }
 }
 
+impl BalanceSlice for DefaultValidationContext {
+    fn consume_value(&mut self, value: &Value) {
+        self.balance += value;
+    }
+
+    fn produce_value(&mut self, value: &Value) {
+        self.balance -= value;
+    }
+
+    fn consume_lovelace(&mut self, amount: Lovelace) {
+        self.balance += &Value::Coin(amount);
+    }
+
+    fn produce_lovelace(&mut self, amount: Lovelace) {
+        self.balance -= &Value::Coin(amount);
+    }
+
+    fn add_mint(&mut self, mint: &Mint) {
+        self.balance += mint;
+    }
+
+    fn balance(&mut self) -> Balance {
+        mem::take(&mut self.balance)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{Slot, TransactionPointer};
@@ -502,8 +546,16 @@ mod tests {
 
     #[test]
     fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
-        let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
         let pool = Hash::new([9; 28]);
+        let mut ctx = DefaultValidationContext::new(
+            BTreeMap::new(),
+            BTreeSet::from([pool]),
+            BTreeMap::from([(cred(1), account(7))]),
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            ProposalsRoots::default(),
+        );
         ctx.delegate_pool(cred(1), pool, pointer()).unwrap();
 
         let found = AccountsSlice::lookup(&ctx, &cred(1)).unwrap();

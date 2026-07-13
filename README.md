@@ -13,7 +13,15 @@
 
   <hr/>
 </div>
+<div align="center">
 
+[![][ci-build-and-test-badge]][ci-build-and-test]
+[![][ci-coding-practices-badge]][ci-coding-practices]
+[![][nightly-synchronization-badge]][nightly-synchronization]
+[![][nightly-tool-integrations-badge]][nightly-tool-integrations]
+[![][nightly-uplc-benchmarks-badge]][nightly-uplc-benchmarks]
+
+</div>
 
 ## Getting Started
 
@@ -29,7 +37,7 @@
 #### Docker Image
 
 ```console
-docker pull ghcr.io/pragma-org/amaru:v10.10.20260702
+docker pull ghcr.io/pragma-org/amaru:v10.10.20260709
 ```
 
 > [!IMPORTANT]
@@ -51,8 +59,8 @@ nix profile install --no-write-lock-file github:pragma-org/amaru#amaru
 #### Debian
 
 ```console
-VERSION=10.10.20260702 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
-VERSION=10.10.20260702 ARCH=x86_64; sudo apt install amaru-$VERSION-linux-$ARCH.deb
+VERSION=10.10.20260709 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
+VERSION=10.10.20260709 ARCH=x86_64; sudo apt install amaru-$VERSION-linux-$ARCH.deb
 ```
 
 Also available for `ARCH=aarch64`.
@@ -61,8 +69,8 @@ The Debian package installs a systemd unit and reads overrides from `/etc/defaul
 #### RPM
 
 ```console
-VERSION=10.10.20260702 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
-VERSION=10.10.20260702 ARCH=x86_64; sudo dnf install amaru-$VERSION-linux-$ARCH.rpm
+VERSION=10.10.20260709 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
+VERSION=10.10.20260709 ARCH=x86_64; sudo dnf install amaru-$VERSION-linux-$ARCH.rpm
 ```
 
 Also available for `ARCH=aarch64`.
@@ -137,3 +145,18 @@ See [monitoring/README.md](./monitoring/README.md).
   |
   📰 <a href="./CHANGELOG.md">ChangeLog</a>
 </p>
+
+[ci-build-and-test-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/ci-build-and-test.yml?style=flat-square&logo=rust&logoColor=%23ffffff&label=
+[ci-build-and-test]: https://github.com/pragma-org/amaru/actions/workflows/ci-build-and-test.yml
+
+[ci-coding-practices-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/ci-coding-practices.yml?style=flat-square&logo=thestorygraph&logoColor=%23ffffff&label=
+[ci-coding-practices]: https://github.com/pragma-org/amaru/actions/workflows/ci-coding-practices.yml
+
+[nightly-synchronization-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/nightly-synchronization.yml?style=flat-square&logo=cardano&logoColor=%23ffffff&label=
+[nightly-synchronization]: https://github.com/pragma-org/amaru/actions/workflows/nightly-synchronization.yml
+
+[nightly-tool-integrations-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/nightly-tool-integrations.yml?style=flat-square&logo=applearcade&logoColor=%23ffffff&label=
+[nightly-tool-integrations]: https://github.com/pragma-org/amaru/actions/workflows/nightly-tool-integrations.yml
+
+[nightly-uplc-benchmarks-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/nightly-uplc-benchmarks.yml?style=flat-square&logo=blockbench&logoColor=%23ffffff&label=
+[nightly-uplc-benchmarks]: https://github.com/pragma-org/amaru/actions/workflows/nightly-uplc-benchmarks.yml

@@ -15,6 +15,9 @@
         "output": "a200584f82d818584583581c65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8ea201581e581c66e1b3a99eb32c018ee2ffb3de7a95f38cbb131e29701348138511e0024101001a2e1ee14c011a004c4b40"
       }
     ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
     }

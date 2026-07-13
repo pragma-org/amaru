@@ -35,45 +35,49 @@ Other guiding principles:
   ```
 -->
 
-## v10.10.20260709 _[unreleased; planned for 2026-07-09]_
+## v10.10.20260716 _[unreleased; planned for 2026-07-16]_
+
+### Added
+
+- **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
+- **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
+- **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
+- **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
+
+### Fixed
+
+- **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
+- **amaru-ledger**: reduce rationale number before serializing them to JSON in epoch summary. ([#1024][])
+
+## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
 ### Added
 
 - **amaru-ledger**: keep treasury donations as first-class ledger state, so protocol pots and derived summaries retain the corresponding accounting information. ([#1010][])
+- **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
+- **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 
 ### Changed
 
 - **amaru**: make sure bootstrap can't be done with unsupported snapshots; similarly prevent startup if state becomes unsupported. ([#1000][])
-
 - **amaru**: more robust procedure and tooling to produce stake-distribution epoch snapshots for conformance testing and comparison with the haskell node. ([#985][])
-
 - **amaru**: fix snapshot import of pools with no metadata. ([#1013][])
-
 - **amaru**: stake-distribution conformance tests now auto-detect which local epochs are available in `ledger.<network>.db` and run those by default, while leaving uncovered fixtures visible as ignored tests. ([#1010][])
-
 - **amaru-ledger**: load the initial in-memory stake distributions in parallel at startup, to reduce restore time when opening the node from existing snapshots. ([#1010][])
 
 ### Fixed
 
 - **amaru**: align the cardano-node reference snapshots in the haskell-node-extractor with the post-rewards epoch state, so treasury, reserves, accounts, and voting stake match what Amaru snapshots at epoch end. ([#1010][])
-
 - **amaru-consensus**: be more conservative when fetching ahead from peers during long low-density periods, to avoid requesting headers whose stake distribution is not ready yet. ([#1010][])
-
 - **amaru-ledger**: make epoch transitions and rewards calculations more resilient around restarts, interrupted transitions, and weak chain-growth periods near epoch boundaries. ([#1010][])
-
 - **amaru-ledger**: preserve delegators across DRep re-registration, while still ignoring stale DRep delegations that pre-date the current registration. ([#1010][])
-
 - **amaru-ledger**: fix epoch-boundary stake-distribution accounting by remembering recently pruned proposals and counting just-ratified treasury withdrawals in DRep voting stake. ([#1010][])
-
 - **amaru-ledger**: stop treating governance proposals as expired one epoch too early when rebuilding the proposal forest for ratification. ([#1010][])
-
 - **amaru-ledger**: fix pool registration shadowing retirements when done in the last k blocks of an epoch. ([#1010][])
 
 ## [v10.10.20260702](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260702)
 
 ### Added
-
-- **amaru-ledger**: add more state to `ValidationContext`, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#975][])
 
 - **workflows**: dedicated workflow to create and publish bootstrapping snapshots for all networks. ([#951][])
 
@@ -125,7 +129,13 @@ Other guiding principles:
 
 [#769]: https://github.com/pragma-org/amaru/issues/769
 [#778]: https://github.com/pragma-org/amaru/issues/778
+[#820]: https://github.com/pragma-org/amaru/pull/820
+[#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
+[#892]: https://github.com/pragma-org/amaru/issues/892
+[#896]: https://github.com/pragma-org/amaru/issues/896
+[#902]: https://github.com/pragma-org/amaru/issues/902
+[#915]: https://github.com/pragma-org/amaru/issues/915
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
@@ -141,3 +151,6 @@ Other guiding principles:
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
+[#1017]: https://github.com/pragma-org/amaru/pull/1017
+[#1024]: https://github.com/pragma-org/amaru/pull/1024
+[#1027]: https://github.com/pragma-org/amaru/pull/1027
