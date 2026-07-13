@@ -30,6 +30,7 @@ use crate::{
             InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
             InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
+            proposals::InvalidProposals,
         },
     },
 };
@@ -188,6 +189,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    TreasuryWithdrawalReturnAccountsDoNotExist,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
     DRepAlreadyRegistered,
@@ -242,6 +244,9 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
+            PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
+                Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
+            }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
@@ -280,5 +285,148 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Collateral(_)
             | PhaseOneError::Proposals(_) => unreachable!("no predicate mapping yet for {err}"),
         }
+    }
+}
+
+#[cfg(test)]
+pub(super) mod tx_builder {
+    use amaru_kernel::{
+        Address, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedDatum, MemoizedTransactionOutput, MemoizedValue,
+        Network, NonEmptySet, NonEmptyVec, Proposal, Set, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
+        Slot, StakeCredential, Transaction, TransactionBody, TransactionInput, VKeyWitness, Value, WitnessSet,
+        size::KEY, to_cbor,
+    };
+    use pallas_crypto::key::ed25519;
+
+    const TEST_SK_BYTES: [u8; 32] = [0xAA; 32];
+
+    pub fn test_secret_key() -> ed25519::SecretKey {
+        TEST_SK_BYTES.into()
+    }
+
+    pub fn test_key_hash() -> Hash<KEY> {
+        Hasher::<224>::hash(test_secret_key().public_key().as_ref())
+    }
+
+    pub fn test_enterprise_address() -> Address {
+        Address::Shelley(ShelleyAddress::new(
+            Network::Testnet,
+            ShelleyPaymentPart::Key(test_key_hash()),
+            ShelleyDelegationPart::Null,
+        ))
+    }
+
+    pub fn test_credential() -> StakeCredential {
+        StakeCredential::AddrKeyhash(test_key_hash())
+    }
+
+    fn lovelace_output(address: Address, lovelace: Lovelace) -> MemoizedTransactionOutput {
+        MemoizedTransactionOutput::new(
+            false,
+            address,
+            MemoizedValue::new(Value::Coin(lovelace)).unwrap(),
+            MemoizedDatum::None,
+            None,
+        )
+    }
+
+    pub fn generate_signed_tx(
+        inputs: Vec<TransactionInput>,
+        outputs: Vec<MemoizedTransactionOutput>,
+        fee: Lovelace,
+        certificates: Option<NonEmptySet<Certificate>>,
+    ) -> Vec<u8> {
+        let sk = test_secret_key();
+
+        let mut body = TransactionBody::default();
+        body.inputs = Set::from(inputs);
+        body.outputs = outputs;
+        body.fee = fee;
+        body.certificates = certificates;
+        body.validity_interval_start = Some(Slot::from(0));
+
+        let body_bytes = to_cbor(&body);
+        let tx_hash: Hash<32> = Hasher::<256>::hash(&body_bytes);
+
+        let signature = sk.sign(tx_hash.as_ref());
+        let pk = sk.public_key();
+
+        let vkey_witness = VKeyWitness {
+            vkey: Bytes::from(pk.as_ref().to_vec()),
+            signature: Bytes::from(signature.as_ref().to_vec()),
+        };
+
+        let witnesses =
+            WitnessSet { vkeywitness: Some(NonEmptyVec::try_from(vec![vkey_witness]).unwrap()), ..Default::default() };
+
+        let tx = Transaction { body, witnesses, is_expected_valid: true, auxiliary_data: None };
+
+        to_cbor(&tx)
+    }
+
+    pub fn generate_signed_tx_with_proposals(
+        inputs: Vec<TransactionInput>,
+        outputs: Vec<MemoizedTransactionOutput>,
+        fee: Lovelace,
+        proposals: Option<NonEmptySet<Proposal>>,
+    ) -> Vec<u8> {
+        let sk = test_secret_key();
+
+        let mut body = TransactionBody::default();
+        body.inputs = Set::from(inputs);
+        body.outputs = outputs;
+        body.fee = fee;
+        body.proposals = proposals;
+        body.validity_interval_start = Some(Slot::from(0));
+
+        let body_bytes = to_cbor(&body);
+        let tx_hash: Hash<32> = Hasher::<256>::hash(&body_bytes);
+
+        let signature = sk.sign(tx_hash.as_ref());
+        let pk = sk.public_key();
+
+        let vkey_witness = VKeyWitness {
+            vkey: Bytes::from(pk.as_ref().to_vec()),
+            signature: Bytes::from(signature.as_ref().to_vec()),
+        };
+
+        let witnesses =
+            WitnessSet { vkeywitness: Some(NonEmptyVec::try_from(vec![vkey_witness]).unwrap()), ..Default::default() };
+
+        let tx = Transaction { body, witnesses, is_expected_valid: true, auxiliary_data: None };
+
+        to_cbor(&tx)
+    }
+
+    pub fn test_reward_account(key_hash: Hash<KEY>) -> Bytes {
+        let mut bytes = vec![0xe0u8];
+        bytes.extend_from_slice(key_hash.as_ref());
+        Bytes::from(bytes)
+    }
+
+    pub fn generate_fixture_data(
+        input_lovelace: Lovelace,
+        output_lovelace: Lovelace,
+        fee: Lovelace,
+        certificates: Vec<Certificate>,
+    ) -> (String, String, String, String) {
+        let address = test_enterprise_address();
+        let prev_tx_hash = Hash::<32>::new([0xCC; 32]);
+
+        let input = TransactionInput { transaction_id: prev_tx_hash, index: 0 };
+        let utxo_output = lovelace_output(address.clone(), input_lovelace);
+
+        let tx_output = lovelace_output(address, output_lovelace);
+
+        let certs = if certificates.is_empty() { None } else { Some(NonEmptySet::try_from(certificates).unwrap()) };
+
+        let tx_bytes = generate_signed_tx(vec![input.clone()], vec![tx_output], fee, certs);
+
+        let input_hex = hex::encode(to_cbor(&input));
+        let output_hex = hex::encode(to_cbor(&utxo_output));
+        let credential_hex = hex::encode(to_cbor(&test_credential()));
+        let tx_hex = hex::encode(&tx_bytes);
+
+        (input_hex, output_hex, credential_hex, tx_hex)
     }
 }
