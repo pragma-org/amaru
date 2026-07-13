@@ -3823,13 +3823,18 @@
         },
         "pools_retired": {
           "type": "integer"
+        },
+        "accounts_unbound": {
+          "type": "integer"
         }
       },
       "required": [
         "pools_updated",
         "pools_retired"
       ],
-      "optional": [],
+      "optional": [
+        "accounts_unbound"
+      ],
       "additionalProperties": false,
       "name": "update_or_retire_pools",
       "level": "TRACE",

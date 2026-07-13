@@ -64,6 +64,7 @@ Other guiding principles:
 - **amaru-consensus**: fix chainsync mini-protocol lifecycle handling in `track_peers` stage to properly clean up resources when stopping to sync from a peer. ([#1059](https://github.com/pragma-org/amaru/pull/1059))
 - **amaru-pure-stage**: simulation runtime now also guarantees delivery of scheduled messages; both runtimes enforce limit on priority messages in flight. ([#1066](https://github.com/pragma-org/amaru/pull/1066))
 - **amaru-uplc**: fixed the CBOR encoding of `-2^64`.
+- **amaru-ledger**: unbind accounts from deregistered pools. ([#1030][])
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
@@ -200,6 +201,7 @@ Other guiding principles:
 [#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
 [#1029]: https://github.com/pragma-org/amaru/pull/1029
+[#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1039]: https://github.com/pragma-org/amaru/pull/1039

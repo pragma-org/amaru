@@ -983,6 +983,8 @@ define_schemas! {
                         required pools_updated: u64
                         /// Total number of pools retired
                         required pools_retired: u64
+                        /// Total number of accounts whose delegation was cleared because their pool retired
+                        optional accounts_unbound: u64
                     }
                     /// Enact all governance updates and flush their outcome to disk
                     public APPLY_GOVERNANCE_UPDATES {}

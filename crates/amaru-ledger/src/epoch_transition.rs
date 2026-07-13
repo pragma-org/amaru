@@ -66,15 +66,6 @@ pub fn begin_epoch<'distr, 'volatile, 'store, DB: ReadStore>(
             ratification_context,
         )?;
 
-        // FIXME: unbind accounts of unregistered pools
-        //
-        // We also need a mechanism to remove any remaining delegation to pools retired at the
-        // epoch boundary.
-        //
-        // The accounts are already filtered out when computing rewards, but if any retired pool
-        // were to re-register, they would automatically be granted the stake associated to their
-        // past delegates.
-
         Ok((pools_updates, governance_updates))
     })
 }

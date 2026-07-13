@@ -1025,7 +1025,7 @@ mod tests {
         tests::{
             Fixture, add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep, test_read_pool,
             test_read_utxo, test_refund_account, test_remove_account, test_remove_drep, test_remove_pool,
-            test_remove_utxo, test_slot_updated,
+            test_remove_utxo, test_retiring_pool_unbinds_delegators, test_slot_updated,
         },
     };
 
@@ -1107,6 +1107,13 @@ mod tests {
         let mut runner = TestRunner::default();
         let (store, _) = setup_rocksdb_store(&mut runner)?;
         test_epoch_transition(&store)
+    }
+
+    #[test]
+    fn test_rocksdb_retiring_pool_unbinds_delegators() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, _) = setup_rocksdb_store(&mut runner)?;
+        test_retiring_pool_unbinds_delegators(&store, &mut runner)
     }
 
     #[test]

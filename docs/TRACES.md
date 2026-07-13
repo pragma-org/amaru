@@ -1776,7 +1776,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
 | `reset_fees` | `TRACE` | public | Reset fees to zero |  |  |
 | `update_constitutional_committee` | `TRACE` | public | Add or remove CC members; or switch to a no-confidence state | no_confidence |  |
-| `update_or_retire_pools` | `TRACE` | public | Updating pools metadata or retiring pools at an epoch boundary. | pools_updated, pools_retired |  |
+| `update_or_retire_pools` | `TRACE` | public | Updating pools metadata or retiring pools at an epoch boundary. | pools_updated, pools_retired | accounts_unbound |
 
 <details><summary>span: `pay_or_refund_accounts`</summary>
 
@@ -1812,6 +1812,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `pools_updated` | `integer` | ✓ |
 | `pools_retired` | `integer` | ✓ |
+| `accounts_unbound` | `integer` |  |
 
 </details>
 

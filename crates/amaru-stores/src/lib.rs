@@ -17,6 +17,8 @@ pub mod rocksdb;
 
 #[cfg(test)]
 pub mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
     use amaru_kernel::{
         Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
@@ -25,7 +27,7 @@ pub mod tests {
     };
     use amaru_ledger::{
         epoch_transition::GovernanceActivity,
-        state::diff_bind,
+        state::{diff_bind, diff_bind::Resettable},
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
             columns::{
@@ -35,6 +37,7 @@ pub mod tests {
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },
+            update_or_retire_pools,
         },
     };
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
@@ -384,6 +387,91 @@ pub mod tests {
                 .any(|(p, e)| p.is_none() && *e == fixture.pool_epoch),
             "Expected pool to be scheduled for removal"
         );
+
+        Ok(())
+    }
+
+    pub fn test_retiring_pool_unbinds_delegators(
+        store: &impl Store,
+        runner: &mut TestRunner,
+    ) -> Result<(), StoreError> {
+        // Two registered pools: pool1 will retire, pool2 stays.
+        let pool1 = any_pool_params().new_tree(runner).unwrap().current();
+        let pool2 = any_pool_params().new_tree(runner).unwrap().current();
+        assert_ne!(pool1.id, pool2.id);
+
+        let registered_at = any_certificate_pointer(u64::MAX).new_tree(runner).unwrap().current();
+        let epoch = Epoch::from(0u64);
+
+        // Two accounts: account1 is delegated to pool1, account2 delegated to pool2
+        let account1 = any_stake_credential().new_tree(runner).unwrap().current();
+        let account2 = any_stake_credential().new_tree(runner).unwrap().current();
+        assert_ne!(account1, account2);
+
+        let delegated_at = any_certificate_pointer(u64::MAX).new_tree(runner).unwrap().current();
+
+        let accounts = vec![
+            (
+                account1.clone(),
+                (Resettable::Set((pool1.id, delegated_at)), Resettable::Reset, Some(2_000_000), 1_000_000),
+            ),
+            (
+                account2.clone(),
+                (Resettable::Set((pool2.id, delegated_at)), Resettable::Reset, Some(2_000_000), 1_000_000),
+            ),
+        ];
+
+        {
+            let context = store.create_transaction();
+            context.save(
+                &PREPROD_ERA_HISTORY,
+                &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+                GovernanceActivity::default(),
+                &Point::Origin,
+                None,
+                Columns {
+                    utxo: std::iter::empty(),
+                    pools: vec![(pool1.clone(), registered_at, epoch), (pool2.clone(), registered_at, epoch)]
+                        .into_iter(),
+                    accounts: accounts.into_iter(),
+                    dreps: std::iter::empty(),
+                    cc_members: std::iter::empty(),
+                    proposals: std::iter::empty(),
+                    votes: std::iter::empty(),
+                },
+                Columns::empty(),
+                std::iter::empty(),
+            )?;
+            context.commit()?;
+        }
+
+        let delegatee = |credential: &StakeCredential| -> Result<Option<PoolId>, StoreError> {
+            Ok(store.account(credential)?.and_then(|row| row.pool.map(|(id, _)| id)))
+        };
+        assert_eq!(delegatee(&account1)?, Some(pool1.id), "account1 should be delegated to pool1");
+        assert_eq!(delegatee(&account2)?, Some(pool2.id), "account2 should be delegated to pool2");
+
+        let row1 = store.account(&account1)?.expect("account1 should still exist");
+        assert_eq!(row1.pool.map(|p| p.0), Some(pool1.id));
+        assert_eq!(row1.deposit, 2_000_000);
+        assert_eq!(row1.rewards, 1_000_000);
+
+        // Retire pool1
+        {
+            let context = store.create_transaction();
+            update_or_retire_pools(&context, BTreeMap::new(), BTreeSet::from([pool1.id]))?;
+            context.commit()?;
+        }
+
+        assert!(store.pool(&pool1.id)?.is_none(), "the retired pool should be removed from the store");
+
+        let row1 = store.account(&account1)?.expect("account1 should still exist");
+        assert_eq!(row1.pool, None, "delegation to a retired pool must be cleared at the epoch boundary");
+        assert_eq!(row1.deposit, 2_000_000, "deposit must be untouched");
+        assert_eq!(row1.rewards, 1_000_000, "rewards must be untouched");
+
+        // Account2 stays delegated to the pool2.
+        assert_eq!(delegatee(&account2)?, Some(pool2.id), "delegation to a live pool must be preserved");
 
         Ok(())
     }
