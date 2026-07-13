@@ -31,7 +31,7 @@ pub mod tests {
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
             columns::{
-                accounts::{self},
+                accounts::{self, AccountsValue},
                 cc_members, dreps,
                 proposals::{self},
                 slots::tests::any_slot,
@@ -107,10 +107,10 @@ pub mod tests {
             None => Resettable::Reset,
         };
 
-        let rewards = Some(account_row.rewards);
-        let deposit = account_row.deposit;
-
-        let accounts_iter = std::iter::once((account_key_clone, (delegatee, drep, rewards, deposit)));
+        let accounts_iter = std::iter::once((
+            account_key_clone,
+            AccountsValue::Create { pool: delegatee, drep, deposit: account_row.deposit, rewards: account_row.rewards },
+        ));
 
         // pools
         let pool_params = any_pool_params().new_tree(runner).unwrap().current();
@@ -413,11 +413,21 @@ pub mod tests {
         let accounts = vec![
             (
                 account1.clone(),
-                (Resettable::Set((pool1.id, delegated_at)), Resettable::Reset, Some(2_000_000), 1_000_000),
+                AccountsValue::Create {
+                    pool: Resettable::Set((pool1.id, delegated_at)),
+                    drep: Resettable::Reset,
+                    deposit: 2_000_000,
+                    rewards: 1_000_000,
+                },
             ),
             (
                 account2.clone(),
-                (Resettable::Set((pool2.id, delegated_at)), Resettable::Reset, Some(2_000_000), 1_000_000),
+                AccountsValue::Create {
+                    pool: Resettable::Set((pool2.id, delegated_at)),
+                    drep: Resettable::Reset,
+                    deposit: 2_000_000,
+                    rewards: 1_000_000,
+                },
             ),
         ];
 
@@ -431,8 +441,11 @@ pub mod tests {
                 None,
                 Columns {
                     utxo: std::iter::empty(),
-                    pools: vec![(pool1.clone(), registered_at, epoch), (pool2.clone(), registered_at, epoch)]
-                        .into_iter(),
+                    pools: vec![
+                        (pool1.clone(), registered_at, 2_000_000, epoch),
+                        (pool2.clone(), registered_at, 2_000_000, epoch),
+                    ]
+                    .into_iter(),
                     accounts: accounts.into_iter(),
                     dreps: std::iter::empty(),
                     cc_members: std::iter::empty(),

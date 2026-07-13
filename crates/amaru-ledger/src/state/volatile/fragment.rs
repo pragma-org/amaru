@@ -29,9 +29,11 @@ use crate::{
         diff_epoch_reg::{DiffEpochReg, Registrations},
         diff_set::DiffSet,
     },
-    store::{self, columns::*},
+    store::{
+        self,
+        columns::{accounts::AccountsValue, *},
+    },
 };
-
 // ----------------------------------------------------------------------------------- VolatileFragment
 
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
@@ -410,8 +412,15 @@ pub(crate) fn add_accounts(
         Item = (StakeCredential, Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>),
     >,
 ) -> impl Iterator<Item = (accounts::Key, accounts::Value)> {
-    iterator
-        .map(|(credential, Bind { left: pool, right: drep, value: deposit })| (credential, (pool, drep, deposit, 0)))
+    iterator.map(|(credential, Bind { left: pool, right: drep, value: deposit })| {
+        // A bound deposit denotes a (re-)registration within the window (see DiffBind::register);
+        // without one, only delegations changed and the account is known to exist already.
+        let value = match deposit {
+            Some(deposit) => AccountsValue::Create { pool, drep, deposit, rewards: 0 },
+            None => AccountsValue::Update { pool, drep },
+        };
+        (credential, value)
+    })
 }
 
 // ------------------------------------------------------------------------------------------- DReps

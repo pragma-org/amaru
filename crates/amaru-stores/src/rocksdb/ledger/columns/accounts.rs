@@ -16,7 +16,7 @@ use amaru_kernel::{AsHash, Lovelace, StakeCredentialKind};
 use amaru_ledger::store::{
     StoreError,
     columns::{
-        accounts::{Key, Row, Value},
+        accounts::{AccountsValue, Key, Row, Value},
         unsafe_decode,
     },
 };
@@ -31,32 +31,40 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
 /// Register a new credential, with or without a stake pool.
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::ADD).in_scope(|| {
-        for (credential, (pool, drep, deposit, rewards)) in rows {
+        for (credential, value) in rows {
             let key = as_key(&PREFIX, &credential);
 
-            // In case where a registration already exists, then we must only update the underlying
-            // entry, while preserving the reward amount.
-            if let Some(mut row) =
-                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-            {
-                pool.set_or_reset(&mut row.pool);
-                drep.set_or_reset(&mut row.drep);
+            let existing =
+                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d));
 
-                if let Some(deposit) = deposit {
-                    row.deposit = deposit;
+            let row = match (value, existing) {
+                (AccountsValue::Create { pool, drep, deposit, rewards }, None) => {
+                    let mut row = Row { deposit, pool: None, drep: None, rewards };
+                    pool.set_or_reset(&mut row.pool);
+                    drep.set_or_reset(&mut row.drep);
+                    row
                 }
 
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else if let Some(deposit) = deposit {
-                let mut row = Row { deposit, pool: None, drep: None, rewards };
+                // A creation over an existing registration must preserve the current rewards balance.
+                (AccountsValue::Create { pool, drep, deposit, rewards: _ }, Some(mut row)) => {
+                    pool.set_or_reset(&mut row.pool);
+                    drep.set_or_reset(&mut row.drep);
+                    row.deposit = deposit;
+                    row
+                }
 
-                pool.set_or_reset(&mut row.pool);
-                drep.set_or_reset(&mut row.drep);
+                (AccountsValue::Update { pool, drep }, Some(mut row)) => {
+                    pool.set_or_reset(&mut row.pool);
+                    drep.set_or_reset(&mut row.drep);
+                    row
+                }
 
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else {
-                unreachable!("attempted to create an account without a deposit: account={:?}", credential);
-            }
+                (AccountsValue::Update { .. }, None) => {
+                    unreachable!("attempted to update a non-existing account: account={:?}", credential)
+                }
+            };
+
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
         Ok(())

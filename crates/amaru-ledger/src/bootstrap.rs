@@ -37,7 +37,7 @@ use crate::{
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{
         self, Store, StoreError, TransactionalContext,
-        columns::{pots::Row as Pots, proposals},
+        columns::{accounts::AccountsValue, pots::Row as Pots, proposals},
     },
 };
 
@@ -631,10 +631,12 @@ fn import_accounts(
 
             (
                 credential,
-                (
-                    Resettable::from(Option::<PoolId>::from(pool).map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER))),
+                AccountsValue::Create {
+                    pool: Resettable::from(
+                        Option::<PoolId>::from(pool).map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER)),
+                    ),
                     //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                    Resettable::from(Option::<DRep>::from(drep).map(|drep| {
+                    drep: Resettable::from(Option::<DRep>::from(drep).map(|drep| {
                         (
                             drep,
                             CertificatePointer {
@@ -651,9 +653,9 @@ fn import_accounts(
                             },
                         )
                     })),
-                    Some(deposit),
-                    rewards + rewards_update,
-                ),
+                    deposit,
+                    rewards: rewards + rewards_update,
+                },
             )
         })
         .collect::<Vec<_>>();
