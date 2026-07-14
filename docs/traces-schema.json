@@ -3452,6 +3452,18 @@
       "description": "Batch-upsert account entries",
       "public": true
     },
+    "amaru::stores::ledger::accounts::EXISTS": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "exists",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::accounts",
+      "description": "Return true if an account entry exists",
+      "public": true
+    },
     "amaru::stores::ledger::accounts::GET": {
       "type": "object",
       "properties": {},

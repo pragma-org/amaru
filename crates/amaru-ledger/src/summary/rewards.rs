@@ -107,7 +107,7 @@ the system at a certain point in time. We always take snapshots _at the end of e
 certain mutations are applied to the system.
 */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, StakeCredential, expect_stake_credential,
@@ -327,6 +327,11 @@ pub struct RewardsSummary {
 
     /// Per-account rewards, determined from their relative stake and their delegatee.
     accounts: BTreeMap<StakeCredential, Lovelace>,
+
+    /// The subset of `accounts` that received a stake pool leader reward. Retained so the epoch
+    /// boundary can resolve whether those accounts are still registered without relying on the
+    /// (member-only) deregistration bookkeeping.
+    leader_accounts: BTreeSet<StakeCredential>,
 }
 
 impl RewardsSummary {
@@ -369,11 +374,14 @@ impl RewardsSummary {
 
         let mut accounts: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
+        let mut leader_accounts: BTreeSet<StakeCredential> = BTreeSet::new();
+
         let mut pools: BTreeMap<PoolId, PoolRewards> = BTreeMap::new();
 
         let mut effective_rewards = stake_distribution.pools.iter().fold(0, |effective_rewards, (pool_id, pool)| {
             let pool_rewards = RewardsSummary::apply_leader_rewards(
                 &mut accounts,
+                &mut leader_accounts,
                 &mut blocks_per_pool,
                 blocks_count,
                 available_rewards,
@@ -431,6 +439,7 @@ impl RewardsSummary {
             effective_rewards,
             pots,
             accounts,
+            leader_accounts,
         })
     }
 
@@ -513,6 +522,7 @@ impl RewardsSummary {
     #[expect(clippy::too_many_arguments)]
     fn apply_leader_rewards(
         accounts: &mut BTreeMap<StakeCredential, Lovelace>,
+        leader_accounts: &mut BTreeSet<StakeCredential>,
         blocks_per_pool: &mut BTreeMap<PoolId, u64>,
         blocks_count: u64,
         available_rewards: Lovelace,
@@ -535,10 +545,12 @@ impl RewardsSummary {
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
         if rewards_leader > 0 {
+            let reward_account = expect_stake_credential(&pool.parameters.reward_account);
             accounts
-                .entry(expect_stake_credential(&pool.parameters.reward_account))
+                .entry(reward_account.clone())
                 .and_modify(|rewards| *rewards += rewards_leader)
                 .or_insert(rewards_leader);
+            leader_accounts.insert(reward_account);
         }
 
         PoolRewards { leader: rewards_leader, pot: rewards_pot }
@@ -557,6 +569,11 @@ impl RewardsSummary {
 
 impl From<RewardsSummary> for Rewards<Computed> {
     fn from(summary: RewardsSummary) -> Self {
-        Rewards::<Computed>::new(summary.delta_reserves(), summary.delta_treasury(), summary.accounts)
+        Rewards::<Computed>::new(
+            summary.delta_reserves(),
+            summary.delta_treasury(),
+            summary.accounts,
+            summary.leader_accounts,
+        )
     }
 }

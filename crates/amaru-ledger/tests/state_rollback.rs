@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{
     Block, BlockHeight, Epoch, EraHistory, GlobalParameters, Hash, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, ProtocolParameters, Slot, Tip,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, ProtocolParameters, Slot, StakeCredential, Tip,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -333,6 +333,10 @@ impl ReadStore for MockStore {
         impl Iterator<Item = (amaru_ledger::store::columns::accounts::Key, amaru_ledger::store::columns::accounts::Row)>,
     > {
         Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
+    }
+
+    fn account_exists(&self, _credential: &StakeCredential) -> amaru_ledger::store::Result<bool> {
+        Err::<bool, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
     fn iter_dreps(

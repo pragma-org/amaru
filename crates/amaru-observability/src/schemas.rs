@@ -1014,6 +1014,8 @@ define_schemas! {
                 accounts {
                     /// Point-read an account entry
                     public GET {}
+                    /// Return true if an account entry exists
+                    public EXISTS {}
                     /// Batch-upsert account entries
                     public ADD {}
                     /// Batch-delete account entries

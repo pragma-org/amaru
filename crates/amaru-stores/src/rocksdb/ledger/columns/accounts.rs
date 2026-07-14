@@ -95,6 +95,17 @@ pub fn get<'a>(
     })
 }
 
+/// Whether an account exists in the store, without decoding its row.
+pub fn exists<'a>(
+    db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
+    credential: &Key,
+) -> Result<bool, StoreError> {
+    trace_span!(stores::ledger::accounts::EXISTS).in_scope(|| {
+        let key = as_key(&PREFIX, credential);
+        db_get(&key).map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.is_some())
+    })
+}
+
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
 /// amount that couldn't be allocated to the account.
 pub fn set<DB>(

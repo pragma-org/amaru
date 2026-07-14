@@ -24,6 +24,7 @@ use amaru_kernel::{
 };
 
 use crate::{
+    epoch_transition::VolatileRegistrations,
     governance::ratification::ProposalsRootsRc,
     state::{
         VolatileDB,
@@ -131,6 +132,24 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
                 &mut accounts.unregistered,
             )),
         }
+    }
+
+    /// Move the volatile account changes out of the view (no clone). Consumes the same `accounts`
+    /// state as `iter_accounts`, so the two are mutually exclusive within one epoch transition.
+    pub fn volatile_registrations(&mut self) -> VolatileRegistrations<'volatile> {
+        match self.accounts.take() {
+            None => {
+                // Just being careful here. There's no reason to ever call this twice; but if it
+                // ever happens, this line might save us from hours of debugging.
+                unreachable!(".volatile_registrations() called twice on the same VolatileView! Don't do that.")
+            }
+            Some(accounts) => VolatileRegistrations::new(accounts.registered, accounts.unregistered),
+        }
+    }
+
+    // Return true if an account exists in the stable db for that credential
+    pub fn account_exists(&self, credential: &StakeCredential) -> Result<bool, StoreError> {
+        self.db.account_exists(credential)
     }
 
     /// A view on the proposal roots; this doesn't really require any volatile update but is

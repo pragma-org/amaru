@@ -432,6 +432,10 @@ macro_rules! impl_ReadStore_body {
                 accounts::get(|key| self.db.get_pinned(key), credential)
             }
 
+            fn account_exists(&self, credential: &StakeCredential) -> Result<bool, StoreError> {
+                accounts::exists(|key| self.db.get_pinned(key), credential)
+            }
+
             fn drep(
                 &self,
                 credential: &StakeCredential,

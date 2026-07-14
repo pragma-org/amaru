@@ -272,6 +272,8 @@ pub trait ReadStore {
     /// Get details about all accounts
     fn iter_accounts(&self) -> Result<impl Iterator<Item = (accounts::Key, accounts::Row)>>;
 
+    fn account_exists(&self, credential: &StakeCredential) -> Result<bool>;
+
     /// Get details about all dreps
     fn iter_dreps(&self) -> Result<impl Iterator<Item = (dreps::Key, dreps::Row)>>;
 

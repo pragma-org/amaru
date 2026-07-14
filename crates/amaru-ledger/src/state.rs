@@ -36,7 +36,7 @@ use tracing::Span;
 
 use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
-    epoch_transition::{self, GovernanceActivity},
+    epoch_transition::{self, GovernanceActivity, StableDeregistrations},
     governance::ratification::RatificationContext,
     rules::{
         self,
@@ -106,6 +106,14 @@ where
     /// for each key. On a distribution of 1M+ stake credentials, that's ~26MB of memory per
     /// duplicate.
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
+
+    /// Accounts deregistered in stable (flushed) blocks within the reward window, used to identify
+    /// unclaimed member rewards at the epoch boundary without scanning every account.
+    deregistrations: StableDeregistrations,
+
+    /// Epoch of the first block that became stable in this process. Until the accumulator has been
+    /// fed continuously since before a reward window opened, it is incomplete (a restart rewinds
+    /// only `k` blocks, far less than the window), so boundary checks against it must be skipped.
 
     /// The era history for the network this store is related to.
     era_history: Arc<EraHistory>,
@@ -219,6 +227,8 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             global_parameters: Arc::new(global_parameters),
 
             stake_distributions: Arc::new(Mutex::new(stake_distributions)),
+
+            deregistrations: StableDeregistrations::default(),
 
             era_history: Arc::new(era_history),
 
@@ -422,26 +432,28 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // pre-conditions have been checked).
             let mut volatile_view = VolatileView::new(&self.volatile, &*db);
 
-            // NOTE: No rewards during epoch transition?
-            //
-            // It is fine in some situation to compute an epoch transition and yet have no rewards.
-            // This happens if Amaru is interrupted *while it is flushing* an epoch transition to
-            // disk.
-            //
-            // This happens artificially every time someone bootstraps; because the bootstrapping
-            // process behaves as if we had interrupted the transition just after taking the
-            // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
-            // pool updates, etc...) but not the end (rewards).
-            let (treasury, effective_rewards) = if progress.is_none() {
-                // FIXME: asynchronous rewards calculations
+                // NOTE: No rewards during epoch transition?
                 //
-                // This should eventually be a '.await', as we always expect to *eventually*
-                // have some rewards summary being available. There's no way to continue progressing
-                // the ledger if we don't.
-                let effective_rewards = epoch_transition::end_epoch(
-                    &mut volatile_view,
-                    computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
-                )?;
+                // It is fine in some situation to compute an epoch transition and yet have no rewards.
+                // This happens if Amaru is interrupted *while it is flushing* an epoch transition to
+                // disk.
+                //
+                // This happens artificially every time someone bootstraps; because the bootstrapping
+                // process behaves as if we had interrupted the transition just after taking the
+                // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
+                // pool updates, etc...) but not the end (rewards).
+                let (treasury, effective_rewards) = if progress.is_none() {
+                    // FIXME: asynchronous rewards calculations
+                    //
+                    // This should eventually be a '.await', as we always expect to *eventually*
+                    // have some rewards summary being available. There's no way to continue progressing
+                    // the ledger if we don't.
+                    let effective_rewards = epoch_transition::end_epoch(
+                        &mut volatile_view,
+                        &self.deregistrations,
+                        computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
+                        next_epoch,
+                    )?;
 
                 (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
             } else {
@@ -479,8 +491,17 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
             self.volatile.transition(effective_rewards, pools_updates, governance_updates);
 
-            Ok(())
-        })
+                // Retain only what a still-open reward window can need: the oldest live distribution's
+                // epoch. (The one consumed at this boundary was already popped at compute time.)
+                let horizon = {
+                    #[allow(clippy::unwrap_used)]
+                    let distributions = self.stake_distributions.lock().unwrap();
+                    distributions.back().map(|d| d.epoch).unwrap_or(next_epoch)
+                };
+                self.deregistrations.prune(horizon);
+
+                Ok(())
+            })
     }
 
     fn try_compute_rewards(&mut self) -> Result<(), StateError> {
@@ -570,6 +591,17 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                         self.global_parameters.consensus_security_param
                     )
                 });
+
+                // Feed the deregistration accumulator as blocks become stable. A re-registration
+                // supersedes an earlier deregistration. Both sets are disjoint within a fragment.
+                let epoch = unsafe_slot_to_epoch(&self.era_history, now_stable.slot());
+                for credential in now_stable.fragment.accounts.registered.keys() {
+                    self.deregistrations.register(credential);
+                }
+                for credential in now_stable.fragment.accounts.unregistered.iter() {
+                    self.deregistrations.deregister(credential.clone(), epoch);
+                }
+                self.deregistrations.track(epoch);
 
                 Some(now_stable)
             } else {

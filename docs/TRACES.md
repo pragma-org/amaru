@@ -1664,6 +1664,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `add` | `TRACE` | public | Batch-upsert account entries |  |  |
+| `exists` | `TRACE` | public | Return true if an account entry exists |  |  |
 | `get` | `TRACE` | public | Point-read an account entry |  |  |
 | `remove` | `TRACE` | public | Batch-delete account entries |  |  |
 | `reset_many` | `TRACE` | public | Reset rewards counters for many accounts | credential, reason |  |

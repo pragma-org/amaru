@@ -165,6 +165,13 @@ pub struct Rewards<STEP: KnownRewardState> {
     /// `Effective` back to a `Computed` is therefore just dropping this set, and the reverse is
     /// re-attaching it. Neither touches `accounts`.
     unclaimed: STEP::UnclaimedRewards,
+
+    /// The subset of `accounts` that received a stake pool *leader* reward. Unlike member accounts,
+    /// a leader reward account need not have been registered when the reward was computed, so whether
+    /// it is unclaimed at the boundary cannot be inferred from deregistrations alone and must be
+    /// resolved by a direct lookup. Kept behind an `Arc` (there are at most as many as there are
+    /// pools) so snapshotting shares it rather than copying.
+    leader_accounts: Arc<BTreeSet<StakeCredential>>,
 }
 
 impl<STEP: KnownRewardState> Rewards<STEP>
@@ -182,7 +189,17 @@ where
             delta_treasury: self.delta_treasury,
             accounts: Arc::clone(&self.accounts),
             unclaimed: self.unclaimed.clone(),
+            leader_accounts: Arc::clone(&self.leader_accounts),
         }
+    }
+
+    pub fn has_reward(&self, account: &StakeCredential) -> bool {
+        self.accounts.contains_key(account)
+    }
+
+    /// The accounts that received a stake pool leader reward.
+    pub fn leader_accounts(&self) -> &BTreeSet<StakeCredential> {
+        &self.leader_accounts
     }
 }
 
@@ -191,8 +208,16 @@ impl Rewards<Computed> {
         delta_reserves: Lovelace,
         delta_treasury: Lovelace,
         accounts: BTreeMap<StakeCredential, Lovelace>,
+        leader_accounts: BTreeSet<StakeCredential>,
     ) -> Self {
-        Self { delta_reserves, delta_treasury, accounts: Arc::new(accounts), unclaimed: (), step: PhantomData }
+        Self {
+            delta_reserves,
+            delta_treasury,
+            accounts: Arc::new(accounts),
+            unclaimed: (),
+            leader_accounts: Arc::new(leader_accounts),
+            step: PhantomData,
+        }
     }
 }
 
@@ -235,6 +260,19 @@ impl Rewards<Effective> {
             delta_treasury: computed_rewards.delta_treasury,
             accounts: computed_rewards.accounts,
             unclaimed,
+            leader_accounts: computed_rewards.leader_accounts,
+        }
+    }
+
+    /// Build effective rewards from an already-computed unclaimed set.
+    pub fn from_unclaimed(computed_rewards: Rewards<Computed>, unclaimed: BTreeSet<StakeCredential>) -> Self {
+        Rewards {
+            step: PhantomData,
+            delta_reserves: computed_rewards.delta_reserves,
+            delta_treasury: computed_rewards.delta_treasury,
+            accounts: computed_rewards.accounts,
+            unclaimed,
+            leader_accounts: computed_rewards.leader_accounts,
         }
     }
 
@@ -272,6 +310,7 @@ impl Rewards<Effective> {
             delta_treasury: self.delta_treasury,
             accounts: self.accounts,
             unclaimed: (),
+            leader_accounts: self.leader_accounts,
         }
     }
 }
@@ -299,11 +338,16 @@ mod test {
 
         let delta_reserves = 1_000;
         let delta_treasury = 7;
-        let computed_rewards = Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts);
+        let leader_accounts = BTreeSet::from([registered.clone()]);
+        let computed_rewards =
+            Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts, leader_accounts.clone());
 
         // `unregistered` unregistered during the epoch, so its rewards can no longer be paid out.
         let effective_rewards =
             Rewards::<Effective>::new(computed_rewards.snapshot(), [registered.clone()].into_iter());
+
+        // Leader accounts travel with the rewards through the computed/effective transition.
+        assert_eq!(effective_rewards.leader_accounts(), &leader_accounts);
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
         // is folded back into the treasury instead).

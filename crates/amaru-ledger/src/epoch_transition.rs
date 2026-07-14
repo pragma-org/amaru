@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, EraHistory, ProtocolParameters};
+use std::collections::BTreeSet;
+
+use amaru_kernel::{Epoch, EraHistory, ProtocolParameters, StakeCredential};
 use amaru_observability::info_span;
 
 use crate::{
@@ -20,6 +22,12 @@ use crate::{
     state::{StateError, volatile::VolatileView},
     store::{ReadStore, StoreError},
 };
+
+mod stable_deregistrations;
+pub use stable_deregistrations::StableDeregistrations;
+
+mod volatile_registrations;
+pub use volatile_registrations::{VolatileRegistrationStatus, VolatileRegistrations};
 
 mod pools_updates;
 pub use pools_updates::PoolsEpochTransitionUpdates;
@@ -35,10 +43,60 @@ pub use ratification::{GovernanceActivity, GovernanceUpdates};
 ///
 pub fn end_epoch<'volatile, 'store, DB: ReadStore>(
     view: &mut VolatileView<'volatile, 'store, DB>,
+    stable_deregistrations: &StableDeregistrations,
     computed_rewards: Rewards<Computed>,
+    next_epoch: Epoch,
 ) -> Result<Rewards<Effective>, StoreError> {
-    info_span!(ledger::epoch_transition::END_EPOCH)
-        .in_scope(|| Ok(Rewards::<Effective>::new(computed_rewards, view.iter_accounts()?)))
+    info_span!(ledger::epoch_transition::END_EPOCH).in_scope(|| {
+        // The reward window opens at `next_epoch - 4` (snapshot epoch = (next_epoch - 1) - 3).
+        // Until the stable_deregistrations has covered it, we fall back to a full accounts db scan in
+        // order to find out which accounts are unclaimed to get effective rewards.
+        if !stable_deregistrations.covers(next_epoch - 4) {
+            return Ok(Rewards::<Effective>::new(computed_rewards, view.iter_accounts()?));
+        }
+
+        // Otherwise, get the member registrations / deregistrations that happened in the volatile view.
+        let volatile_registrations = view.volatile_registrations();
+
+        let leaders = computed_rewards.leader_accounts();
+        let mut unclaimed: BTreeSet<StakeCredential> = BTreeSet::new();
+
+        // Members still unregistered at the end of the volatile window are unclaimed accounts
+        for account in volatile_registrations.unregistered() {
+            if !leaders.contains(account) && computed_rewards.has_reward(account) {
+                unclaimed.insert(account.clone());
+            }
+        }
+
+        // Members unregistered in stable blocks, and not since re-registered are also
+        // unclaimed accounts
+        for account in stable_deregistrations.unregistered_accounts() {
+            if !volatile_registrations.is_registered(account)
+                && !leaders.contains(account)
+                && computed_rewards.has_reward(account)
+            {
+                unclaimed.insert(account.clone());
+            }
+        }
+
+        // Leaders accounts are unclaimed if they have been deregistered in the volatile view.
+        // If no change happened in the volatile view, we check the stable db to see if the account is
+        // still there. This is a disk read but only on leader accounts which is a smaller subset of accounts
+        // than member accounts.
+        for leader in leaders.iter() {
+            let unregistered = match volatile_registrations.latest_registration(leader) {
+                VolatileRegistrationStatus::Registered => false,
+                VolatileRegistrationStatus::Unregistered => true,
+                VolatileRegistrationStatus::Unknown => !view.account_exists(leader)?,
+            };
+
+            if unregistered {
+                unclaimed.insert(leader.clone());
+            }
+        }
+
+        Ok(Rewards::<Effective>::from_unclaimed(computed_rewards, unclaimed))
+    })
 }
 
 pub fn begin_epoch<'distr, 'volatile, 'store, DB: ReadStore>(
