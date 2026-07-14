@@ -47,6 +47,7 @@ Other guiding principles:
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
 - **amaru-ledger**: validate stake pool exists when attempting to unregister ([#912][], [#1034][])
+- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` implementation and coverage. ([#1037][])
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
@@ -230,3 +231,4 @@ Other guiding principles:
 [#1055]: https://github.com/pragma-org/amaru/pull/1055
 [#1056]: https://github.com/pragma-org/amaru/pull/1056
 [#1060]: https://github.com/pragma-org/amaru/issues/1060
+[#1037]: https://github.com/pragma-org/amaru/pull/1037
