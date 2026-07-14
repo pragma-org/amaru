@@ -173,7 +173,10 @@ impl PoolsEpochTransitionUpdates {
         debug!(name: "pool.retire", id = %pool.id());
 
         self.retired.insert(pool.id());
-        self.refunds.insert(expect_stake_credential(&pool.current_params.reward_account), pool.deposit);
+        self.refunds
+            .entry(expect_stake_credential(&pool.current_params.reward_account))
+            .and_modify(|refunded| *refunded += pool.deposit)
+            .or_insert(pool.deposit);
 
         // NOTE: Sanity check on pool retirement
         //
@@ -242,7 +245,9 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, PoolId, PoolParams, any_certificate_pointer, any_lovelace, any_pool_params, expect_stake_credential,
+        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeCredential, StakePayload, any_certificate_pointer,
+        any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential, new_stake_address,
+        utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
 
@@ -384,5 +389,43 @@ mod tests {
             prop_assert!(pools_updates.retired().contains(&pool_id));
             prop_assert_eq!(pools_updates.refund(&reward_account), deposit);
         }
+    }
+
+    #[test]
+    fn accumulates_refunds_for_multiple_retiring_pools_sharing_a_reward_account() {
+        let (mut pool_params_a, mut pool_params_b) = run_strategy(
+            (any_pool_params(), any_pool_params())
+                .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id != pool_b.id),
+        );
+        let reward_credential = run_strategy(any_stake_credential());
+        let reward_account = reward_account_from_stake_credential(&reward_credential);
+
+        let deposit_a = 1_000_000;
+        let deposit_b = 2_000_000;
+
+        pool_params_a.reward_account = reward_account.clone();
+        pool_params_b.reward_account = reward_account;
+
+        let mut pool_a = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), deposit_a, pool_params_a);
+        pool_a.future_params.push((None, Epoch::from(0)));
+
+        let mut pool_b = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), deposit_b, pool_params_b);
+        pool_b.future_params.push((None, Epoch::from(0)));
+
+        let mut pools_updates = PoolsEpochTransitionUpdates::default();
+        pools_updates.retire_pool(Epoch::from(0), pool_a);
+        pools_updates.retire_pool(Epoch::from(0), pool_b);
+
+        let refunds = pools_updates.refunds().collect::<Vec<_>>();
+        assert_eq!(refunds, vec![(&reward_credential, deposit_a + deposit_b)]);
+    }
+
+    fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {
+        let payload = match credential {
+            StakeCredential::AddrKeyhash(hash) => StakePayload::Stake(*hash),
+            StakeCredential::ScriptHash(hash) => StakePayload::Script(*hash),
+        };
+
+        new_stake_address(Network::Testnet, payload).to_vec().into()
     }
 }
