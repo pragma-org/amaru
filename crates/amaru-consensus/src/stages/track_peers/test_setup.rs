@@ -20,7 +20,8 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    MockCanValidateBlocks, PoolSummaries, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+    BaseReadChainStore, MockBlockValidator, PoolSummaries, WriteChainStore, has_stake_pools::MockHasStakePools,
+    in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
@@ -266,7 +267,7 @@ fn setup_inner(
             resources.put::<ResourceHeaderStore>(store.clone());
             let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());
-            resources.put::<ResourceHasStakePools>(block_validation);
+            resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
             let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
             let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
             let cp = Arc::new(ConsensusParameters::new(global, &era_history, Default::default()));

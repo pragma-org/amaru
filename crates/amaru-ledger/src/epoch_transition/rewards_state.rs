@@ -203,6 +203,18 @@ impl Rewards<Effective> {
     /// have a reward but were no longer registered at the epoch boundary. Their amounts stay in the
     /// shared map (they are folded back into the treasury via [`Self::delta_treasury`]) but they are
     /// never paid out to the account.
+    ///
+    /// TODO: retain unregistered accounts for epoch transition instead of searching for them
+    //
+    //   We have to prune accounts from that have been unregistered in this epoch and can no longer
+    //   receive rewards. The number of accounts doing so is usually limited compared to the total
+    //   number of accounts (~1.5M on Mainnet). So instead of iterating through all accounts to see
+    //   which have disappeared, we could simply remember which accounts have unregistered in the
+    //   epoch and prune them here rapidly.
+    //
+    //   With interning of the account key, each account weights ~8 bytes; so even if all accounts
+    //   were to unregister in the epoch (end of Cardano?), that'd still be ~11MB of resident memory.
+    //   So very negligeable.
     pub fn new(computed_rewards: Rewards<Computed>, accounts: impl Iterator<Item = StakeCredential>) -> Self {
         // The set of accounts still registered at the boundary, used to tell claimed from unclaimed.
         let registered: BTreeSet<StakeCredential> = accounts.collect();
@@ -210,7 +222,10 @@ impl Rewards<Effective> {
         let unclaimed: BTreeSet<StakeCredential> = computed_rewards
             .accounts
             .iter()
-            .filter(|(account, reward)| **reward > 0 && !registered.contains(*account))
+            .filter(|(account, reward)| {
+                debug_assert!(**reward > 0, "the account {account:?} doesn't have a strictly positive reward");
+                !registered.contains(account)
+            })
             .map(|(account, _)| account.clone())
             .collect();
 
@@ -229,9 +244,11 @@ impl Rewards<Effective> {
         if self.unclaimed.contains(account) { 0 } else { self.accounts.get(account).copied().unwrap_or(0) }
     }
 
-    /// The number of accounts that should receive a (non-zero) reward payout.
+    /// The number of accounts that should receive a (non-zero) reward payout. Every account in the
+    /// map earns a reward, so the payable ones are simply those not flagged as unclaimed (`unclaimed`
+    /// is always a subset of the map's keys).
     pub fn payable_accounts(&self) -> usize {
-        self.accounts.iter().filter(|(account, reward)| **reward > 0 && !self.unclaimed.contains(*account)).count()
+        self.accounts.len() - self.unclaimed.len()
     }
 
     /// Amount to be paid to the reserves

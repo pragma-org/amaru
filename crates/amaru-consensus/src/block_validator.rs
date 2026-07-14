@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeSet,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use amaru_kernel::{Block, Point, Tip, Transaction};
 use amaru_ledger::{
@@ -22,28 +26,19 @@ use amaru_ledger::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ChainStore, FindAncestorOnBestChainResult, ReadChainStore,
-    TransactionValidationError, can_validate_blocks::BlockValidationError,
+    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ChainStore, FindAncestorOnBestChainResult, HasStakePools,
+    PoolSummaries, ReadChainStore, TransactionValidationError, can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
 
 /// This data type encapsulate the ledger state in order to implement the `CanValidateBlocks` trait.
 /// and be able to validate blocks (including rollback).
+#[derive(Clone)]
 pub struct BlockValidator<S: Store, HS: HistoricalStores> {
     state: Arc<Mutex<State<S, HS>>>,
     vm_eval_pool: ArenaPool,
     chain_store: Arc<dyn ChainStore>,
-}
-
-impl<S: Store, HS: HistoricalStores> Clone for BlockValidator<S, HS> {
-    fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-            vm_eval_pool: self.vm_eval_pool.clone(),
-            chain_store: self.chain_store.clone(),
-        }
-    }
 }
 
 impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateTxs for BlockValidator<S, HS> {
@@ -60,6 +55,14 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateTxs 
 impl<S: Store, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     pub fn new(state: State<S, HS>, vm_eval_pool: ArenaPool, chain_store: Arc<dyn ChainStore>) -> Self {
         Self { state: Arc::new(Mutex::new(state)), vm_eval_pool, chain_store }
+    }
+
+    /// Set callback invoked when a new stake distribution is computed/available.
+    /// The provided PoolSummaries should be used to update resources for header validation.
+    #[expect(clippy::unwrap_used)]
+    pub fn set_on_stake_dist_updated(&self, callback: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        let mut state = self.state.lock().unwrap();
+        state.set_on_stake_dist_updated(callback);
     }
 }
 
@@ -139,5 +142,19 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBloc
     fn volatile_tip(&self) -> Option<Tip> {
         let state = self.state.lock().unwrap();
         state.volatile_tip()
+    }
+}
+
+impl<S, HS> HasStakePools for BlockValidator<S, HS>
+where
+    S: Store + Send,
+    HS: HistoricalStores + Send,
+{
+    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+        #[expect(clippy::unwrap_used)]
+        {
+            let state = self.state.lock().unwrap();
+            state.registered_relay_socket_addrs().map_err(|e| BlockValidationError::new(anyhow!(e)))
+        }
     }
 }

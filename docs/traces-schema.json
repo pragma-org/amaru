@@ -2911,44 +2911,6 @@
       "description": "Recompute the volatile aggregate",
       "public": true
     },
-    "amaru::ledger::volatile::ROLLBACK_TO": {
-      "type": "object",
-      "properties": {
-        "target_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "last_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "first_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "warning": {
-          "type": "string"
-        },
-        "error": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "target_slot"
-      ],
-      "optional": [
-        "last_slot",
-        "first_slot",
-        "warning",
-        "error"
-      ],
-      "additionalProperties": false,
-      "name": "rollback_to",
-      "level": "TRACE",
-      "target": "amaru::ledger::volatile",
-      "description": "Rollback the volatile state to a specific point",
-      "public": true
-    },
     "amaru::ledger::volatile::WARM_UP": {
       "type": "object",
       "properties": {

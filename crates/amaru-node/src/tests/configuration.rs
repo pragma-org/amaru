@@ -259,12 +259,12 @@ impl NodeTestConfig {
     pub fn make_node_configuration(&self) -> anyhow::Result<Config> {
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(|p| p.name.clone()).collect(),
-            network: self.network_name,
             network_magic: self.network_name.to_network_magic(),
-            era_history: self.era_history().clone(),
             ..Default::default()
         };
 
+        config.ledger_config.era_history = self.era_history().clone();
+        config.ledger_config.network = self.network_name;
         config.listen_address = self.listen_address.clone();
 
         // Bootstrap a temp RocksDB ledger store whose tip matches the chain store's anchor.
@@ -306,7 +306,7 @@ impl NodeTestConfig {
             store.next_snapshot(Epoch::from(2u64))?;
         }
 
-        config.ledger_store = ledger_store_config;
+        config.ledger_config.ledger_store = ledger_store_config;
         config.chain_store = StoreType::InMem(self.chain_store.clone());
         Ok(config)
     }

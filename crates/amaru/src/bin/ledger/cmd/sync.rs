@@ -21,19 +21,17 @@ use std::{
     time::Instant,
 };
 
-use amaru::{
-    default_chain_dir, default_data_dir, default_ledger_dir,
-    stages::{
-        build_node::{make_block_validator, make_state},
-        config::LedgerConfig,
-    },
-};
+use amaru::{default_chain_dir, default_data_dir, default_ledger_dir};
 use amaru_consensus::{block_validator::BlockValidator, store::PraosChainStore};
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point, RawBlock,
     cardano::network_block::NetworkBlock, to_cbor,
 };
-use amaru_ouroboros::{ChainStore, HasStakeDistribution, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
+use amaru_node::stages::{
+    build_node::{make_block_validator, make_state},
+    config::LedgerConfig,
+};
+use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use flate2::read::GzDecoder;
@@ -154,9 +152,8 @@ async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     praos_chain_store: &PraosChainStore,
     consensus_parameters: Arc<ConsensusParameters>,
-    block_validator: &BlockValidator,
+    block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
     era_history: &EraHistory,
-    stake_distribution: Arc<dyn HasStakeDistribution>,
     point: Point,
     raw_block: RawBlock,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -167,7 +164,7 @@ async fn process_block(
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
     let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
 
-    let summaries: PoolSummaries = block_validator.state.lock().unwrap().pool_summaries();
+    let summaries = block_validator.current_pool_summaries();
     header::assert_all(
         consensus_parameters,
         block_header.header(),
@@ -209,7 +206,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_config =
         LedgerConfig { ledger_store: RocksDbConfig::new(ledger_dir), network, ..LedgerConfig::default() };
     let state = make_state(&ledger_config)?;
-    let stake_distribution = Arc::new(state.view_stake_distribution());
     let tip = state.tip().into_owned();
     let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())?;
 

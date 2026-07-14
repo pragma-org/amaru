@@ -30,7 +30,6 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, info, info_span, trace, warn};
 use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
 use amaru_plutus::arena_pool::ArenaPool;
-use anyhow::anyhow;
 use num::CheckedSub;
 use thiserror::Error;
 use tracing::Span;
@@ -47,7 +46,7 @@ use crate::{
         AnchoredVolatileFragment, StateRecovery, StateRecoveryKind, StoreUpdate, VolatileDB, VolatileFragment,
         VolatileSequence, VolatileView,
     },
-    store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
+    store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
         governance::{self, GovernanceSummary},
         rewards::RewardsSummary,
@@ -253,15 +252,6 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             by_epoch.insert(distr.epoch, pools);
         }
         PoolSummaries { by_epoch }
-    }
-
-    /// Obtain a view of the pools, to allow decoupling the ledger from other
-    /// components that require access to it.
-    pub fn view_stake_pools(&self) -> impl HasStakePools + use<S, HS>
-    where
-        S: Send + Sync,
-    {
-        StakePoolsObserver { stable: self.stable.clone() }
     }
 
     pub fn network(&self) -> NetworkName {

@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
+    block_validator::BlockValidator,
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
         ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
@@ -22,9 +23,11 @@ use amaru_consensus::{
     stages::track_peers::TrackPeersMsg,
 };
 use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
+use amaru_ledger::state::State;
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool};
+use amaru_ouroboros::{CanValidateBlocks, ChainStore, ConnectionsResource, MempoolMsg, ResourceMempool};
+use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
@@ -34,7 +37,7 @@ use amaru_pure_stage::{
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
 };
-use amaru_stores::rocksdb::consensus::RocksDBStore;
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore};
 use anyhow::anyhow;
 use opentelemetry::metrics::Meter;
 use parking_lot::Mutex;
@@ -42,8 +45,7 @@ use tokio::runtime::Handle;
 
 use crate::stages::{
     build_stage_graph::{NodeStages, build_stage_graph},
-    config::{Config, StoreType},
-    ledger::Ledger,
+    config::{Config, LedgerConfig, StoreType},
 };
 
 /// Build a node given the provided configuration and run it using Tokio.
@@ -53,7 +55,7 @@ pub fn build_and_run_node(config: Config, meter: Option<Meter>) -> anyhow::Resul
         .with_trace_buffer(trace_buffer)
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
-    let node_stages = build_node(&config, &config.global_parameters, meter, &mut stage_builder)?;
+    let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(Handle::current().clone());
     Ok(NodeRunning { tokio_running, mempool_sender })
@@ -104,47 +106,61 @@ pub fn build_node(
     meter: Option<Meter>,
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
-    let era_history = &config.era_history;
-
-    // Make the ledger and get its tip
-    let ledger = Ledger::new(config, era_history.clone(), global_parameters.clone())?;
-
-    let ledger_tip = ledger.get_tip();
+    // Make the ledger state and get its tip
+    let state = make_state(&config.ledger_config)?;
+    let ledger_tip = state.tip().into_owned();
     tracing::info!(
         tip.hash = %ledger_tip.hash(),
         tip.slot = u64::from(ledger_tip.slot_or_default()),
         "build_ledger"
     );
 
+    let chain_store = make_chain_store(config)?;
+    let pool_summaries = state.pool_summaries();
+    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
+
     // Make the chain store, either from the network resources if already set
     // or from the configuration.
     // This also makes sure that the chain store tip and anchors are exactly aligned to the
     // ledger tip.
-    let chain_store = initialize_chain_store(config, ledger_tip)?;
+    initialize_chain_store(chain_store.clone(), ledger_tip)?;
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
     let best_hash = find_best_candidate(chain_store.as_ref())?;
 
-    let pool_summaries = ledger.get_pool_summaries()?;
-    let initial_max_epoch = pool_summaries.max_epoch();
+    // Make resources
+    let era_history = &config.era_history();
 
-    // Build the stage graph first to obtain a Sender<TrackPeersMsg> via stage_graph.input().
-    // This sender is required to notify track_peers from outside pure-stage (e.g. ledger's
-    // on_stake_dist_updated hook).
+    let consensus_parameters =
+        Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history(), Default::default()));
+
+    // Register resources
+    register_resources(
+        stage_builder,
+        chain_store,
+        global_parameters,
+        block_validator.clone(),
+        consensus_parameters,
+        config.era_history().clone(),
+        meter,
+        config.mempool.clone(),
+    );
+    let resources = stage_builder.resources().clone();
+
+    // Build the stage graph and return a reference to the stages that can be connected from outside this function
     let node_stages = build_stage_graph(
         config,
         era_history,
         global_parameters,
         ledger_tip,
         best_hash,
-        initial_max_epoch,
+        pool_summaries.max_epoch(),
         stage_builder,
     );
-    let track_peers_sender = node_stages.track_peers_stake_dist_sender();
 
-    let resources = stage_builder.resources().clone();
-    ledger.set_on_stake_dist_updated(Arc::new(move |summ| {
-        let max_epoch = summ.max_epoch();
-        resources.put::<ResourcePoolSummaries>(Arc::new(summ));
+    let track_peers_sender = node_stages.track_peers_stake_dist_sender();
+    block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
+        let max_epoch = summaries.max_epoch();
+        resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
         let track_peers_sender = track_peers_sender.clone();
         let send = async move {
             if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
@@ -164,22 +180,6 @@ pub fn build_node(
     // and ledger being driven from the main thread. It will be cleaned up when the ledger state
     // is handled in its own non-Tokio thread.
 
-    let consensus_parameters =
-        Arc::new(ConsensusParameters::new(global_parameters.clone(), &era_history.clone(), Default::default()));
-
-    // Register resources
-    register_resources(
-        stage_builder,
-        chain_store,
-        global_parameters.clone(),
-        ledger,
-        consensus_parameters,
-        era_history.clone(),
-        pool_summaries,
-        meter,
-        config.mempool.clone(),
-    );
-
     // Open a port to listen for downstream peers
     stage_builder
         .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(config.listen_address()?)])
@@ -194,25 +194,25 @@ pub fn build_node(
 fn register_resources(
     stage_graph: &mut impl StageGraph,
     chain_store: Arc<dyn ChainStore>,
-    global_parameters: GlobalParameters,
-    ledger: Ledger,
+    global_parameters: &GlobalParameters,
+    block_validator: Arc<BlockValidator<RocksDB, RocksDBHistoricalStores>>,
     consensus_parameters: Arc<ConsensusParameters>,
     era_history: EraHistory,
-    pool_summaries: PoolSummaries,
     meter: Option<Meter>,
     mempool_config: MempoolConfig,
 ) {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
-    stage_graph.resources().put::<ResourceParameters>(global_parameters);
-    stage_graph.resources().put::<ResourceBlockValidation>(ledger.get_block_validation());
-    stage_graph.resources().put::<ResourceHasStakePools>(ledger.get_stake_pools());
-    stage_graph.resources().put::<ResourceTxValidation>(ledger.get_tx_validation());
+    stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
+
+    stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
+    stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
+    stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
+    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(block_validator.current_pool_summaries()));
     stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
     stage_graph.resources().put::<ResourceEraHistory>(era_history);
-    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
 
     if let Some(meter) = meter {
         stage_graph.resources().put::<ResourceMeter>(Arc::new(meter));
@@ -220,7 +220,7 @@ fn register_resources(
 }
 
 /// This function migrates the database if necessary
-fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<Arc<dyn ChainStore>> {
+fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
     let chain_store: Arc<dyn ChainStore> = match config.chain_store {
         StoreType::InMem(ref chain_store) => chain_store.clone(),
         StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
@@ -229,6 +229,28 @@ fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<
         StoreType::RocksDb(ref rocks_db_config) => Arc::new(RocksDBStore::open(rocks_db_config)?),
     };
 
+    Ok(chain_store)
+}
+
+pub fn make_block_validator(
+    config: &LedgerConfig,
+    state: State<RocksDB, RocksDBHistoricalStores>,
+    chain_store: Arc<dyn ChainStore>,
+) -> anyhow::Result<BlockValidator<RocksDB, RocksDBHistoricalStores>> {
+    Ok(BlockValidator::new(
+        state,
+        ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size),
+        chain_store,
+    ))
+}
+
+pub fn make_state(config: &LedgerConfig) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
+    let store = RocksDB::new(&config.ledger_store)?;
+    let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
+    Ok(State::new(store, snapshots, config.network, config.era_history().clone(), config.global_parameters.clone())?)
+}
+
+fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {
     let anchor_hash = chain_store.get_anchor_hash();
 
     // This corresponds to a bootstrap, we need to correctly initialize the chain store
@@ -238,6 +260,5 @@ fn initialize_chain_store(config: &Config, ledger_tip: Point) -> anyhow::Result<
         chain_store.set_block_valid(&ledger_tip.hash(), true)?;
         chain_store.roll_forward_chain(&ledger_tip)?;
     }
-
-    Ok(chain_store)
+    Ok(())
 }

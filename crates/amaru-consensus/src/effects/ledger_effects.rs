@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, Peer, Point, Tip, Transaction};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
@@ -357,7 +357,7 @@ pub struct RegisteredRelaySocketAddrsEffect;
 impl ExternalEffect for RegisteredRelaySocketAddrsEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        Self::wrap_sync({
             let stake_pools = resources
                 .get::<ResourceHasStakePools>()
                 .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasStakePools resource")

@@ -85,7 +85,6 @@ amaru-network.workspace = true
 amaru-node.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
-amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true

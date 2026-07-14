@@ -494,14 +494,6 @@ define_schemas! {
             volatile {
                 /// Recompute the volatile aggregate
                 public AGGREGATE {}
-                /// Rollback the volatile state to a specific point
-                public ROLLBACK_TO {
-                    required target_slot: amaru_kernel::Slot
-                    optional last_slot: amaru_kernel::Slot
-                    optional first_slot: amaru_kernel::Slot
-                    optional warning: String
-                    optional error: String
-                }
                 /// The volatile db is still warming up and hasn't reached a stable point yet
                 public WARM_UP {
                     required size: usize

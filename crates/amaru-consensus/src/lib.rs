@@ -18,11 +18,11 @@ pub mod block_validator;
 pub mod effects;
 pub mod errors;
 pub mod events;
-pub mod header_validator;
 pub mod headers_tree;
 pub mod span;
 pub mod stages;
 pub mod store;
+pub mod validate_header;
 
 #[cfg(test)]
 pub(crate) mod test {

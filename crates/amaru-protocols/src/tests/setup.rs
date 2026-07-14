@@ -25,9 +25,9 @@ use std::{
 use amaru_kernel::{NonEmptyBytes, Peer, Transaction};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource, DiagnosticChainStore,
-    HasStakePools, Mempool, MockCanValidateBlocks, MockCanValidateTxs, ResourceMempool, ToSocketAddrs,
-    in_memory_chain_store::InMemoryChainStore,
+    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource,
+    DiagnosticChainStore, HasStakePools, Mempool, MockBlockValidator, MockCanValidateTxs, ResourceMempool,
+    ToSocketAddrs, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -77,7 +77,7 @@ pub(super) fn set_resources_with_connections(
     network.resources().put::<Arc<dyn DiagnosticChainStore>>(chain_store.clone());
     network.resources().put::<ResourceHeaderStore>(chain_store);
     network.resources().put::<ResourceBlockValidation>(block_validation.clone());
-    network.resources().put::<ResourceHasStakePools>(block_validation);
+    network.resources().put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
     network.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     network.resources().put::<ConnectionsResource>(connections);
     network.resources().put::<ResourceMempool<Transaction>>(mempool);
