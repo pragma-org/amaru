@@ -62,10 +62,6 @@ pub fn default_chain_dir(network: NetworkName) -> String {
     format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
-pub fn bootstrap_config_dir(network: NetworkName) -> PathBuf {
-    format!("crates/amaru/config/bootstrap/{}", network.to_string().to_lowercase()).into()
-}
-
 pub fn default_snapshots_dir(network: NetworkName) -> String {
     format!("{}/{}", SNAPSHOTS_PATH, network.to_string().to_lowercase())
 }
