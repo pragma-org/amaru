@@ -14,7 +14,11 @@
 
 use std::{error::Error, fs::remove_dir_all, path::PathBuf};
 
-use amaru::{bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
+use amaru::{
+    aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Config},
+    bootstrap::bootstrap,
+    default_chain_dir, default_ledger_dir,
+};
 use amaru_kernel::{Epoch, GlobalParameters, NetworkName};
 use clap::{ArgAction, Parser};
 use tracing::{info, warn};
@@ -75,6 +79,28 @@ pub struct Args {
     /// Show global network parameter overrides, for custom testnets.
     #[arg(long)]
     pub(crate) help_global_parameters: bool,
+
+    /// S3 bucket containing the bootstrap snapshots.
+    ///
+    /// Defaults to the official Amaru snapshot bucket.
+    #[arg(long, env = "AMARU_S3_BUCKET", default_value = DEFAULT_BUCKET)]
+    s3_bucket: String,
+
+    /// S3-compatible endpoint URL (e.g. https://<id>.r2.cloudflarestorage.com).
+    ///
+    /// Defaults to the official Amaru R2 endpoint.
+    #[arg(long, env = "AMARU_S3_ENDPOINT", default_value = DEFAULT_ENDPOINT)]
+    s3_endpoint: String,
+
+    /// S3 region (use "auto" for Cloudflare R2).
+    #[arg(long, env = "AMARU_S3_REGION", default_value = DEFAULT_REGION)]
+    s3_region: String,
+
+    /// Public CDN base URL for anonymous snapshot downloads (e.g. https://pub-xxx.r2.dev).
+    ///
+    /// Defaults to the official Amaru public R2 URL.
+    #[arg(long, env = "AMARU_S3_PUBLIC_URL", default_value = DEFAULT_PUBLIC_URL)]
+    s3_public_url: String,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -124,5 +150,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    bootstrap(network, &global_parameters, ledger_dir, chain_dir, args.epoch).await
+    bootstrap(
+        network,
+        &global_parameters,
+        ledger_dir,
+        chain_dir,
+        args.epoch,
+        S3Config {
+            bucket: args.s3_bucket,
+            endpoint: args.s3_endpoint,
+            region: args.s3_region,
+            public_url: args.s3_public_url,
+        },
+    )
+    .await
 }

@@ -14,13 +14,13 @@
 
 use std::{
     fmt::{self, Display},
-    fs, io,
+    fs,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
 };
 
-use amaru::{bootstrap_config_dir, default_snapshots_dir};
+use amaru::default_snapshots_dir;
 use amaru_kernel::{Epoch, HeaderHash, NetworkName, Point, Slot, utils};
 use amaru_mithril::{chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
@@ -28,7 +28,6 @@ use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use num::{CheckedAdd, CheckedSub};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
 mod archive;
@@ -162,18 +161,6 @@ struct EpochTarget {
     parent_point: Option<Point>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct ManifestEntry {
-    pub(super) epoch: Epoch,
-    pub(super) point: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) parent_point: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) sha256: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) url: Option<String>,
-}
-
 impl EpochTarget {
     pub fn from_snapshot_points(
         epoch: Epoch,
@@ -202,12 +189,8 @@ fn default_dist_dir(network: NetworkName) -> PathBuf {
     repo_root().join(format!("data/{}", network.to_string().to_lowercase())).join("epoch-snapshots")
 }
 
-fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
+pub(super) fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
     repo_root().join(default_snapshots_dir(network))
-}
-
-pub(super) fn manifest_path(network: NetworkName) -> PathBuf {
-    repo_root().join(bootstrap_config_dir(network)).join("snapshots.json")
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -314,8 +297,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         previous_snapshot_slot = Some(process_target(target, previous_snapshot_slot, &context)?);
     }
 
-    write_manifest(network, &snapshot_output_dir, &targets)?;
-
     Ok(())
 }
 
@@ -359,51 +340,6 @@ fn process_target(
     info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), archive = %prepared_archive_path.display(), "finished epoch snapshot");
 
     Ok(target.slot)
-}
-
-fn write_manifest(
-    network: NetworkName,
-    snapshot_output_dir: &Path,
-    targets: &[EpochTarget],
-) -> Result<(), Box<dyn std::error::Error>> {
-    let path = manifest_path(network);
-
-    let mut entries: Vec<ManifestEntry> =
-        if path.is_file() { serde_json::from_slice(&fs::read(&path)?)? } else { Vec::new() };
-
-    for target in targets {
-        let archive_path = archive_path_for_target(snapshot_output_dir, target);
-        let sha256 = if archive_path.is_file() { Some(sha256_file(&archive_path)?) } else { None };
-
-        let new_entry = ManifestEntry {
-            epoch: target.epoch,
-            point: format!("{}.{}", target.slot, target.hash),
-            parent_point: target.parent_point.map(|p| p.to_string()),
-            sha256,
-            url: None,
-        };
-
-        match entries.iter().position(|e| e.epoch == target.epoch) {
-            Some(pos) => entries[pos] = ManifestEntry { url: entries[pos].url.clone(), ..new_entry },
-            None => entries.push(new_entry),
-        }
-    }
-
-    entries.sort_unstable_by_key(|e| e.epoch);
-
-    let contents = serde_json::to_vec_pretty(&entries)?;
-
-    if fs::read(&path).ok().as_deref() == Some(&contents) {
-        return Ok(());
-    }
-
-    let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, &contents)?;
-    fs::rename(tmp_path, &path)?;
-
-    info!(path = %path.display(), entries = entries.len(), "updated snapshot manifest");
-
-    Ok(())
 }
 
 fn resolve_or_create_snapshot_dir(
@@ -527,11 +463,6 @@ fn bootstrap_target_epochs(epoch: Epoch) -> Result<[Epoch; 3], Box<dyn std::erro
 pub(super) fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.parent().and_then(Path::parent).unwrap_or(manifest_dir.as_path()).to_path_buf()
-}
-
-fn sha256_file(path: &Path) -> Result<String, io::Error> {
-    let bytes = fs::read(path)?;
-    Ok(hex::encode(Sha256::digest(&bytes)))
 }
 
 fn packaged_blocks_for_target(

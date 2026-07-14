@@ -12,15 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    error::Error,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 
 use amaru_kernel::NetworkName;
-use include_dir::{Dir, include_dir};
 
+pub mod aws;
 pub mod bootstrap;
 pub mod cardano_node;
 pub mod exit;
@@ -61,29 +57,6 @@ pub const DEFAULT_UPSTREAM_PEERS: usize = 3;
 pub const DEFAULT_DOWNSTREAM_PEERS: usize = 10;
 
 const SNAPSHOTS_PATH: &str = "snapshots";
-const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";
-static BOOTSTRAP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/bootstrap");
-
-fn source_bootstrap_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os(env_vars::BOOTSTRAP_CONFIG_DIR) {
-        return PathBuf::from(path);
-    }
-
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/bootstrap")
-}
-
-fn read_runtime_bootstrap_file(
-    root: &Path,
-    network: NetworkName,
-    name: &str,
-) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
-    let path = root.join(network.to_string().to_lowercase()).join(name);
-    if !path.is_file() {
-        return Ok(None);
-    }
-
-    Ok(Some(fs::read(path)?))
-}
 
 pub fn default_ledger_dir(network: NetworkName) -> String {
     format!("./ledger.{}.db", network.to_string().to_lowercase())
@@ -94,7 +67,7 @@ pub fn default_chain_dir(network: NetworkName) -> String {
 }
 
 pub fn bootstrap_config_dir(network: NetworkName) -> PathBuf {
-    format!("{}/{}", BOOTSTRAP_PATH, network.to_string().to_lowercase()).into()
+    format!("crates/amaru/config/bootstrap/{}", network.to_string().to_lowercase()).into()
 }
 
 pub fn default_snapshots_dir(network: NetworkName) -> String {
@@ -103,15 +76,6 @@ pub fn default_snapshots_dir(network: NetworkName) -> String {
 
 pub fn default_data_dir(network: NetworkName) -> String {
     format!("{}/{}", DEFAULT_CONFIG_DIR, network.to_string().to_lowercase())
-}
-
-pub fn get_bootstrap_file(network: NetworkName, name: &str) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
-    if let Some(file) = read_runtime_bootstrap_file(&source_bootstrap_dir(), network, name)? {
-        return Ok(Some(file));
-    }
-
-    let path = format!("{}/{}", network.to_string().to_lowercase(), name);
-    Ok(BOOTSTRAP_DIR.get_file(path).map(|f| f.contents().into()))
 }
 
 /// Value names (a.k.a. metavar) used across command-line options.
@@ -162,9 +126,6 @@ pub fn default_peer_for_network(network: NetworkName) -> &'static str {
 
 /// Environment variables used across command-line options.
 pub mod env_vars {
-    /// Runtime bootstrap config directory override.
-    pub const BOOTSTRAP_CONFIG_DIR: &str = "AMARU_BOOTSTRAP_CONFIG_DIR";
-
     /// --cardano-node-config-dir
     pub const CARDANO_NODE_CONFIG_DIR: &str = "AMARU_CARDANO_NODE_CONFIG_DIR";
 

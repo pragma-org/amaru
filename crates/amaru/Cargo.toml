@@ -31,7 +31,8 @@ doc = false
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
-async-compression.workspace = true
+aws-credential-types.workspace = true
+aws-sdk-s3.workspace = true
 axum.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
@@ -39,7 +40,6 @@ clap_mangen.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
 hex.workspace = true
-include_dir = { workspace = true, features = ["glob"] }
 indoc.workspace = true
 minicbor.workspace = true
 num.workspace = true
@@ -55,7 +55,6 @@ rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 tempfile.workspace = true

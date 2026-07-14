@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fs,
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::{collections::BTreeSet, fs, path::PathBuf};
 
+use amaru::aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config};
 use amaru_kernel::NetworkName;
 use clap::Parser;
 use tracing::info;
 
-use super::create::{ManifestEntry, manifest_path, repo_root};
+use super::create::default_snapshot_output_dir;
+
+const ARCHIVE_EXTENSION: &str = ".tar.zst";
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -34,140 +33,98 @@ pub struct Args {
     )]
     network: NetworkName,
 
-    /// Starting epoch of the three-epoch window to publish. Defaults to the latest unpublished
-    /// epoch in the manifest.
-    #[arg(long, value_name = amaru::value_names::UINT)]
-    epoch: Option<u64>,
+    /// Directory containing the local snapshot archives to publish.
+    ///
+    /// Defaults to ./snapshots/<NETWORK>/ (same as `amaru snapshot create`).
+    #[arg(
+        long,
+        value_name = amaru::value_names::DIRECTORY,
+        env = amaru::env_vars::SNAPSHOTS_DIR,
+    )]
+    snapshot_dir: Option<PathBuf>,
 
     /// S3-compatible bucket name.
-    #[arg(long, env = "BUCKET_NAME")]
+    #[arg(long, env = "AMARU_S3_BUCKET", default_value = DEFAULT_BUCKET)]
     bucket: String,
 
     /// S3-compatible endpoint URL (e.g. https://<id>.r2.cloudflarestorage.com).
-    #[arg(long, env = "ENDPOINT")]
+    #[arg(long, env = "AMARU_S3_ENDPOINT", default_value = DEFAULT_ENDPOINT)]
     endpoint: String,
 
+    /// S3 region (use "auto" for Cloudflare R2).
+    #[arg(long, env = "AMARU_S3_REGION", default_value = DEFAULT_REGION)]
+    region: String,
+
+    /// AWS / R2 access key ID for upload authentication.
+    #[arg(long, env = "AWS_ACCESS_KEY_ID")]
+    aws_access_key_id: String,
+
+    /// AWS / R2 secret access key for upload authentication.
+    #[arg(long, env = "AWS_SECRET_ACCESS_KEY")]
+    aws_secret_access_key: String,
+
     /// Public base URL at which uploaded objects are reachable (e.g. https://pub-xxx.r2.dev).
-    /// If omitted, inferred from the first existing URL in the manifest.
-    #[arg(long, env = "PUBLIC_URL_BASE")]
-    public_url_base: Option<String>,
+    #[arg(long, env = "AMARU_S3_PUBLIC_URL", default_value = DEFAULT_PUBLIC_URL)]
+    public_url: String,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let Args { network, epoch, bucket, endpoint, public_url_base } = args;
+    let Args { network, snapshot_dir, bucket, endpoint, region, aws_access_key_id, aws_secret_access_key, public_url } =
+        args;
 
-    let manifest_path = manifest_path(network);
-    let snapshot_root = repo_root().join(format!("snapshots/{}", network.to_string().to_lowercase()));
+    let snapshot_root = snapshot_dir.unwrap_or_else(|| default_snapshot_output_dir(network));
 
-    let mut entries: Vec<ManifestEntry> = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    let s3_config = S3Config { bucket, endpoint, region, public_url };
+    let s3 = S3Client::new_with_credentials(s3_config, &aws_access_key_id, &aws_secret_access_key);
 
-    let start_epoch = match epoch {
-        Some(e) => e,
-        None => {
-            let unpublished: std::collections::BTreeSet<u64> = entries
-                .iter()
-                .filter(|e| e.url.as_deref().unwrap_or("").is_empty())
-                .map(|e| u64::from(e.epoch))
-                .collect();
-
-            unpublished
-                .iter()
-                .copied()
-                .filter(|&e| unpublished.contains(&(e + 1)) && unpublished.contains(&(e + 2)))
-                .max()
-                .ok_or("no complete unpublished 3-epoch window found in manifest; run `amaru snapshot create` first")?
-        }
-    };
-
-    let target_epochs = [start_epoch, start_epoch + 1, start_epoch + 2];
-
-    let public_base = match public_url_base {
-        Some(base) => base.trim_end_matches('/').to_owned(),
-        None => entries
-            .iter()
-            .find_map(|e| {
-                e.url
-                    .as_deref()
-                    .filter(|url| !url.is_empty())
-                    .and_then(|url| url.rsplit_once('/').map(|(base, _)| base.to_owned()))
+    // Collect all .tar.zst archives present locally (if the directory exists).
+    let local_archives: BTreeSet<String> = fs::read_dir(&snapshot_root)
+        .map(|rd| {
+            rd.filter_map(|entry| {
+                let name = entry.ok()?.file_name().into_string().ok()?;
+                name.ends_with(ARCHIVE_EXTENSION).then_some(name)
             })
-            .ok_or("cannot infer public URL base: no existing URLs in manifest. Pass --public-url-base explicitly.")?,
-    };
+            .collect()
+        })
+        .unwrap_or_default();
 
-    info!(%network, start_epoch, public_base, "publishing bootstrap snapshots");
+    // List what is already in S3 under this network prefix.
+    let network_prefix = network.to_string().to_lowercase();
+    let remote_keys: BTreeSet<String> =
+        s3.list_snapshots(network).await?.into_iter().map(|s| format!("{}{ARCHIVE_EXTENSION}", s.point)).collect();
 
-    let client = reqwest::Client::new();
+    if local_archives.is_empty() && remote_keys.is_empty() {
+        return Err("no archives found locally or in S3; run `amaru snapshot create` first".into());
+    }
 
-    for target_epoch in target_epochs {
-        let entry = entries
-            .iter()
-            .find(|e| u64::from(e.epoch) == target_epoch)
-            .ok_or_else(|| format!("epoch {target_epoch} not found in manifest; run `amaru snapshot create` first"))?;
+    info!(%network, local = local_archives.len(), remote = remote_keys.len(), "publishing bootstrap snapshots");
 
-        let archive_name = format!("{}.tar.zst", entry.point);
-        let archive_path = snapshot_root.join(&archive_name);
-        let object_url = format!("{}/{}", public_base, archive_name);
+    for archive_name in &local_archives {
+        let object_key = format!("{network_prefix}/{archive_name}");
+        let archive_path = snapshot_root.join(archive_name);
 
-        if !archive_path.is_file() {
-            return Err(
-                format!("archive {} not found; run `amaru snapshot create` first", archive_path.display()).into()
-            );
-        }
-
-        if is_reachable(&client, &object_url).await {
-            info!(epoch = target_epoch, url = %object_url, "snapshot already published, skipping upload");
+        if remote_keys.contains(archive_name.as_str()) {
+            info!(key = %object_key, "already in S3, skipping");
         } else {
-            info!(epoch = target_epoch, archive = %archive_path.display(), "uploading snapshot");
-            upload_to_s3(&archive_path, &bucket, &archive_name, &endpoint)?;
-        }
-
-        if !is_reachable(&client, &object_url).await {
-            return Err(format!(
-                "uploaded snapshot is not publicly reachable at {object_url}; check bucket permissions and --public-url-base"
-            )
-            .into());
-        }
-
-        info!(epoch = target_epoch, url = %object_url, "snapshot published");
-
-        if let Some(entry) = entries.iter_mut().find(|e| u64::from(e.epoch) == target_epoch) {
-            entry.url = Some(object_url);
+            info!(archive = %archive_path.display(), key = %object_key, "uploading");
+            s3.upload_object(&archive_path, &object_key).await?;
+            info!(key = %object_key, "uploaded");
         }
     }
 
-    let tmp_path = manifest_path.with_extension("json.tmp");
-    fs::write(&tmp_path, serde_json::to_vec_pretty(&entries)?)?;
-    fs::rename(&tmp_path, &manifest_path)?;
-
-    info!(path = %manifest_path.display(), "updated manifest with published URLs");
-
-    Ok(())
-}
-
-async fn is_reachable(client: &reqwest::Client, url: &str) -> bool {
-    client.head(url).send().await.map(|r| r.status().is_success() || r.status().as_u16() == 206).unwrap_or(false)
-}
-
-fn upload_to_s3(
-    archive_path: &PathBuf,
-    bucket: &str,
-    object_key: &str,
-    endpoint: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let s3_uri = format!("s3://{bucket}/{object_key}");
-    let status = Command::new("aws")
-        .args(["s3", "cp"])
-        .arg(archive_path)
-        .arg(&s3_uri)
-        .arg("--endpoint-url")
-        .arg(endpoint)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()?;
-
-    if !status.success() {
-        return Err(format!("aws s3 cp failed with status {status}").into());
-    }
+    // Update the per-network index so bootstrap can discover snapshots without S3 listing.
+    let all_points: Vec<String> = {
+        let all_archives: BTreeSet<&String> = remote_keys.union(&local_archives).collect();
+        let mut pts: Vec<String> =
+            all_archives.iter().filter_map(|name| name.strip_suffix(ARCHIVE_EXTENSION).map(str::to_owned)).collect();
+        pts.sort();
+        pts
+    };
+    let index_json = serde_json::to_vec_pretty(&all_points)?;
+    let tmp = tempfile::Builder::new().suffix(".json").tempfile()?;
+    std::fs::write(tmp.path(), &index_json)?;
+    s3.upload_object(tmp.path(), &format!("{network_prefix}/index.json")).await?;
+    info!(%network, snapshots = all_points.len(), "updated S3 index");
 
     Ok(())
 }

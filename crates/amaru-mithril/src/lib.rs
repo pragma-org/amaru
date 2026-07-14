@@ -71,7 +71,7 @@ impl FeedbackReceiver for MithrilFeedbackReceiver {
                     };
                     let pb = (self.with_progress)(
                         size as usize,
-                        "{spinner:.green} {elapsed_precise} [{bar:40.cyan/blue}] {pos}/{len} files (eta {eta})",
+                        "{spinner:.green} {elapsed_precise} [{bar:40.green}] {pos}/{len} files (eta {eta})",
                     );
                     *self.cardano_database_pb.lock().await = Some(pb);
                 }
