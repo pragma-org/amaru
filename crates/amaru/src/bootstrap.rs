@@ -744,7 +744,7 @@ fn make_era_history(dir: &Path, point: &Point, network: NetworkName) -> Result<E
 mod tests {
     use std::{path::PathBuf, time::Duration};
 
-    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Point, Slot};
+    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Slot};
     use tempfile::tempdir;
 
     use super::{
@@ -752,6 +752,10 @@ mod tests {
         sort_snapshots_by_slot,
     };
     use crate::cardano_node::ParsedStateSnapshot;
+
+    fn test_snapshot(epoch: u64, point: &str, network: &str) -> Snapshot {
+        Snapshot { epoch: Epoch::from(epoch), point: point.to_string(), key: format!("{network}/{point}.tar.zst") }
+    }
 
     fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dyn std::error::Error>> {
         Ok(parsed_snapshot.era_history.slot_to_epoch_unchecked_horizon(parsed_snapshot.slot.into())?)
