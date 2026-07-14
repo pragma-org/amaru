@@ -79,9 +79,12 @@ impl ::serde::Serialize for PoolState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("PoolState", 10)?;
 
+        // Force reduction of the numerator and denominator
+        let r = Ratio::new(self.parameters.margin.numerator, self.parameters.margin.denominator);
+
         s.serialize_field("blocks_count", &self.blocks_count)?;
         s.serialize_field("cost", &self.parameters.cost)?;
-        s.serialize_field("margin", &[self.parameters.margin.numerator, self.parameters.margin.denominator])?;
+        s.serialize_field("margin", &[r.numer(), r.denom()])?;
         s.serialize_field(
             "metadata",
             &pool_metadata::as_option_ref(&self.parameters.metadata).map(pool_metadata::AsJson),
@@ -108,4 +111,9 @@ pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
 
 pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
     SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
+}
+
+pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
+    Lovelace::try_from(n.floor().to_integer())
+        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
 }

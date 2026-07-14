@@ -29,6 +29,12 @@ tracing.workspace = true
 amaru-kernel.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["-D", "warnings"]
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]

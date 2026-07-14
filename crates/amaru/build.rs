@@ -22,16 +22,16 @@ use quote::ToTokens;
 use syn::Item;
 
 #[expect(clippy::expect_used)]
+#[expect(clippy::panic)]
 fn main() {
     built::write_built_file().expect("Failed to acquire build-time information");
     write_type_aliases_file().expect("Failed to generate embedded type aliases for dump_schemas");
-
-    let network = env::var("AMARU_NETWORK").unwrap_or_else(|_| "preprod".into());
-    println!("cargo:rerun-if-env-changed=AMARU_NETWORK");
     println!("cargo:rerun-if-env-changed=BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH");
-    write_stake_distribution_test_cases_file(&network)
-        .expect("Failed to generate embedded stake distribution test cases for summary tests");
-    println!("cargo:rustc-env=AMARU_NETWORK={}", network);
+    for network in ["mainnet", "preprod", "preview"] {
+        write_stake_distribution_test_cases_file(network).unwrap_or_else(|e| {
+            panic!("Failed to generate embedded stake distribution test cases for network={network}: {e}")
+        });
+    }
 }
 
 fn write_type_aliases_file() -> Result<(), Box<dyn std::error::Error>> {
@@ -59,14 +59,14 @@ fn write_stake_distribution_test_cases_file(network: &str) -> Result<(), Box<dyn
     let network_dir = fixtures_root.join(network);
     let ledger_dir = default_ledger_dir(&manifest_dir, network);
 
-    println!("cargo:rerun-if-changed={}", network_dir.display());
+    emit_rerun_if_exists(&network_dir);
 
     let epochs = stake_distribution_epochs(&network_dir)?;
     let available_epochs = available_ledger_snapshot_epochs(&ledger_dir)?;
     let contents = stake_distribution_test_cases_source(network, &epochs, &available_epochs)?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    write_if_changed(&out_dir.join("stake_distribution_test_cases.rs"), &contents)?;
+    write_if_changed(&out_dir.join(format!("stake_distribution_{network}_test_cases.rs")), &contents)?;
 
     Ok(())
 }
@@ -109,7 +109,7 @@ fn stake_distribution_epoch(path: &Path) -> Option<u64> {
 }
 
 fn available_ledger_snapshot_epochs(ledger_dir: &Path) -> Result<BTreeSet<u64>, Box<dyn std::error::Error>> {
-    println!("cargo:rerun-if-changed={}", ledger_dir.display());
+    emit_rerun_if_exists(ledger_dir);
 
     if !ledger_dir.is_dir() {
         return Ok(BTreeSet::new());
@@ -134,6 +134,12 @@ fn available_ledger_snapshot_epochs(ledger_dir: &Path) -> Result<BTreeSet<u64>, 
 
 fn ledger_snapshot_epoch(path: &Path) -> Option<u64> {
     path.file_name()?.to_str()?.parse().ok()
+}
+
+fn emit_rerun_if_exists(path: &Path) {
+    if path.exists() {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 }
 
 fn partition_fixture_epochs(epochs: &[u64], available_epochs: &BTreeSet<u64>) -> (Vec<u64>, Vec<u64>) {

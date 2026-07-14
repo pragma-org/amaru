@@ -17,5 +17,11 @@ categories.workspace = true
 amaru-observability-macros.workspace = true
 inventory.workspace = true
 
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]
+
 [lints]
 workspace = true

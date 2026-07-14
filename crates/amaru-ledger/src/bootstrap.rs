@@ -555,17 +555,21 @@ fn import_stake_pools(
     transaction.commit()?;
 
     let transaction = db.create_transaction();
+    let protocol_parameters = &PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
     transaction.save(
         era_history,
         // TODO: Unused when storing block issuers; require API change.
-        &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        protocol_parameters,
         GovernanceActivity::default(),
         point,
         None,
         store::Columns {
             utxo: iter::empty(),
             pools: state.registered.into_values().flat_map(move |registrations| {
-                registrations.into_iter().map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, epoch)).collect::<Vec<_>>()
+                registrations
+                    .into_iter()
+                    .map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, protocol_parameters.stake_pool_deposit, epoch))
+                    .collect::<Vec<_>>()
             }),
             accounts: iter::empty(),
             dreps: iter::empty(),

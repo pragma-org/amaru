@@ -147,7 +147,9 @@ impl VolatileSequence for VolatileSeries {
 
     fn pop_front(&mut self) -> Option<Self::Item> {
         let popped = self.sequence.pop_front()?;
-        if self.forced_recompute_in == 0 {
+        if self.sequence.is_empty() {
+            self.aggregate = VolatileFragment::default();
+        } else if self.forced_recompute_in == 0 {
             self.recompute_aggregate()
         } else {
             self.aggregate.incremental_cleanup(&popped.fragment);

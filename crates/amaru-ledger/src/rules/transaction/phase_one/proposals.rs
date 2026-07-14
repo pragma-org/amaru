@@ -19,7 +19,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{ProposalsSlice, WitnessSlice};
+use crate::context::{BalanceSlice, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -63,7 +63,7 @@ pub(crate) fn execute<C>(
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
-    C: ProposalsSlice + WitnessSlice,
+    C: ProposalsSlice + WitnessSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
         validate_proposal(&proposal, network, protocol_parameters, era_history, transaction.1)?;
@@ -77,12 +77,29 @@ where
             });
         }
 
+        context.produce_lovelace(proposal.deposit);
+
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
         let id = ProposalId { transaction_id: *transaction.0.as_ref(), action_index: proposal_index as u32 };
         context.acknowledge(id, pointer, proposal)
     }
 
     Ok(())
+}
+
+/// A simplified version of `execute` which only track the value produced by proposal deposits, in
+/// order to verify transaction value preservation in the context of invalid transactions.
+///
+/// Note that we use the deposit value from the protocol parameters in that context, not the one in
+/// the proposal since it isn't validated.
+pub(crate) fn count_lovelace<C>(
+    context: &mut C,
+    protocol_parameters: &ProtocolParameters,
+    proposals: Option<Vec<Proposal>>,
+) where
+    C: BalanceSlice,
+{
+    context.produce_lovelace(protocol_parameters.gov_action_deposit * proposals.unwrap_or_default().len() as u64);
 }
 
 fn validate_proposal(

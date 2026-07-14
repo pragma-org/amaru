@@ -24,3 +24,9 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 hex.workspace = true
 assert-json-diff.workspace = true
 pretty_assertions.workspace = true
+
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]
