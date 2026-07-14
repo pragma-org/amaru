@@ -106,7 +106,7 @@ libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-bigint = { version = "0.4" }
-num-integer = { version = "0.1", default-features = false, features = ["i128", "std"] }
+num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 percent-encoding = { version = "2" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
@@ -119,6 +119,7 @@ rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-f
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-lite = { version = "0.1" }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "charset", "http2", "json", "macos-system-configuration", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
@@ -126,13 +127,15 @@ serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 sha2 = { version = "0.10" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
-socket2 = { version = "0.6", default-features = false, features = ["all"] }
+socket2-3b31131e45eafb45 = { package = "socket2", version = "0.6", default-features = false, features = ["all"] }
+socket2-d8f496e17d97b5cb = { package = "socket2", version = "0.5", default-features = false, features = ["all"] }
 subtle = { version = "2", default-features = false, features = ["std"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
+uuid = { version = "1", features = ["v4"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -164,7 +167,7 @@ libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-bigint = { version = "0.4" }
-num-integer = { version = "0.1", default-features = false, features = ["i128", "std"] }
+num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 percent-encoding = { version = "2" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
@@ -177,6 +180,7 @@ rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-f
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-lite = { version = "0.1" }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "charset", "http2", "json", "macos-system-configuration", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
@@ -184,13 +188,15 @@ serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 sha2 = { version = "0.10" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
-socket2 = { version = "0.6", default-features = false, features = ["all"] }
+socket2-3b31131e45eafb45 = { package = "socket2", version = "0.6", default-features = false, features = ["all"] }
+socket2-d8f496e17d97b5cb = { package = "socket2", version = "0.5", default-features = false, features = ["all"] }
 subtle = { version = "2", default-features = false, features = ["std"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
+uuid = { version = "1", features = ["v4"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -207,7 +213,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-unknown-linux-musl.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -222,7 +227,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-musl.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -237,7 +241,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-musl.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -252,7 +255,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -267,7 +269,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -282,7 +283,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -297,7 +297,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -312,7 +311,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -327,7 +325,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -342,7 +339,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
@@ -354,7 +350,7 @@ num-rational = { version = "0.4" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60", features = ["Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 windows-sys-73dcd821b1037cfd = { package = "windows-sys", version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }
-windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.x86_64-pc-windows-msvc.build-dependencies]
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
@@ -366,7 +362,7 @@ num-rational = { version = "0.4" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60", features = ["Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 windows-sys-73dcd821b1037cfd = { package = "windows-sys", version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }
-windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.wasm32-unknown-unknown.dependencies]
 bumpalo = { version = "3", features = ["collections"] }
@@ -375,6 +371,7 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 once_cell = { version = "1" }
+uuid = { version = "1", default-features = false, features = ["js"] }
 wasm-bindgen = { version = "0.2", features = ["msrv"] }
 web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "MessageEvent", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "Worker", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
 
@@ -385,6 +382,7 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 once_cell = { version = "1" }
+uuid = { version = "1", default-features = false, features = ["js"] }
 wasm-bindgen = { version = "0.2", features = ["msrv"] }
 web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "MessageEvent", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "Worker", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
 
@@ -401,7 +399,6 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.riscv32gc-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -416,6 +413,5 @@ num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 ### END HAKARI SECTION
