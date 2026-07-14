@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
+### Fixed
+
+- **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
+
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
 ### Added
@@ -207,6 +211,7 @@ Other guiding principles:
 [#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
+[#1036]: https://github.com/pragma-org/amaru/pull/1036
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
 [#1041]: https://github.com/pragma-org/amaru/pull/1041
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
