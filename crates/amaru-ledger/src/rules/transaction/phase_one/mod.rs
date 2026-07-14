@@ -352,6 +352,7 @@ mod tests {
     #[test_case(fixture!("fail/BabbageNonDisjointRefInputs/0"); "input appears as both spent and reference")]
     #[test_case(fixture!("fail/WrongNetworkInTxBody/0"); "body network_id disagrees with fixture network")]
     #[test_case(fixture!("pass/tx-size-at-limit"); "transaction size exactly at maxTransactionSize")]
+    #[test_case(fixture!("fail/tx-size-just-above-limit"); "transaction size just above maxTransactionSize")]
     #[test_case(fixture!("fail/MaxTxSizeUTxO/0"); "transaction larger than maxTransactionSize")]
     #[test_case(fixture!("fail/OutsideValidityIntervalUTxO/0"); "current slot before invalid_before")]
     #[test_case(fixture!("fail/OutsideForecast/0"); "upper validity bound past forecast horizon with redeemer")]
