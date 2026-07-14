@@ -42,7 +42,7 @@ pub struct S3Config {
     pub bucket: String,
     pub endpoint: String,
     pub region: String,
-    /// Public CDN base URL for anonymous read access (e.g. https://pub-xxx.r2.dev).
+    /// Public CDN base URL for anonymous read access (e.g. <https://pub-xxx.r2.dev>).
     pub public_url: String,
 }
 
