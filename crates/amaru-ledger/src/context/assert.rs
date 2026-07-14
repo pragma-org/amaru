@@ -173,7 +173,7 @@ impl PoolsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn register(&mut self, _params: PoolParams, _pointer: CertificatePointer) {
+    fn register(&mut self, _params: PoolParams, _pointer: CertificatePointer, _deposit: Lovelace) {
         unimplemented!()
     }
 

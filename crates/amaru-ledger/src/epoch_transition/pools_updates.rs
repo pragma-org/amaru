@@ -42,8 +42,6 @@ pub struct PoolsEpochTransitionUpdates {
     refunds: BTreeMap<StakeCredential, Lovelace>,
 }
 
-const STAKE_POOL_DEPOSIT: Lovelace = 500_000_000;
-
 impl PoolsEpochTransitionUpdates {
     /// Create a new transition update from a read-only store and the epoch that is *beginning*. So
     /// when transitioning from e -> e + 1; 'epoch' is e + 1.
@@ -175,16 +173,7 @@ impl PoolsEpochTransitionUpdates {
         debug!(name: "pool.retire", id = %pool.id());
 
         self.retired.insert(pool.id());
-        self.refunds.insert(
-            expect_stake_credential(&pool.current_params.reward_account),
-            // FIXME: Store stake pool deposit when registering pools
-            //
-            // The stake pool deposit is a protocol parameter which may get updated between
-            // the moment a pool registers for the first time. Then, when de-registering,
-            // we must simply refer to that amount, irrespective of the current protocol
-            // parameter value.
-            STAKE_POOL_DEPOSIT,
-        );
+        self.refunds.insert(expect_stake_credential(&pool.current_params.reward_account), pool.deposit);
 
         // NOTE: Sanity check on pool retirement
         //
@@ -252,7 +241,9 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Epoch, PoolId, PoolParams, any_certificate_pointer, any_pool_params};
+    use amaru_kernel::{
+        Epoch, PoolId, PoolParams, any_certificate_pointer, any_lovelace, any_pool_params, expect_stake_credential,
+    };
     use proptest::{collection::vec, prelude::*};
 
     use super::PoolsEpochTransitionUpdates;
@@ -317,12 +308,13 @@ mod tests {
         #[test]
         fn prop_tick_pool(
             registered_at in any_certificate_pointer(u64::MAX),
+            deposit in any_lovelace(),
             (initial_params, sequence) in any_pool_params().prop_flat_map(|params| {
                 any_row_seq_updates(params.id).prop_map(move |seq| (params.clone(), seq))
-            })
+            }),
         ) {
             let mut model = Model::new(initial_params.clone());
-            let mut pool_opt = Some(Pool::new(registered_at, initial_params));
+            let mut pool_opt = Some(Pool::new(registered_at, deposit, initial_params));
 
             for (current_epoch, updates) in sequence.into_iter().enumerate() {
                 let Some(mut pool) = pool_opt.take() else {
@@ -369,6 +361,28 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_pool_stake_deposit(
+            registered_at in any_certificate_pointer(u64::MAX),
+            deposit in any_lovelace(),
+            initial_params in any_pool_params(),
+        ) {
+            let epoch = Epoch::from(1);
+            let reward_account = expect_stake_credential(&initial_params.reward_account);
+
+            let mut pool = Pool::new(registered_at, deposit, initial_params);
+            let pool_id = pool.id();
+            pool.future_params = vec![(None, epoch)];
+
+            let mut pools_updates = PoolsEpochTransitionUpdates::default();
+            pools_updates.tick_pool(epoch, pool);
+
+            prop_assert!(pools_updates.retired().contains(&pool_id));
+            prop_assert_eq!(pools_updates.refund(&reward_account), deposit);
         }
     }
 }

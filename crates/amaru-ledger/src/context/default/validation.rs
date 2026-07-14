@@ -133,14 +133,14 @@ impl PoolsSlice for DefaultValidationContext {
     ///
     /// A `PoolId` isn't going to be sufficient context; we'll also need a way to resolve and
     /// assert existence of VRF keys. Possibly in another BTreeSet of known VRF keys.
-    fn register(&mut self, params: PoolParams, pointer: CertificatePointer) {
+    fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace) {
         let pool_id = params.id;
         let _span = trace_span!(
             amaru_observability::amaru::ledger::context::default::validation::CERTIFICATE_POOL_REGISTRATION,
             pool_id = %pool_id
         );
         let _guard = _span.enter();
-        self.state.pools.register(params.id, Arc::new((params, pointer)))
+        self.state.pools.register(params.id, Arc::new((params, pointer, deposit)))
     }
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) {

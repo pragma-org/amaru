@@ -13,3 +13,17 @@
 // limitations under the License.
 
 pub type Lovelace = u64;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    pub fn any_lovelace() -> BoxedStrategy<Lovelace> {
+        any::<u64>().boxed()
+    }
+}

@@ -91,7 +91,7 @@ impl<L, R, V> Existence<Bind<L, R, V>> {
 #[derive(Debug, Default)]
 pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
-    pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer)>>,
+    pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, Arc<DRepRegistration>>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
@@ -381,7 +381,7 @@ pub struct StoreUpdate<W, A, R> {
 // ------------------------------------------------------------------------------------------- Pools
 
 pub(crate) fn add_pools(
-    iterator: impl Iterator<Item = (PoolId, Registrations<Arc<(PoolParams, CertificatePointer)>>)>,
+    iterator: impl Iterator<Item = (PoolId, Registrations<Arc<(PoolParams, CertificatePointer, Lovelace)>>)>,
     epoch: Epoch,
 ) -> impl Iterator<Item = pools::Value> {
     iterator.flat_map(move |(_, registrations)| {
@@ -396,8 +396,8 @@ pub(crate) fn add_pools(
             // an entry exists without querying the stable store -- and frankly, we
             // don't _have to_.
             .map(|registration| {
-                let (params, pointer) = Arc::unwrap_or_clone(registration);
-                (params, pointer, epoch + 1)
+                let (params, pointer, deposit) = Arc::unwrap_or_clone(registration);
+                (params, pointer, deposit, epoch + 1)
             })
             .collect::<Vec<_>>()
     })

@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, mem};
 
-use amaru_kernel::{CertificatePointer, Epoch, PoolId, PoolParams};
+use amaru_kernel::{CertificatePointer, Epoch, Lovelace, PoolId, PoolParams};
 
 use crate::{
     state::{diff_epoch_reg::Registrations, volatile::view::DiffEpochReg},
@@ -48,7 +48,7 @@ use crate::{
 pub(crate) struct IterPools<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> {
     epoch: Epoch,
     db_iterator: DBIter,
-    registrations: BTreeMap<PoolId, Registrations<&'volatile (PoolParams, CertificatePointer)>>,
+    registrations: BTreeMap<PoolId, Registrations<&'volatile (PoolParams, CertificatePointer, Lovelace)>>,
     retirements: BTreeMap<PoolId, Epoch>,
 }
 
@@ -56,7 +56,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> IterPools<'volatile, DB
     pub fn new(
         epoch: Epoch,
         db_iterator: DBIter,
-        pools: &mut DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer)>,
+        pools: &mut DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>,
     ) -> Self {
         Self {
             epoch,
@@ -94,7 +94,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
             // Pool is already registered, and has some updates.
             if let Some(update) = self.registrations.remove(&pool_id) {
                 let mut future_params =
-                    update.into_iter().map(|(pool_params, _)| (Some(pool_params.clone()), self.epoch + 1)).collect();
+                    update.into_iter().map(|(pool_params, _, _)| (Some(pool_params.clone()), self.epoch + 1)).collect();
                 pool.future_params.append(&mut future_params);
             }
 
@@ -110,7 +110,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
         if let Some((pool_id, registrations)) = self.registrations.pop_first() {
             let (registration, re_registration) = registrations.into_inner();
 
-            let mut pool = Pool::new(registration.1, registration.0.clone());
+            let mut pool = Pool::new(registration.1, registration.2, registration.0.clone());
             if let Some(re_registration) = re_registration {
                 pool.future_params = vec![(Some(re_registration.0.clone()), self.epoch + 1)]
             }
@@ -134,7 +134,7 @@ mod tests {
         sync::LazyLock,
     };
 
-    use amaru_kernel::{any_certificate_pointer, any_pool_params};
+    use amaru_kernel::{any_certificate_pointer, any_lovelace, any_pool_params};
     use proptest::{
         strategy::{Strategy, ValueTree},
         test_runner::{Config, RngSeed, TestRunner},
@@ -148,19 +148,19 @@ mod tests {
 
     static STABLE: LazyLock<BTreeMap<u8, (PoolId, Pool)>> = LazyLock::new(|| {
         let row = |ix| {
-            let (current_params, registered_at) = mock_pool(ix);
+            let (current_params, registered_at, deposit) = mock_pool(ix);
             let future_params = Vec::new();
-            (mock_pool_id(ix), Pool { registered_at, current_params, future_params })
+            (mock_pool_id(ix), Pool { registered_at, deposit, current_params, future_params })
         };
 
         (0..MAX_POOLS).map(|ix| (ix, row(ix))).collect()
     });
 
-    static VOLATILE: LazyLock<BTreeMap<u8, (PoolParams, CertificatePointer)>> = LazyLock::new(|| {
+    static VOLATILE: LazyLock<BTreeMap<u8, (PoolParams, CertificatePointer, Lovelace)>> = LazyLock::new(|| {
         (0..MAX_POOLS)
             .map(|ix| {
-                let (pool_params, registered_at) = mock_pool(u8::MAX - ix);
-                (ix, (PoolParams { id: mock_pool_id(ix), ..pool_params }, registered_at))
+                let (pool_params, registered_at, deposit) = mock_pool(u8::MAX - ix);
+                (ix, (PoolParams { id: mock_pool_id(ix), ..pool_params }, registered_at, deposit))
             })
             .collect()
     });
@@ -194,7 +194,7 @@ mod tests {
                 test.stable
                     .iter()
                     .map(|(ix, row)| {
-                        let (current_params, registered_at) = mock_pool(*ix);
+                        let (current_params, registered_at, deposit) = mock_pool(*ix);
                         let future_params = row
                             .iter()
                             .map(|event| match event {
@@ -203,7 +203,7 @@ mod tests {
                                 Event::ImminentRetirement => (None, epoch + 1),
                             })
                             .collect();
-                        (mock_pool_id(*ix), Pool { registered_at, current_params, future_params })
+                        (mock_pool_id(*ix), Pool { registered_at, deposit, current_params, future_params })
                     })
                     .collect::<Vec<(PoolId, Pool)>>()
                     .into_iter(),
@@ -234,10 +234,11 @@ mod tests {
         PoolId::from(pool_id)
     }
 
-    fn mock_pool(ix: u8) -> (PoolParams, CertificatePointer) {
+    fn mock_pool(ix: u8) -> (PoolParams, CertificatePointer, Lovelace) {
         let registered_at = sample(ix, any_certificate_pointer(u64::MAX));
+        let deposit = sample(ix, any_lovelace());
         let pool_params = PoolParams { id: mock_pool_id(ix), ..mock_pool_params(ix) };
-        (pool_params, registered_at)
+        (pool_params, registered_at, deposit)
     }
 
     fn mock_pool_params(ix: u8) -> PoolParams {
@@ -249,8 +250,8 @@ mod tests {
     }
 
     fn volatile(ix: u8) -> Pool {
-        let (current_params, registered_at) = (*VOLATILE).get(&ix).cloned().unwrap();
-        Pool { current_params, registered_at, future_params: Vec::new() }
+        let (current_params, registered_at, deposit) = (*VOLATILE).get(&ix).cloned().unwrap();
+        Pool { current_params, registered_at, deposit, future_params: Vec::new() }
     }
 
     fn sample<T>(seed: u8, strategy: impl Strategy<Value = T>) -> T {
