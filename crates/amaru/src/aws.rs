@@ -145,6 +145,15 @@ impl S3Client {
         Ok(())
     }
 
+    /// Upload raw bytes to S3 at the given key.
+    pub async fn upload_bytes(&self, bytes: Vec<u8>, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let body = ByteStream::from(bytes);
+
+        self.inner.put_object().bucket(&self.config.bucket).key(key).body(body).send().await?;
+
+        Ok(())
+    }
+
     /// Return `true` if the S3 object with `key` exists, `false` if it returns 404.
     pub async fn object_exists(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
         match self.inner.head_object().bucket(&self.config.bucket).key(key).send().await {

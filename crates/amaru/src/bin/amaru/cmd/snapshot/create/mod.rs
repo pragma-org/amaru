@@ -28,7 +28,7 @@ use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use num::{CheckedAdd, CheckedSub};
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::info;
 
 mod archive;
 mod config;
@@ -370,26 +370,11 @@ fn resolve_or_create_snapshot_dir(
         analyse_from,
         context.with_progress,
     ) {
-        if analyse_from.is_some() {
-            warn!(
-                epoch = %target.epoch,
-                slot = %target.slot,
-                error = %err,
-                "db-analyser failed with stored resume snapshot; retrying from scratch"
-            );
-            if let Err(err) = run_db_analyser(
-                context.db_analyser_binary,
-                context.config_dir,
-                context.cardano_node_db,
-                target.slot,
-                None,
-                context.with_progress,
-            ) {
-                return Err(wipe_immutable_dir_and_wrap(err, context.cardano_node_db));
-            }
-        } else {
-            return Err(wipe_immutable_dir_and_wrap(err, context.cardano_node_db));
-        }
+        return Err(format!(
+            "{err}; if immutable chunks are corrupt, delete {} and re-run to download fresh chunks from Mithril",
+            context.cardano_node_db.join("immutable").display()
+        )
+        .into());
     }
 
     exact_snapshot_dir(ledger_snapshot_dir, target.slot)
@@ -430,22 +415,6 @@ fn infer_start_epoch(current_epoch: Epoch) -> Result<Epoch, Box<dyn std::error::
     current_epoch
         .checked_sub(Epoch::THREE)
         .ok_or_else(|| format!("cannot infer bootstrap start epoch from current epoch {current_epoch}").into())
-}
-
-fn wipe_immutable_dir_and_wrap(err: Box<dyn std::error::Error>, cardano_node_db: &Path) -> Box<dyn std::error::Error> {
-    let immutable_dir = cardano_node_db.join("immutable");
-    match fs::remove_dir_all(&immutable_dir) {
-        Ok(()) => warn!(
-            dir = %immutable_dir.display(),
-            "wiped immutable directory after db-analyser failure; re-run to download fresh chunks from Mithril"
-        ),
-        Err(e) => warn!(
-            dir = %immutable_dir.display(),
-            error = %e,
-            "failed to wipe immutable directory after db-analyser failure; you may need to delete it manually before re-running"
-        ),
-    }
-    format!("{err}; immutable chunks may be corrupt — re-run to download fresh chunks from Mithril").into()
 }
 
 fn bootstrap_target_epochs(epoch: Epoch) -> Result<[Epoch; 3], Box<dyn std::error::Error>> {

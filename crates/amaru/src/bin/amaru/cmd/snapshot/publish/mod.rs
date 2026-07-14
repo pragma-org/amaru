@@ -121,9 +121,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         pts
     };
     let index_json = serde_json::to_vec_pretty(&all_points)?;
-    let tmp = tempfile::Builder::new().suffix(".json").tempfile()?;
-    std::fs::write(tmp.path(), &index_json)?;
-    s3.upload_object(tmp.path(), &format!("{network_prefix}/index.json")).await?;
+    s3.upload_bytes(index_json, &format!("{network_prefix}/index.json")).await?;
     info!(%network, snapshots = all_points.len(), "updated S3 index");
 
     Ok(())

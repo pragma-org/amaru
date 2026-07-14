@@ -84,16 +84,47 @@ fn run_logged_command(
     let stderr = child.stderr.take().ok_or("failed to capture child stderr")?;
     let db_analyser_log_relay = db_analyser_log_relay.map(|relay| Arc::new(Mutex::new(relay)));
 
-    let shared: Option<Arc<Mutex<SharedProgress>>> = db_analyser_log_relay.as_ref().map(|relay| {
+    let tracked = db_analyser_log_relay.as_ref().map(|relay| TrackedProgress::new(relay, with_progress));
+    let shared = tracked.as_ref().map(TrackedProgress::shared);
+
+    let stdout_handle = spawn_log_relay(stdout, step.to_string(), false, db_analyser_log_relay.clone(), shared.clone());
+    let stderr_handle = spawn_log_relay(stderr, step.to_string(), true, db_analyser_log_relay, shared);
+
+    let status = child.wait()?;
+    stdout_handle.join().map_err(|_| io::Error::other(format!("{step} stdout logger panicked")))??;
+    stderr_handle.join().map_err(|_| io::Error::other(format!("{step} stderr logger panicked")))??;
+
+    if let Some(t) = tracked {
+        t.finish();
+    }
+
+    if !status.success() {
+        return Err(format!("{step} failed with status {status}").into());
+    }
+
+    Ok(())
+}
+
+/// Manages the shared progress bar state and its animation ticker for a child process.
+struct TrackedProgress {
+    shared: Arc<Mutex<SharedProgress>>,
+    ticker: Option<(thread::JoinHandle<()>, std::sync::mpsc::Sender<()>)>,
+}
+
+impl TrackedProgress {
+    fn new(
+        relay: &Arc<Mutex<DbAnalyserLogRelay>>,
+        with_progress: &Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+    ) -> Self {
         let (restore_total, replay_total) =
             relay.lock().map(|r| (r.restore_total(), r.replay_total())).unwrap_or((0, 0));
-        let factory: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync> =
-            with_progress.clone();
-        Arc::new(Mutex::new(SharedProgress { bar: None, restore_total, replay_total, factory }))
-    });
-
-    let ticker_handle = shared.as_ref().map(|s| {
-        let s = s.clone();
+        let shared = Arc::new(Mutex::new(SharedProgress {
+            bar: None,
+            restore_total,
+            replay_total,
+            factory: with_progress.clone(),
+        }));
+        let s = shared.clone();
         let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
         let handle = thread::spawn(move || {
             while stop_rx.try_recv().is_err() {
@@ -105,33 +136,24 @@ fn run_logged_command(
                 thread::sleep(std::time::Duration::from_millis(100));
             }
         });
-        (handle, stop_tx)
-    });
-
-    let stdout_handle = spawn_log_relay(stdout, step.to_string(), false, db_analyser_log_relay.clone(), shared.clone());
-    let stderr_handle = spawn_log_relay(stderr, step.to_string(), true, db_analyser_log_relay, shared.clone());
-
-    let status = child.wait()?;
-    stdout_handle.join().map_err(|_| io::Error::other(format!("{step} stdout logger panicked")))??;
-    stderr_handle.join().map_err(|_| io::Error::other(format!("{step} stderr logger panicked")))??;
-
-    if let Some((handle, stop_tx)) = ticker_handle {
-        let _ = stop_tx.send(());
-        let _ = handle.join();
+        Self { shared, ticker: Some((handle, stop_tx)) }
     }
 
-    if let Some(s) = shared
-        && let Ok(mut s) = s.lock()
-        && let Some(pb) = s.bar.take()
-    {
-        pb.clear();
+    fn shared(&self) -> Arc<Mutex<SharedProgress>> {
+        self.shared.clone()
     }
 
-    if !status.success() {
-        return Err(format!("{step} failed with status {status}").into());
+    fn finish(mut self) {
+        if let Some((handle, stop_tx)) = self.ticker.take() {
+            let _ = stop_tx.send(());
+            let _ = handle.join();
+        }
+        if let Ok(mut s) = self.shared.lock()
+            && let Some(pb) = s.bar.take()
+        {
+            pb.clear();
+        }
     }
-
-    Ok(())
 }
 
 struct SharedProgress {
