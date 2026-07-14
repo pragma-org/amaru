@@ -69,9 +69,9 @@ impl TraceContext {
     }
 
     /// Append a field to the corresponding span
-    pub fn record(&self, name: &str, value: impl Display) {
+    pub fn record(&self, name: &'static str, value: &dyn Display) {
         if let Some(span) = &self.span {
-            span.record(name, value.to_string());
+            span.record(name, tracing::field::display(value));
         }
     }
 }
