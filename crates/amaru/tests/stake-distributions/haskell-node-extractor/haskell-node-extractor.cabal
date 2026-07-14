@@ -32,6 +32,10 @@ library
     , Command.StakeDistribution.Error
     , Command.StakeDistribution.Parse
     , Command.StakeDistribution.Run
+    , Command.ValidatePhaseOne
+    , Command.ValidatePhaseOne.Error
+    , Command.ValidatePhaseOne.Parse
+    , Command.ValidatePhaseOne.Run
     , Data.Coin
     , Data.Credential
     , Data.DelegateRepresentative
@@ -78,21 +82,29 @@ library
     , aeson-pretty
     , base >=4.7 && <5
     , base16
+    , bytestring
+    , cardano-crypto-class
     , cardano-ledger-api
+    , cardano-ledger-binary
     , cardano-ledger-byron
+    , cardano-ledger-conway
     , cardano-ledger-core
     , cardano-ledger-shelley
     , cardano-slotting
     , cardano-strict-containers
     , containers
+    , data-default-class
     , directory
     , filepath
     , fs-api
     , microlens
+    , mtl
     , optparse-applicative
     , ouroboros-consensus:{ouroboros-consensus, cardano, protocol}
     , relude
     , serialise
+    , sop-extras
+    , time
     , vector-map
 
 executable haskell-node-extractor

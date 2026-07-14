@@ -6,6 +6,7 @@ import Relude
 
 import qualified Command.ExtractSnapshot as ExtractSnapshot
 import qualified Command.StakeDistribution as StakeDistribution
+import qualified Command.ValidatePhaseOne as ValidatePhaseOne
 import Options.Applicative
     ( Parser
     , ParserInfo
@@ -21,6 +22,7 @@ import Options.Applicative
 data Command
     = ExtractSnapshot ExtractSnapshot.Options
     | StakeDistribution StakeDistribution.Options
+    | ValidatePhaseOne ValidatePhaseOne.Options
 
 runCommandLine :: IO ()
 runCommandLine = do
@@ -40,6 +42,8 @@ runCommand = \case
         first ExtractSnapshot.renderError <$> runExceptT (ExtractSnapshot.run options)
     StakeDistribution options ->
         first StakeDistribution.renderError <$> runExceptT (StakeDistribution.run options)
+    ValidatePhaseOne options ->
+        first ValidatePhaseOne.renderError <$> runExceptT (ValidatePhaseOne.run options)
 
 commandParserInfo :: ParserInfo Command
 commandParserInfo =
@@ -61,4 +65,10 @@ commandParser =
                 ( info
                     (StakeDistribution <$> StakeDistribution.optionsParser)
                     (progDesc "Write a stake distribution snapshot as pretty JSON")
+                )
+            <> command
+                "validate-phase-one"
+                ( info
+                    (ValidatePhaseOne <$> ValidatePhaseOne.optionsParser)
+                    (progDesc "Validate a phase-one conformance fixture with the Haskell ledger rules")
                 )
