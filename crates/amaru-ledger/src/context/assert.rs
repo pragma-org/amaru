@@ -175,7 +175,7 @@ impl PoolsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn retire(&mut self, _pool: PoolId, _epoch: Epoch) {
+    fn retire(&mut self, _pool: PoolId, _epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>> {
         unimplemented!()
     }
 }

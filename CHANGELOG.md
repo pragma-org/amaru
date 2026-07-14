@@ -41,6 +41,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
+- **amaru-ledger**: validate stake pool exists when attempting to unregister ([#912][], [#1034][])
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
@@ -185,6 +186,7 @@ Other guiding principles:
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
+[#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
@@ -211,6 +213,7 @@ Other guiding principles:
 [#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
+[#1034]: https://github.com/pragma-org/amaru/pull/1034
 [#1036]: https://github.com/pragma-org/amaru/pull/1036
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
 [#1041]: https://github.com/pragma-org/amaru/pull/1041
