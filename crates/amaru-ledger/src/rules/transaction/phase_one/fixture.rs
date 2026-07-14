@@ -175,6 +175,7 @@ pub(super) enum Predicate {
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
     FeeTooSmallUTxO,
+    IncorrectDepositDELEG,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
@@ -227,6 +228,9 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::OutsideValidityIntervalUTxO
             }
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideForecast(_)) => Predicate::OutsideForecast,
+            PhaseOneError::Certificates(InvalidCertificates::IncorrectStakeDeposit { .. }) => {
+                Predicate::IncorrectDepositDELEG
+            }
             PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
                 [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,
