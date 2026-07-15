@@ -6,7 +6,8 @@ module Command.ValidatePhaseOne.Error
 import Relude
 
 data Error
-    = FixtureReadError !FilePath !Text
+    = NamedError !Text !Error
+    | FixtureReadError !FilePath !Text
     | FixtureDecodeError !FilePath !Text
     | FixtureReferenceError !Text
     | UnsupportedFixture !Text
@@ -14,6 +15,8 @@ data Error
 
 renderError :: Error -> Text
 renderError = \case
+    NamedError label nestedError ->
+        label <> ": " <> renderError nestedError
     FixtureReadError path details ->
         "Failed to read fixture at " <> toText path <> ": " <> details
     FixtureDecodeError path details ->

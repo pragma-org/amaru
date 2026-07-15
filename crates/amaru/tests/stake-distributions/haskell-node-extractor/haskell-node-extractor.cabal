@@ -38,6 +38,15 @@ library
     , Command.ValidatePhaseOne.Run
     , Data.Coin
     , Data.Credential
+    , Data.Fixture.Common
+    , Data.Fixture.EraHistory
+    , Data.Fixture.Expected
+    , Data.Fixture.InitialState
+    , Data.Fixture.Network
+    , Data.Fixture.Point
+    , Data.Fixture.ProtocolParameters
+    , Data.Fixture.SharedDocument
+    , Data.Fixture.TestCase
     , Data.DelegateRepresentative
     , Data.Genesis
     , Data.KeyHash

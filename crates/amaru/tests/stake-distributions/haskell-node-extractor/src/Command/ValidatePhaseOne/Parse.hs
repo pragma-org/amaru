@@ -16,14 +16,14 @@ import Options.Applicative
     )
 
 data Options = Options
-    { fixturePath :: !FilePath
+    { testCasePath :: !FilePath
     }
 
 optionsParser :: Parser Options
 optionsParser =
     Options
         <$> strOption
-            ( long "file"
+            ( long "test-case"
                 <> metavar "PATH"
                 <> completer (bashCompleter "file")
                 <> help "Path to a phase-one conformance fixture"
