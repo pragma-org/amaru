@@ -22,7 +22,7 @@ use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_observability::debug_span;
+use amaru_observability::trace_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 use tracing::{error, warn};
 
@@ -36,7 +36,7 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = debug_span!(
+    let _span = trace_span!(
         stores::ledger::columns::DREPS_GET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "get".to_string(),
@@ -55,7 +55,7 @@ pub fn add<DB>(
     valid_until_on_update: Epoch,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    let _span = debug_span!(
+    let _span = trace_span!(
         stores::ledger::columns::DREPS_ADD,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
@@ -117,32 +117,32 @@ pub fn set_valid_until<DB>(
     credentials: BTreeSet<StakeCredential>,
     valid_until: Epoch,
 ) -> Result<(), StoreError> {
-    let _span = debug_span!(
+    trace_span!(
         stores::ledger::columns::DREPS_SET_VALID_UNTIL,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "drep".to_string()
-    );
-    let _guard = _span.enter();
+    )
+    .in_scope(|| {
+        for credential in credentials {
+            let key = as_key(&PREFIX, &credential);
 
-    for credential in credentials {
-        let key = as_key(&PREFIX, &credential);
+            if let Some(mut row) =
+                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+            {
+                row.valid_until = valid_until;
+                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+            } else {
+                warn!(
+                    target: EVENT_TARGET,
+                    ?credential,
+                    "set_valid_until.unknown_drep",
+                )
+            };
+        }
 
-        if let Some(mut row) =
-            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-        {
-            row.valid_until = valid_until;
-            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            warn!(
-                target: EVENT_TARGET,
-                ?credential,
-                "set_valid_until.unknown_drep",
-            )
-        };
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Clear a DRep registration.
@@ -150,27 +150,27 @@ pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
 ) -> Result<(), StoreError> {
-    let _span = debug_span!(
+    trace_span!(
         stores::ledger::columns::DREPS_REMOVE,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "drep".to_string()
-    );
-    let _guard = _span.enter();
+    )
+    .in_scope(|| {
+        for (drep, _) in rows {
+            let key = as_key(&PREFIX, &drep);
 
-    for (drep, _) in rows {
-        let key = as_key(&PREFIX, &drep);
-
-        if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
-            db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            error!(
-                target: EVENT_TARGET,
-                ?drep,
-                "remove.unknown_drep",
-            )
+            if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
+                db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
+            } else {
+                error!(
+                    target: EVENT_TARGET,
+                    ?drep,
+                    "remove.unknown_drep",
+                )
+            }
         }
-    }
 
-    Ok(())
+        Ok(())
+    })
 }

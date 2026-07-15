@@ -22,7 +22,7 @@ pub use amaru_ledger::store::{
         unsafe_decode,
     },
 };
-use amaru_observability::debug_span;
+use amaru_observability::trace_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -35,7 +35,7 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     id: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = debug_span!(
+    let _span = trace_span!(
         stores::ledger::columns::PROPOSALS_GET,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "get".to_string(),
@@ -50,22 +50,22 @@ pub fn get<'a>(
 
 /// Register a new Proposal.
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<usize, StoreError> {
-    let _span = debug_span!(
+    trace_span!(
         stores::ledger::columns::PROPOSALS_ADD,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "proposals".to_string()
-    );
-    let _guard = _span.enter();
+    )
+    .in_scope(|| {
+        let mut n = 0;
 
-    let mut n = 0;
+        for (key, value) in rows {
+            n += 1;
+            db.put(as_key(&PREFIX, key), as_value(value)).map_err(|err| StoreError::Internal(err.into()))?;
+        }
 
-    for (key, value) in rows {
-        n += 1;
-        db.put(as_key(&PREFIX, key), as_value(value)).map_err(|err| StoreError::Internal(err.into()))?;
-    }
-
-    Ok(n)
+        Ok(n)
+    })
 }
 
 /// Remove an expired or enacted proposal.
@@ -73,17 +73,17 @@ pub fn remove<'iter, DB, K>(db: &Transaction<'_, DB>, rows: impl Iterator<Item =
 where
     K: Deref<Target = ProposalId> + 'iter,
 {
-    let _span = debug_span!(
+    trace_span!(
         stores::ledger::columns::PROPOSALS_REMOVE,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "delete".to_string(),
         db_collection_name = "proposals".to_string()
-    );
-    let _guard = _span.enter();
+    )
+    .in_scope(|| {
+        for key in rows {
+            db.delete(as_key(&PREFIX, key.deref())).map_err(|err| StoreError::Internal(err.into()))?;
+        }
 
-    for key in rows {
-        db.delete(as_key(&PREFIX, key.deref())).map_err(|err| StoreError::Internal(err.into()))?;
-    }
-
-    Ok(())
+        Ok(())
+    })
 }

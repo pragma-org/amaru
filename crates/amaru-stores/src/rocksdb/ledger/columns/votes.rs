@@ -19,7 +19,7 @@ pub use amaru_ledger::store::{
     StoreError,
     columns::votes::{Key, Row, Value},
 };
-use amaru_observability::debug_span;
+use amaru_observability::trace_span;
 use rocksdb::Transaction;
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
@@ -33,31 +33,31 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<BTreeSet<StakeCredential>, StoreError> {
-    let _span = debug_span!(
+    trace_span!(
         stores::ledger::columns::VOTES_ADD,
         db_system_name = "rocksdb".to_string(),
         db_operation_name = "write".to_string(),
         db_collection_name = "vote".to_string()
-    );
-    let _guard = _span.enter();
+    )
+    .in_scope(|| {
+        let mut voting_dreps = BTreeSet::new();
 
-    let mut voting_dreps = BTreeSet::new();
+        for (key, value) in rows {
+            match key.voter {
+                Voter::DRepKey(hash) => {
+                    voting_dreps.insert(StakeCredential::AddrKeyhash(hash));
+                }
+                Voter::DRepScript(hash) => {
+                    voting_dreps.insert(StakeCredential::ScriptHash(hash));
+                }
+                Voter::ConstitutionalCommitteeKey(..)
+                | Voter::ConstitutionalCommitteeScript(..)
+                | Voter::StakePoolKey(..) => {}
+            }
 
-    for (key, value) in rows {
-        match key.voter {
-            Voter::DRepKey(hash) => {
-                voting_dreps.insert(StakeCredential::AddrKeyhash(hash));
-            }
-            Voter::DRepScript(hash) => {
-                voting_dreps.insert(StakeCredential::ScriptHash(hash));
-            }
-            Voter::ConstitutionalCommitteeKey(..)
-            | Voter::ConstitutionalCommitteeScript(..)
-            | Voter::StakePoolKey(..) => {}
+            db.put(as_key(&PREFIX, &key), as_value(value)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
-        db.put(as_key(&PREFIX, &key), as_value(value)).map_err(|err| StoreError::Internal(err.into()))?;
-    }
-
-    Ok(voting_dreps)
+        Ok(voting_dreps)
+    })
 }
