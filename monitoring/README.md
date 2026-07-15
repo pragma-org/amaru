@@ -88,18 +88,16 @@ Once running, metrics are available at `http://localhost:8889/metrics` (Promethe
 
 ### Optional Profiles
 
-Prometheus, Jaeger, and Grafana+Tempo are available as optional profiles:
+Prometheus and Grafana+Tempo are available as optional top-level profiles.
+Jaeger is provided as a dedicated standalone stack under `profiles/jaeger/` so
+that it can keep its own OTLP collector in front of the Jaeger backend.
 
 #### Prometheus
 
 To start Prometheus with the OTLP collector configured to export metrics:
 
 ```bash
-# With profile override (recommended for cleaner configuration):
 docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus up
-
-# Or using the simpler shorthand:
-docker compose --profile prometheus up
 ```
 
 **Includes:**
@@ -110,34 +108,34 @@ docker compose --profile prometheus up
 - `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 - `http://localhost:9090` - Prometheus UI
 
+> [!IMPORTANT]
+> The extra `-f profiles/prometheus/docker-compose.yml` is required.
+> Running only `docker compose --profile prometheus up` starts Prometheus, but
+> leaves the OTLP collector on its base config, so metrics are not exported to
+> Prometheus.
+
 #### Jaeger
 
 For distributed tracing with Jaeger:
 
 ```bash
-# With profile override (recommended for cleaner configuration):
-docker compose -f docker-compose.yml -f profiles/jaeger/docker-compose.yml --profile jaeger up
-
-# Or using the simpler shorthand:
-docker compose --profile jaeger up
+docker compose -f profiles/jaeger/docker-compose.yml up
 ```
 
 **Includes:**
 - **Jaeger** UI for trace visualization
+- **Prometheus** for span metrics
 - In-memory span and metrics storage
-- OTLP collector with Jaeger trace exporter
+- An OTLP collector that receives traces, metrics, and logs from Amaru
+- Forwarding from the collector to Jaeger for traces and to Prometheus for metrics
 
 **Available URLs:**
-- `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 - `http://localhost:16686` - Jaeger UI
+- `http://localhost:9090` - Prometheus UI
+- `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 
-**Optional:** Add `--profile prometheus` to also capture span metrics in Prometheus:
-
-```bash
-docker compose -f docker-compose.yml -f profiles/jaeger/docker-compose.yml --profile jaeger --profile prometheus up
-```
-
-This enables the `http://localhost:9090` Prometheus UI with trace-derived metrics.
+This stack is self-contained and should be started directly, rather than being
+combined with the top-level `monitoring/docker-compose.yml`.
 
 #### Grafana
 
@@ -159,11 +157,7 @@ docker compose --profile grafana up
 For distributed trace backend storage and visualization:
 
 ```bash
-# With profile override (recommended for cleaner configuration):
 docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile tempo up
-
-# Or using the simpler shorthand:
-docker compose --profile tempo up
 ```
 
 **Includes:**
@@ -175,16 +169,17 @@ docker compose --profile tempo up
 - `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 - `http://localhost:3200/api/traces` - Tempo traces API
 
+> [!IMPORTANT]
+> The extra `-f profiles/tempo/docker-compose.yml` is required.
+> Running only `docker compose --profile tempo up` starts Tempo, but leaves the
+> OTLP collector on its base config, so traces are not forwarded to Tempo.
+
 #### Combining Profiles: Grafana + Tempo
 
 For the full visualization stack with Grafana and Tempo:
 
 ```bash
-# With profile override:
 docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile grafana --profile tempo up
-
-# Or using the simpler shorthand:
-docker compose --profile grafana --profile tempo up
 ```
 
 This enables Grafana to query Tempo traces through the "Explore" → "Tempo" datasource.
@@ -195,19 +190,16 @@ You can combine multiple profiles for different setups:
 
 ```bash
 # Prometheus metrics only
-docker compose --profile prometheus up
+docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus up
 
 # Grafana with Prometheus metrics
-docker compose --profile prometheus --profile grafana up
+docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus --profile grafana up
 
 # Grafana with Tempo traces
 docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile grafana --profile tempo up
 
-# Jaeger with Prometheus metrics
-docker compose -f docker-compose.yml -f profiles/jaeger/docker-compose.yml --profile jaeger --profile prometheus up
-
 # Full stack: Prometheus, Grafana, and Tempo
-docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile prometheus --profile grafana --profile tempo up
+docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml -f profiles/tempo/docker-compose.yml --profile prometheus --profile grafana --profile tempo up
 ```
 
 ### Forwarding traces and logs to another OTLP backend
