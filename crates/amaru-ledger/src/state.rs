@@ -27,17 +27,18 @@ use amaru_kernel::{
     utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::{info_span, trace_span};
+use amaru_observability::{debug_span, info_span, trace_span};
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
-use tracing::{Span, info, trace, warn};
+use tracing::Span;
 
 use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
     epoch_transition::{self, GovernanceActivity},
     governance::ratification::RatificationContext,
+    info,
     rules::{
         self,
         block::{BlockValidation, TransactionInvalid},
@@ -51,6 +52,7 @@ use crate::{
         rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
     },
+    trace, tracing_enabled, warn,
 };
 
 pub mod diff_bind;
@@ -61,8 +63,6 @@ pub mod volatile;
 /// The minimum number of past (from the current epoch) snapshots required for the ledger to
 /// operate.
 pub const MIN_LEDGER_SNAPSHOTS: u64 = 3;
-
-const EVENT_TARGET: &str = "amaru::ledger::state";
 
 // State
 // ----------------------------------------------------------------------------
@@ -283,7 +283,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         let immutable_slot = now_stable.anchor.0.slot();
         let immutable_epoch = unsafe_slot_to_epoch(&self.era_history, immutable_slot);
 
-        trace_span!(ledger::block::APPLY, point_slot = u64::from(immutable_slot)).in_scope(
+        debug_span!(ledger::block::APPLY, point_slot = u64::from(immutable_slot)).in_scope(
             || {
                 let protocol_parameters = self.protocol_parameters_for(immutable_epoch).unwrap_or_else(|| unreachable! {
                     "invariant violation: asking protocol parameters for an unreachable epoch; immutable epoch = {}; volatile epoch = {}",
@@ -344,7 +344,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             let new_protocol_version = self.protocol_version();
 
             if old_protocol_version != new_protocol_version {
-                info!(from = old_protocol_version.0, to = new_protocol_version.0, "protocol.upgrade")
+                info!("protocol.upgrade", old_version = old_protocol_version.0, new_version = new_protocol_version.0);
             }
         }
 
@@ -516,10 +516,9 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         if stake_distributions.front().map(|distr| distr.epoch < snapshot.epoch()).unwrap_or(true) {
             stake_distributions.push_front(compute_stake_distribution(&snapshot, &self.era_history)?);
             info!(
-                name: "state::stake_distribution::rotate",
-                target: "amaru::ledger::state::stake_distribution::rotate",
-                stake_distributions = display_collection(stake_distributions.iter().map(|distr| distr.epoch)),
-            )
+                "stake_distribution.rotate",
+                available_stake_distributions = display_collection(stake_distributions.iter().map(|distr| distr.epoch)),
+            );
         }
 
         Ok(rewards_summary)
@@ -547,7 +546,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
                 Some(now_stable)
             } else {
-                trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
+                trace!("volatile.warm_up", size = self.volatile.len());
                 None
             };
 
@@ -571,15 +570,17 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 // Yet, we must produce a new snapshot in order to produce a new stake distribution
                 // to keep validating upcoming block headers.
                 warn!(
-                    name: "amaru::ledger::chain_growth::violation",
+                    "chain_growth.violate",
                     unstable_tail_length = len,
-                    "chain growth violation: less than k={k} blocks seen in a window of \
-                    3*k/f={stability_window} slots; if this occurs during historical sync, it may \
-                    not be a big problem. However If this occurs at the tip, it can be more \
-                    serious. We will not be able to rollback through still-unstable blocks that \
-                    must now be persisted to disk.",
-                    k = self.global_parameters().consensus_security_param,
-                    stability_window = self.global_parameters().stability_window(),
+                    reason = format!(
+                        "chain growth violation: less than k={k} blocks seen in a window of \
+                         3*k/f={stability_window} slots; if this occurs during historical sync, it may \
+                         not be a big problem. However If this occurs at the tip, it can be more \
+                         serious. We will not be able to rollback through still-unstable blocks that \
+                         must now be persisted to disk.",
+                        k = self.global_parameters().consensus_security_param,
+                        stability_window = self.global_parameters().stability_window()
+                    )
                 );
 
                 for anchored_fragment in epoch_tail {
@@ -609,7 +610,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
     /// Create a validation context for a whole block.
     #[allow(clippy::unwrap_used)]
     fn create_block_validation_context(&self, block: &Block) -> Result<DefaultValidationContext, StateError> {
-        trace_span!(
+        debug_span!(
             ledger::block::CREATE_VALIDATION_CONTEXT,
             block_body_hash = block.header.header_body.block_body_hash,
             block_number = block.header.header_body.block_number,
@@ -738,7 +739,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         block: Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
-        trace_span!(ledger::ledger_state::ROLL_FORWARD).in_scope(|| {
+        debug_span!(ledger::ledger_state::ROLL_FORWARD).in_scope(|| {
             let block_height = block.header.header_body.block_number;
 
             trace_block_transactions(point, block_height, &block);
@@ -986,15 +987,15 @@ impl HasStakeDistribution for StakeDistributionObserver {
 fn trace_block_transactions(point: &Point, block_height: u64, block: &Block) {
     let tx_count = block.transaction_bodies.len();
 
-    trace!(target: EVENT_TARGET, %point, block_height, tx_count, "block transactions found");
+    trace!("non_empty_block.found", %point, block_height, tx_count);
 
-    if !tracing::enabled!(target: EVENT_TARGET, tracing::Level::TRACE) {
+    if !tracing_enabled!(tracing::Level::TRACE) {
         return;
     }
 
     for (tx_index, body) in block.transaction_bodies.iter().enumerate() {
         let tx_id = body.tx_id();
-        trace!(target: EVENT_TARGET, %point, block_height, tx_index, tx_id = %tx_id, "transaction found in block");
+        trace!("transaction.found", %point, block_height, tx_index, tx_id = %tx_id);
     }
 }
 

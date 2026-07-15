@@ -23,9 +23,10 @@ use amaru_kernel::{
 };
 use amaru_observability::debug_span;
 use num::BigUint;
-use tracing::{Span, debug};
+use tracing::Span;
 
 use crate::{
+    debug,
     epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, Rewards},
     governance::ratification::CommitteeUpdate,
     store::{StoreError, TransactionalContext, columns::pools::Row as Pool},
@@ -40,7 +41,7 @@ pub fn pay_rewards<'store>(
     db: &impl TransactionalContext<'store>,
     mut effective_rewards: Rewards<Effective>,
 ) -> Result<(), StoreError> {
-    debug_span!(ledger::epoch_transition::PAY_REWARDS,).in_scope(|| {
+    debug_span!(ledger::epoch_transition::PAY_REWARDS).in_scope(|| {
         // Pay rewards out to every account
         db.with_accounts(|iterator| {
             let mut rewards_paid: u64 = 0;
@@ -142,7 +143,7 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
             (0_u64, 0_u64),
             |(leftovers, paid), (account, deposit)| {
                 debug!(
-                    name: "pay_or_refund",
+                    "account.pay_or_refund",
                     type = %StakeCredentialKind::from(account),
                     account = %account.as_hash(),
                     %deposit,
@@ -235,7 +236,7 @@ pub fn apply_governance_updates<'store, 'iter>(
         if updates.is_dormant_epoch {
             governance_activity.consecutive_dormant_epochs += 1;
             debug!(
-                name: "governance_activity",
+                "governance_activity.update",
                 consecutive_dormant_epochs = governance_activity.consecutive_dormant_epochs
             );
             db.set_governance_activity(governance_activity)?;

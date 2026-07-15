@@ -810,6 +810,24 @@
       "description": "Resolve proposals from the volatile db or the stable one",
       "public": true
     },
+    "amaru::ledger::relays::COLLECT": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "optional": [
+        "count"
+      ],
+      "additionalProperties": false,
+      "name": "collect",
+      "level": "TRACE",
+      "target": "amaru::ledger::relays",
+      "description": "Fetch candidate relays from the immutable store",
+      "public": true
+    },
     "amaru::ledger::transaction::CREATE_VALIDATION_CONTEXT": {
       "type": "object",
       "properties": {

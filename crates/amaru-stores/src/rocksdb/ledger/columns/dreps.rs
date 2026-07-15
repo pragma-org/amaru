@@ -18,13 +18,12 @@ use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, StakeCredential}
 use amaru_ledger::store::{
     StoreError,
     columns::{
-        dreps::{EVENT_TARGET, Key, Row, Value},
+        dreps::{Key, Row, Value},
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::{error, trace_span, warn};
 use rocksdb::{DBPinnableSlice, Transaction};
-use tracing::{error, warn};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
@@ -99,9 +98,10 @@ pub fn add<DB>(
             }
             None => {
                 error!(
-                    target: EVENT_TARGET,
+                    target: "amaru::stores",
+                    name: "dreps.add",
                     ?credential,
-                    "add.register_no_deposit",
+                    reason = "registration without a deposit"
                 )
             }
         }
@@ -134,9 +134,10 @@ pub fn set_valid_until<DB>(
                 db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
             } else {
                 warn!(
-                    target: EVENT_TARGET,
+                    target: "amaru::stores",
+                    name: "dreps.set_valid_until",
                     ?credential,
-                    "set_valid_until.unknown_drep",
+                    reason = "unknown drep",
                 )
             };
         }
@@ -164,9 +165,10 @@ pub fn remove<DB>(
                 db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
             } else {
                 error!(
-                    target: EVENT_TARGET,
+                    target: "amaru::stores",
+                    name: "dreps.remove",
                     ?drep,
-                    "remove.unknown_drep",
+                    reason = "unknown drep",
                 )
             }
         }

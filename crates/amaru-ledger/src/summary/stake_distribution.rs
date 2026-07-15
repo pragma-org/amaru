@@ -16,10 +16,10 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{DRep, Epoch, HasLovelace, Hash, Lovelace, PoolId, StakeCredential, expect_stake_credential};
 use serde::ser::SerializeStruct;
-use tracing::info;
 
 use crate::{
     epoch_transition::PoolsEpochTransitionUpdates,
+    info,
     store::{Snapshot, StoreError, columns::pots::Row as Pots},
     summary::{
         AccountState, PoolState,
@@ -200,7 +200,7 @@ impl StakeDistribution {
         let Pots { reserves, treasury, .. } = db.pots()?;
 
         info!(
-            name: "stake_distribution.snapshot",
+            "stake_distribution.snapshot",
             accounts = %accounts.len(),
             dreps = %dreps.len(),
             pools = %pools.len(),

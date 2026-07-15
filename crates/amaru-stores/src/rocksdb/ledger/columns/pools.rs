@@ -16,13 +16,12 @@ use amaru_kernel::Epoch;
 use amaru_ledger::store::{
     StoreError,
     columns::{
-        pools::{EVENT_TARGET, Key, Row, Value},
+        pools::{Key, Row, Value},
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::{error, trace_span};
 use rocksdb::{DBPinnableSlice, Transaction};
-use tracing::error;
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
@@ -92,7 +91,7 @@ pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Epo
             // every epoch boundary.
             match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
                 None => {
-                    error!(target: EVENT_TARGET, ?pool, "remove.unknown")
+                    error!(target: "amaru::stores", name: "pools.remove", ?pool, reason = "unknown pool")
                 }
                 Some(existing_params) => db
                     .put(as_key(&PREFIX, pool), Row::extend(existing_params, (None, epoch)))

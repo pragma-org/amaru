@@ -16,13 +16,12 @@ use amaru_kernel::{AsHash, Lovelace, StakeCredentialKind};
 use amaru_ledger::store::{
     StoreError,
     columns::{
-        accounts::{EVENT_TARGET, Key, Row, Value},
+        accounts::{Key, Row, Value},
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::{debug, error, trace_span};
 use rocksdb::{DBPinnableSlice, Transaction};
-use tracing::{debug, error};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
@@ -89,9 +88,10 @@ pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>)
                 db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
             } else {
                 error!(
-                    target: EVENT_TARGET,
+                    target: "amaru::stores",
+                    name: "accounts.reset_many",
                     ?credential,
-                    "reset.no_account",
+                    reason = "no account for given credential"
                 )
             }
         }
@@ -142,11 +142,13 @@ pub fn set<DB>(
             return Ok(0);
         }
 
+        // TODO: Should probably be an error now that we have the overlay...
         debug!(
-            target: EVENT_TARGET,
+            target: "amaru::stores",
+            name: "accounts.set",
             type = %StakeCredentialKind::from(credential),
             account = %credential.as_hash(),
-            "set.no_account",
+            reason = "cannot set stake, account is gone"
         );
 
         Ok(with_rewards(0))

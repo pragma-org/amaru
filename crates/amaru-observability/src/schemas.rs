@@ -220,6 +220,12 @@ define_schemas! {
                     optional from_db: u64
                 }
             }
+            relays {
+                /// Fetch candidate relays from the immutable store
+                public COLLECT {
+                    optional count: String
+                }
+            }
             epoch {
                 /// Compute stake distribution for epoch
                 public COMPUTE_STAKE_DISTRIBUTION {

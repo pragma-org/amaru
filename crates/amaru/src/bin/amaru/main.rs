@@ -18,7 +18,6 @@ use amaru::{
     version,
 };
 use cli::Command;
-use tracing::info;
 
 mod cli;
 mod cmd;
@@ -45,8 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (m, t) = setup_observability(cli.with_open_telemetry, cli.with_json_traces, color_enabled, &cli.command);
         (Some(m), t)
     };
-
-    info!("Started");
 
     let result = match cli.command {
         Command::Node(node_cmd) => match node_cmd {

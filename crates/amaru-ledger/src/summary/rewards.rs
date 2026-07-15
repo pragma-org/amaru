@@ -117,17 +117,15 @@ use num::{
     traits::{One, Zero},
 };
 use serde::ser::SerializeStruct;
-use tracing::info;
 
 use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
+    info,
     store::{Snapshot, StoreError, columns::pots::Row as Pots},
     summary::{
         AccountState, PoolState, SafeRatio, floor_to_lovelace, safe_ratio, stake_distribution::StakeDistribution,
     },
 };
-
-const EVENT_TARGET: &str = "amaru::ledger::rewards";
 
 impl PoolState {
     pub fn relative_stake(&self, total_stake: Lovelace) -> SafeRatio {
@@ -413,7 +411,7 @@ impl RewardsSummary {
             });
 
         info!(
-            target: EVENT_TARGET,
+            "rewards.summarize",
             %efficiency,
             %incentives,
             %treasury_tax,
@@ -423,7 +421,6 @@ impl RewardsSummary {
             pots.reserves = %pots.reserves,
             pots.treasury = %pots.treasury,
             pots.fees = %pots.fees,
-            "rewards.summary",
         );
 
         Ok(RewardsSummary {

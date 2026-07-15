@@ -35,12 +35,13 @@ use amaru_kernel::{
     rational_number,
 };
 use amaru_observability::info_span;
-use tracing::{debug, info};
 
 use crate::{
+    debug,
     governance::ratification::{
         CandidateProposal, CommitteeUpdate, ProposalsRoots, ProposalsRootsRc, RatificationContext,
     },
+    info,
     state::StateError,
     store::columns::proposals::Row as Proposal,
 };
@@ -149,132 +150,130 @@ impl GovernanceUpdates {
             })
             .collect();
 
-        info_span!(
-            ledger::epoch_transition::NEW_GOVERNANCE_UPDATES,
-            proposals_count = proposals.len() as u64
-        )
-        .in_scope(|| {
-            let roots = ctx
-                .ratify_proposals(
-                    era_history,
-                    // Get all proposals to ratify / enact. Note that, even though the ratification happens
-                    // with an epoch of delay (and thus, using data from a snapshot), we always use the most
-                    // recent set of proposals available. While recently submitted proposals won't have any
-                    // votes, they might still end up being pruned due to a previous proposal being enacted.
-                    //
-                    // TODO: Lazily fetch governance proposals on epoch boundary
-                    //
-                    // We shouldn't collect all proposals here, but provides iterators for the
-                    // ratification step to go over them lazily.
-                    proposals,
-                    roots,
-                )
-                .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
+        info_span!(ledger::epoch_transition::NEW_GOVERNANCE_UPDATES, proposals_count = proposals.len() as u64).in_scope(
+            || {
+                let roots = ctx
+                    .ratify_proposals(
+                        era_history,
+                        // Get all proposals to ratify / enact. Note that, even though the ratification happens
+                        // with an epoch of delay (and thus, using data from a snapshot), we always use the most
+                        // recent set of proposals available. While recently submitted proposals won't have any
+                        // votes, they might still end up being pruned due to a previous proposal being enacted.
+                        //
+                        // TODO: Lazily fetch governance proposals on epoch boundary
+                        //
+                        // We shouldn't collect all proposals here, but provides iterators for the
+                        // ratification step to go over them lazily.
+                        proposals,
+                        roots,
+                    )
+                    .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
 
-            // Once ratified, we can go over each proposal and figure out refunds due to
-            // enactment, expiry or conflicts with other enacted proposals.
-            let mut is_dormant_epoch = true;
-            let mut payouts = ctx.withdrawals;
-            let mut payouts_str = String::new();
-            for (id, proposal) in proposals_metadata.into_iter() {
-                let expired = ctx.epoch == proposal.valid_until;
-                let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
+                // Once ratified, we can go over each proposal and figure out refunds due to
+                // enactment, expiry or conflicts with other enacted proposals.
+                let mut is_dormant_epoch = true;
+                let mut payouts = ctx.withdrawals;
+                let mut payouts_str = String::new();
+                for (id, proposal) in proposals_metadata.into_iter() {
+                    let expired = ctx.epoch == proposal.valid_until;
+                    let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
 
-                debug!(name: "ratification.proposals", proposal_id = %id, expired, ratified_or_evicted);
-
-                if expired || ratified_or_evicted {
-                    ctx.pruned_proposals.insert(id, RatificationStatus::NotRatified); // For expired proposals
-                    let return_account = proposal.return_account;
-                    let deposit = proposal.deposit;
-                    payouts
-                        .entry(return_account.clone())
-                        .and_modify(|balance| {
-                            *balance += deposit;
-                            trace_return_account(&mut payouts_str, &return_account, *balance);
-                        })
-                        .or_insert_with(|| {
-                            trace_return_account(&mut payouts_str, &return_account, deposit);
-                            deposit
-                        });
-                } else {
-                    // NOTE: dormant epochs
-                    //
-                    // An epoch is said to be 'dormant' if there's no active proposals at the beginning of
-                    // the epoch, after ratification has occured. However, since proposals are ratified
-                    // with an epoch of delay, the `ctx.epoch` refers to 2 epochs in the past compare
-                    // the one that is just starting.
-                    //
-                    // Consider the following diagram, with a proposal valid until epoch e+1; with
-                    // no other proposals. The proposal expires in the transition from e+1 to e+2, so
-                    // that e+2 shall be considered dormant.
-                    //
-                    //                 │ ratifying       │ ratifying       │ ratifying
-                    //                 │ for e - 2       │ for e - 1       │ for e
-                    //                 │                 │                 │
-                    //                 ╽                 ╽                 ╽
-                    // ━━━━━━━━━━━━╸╸╸╋╸╸╸╸━██━██━██━╸╸╸╋╸╸╸╸━██━██━██━╸╸╸╋╸╸╸╸━██━██━██━╸╸╸━━━>
-                    //      e - 1              e               e + 1             e + 2
-                    //
-                    is_dormant_epoch = is_dormant_epoch && proposal.valid_until < ctx.epoch + 2;
-                }
-            }
-
-            // NOTE: 'unwrap_or_clone' pruned proposal ids
-            //
-            // We have disposed of the proposals metadata just before by consuming the object via
-            // 'into_iter'. This object should constitutes the last remaining Rc counts for the
-            // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
-            // clean transfer of ownership without clone.
-            let mut pruned_proposals_str = String::new();
-            let pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus> = ctx
-                .pruned_proposals
-                .into_iter()
-                .map(|(id, status)| {
-                    let id = Rc::unwrap_or_clone(id);
-
-                    if pruned_proposals_str.is_empty() {
-                        pruned_proposals_str = id.to_string();
+                    if expired || ratified_or_evicted {
+                        info!("proposal.drop", id = %id, expired, ratified_or_evicted);
+                        ctx.pruned_proposals.insert(id, RatificationStatus::NotRatified); // For expired proposals
+                        let return_account = proposal.return_account;
+                        let deposit = proposal.deposit;
+                        payouts
+                            .entry(return_account.clone())
+                            .and_modify(|balance| {
+                                *balance += deposit;
+                                trace_return_account(&mut payouts_str, &return_account, *balance);
+                            })
+                            .or_insert_with(|| {
+                                trace_return_account(&mut payouts_str, &return_account, deposit);
+                                deposit
+                            });
                     } else {
-                        pruned_proposals_str += &format!(", {id}");
+                        // NOTE: dormant epochs
+                        //
+                        // An epoch is said to be 'dormant' if there's no active proposals at the beginning of
+                        // the epoch, after ratification has occured. However, since proposals are ratified
+                        // with an epoch of delay, the `ctx.epoch` refers to 2 epochs in the past compare
+                        // the one that is just starting.
+                        //
+                        // Consider the following diagram, with a proposal valid until epoch e+1; with
+                        // no other proposals. The proposal expires in the transition from e+1 to e+2, so
+                        // that e+2 shall be considered dormant.
+                        //
+                        //                 │ ratifying       │ ratifying       │ ratifying
+                        //                 │ for e - 2       │ for e - 1       │ for e
+                        //                 │                 │                 │
+                        //                 ╽                 ╽                 ╽
+                        // ━━━━━━━━━━━━╸╸╸╋╸╸╸╸━██━██━██━╸╸╸╋╸╸╸╸━██━██━██━╸╸╸╋╸╸╸╸━██━██━██━╸╸╸━━━>
+                        //      e - 1              e               e + 1             e + 2
+                        //
+                        is_dormant_epoch = is_dormant_epoch && proposal.valid_until < ctx.epoch + 2;
                     }
+                }
 
-                    (id, status)
+                // NOTE: 'unwrap_or_clone' pruned proposal ids
+                //
+                // We have disposed of the proposals metadata just before by consuming the object via
+                // 'into_iter'. This object should constitutes the last remaining Rc counts for the
+                // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
+                // clean transfer of ownership without clone.
+                let mut pruned_proposals_str = String::new();
+                let pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus> = ctx
+                    .pruned_proposals
+                    .into_iter()
+                    .map(|(id, status)| {
+                        let id = Rc::unwrap_or_clone(id);
+
+                        if pruned_proposals_str.is_empty() {
+                            pruned_proposals_str = id.to_string();
+                        } else {
+                            pruned_proposals_str += &format!(", {id}");
+                        }
+
+                        (id, status)
+                    })
+                    .collect();
+
+                debug!(
+                    "proposal_roots.summarize",
+                    constitution = opt_root(roots.constitution.as_deref()),
+                    constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
+                    hard_fork = opt_root(roots.hard_fork.as_deref()),
+                    protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
+                );
+
+                info!(
+                    "ratification.summarize",
+                    pruned_proposals = opt_str(pruned_proposals_str),
+                    payouts = opt_str(payouts_str),
+                    new_constitution =
+                        opt_str(ctx.new_constitution.as_ref().map(|c| c.anchor.url.clone()).unwrap_or_default()),
+                    constitutional_committee_update = opt_str(
+                        ctx.constitutional_committee_update.as_ref().map(|c| c.to_string()).unwrap_or_default()
+                    ),
+                    is_dormant_epoch,
+                );
+
+                if &ctx.protocol_parameters != protocol_parameters {
+                    diff_protocol_parameters(protocol_parameters, &ctx.protocol_parameters);
+                }
+
+                Ok(Self {
+                    roots: roots.unwrap_or_clone(),
+                    pruned_proposals,
+                    payouts,
+                    is_dormant_epoch,
+                    protocol_parameters: ctx.protocol_parameters,
+                    new_constitution: ctx.new_constitution,
+                    constitutional_committee: ctx.constitutional_committee_update,
                 })
-                .collect();
-
-            debug!(
-                name: "ratification.roots",
-                constitution = opt_root(roots.constitution.as_deref()),
-                constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
-                hard_fork = opt_root(roots.hard_fork.as_deref()),
-                protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
-                "ratification.roots",
-            );
-
-            info!(
-                name: "ratification.miscellaneous",
-                pruned_proposals = opt_str(pruned_proposals_str),
-                payouts = opt_str(payouts_str),
-                new_constitution = opt_str(ctx.new_constitution.as_ref().map(|c| c.anchor.url.clone()).unwrap_or_default()),
-                constitutional_committee_update = opt_str(ctx.constitutional_committee_update.as_ref().map(|c| c.to_string()).unwrap_or_default()),
-                is_dormant_epoch,
-                "ratification.miscellaneous",
-            );
-
-            if &ctx.protocol_parameters != protocol_parameters {
-                diff_protocol_parameters(protocol_parameters, &ctx.protocol_parameters);
-            }
-
-            Ok(Self {
-                roots: roots.unwrap_or_clone(),
-                pruned_proposals,
-                payouts,
-                is_dormant_epoch,
-                protocol_parameters: ctx.protocol_parameters,
-                new_constitution: ctx.new_constitution,
-                constitutional_committee: ctx.constitutional_committee_update,
-            })
-        })
+            },
+        )
     }
 
     /// The pending governance payout for the given account, or `0`. This covers both proposal
@@ -339,7 +338,7 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
     } = new;
 
     info!(
-        name: "ratification.new_protocol_parameters",
+        "protocol_parameters.ratify",
         protocol_version = opt_field_with(&old.protocol_version, protocol_version, protocol_version::fmt),
         max_block_body_size = opt_field(&old.max_block_body_size, max_block_body_size),
         max_transaction_size = opt_field(&old.max_transaction_size, max_transaction_size),
@@ -364,40 +363,27 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
             min_fee_ref_script_lovelace_per_byte,
             rational_number::fmt,
         ),
-        max_ref_script_size_per_tx =
-            opt_field(&old.max_ref_script_size_per_tx, max_ref_script_size_per_tx),
-        max_ref_script_size_per_block =
-            opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
+        max_ref_script_size_per_tx = opt_field(&old.max_ref_script_size_per_tx, max_ref_script_size_per_tx),
+        max_ref_script_size_per_block = opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
         ref_script_cost_stride = opt_field(&old.ref_script_cost_stride, ref_script_cost_stride),
         ref_script_cost_multiplier =
             opt_field_with(&old.ref_script_cost_multiplier, ref_script_cost_multiplier, rational_number::fmt),
-        stake_pool_max_retirement_epoch = opt_field(
-            &old.stake_pool_max_retirement_epoch,
-            stake_pool_max_retirement_epoch
-        ),
-        optimal_stake_pools_count =
-            opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
+        stake_pool_max_retirement_epoch =
+            opt_field(&old.stake_pool_max_retirement_epoch, stake_pool_max_retirement_epoch),
+        optimal_stake_pools_count = opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
         pledge_influence = opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
         collateral_percentage = opt_field(&old.collateral_percentage, collateral_percentage),
         cost_models = opt_field_with(&old.cost_models, cost_models, cost_models::fmt),
-        pool_voting_thresholds = opt_field_with(
-            &old.pool_voting_thresholds,
-            pool_voting_thresholds,
-            pool_voting_thresholds::fmt
-        ),
-        drep_voting_thresholds = opt_field_with(
-            &old.drep_voting_thresholds,
-            drep_voting_thresholds,
-            drep_voting_thresholds::fmt,
-        ),
+        pool_voting_thresholds =
+            opt_field_with(&old.pool_voting_thresholds, pool_voting_thresholds, pool_voting_thresholds::fmt),
+        drep_voting_thresholds =
+            opt_field_with(&old.drep_voting_thresholds, drep_voting_thresholds, drep_voting_thresholds::fmt,),
         min_committee_size = opt_field(&old.min_committee_size, min_committee_size),
-        max_committee_term_length =
-            opt_field(&old.max_committee_term_length, max_committee_term_length),
+        max_committee_term_length = opt_field(&old.max_committee_term_length, max_committee_term_length),
         gov_action_lifetime = opt_field(&old.gov_action_lifetime, gov_action_lifetime),
         gov_action_deposit = opt_field(&old.gov_action_deposit, gov_action_deposit),
         drep_deposit = opt_field(&old.drep_deposit, drep_deposit),
         drep_expiry = opt_field(&old.drep_expiry, drep_expiry),
-        "ratification.new_protocol_parameters",
     );
 }
 

@@ -367,6 +367,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::ledger::relays`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `collect` | `TRACE` | public | Fetch candidate relays from the immutable store | count |  |
+
+<details><summary>span: `collect`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `count` | `string` |  |
+
+</details>
+
 ## target: `amaru::ledger::transaction`
 
 | name | level | public | description | required fields | optional fields |

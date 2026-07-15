@@ -20,11 +20,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, Nullable, ProposalId,
+    AsHash, ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, Nullable, ProposalId,
     ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus,
-    display_protocol_parameters_update, expect_stake_credential,
+    display_protocol_parameters_update, expect_stake_credential, utils::string::display_collection,
 };
-use tracing::debug;
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 use super::{
@@ -32,7 +31,7 @@ use super::{
     proposals_roots::ProposalsRootsRc,
     proposals_tree::{ProposalsTree, Sibling},
 };
-use crate::summary::into_safe_ratio;
+use crate::{debug, info, summary::into_safe_ratio};
 
 #[derive(Debug, Clone)]
 pub struct ProposalsForest {
@@ -290,6 +289,13 @@ impl ProposalsForest {
             }
         }?;
 
+        if self.is_interrupted {
+            info!(
+                "ratification.skip",
+                reason = "high-impact proposal was enacted; skipping ratification of other proposals for this epoch",
+            );
+        }
+
         let mut pruned: BTreeMap<Rc<ComparableProposalId>, RatificationStatus> =
             pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
 
@@ -380,7 +386,6 @@ impl ProposalsForestCompass {
         //   or nice polls; but as soon as one of the other is encountered; EVERYTHING (including
         //   treasury withdrawals and parameters changes) is postponed until the next epoch.
         if forest.is_interrupted {
-            debug!("high-impact proposal was enacted; pausing ratification for this epoch");
             return None;
         }
 
@@ -423,12 +428,11 @@ impl ProposalsForestCompass {
         // skip it.
         if proposed_in > &forest.current_epoch {
             debug!(
-                name: "proposals_forest::step::skip",
+                "proposal.skip",
                 id = %id,
                 %proposed_in,
                 ratifying_epoch = %forest.current_epoch,
                 reason = "too fresh; ratification will begin next epoch",
-                "proposals_forest::step::skip"
             );
             return None;
         }
@@ -442,7 +446,13 @@ impl ProposalsForestCompass {
         if let Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
             let total_withdrawn = withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n));
             if total_withdrawn > forest.treasury() {
-                debug!(id = %id, reason = "impossible withdrawal; treasury is depleted", "skipping proposal");
+                debug!(
+                    "proposal.skip",
+                    id = %id,
+                    withdrawal = total_withdrawn,
+                    treasury = forest.treasury(),
+                    reason = "impossible withdrawal; treasury is depleted",
+                );
                 return None;
             }
         }
@@ -456,7 +466,14 @@ impl ProposalsForestCompass {
             let max_term_length = protocol_parameters.max_committee_term_length;
             let is_now_invalid = |valid_until| valid_until > &(forest.current_epoch + max_term_length);
             if added.values().any(is_now_invalid) {
-                debug!(id = %id, reason = "new committee has invalid members; term length beyond limit", "skipping proposal");
+                let invalid_members =
+                    added.iter().filter(|(_, v)| is_now_invalid(v)).map(|(k, _)| k.as_hash()).collect::<Vec<_>>();
+                debug!(
+                    "proposal.skip",
+                    id = %id,
+                    invalid_members = display_collection(invalid_members),
+                    reason = "proposed committee has invalid members; their term length (now) beyond limit"
+                );
                 return None;
             }
         }
@@ -475,7 +492,7 @@ impl ProposalsForestCompass {
         if forest.matching_root(proposal) {
             Some((id, (proposal, pointer)))
         } else {
-            debug!(id = %id, reason = "non-matching root", "skipping proposal");
+            debug!("proposal.skip", id = %id, reason = "non-matching root; proposal will be pruned later");
             None
         }
     }
