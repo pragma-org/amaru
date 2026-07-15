@@ -28,8 +28,8 @@ use amaru_kernel::{
     cbor::{self, lazy::LazyDecoder},
     new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
+use amaru_observability::{info, warn};
 use amaru_progress_bar::ProgressBar;
-use tracing::{info, warn};
 
 use crate::{
     epoch_transition::GovernanceActivity,
@@ -162,7 +162,7 @@ pub fn import_initial_snapshot(
         // Dormant Epoch
         let dormant_epoch: Epoch = d.decode()?;
         let governance_activity = GovernanceActivity { consecutive_dormant_epochs: u64::from(dormant_epoch) as u32 };
-        info!(dormant_epochs = governance_activity.consecutive_dormant_epochs, "governance activity");
+        info!(target: "amaru::bootstrap", dormant_epochs = governance_activity.consecutive_dormant_epochs, "governance activity");
         Ok(governance_activity)
     })?;
 
