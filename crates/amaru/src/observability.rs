@@ -297,8 +297,6 @@ pub fn setup_open_telemetry(
     // OTEL_RESOURCE_ATTRIBUTES. This is used only to guard our *fallback* values;
     // the dedicated OTEL_SERVICE_NAME / OTEL_SERVICE_INSTANCE_ID env vars always
     // take priority and are never suppressed by OTEL_RESOURCE_ATTRIBUTES.
-    let default_resource = Resource::builder().build();
-    let resource_has = |key| default_resource.get(&opentelemetry::Key::from_static_str(key)).is_some();
     let explicit_service_name = var("OTEL_SERVICE_NAME").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
     let service_name = explicit_service_name.clone().unwrap_or_else(|| DEFAULT_OTLP_SERVICE_NAME.to_string());
 
@@ -312,12 +310,8 @@ pub fn setup_open_telemetry(
     });
 
     let mut attributes = Vec::new();
-    if explicit_service_name.is_some() || !resource_has(SERVICE_NAME) {
-        attributes.push(KeyValue::new(SERVICE_NAME, service_name.clone()));
-    }
-    if let Some(instance_id) = service_instance_id
-        && (explicit_service_instance_id.is_some() || !resource_has(SERVICE_INSTANCE_ID))
-    {
+    attributes.push(KeyValue::new(SERVICE_NAME, service_name.clone()));
+    if let Some(instance_id) = service_instance_id {
         attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, instance_id));
     }
     let resource = Resource::builder().with_attributes(attributes).build();
