@@ -442,7 +442,7 @@ fn import_dreps(
         }
     })?;
 
-    info!("dreps.imports", size = dreps.len());
+    info!("dreps.import", size = dreps.len());
 
     transaction.save(
         era_history,
