@@ -35,7 +35,14 @@ Other guiding principles:
   ```
 -->
 
-## v10.11.20260716 _[unreleased; planned for 2026-07-16]_
+
+## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
+
+### Fixed
+
+- **amaru-consensus**: gracefully handle header validation deferral due to missing stake distribution, clock skew, or exceeding lead over block application; also switch back to block height for the latter. ([#1041][])
+
+## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
 ### Added
 
@@ -54,7 +61,6 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
-- **amaru-consensus**: gracefully handle header validation deferral due to missing stake distribution, clock skew, or exceeding lead over block application; also switch back to block height for the latter. ([#1041][])
 - **amaru-ledger**: reduce rationale number before serializing them to JSON in epoch summary. ([#1024][])
 - **amaru-ledger**: store the stake pool deposit for refunds instead of defaulting protocol parameters. ([#1031][])
 - **amaru-ledger**: do not overwrite already counted pool deposit refunds with newer refund from same credential. ([#1026][])
