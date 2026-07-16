@@ -1,2 +1,2 @@
-[{"name":"context.add_fees","fee":"297494","level":"TRACE","type":"span","amaru":{"tag":{"cpu":true}}}
+[{"name":"add_fees","fee":297494,"level":"INFO","type":"span"}
 ]

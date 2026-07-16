@@ -136,7 +136,7 @@ impl PoolsSlice for DefaultValidationContext {
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace) {
         let pool_id = params.id;
         let _span = trace_span!(
-            ledger::validation::CERTIFICATE_POOL_REGISTRATION,
+            ledger::transaction::CERTIFICATE_POOL_REGISTRATION,
             pool_id = %pool_id
         );
         let _guard = _span.enter();
@@ -145,7 +145,7 @@ impl PoolsSlice for DefaultValidationContext {
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) {
         let _span = trace_span!(
-            ledger::validation::CERTIFICATE_POOL_RETIREMENT,
+            ledger::transaction::CERTIFICATE_POOL_RETIREMENT,
             pool_id = %pool,
             epoch = u64::from(epoch)
         );
@@ -199,7 +199,7 @@ impl AccountsSlice for DefaultValidationContext {
         state: AccountState,
     ) -> Result<(), RegisterError<AccountState, StakeCredential>> {
         let _span =
-            trace_span!(ledger::validation::CERTIFICATE_STAKE_REGISTRATION, credential = format!("{credential:?}"));
+            trace_span!(ledger::transaction::CERTIFICATE_STAKE_REGISTRATION, credential = format!("{credential:?}"));
         let _guard = _span.enter();
         if AccountsSlice::lookup(self, &credential).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, credential));
@@ -215,7 +215,7 @@ impl AccountsSlice for DefaultValidationContext {
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
         let _span = trace_span!(
-            ledger::validation::CERTIFICATE_STAKE_DELEGATION,
+            ledger::transaction::CERTIFICATE_STAKE_DELEGATION,
             credential = format!("{credential:?}"),
             pool_id = %pool
         );
@@ -239,7 +239,7 @@ impl AccountsSlice for DefaultValidationContext {
             DRep::Abstain | DRep::NoConfidence => None,
         };
         let _span =
-            trace_span!(ledger::validation::CERTIFICATE_VOTE_DELEGATION, credential = format!("{credential:?}"));
+            trace_span!(ledger::transaction::CERTIFICATE_VOTE_DELEGATION, credential = format!("{credential:?}"));
         if let Some(d) = &drep_stake_credential {
             _span.record("drep", format!("{d:?}"));
         }
@@ -255,7 +255,7 @@ impl AccountsSlice for DefaultValidationContext {
 
     fn unregister(&mut self, credential: StakeCredential) {
         let _span =
-            trace_span!(ledger::validation::CERTIFICATE_STAKE_DEREGISTRATION, credential = format!("{credential:?}"));
+            trace_span!(ledger::transaction::CERTIFICATE_STAKE_DEREGISTRATION, credential = format!("{credential:?}"));
         let _guard = _span.enter();
         self.state.accounts.unregister(credential)
     }
@@ -285,7 +285,7 @@ impl DRepsSlice for DefaultValidationContext {
         anchor: Option<Anchor>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
         let _span = trace_span!(
-            ledger::validation::CERTIFICATE_DREP_REGISTRATION,
+            ledger::transaction::CERTIFICATE_DREP_REGISTRATION,
             drep = format!("{drep:?}"),
             deposit = registration.deposit
         );
@@ -301,7 +301,7 @@ impl DRepsSlice for DefaultValidationContext {
     }
 
     fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
-        let _span = trace_span!(ledger::validation::CERTIFICATE_DREP_UPDATE, drep = format!("{drep:?}"));
+        let _span = trace_span!(ledger::transaction::CERTIFICATE_DREP_UPDATE, drep = format!("{drep:?}"));
         if let Some(a) = &anchor {
             _span.record("anchor_url", &a.url);
         }
@@ -312,7 +312,7 @@ impl DRepsSlice for DefaultValidationContext {
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer) {
         let _span =
-            trace_span!(ledger::validation::CERTIFICATE_DREP_RETIREMENT, drep = format!("{drep:?}"), refund = refund);
+            trace_span!(ledger::transaction::CERTIFICATE_DREP_RETIREMENT, drep = format!("{drep:?}"), refund = refund);
         let _guard = _span.enter();
         self.state.dreps_deregistrations.insert(drep.clone(), pointer);
         self.state.dreps.unregister(drep)
@@ -343,7 +343,7 @@ impl CommitteeSlice for DefaultValidationContext {
         delegate: StakeCredential,
     ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
         let _span = trace_span!(
-            ledger::validation::CERTIFICATE_COMMITTEE_DELEGATE,
+            ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE,
             cc_member = format!("{cc_member:?}"),
             delegate = format!("{delegate:?}")
         );
@@ -360,7 +360,8 @@ impl CommitteeSlice for DefaultValidationContext {
         cc_member: StakeCredential,
         anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
-        let _span = trace_span!(ledger::validation::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));
+        let _span =
+            trace_span!(ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));
         if let Some(a) = &anchor {
             _span.record("anchor_url", &a.url);
         }

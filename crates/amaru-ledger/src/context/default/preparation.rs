@@ -174,7 +174,7 @@ fn resolve_inputs<'a>(
     policy: UnresolvedInputPolicy,
     mut keys: impl Iterator<Item = &'a TransactionInput>,
 ) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, ContextHydratationError> {
-    trace_span!(ledger::inputs::HYDRATE).in_scope(|| {
+    trace_span!(ledger::validation_context::inputs::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -223,7 +223,7 @@ fn resolve_pools(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
 ) -> Result<BTreeSet<PoolId>, ContextHydratationError> {
-    trace_span!(ledger::pools::HYDRATE).in_scope(|| {
+    trace_span!(ledger::validation_context::pools::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -264,7 +264,7 @@ fn resolve_accounts(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydratationError> {
-    trace_span!(ledger::accounts::HYDRATE).in_scope(|| {
+    trace_span!(ledger::validation_context::accounts::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -339,7 +339,7 @@ fn resolve_dreps(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydratationError> {
-    trace_span!(ledger::dreps::HYDRATE).in_scope(|| {
+    trace_span!(ledger::validation_context::dreps::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -395,7 +395,7 @@ fn resolve_committee<'a>(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = &'a StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
-    trace_span!(ledger::committee::HYDRATE).in_scope(|| {
+    trace_span!(ledger::validation_context::committee::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
@@ -463,7 +463,7 @@ pub fn resolve_proposals(
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ComparableProposalId>,
 ) -> Result<BTreeSet<ComparableProposalId>, ContextHydratationError> {
-    trace_span!(ledger::proposals::HYDRATE).in_scope(|| {
+    trace_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 

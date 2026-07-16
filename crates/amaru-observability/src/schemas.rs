@@ -154,191 +154,40 @@ define_schemas! {
         }
         ledger {
             tags: cpu
+            state {
+                /// Roll forward with a new block
+                public ROLL_FORWARD {}
+                /// Roll backward to a specific point
+                public ROLL_BACKWARD {
+                    required rollback_point: String
+                }
+                /// Forward ledger state with new volatile state
+                public PUSH {}
+            }
+            stake_distribution {
+                /// Compute stake distribution for epoch
+                public COMPUTE {
+                    required epoch: u64
+                }
+            }
+            rewards {
+                /// Compute rewards for epoch
+                public COMPUTE {
+                    required for_epoch: u64
+                    optional using_stake_distribution_epoch_from: u64
+                }
+            }
             block {
                 /// Apply a block to stable state
                 public APPLY {
                     required point_slot: u64
                 }
-                /// Create validation context for a block
-                public CREATE_VALIDATION_CONTEXT {
-                    required block_body_hash: amaru_kernel::HeaderHash
-                    required block_number: u64
-                    required block_body_size: u64
-                    optional total_inputs: u64
-                }
                 /// Prepare block for validation
                 public PREPARE {}
-
                 /// Validate block against rules
                 public VALIDATE {}
             }
             transaction {
-                /// Create validation context for a transaction
-                public CREATE_VALIDATION_CONTEXT {
-                    required transaction_id: amaru_kernel::TransactionId
-                }
-            }
-            inputs {
-                /// Resolve transaction inputs from the volatile db or the stable one
-                public HYDRATE {
-                    optional from_volatile: u64
-                    optional from_db: u64
-                }
-            }
-            pools {
-                /// Resolve pools from the volatile db or the stable one
-                public HYDRATE {
-                    optional from_volatile: u64
-                    optional from_db: u64
-                }
-            }
-            accounts {
-                /// Resolve accounts from the volatile db or the stable one
-                public HYDRATE {
-                    optional from_volatile: u64
-                    optional from_db: u64
-                }
-            }
-            dreps {
-                /// Resolve dreps from the volatile db or the stable one
-                public HYDRATE {
-                    optional from_volatile: u64
-                    optional from_db: u64
-                }
-            }
-            committee {
-                /// Resolve committee members from the volatile db or the stable one
-                public HYDRATE {
-                    optional from_volatile: u64
-                    optional from_db: u64
-                }
-            }
-            proposals {
-                /// Resolve proposals from the volatile db or the stable one
-                public HYDRATE {
-                    optional from_volatile: u64
-                    optional from_db: u64
-                }
-            }
-            relays {
-                /// Fetch candidate relays from the immutable store
-                public COLLECT {
-                    optional count: String
-                }
-            }
-            epoch {
-                /// Compute stake distribution for epoch
-                public COMPUTE_STAKE_DISTRIBUTION {
-                    required epoch: u64
-                }
-                /// Compute rewards for epoch
-                public COMPUTE_REWARDS {
-                    required for_epoch: u64
-                    optional using_stake_distribution_epoch_from: u64
-                }
-            }
-            epoch_transition {
-                /// Epoch transition processing
-                public EPOCH_TRANSITION {
-                    required from: u64
-                    required into: u64
-                    optional skipped: bool
-                    optional resuming_from: String
-                }
-                /// Perform end-of-epoch epoch boundary computations
-                public END_EPOCH {}
-                /// Perform start-of-epoch epoch boundary computations
-                public BEGIN_EPOCH {}
-                /// Flushing the epoch transition overlay to disk
-                public APPLYING_OVERLAY {
-                    /// Epoch for which this overlay is being flush; This is the *currently active*
-                    /// epoch.
-                    required epoch: u64
-                    /// Whether to end the epoch; in case Amaru is restarting mid-update.
-                    optional should_end_epoch: bool,
-                    /// Whether to take an on-disk snapshot; in case Amaru is restarting mid-update.
-                    optional should_snapshot: bool,
-                    /// Whether to begin the epoch; in case Amaru is restarting mid-update.
-                    optional should_begin_epoch: bool,
-                }
-                /// Create pools updates
-                public NEW_POOLS_UPDATES {}
-                /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
-                public NEW_GOVERNANCE_UPDATES {
-                    /// Total number of proposals in scope. This also includes proposals that have
-                    /// *just* been submitted.
-                    required proposals_count: u64
-                }
-                /// Reset fees to zero
-                public RESET_FEES {}
-                /// Reset blocks count to zero
-                public RESET_BLOCKS_COUNT {}
-                /// Pay rewards to all accounts before the epoch end
-                public PAY_REWARDS {
-                    /// Total number of accounts that received non-zero rewards
-                    optional accounts_paid: u64
-                    /// Total rewards effectively paid to ALL accounts; does not include unassignable rewards
-                    optional rewards_paid: u64
-                    /// Treasury increase; corresponding to both the treasury tax and the unpaid rewards
-                    optional treasury_delta: u64
-                    /// Reserves depletion from incentives; always negative.
-                    optional reserves_delta: i64
-                }
-                /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
-                /// distribution calculations.
-                public RECORD_PRUNED_PROPOSALS {}
-                /// Pay withdrawals to accounts, or refund deposits
-                public PAY_OR_REFUND_ACCOUNTS {
-                    /// Total quantity of ADA paid, excluding treasury leftovers
-                    optional total_paid_or_refunded: u64
-                    /// Total amounts that couldn't be paid to accounts, going back to treasury instead.
-                    optional treasury_leftovers: u64
-                }
-                /// Updating pools metadata or retiring pools at an epoch boundary.
-                public UPDATE_OR_RETIRE_POOLS {
-                    /// Total number of pools updating metadata
-                    required pools_updated: u64
-                    /// Total number of pools retired
-                    required pools_retired: u64
-                }
-                /// Enact all governance updates and flush their outcome to disk
-                public APPLY_GOVERNANCE_UPDATES {}
-                /// Add or remove CC members; or switch to a no-confidence state
-                public UPDATE_CONSTITUTIONAL_COMMITTEE {
-                    /// Whether or not updates switches the committee to a "no-confidence" state
-                    required no_confidence: bool
-                }
-            }
-            context {
-                /// Add transaction fees to pots
-                public ADD_FEES {
-                    required fee: amaru_kernel::Lovelace
-                }
-                /// Withdraw from stake credential
-                public WITHDRAW_FROM {
-                    required credential_type: amaru_kernel::StakeCredentialKind
-                    required credential_hash: amaru_kernel::Hash<28>
-                }
-                /// Record a governance vote
-                public VOTE {
-                    required voter_type: amaru_kernel::VoterKind
-                    required credential_type: amaru_kernel::StakeCredentialKind
-                    required credential_hash: amaru_kernel::Hash<28>
-                }
-                /// Require a verification key witness
-                public REQUIRE_VKEY_WITNESS {
-                    required hash: String
-                }
-                /// Require a script witness
-                public REQUIRE_SCRIPT_WITNESS {
-                    required hash: String
-                }
-                /// Require a bootstrap witness
-                public REQUIRE_BOOTSTRAP_WITNESS {
-                    required bootstrap_witness_hash: String
-                }
-            }
-            validation {
                 /// Register a stake credential
                 public CERTIFICATE_STAKE_REGISTRATION {
                     required credential: String
@@ -393,6 +242,104 @@ define_schemas! {
                     optional anchor_url: String
                 }
             }
+            block_validation_context {
+                /// Create validation context for a block
+                public CREATE {
+                    required block_body_hash: amaru_kernel::HeaderHash
+                    required block_number: u64
+                    required block_body_size: u64
+                    optional total_inputs: u64
+                }
+            }
+            transaction_validation_context {
+                /// Create validation context for a transaction
+                public CREATE {
+                    required transaction_id: amaru_kernel::TransactionId
+                }
+            }
+            validation_context {
+                inputs {
+                    /// Resolve transaction inputs from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
+                pools {
+                    /// Resolve pools from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
+                accounts {
+                    /// Resolve accounts from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
+                dreps {
+                    /// Resolve dreps from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
+                committee {
+                    /// Resolve committee members from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
+                proposals {
+                    /// Resolve proposals from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
+            }
+            relays {
+                /// Fetch candidate relays from the immutable store
+                public COLLECT {
+                    optional count: String
+                }
+            }
+            epoch_transition {
+                /// Epoch transition processing
+                public COMPUTE {
+                    required from: u64
+                    required into: u64
+                    optional skipped: bool
+                    optional resuming_from: String
+                }
+                /// Perform end-of-epoch epoch boundary computations
+                public END_EPOCH {}
+                /// Perform start-of-epoch epoch boundary computations
+                public BEGIN_EPOCH {}
+                /// Create pools updates
+                public NEW_POOLS_UPDATES {}
+                /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
+                public NEW_GOVERNANCE_UPDATES {
+                    /// Total number of proposals in scope. This also includes proposals that have
+                    /// *just* been submitted.
+                    required proposals_count: u64
+                }
+                /// Flushing the epoch transition overlay to disk
+                public APPLY {
+                    /// Epoch for which this overlay is being flush; This is the *currently active*
+                    /// epoch.
+                    required epoch: u64
+                    /// Whether to end the epoch; in case Amaru is restarting mid-update.
+                    optional should_end_epoch: bool,
+                    /// Whether to take an on-disk snapshot; in case Amaru is restarting mid-update.
+                    optional should_snapshot: bool,
+                    /// Whether to begin the epoch; in case Amaru is restarting mid-update.
+                    optional should_begin_epoch: bool,
+                }
+            }
             governance {
                 /// Create ratification context
                 public NEW_RATIFICATION_CONTEXT {
@@ -429,16 +376,6 @@ define_schemas! {
                     optional pruned_relatives: String
                 }
             }
-            ledger_state {
-                /// Roll forward with a new block
-                public ROLL_FORWARD {}
-                /// Forward ledger state with new volatile state
-                public PUSH {}
-                /// Roll backward to a specific point
-                public ROLL_BACKWARD {
-                    required rollback_point: String
-                }
-            }
             volatile {
                 /// Recompute the volatile aggregate
                 public AGGREGATE {}
@@ -446,228 +383,155 @@ define_schemas! {
         }
         stores {
             tags: db
+            batch {
+                /// Commit a write batch
+                public COMMIT {}
+                /// Rollback a write batch
+                public ROLLBACK {}
+            }
             ledger {
                 epoch {
                     /// Create ledger snapshot for epoch
                     public CREATE_SNAPSHOT {
                         required epoch: u64
-                        required db_system_name: String
-                        required db_operation_name: String
                     }
                     /// Prune old snapshots
                     public PRUNE_OLD_SNAPSHOTS {
                         required functional_minimum: u64
                         required desired_minimum: u64
-                        required db_system_name: String
-                        required db_operation_name: String
                     }
                     /// Epoch transition tracking
                     public TRY_TRANSITION {
                         required from: String
                         required to: String
-                        required db_system_name: String
-                        required db_operation_name: String
                     }
                 }
-                columns {
+                overlay {
+                    /// Reset fees to zero
+                    public RESET_FEES {}
+                    /// Reset blocks count to zero
+                    public RESET_BLOCKS_COUNT {}
+                    /// Pay rewards to all accounts before the epoch end
+                    public PAY_REWARDS {
+                        /// Total number of accounts that received non-zero rewards
+                        optional accounts_paid: u64
+                        /// Total rewards effectively paid to ALL accounts; does not include unassignable rewards
+                        optional rewards_paid: u64
+                        /// Treasury increase; corresponding to both the treasury tax and the unpaid rewards
+                        optional treasury_delta: u64
+                        /// Reserves depletion from incentives; always negative.
+                        optional reserves_delta: i64
+                    }
+                    /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
+                    /// distribution calculations.
+                    public RECORD_PRUNED_PROPOSALS {}
+                    /// Pay withdrawals to accounts, or refund deposits
+                    public PAY_OR_REFUND_ACCOUNTS {
+                        /// Total quantity of ADA paid, excluding treasury leftovers
+                        optional total_paid_or_refunded: u64
+                        /// Total amounts that couldn't be paid to accounts, going back to treasury instead.
+                        optional treasury_leftovers: u64
+                    }
+                    /// Updating pools metadata or retiring pools at an epoch boundary.
+                    public UPDATE_OR_RETIRE_POOLS {
+                        /// Total number of pools updating metadata
+                        required pools_updated: u64
+                        /// Total number of pools retired
+                        required pools_retired: u64
+                    }
+                    /// Enact all governance updates and flush their outcome to disk
+                    public APPLY_GOVERNANCE_UPDATES {}
+                    /// Add or remove CC members; or switch to a no-confidence state
+                    public UPDATE_CONSTITUTIONAL_COMMITTEE {
+                        /// Whether or not updates switches the committee to a "no-confidence" state
+                        required no_confidence: bool
+                    }
+                }
+                utxo {
                     /// Point-read a UTxO entry
-                    public UTXO_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
+                    public GET {}
                     /// Batch-insert UTxO entries
-                    public UTXO_ADD {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
+                    public ADD {}
                     /// Batch-delete UTxO entries
-                    public UTXO_REMOVE {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Point-read a pool entry
-                    public POOLS_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Batch-upsert pool entries
-                    public POOLS_ADD {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Schedule pool retirement
-                    public POOLS_REMOVE {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Point-read an account entry
-                    public ACCOUNTS_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Batch-upsert account entries
-                    public ACCOUNTS_ADD {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Batch-delete account entries
-                    public ACCOUNTS_REMOVE {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Update rewards balance for a single account
-                    public ACCOUNTS_SET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Reset rewards counters for many accounts
-                    public ACCOUNTS_RESET_MANY {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Point-read a DRep entry
-                    public DREPS_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Batch-upsert DRep registrations
-                    public DREPS_ADD {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Record DRep de-registration
-                    public DREPS_REMOVE {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Refresh DRep expiry after a vote
-                    public DREPS_SET_VALID_UNTIL {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Read a constitutional committee member
-                    public CC_MEMBERS_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Upsert a constitutional committee member
-                    public CC_MEMBERS_UPSERT {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Insert governance proposals
-                    public PROPOSALS_ADD {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Read governance proposals
-                    public PROPOSALS_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Remove enacted or expired proposals
-                    public PROPOSALS_REMOVE {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Inserting recently pruned proposals
-                    public RECENTLY_PRUNED_PROPOSALS_REPLACE_ALL {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Record governance votes
-                    public VOTES_ADD {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Point-read a slot/block-issuer entry
-                    public SLOTS_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Write a slot/block-issuer entry
-                    public SLOTS_PUT {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Read treasury/reserve/fees pots
-                    public POTS_GET {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Write treasury/reserve/fees pots
-                    public POTS_PUT {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                    }
-                    /// Full-table scan via IterBorrow (tick/epoch operations)
-                    public ITER_SCAN {
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
-                        optional rows_scanned: u64
-                        optional rows_written: u64
-                        optional rows_deleted: u64
-                    }
+                    public REMOVE {}
                 }
-            }
-            rocksdb {
-                point {
-                    /// Save point to RocksDB store
-                    public SAVE {
-                        required slot: u64
-                        optional epoch: u64
-                        required db_system_name: String
-                        required db_operation_name: String
-                        optional db_operation_batch_size: u64
-                    }
+                pools {
+                    /// Point-read a pool entry
+                    public GET {}
+                    /// Batch-upsert pool entries
+                    public ADD {}
+                    /// Schedule pool retirement
+                    public REMOVE {}
+                }
+                accounts {
+                    /// Point-read an account entry
+                    public GET {}
+                    /// Batch-upsert account entries
+                    public ADD {}
+                    /// Batch-delete account entries
+                    public REMOVE {}
+                    /// Update rewards balance for a single account
+                    public SET {}
+                    /// Reset rewards counters for many accounts
+                    public RESET_MANY {}
+                }
+                dreps {
+                    /// Point-read a DRep entry
+                    public GET {}
+                    /// Batch-upsert DRep registrations
+                    public ADD {}
+                    /// Record DRep de-registration
+                    public REMOVE {}
+                    /// Refresh DRep expiry after a vote
+                    public SET_VALID_UNTIL {}
+                }
+                cc_members {
+                    /// Read a constitutional committee member
+                    public GET {}
+                    /// Upsert a constitutional committee member
+                    public UPSERT {}
+                }
+                proposals {
+                    /// Insert governance proposals
+                    public ADD {}
+                    /// Read governance proposals
+                    public GET { }
+                    /// Remove enacted or expired proposals
+                    public REMOVE {}
+                }
+                recently_pruned_proposals {
+                    /// Inserting recently pruned proposals
+                    public REPLACE_ALL {}
+                }
+                votes {
+                    /// Record governance votes
+                    public ADD {}
+                }
+                slots {
+                    /// Point-read a slot/block-issuer entry
+                    public GET {}
+                    /// Write a slot/block-issuer entry
+                    public PUT {}
+                }
+                pots {
+                    /// Read treasury/reserve/fees pots
+                    public GET {}
+                    /// Write treasury/reserve/fees pots
+                    public PUT {}
                 }
                 snapshots {
                     /// Validate sufficient snapshots exist
                     public VALIDATE {
                         optional snapshot_count: u64
                         optional continuous_ranges: u64
-                        required db_system_name: String
-                        required db_operation_name: String
                     }
                 }
-                transaction {
-                    /// Commit a write transaction
-                    public COMMIT {
-                        required db_system_name: String
-                        required db_operation_name: String
-                    }
-                    /// Rollback a write transaction
-                    public ROLLBACK {
-                        required db_system_name: String
-                        required db_operation_name: String
-                    }
+                /// Full scan for a given collection
+                public ITER_SCAN {
+                    required db_collection_name: String
+                    optional rows_scanned: u64
+                    optional rows_written: u64
+                    optional rows_deleted: u64
                 }
             }
             consensus {
@@ -675,18 +539,12 @@ define_schemas! {
                     /// Store a block header
                     public STORE {
                         required hash: amaru_kernel::HeaderHash
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
                     }
                 }
                 block {
                     /// Store a raw block
                     public STORE {
                         required hash: amaru_kernel::HeaderHash
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
                     }
                 }
                 chain {
@@ -694,17 +552,11 @@ define_schemas! {
                     public ROLL_FORWARD {
                         required hash: amaru_kernel::HeaderHash
                         required slot: u64
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
                     }
                     /// Switch the chain to a new fork
                     public SWITCH_TO_FORK {
                         required hash: amaru_kernel::HeaderHash
                         required slot: u64
-                        required db_system_name: String
-                        required db_operation_name: String
-                        required db_collection_name: String
                     }
                 }
             }

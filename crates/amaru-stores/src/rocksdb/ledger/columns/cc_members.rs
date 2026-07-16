@@ -32,13 +32,7 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    trace_span!(
-        stores::ledger::columns::CC_MEMBERS_GET,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "get".to_string(),
-        db_collection_name = "cc_member".to_string()
-    )
-    .in_scope(|| {
+    trace_span!(stores::ledger::cc_members::GET).in_scope(|| {
         let key = as_key(&PREFIX, credential);
         let bytes = db_get(&key);
         bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
@@ -47,13 +41,7 @@ pub fn get<'a>(
 
 /// Register a new CC Member.
 pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
-    trace_span!(
-        stores::ledger::columns::CC_MEMBERS_UPSERT,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "cc_member".to_string()
-    )
-    .in_scope(|| {
+    trace_span!(stores::ledger::cc_members::UPSERT).in_scope(|| {
         for (cold_credential, (hot_credential, valid_until)) in rows {
             let key = as_key(&PREFIX, &cold_credential);
 

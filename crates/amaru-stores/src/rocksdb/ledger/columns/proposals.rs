@@ -35,28 +35,16 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     id: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        stores::ledger::columns::PROPOSALS_GET,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "get".to_string(),
-        db_collection_name = "proposals".to_string()
-    );
-    let _guard = _span.enter();
-
-    let key = as_key(&PREFIX, id);
-    let bytes = db_get(&key);
-    bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
+    trace_span!(stores::ledger::proposals::GET).in_scope(|| {
+        let key = as_key(&PREFIX, id);
+        let bytes = db_get(&key);
+        bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
+    })
 }
 
 /// Register a new Proposal.
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<usize, StoreError> {
-    trace_span!(
-        stores::ledger::columns::PROPOSALS_ADD,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "proposals".to_string()
-    )
-    .in_scope(|| {
+    trace_span!(stores::ledger::proposals::ADD).in_scope(|| {
         let mut n = 0;
 
         for (key, value) in rows {
@@ -73,13 +61,7 @@ pub fn remove<'iter, DB, K>(db: &Transaction<'_, DB>, rows: impl Iterator<Item =
 where
     K: Deref<Target = ProposalId> + 'iter,
 {
-    trace_span!(
-        stores::ledger::columns::PROPOSALS_REMOVE,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "delete".to_string(),
-        db_collection_name = "proposals".to_string()
-    )
-    .in_scope(|| {
+    trace_span!(stores::ledger::proposals::REMOVE).in_scope(|| {
         for key in rows {
             db.delete(as_key(&PREFIX, key.deref())).map_err(|err| StoreError::Internal(err.into()))?;
         }

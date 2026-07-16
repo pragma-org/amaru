@@ -24,14 +24,8 @@ use crate::rocksdb::consensus::{
 
 impl WriteChainStore for RocksDBStore {
     fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
-        let _span = debug_span!(
-            stores::consensus::header::STORE,
-            hash = header.hash(),
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "put".to_string(),
-            db_collection_name = "header".to_string()
-        );
-        let _guard = _span.enter();
+        let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
+        let _guard = span.enter();
 
         let hash = header.hash();
         let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
@@ -52,14 +46,8 @@ impl WriteChainStore for RocksDBStore {
     }
 
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
-        let _span = debug_span!(
-            stores::consensus::block::STORE,
-            hash = *hash,
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "put".to_string(),
-            db_collection_name = "block".to_string()
-        );
-        let _guard = _span.enter();
+        let span = debug_span!(stores::consensus::block::STORE, hash = *hash);
+        let _guard = span.enter();
 
         self.db
             .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref())
@@ -80,15 +68,12 @@ impl WriteChainStore for RocksDBStore {
 
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {
         let last = forward_points.last().unwrap_or(fork_point);
-        let _span = debug_span!(
+        let span = debug_span!(
             stores::consensus::chain::SWITCH_TO_FORK,
             hash = last.hash(),
             slot = u64::from(last.slot_or_default()),
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "delete".to_string(),
-            db_collection_name = "chain".to_string()
         );
-        let _guard = _span.enter();
+        let _guard = span.enter();
 
         let fork_slot = u64::from(fork_point.slot_or_default()).to_be_bytes();
         let fork_key = [&CHAIN_PREFIX[..], &fork_slot[..]].concat();
@@ -138,15 +123,12 @@ impl WriteChainStore for RocksDBStore {
     }
 
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        let _span = debug_span!(
+        let span = debug_span!(
             stores::consensus::chain::ROLL_FORWARD,
             hash = point.hash(),
             slot = u64::from(point.slot_or_default()),
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "put".to_string(),
-            db_collection_name = "chain".to_string()
         );
-        let _guard = _span.enter();
+        let _guard = span.enter();
 
         self.with_batch(|batch| {
             let slot = u64::from(point.slot_or_default()).to_be_bytes();
