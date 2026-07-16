@@ -193,7 +193,7 @@ impl Instant {
         Instant { inner: *EPOCH + offset, global_epoch_offset }
     }
 
-    /// Simulation elapsed time since [`EPOCH`] (ignores [`Self::global_epoch_offset`]).
+    /// Simulation elapsed time since [`EPOCH`] (ignores `Self::global_epoch_offset`).
     ///
     /// This is what is stored as the first field of the serde wire format and what
     /// schedule / trace comparisons use for sim-relative time.
@@ -202,7 +202,7 @@ impl Instant {
     }
 
     /// Returns the duration since the configured global epoch (see
-    /// [`SimulationBuilder::with_global_epoch_offset`]).
+    /// `SimulationBuilder::with_global_epoch_offset`).
     ///
     /// This is `sim_elapsed + global_offset`, providing a useful input for `EraHistory` slot/time
     /// conversions.
